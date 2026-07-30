@@ -65,8 +65,8 @@ func TestMinPidsLimit(t *testing.T) {
 func TestEnsurePidsCapability(t *testing.T) {
 	t.Parallel()
 	okHost := HostInfo{CPUs: 4, PidMax: 4194304}       // ceiling 4096
-	tightHost := HostInfo{CPUs: 1, PidMax: 8192}        // ceiling 128
-	browserOk := HostInfo{CPUs: 2, PidMax: 4194304}     // ceiling 2048
+	tightHost := HostInfo{CPUs: 1, PidMax: 8192}       // ceiling 128
+	browserOk := HostInfo{CPUs: 2, PidMax: 4194304}    // ceiling 2048
 	browserTight := HostInfo{CPUs: 1, PidMax: 4194304} // ceiling 1024 — exact browser min
 
 	tests := []struct {

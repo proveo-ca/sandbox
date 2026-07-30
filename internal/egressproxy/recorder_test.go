@@ -66,9 +66,9 @@ func TestRecorderNeverLogsSecret(t *testing.T) {
 func TestRecorderDefaultPorts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "flows.ndjson")
 	rec, _ := NewRecorder(path)
-	rec.ModifyResponse(&http.Response{StatusCode: 204, Request: httptest.NewRequest("GET", "http://plain.example/x", nil)})
-	rec.ModifyResponse(&http.Response{StatusCode: 200, Request: httptest.NewRequest("GET", "https://h.example:8443/y", nil)})
-	rec.Close()
+	_ = rec.ModifyResponse(&http.Response{StatusCode: 204, Request: httptest.NewRequest("GET", "http://plain.example/x", nil)})
+	_ = rec.ModifyResponse(&http.Response{StatusCode: 200, Request: httptest.NewRequest("GET", "https://h.example:8443/y", nil)})
+	_ = rec.Close()
 
 	raw, _ := os.ReadFile(path)
 	var ports []string

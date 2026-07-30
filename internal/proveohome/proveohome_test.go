@@ -103,10 +103,10 @@ func TestPrepareInactive(t *testing.T) {
 func TestResumeArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		target, id   string
-		cont, list   bool
-		want         []string
-		wantErr      bool
+		target, id string
+		cont, list bool
+		want       []string
+		wantErr    bool
 	}{
 		{target: "cursor", id: "abc", want: []string{"--resume", "abc"}},
 		{target: "cursor-browser", cont: true, want: []string{"--continue"}},

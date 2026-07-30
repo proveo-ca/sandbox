@@ -73,6 +73,26 @@ func TestPathLine(t *testing.T) {
 	}
 }
 
+func TestExportLine(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		shell, want string
+	}{
+		{"bash", `export FOO="bar"`},
+		{"zsh", `export FOO="bar"`},
+		{"fish", `set -gx FOO "bar"`},
+		{"tcsh", `setenv FOO "bar"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.shell, func(t *testing.T) {
+			t.Parallel()
+			if got := known[tc.shell].ExportLine("FOO", "bar"); got != tc.want {
+				t.Errorf("%s.ExportLine = %q, want %q", tc.shell, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAlreadyConfigured(t *testing.T) {
 	t.Parallel()
 	bin := "/home/u/.local/bin"

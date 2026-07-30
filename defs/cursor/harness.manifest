@@ -4,6 +4,7 @@ description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rul
 egress: true
 dind: true
 provider: cursor
+subscription: true
 stability: candidate
 images:
   cursor: proveo/cursor:latest

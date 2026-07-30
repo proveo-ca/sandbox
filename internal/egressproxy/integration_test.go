@@ -88,7 +88,7 @@ func TestBrokerThroughProxy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("client.Do(%s): %v", rawurl, err)
 		}
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // best-effort body drain before next request
 	}
 
 	// The agent sends a sentinel to the provider and a stolen key to an exfil host.

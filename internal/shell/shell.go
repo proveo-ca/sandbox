@@ -70,6 +70,19 @@ func (s Shell) PathLine(binDir string) string {
 	}
 }
 
+// ExportLine returns a line that sets name=value in this shell's syntax
+// (placeholder-safe for secrets the user pastes themselves).
+func (s Shell) ExportLine(name, value string) string {
+	switch s.Name {
+	case "fish":
+		return `set -gx ` + name + ` "` + value + `"`
+	case "csh", "tcsh":
+		return `setenv ` + name + ` "` + value + `"`
+	default: // bash, zsh, sh, ksh
+		return `export ` + name + `="` + value + `"`
+	}
+}
+
 // Block is the full snippet appended to the rc file (marker + PATH line).
 func (s Shell) Block(binDir string) string {
 	return "\n" + Marker + "\n" + s.PathLine(binDir) + "\n"

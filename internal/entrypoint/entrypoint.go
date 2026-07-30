@@ -188,7 +188,7 @@ func BridgeGitIdentity(dir string) {
 	email := firstNonEmpty(os.Getenv("GIT_AUTHOR_EMAIL"), os.Getenv("GIT_COMMITTER_EMAIL"))
 	idx := 0
 	if n := os.Getenv("GIT_CONFIG_COUNT"); n != "" {
-		fmt.Sscanf(n, "%d", &idx)
+		_, _ = fmt.Sscanf(n, "%d", &idx)
 	}
 	if name != "" && exec.Command("git", "-C", dir, "config", "--get", "user.name").Run() != nil {
 		_ = os.Setenv(fmt.Sprintf("GIT_CONFIG_KEY_%d", idx), "user.name")

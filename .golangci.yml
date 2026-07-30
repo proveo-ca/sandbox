@@ -1,0 +1,31 @@
+# golangci-lint v2 — community standard for Go format + lint.
+# Docs: https://golangci-lint.run/docs/configuration/file/
+# Format: `mise run fmt` → golangci-lint fmt
+# Lint:  `mise run lint` → gofmt check + go vet + golangci-lint run
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  # Default set: errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  settings:
+    errcheck:
+      # CLI / test noise: status lines and best-effort Close are intentional.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*os.File).Close
+        - (io.Closer).Close
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/proveo-ca/proveo

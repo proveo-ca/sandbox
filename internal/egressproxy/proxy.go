@@ -163,7 +163,9 @@ func build(cfg Config) (*martian.Proxy, *broker.Broker, func(), error) {
 	}
 	closer := func() {
 		p.Close()
-		rec.Close()
+		if rec != nil {
+			_ = rec.Close()
+		}
 	}
 	return p, b, closer, nil
 }

@@ -32,8 +32,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/proveohome"
+	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -350,13 +350,18 @@ func doRun(p runParams) error {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
 	}
 
-	// Declared-but-missing env: prompt (the DinD-prompt-style wizard) on a TTY,
-	// else warn — a skipped var keeps today's warn-and-continue behavior. Runs
-	// before provider detection so a prompted key feeds the broker + forwarding.
+	// Declared-but-missing env: subscription harnesses warn and let the agent
+	// handle login (no ahead-of-time key prompt). Other harnesses prompt on a
+	// TTY (DinD-prompt-style wizard), else warn. Runs before provider detection
+	// so a prompted key feeds the broker + forwarding.
+	var authMissingAtStart []manifest.EnvVar
 	if missing := man.MissingEnv(lookup); len(missing) > 0 && !p.printOnly {
-		if isStdinTTY() && wizardEnabled() {
+		if man.Subscription {
+			authMissingAtStart = append([]manifest.EnvVar(nil), missing...)
+			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", man.Name)
+		} else if isStdinTTY() && wizardEnabled() {
 			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
-				os.Setenv(name, v)
+				_ = os.Setenv(name, v)
 			}
 			missing = man.MissingEnv(lookup)
 		}
@@ -513,26 +518,32 @@ func doRun(p runParams) error {
 		// runs after a successful Start (no early return in between).
 	}
 	warnMountedSecrets(wsSpec.InputDir, p.mode, lookup)
-	if !needsLifecycle(plan) {
-		if dindSidecar == nil {
+	runErr := func() error {
+		if !needsLifecycle(plan) {
+			if dindSidecar == nil {
+				return execAgent(agent)
+			}
+			// DinD is running but there's no egress topology (broker without a local
+			// model): no lifecycle teardown, but the privileged sidecar must still come
+			// down on SIGINT/SIGTERM. A single once-guarded cleanup backs both the defer
+			// and the signal handler — Cleanup is not safe to call concurrently.
+			var once sync.Once
+			cleanup := func() { once.Do(func() { dindSidecar.Cleanup(dind.ExecRunner{}) }) }
+			defer cleanup()
+			stopSig := onSignalCleanup(cleanup)
+			defer stopSig()
 			return execAgent(agent)
 		}
-		// DinD is running but there's no egress topology (broker without a local
-		// model): no lifecycle teardown, but the privileged sidecar must still come
-		// down on SIGINT/SIGTERM. A single once-guarded cleanup backs both the defer
-		// and the signal handler — Cleanup is not safe to call concurrently.
-		var once sync.Once
-		cleanup := func() { once.Do(func() { dindSidecar.Cleanup(dind.ExecRunner{}) }) }
-		defer cleanup()
-		stopSig := onSignalCleanup(cleanup)
-		defer stopSig()
-		return execAgent(agent)
+		squidProviders := detected
+		if providerName != "" {
+			squidProviders = []string{providerName}
+		}
+		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar)
+	}()
+	if len(authMissingAtStart) > 0 {
+		printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
 	}
-	squidProviders := detected
-	if providerName != "" {
-		squidProviders = []string{providerName}
-	}
-	return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar)
+	return runErr
 }
 
 // brokerProvider returns the provider to broker for this run, or "" for none:

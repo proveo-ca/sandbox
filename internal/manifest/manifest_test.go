@@ -41,6 +41,12 @@ func TestParse(t *testing.T) {
 			want: Manifest{Name: "cursor", Images: map[string]string{"cursor": "img"},
 				Env: []EnvVar{{Name: "CURSOR_API_KEY", Description: "Cursor API key", Secret: true}}, Dir: "dir"},
 		},
+		{
+			name: "subscription round-trip",
+			yaml: "name: claudecode\nsubscription: true\nimages:\n  claudecode: img\n",
+			want: Manifest{Name: "claudecode", Subscription: true,
+				Images: map[string]string{"claudecode": "img"}, Dir: "dir"},
+		},
 		{name: "env entry without a name", yaml: "name: x\nimages:\n  x: y\nenv:\n  - description: d\n", wantErr: true},
 		{name: "duplicate env entry", yaml: "name: x\nimages:\n  x: y\nenv:\n  - name: A\n  - name: A\n", wantErr: true},
 		{

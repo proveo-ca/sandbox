@@ -1,0 +1,28 @@
+# SPEC: _spec/components.puml
+# Perplexity Computer / pplx CLI — subscription search agent.
+# Docs: https://docs.perplexity.ai/docs/cli/overview
+name: perplexity
+description: Perplexity Computer (pplx CLI) — web search + snippets via subscription login
+egress: true
+provider: perplexity
+subscription: true
+stability: experimental
+images:
+  perplexity: proveo/perplexity:latest
+workspace:
+  layout: app
+  gitMode: rw
+home:
+  enabled: true
+  mounts:
+    - host: pplx/config
+      container: /proveo-home/.config/pplx
+      mode: rw
+    - host: perplexity/config
+      container: /proveo-home/.config/perplexity
+      mode: rw
+      deny: [credentials.json]
+env:
+  - name: PERPLEXITY_API_KEY
+    description: Perplexity API key — create one at console.perplexity.ai, or run `pplx auth login`
+    secret: true

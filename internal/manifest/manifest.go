@@ -68,17 +68,18 @@ type Home struct {
 
 // Manifest describes one harness definition.
 type Manifest struct {
-	Name        string            `yaml:"name"`
-	Description string            `yaml:"description"`
-	Egress      bool              `yaml:"egress"`    // sources the egress lifecycle
-	Dind        bool              `yaml:"dind"`      // image ships docker client; may get DinD sidecar
-	Provider    string            `yaml:"provider"`  // vendor-pinned broker target (firewall mode); e.g. cursor
-	Stability   string            `yaml:"stability"` // experimental | candidate | stable
-	Images      map[string]string `yaml:"images"`    // target name -> image ref
-	Workspace   Workspace         `yaml:"workspace"` // mount model
-	Home        Home              `yaml:"home"`      // durable ~/.proveo session/config mounts
-	Env         []EnvVar          `yaml:"env"`       // env vars the harness reads
-	Dir         string            `yaml:"-"`         // def directory (set by Load)
+	Name         string            `yaml:"name"`
+	Description  string            `yaml:"description"`
+	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
+	Dind         bool              `yaml:"dind"`         // image ships docker client; may get DinD sidecar
+	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
+	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
+	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
+	Images       map[string]string `yaml:"images"`       // target name -> image ref
+	Workspace    Workspace         `yaml:"workspace"`    // mount model
+	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
+	Env          []EnvVar          `yaml:"env"`          // env vars the harness reads
+	Dir          string            `yaml:"-"`            // def directory (set by Load)
 }
 
 // MissingEnv returns the declared env vars whose value is empty per getenv,

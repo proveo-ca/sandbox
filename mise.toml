@@ -3,10 +3,52 @@ node = "24"
 pnpm = "10"
 go = "1.26"
 tmux = "3.7b"
+golangci-lint = "2.12.2"
 
 [tasks.install]
 description = "Install root workspace dependencies"
 run = "pnpm install"
+
+# ── Go format / lint (golangci-lint v2) ─────────────────────
+
+[tasks.fmt]
+description = "Format Go sources (golangci-lint fmt: gofmt + goimports)"
+dir = "{{config_root}}"
+run = "golangci-lint fmt"
+
+[tasks.lint]
+description = "Go format check + go vet + golangci-lint (standard linters)"
+dir = "{{config_root}}"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+# Hard gates from ROADMAP static-analysis: gofmt -l · go vet · golangci-lint run
+unformatted="$(gofmt -l internal cmd tests 2>/dev/null || true)"
+# Also cover any other module packages (embed.go at root, etc.)
+unformatted_root="$(gofmt -l *.go 2>/dev/null || true)"
+if [[ -n "${unformatted}${unformatted_root}" ]]; then
+  printf 'gofmt needed on:\\n%s\\n%s\\n' "$unformatted" "$unformatted_root" >&2
+  printf 'Run: mise run fmt\\n' >&2
+  exit 1
+fi
+go vet ./...
+golangci-lint run
+printf '\\n✅ lint succeeded.\\n'
+"""
+
+[tasks.build-check]
+description = "Compile all Go packages (go build ./...)"
+dir = "{{config_root}}"
+run = "go build ./..."
+
+[tasks.ci]
+description = "Local CI gate: lint + go build + unit/contract tests (no Docker)"
+depends = ["lint", "build-check", "test-go"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+printf '\\n✅ ci succeeded.\\n'
+"""
 
 # ── Go CLI ──────────────────────────────────────────────────
 

@@ -38,7 +38,7 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
-	for _, name := range []string{"cursor", "opencode", "cecli", "claudecode"} {
+	for _, name := range []string{"cursor", "opencode", "cecli", "claudecode", "perplexity"} {
 		img, ok := targets[name]
 		if !ok {
 			t.Errorf("missing target %q in embedded manifests", name)
@@ -87,7 +87,7 @@ func TestRunnerHardeningBaseline(t *testing.T) {
 func TestRunShimsExecProveo(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for _, shim := range []string{"opencode", "cursor", "cecli", "claudecode"} {
+	for _, shim := range []string{"opencode", "cursor", "cecli", "claudecode", "perplexity"} {
 		path := filepath.Join(root, "defs", shim, "run.sh")
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -114,6 +114,7 @@ func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
 		"defs/opencode/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",
+		"defs/perplexity/entrypoint.sh",
 	}
 	for _, rel := range paths {
 		path := filepath.Join(root, rel)
@@ -198,6 +199,46 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 	}
 	if cursor.Provider != "cursor" {
 		t.Errorf("cursor manifest provider = %q, want cursor", cursor.Provider)
+	}
+}
+
+func TestSubscriptionHarnesses(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"claudecode": "CLAUDE_CODE_OAUTH_TOKEN",
+		"cursor":     "CURSOR_API_KEY",
+		"perplexity": "PERPLEXITY_API_KEY",
+	}
+	found := map[string]bool{}
+	for _, m := range ms {
+		if !m.Subscription {
+			continue
+		}
+		found[m.Name] = true
+		envName, ok := want[m.Name]
+		if !ok {
+			t.Errorf("unexpected subscription harness %q", m.Name)
+			continue
+		}
+		has := false
+		for _, e := range m.Env {
+			if e.Name == envName && e.Secret {
+				has = true
+				break
+			}
+		}
+		if !has {
+			t.Errorf("%s subscription harness must declare secret env %s", m.Name, envName)
+		}
+	}
+	for name := range want {
+		if !found[name] {
+			t.Errorf("missing subscription harness %q", name)
+		}
 	}
 }
 

@@ -6,7 +6,7 @@
 
 <sub>The capability picker on `tests/e2e/samples`. Record a live terminal version with `vhs _spec/assets/hero.tape`.</sub>
 
-`proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli) into an
+`proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli, Perplexity) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
 broker that keeps API keys **out of the agent**, opt-in Playwright/browser and Docker-in-Docker,
 and local-model support. No per-tool setup.
@@ -43,8 +43,9 @@ enter to continue* — then launches the agent against your repo with the guaran
 | Agent | Images | Notes |
 | --- | --- | --- |
 | **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP |
-| **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity toolchain |
-| **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress |
+| **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity toolchain; subscription auth |
+| **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
+| **Perplexity** | `perplexity` | pplx CLI (Computer); subscription auth via `pplx auth login` |
 | **cecli** | `cecli` | aider fork (Python) |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium
@@ -86,6 +87,7 @@ scrubbed before every run.
 | cursor | `~/.proveo/.cursor` | `proveo run cursor --resume <id>` / `--continue` / `--ls` |
 | claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
 | opencode | `~/.proveo/opencode/{config,share}` | `proveo run opencode --resume <session-id>` |
+| perplexity | `~/.proveo/{pplx,perplexity}/config` | shell / `pplx` args (no session resume) |
 | cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
 
 Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.
