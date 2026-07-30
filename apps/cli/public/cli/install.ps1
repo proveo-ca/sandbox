@@ -1,15 +1,15 @@
 # Product installer (Windows): download checksum-verified Go proveo into %USERPROFILE%\.proveo\bin.
 # Usage: irm https://proveo.ca/cli/install.ps1 | iex
 #    or: powershell -ExecutionPolicy Bypass -File install.ps1
+#
+# Version comes from latest.json unless $env:PROVEO_VERSION is set.
 $ErrorActionPreference = 'Stop'
 
-$Version      = if ($env:PROVEO_VERSION)   { $env:PROVEO_VERSION }   else { '0.0.1' }
 $InstallRoot  = if ($env:PROVEO_INSTALL_ROOT) { $env:PROVEO_INSTALL_ROOT } else { Join-Path $env:USERPROFILE '.proveo' }
 $BinDir       = Join-Path $InstallRoot 'bin'
 $AssetBaseUrl = if ($env:PROVEO_ASSET_BASE_URL) { $env:PROVEO_ASSET_BASE_URL } else { 'https://proveo.ca/cli' }
 
 function Get-ProveoArch {
-  # PROCESSOR_ARCHITECTURE is WOW-masked in 32-bit hosts; ARCHITEW6432 has the truth.
   $raw = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
   switch ($raw) {
     'ARM64' { 'arm64' }
@@ -26,6 +26,16 @@ function Get-ExpectedSum([string]$ChecksumsFile, [string]$AssetName) {
   throw "no checksum entry for $AssetName in checksums.txt"
 }
 
+function Get-ChannelVersion([string]$LatestFile) {
+  if ($env:PROVEO_VERSION) { return $env:PROVEO_VERSION.TrimStart('v') }
+  if (-not (Test-Path $LatestFile)) { return 'unknown' }
+  try {
+    $j = Get-Content $LatestFile -Raw | ConvertFrom-Json
+    if ($j.version) { return ([string]$j.version).TrimStart('v') }
+  } catch {}
+  return 'unknown'
+}
+
 $arch      = Get-ProveoArch
 $assetName = "proveo-windows-$arch.exe"
 $tmp       = Join-Path ([System.IO.Path]::GetTempPath()) ("proveo-" + [System.Guid]::NewGuid().ToString('N'))
@@ -33,7 +43,15 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 
 try {
-  Write-Host "Downloading $assetName..."
+  $latest = Join-Path $tmp 'latest.json'
+  try {
+    Invoke-WebRequest -Uri "$AssetBaseUrl/latest.json" -OutFile $latest -UseBasicParsing
+  } catch {
+    Write-Host "latest.json not available — falling back to checksums.txt only"
+  }
+  $Version = Get-ChannelVersion $latest
+
+  Write-Host "Downloading $assetName (v$Version)..."
   $checksums = Join-Path $tmp 'checksums.txt'
   $binary    = Join-Path $tmp $assetName
   Invoke-WebRequest -Uri "$AssetBaseUrl/checksums.txt"      -OutFile $checksums -UseBasicParsing
@@ -51,13 +69,12 @@ finally {
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Add to the user PATH (persisted) if missing.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not ($userPath -split ';' | Where-Object { $_ -eq $BinDir })) {
   [Environment]::SetEnvironmentVariable('Path', "$BinDir;$userPath", 'User')
   Write-Host "Added $BinDir to your user PATH."
 }
-$env:Path = "$BinDir;$env:Path"  # current session
+$env:Path = "$BinDir;$env:Path"
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Write-Host ""
@@ -71,5 +88,6 @@ Write-Host "  $BinDir\proveo.exe"
 Write-Host ""
 Write-Host "Open a new terminal, then try:"
 Write-Host "  proveo version"
-Write-Host "  proveo list"
-Write-Host "  proveo init"
+Write-Host "  proveo update --check"
+Write-Host "  proveo ls"
+Write-Host "  proveo uninstall"

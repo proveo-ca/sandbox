@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Product installer: download checksum-verified Go proveo into ~/.proveo/bin.
 # Usage: curl -fsSL https://proveo.ca/cli/install.sh | bash
+#
+# Version comes from latest.json on the CDN unless PROVEO_VERSION is set
+# (must match the published channel — the CDN publishes the current latest only).
 set -euo pipefail
 
-PROVEO_VERSION="${PROVEO_VERSION:-0.0.1}"
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
 ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli}"
@@ -41,7 +43,7 @@ download_file() {
 detect_platform() {
   local os arch
   case "$(uname -s)" in
-    Linux) os=linux ;;   # Ubuntu, Fedora, Debian, Arch, … all report Linux
+    Linux) os=linux ;;
     Darwin) os=darwin ;;
     FreeBSD) os=freebsd ;;
     MINGW*|MSYS*|CYGWIN*)
@@ -94,6 +96,28 @@ verify_checksum() {
     print_error "checksum mismatch for $base (expected $expected, got $actual)"
     exit 1
   fi
+}
+
+# resolve_channel_version reads latest.json (preferred) or falls back to checksums-only install.
+resolve_channel_version() {
+  local latest="$1"
+  if [[ -n "${PROVEO_VERSION:-}" ]]; then
+    printf '%s\n' "${PROVEO_VERSION#v}"
+    return 0
+  fi
+  if [[ -f "$latest" ]]; then
+    local v=""
+    if command -v jq >/dev/null 2>&1; then
+      v="$(jq -r '.version // empty' "$latest" 2>/dev/null || true)"
+    else
+      v="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$latest" | head -1)"
+    fi
+    if [[ -n "$v" && "$v" != "null" ]]; then
+      printf '%s\n' "${v#v}"
+      return 0
+    fi
+  fi
+  printf 'unknown\n'
 }
 
 shell_config_file() {
@@ -151,7 +175,6 @@ ensure_path_markers() {
 }
 
 ensure_path() {
-  # Prefer Go proveo setup when the just-installed binary works.
   if [[ -x "$BIN_DIR/proveo" ]]; then
     if PATH="$BIN_DIR:$PATH" "$BIN_DIR/proveo" setup >/dev/null 2>&1; then
       return 0
@@ -178,7 +201,7 @@ EOF
 }
 
 print_post_install_message() {
-  local shell_name
+  local shell_name version="$1"
   shell_name="$(basename "${SHELL:-sh}")"
 
   local path_cmd
@@ -197,7 +220,7 @@ print_post_install_message() {
 
   cat <<EOF
 
-proveo v$PROVEO_VERSION installed to:
+proveo v$version installed to:
   $BIN_DIR/proveo
 
 Open a new shell or run:
@@ -208,8 +231,8 @@ Or reload your current configuration:
 
 Then try:
   proveo --version
+  proveo update --check
   proveo --ls
-  proveo --init
 EOF
 }
 
@@ -223,7 +246,15 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$BIN_DIR"
 
-print_info "Downloading $ASSET_NAME..."
+print_info "Resolving release channel…"
+if download_file "$ASSET_BASE_URL/latest.json" "$TMP_DIR/latest.json" 2>/dev/null; then
+  :
+else
+  print_info "latest.json not available — falling back to checksums.txt only"
+fi
+
+PROVEO_VERSION="$(resolve_channel_version "$TMP_DIR/latest.json")"
+print_info "Downloading $ASSET_NAME (v$PROVEO_VERSION)..."
 download_file "$ASSET_BASE_URL/checksums.txt" "$TMP_DIR/checksums.txt"
 download_file "$ASSET_BASE_URL/bin/$ASSET_NAME" "$TMP_DIR/$ASSET_NAME"
 download_file "$CLI_BASE_URL/uninstall.sh" "$INSTALL_ROOT/uninstall.sh"
@@ -235,4 +266,4 @@ chmod +x "$BIN_DIR/proveo" "$INSTALL_ROOT/uninstall.sh"
 
 ensure_path
 check_docker
-print_post_install_message
+print_post_install_message "$PROVEO_VERSION"

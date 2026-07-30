@@ -17,8 +17,9 @@ Current layout:
 ```txt
 public/
   cli/
-    install.sh       # checksum-verified Go binary installer
-    uninstall.sh     # removes ~/.proveo + PATH markers
+    install.sh       # checksum-verified Go binary installer (reads latest.json)
+    uninstall.sh     # prefers `proveo uninstall`; fallback strips PATH + ~/.proveo
+    latest.json      # { version, checksums } — release channel for install/update
     checksums.txt    # SHA-256 of staged binaries (written by deploy-cli / build-cli --release)
     bin/
       proveo-linux-amd64
@@ -28,6 +29,10 @@ public/
     tests/
       run_tests.sh
 ```
+
+`proveo update` fetches `latest.json`, verifies the platform asset checksum, and
+atomically replaces the running binary. Stamp a release with a git tag / goreleaser
+(or `PROVEO_VERSION=1.2.3 mise run build-cli -- --release`) so `latest.json` is not `dev`.
 
 Publish:
 

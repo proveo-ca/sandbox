@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Stage host proveo binaries + checksums into apps/cli/public/cli for Cloudflare.
-# Prefers goreleaser dist/ archives; falls back to cross-compiling proveo only.
+# Stage host proveo binaries + checksums + latest.json into apps/cli/public/cli
+# for Cloudflare. Prefers goreleaser dist/ archives; falls back to cross-compiling.
 # SPEC: apps/cli README — Go binary install via CDN
 set -euo pipefail
 
@@ -25,12 +25,50 @@ platforms=(
 # bin_name is the on-disk binary basename inside archives / build dirs for a GOOS.
 bin_name() { [[ "$1" == windows ]] && printf 'proveo.exe\n' || printf 'proveo\n'; }
 
+# resolve_version picks the release stamp for latest.json + ldflags.
+# Prefer PROVEO_VERSION, then goreleaser artifacts.json / VERSION, then git describe, else "dev".
+resolve_version() {
+  if [[ -n "${PROVEO_VERSION:-}" ]]; then
+    printf '%s\n' "${PROVEO_VERSION#v}"
+    return 0
+  fi
+  if [[ -f "$DIST_DIR/artifacts.json" ]] && command -v jq >/dev/null 2>&1; then
+    local v
+    v="$(jq -r '[.[] | .extra.Version // empty] | map(select(. != null and . != "")) | first // empty' "$DIST_DIR/artifacts.json" 2>/dev/null || true)"
+    if [[ -n "$v" && "$v" != "null" ]]; then
+      printf '%s\n' "${v#v}"
+      return 0
+    fi
+  fi
+  if [[ -f "$DIST_DIR/VERSION" ]]; then
+    tr -d '[:space:]' <"$DIST_DIR/VERSION" | sed 's/^v//'
+    return 0
+  fi
+  if command -v git >/dev/null 2>&1; then
+    local tag
+    tag="$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || true)"
+    if [[ -n "$tag" ]]; then
+      printf '%s\n' "${tag#v}"
+      return 0
+    fi
+    tag="$(git -C "$REPO_ROOT" describe --tags --always 2>/dev/null || true)"
+    if [[ -n "$tag" ]]; then
+      printf '%s\n' "${tag#v}"
+      return 0
+    fi
+  fi
+  printf 'dev\n'
+}
+
+VERSION="$(resolve_version)"
+export PROVEO_VERSION="$VERSION"
+
 mkdir -p "$OUT_BIN"
 # Drop legacy bash consumer assets if present. ${CDN_ROOT:?} guards the recursive
 # rm so a mis-set/empty CDN_ROOT can never expand to `rm -rf /lib`.
 rm -f "$OUT_BIN/proveo" "$OUT_BIN/help.sh" "$OUT_BIN/init.sh"
 rm -rf "${CDN_ROOT:?}/lib"
-rm -f "$OUT_BIN"/proveo-* "$CDN_ROOT/checksums.txt"
+rm -f "$OUT_BIN"/proveo-* "$CDN_ROOT/checksums.txt" "$CDN_ROOT/latest.json"
 
 extract_from_dist() {
   local goos="$1" goarch="$2" dest="$3" bin="$4"
@@ -94,11 +132,11 @@ extract_from_dist() {
 
 cross_compile() {
   local goos="$1" goarch="$2" dest="$3"
-  echo "cross-compiling proveo ${goos}/${goarch}..." >&2
+  echo "cross-compiling proveo ${goos}/${goarch} (version=$VERSION)..." >&2
   (
     cd "$REPO_ROOT"
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-      go build -trimpath -ldflags='-s -w -X main.version=dev' \
+      go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
       -o "$dest" ./cmd/proveo
   )
   chmod +x "$dest"
@@ -116,10 +154,6 @@ for plat in "${platforms[@]}"; do
     used_dist=1
     echo "staged from dist: proveo-${goos}-${goarch}${ext}" >&2
   elif [[ "${PROVEO_CDN_REQUIRE_DIST:-0}" == "1" ]]; then
-    # Release/deploy must publish real goreleaser artifacts, never the dev
-    # cross-compile fallback (it stamps `main.version=dev`). Refuse — up front,
-    # before wasting cross-compiles — rather than push an unversioned binary to
-    # the CDN. Set by `deploy-cli` and `build-cli --release`.
     {
       printf 'ERROR: release staging requires a goreleaser archive for %s/%s under\n' "$goos" "$goarch"
       printf '       %s, but none was found. Build real artifacts first:\n' "$DIST_DIR"
@@ -141,7 +175,27 @@ done
   fi
 ) >"$CDN_ROOT/checksums.txt"
 
-printf 'Wrote %s and %s/checksums.txt\n' "$OUT_BIN" "$CDN_ROOT" >&2
+# latest.json — versioned channel metadata for install.sh / proveo update.
+json_escape() {
+  # Minimal JSON string escape for version/asset names (no control chars expected).
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+{
+  printf '{\n  "version": "%s",\n  "checksums": {\n' "$(json_escape "$VERSION")"
+  first=1
+  while read -r sum name; do
+    [[ -n "${sum:-}" && -n "${name:-}" ]] || continue
+    if [[ "$first" -eq 1 ]]; then
+      first=0
+    else
+      printf ',\n'
+    fi
+    printf '    "%s": "%s"' "$(json_escape "$name")" "$(json_escape "$sum")"
+  done <"$CDN_ROOT/checksums.txt"
+  printf '\n  }\n}\n'
+} >"$CDN_ROOT/latest.json"
+
+printf 'Wrote %s, %s/checksums.txt, %s/latest.json (version=%s)\n' "$OUT_BIN" "$CDN_ROOT" "$CDN_ROOT" "$VERSION" >&2
 if [[ "$used_dist" -eq 0 ]]; then
   printf 'Note: no goreleaser archives found under %s — used go build fallback.\n' "$DIST_DIR" >&2
   printf 'For release artifacts: mise run build-cli -- --release (or mise run deploy-cli, which does that first)\n' >&2

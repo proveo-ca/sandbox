@@ -87,6 +87,9 @@ func main() {
 		SilenceErrors: true,
 		Version:       version,
 		Args:          cobra.NoArgs,
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd: true, // no `proveo completion` — not a consumer surface
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if flagLS && flagInit {
 				return fmt.Errorf("flags --ls and --init are mutually exclusive")
@@ -112,7 +115,7 @@ func main() {
 		defaultHelp(cmd, args)
 	})
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
-		cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
+		updateCmd(), uninstallCmd(), cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
 		// verbatim, without the "error:" prefix (C6). Only the agent's: a failed

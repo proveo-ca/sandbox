@@ -167,10 +167,19 @@ main() {
   assert_success "install script has valid Bash syntax" bash -n "$INSTALL_SCRIPT"
   assert_success "uninstall script has valid Bash syntax" bash -n "$UNINSTALL_SCRIPT"
   assert_file_exists "CDN checksums.txt present" "$CLI_ROOT/checksums.txt"
+  assert_file_exists "CDN latest.json present" "$CLI_ROOT/latest.json"
 
   local asset
   asset="$(platform_asset)"
   assert_file_exists "platform binary staged ($asset)" "$CLI_ROOT/bin/$asset"
+
+  local channel_version="dev"
+  if command -v jq >/dev/null 2>&1; then
+    channel_version="$(jq -r '.version // "dev"' "$CLI_ROOT/latest.json")"
+  else
+    channel_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CLI_ROOT/latest.json" | head -1)"
+    [[ -n "$channel_version" ]] || channel_version="dev"
+  fi
 
   local install_home="$TEMP_ROOT/home"
   local install_root="$TEMP_ROOT/install-root"
@@ -180,7 +189,7 @@ main() {
 
   assert_output_contains \
     "install.sh installs Go proveo" \
-    "proveo v0.0.1 installed to:" \
+    "proveo v${channel_version} installed to:" \
     env \
     HOME="$install_home" \
     SHELL=/bin/bash \
@@ -211,6 +220,7 @@ main() {
   mkdir -p "$bad_cdn/bin"
   cp "$CLI_ROOT/bin/$asset" "$bad_cdn/bin/$asset"
   cp "$CLI_ROOT/uninstall.sh" "$bad_cdn/uninstall.sh"
+  cp "$CLI_ROOT/latest.json" "$bad_cdn/latest.json"
   printf '0000000000000000000000000000000000000000000000000000000000000000  %s\n' "$asset" >"$bad_cdn/checksums.txt"
   assert_failure \
     "install rejects checksum mismatch" \

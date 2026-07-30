@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
+# Sidecar uninstall for curl-pipe installs. Prefer `proveo uninstall` when the
+# binary is still available; otherwise strip PATH markers and remove the install root.
 set -euo pipefail
 
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
+
+# Prefer the Go command when this binary actually lists `uninstall`
+# (older CDN artifacts may still be on disk during upgrade windows).
+if [[ -x "$BIN_DIR/proveo" ]] && "$BIN_DIR/proveo" --help 2>/dev/null | grep -qE '^[[:space:]]+uninstall[[:space:]]'; then
+  export PROVEO_INSTALL_ROOT
+  if [[ "${PROVEO_UNINSTALL_ASSUME_YES:-}" == "1" ]] || [[ ! -t 0 ]]; then
+    exec "$BIN_DIR/proveo" uninstall --yes
+  fi
+  exec "$BIN_DIR/proveo" uninstall
+fi
+
+# Fallback: strip PATH markers and remove the install root (pre-uninstall-cmd binaries).
 
 PATH_MARKER_START="# Added by proveo install.sh"
 PATH_MARKER_END="# End added by proveo install.sh"
@@ -49,7 +63,6 @@ remove_path_block() {
   fi
 
   mv "$tmp_file" "$config_file"
-
   print_info "Removed proveo PATH entries from $config_file"
 }
 
@@ -58,7 +71,6 @@ remove_install_root() {
     print_warning "Refusing to remove unsafe install root: $INSTALL_ROOT"
     return 0
   fi
-
   rm -rf -- "$INSTALL_ROOT"
 }
 
@@ -66,13 +78,10 @@ confirm_uninstall() {
   if [[ "${PROVEO_UNINSTALL_ASSUME_YES:-}" == "1" ]]; then
     return 0
   fi
-
   printf 'This will remove proveo from %s. Continue? [y/N] ' "$INSTALL_ROOT"
   read -r answer
   case "$answer" in
-    y|Y|yes|YES)
-      return 0
-      ;;
+    y|Y|yes|YES) return 0 ;;
     *)
       print_info "Uninstall cancelled."
       exit 0
@@ -88,7 +97,6 @@ remove_path_block "$HOME/.bash_profile"
 remove_path_block "$HOME/.profile"
 remove_path_block "$HOME/.config/fish/config.fish"
 
-# Also strip markers written by `proveo setup` (Go installer path).
 remove_setup_markers() {
   local config_file="$1"
   local tmp_file status=0
