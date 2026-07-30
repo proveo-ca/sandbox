@@ -12,8 +12,9 @@ Phases are ordered by leverage, not dates: **Now → Next → Then → Later**, 
 
 - **Egress security** — broker / proxy / firewall modes, credential broker (keys never
   enter the agent), Squid allowlist + MITM DLP. All review findings resolved.
-- **Local models on the GPU** — opencode, Claude Code, cecli via an Ollama sidecar;
-  macOS routes to the host GPU, Linux gets `--gpus`. (Cursor is vendor-pinned.)
+- **Local models on the GPU** — opencode and cecli via an Ollama sidecar;
+  macOS routes to the host GPU, Linux gets `--gpus`. (Cursor is vendor-pinned;
+  Claude Code needs Anthropic API shape — sidecar is not a drop-in.)
 - **Browser variants** — `base-node-browser` + `opencode/claudecode/cursor-browser`
   (Playwright + Chromium, one shared layer).
 - **Cursor broker-default** — its vendor-pinned auth only works brokered.

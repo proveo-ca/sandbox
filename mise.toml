@@ -53,7 +53,7 @@ printf '\\n✅ ci succeeded.\\n'
 # ── Go CLI ──────────────────────────────────────────────────
 
 [tasks.build-cli]
-description = "Install Go proveo CLIs onto GOPATH/bin; pass -- --release for a goreleaser snapshot into dist/"
+description = "Install Go proveo CLIs onto GOPATH/bin; pass -- --release for goreleaser → dist/ + CDN stage"
 dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
@@ -64,8 +64,11 @@ while [[ $# -gt 0 ]]; do
     --release) release=1; shift ;;
     -h|--help)
       printf 'Usage: mise run build-cli [-- --release]\\n'
-      printf '  (default) go install → $(go env GOPATH)/bin\\n'
-      printf '  --release also runs goreleaser snapshot → dist/\\n'
+      printf '  (default) go install → $(go env GOPATH)/bin (version=dev@sha)\\n'
+      printf '  --release runs goreleaser into dist/, then stages apps/cli CDN assets:\\n'
+      printf '    • HEAD is an exact git tag (vX.Y.Z) → goreleaser release --skip=publish\\n'
+      printf '      (version from the tag; no GitHub Release — CDN is Wrangler)\\n'
+      printf '    • otherwise → goreleaser release --snapshot (dev/CI dry-run)\\n'
       exit 0
       ;;
     *)
@@ -99,8 +102,17 @@ if [[ "$release" -eq 1 ]]; then
     go install "github.com/goreleaser/goreleaser/v2@$goreleaser_version"
     export PATH="$(go env GOPATH)/bin:$PATH"
   fi
-  goreleaser release --snapshot --clean
-  printf 'Snapshot artifacts under dist/ (gitignored).\\n'
+  # Tag-exact HEAD → real semver artifacts for the Wrangler CDN (skip GitHub publish).
+  # Untagged / dirty release builds stay --snapshot for local dry-runs.
+  tag="$(git describe --tags --exact-match 2>/dev/null || true)"
+  if [[ -n "$tag" ]]; then
+    printf 'Tagged HEAD %s — goreleaser release --skip=publish (CDN-only)\\n' "$tag"
+    goreleaser release --clean --skip=publish
+  else
+    printf 'No exact git tag on HEAD — goreleaser release --snapshot\\n'
+    goreleaser release --snapshot --clean
+  fi
+  printf 'Artifacts under dist/ (gitignored).\\n'
   PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
 fi
 
@@ -168,13 +180,14 @@ description = "Show the local wrangler version"
 run = "pnpm exec wrangler --version"
 
 [tasks.deploy-cli]
-description = "Goreleaser snapshot, stage CDN binaries, then deploy apps/cli with Wrangler"
+description = "Goreleaser (tag→semver, else snapshot) → stage CDN → Wrangler deploy apps/cli"
 dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-# Always build real goreleaser artifacts first — never publish version=dev
-# cross-compiles. build-cli --release runs goreleaser + stages with REQUIRE_DIST.
+# build-cli --release: on an exact git tag uses goreleaser --skip=publish (version from
+# the tag, no GitHub Release); otherwise --snapshot. Then stages latest.json + binaries
+# into apps/cli/public/cli for Cloudflare. Wrangler only uploads that static tree.
 mise run build-cli -- --release
 pnpm exec wrangler deploy --cwd apps/cli
 """

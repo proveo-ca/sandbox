@@ -47,11 +47,11 @@ It serves two purposes:
 1. **No irreversible action without HITL** — write methods (and pushes/publishes) are denied except to the model provider; attempts are logged.
 2. **No leaks when using cloud LLM providers** — inference egress is pinned to an allowlisted provider, auto-detected from the API key present, while web reads (docs/search/scraping) stay open so agents can still gather context.
 
-A local model can be assigned with `--local-model` (an Ollama sidecar serving host models offline, `NO_PROXY`-bypassed). Each run writes a top-allowed/top-denied egress report. See `claudecode.paradigm.md` and `defs/claudecode/claudecode-egress-topology.puml` for the full topology.
+A local model can be assigned with `--local-model` (an Ollama sidecar serving host models offline, `NO_PROXY`-bypassed) for harnesses that speak OpenAI-compatible / litellm Ollama (`opencode`, `cecli`). Each run writes a top-allowed/top-denied egress report. See `claudecode.paradigm.md` and `defs/claudecode/claudecode-egress-topology.puml` for the full topology.
 
 **DinD:** harnesses with `dind: true` (images that ship a docker client) may get a sibling privileged `docker:dind` when the scope has Dockerfiles/Compose and `PROVEO_DIND=1` (or an interactive yes). Lifecycle: `internal/dind`.
 
-Cursor CLI is the exception on local models: all of its inference transits the Cursor backend (no custom base-URL escape hatch), so `--local-model` does not apply and the provider pin maps `CURSOR_API_KEY` to the `.cursor.sh`/`.cursor.com` domains instead (see `defs/cursor/cursor.paradigm.md`).
+**Local-model exceptions:** Cursor is vendor-pinned (no custom base-URL; `--local-model` does not apply; provider pin maps `CURSOR_API_KEY` to `.cursor.sh`/`.cursor.com` — see `defs/cursor/cursor.paradigm.md`). Claude Code speaks the Anthropic API shape, not Ollama's OpenAI shape, so the sidecar is not a drop-in.
 
 ## Credential Boundary
 

@@ -2,7 +2,10 @@
 # static binaries + a sha256 checksums.txt so the installer can verify what it
 # downloads — replacing the unverified `curl | bash` pipeline.
 # goreleaser check # validate this file
-# goreleaser release --snapshot --clean # local dry-run build
+# Tagged release artifacts for CDN (no GitHub publish):
+#   goreleaser release --clean --skip=publish
+# Untagged dry-run:
+#   goreleaser release --snapshot --clean
 version: 2
 project_name: proveo
 

@@ -31,14 +31,33 @@ public/
 ```
 
 `proveo update` fetches `latest.json`, verifies the platform asset checksum, and
-atomically replaces the running binary. Stamp a release with a git tag / goreleaser
-(or `PROVEO_VERSION=1.2.3 mise run build-cli -- --release`) so `latest.json` is not `dev`.
+atomically replaces the running binary.
 
-Publish:
+### Publish a version (git tag → Cloudflare CDN)
+
+Distribution is **Wrangler-only** — goreleaser builds multi-arch binaries; it does **not**
+need to publish a GitHub Release for the consumer channel.
+
+Intended workflow:
 
 ```bash
-mise run build-cli -- --release   # goreleaser into dist/ then stage
-mise run deploy-cli               # build-cli --release, then Wrangler deploy
+git tag -a v0.1.0 -m "…"
+git push origin v0.1.0          # optional but good
+mise run deploy-cli
+```
+
+On an exact tag, `deploy-cli` runs `build-cli -- --release` with
+`goreleaser release --clean --skip=publish` (version from the tag), stages
+`latest.json` + `bin/` into `apps/cli/public/cli`, then `wrangler deploy`.
+
+Untagged `mise run build-cli -- --release` still uses `goreleaser --snapshot` (dev/CI dry-run).
+Override with `PROVEO_VERSION=…` only if you must force the channel stamp.
+
+Publish pieces separately:
+
+```bash
+mise run build-cli -- --release   # goreleaser + stage CDN assets
+pnpm exec wrangler deploy --cwd apps/cli
 ```
 
 Run the CDN install test suite:

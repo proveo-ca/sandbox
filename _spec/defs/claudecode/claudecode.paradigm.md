@@ -44,7 +44,7 @@ Two proxies coexist in `firewall` mode:
 
 Docker networking enforces the path: `claudecode` only reaches mitmproxy, mitmproxy only reaches Squid, and only Squid has internet egress.
 
-A local model can be assigned with `--local-model NAME` (or `PROVEO_LOCAL_MODEL`, e.g. `gemma4`): an Ollama sidecar joins the agent network and serves the host's already-pulled models read-only and offline. The agent reaches it directly via `NO_PROXY=ollama,localhost,127.0.0.1`, so local inference works under any egress mode while every other destination stays subject to Squid policy.
+`--local-model` still starts an Ollama sidecar on the agent network (`NO_PROXY=ollama,localhost,127.0.0.1`), but Claude Code speaks the Anthropic API shape, not Ollama's OpenAI-compatible endpoint — the sidecar is not a drop-in (see [`_spec/testing.md`](../../testing.md)). Use opencode or cecli for fully local inference.
 
 The Squid layer uses deterministic reserved/private/bogon destination blocks by default, informed by FireHOL's deny-all/allow-some firewall posture and bogon/fullbogon guidance. Dynamic FireHOL blocklist-ipsets such as `firehol_level1` are optional generated ACLs because FireHOL's own IP list documentation warns that third-party threat feeds can create false positives.
 

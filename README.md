@@ -9,7 +9,7 @@
 `proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli, Perplexity) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
 broker that keeps API keys **out of the agent**, opt-in Playwright/browser and Docker-in-Docker,
-and local-model support. No per-tool setup.
+and local-model support where the harness allows it. No per-tool setup.
 
 ## Install
 
@@ -20,7 +20,20 @@ curl -fsSL https://proveo.ca/cli/install.sh | bash      # Linux · macOS · Free
 irm https://proveo.ca/cli/install.ps1 | iex             # Windows
 ```
 
-Checksum-verified static binaries (amd64 + arm64).
+Checksum-verified static binaries (amd64 + arm64). After install: `proveo version`,
+`proveo update --check`, `proveo uninstall`.
+
+### Publish a CLI release
+
+```bash
+git tag -a v0.1.0 -m "…"
+git push origin v0.1.0          # optional but good
+mise run deploy-cli
+```
+
+On an exact tag this builds multi-arch binaries (goreleaser, no GitHub Release), stages
+`latest.json` + checksums into `apps/cli/public/cli`, and deploys to Cloudflare via Wrangler.
+Details: [`apps/cli/README.md`](apps/cli/README.md).
 
 ## Quickstart — try it on the sample
 
@@ -32,7 +45,7 @@ cd tests/e2e/samples
 
 proveo run opencode                          # capability picker (Tab: browser / DinD), then boots
 proveo run cursor                            # broker egress (Cursor inference is vendor-pinned)
-proveo run claudecode --local-model gemma4   # fully local via an Ollama sidecar — no cloud key
+proveo run opencode --local-model gemma4     # fully local via an Ollama sidecar — no cloud key
 ```
 
 `proveo run` opens a **capability picker** — *press tab to add an option (browser, DinD), or
@@ -42,15 +55,22 @@ enter to continue* — then launches the agent against your repo with the guaran
 
 | Agent | Images | Notes |
 | --- | --- | --- |
-| **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP |
-| **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity toolchain; subscription auth |
+| **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
+| **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity; subscription auth (Anthropic) |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
-| **Perplexity** | `perplexity` | pplx CLI (Computer); subscription auth via `pplx auth login` |
-| **cecli** | `cecli` | aider fork (Python) |
+| **Perplexity** | `perplexity` | pplx CLI; subscription auth via `pplx auth login` |
+| **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium
-layer). Local models (`--local-model`) work for opencode, Claude Code, and cecli; Cursor is
-vendor-pinned.
+layer).
+
+**Local models** (`--local-model` / Ollama sidecar): **opencode** and **cecli** only. Cursor is
+vendor-pinned (rejected). Claude Code speaks the Anthropic API shape, not Ollama’s OpenAI-compatible
+endpoint — the sidecar is not a drop-in ([`_spec/testing.md`](_spec/testing.md)).
+
+**Subscription agents** (claudecode, cursor, perplexity): proveo warns if auth env is missing and
+lets the agent handle login; after the sandbox exits it prints shell-specific setup hints
+(`.env` or a safe host location). Prefer host env / project `.env` over in-sandbox login tokens.
 
 ## How it works
 
