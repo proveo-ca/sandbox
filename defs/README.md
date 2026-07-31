@@ -31,7 +31,6 @@ Definition-local scripts are the preferred deterministic command surface:
 No definition is considered mature yet; this project is still standardizing the contract.
 
 - Candidate coding harnesses: `cecli`, `opencode`, `claudecode`, `cursor`
-- Experimental: `perplexity` (pplx CLI / Perplexity Computer)
 - Non-harness sidecar image definitions live under `defs/sidecars/` (e.g. `mitmproxy`, `squid-proxy`)
 
 Non-harness sidecar image definitions live under `defs/sidecars/` and are not required to satisfy the coding harness contract.

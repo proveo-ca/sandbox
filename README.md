@@ -6,7 +6,7 @@
 
 <sub>The capability picker on `tests/e2e/samples`. Record a live terminal version with `vhs _spec/assets/hero.tape`.</sub>
 
-`proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli, Perplexity) into an
+`proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
 broker that keeps API keys **out of the agent**, opt-in Playwright/browser and Docker-in-Docker,
 and local-model support where the harness allows it. No per-tool setup.
@@ -58,7 +58,6 @@ enter to continue* — then launches the agent against your repo with the guaran
 | **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
 | **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity; subscription auth (Anthropic) |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
-| **Perplexity** | `perplexity` | pplx CLI; subscription auth via `pplx auth login` |
 | **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium
@@ -68,7 +67,7 @@ layer).
 vendor-pinned (rejected). Claude Code speaks the Anthropic API shape, not Ollama’s OpenAI-compatible
 endpoint — the sidecar is not a drop-in ([`_spec/testing.md`](_spec/testing.md)).
 
-**Subscription agents** (claudecode, cursor, perplexity): proveo warns if auth env is missing and
+**Subscription agents** (claudecode, cursor): proveo warns if auth env is missing and
 lets the agent handle login; after the sandbox exits it prints shell-specific setup hints
 (`.env` or a safe host location). Prefer host env / project `.env` over in-sandbox login tokens.
 
@@ -107,7 +106,6 @@ scrubbed before every run.
 | cursor | `~/.proveo/.cursor` | `proveo run cursor --resume <id>` / `--continue` / `--ls` |
 | claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
 | opencode | `~/.proveo/opencode/{config,share}` | `proveo run opencode --resume <session-id>` |
-| perplexity | `~/.proveo/{pplx,perplexity}/config` | shell / `pplx` args (no session resume) |
 | cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
 
 Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.

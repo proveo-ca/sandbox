@@ -57,8 +57,6 @@ var entries = []Entry{
 		ACL: "dstdomain .moonshot.ai", Hosts: []string{".moonshot.ai"}, Auth: bearer("MOONSHOT_API_KEY")},
 	{Name: "xai", Detect: []string{"XAI_API_KEY"},
 		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
-	{Name: "perplexity", Detect: []string{"PERPLEXITY_API_KEY"},
-		ACL: "dstdomain .perplexity.ai", Hosts: []string{".perplexity.ai"}, Auth: bearer("PERPLEXITY_API_KEY")},
 	{Name: "google", Detect: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 		ACL: "dstdomain generativelanguage.googleapis.com", Hosts: []string{"generativelanguage.googleapis.com"}, Auth: []AuthOption{
 			{EnvVar: "GEMINI_API_KEY", Header: "x-goog-api-key"},

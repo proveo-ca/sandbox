@@ -158,7 +158,7 @@ endpoint only; web READS (docs/search/scraping)
 stay open; writes to any other host are denied.
 Endpoint map: Bedrock/Azure/Vertex (tight regex),
 Together/Fireworks/GMI/OpenRouter, and native
-Anthropic/OpenAI/xAI/Perplexity/Google/Groq/Mistral/Cohere.
+Anthropic/OpenAI/xAI/Google/Groq/Mistral/Cohere.
 ""update-provider-allow.sh"" reconciles the map vs LiteLLM.
 end note
 

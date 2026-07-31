@@ -32,12 +32,6 @@ var subscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 			Login: "agent login",
 		},
 	},
-	"perplexity": {
-		"PERPLEXITY_API_KEY": {
-			HowTo: "create a Perplexity API key at console.perplexity.ai (or run `pplx auth login`)",
-			Login: "pplx auth login",
-		},
-	},
 }
 
 // printSubscriptionAuthHints prints shell-specific persistence instructions after
@@ -89,7 +83,7 @@ func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 // (e.g. claudecode-solo → claudecode).
 func harnessFamily(name string) string {
 	name = strings.TrimSpace(name)
-	for _, base := range []string{"claudecode", "cursor", "opencode", "perplexity", "cecli"} {
+	for _, base := range []string{"claudecode", "cursor", "opencode", "cecli"} {
 		if name == base || strings.HasPrefix(name, base+"-") {
 			return base
 		}

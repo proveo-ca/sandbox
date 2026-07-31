@@ -35,7 +35,7 @@ func TestPrintSubscriptionAuthHints(t *testing.T) {
 	}
 }
 
-func TestPrintSubscriptionAuthHintsCursorAndPerplexity(t *testing.T) {
+func TestPrintSubscriptionAuthHintsCursorAndVariants(t *testing.T) {
 	t.Setenv("SHELL", "/bin/bash")
 	tests := []struct {
 		harness string
@@ -43,7 +43,6 @@ func TestPrintSubscriptionAuthHintsCursorAndPerplexity(t *testing.T) {
 		want    []string
 	}{
 		{"cursor", "CURSOR_API_KEY", []string{"CURSOR_API_KEY", "agent login", "cursor.com/dashboard", "export CURSOR_API_KEY="}},
-		{"perplexity", "PERPLEXITY_API_KEY", []string{"PERPLEXITY_API_KEY", "pplx auth login", "console.perplexity.ai", "export PERPLEXITY_API_KEY="}},
 		{"claudecode-solo", "CLAUDE_CODE_OAUTH_TOKEN", []string{"CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token"}},
 	}
 	for _, tc := range tests {
@@ -81,7 +80,6 @@ func TestHarnessFamily(t *testing.T) {
 		{"claudecode-solo", "claudecode"},
 		{"claudecode-browser", "claudecode"},
 		{"cursor-browser", "cursor"},
-		{"perplexity", "perplexity"},
 		{"opencode", "opencode"},
 		{"unknown", "unknown"},
 	}
@@ -96,11 +94,11 @@ func TestFishExportInHints(t *testing.T) {
 	t.Setenv("SHELL", "/usr/bin/fish")
 	var out strings.Builder
 	printSubscriptionAuthHints(
-		manifest.Manifest{Name: "perplexity"},
-		[]manifest.EnvVar{{Name: "PERPLEXITY_API_KEY", Secret: true}},
+		manifest.Manifest{Name: "cursor"},
+		[]manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		&out,
 	)
-	if !strings.Contains(out.String(), `set -gx PERPLEXITY_API_KEY`) {
+	if !strings.Contains(out.String(), `set -gx CURSOR_API_KEY`) {
 		t.Errorf("fish hint should use set -gx; got:\n%s", out.String())
 	}
 }
