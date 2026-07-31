@@ -205,7 +205,7 @@ pnpm exec wrangler dev --cwd apps/cli
 # ── Harness images (maintainer) ─────────────────────────────
 
 [tasks.build]
-description = "Build a container harness def (Go: proveo build)"
+description = "Build a container harness def (buildx; host arch --load)"
 dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
@@ -214,6 +214,8 @@ set -euo pipefail
 # `go run` keeps it on the current repo source, never a possibly-stale installed
 # proveo; the ~1-2s compile is noise next to a docker build.
 # Forwards: [target|all] [--tag T] [--no-cache] [--print]
+# Images use defs/lib/docker-build.sh (buildx). Local builds --load the host
+# platform; PROVEO_PLATFORMS defaults to linux/amd64,linux/arm64 for deploy --push.
 exec go run ./cmd/proveo build "$@"
 """
 
@@ -227,7 +229,7 @@ exec go run ./cmd/proveo test "$@"
 """
 
 [tasks.deploy]
-description = "Deploy a container image def (Go: proveo deploy)"
+description = "Buildx --push multi-arch (amd64+arm64) container image def"
 dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash

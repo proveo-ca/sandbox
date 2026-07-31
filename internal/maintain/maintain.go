@@ -106,32 +106,33 @@ type Command struct {
 	Quiet bool
 }
 
-// BuildPlan builds the target and leaves it tagged :tag. It runs the def build.sh
-// (with the variant selector, and --no-cache when asked), which produces the
-// :latest image(s); then, for a non-latest tag, re-tags :latest → :tag; then
-// verifies the tagged image exists. For the default latest tag this is exactly
-// the legacy behavior (build :latest, verify); a tag adds one `docker tag`.
+// BuildPlan builds the target and leaves it tagged :tag locally. defs/*/build.sh
+// go through defs/lib/docker-build.sh (buildx): local builds --load the host
+// platform; multi-arch publish is DeployPlan. For a non-latest tag the script
+// receives --tag (no separate `docker tag` hop).
 func (t Target) BuildPlan(tag string, noCache bool) []Command {
 	tag = normTag(tag)
 	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
+	if tag != "latest" {
+		build = append(build, "--tag", tag)
+	}
 	if noCache {
 		build = append(build, "--no-cache")
 	}
-	cmds := []Command{{Dir: t.DefDir, Argv: build}}
-	if tag != "latest" {
-		cmds = append(cmds, Command{Argv: []string{"docker", "tag", t.Image + ":latest", t.Image + ":" + tag}})
+	return []Command{
+		{Dir: t.DefDir, Argv: build},
+		{Argv: []string{"docker", "image", "inspect", t.Image + ":" + tag}, Quiet: true},
 	}
-	cmds = append(cmds, Command{Argv: []string{"docker", "image", "inspect", t.Image + ":" + tag}, Quiet: true})
-	return cmds
 }
 
-// DeployPlan verifies the tagged image is present locally, then pushes it.
+// DeployPlan rebuilds with buildx --push for linux/amd64,linux/arm64 (see
+// defs/lib/docker-build.sh / PROVEO_PLATFORMS). A plain `docker push` of a
+// locally --load'd image cannot publish a multi-arch manifest.
 func (t Target) DeployPlan(tag string) []Command {
-	img := t.Image + ":" + normTag(tag)
-	return []Command{
-		{Argv: []string{"docker", "image", "inspect", img}, Quiet: true},
-		{Argv: []string{"docker", "push", img}},
-	}
+	tag = normTag(tag)
+	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
+	build = append(build, "--tag", tag, "--push")
+	return []Command{{Dir: t.DefDir, Argv: build}}
 }
 
 // TestPlan runs the def's test.sh. It returns nil when the def has no test.sh —

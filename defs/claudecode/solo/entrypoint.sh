@@ -42,9 +42,13 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
+# Seed CLAUDE.md when missing (input is a RW bind by default for input-output).
 if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
-  cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md
-  echo "🌱 Seeded CLAUDE.md into workspace"
+  if cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md 2>/dev/null; then
+    echo "🌱 Seeded CLAUDE.md into workspace"
+  else
+    echo "⚠️  Could not seed CLAUDE.md (workspace may be read-only); continuing" >&2
+  fi
 fi
 
 # When proveo mounts ~/.proveo at /proveo-home and sets HOME, seed Claude config

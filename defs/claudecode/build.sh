@@ -2,15 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/docker-build.sh
+source "$SCRIPT_DIR/../lib/docker-build.sh"
+
 VARIANT="all"
 TAG="latest"
 BROWSER=0
 NO_CACHE=""
+PUSH=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [--variant mcp|solo|sol|all] [--browser] [--tag <tag>] [--no-cache]
+  ./build.sh [--variant mcp|solo|sol|all] [--browser] [--tag <tag>] [--no-cache] [--push]
 
 Builds the claudecode harness images. Defaults to all variants.
 sol = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
@@ -39,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       NO_CACHE="--no-cache"
       shift
       ;;
+    --push)
+      PUSH=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -56,7 +64,7 @@ build_variant() {
   local image="$2"
   local base="${3:-proveo/base-node-lsp:latest}"
   echo "Building $image:$TAG from $variant (base $base)..."
-  docker build ${NO_CACHE:+$NO_CACHE} --build-arg BASE_IMAGE="$base" \
+  proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} --build-arg BASE_IMAGE="$base" \
     -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
@@ -75,7 +83,7 @@ build_sol() {
     build_variant mcp proveo/claudecode
   fi
   echo "Building proveo/claudecode-sol:$TAG from sol..."
-  docker build ${NO_CACHE:+$NO_CACHE} \
+  proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \
     --build-arg BASE_IMAGE="proveo/claudecode:$TAG" \
     -t "proveo/claudecode-sol:$TAG" -f "$SCRIPT_DIR/sol/Dockerfile" "$SCRIPT_DIR/../.."
 }

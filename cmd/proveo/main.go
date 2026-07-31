@@ -469,7 +469,15 @@ func doRun(p runParams) error {
 
 	var dindSidecar *dind.Sidecar
 
-	host := runner.DetectHost()
+	// On macOS/Windows, pid_max is probed from the Docker VM using a local
+	// image. Ensure the agent image exists first so the probe has something
+	// to run (--pull=never); full sidecar preflight still happens below.
+	if !p.printOnly {
+		if err := preflightImages(egress.Plan{}, man, p.image); err != nil {
+			return err
+		}
+	}
+	host := runner.DetectHost(p.image)
 	browser := runner.IsBrowserImage(p.image)
 	ov, ovSet := runner.ParsePidsOverride(os.Getenv("PROVEO_PIDS_LIMIT"))
 	if err := runner.EnsurePidsCapability(host, browser, ov, ovSet); err != nil {

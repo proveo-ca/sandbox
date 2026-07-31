@@ -200,7 +200,7 @@ func deployCmd() *cobra.Command {
 	var printOnly bool
 	cmd := &cobra.Command{
 		Use:    "deploy [target|all]",
-		Short:  "Push built harness/sidecar image(s) to the registry (maintainer)",
+		Short:  "Build+push multi-arch harness/sidecar image(s) to the registry (maintainer)",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {

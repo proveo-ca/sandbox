@@ -262,6 +262,67 @@ func TestDetectHostSanity(t *testing.T) {
 	}
 }
 
+func TestParsePidMaxOutput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{"4194304\n", 4194304},
+		{" 32768 ", 32768},
+		{"0", 0},
+		{"-1", 0},
+		{"", 0},
+		{"nope", 0},
+	}
+	for _, tc := range tests {
+		if got := parsePidMaxOutput(tc.in); got != tc.want {
+			t.Errorf("parsePidMaxOutput(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseDockerImageIDs(t *testing.T) {
+	t.Parallel()
+	out := "abc\nabc\ndef\n\nghi\n"
+	got := parseDockerImageIDs(out, 2)
+	want := []string{"abc", "def"}
+	if len(got) != len(want) {
+		t.Fatalf("parseDockerImageIDs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("parseDockerImageIDs[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if got := parseDockerImageIDs(out, 0); got != nil {
+		t.Errorf("limit 0 = %v, want nil", got)
+	}
+}
+
+func TestReadPidMaxDockerFallback(t *testing.T) {
+	// Serial: swaps package var. On Linux /proc wins; assert docker path is wired.
+	orig := readPidMaxDocker
+	t.Cleanup(func() { readPidMaxDocker = orig })
+
+	readPidMaxDocker = func(...string) int { return 4194304 }
+	got := readPidMax()
+	if proc := parseIntFile("/proc/sys/kernel/pid_max"); proc > 0 {
+		if got != proc {
+			t.Errorf("readPidMax() = %d, want /proc value %d", got, proc)
+		}
+		return
+	}
+	if got != 4194304 {
+		t.Errorf("readPidMax() without /proc = %d, want docker probe 4194304", got)
+	}
+
+	readPidMaxDocker = func(...string) int { return 0 }
+	if got := readPidMax(); got != 0 {
+		t.Errorf("readPidMax() with failed probe = %d, want 0", got)
+	}
+}
+
 func TestDockerRunArgsPidsPositive(t *testing.T) {
 	t.Parallel()
 	for _, cfg := range []Config{

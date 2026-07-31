@@ -128,7 +128,7 @@ run_target_smoke() {
       docker_args+=(-v "$workspace:/app" -w /app)
       ;;
     claudecode|claudecode-solo)
-      docker_args+=(-v "$workspace:/workspace/input:ro")
+      docker_args+=(-v "$workspace:/workspace/input")
       ;;
   esac
 

@@ -22,7 +22,8 @@ const Filename = "harness.manifest"
 // run.sh files encode today, lifted into data so `proveo run` can reproduce it.
 type Workspace struct {
 	// Layout: "app" (mount the repo at /app, -w /app; the monorepo model used by
-	// cursor/opencode/cecli) or "input-output" (claudecode: input:ro + output:rw).
+	// cursor/opencode/cecli) or "input-output" (claudecode: /workspace/input +
+	// /workspace/output).
 	Layout string `yaml:"layout"`
 	// ConfigDir is the tool config dir preserved from the repo root in the
 	// monorepo-subdir case (e.g. ".cursor", ".opencode", ".cecli"). app layout only.
@@ -32,8 +33,8 @@ type Workspace struct {
 	GitMode string `yaml:"gitMode"`
 	// Output mounts the output dir at /app/output:rw (cecli). app layout only.
 	Output bool `yaml:"output"`
-	// Mode is how the working tree itself is mounted: "rw" (default) or "ro". app
-	// layout only.
+	// Mode is how the working tree itself is mounted: "rw" (default) or "ro".
+	// Applies to app (/app) and input-output (/workspace/input).
 	Mode string `yaml:"mode"`
 }
 

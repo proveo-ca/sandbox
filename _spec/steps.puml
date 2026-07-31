@@ -46,7 +46,7 @@ partition "2 · Filesystem mount  «host»" {
       Only analysis layouts opt out (""gitMode: ro"");
     end note
   else (input-output — analysis)
-    :mount repo **RO** at /workspace/input\n+ **RW** /workspace/output for artifacts (claudecode);
+    :mount repo at /workspace/input (rw default; mode:ro optional)\n+ **RW** /workspace/output for artifacts (claudecode);
   endif
   :mask ""/.env"" and ""/.env.*"" under the mounted tree\n(firewall: secrets stay host-side; templates stay readable);
   :mount MITM CA cert **RO** (firewall);

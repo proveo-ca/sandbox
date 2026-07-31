@@ -92,7 +92,7 @@ func TestBuildPlan(t *testing.T) {
 	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
 		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
 
-	// Default (latest): build via the variant script, then verify — no docker tag.
+	// Default (latest): build via the variant script, then verify.
 	got := argvs(cc.BuildPlan("latest", false))
 	want := []string{
 		"bash /d/claudecode/build.sh --variant mcp",
@@ -102,11 +102,10 @@ func TestBuildPlan(t *testing.T) {
 		t.Errorf("BuildPlan(latest) = %v, want %v", got, want)
 	}
 
-	// Tagged + no-cache: adds --no-cache to the build and a docker tag :latest→:tag.
+	// Tagged + no-cache: --tag on build.sh (buildx --load) and verify.
 	got = argvs(cc.BuildPlan("v2", true))
 	want = []string{
-		"bash /d/claudecode/build.sh --variant mcp --no-cache",
-		"docker tag proveo/claudecode:latest proveo/claudecode:v2",
+		"bash /d/claudecode/build.sh --variant mcp --tag v2 --no-cache",
 		"docker image inspect proveo/claudecode:v2",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
@@ -128,11 +127,19 @@ func TestBuildPlan(t *testing.T) {
 
 func TestDeployAndTestPlan(t *testing.T) {
 	t.Parallel()
-	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", TestScript: "/d/cursor/test.sh"}
+	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor",
+		BuildScript: "/d/cursor/build.sh", TestScript: "/d/cursor/test.sh"}
 
 	if got := argvs(cur.DeployPlan("v3")); strings.Join(got, "|") !=
-		"docker image inspect proveo/cursor:v3|docker push proveo/cursor:v3" {
+		"bash /d/cursor/build.sh --tag v3 --push" {
 		t.Errorf("DeployPlan = %v", got)
+	}
+
+	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
+		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
+	if got := argvs(cc.DeployPlan("latest")); strings.Join(got, "|") !=
+		"bash /d/claudecode/build.sh --variant mcp --tag latest --push" {
+		t.Errorf("DeployPlan(claudecode) = %v", got)
 	}
 
 	// TestPlan runs test.sh when it exists, else skips (nil).

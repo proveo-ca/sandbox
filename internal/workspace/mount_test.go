@@ -25,7 +25,7 @@ func TestMountPlanInputOutput(t *testing.T) {
 	t.Parallel()
 	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: "/repo", OutputDir: "/repo/reports"}.Plan()
 	want := []runner.Mount{
-		{Host: "/repo", Container: "/workspace/input", ReadOnly: true},
+		{Host: "/repo", Container: "/workspace/input"},
 		{Host: "/repo/reports", Container: "/workspace/output"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -33,6 +33,18 @@ func TestMountPlanInputOutput(t *testing.T) {
 	}
 	if wd != "" {
 		t.Errorf("input-output workdir = %q, want empty", wd)
+	}
+}
+
+func TestMountPlanInputOutputRO(t *testing.T) {
+	t.Parallel()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output", Mode: "ro"}, InputDir: "/repo", OutputDir: "/out"}.Plan()
+	want := []runner.Mount{
+		{Host: "/repo", Container: "/workspace/input", ReadOnly: true},
+		{Host: "/out", Container: "/workspace/output"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("input-output mode=ro mounts mismatch (-want +got):\n%s", diff)
 	}
 }
 

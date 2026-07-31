@@ -6,6 +6,17 @@ working mode lives in [`_spec/paradigms.md`](_spec/paradigms.md) and
 `_spec/defs/<name>/<name>.paradigm.md`. This file collects the cross-cutting rules every
 contribution must satisfy.
 
+## Image builds (buildx multi-arch)
+
+`mise run build` / `proveo build` run each def's `build.sh`, which goes through
+[`defs/lib/docker-build.sh`](defs/lib/docker-build.sh) (`docker buildx`). Defaults:
+
+- **Platforms:** `linux/amd64,linux/arm64` (`PROVEO_PLATFORMS` to override)
+- **Local build:** `--load` of the **host** platform only (buildx cannot load a multi-arch image into the engine)
+- **Deploy:** `mise run deploy` / `proveo deploy` rebuilds with `--push` and publishes a multi-arch manifest to Docker Hub (plain `docker push` of a local image is not enough)
+
+Requires Docker Buildx. A `proveo-multiarch` builder (`docker-container` driver) is created on first use (`PROVEO_BUILDX_BUILDER` to override).
+
 ## Runtime User Boundary (required)
 
 Every harness container runs as the invoking host user, never root
@@ -18,7 +29,10 @@ Every harness container runs as the invoking host user, never root
  host-scaled `--pids-limit` (never omitted). The limit is
  `clamp(cpus×256, 512, ceiling)` for base agents and `clamp(cpus×512, 1024, ceiling)` for
  `*-browser` images, where `ceiling = min(cpus×1024, pid_max/64)` from host CPU (cgroup-aware)
- and kernel `pid_max`. Override with `PROVEO_PIDS_LIMIT` (clamped to `[256, ceiling]`).
+ and kernel `pid_max` (from `/proc` on Linux; on macOS/Windows, probed from the Docker
+ engine's Linux VM via a local image — preferring the agent image, never pulled —
+ falling back to `32768` only if both fail). Override with `PROVEO_PIDS_LIMIT`
+ (clamped to `[256, ceiling]`).
  If the host ceiling (or override) is below the tier minimum (`512` base / `1024` browser),
  `proveo run` failfasts with `insufficient host pids capability` instead of starting a
  sandbox that will exhaust processes.

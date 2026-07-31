@@ -90,7 +90,7 @@ func resolvePids(cfg Config) int {
 	if cfg.PidsLimit > 0 {
 		return cfg.PidsLimit
 	}
-	return ResolvePidsLimit(DetectHost(), IsBrowserImage(cfg.Image), 0, false)
+	return ResolvePidsLimit(DetectHost(cfg.Image), IsBrowserImage(cfg.Image), 0, false)
 }
 
 // Hardening returns the baseline flags including --pids-limit for the given

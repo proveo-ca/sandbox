@@ -45,11 +45,12 @@ type MountSpec struct {
 // root files / config dir / .env) exactly as the Bash did.
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 	if w.Layout == "input-output" {
+		ro := w.Mode == "ro"
 		mounts := []runner.Mount{
-			{Host: w.InputDir, Container: "/workspace/input", ReadOnly: true},
+			{Host: w.InputDir, Container: "/workspace/input", ReadOnly: ro},
 			{Host: w.OutputDir, Container: "/workspace/output"},
 		}
-		// The whole repo is mounted read-only here; mask its .env files too.
+		// Mask .env under input when egress isolates secrets (proxy/firewall).
 		if w.isolateEnv() {
 			mounts = append(mounts, maskEnvMounts(w.InputDir, "/workspace/input")...)
 		}

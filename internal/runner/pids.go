@@ -1,12 +1,16 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Tier minimums: a host whose ceiling is below these cannot safely run that
@@ -19,8 +23,14 @@ const (
 // Override floor: PROVEO_PIDS_LIMIT cannot go below this (still always capped).
 const pidsOverrideFloor = 256
 
-// Non-Linux fallback when /proc/sys/kernel/pid_max is unavailable (e.g. macOS host).
+// Last-resort fallback when neither /proc nor a Docker engine probe yields
+// kernel.pid_max (matches the historic Linux default).
 const pidMaxFallback = 32768
+
+// Max local images to try when probing Docker for pid_max (never pulls).
+const dockerPidMaxImageTries = 8
+
+const dockerPidMaxProbeTimeout = 8 * time.Second
 
 // ErrInsufficientPidsCapability is returned when the host (or override) cannot
 // meet the minimum pids budget for the selected tier.
@@ -34,7 +44,9 @@ type HostInfo struct {
 }
 
 // DetectHost inspects the local machine for CPU count and kernel PID capacity.
-func DetectHost() HostInfo {
+// preferImages are tried first when probing Docker for pid_max (macOS/Windows);
+// pass the agent image so a just-pulled/built harness can supply the reading.
+func DetectHost(preferImages ...string) HostInfo {
 	cpus := runtime.NumCPU()
 	if q := cgroupCPUQuota(); q > 0 && q < cpus {
 		cpus = q
@@ -42,7 +54,7 @@ func DetectHost() HostInfo {
 	if cpus < 1 {
 		cpus = 1
 	}
-	pidMax := readPidMax()
+	pidMax := readPidMax(preferImages...)
 	if pidMax < 1 {
 		pidMax = pidMaxFallback
 	}
@@ -180,8 +192,118 @@ func parseCPUMax(s string) int {
 	return (quota + period - 1) / period
 }
 
-func readPidMax() int {
-	return parseIntFile("/proc/sys/kernel/pid_max")
+// readPidMax returns kernel.pid_max from the Linux host, or — on macOS/Windows
+// Docker Desktop / Colima / similar — from the engine's Linux VM via a short
+// local-image probe. Returns 0 when unknown (caller applies pidMaxFallback).
+func readPidMax(preferImages ...string) int {
+	if n := parseIntFile("/proc/sys/kernel/pid_max"); n > 0 {
+		return n
+	}
+	return readPidMaxDocker(preferImages...)
+}
+
+// readPidMaxDocker is the non-/proc path; overridden in tests.
+var readPidMaxDocker = cachedDockerPidMax
+
+var (
+	dockerPidMaxOnce sync.Once
+	dockerPidMaxVal  int
+)
+
+func cachedDockerPidMax(preferImages ...string) int {
+	dockerPidMaxOnce.Do(func() {
+		dockerPidMaxVal = probeDockerPidMax(preferImages...)
+	})
+	return dockerPidMaxVal
+}
+
+// probeDockerPidMax reads the Docker engine kernel's pid_max using an already
+// local image (--pull=never). Darwin/Windows hosts have no /proc; the value
+// that matters for --pids-limit is the Linux VM behind the engine.
+func probeDockerPidMax(preferImages ...string) int {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return 0
+	}
+	seen := make(map[string]struct{})
+	var candidates []string
+	for _, img := range preferImages {
+		img = strings.TrimSpace(img)
+		if img == "" {
+			continue
+		}
+		if _, ok := seen[img]; ok {
+			continue
+		}
+		seen[img] = struct{}{}
+		candidates = append(candidates, img)
+	}
+	for _, id := range localDockerImageIDs(dockerPidMaxImageTries) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		candidates = append(candidates, id)
+	}
+	for _, ref := range candidates {
+		if n := pidMaxFromDockerImage(ref); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func localDockerImageIDs(limit int) []string {
+	if limit < 1 {
+		return nil
+	}
+	out, err := exec.Command("docker", "images", "-q").Output()
+	if err != nil {
+		return nil
+	}
+	return parseDockerImageIDs(string(out), limit)
+}
+
+func parseDockerImageIDs(out string, limit int) []string {
+	if limit < 1 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		id := strings.TrimSpace(line)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+		if len(ids) >= limit {
+			break
+		}
+	}
+	return ids
+}
+
+func pidMaxFromDockerImage(image string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), dockerPidMaxProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--pull=never",
+		"--network=none", "--entrypoint", "cat", image, "/proc/sys/kernel/pid_max")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	return parsePidMaxOutput(string(out))
+}
+
+func parsePidMaxOutput(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
 }
 
 func parseIntFile(path string) int {
@@ -189,11 +311,7 @@ func parseIntFile(path string) int {
 	if s == "" {
 		return 0
 	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return n
+	return parsePidMaxOutput(s)
 }
 
 func readFileTrim(path string) string {

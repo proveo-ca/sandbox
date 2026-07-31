@@ -19,7 +19,7 @@ Each variant owns its image-local `entrypoint.sh`. The root command surface rema
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
-Build the Docker images and execute `./run.sh` to run an isolated Claude Code variant with access to the current working directory mounted read-only at `/workspace/input`.
+Build the Docker images and execute `./run.sh` to run an isolated Claude Code variant with access to the current working directory mounted at `/workspace/input` (read-write by default).
 
 ```
 /workspace/

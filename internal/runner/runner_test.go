@@ -26,7 +26,7 @@ func TestDockerRunArgs(t *testing.T) {
 			cfg: Config{
 				Interactive: true, Remove: true, Name: "run1", User: "1000:1000",
 				Tmpfs:     []string{"/tmp:noexec,nosuid,size=100m"},
-				Mounts:    []Mount{{Host: "/repo", Container: "/workspace/input", ReadOnly: true}, {Host: "/repo/reports", Container: "/workspace/output"}},
+				Mounts:    []Mount{{Host: "/repo", Container: "/workspace/input"}, {Host: "/repo/reports", Container: "/workspace/output"}},
 				Env:       []string{"CLAUDE_CODE_OAUTH_TOKEN=t"},
 				Image:     "proveo/claudecode:latest",
 				Command:   []string{"--help"},
@@ -36,7 +36,7 @@ func TestDockerRunArgs(t *testing.T) {
 				"run", "-it", "--rm", "--name", "run1", "--user", "1000:1000",
 				"--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=512",
 				"--tmpfs", "/tmp:noexec,nosuid,size=100m",
-				"-v", "/repo:/workspace/input:ro", "-v", "/repo/reports:/workspace/output",
+				"-v", "/repo:/workspace/input", "-v", "/repo/reports:/workspace/output",
 				"-e", "CLAUDE_CODE_OAUTH_TOKEN=t",
 				"proveo/claudecode:latest", "--help",
 			},
