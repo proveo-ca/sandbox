@@ -30,11 +30,6 @@ type MountSpec struct {
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
-	// EgressMode + Credentials control whether a project .env is bind-mounted.
-	// Credentials "forward" (or no egress mode): mount the resolved .env at
-	// /app/.env:ro when present, since the agent is meant to hold the real value.
-	// Otherwise the egress layer owns the credential and we mask EVERY dotenv
-	// secrets file under the mounted tree
 	// (recursively, both layouts) with /dev/null, so a hostile/injected agent can't
 	// read a real credential off disk — the structural complement to the broker
 	// header-strip + egress DLP. Templates (.env.example/.sample/.template/.dist)

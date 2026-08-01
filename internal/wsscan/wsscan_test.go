@@ -22,8 +22,6 @@ var markers = []Marker{
 	{Label: "node", Names: []string{"package.json"}},
 }
 
-// The monorepo case: a marker nested below the scope root must be found, which
-// the previous top-level-only glob missed.
 func TestFindsNestedMarkers(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -37,8 +35,6 @@ func TestFindsNestedMarkers(t *testing.T) {
 	}
 }
 
-// node_modules is pruned even when NO .gitignore mentions it — the hardcoded set
-// is what makes a scope-local .gitignore safe.
 func TestDependencyTreesArePrunedWithoutGitignore(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -53,8 +49,6 @@ func TestDependencyTreesArePrunedWithoutGitignore(t *testing.T) {
 	}
 }
 
-// The bug this package exists to fix: a scope-local .gitignore used to shadow the
-// repo root's, so node_modules went unpruned for a monorepo scope.
 func TestScopeGitignoreDoesNotShadowRepoRoot(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -456,8 +456,6 @@ func TestHydrateProcessEnvFromLookup(t *testing.T) {
 	}
 }
 
-// The header must state host-knowable facts as facts and LSP servers as a
-// prediction — presence in the image is a separate question the host cannot see.
 func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -502,8 +500,6 @@ func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	}
 }
 
-// The README's supported-tooling pills are documentation of a registry, so drift
-// between them is a test failure rather than something to notice later.
 func TestReadmePillsMatchToolingRegistry(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))

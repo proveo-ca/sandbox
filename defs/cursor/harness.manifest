@@ -26,8 +26,6 @@ env:
     secret: true
 
 capabilities:
-  # cursor-agent pins its TLS to Cursor's backend: no tier may intercept it, and
-  # the credential cannot be injected — it has to reach the container intact.
   egress: [open]
   credentials: [forward]
   providers: [cursor]

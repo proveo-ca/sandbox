@@ -25,6 +25,4 @@ env:
     secret: true
 
 capabilities:
-  # Reads only its own key and OAuth token; any other provider key detected on the
-  # host would make the broker ambiguous without ever being usable here.
   providers: [anthropic]

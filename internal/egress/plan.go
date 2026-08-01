@@ -36,12 +36,7 @@ type Plan struct {
 // Options parameterizes a Plan. Zero values are sensible: images default to the
 // proveo/* names, GID falls back to UID.
 type Options struct {
-	Mode string // "open" | "allowlist" | "review" (aliases resolved by Canonical)
-	// Credentials selects how the agent authenticates: "broker" (default) keeps the
-	// key in the egress layer and injects it at the MITM; "forward" hands the real
-	// value to the container. Forwarding exists for the two cases injection cannot
-	// serve: a vendor with pinned TLS (cursor), and DinD, which needs an
-	// internet-capable agent network that would bypass the injector anyway.
+	Mode        string // "open" | "allowlist" | "review" (aliases resolved by Canonical)
 	Credentials string
 	SessionID   string
 	AgentName   string // e.g. "claudecode-mcp" (sanitized into network names)
@@ -113,18 +108,12 @@ var modeBuilders = []struct {
 	{"review", buildReview},
 }
 
-// modeAliases maps the retired mode names to their current one. The modes used
-// to conflate network policy with credential handling; they now name the
-// network tier only, and credentials moved to Options.Credentials. Old names
-// keep working so existing scripts and CI invocations do not break.
 var modeAliases = map[string]string{
 	"broker":   "open",
 	"firewall": "allowlist",
 	"proxy":    "review",
 }
 
-// Canonical resolves a mode name through the alias table, reporting whether the
-// input was a retired name (so a caller can warn once).
 func Canonical(name string) (canonical string, aliased bool) {
 	if to, ok := modeAliases[name]; ok {
 		return to, true
@@ -132,15 +121,10 @@ func Canonical(name string) (canonical string, aliased bool) {
 	return name, false
 }
 
-// credentialModes are the ways the agent's provider key can be handled. Broker
-// keeps it in the egress layer; forward hands the real value to the container.
 var credentialModes = []string{"broker", "forward"}
 
-// CredentialModes returns the valid --credentials values in canonical order.
 func CredentialModes() []string { return append([]string(nil), credentialModes...) }
 
-// ValidCredentials reports whether name is a known credential mode. Empty means
-// the default (broker).
 func ValidCredentials(name string) bool {
 	if name == "" {
 		return true
@@ -177,9 +161,6 @@ func ValidMode(name string) bool {
 // invariant that only Squid is internet-capable: the agent and inspector sit on
 // `--internal` networks and can reach the internet only by transiting Squid.
 func BuildPlan(o Options) (Plan, error) {
-	// Canonicalize once, here, so every downstream consumer — builders, golden
-	// files, and PROVEO_EGRESS_MODE in the agent's env — sees the current name
-	// even when the caller passed a retired alias.
 	o.Mode, _ = Canonical(o.Mode)
 	for _, m := range modeBuilders {
 		if m.name == o.Mode {
@@ -233,19 +214,8 @@ func (b *builder) done() Plan {
 	return b.p
 }
 
-// forwardsCredentials reports whether the real secret is handed to the container
-// rather than injected at the MITM.
 func (o Options) forwardsCredentials() bool { return o.Credentials == "forward" }
 
-// buildOpen is the open-network tier: credentials handled, no allowlist.
-//
-// With forwarded credentials there is nothing to inject, so no MITM is needed
-// and the agent goes straight onto a bridge. That is the only shape that can
-// host a DinD attach or a vendor whose pinned TLS defeats interception.
-//
-// With brokered credentials the agent sits on an --internal network behind the
-// MITM, because injection is only a guarantee when the injector is the sole
-// egress path. No Squid: this tier has no allowlist, so the MITM egresses direct.
 func buildOpen(o Options) Plan {
 	if o.forwardsCredentials() {
 		if o.LocalModel == "" {
@@ -279,12 +249,8 @@ func buildOpen(o Options) Plan {
 	return b.done()
 }
 
-// buildAllowlist is the enforced tier: credentials + Squid allowlist + MITM.
 func buildAllowlist(o Options) Plan { return buildEnforced(o) }
 
-// buildReview is buildAllowlist plus interactive connection review. The topology
-// is identical — the tiers differ only in what the MITM does on a block, which
-// rides on PROVEO_EGRESS_MODE / PROVEO_EGRESS_REVIEW into the sidecar.
 func buildReview(o Options) Plan { return buildEnforced(o) }
 
 func buildEnforced(o Options) Plan {
@@ -449,7 +415,6 @@ func caTrustArgs(confDir string) []string {
 //     ANTHROPIC_API_KEY forces the local path over any inherited cloud key.
 //
 // Cursor is intentionally absent: its inference is vendor-pinned (see run wiring).
-//
 // base is the Ollama endpoint root: the sidecar alias (sidecarOllamaBase) or the
 // host gateway (hostOllamaBase) for the macOS host-GPU path.
 func localModelArgs(model, base string) []string {

@@ -17,8 +17,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// agentSettingsDoc mirrors internal/agentsettings.Store closely enough to assert
-// on the file an operator would actually read.
 type agentSettingsDoc struct {
 	Targets map[string]struct {
 		Egress      string   `yaml:"egress"`
@@ -42,9 +40,6 @@ func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 	return doc
 }
 
-// TestAgentSettingsPersistAcrossRuns drives two real `proveo run` sessions under
-// tmux against an isolated HOME and asserts the choice matrix is written on the
-// first run and re-entered on the second — the whole point of the cache.
 func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	if os.Getenv("PROVEO_LLM_TEST") != "1" {
 		t.Skip("set PROVEO_LLM_TEST=1 to run the agent-settings E2E")
@@ -71,8 +66,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		if err := sess.Start(200, 50, cmd...); err != nil {
 			t.Fatalf("[%s] tmux start: %v", label, err)
 		}
-		// A --shell session drops to a prompt; leave it so teardown is clean. The
-		// settings write happens during resolution, well before the exec.
 		time.Sleep(10 * time.Second)
 		_ = sess.SendText("exit")
 		_ = sess.Enter()
@@ -80,7 +73,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		return out
 	}
 
-	// ---- first run: nothing cached, the resolver settles and persists --------
 	out1 := run("first")
 	doc := readAgentSettings(t, home)
 	got, ok := doc.Targets[target]
@@ -97,7 +89,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		t.Error("persisted choice carries no capability fingerprint — a manifest change could not invalidate it")
 	}
 
-	// ---- rewrite the cache: the second run must ENTER it, not re-default -----
 	path := filepath.Join(home, ".proveo", "agent-settings.yml")
 	edited := strings.Replace(string(mustRead(t, path)), "egress: allowlist", "egress: open", 1)
 	if !strings.Contains(edited, "egress: open") {
@@ -129,8 +120,6 @@ func mustRead(t *testing.T, path string) []byte {
 	return b
 }
 
-// sessionEgressMode reads the tier back out of the agent's own environment, as
-// exported by the egress plan — the honest signal that the choice took effect.
 func sessionEgressMode(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		if i := strings.Index(line, "PROVEO_EGRESS_MODE="); i >= 0 {

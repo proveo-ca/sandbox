@@ -1,5 +1,4 @@
 // Package choiceui renders the one-shot harness choice prompt.
-//
 // SPEC: _spec/_plans/harness-choice-cache.puml
 package choiceui
 

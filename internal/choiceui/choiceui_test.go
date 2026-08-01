@@ -9,8 +9,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// render drives the form against a simulation screen and returns the visible
-// text, one string per row, so assertions read like what an operator sees.
 func render(t *testing.T, f *Form) []string {
 	t.Helper()
 	s := tcell.NewSimulationScreen("UTF-8")
@@ -143,8 +141,6 @@ func TestMultiRowTogglesIndependently(t *testing.T) {
 	}
 }
 
-// The cross-row constraint: an add-on the chosen tier cannot host must be
-// unavailable, not merely ignored downstream.
 func TestDisabledAddonIsNeitherCheckableNorReported(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{

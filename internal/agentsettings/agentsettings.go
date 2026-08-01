@@ -1,5 +1,4 @@
 // Package agentsettings persists the per-harness choice matrix.
-//
 // SPEC: _spec/_plans/harness-choice-cache.puml
 package agentsettings
 

@@ -33,10 +33,6 @@ func ModeSupported(mode string) bool {
 	return false
 }
 
-// CredentialsSupported reports whether the credential mode leaves an
-// internet-capable agent network for a DinD attach. Brokered credentials put the
-// agent behind the MITM on an --internal network; attaching a daemon there would
-// either lose the internet or bypass the injector.
 func CredentialsSupported(credentials string) bool {
 	return strings.EqualFold(strings.TrimSpace(credentials), "forward")
 }
@@ -49,10 +45,6 @@ func truthy(v string) bool {
 	return false
 }
 
-// ScopeHasDockerfiles reports whether the scope has Dockerfile/Compose files of
-// its OWN. It delegates to internal/wsscan so the prune set is shared: an npm
-// package's Dockerfile under node_modules must not offer a privileged sidecar for
-// a repo that ships none.
 func ScopeHasDockerfiles(scopeDir string) bool {
 	res := wsscan.Scan(scopeDir, scopeDir, []wsscan.Marker{{
 		Label: "docker",

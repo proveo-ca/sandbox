@@ -42,8 +42,6 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-// The decision this package exists to enforce: a manifest change invalidates the
-// cached answer rather than silently keeping a now-invalid cell.
 func TestCachedChoiceDoesNotSurviveACapabilityChange(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

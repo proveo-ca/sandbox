@@ -59,8 +59,6 @@ func TestBuildPlanGolden(t *testing.T) {
 
 func withModel(o Options, m string) Options { o.LocalModel = m; return o }
 
-// fwd marks the forwarded-credential tier: nothing to inject, so no MITM and the
-// agent keeps an internet-capable bridge (the DinD / pinned-TLS shape).
 func fwd(o Options) Options { o.Credentials = "forward"; return o }
 func withBroker(o Options, p, f string) Options {
 	o.Provider = p

@@ -6,7 +6,6 @@
 // TERM=dumb / NO_COLOR is set, the emoji degrade to stable text tags
 // ("ok:", "warn:", "error:") so CI logs and screen-scraping tests stay
 // deterministic.
-//
 // Deliberately line-oriented, never a full-screen TUI: proveo is a launcher
 // that hands the PTY to the agent's own TUI (`docker run -it`), and the tmux
 // agent-E2E layer screen-scrapes its output — both depend on the CLI printing
@@ -88,12 +87,6 @@ func Notef(format string, a ...any) { Default.Notef(format, a...) }
 // Iconf writes an icon-decorated line on Default.
 func Iconf(icon, format string, a ...any) { Default.Iconf(icon, format, a...) }
 
-// The proveo identity palette — the SAME six semantic roles the spec diagrams
-// use (see _spec/_conventions/spec-conventions.puml, which pulls them from the
-// identity repo's proveo.puml). One palette for diagrams and the CLI: a role's
-// colour is defined here exactly once, as hex, and each surface maps it to what
-// its terminal library speaks.
-//
 // SPEC: _spec/_conventions/spec-conventions.puml
 const (
 	ColorApp   = 0x005F7F // first-party app / runtime service — teal
@@ -104,8 +97,6 @@ const (
 	ColorError = 0xCB2000 // destructive · failure · security-sensitive — red
 )
 
-// Semantic aliases for CLI status vocabulary, expressed in palette roles so the
-// mapping is stated once rather than re-decided per call site.
 const (
 	ColorBrand     = ColorHost  // the mark and any selected/active element
 	ColorAccent    = ColorApp   // first-party emphasis
@@ -114,16 +105,12 @@ const (
 	ColorSecondary = ColorCloud // dim supporting text
 )
 
-// ANSI renders a palette colour as a 24-bit foreground escape. Callers guard it
-// behind Printer.Plain so NO_COLOR / TERM=dumb / non-TTY output stays clean.
 func ANSI(rgb int) string {
 	return fmt.Sprintf("\033[38;2;%d;%d;%dm", (rgb>>16)&0xFF, (rgb>>8)&0xFF, rgb&0xFF)
 }
 
-// ANSIReset ends any colour started with ANSI.
 const ANSIReset = "\033[0m"
 
-// ANSIBold and ANSIDim are the two weights the identity uses.
 const (
 	ANSIBold = "\033[1m"
 	ANSIDim  = "\033[2m"
