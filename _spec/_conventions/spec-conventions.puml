@@ -21,7 +21,9 @@ note top of R1
   ""_spec/defs/<name>/"", ""_spec/packages/lib/"". A folder
   that does **not** correspond to a live source folder is
   prefixed with an underscore: ""_assets"", ""_paradigms"",
-  ""_conventions"", ""_experiments"", ""_refactors"".
+  ""_conventions"", ""_experiments"", ""_refactors"",
+  ""_devops"" (build · publish pipeline), ""_runtimes""
+  (toolchains available inside a harness).
 end note
 
 note bottom of R3

@@ -1,0 +1,77 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Buildx driver selection — which driver, and where a FROM resolves
+
+node "Maintainer host — Fedora or macOS" as HOST <<host>> {
+  component "defs/lib/docker-build.sh\nproveo_docker_build" as LIB <<app>>
+  component "proveo_docker_ensure_buildx\n<push|load> <platforms>" as SEL <<app>>
+  component "proveo_docker_builder_running\nStatus-line health probe" as HEALTH <<app>>
+  component "docker driver\nshares the daemon image store\ncannot cross-build" as DDOCKER <<app>>
+  component "docker-container driver\nproveo-multiarch — own image store\ncross-builds any platform" as DCONT <<app>>
+}
+
+database "Local daemon image store" as LOCAL <<db>>
+cloud "Registry" as REG <<cloud>>
+component "Stale-parent build\n(silent: no error, no warning)" as STALE <<error>>
+
+LIB ARROW_MAIN SEL : platforms resolved BEFORE the builder
+SEL ARROW_MAIN HEALTH : candidate alive?
+SEL ARROW_MAIN DDOCKER : ""--load"" · platform == host arch
+SEL ARROW_CLOUD DCONT : ""--push"" · multi-arch publish
+SEL ARROW_OPTIONAL DCONT : ""--load"" · cross-arch — warns first
+DDOCKER ARROW_MAIN LOCAL : ""FROM"" resolves the image just built
+DCONT ARROW_CLOUD REG : ""FROM"" resolves the PUBLISHED image
+DCONT ARROW_ERROR STALE : cross-arch ""--load"" — a locally edited parent is invisible
+
+note right of SEL
+  **The driver is not a detail — it decides where ""FROM"" resolves.**
+
+  | mode | platform | driver | parent comes from |
+  | ""--push"" | multi-arch | docker-container | registry |
+  | ""--load"" | host arch | docker | local daemon |
+  | ""--load"" | cross-arch | docker-container | registry (warned) |
+
+  ""--push"" taking the registry parent is //correct//: the published
+  child must sit on the published base. A native ""--load"" must take
+  the docker driver so an edited base actually reaches its dependents.
+
+  Overrides: ""PROVEO_PLATFORMS"", ""PROVEO_BUILDX_BUILDER"" (container),
+  ""PROVEO_BUILDX_LOCAL_BUILDER"" (docker driver).
+end note
+
+note bottom of HEALTH
+  **Two traps, both of which silently disable the docker driver.**
+
+  //Exit status is not health.// ""docker buildx inspect"" exits 0 for a
+  builder whose endpoint is dead — a stale desktop-linux or default
+  context on a machine running another engine still 'inspects' fine.
+  Only the ""Status:"" line is the health signal.
+
+  //Never pipe it into ""grep -q"".// Every ""defs/*/build.sh"" runs under
+  ""set -o pipefail""; ""grep -q"" exits at the first match, docker dies of
+  SIGPIPE, and the pipeline reports 141 — **a match reads as a
+  failure**. Every healthy builder is then rejected and the whole fleet
+  falls back to the container driver. Capture the output first, then
+  test it with ""awk"" off a here-string, outside any pipeline.
+end note
+
+note bottom of DDOCKER
+  **Discovery must tolerate both asterisk forms.** ""docker buildx ls""
+  marks the current builder attached in some versions and spaced in
+  others ('default*' vs 'default *'); blanking the asterisk before the
+  field split keeps discovery working on both. This matters because on
+  a plain Linux daemon the sole docker-driver builder //is// the current
+  one. Node rows (prefixed with a backslash-underscore) and unusable
+  contexts (DRIVER column reads 'error') are skipped.
+end note
+
+note bottom of STALE
+  **The symptom to recognise.** The child builds cleanly against a
+  stale published parent — no error, no warning. It shows up only as a
+  size inversion: ""proveo/base-node"" at 687MB on top of a 903MB
+  ""proveo/base"". Every image must be larger than its parent.
+
+  **A locally verified image is not proof about the pushed one** —
+  ""--load"" and ""--push"" deliberately resolve different parents.
+end note
+@enduml

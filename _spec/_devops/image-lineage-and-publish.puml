@@ -1,0 +1,87 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Image lineage — parent tags, ensure.sh modes, and the publish contract
+
+node "defs/ build scripts" as HOST <<host>> {
+  component "proveo_image_ref\n<env-var> <repo> <tag>" as REF <<app>>
+  component "proveo_ref_tag\n<ref> → tag (default latest)" as RTAG <<app>>
+  component "<parent>/ensure.sh\n--tag <t> [--push]" as ENSURE <<app>>
+  component "proveo_require_published\nregistry probe + advisory" as REQ <<app>>
+}
+
+folder "Lineage" as CHAIN <<host>> {
+  component "proveo/base" as B <<app>>
+  component "proveo/base-node" as BN <<app>>
+  component "proveo/base-node-lsp" as BNL <<app>>
+  component "proveo/base-node-browser" as BNB <<app>>
+  component "cecli · cursor" as H1 <<app>>
+  component "opencode · claudecode" as H2 <<app>>
+  component "claudecode-solidity" as H3 <<app>>
+}
+
+cloud "Registry" as REG <<cloud>>
+component "Unpublished parent\non a --push build" as FAIL <<error>>
+
+B ARROW_MAIN BN
+BN ARROW_MAIN BNL
+BNL ARROW_MAIN BNB
+B ARROW_MAIN H1
+BNL ARROW_MAIN H2
+H2 ARROW_MAIN H3
+
+REF ARROW_MAIN CHAIN : every ""BASE_IMAGE"" at the CHILD'S tag
+RTAG ARROW_MAIN REF : derive the tag from the image being built
+ENSURE ARROW_MAIN CHAIN : local — present · floor · pull · build
+ENSURE ARROW_CLOUD REQ : ""--push"" — publication is all that matters
+REQ ARROW_CLOUD REG : ""buildx imagetools inspect""
+REQ ARROW_ERROR FAIL : fail early, at the declaration site
+
+note right of REF
+  **A child never hardcodes ""latest"".** Every parent reference is
+  resolved through one helper, so ""proveo deploy all --tag v2""
+  publishes ""proveo/<harness>:v2"" built ""FROM proveo/base:v2"". Left
+  hardcoded, the published lineage silently mixes two releases and
+  nothing in the image records it.
+
+  A ""PROVEO_*_IMAGE"" override wins outright — it is a complete ref
+  chosen by the caller, so the tag is not reapplied to it.
+end note
+
+note bottom of ENSURE
+  **The two modes answer different questions.**
+
+  ""--tag"" (local ""--load""): is the parent present at this tag with a
+  usable floor? Present + floor → done; else pull; else build from
+  source. A tag alone is not enough — a stale image from a different
+  lineage looks present but has the wrong contents, so each ensure.sh
+  runs a floor probe (the tools that layer must provide).
+
+  ""--push"": the child resolves the parent from the REGISTRY, so the
+  local pull/floor dance answers the wrong question entirely and is
+  skipped. Only publication matters.
+end note
+
+note bottom of REQ
+  **Deploying one target whose parents are unpublished is not
+  supported.** The scripts refuse to publish a parent as a side effect
+  of a child's deploy — that would push an image the caller never
+  asked for, and (for claudecode-solidity) a local ""docker image
+  inspect"" would be interrogating the wrong store while the build
+  resolves from the registry.
+
+  Failing at the declaration site turns a bare 'failed to resolve
+  source metadata … not found' 30 seconds into the build into an
+  actionable message naming ""proveo deploy all"" and the parent target.
+end note
+
+note bottom of CHAIN
+  **""proveo deploy all"" is the coherent publish path.** The maintainer
+  registry is hand-ordered bases-first, then harnesses alphabetically,
+  so every parent is published before its children — including
+  claudecode before claudecode-solidity. Alphabetical order satisfying
+  that last pair is a coincidence, not a declared edge.
+
+  ""runPlan"" stops at the first failure, so a mid-fleet failure leaves a
+  partially published set.
+end note
+@enduml

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -363,6 +363,42 @@ ensure_project_tools() {
  npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
  fi
  rm -f "$mise_installer"
+ fi
+ fi
+
+ # 4. Go Detection & Installation
+ if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
+ if ! command -v go >/dev/null 2>&1; then
+ export GOROOT="${GOROOT:-${HOME}/.go}"
+ export GOPATH="${GOPATH:-${HOME}/go}"
+ export PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
+
+ local go_version="latest"
+ if [[ -f go.mod ]]; then
+ local pinned
+ pinned="$(sed -n 's/^toolchain go\([0-9][^ ]*\).*/\1/p' go.mod | head -n1)"
+ [[ -n "$pinned" ]] && go_version="$pinned"
+ fi
+
+ echo "Detected a Go project. Dynamically installing Go ${go_version} via g..."
+ if curl -fsSL --connect-timeout 5 --max-time 120 \
+      -o "${HOME}/.local/bin/g" \
+      https://github.com/stefanmaric/g/releases/latest/download/g; then
+ chmod +x "${HOME}/.local/bin/g"
+ "${HOME}/.local/bin/g" install -y "$go_version" >/dev/null 2>&1 \
+   || echo "WARN: g could not install Go ${go_version}"
+ elif command -v mise >/dev/null 2>&1; then
+ mise use -g "go@${go_version}" >/dev/null 2>&1 \
+   || echo "WARN: mise could not install Go ${go_version}"
+ else
+ echo "WARN: failed to fetch g; Go not installed"
+ fi
+ fi
+
+ if command -v go >/dev/null 2>&1 && ! command -v gopls >/dev/null 2>&1; then
+ echo "Installing gopls for Go code intelligence..."
+ go install golang.org/x/tools/gopls@latest >/dev/null 2>&1 \
+   || echo "WARN: failed to install gopls"
  fi
  fi
 }

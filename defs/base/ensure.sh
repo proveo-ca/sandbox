@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 # Ensure proveo/base is available before building a harness image FROM it:
 # present with a usable floor → done; else pull (mise deploy publishes it to
 # Docker Hub); else build from this checkout. Called by each harness def's
@@ -12,7 +13,37 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${PROVEO_BASE_IMAGE:-proveo/base:latest}"
+# shellcheck source=../lib/docker-build.sh
+source "$SCRIPT_DIR/../lib/docker-build.sh"
+
+TAG="latest"
+PUSH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --push)
+      PUSH=1
+      shift
+      ;;
+    --tag)
+      [[ $# -ge 2 ]] || {
+        echo "--tag requires a value" >&2
+        exit 1
+      }
+      TAG="$2"
+      shift 2
+      ;;
+    *)
+      echo "unknown ensure option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$TAG")"
+
+if [[ -n "$PUSH" ]]; then
+  proveo_require_published "$IMAGE" "$TAG" || exit 1
+  exit 0
+fi
 
 # The minimal-floor contract: git + gh + the proveo-entrypoint binary. (No
 # browsers/Node/Python — those moved out of the base.)

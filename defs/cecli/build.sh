@@ -26,11 +26,14 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$TAG" ]] && IMAGE="${IMAGE%%:*}:$TAG"
 
-"$SCRIPT_DIR/../base/ensure.sh"
+PARENT_TAG="$(proveo_ref_tag "$IMAGE")"
+BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$PARENT_TAG")"
+"$SCRIPT_DIR/../base/ensure.sh" --tag "$PARENT_TAG" ${PUSH:+--push}
 
-echo "🔨 building $IMAGE (context: $REPO_ROOT)"
+echo "🔨 building $IMAGE from $BASE_IMAGE (context: $REPO_ROOT)"
 proveo_docker_build ${PUSH:+--push} \
   ${NO_CACHE:+$NO_CACHE} \
+  --build-arg BASE_IMAGE="$BASE_IMAGE" \
   -f "$SCRIPT_DIR/Dockerfile" \
   -t "$IMAGE" \
   "$REPO_ROOT"

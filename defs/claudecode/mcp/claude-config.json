@@ -32,8 +32,7 @@
           "WebSearch",
           "NotebookRead",
           "NotebookWrite",
-          "mcp",
-          "mcp__*"
+          "mcp"
         ],
         "defaultMode": "acceptEdits",
         "additionalDirectories": ["/workspace/input", "/workspace/output", "/workspace/data", "/workspace/temp"]

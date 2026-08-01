@@ -7,6 +7,8 @@
 // Bash lib/manifest-enum.sh, lib/runners.sh, and lib/{build,deploy,test}.sh.
 //
 // Plans are pure data ([]Command); cmd/proveo executes or prints them.
+//
+// SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
 package maintain
 
 import (
@@ -39,9 +41,6 @@ type Target struct {
 // doubles as the defs/sidecars/<name> subdir and the proveo/<name> image.
 var sidecars = []string{"egress-proxy", "mitmproxy"}
 
-// variantArgs maps a target name to the build.sh flags that select its variant.
-// claudecode ships three images from one def: mcp is the base "claudecode"
-// image, solo drops MCP, sol layers a Solidity/security toolchain on mcp.
 var variantArgs = map[string][]string{
 	"claudecode":          {"--variant", "mcp"},
 	"claudecode-solidity": {"--variant", "solidity"},

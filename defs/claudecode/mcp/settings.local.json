@@ -1,8 +1,6 @@
 {
   "permissions": {
-    "allow": [
-      "mcp__*"
-    ],
+    "allow": [],
     "deny": [],
     "ask": []
   }
