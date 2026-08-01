@@ -17,7 +17,7 @@ Usage:
   ./build.sh [--variant mcp|solidity|all] [--browser] [--tag <tag>] [--no-cache] [--push]
 
 Builds the claudecode harness images. Defaults to all variants.
-sol = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
+solidity = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
 --browser = the mcp image FROM proveo/base-node-browser (Playwright + Chromium),
 tagged proveo/claudecode-browser.
 EOF
@@ -62,7 +62,7 @@ done
 build_variant() {
   local variant="$1"
   local image="$2"
-  local base="${3:-proveo/base-node-lsp:latest}"
+  local base="${3:-$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")}"
   echo "Building $image:$TAG from $variant (base $base)..."
   proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} --build-arg BASE_IMAGE="$base" \
     -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
@@ -71,15 +71,17 @@ build_variant() {
 # Browser variant: the mcp image FROM base-node-browser (Playwright + Chromium),
 # short-circuiting the variant matrix below.
 if [[ "$BROWSER" == 1 ]]; then
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh"
-  build_variant mcp proveo/claudecode-browser proveo/base-node-browser:latest
+  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
+  build_variant mcp proveo/claudecode-browser \
+    "$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
   exit 0
 fi
 
-# sol layers the Solidity/security toolchain (Foundry, solc, solhint, semgrep)
-# on the mcp image: ensure the same-tag parent exists, then build FROM it.
 build_solidity() {
-  if ! docker image inspect "proveo/claudecode:$TAG" >/dev/null 2>&1; then
+  local parent="proveo/claudecode:$TAG"
+  if [[ -n "$PUSH" ]]; then
+    proveo_require_published "$parent" "$TAG" || return 1
+  elif ! docker image inspect "$parent" >/dev/null 2>&1; then
     build_variant mcp proveo/claudecode
   fi
   echo "Building proveo/claudecode-solidity:$TAG from solidity..."
@@ -89,7 +91,7 @@ build_solidity() {
 }
 
 # mcp builds FROM proveo/base-node-lsp (adds the shared workspace LSP servers)
-"$SCRIPT_DIR/../base-node-lsp/ensure.sh"
+"$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 
 case "$VARIANT" in
   mcp)

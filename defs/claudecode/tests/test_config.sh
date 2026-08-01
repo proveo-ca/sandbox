@@ -42,11 +42,17 @@ assert_output_contains \
   "cat /home/claude/.claude.json" \
   '"Bash"'
 
-assert_output_contains \
-  '[claudecode] permissions.allow pre-authorizes MCP tools' \
-  "$IMAGE" \
-  "cat /home/claude/.claude.json" \
-  '"mcp__*"'
+TESTS_RUN=$((TESTS_RUN + 1))
+BAD_RULES=$(run_timeout 30s docker run --rm --entrypoint bash "$IMAGE" -c \
+  'cat /home/claude/.claude.json /home/claude/.claude/settings.local.json /workspace/.claude/settings.local.json 2>/dev/null' | grep -c 'mcp__\*' || true)
+if [[ "$BAD_RULES" == "0" ]]; then
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  printf "${GREEN}PASS${NC} [%d] [claudecode] no wildcard-only MCP allow rule in any seeded settings\n" "$TESTS_RUN"
+else
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("no wildcard-only MCP allow rule in any seeded settings")
+  printf "${RED}FAIL${NC} [%d] [claudecode] found %s 'mcp__*' rule(s) — Claude Code rejects them at startup\n" "$TESTS_RUN" "$BAD_RULES"
+fi
 
 assert_output_contains \
   "[standalone] hasCompletedOnboarding=true" \
@@ -111,17 +117,4 @@ if $MCP_IMAGE_AVAILABLE; then
     "$IMAGE" \
     "cat /home/claude/.claude.json" \
     '"mcpServers": {}'
-
-  assert_output_contains \
-    "[mcp] MCP wildcard permission is configured" \
-    "$IMAGE" \
-    "cat /home/claude/.claude.json" \
-    'mcp__*'
-
-  # MCP permissions in settings.local
-  assert_output_contains \
-    "[mcp] settings.local.json allows MCP wildcard" \
-    "$IMAGE" \
-    "cat /home/claude/.claude/settings.local.json" \
-    'mcp__*'
 fi

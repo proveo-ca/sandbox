@@ -54,12 +54,12 @@ done
 
 if [[ "$BROWSER" == 1 ]]; then
   IMAGE_NAME="${PROVEO_CURSOR_BROWSER_IMAGE:-proveo/cursor-browser:$TAG}"
-  BASE_IMAGE="proveo/base-node-browser:latest"
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh"
+  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
+  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 else
   IMAGE_NAME="${PROVEO_CURSOR_IMAGE:-proveo/cursor:$TAG}"
-  BASE_IMAGE="proveo/base:latest"
-  "$SCRIPT_DIR/../base/ensure.sh"
+  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$TAG")"
+  "$SCRIPT_DIR/../base/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 fi
 
 proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \

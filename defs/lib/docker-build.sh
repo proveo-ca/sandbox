@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/image-lineage-and-publish.puml
 # Shared docker buildx helper for defs/*/build.sh.
 #
 # Default platforms: linux/amd64,linux/arm64 (override with PROVEO_PLATFORMS).
@@ -21,19 +22,102 @@ proveo_docker_host_platform() {
   esac
 }
 
-# proveo_docker_ensure_buildx selects a docker-container builder that can
-# cross-build (the default "docker" driver cannot).
+proveo_image_ref() {
+  local override="${!1:-}"
+  if [[ -n "$override" ]]; then
+    printf '%s' "$override"
+    return 0
+  fi
+  printf '%s:%s' "$2" "${3:-latest}"
+}
+
+proveo_require_published() {
+  local ref="$1" tag="${2:-latest}"
+  if docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local name="${ref##*/}"
+  name="${name%%:*}"
+  local tagflag=""
+  [[ "$tag" != "latest" ]] && tagflag=" --tag $tag"
+
+  {
+    echo "❌ $ref is not published."
+    echo "   A --push build takes its base from the registry, and this script will"
+    echo "   not publish $ref as a side effect of deploying its child."
+    echo "   Deploying one target whose parents are unpublished is not supported yet."
+    echo "   →  proveo deploy all${tagflag}   — publishes every base before its children"
+    echo "   →  proveo deploy ${name}${tagflag}   — then re-run this target"
+  } >&2
+  return 1
+}
+
+proveo_ref_tag() {
+  local last="${1##*/}"
+  case "$last" in
+    *:*) printf '%s' "${last##*:}" ;;
+    *) printf 'latest' ;;
+  esac
+}
+
+proveo_docker_container_builder() {
+  local builder="${PROVEO_BUILDX_BUILDER:-proveo-multiarch}"
+  if ! proveo_docker_builder_running "$builder"; then
+    echo "🔧 creating buildx builder $builder (docker-container)" >&2
+    docker buildx create --name "$builder" --driver docker-container --bootstrap >/dev/null 2>&1 || true
+  fi
+  printf '%s' "$builder"
+}
+
+proveo_docker_builder_running() {
+  local out
+  out="$(docker buildx inspect "$1" 2>/dev/null)" || true
+  awk 'tolower($1) == "status:" && tolower($2) == "running" { found = 1 }
+       END { exit !found }' <<<"$out"
+}
+
 proveo_docker_ensure_buildx() {
+  local mode="${1:-load}" platforms="${2:-}"
   if ! docker buildx version >/dev/null 2>&1; then
     echo "❌ docker buildx is required for proveo image builds" >&2
     return 1
   fi
-  local builder="${PROVEO_BUILDX_BUILDER:-proveo-multiarch}"
-  if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
-    echo "🔧 creating buildx builder $builder (docker-container)" >&2
-    docker buildx create --name "$builder" --driver docker-container --bootstrap >/dev/null
+
+  if [[ "$mode" == "push" ]]; then
+    proveo_docker_container_builder
+    return 0
   fi
-  docker buildx use "$builder" >/dev/null
+
+  local host_platform
+  host_platform="$(proveo_docker_host_platform)"
+  if [[ -n "$platforms" && "$platforms" != "$host_platform" ]]; then
+    echo "ℹ️  ${platforms} != host ${host_platform}: using the cross-capable container driver." >&2
+    echo "    A locally built parent image is NOT visible to it — base images resolve from the registry." >&2
+    proveo_docker_container_builder
+    return 0
+  fi
+
+  local builder="${PROVEO_BUILDX_LOCAL_BUILDER:-}"
+  if [[ -n "$builder" ]]; then
+    printf '%s' "$builder"
+    return 0
+  fi
+  local candidate
+  while read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    if proveo_docker_builder_running "$candidate"; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done < <(docker buildx ls 2>/dev/null |
+    awk 'NR>1 { line=$0; gsub(/\*/," ",line); n=split(line,f," ");
+                if (n>=2 && f[1]!~/^\\_/ && f[2]=="docker") print f[1] }')
+
+  builder="$(proveo_docker_container_builder)"
+  echo "⚠️  no running docker-driver builder; using $builder — a locally built base image" >&2
+  echo "    will NOT be visible to its dependents (override with PROVEO_BUILDX_LOCAL_BUILDER)" >&2
+  printf '%s' "$builder"
 }
 
 # proveo_docker_build [--push] [args...] runs `docker buildx build` with the
@@ -59,20 +143,23 @@ proveo_docker_build() {
   esac
 
   local platforms="${PROVEO_PLATFORMS:-linux/amd64,linux/arm64}"
-  proveo_docker_ensure_buildx
 
+  local mode="load"
   local -a out_flags
   if [[ "$push" -eq 1 ]]; then
+    mode="push"
     out_flags=(--push)
-    echo "🔨 buildx --platform ${platforms} --push"
   else
     if [[ "$platforms" == *,* ]]; then
       platforms="$(proveo_docker_host_platform)"
       echo "ℹ️  local image load is single-platform; building ${platforms} (PROVEO_DOCKER_PUSH=1 / --push publishes amd64+arm64)" >&2
     fi
     out_flags=(--load)
-    echo "🔨 buildx --platform ${platforms} --load"
   fi
 
-  docker buildx build --platform "$platforms" "${out_flags[@]}" "${docker_args[@]}"
+  local builder
+  builder="$(proveo_docker_ensure_buildx "$mode" "$platforms")" || return 1
+
+  echo "🔨 buildx --builder ${builder} --platform ${platforms} ${out_flags[*]}"
+  docker buildx build --builder "$builder" --platform "$platforms" "${out_flags[@]}" "${docker_args[@]}"
 }
