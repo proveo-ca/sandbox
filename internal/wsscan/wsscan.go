@@ -1,16 +1,6 @@
-// Package wsscan is the one workspace walker: it finds marker files under a
-// scope without descending into dependency trees, so both the DinD gate and the
-// choice prompt's header see the same monorepo-aware answer.
+// Package wsscan finds marker files under a workspace scope.
 //
-// Pruning is belt-and-braces on purpose. Deriving it from .gitignore alone is
-// not safe: gitignore lookup stops at the FIRST file found walking up, so a
-// monorepo scope with its own .gitignore never sees the root's node_modules
-// entry; pattern forms containing / * ? [ are unusable as directory names; and a
-// repo relying on core.excludesFile supplies nothing at all. So a hardcoded deny
-// set always applies, and gitignore names from both the scope and the repo root
-// are added on top.
-//
-// SPEC: _spec/_plans/harness-choice-cache.puml
+// SPEC: _spec/internal/wsscan/workspace-scan.puml, _spec/_plans/harness-choice-cache.puml
 package wsscan
 
 import (
@@ -19,17 +9,10 @@ import (
 	"strings"
 )
 
-// MaxDepth is how deep a scan walks below the scope root.
 const MaxDepth = 7
 
-// DefaultBudget caps how many directory entries a scan examines. The scan runs
-// before the container exists, in front of an operator waiting at a prompt, so a
-// pathological tree must degrade rather than stall.
 const DefaultBudget = 20000
 
-// alwaysPrune are directory names never worth walking, regardless of what any
-// .gitignore says. Dependency and build trees: large, and full of other
-// projects' marker files (an npm package's Dockerfile is not the workspace's).
 var alwaysPrune = map[string]bool{
 	"node_modules": true, ".git": true, "vendor": true, "target": true,
 	"dist": true, "build": true, ".venv": true, "venv": true,
@@ -38,25 +21,19 @@ var alwaysPrune = map[string]bool{
 	".pytest_cache": true, "Pods": true, ".terraform": true,
 }
 
-// Marker is one thing worth finding. Names match a basename exactly; Suffixes
-// match the end of a basename (".go"). A marker is satisfied by either.
 type Marker struct {
 	Label    string
 	Names    []string
 	Suffixes []string
 }
 
-// Result reports which markers were found. Truncated is true when the budget ran
-// out before the walk finished, so the answer may be incomplete.
 type Result struct {
 	Found     map[string]bool
 	Truncated bool
 }
 
-// Has reports whether a label was found.
 func (r Result) Has(label string) bool { return r.Found[label] }
 
-// Labels returns the found labels in the order the markers were declared.
 func (r Result) Labels(markers []Marker) []string {
 	var out []string
 	for _, m := range markers {
@@ -67,10 +44,6 @@ func (r Result) Labels(markers []Marker) []string {
 	return out
 }
 
-// Scan walks scopeDir (bounded by MaxDepth and budget) for the given markers.
-// repoRoot, when non-empty, contributes its .gitignore to the prune set — the
-// case a scope-local .gitignore would otherwise shadow. budget <= 0 uses
-// DefaultBudget.
 func Scan(scopeDir, repoRoot string, markers []Marker, budget int) Result {
 	res := Result{Found: map[string]bool{}}
 	if scopeDir == "" {
@@ -129,7 +102,6 @@ func walk(dir string, depth int, markers []Marker, prune map[string]bool, res *R
 			}
 		}
 	}
-	// Files at every level before descending, so a shallow hit ends the walk early.
 	for _, sd := range subdirs {
 		if allFound(markers, res) || *spent >= budget {
 			if *spent >= budget {
@@ -164,9 +136,6 @@ func allFound(markers []Marker, res *Result) bool {
 	return true
 }
 
-// gitignoreNames returns the plain directory names listed in dir's .gitignore.
-// Patterns containing / * ? [ are skipped: they are not usable as a basename
-// prune, which is exactly why the hardcoded deny set has to exist.
 func gitignoreNames(dir string) map[string]bool {
 	out := map[string]bool{}
 	if dir == "" {

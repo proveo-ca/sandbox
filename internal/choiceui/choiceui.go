@@ -1,10 +1,4 @@
-// Package choiceui renders the one-shot harness choice prompt: the loaded .env
-// above a set of single-select rows, one per axis.
-//
-// It is a radio grid, not a list picker — go-fuzzyfinder (used elsewhere for
-// target/scope selection) can only express a single fuzzy list, so the three
-// axes would become three sequential prompts. tcell is already vendored beneath
-// it, so the grid is a small widget rather than a new dependency.
+// Package choiceui renders the one-shot harness choice prompt.
 //
 // SPEC: _spec/_plans/harness-choice-cache.puml
 package choiceui
@@ -18,49 +12,33 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// Row is one axis. A row whose Options has a single entry is Locked: it renders
-// with its Reason rather than being hidden, so the prompt never misrepresents
-// the choice space (cursor's tiers are fixed, and the operator should see why).
 type Row struct {
 	Label    string
 	Options  []string
 	Selected int
 	Locked   bool
 	Reason   string
-	// Multi makes the row a checkbox set rather than a radio group: add-ons are
-	// independent, so browser and dind can both be on.
-	Multi bool
-	On    []bool
-	// Off disables individual options, per index. A multi row's options can depend
-	// on the rows above it — dind needs an un-intercepted tier — and an option that
-	// would be silently discarded must render as unavailable, not as checkable.
-	Off []bool
+	Multi    bool
+	On       []bool
+	Off      []bool
 }
 
 func (r *Row) offAt(i int) bool { return i < len(r.Off) && r.Off[i] }
 
 func (r *Row) onAt(i int) bool { return i < len(r.On) && r.On[i] }
 
-// Form is the whole prompt: a header block (the loaded .env) over the rows.
 type Form struct {
-	Banner []string
-	Title  string
-	Header []string
-	Rows   []Row
-	// OnChange runs after every selection change so the caller can recompute
-	// cross-row constraints (which add-ons the chosen tier can host). Keeping it a
-	// callback keeps policy in cmd/proveo and out of the widget.
+	Banner   []string
+	Title    string
+	Header   []string
+	Rows     []Row
 	OnChange func(*Form)
 }
 
-// Banner is the shared proveo brand art (internal/ui.BrandBanner) plus its
-// tagline, split into lines for the form. Branding lives in one place: ui owns
-// the art, this only lays it out.
 func Banner() []string {
 	return append(strings.Split(ui.BrandBanner, "\n"), "  "+ui.BrandTagline)
 }
 
-// Selections returns the checked options of a multi row, in option order.
 func (f *Form) Selections(label string) []string {
 	for i := range f.Rows {
 		r := &f.Rows[i]
@@ -78,7 +56,6 @@ func (f *Form) Selections(label string) []string {
 	return nil
 }
 
-// Selection returns the chosen option for a row label, or "".
 func (f *Form) Selection(label string) string {
 	for _, r := range f.Rows {
 		if r.Label == label && r.Selected >= 0 && r.Selected < len(r.Options) {
@@ -88,9 +65,6 @@ func (f *Form) Selection(label string) string {
 	return ""
 }
 
-// Run displays the form and blocks until the operator confirms (enter) or
-// cancels (esc / ctrl-c). It reports confirmed=false on cancel so the caller can
-// abort the run rather than proceed on a guess.
 func (f *Form) Run() (confirmed bool, err error) {
 	screen, err := tcell.NewScreen()
 	if err != nil {
@@ -156,8 +130,6 @@ func (f *Form) firstSelectable() int {
 	return 0
 }
 
-// move walks to the next non-locked row in the given direction, stopping at the
-// ends rather than wrapping (wrapping past a locked row reads as a dead key).
 func (f *Form) move(cursor, delta int) int {
 	for i := cursor + delta; i >= 0 && i < len(f.Rows); i += delta {
 		if !f.Rows[i].Locked {
@@ -186,7 +158,6 @@ func (f *Form) cycle(cursor, delta int) {
 	f.changed()
 }
 
-// toggle flips the highlighted option of a multi row.
 func (f *Form) toggle(cursor int) {
 	if cursor < 0 || cursor >= len(f.Rows) {
 		return
@@ -208,9 +179,6 @@ func (f *Form) changed() {
 	}
 }
 
-// styles maps the identity palette ui owns onto tcell. The colours are never
-// chosen here — only translated — so the form renders in the same six roles as
-// the spec diagrams.
 func styles() (brand, bold, dim tcell.Style) {
 	hex := func(c int) tcell.Color { return tcell.NewHexColor(int32(c)) }
 	return tcell.StyleDefault.Foreground(hex(ui.ColorBrand)).Bold(true),
@@ -268,8 +236,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			default:
 				glyph = "( ) "
 			}
-			// The highlighted option of the focused row is underlined so a multi row
-			// shows WHERE space would land, which a checkbox alone cannot convey.
 			if i == cursor && j == r.Selected {
 				st = st.Underline(true)
 			}
@@ -297,8 +263,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	s.Show()
 }
 
-// EnvHeader renders the loaded .env for display: secrets by NAME ONLY, every
-// other setting as key=value. The split is the caller's — this only formats it.
 func EnvHeader(secretNames []string, settings map[string]string) []string {
 	var out []string
 	if len(secretNames) > 0 {
