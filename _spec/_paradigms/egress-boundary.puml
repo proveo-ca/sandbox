@@ -1,0 +1,64 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Network egress boundary — the three modes, and what makes a dangerous posture acceptable
+
+node "Agent container" as CTR <<host>> {
+  component "agent CLI\n(may run fully autonomous)" as AGENT <<app>>
+}
+
+node "Host-orchestrated sidecars" as SIDE <<host>> {
+  component "proveo-egress\nTLS MITM · credential broker · flow log" as MITM <<app>>
+  component "Squid\nenforcement proxy" as SQUID <<app>>
+  component "Ollama sidecar\n--local-model" as OLLAMA <<app>>
+  component "docker:dind\nsibling daemon (privileged)" as DIND <<error>>
+}
+
+cloud "Pinned model provider" as PROV <<cloud>>
+cloud "Open web (docs, search)" as WEB <<cloud>>
+
+AGENT ARROW_MAIN MITM : **firewall** (default)\nagent trusts the inspector CA
+MITM ARROW_MAIN SQUID
+AGENT ARROW_MAIN SQUID : **proxy** — no TLS inspection
+AGENT ARROW_CLOUD WEB : **broker** — direct bridge\n(container boundary only)
+SQUID ARROW_CLOUD PROV : write-allow: pinned provider only
+SQUID ARROW_CLOUD WEB : read-allow: GET-shaped web
+AGENT ARROW_OPTIONAL OLLAMA : NO_PROXY bypass\n(opencode · cecli)
+AGENT ARROW_OPTIONAL DIND : ""dind:true"" + Dockerfiles in scope\n+ PROVEO_DIND=1
+
+note right of MITM
+  **Two purposes, both network-level:**
+  # //No irreversible action without HITL// — write
+    methods (pushes, publishes) denied except to the
+    model provider; attempts are logged.
+  # //No leaks to cloud providers// — inference egress is
+    pinned to the allowlisted provider auto-detected from
+    the key present, while web reads stay open so the
+    agent can still gather context.
+
+  This is what makes claudecode's
+  ""--dangerously-skip-permissions"" an acceptable posture:
+  the containment is the network, not the agent's manners.
+
+  Method/path policy (read-allow / write-deny / DLP) on
+  this same hop: _spec/internal/egresspolicy/*.puml
+end note
+
+note bottom of OLLAMA
+  **Local-model exceptions.** cursor is vendor-pinned (no
+  custom base URL). claudecode speaks the Anthropic API
+  shape, not Ollama's OpenAI-compatible endpoint, so the
+  sidecar is not a drop-in there.
+end note
+
+note bottom of DIND
+  Only for modes that can expose a daemon without
+  defeating enforcement; otherwise proveo warns and
+  skips. Lifecycle: ""internal/dind"".
+end note
+
+note top of AGENT
+  Mode is selected per run (""proveo run --egress-mode"")
+  for every harness with ""egress: true"" in its manifest.
+  Each run writes a top-allowed / top-denied report.
+end note
+@enduml

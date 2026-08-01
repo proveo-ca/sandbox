@@ -1,0 +1,93 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Model aliases — one vocabulary, four harness dialects
+
+folder "Host" as HOST <<host>> {
+  component "host env  or  host-side .env\nARCHITECT_MODEL · EDITOR_MODEL · SMALL_MODEL\nDARK_MODE · CODE_THEME" as SRC <<host>>
+  component "cmd/proveo run\nforwards entrypoint.ConfigVars by value" as RUN <<app>>
+}
+
+node "Agent container" as CTR <<host>> {
+  component "docker run -e ARCHITECT_MODEL=…" as ENVIN <<app>>
+  component "def entrypoint bridge\n(in-shell, after prep)" as BRIDGE <<app>>
+
+  component "opencode\nOPENCODE_MODEL\nOPENCODE_BUILD_MODEL\nOPENCODE_SMALL_MODEL" as OC <<app>>
+  component "cecli\nCECLI_MODEL · CECLI_EDITOR_MODEL\nCECLI_WEAK_MODEL (+AIDER_* aliases)" as CE <<app>>
+  component "claudecode\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
+  component "cursor\nCURSOR_MODEL" as CU <<app>>
+}
+
+cloud "Ollama sidecar\n--local-model" as OLLAMA <<cloud>>
+
+SRC ARROW_MAIN RUN
+RUN ARROW_MAIN ENVIN : " ""-e NAME=value"" "
+ENVIN ARROW_MAIN BRIDGE
+BRIDGE ARROW_MAIN OC : " ""apply_env_bridges"" \n(normalize → ""provider/model"") "
+BRIDGE ARROW_MAIN CE : bare id
+BRIDGE ARROW_MAIN CC : bare id\n(strip ""provider/"" prefix)
+BRIDGE ARROW_MAIN CU : bare id
+OLLAMA ARROW_CLOUD ENVIN : overrides all three tiers\n(""-e"" applied after Env)
+
+note right of RUN
+  **Why by value, not via .env.**
+  proxy/firewall **mask every dotenv file** under the
+  mounted tree, and the ""input-output"" layout never
+  mounts one — so the documented alias contract silently
+  did nothing in the default egress mode. Forwarding
+  them as non-secret ""-e"" pairs is the only path that
+  survives every mode and layout.
+
+  Secrets are never forwarded this way: they are
+  declared manifest env, brokered, or withheld.
+end note
+
+note bottom of BRIDGE
+  **Every bridge runs in the def's own shell**, because
+  ""proveo-entrypoint prep"" cannot export into its parent
+  (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+
+  Precedence is uniform: an explicit tool-specific value
+  already in the environment always wins, the alias only
+  fills an empty slot, and ""--local-model"" wins over both.
+
+  Tier mapping is **not** uniform — opencode's small slot
+  prefers ""EDITOR_MODEL"" (falling back to ""SMALL_MODEL""),
+  while cecli and claudecode map ""SMALL_MODEL"" directly.
+
+  Each def then prints ""PROVEO_MODELS main=… small=…"" so
+  the resolution is assertable from outside the container.
+end note
+
+note bottom of CU
+  Vendor-pinned: no custom base URL, so ""--local-model""
+  is rejected for cursor.
+end note
+
+note top of SRC
+  **No two agents spell a model the same way**, which is
+  why the aliases exist at all:
+  * opencode — models.dev ids, provider-prefixed
+    (""anthropic/claude-opus-5"")
+  * cecli — litellm ids; local is ""ollama_chat/<model>"",
+    and litellm also accepts two-level
+    ""openrouter/<vendor>/<model>""
+  * claudecode · cursor — **bare** vendor ids
+  * OpenRouter dots its versions where the vendor dashes
+    them; Vertex/Bedrock stamp a date (""@20251101"",
+    ""-20250929"") and Bedrock prefixes ""anthropic.""
+
+  ""proveo run"" sanity-checks a ""*_MODEL"" value against the
+  ids it knows for the resolved provider and **warns, never
+  rejects** — the list lags the vendors, so an unknown id
+  is usually just newer than the binary. It normalizes the
+  variants above before comparing, so a dated or dotted
+  spelling is not mistaken for a typo. Silent when
+  ""--local-model"" is set (the sidecar serves arbitrary ids)
+  and for providers with no list.
+
+  This catches the real failure it was written for: a
+  mistyped tier propagates all the way into the container
+  and 404s on every call with a vendor error that reads
+  like an outage.
+end note
+@enduml

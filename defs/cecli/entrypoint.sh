@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cecli/cecli-topology.puml, _spec/defs/cecli/cecli.paradigm.md
+# SPEC: _spec/defs/cecli/cecli-topology.puml, _spec/defs/cecli/cecli-paradigm.puml
 set -euo pipefail
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -9,7 +9,9 @@ fi
 
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=cecli
-  proveo-entrypoint prep cecli || true
+  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cecli || true
+  set_working_directory "/app"
+  load_env quiet
 else
   ensure_runtime_user
   set_working_directory "/app"
@@ -101,25 +103,6 @@ fi
 
 seed_cecli_subagents
 
-# ── Seed Serena MCP (code intelligence; cecli has no native LSP) ──
-# cecli is an aider fork and reads ~/.cecli.conf.yml (home) alongside a project
-# .cecli.conf.yml, so the Serena MCP server is declared at HOME without touching
-# the mounted repo. Only when serena is installed and no config already declares
-# mcp-servers.
-seed_cecli_serena_mcp() {
-  command -v serena >/dev/null 2>&1 || return 0
-  local home_conf="$HOME/.cecli.conf.yml"
-  [[ -f "$home_conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$home_conf" && return 0
-  cat >> "$home_conf" <<'YAML'
-mcp-servers:
-  mcpServers:
-    serena:
-      command: serena
-      args: [start-mcp-server, --context, ide-assistant, --project, /app]
-YAML
-  echo "🧠 Serena MCP (code intelligence) wired in $home_conf"
-}
-seed_cecli_serena_mcp
 
 if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
   CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"max_sub_agents\":3,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
@@ -178,6 +161,9 @@ fi
 if [[ -n "${CECLI_CODE_THEME:-}" ]]; then
   echo "code theme:         $CECLI_CODE_THEME"
 fi
+
+printf 'PROVEO_MODELS main=%s small=%s\n' \
+  "${CECLI_MODEL:-unset}" "${CECLI_WEAK_MODEL:-unset}"
 
 echo "── Configuration Check ──────────────────────────────"
 if [[ -f .cecli.config.yml ]]; then

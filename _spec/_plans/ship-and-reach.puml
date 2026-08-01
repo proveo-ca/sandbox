@@ -1,0 +1,49 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLANNED — ship the built work, then reach
+
+component "**Now — ship what exists**" as NOW <<app>>
+component "**Later — reach & polish**" as LATER <<app>>
+component "**Horizon — isolation substrate**" as HZ <<cloud>>
+
+NOW ARROW_MAIN LATER
+LATER ARROW_OPTIONAL HZ
+
+note right of NOW
+  * ""mise deploy-cli"" — publish the CLI carrying the
+    capability picker, cursor broker-default, local-model
+    wiring, host-GPU / ""--gpus"" routing
+  * ""mise deploy"" the images — ""base-node-browser"" and the
+    ""-browser"" variants are unpublished
+  * unblock the macOS keychain
+    (""docker-credential-osxkeychain -50"") so registry
+    push/pull auth works again
+  //Outcome:// ""curl … | bash"" installs the current CLI and
+  the browser variants are pullable.
+end note
+
+note right of LATER
+  * **cursor under enforced egress** — decrypt
+    cursor-agent's TLS to its backend so firewall can
+    broker it, or document the broker-only limitation as
+    permanent
+  * ""PROVEO_EGRESS_INSPECTOR"" — attach the firewall
+    inspector to any harness, reusing the sidecar / log /
+    dashboard pipeline
+  * publish the **egress-dashboard** build and smoke it
+    against a recorded ""flows.ndjson""
+  * record the live hero gif (""vhs _spec/_assets/hero.tape"")
+    once the host toolchain is unbroken, replacing the
+    hand-built asset
+end note
+
+note bottom of HZ
+  Docker Sandboxes could collapse most of the bespoke
+  isolation stack — and is where claudecode's container
+  story now lives, rather than DinD. Open questions
+  (platform gating, the DLP content-scan gap, pre-GA
+  status, and whether adoption reframes proveo as Kits on
+  ""sbx"") are mapped in
+  _spec/_experiments/docker-sandbox.puml
+end note
+@enduml

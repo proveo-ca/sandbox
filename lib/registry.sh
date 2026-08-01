@@ -84,7 +84,6 @@ debug_target() {
   shift 2
   local -a extra_args=("$@")
   local run_t="$target"
-  [[ "$target" == "claudecode-sol" ]] && run_t="claudecode-solo"
 
   local -a args=(run "$run_t" --shell)
   if [[ -n "$tag" && "$tag" != "latest" ]]; then

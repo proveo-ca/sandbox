@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "spec": {
+      "source": "proveo-ca/spec",
+      "sourceType": "github",
+      "skillPath": "skills/spec/SKILL.md",
+      "computedHash": "55f67690acb6ba776294bb66a7d763e16767a9f0a3ddaa867c3dd754d1367d1b"
+    }
+  }
+}

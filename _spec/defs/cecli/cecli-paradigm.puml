@@ -1,0 +1,54 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title cecli paradigm — pair-programming specialist (precise, low-token, human-guided)
+
+actor "Developer\nsupplies exact references" as DEV
+
+node "cecli container" as CTR <<host>> {
+  component "defs/cecli/entrypoint.sh" as EP <<app>>
+  component "cecli (aider fork, Python/litellm)" as CLI <<app>>
+  folder "seeded subagents\n$CECLI_HOME/agents" as SUB <<app>>
+  component "Serena MCP\ncode intelligence (no native LSP)" as MCP <<app>>
+  database "/app — repo (rw)\n.git root ro · /app/output rw" as WS <<db>>
+  artifact "CONVENTIONS.md" as CONV <<db>>
+}
+
+DEV ARROW_MAIN CLI : named files + functions
+EP ARROW_MAIN CLI : " ""CECLI_MODEL"" · ""CECLI_EDITOR_MODEL"" \n""CECLI_WEAK_MODEL"" (+ AIDER_* aliases) "
+EP ARROW_MAIN SUB : seed missing only\n(""CECLI_RESEED=1"" forces)
+EP ARROW_OPTIONAL MCP : wire when ""serena"" is installed
+EP ARROW_OPTIONAL CONV : seed when absent
+CLI ARROW_MAIN WS : small, deliberate edits
+CLI ARROW_OPTIONAL SUB : adversarial review · debugging · spec review
+
+note right of CLI
+  **Working mode.** Prefer reading named files and
+  functions over broad inference; keep token consumption
+  minimal; favor small deliberate edits. The agent does
+  not autonomously explore the whole repo — the human
+  supplies the references.
+
+  **Posture:** conservative. No blanket dangerous flag;
+  ""skip_cli_confirmations"" stays false.
+end note
+
+note bottom of EP
+  Shared entrypoint contract (see
+  _spec/packages/lib/steps.puml and
+  _spec/cmd/proveo-entrypoint/prep-process-boundary.puml):
+  non-root any-uid, in-shell ""load_env"" + model bridge,
+  git identity bridge + context report, verification
+  command discovery, smoke-test mode.
+
+  cecli resolves commit identity through
+  ""git config --get"", so the config-env bridge is what
+  stops it seeding placeholder identity into the repo.
+end note
+
+note bottom of WS
+  ""gitMode: ro"" — the root ""\.git"" is mounted read-only in
+  the monorepo-subdir case; project state stays under
+  ""/app/.cecli"" while home config persists in
+  ""~/.proveo/.cecli"".
+end note
+@enduml

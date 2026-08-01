@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Thin shim → proveo run.
-# SPEC: _spec/usage.puml, _spec/components.puml
+# SPEC: _spec/cmd/proveo/usage.puml, _spec/components.puml
 set -euo pipefail
 
 if [[ -z "${PROVEO_BIN:-}" ]]; then

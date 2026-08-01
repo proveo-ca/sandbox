@@ -1,0 +1,51 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Proveo home lifecycle — scrub, mount, resume
+
+participant "cmd/proveo\nrun" as RUN <<app>>
+participant "internal/manifest\nHome{enabled,mounts}" as MAN <<app>>
+participant "internal/proveohome" as PH <<app>>
+database "~/.proveo\n(host)" as ROOT <<db>>
+participant "internal/runner\nDockerRunArgs" as ARGV <<app>>
+participant "agent container" as CTR <<host>>
+
+== resolve ==
+RUN ARROW_MAIN MAN : read def manifest
+MAN ARROW_MAIN PH : " ""Prepare(h, os.Getenv)"" "
+PH ARROW_OPTIONAL PH : " ""Active()"" == false → empty Plan\n(harness opts out) "
+PH ARROW_MAIN ROOT : " ""Root(getenv)"" = ""$PROVEO_HOME"" \nelse ""$HOME/.proveo"" "
+
+== harden (before the bind exists) ==
+loop each home.mounts[]
+  PH ARROW_MAIN ROOT : " ""MkdirAll(root/host, 0700)"" "
+  PH ARROW_ERROR ROOT : " ""scrubDeny(host, deny)"" " \n errorLabel(login tokens removed)
+end
+
+== run ==
+PH ARROW_MAIN RUN : Plan{Root, Mounts, Env}
+RUN ARROW_MAIN ARGV : append mounts + ""HOME=/proveo-home""
+ARGV ARROW_MAIN CTR : " ""docker run --rm -v …:/proveo-home"" "
+CTR ARROW_MAIN ROOT : agent writes sessions/config
+CTR ARROW_ERROR CTR : container exits (""--rm"")
+ROOT ARROW_MAIN ROOT : successLabel(state survives)
+
+== resume ==
+RUN ARROW_OPTIONAL PH : " ""ResumeArgs(target, id, cont, list)"" "
+PH ARROW_OPTIONAL RUN : harness-specific argv\n(mutually exclusive flags rejected)
+RUN ARROW_OPTIONAL CTR : agent re-attaches to the\nsession it left in ~/.proveo
+
+note over PH, ROOT
+  **Ordering is the guarantee.** The scrub runs while the
+  directory is still host-only; by the time the agent can
+  write to ""/proveo-home"" the deny-listed files are gone.
+  Scrubbing after the bind would race the agent.
+end note
+
+note over RUN
+  ""ResumeArgs"" maps one proveo surface onto four CLIs:
+  ""--resume <id>"" · ""--continue"" · ""--ls"" → the family
+  form for cursor / claudecode / opencode (cecli keeps
+  project state in ""/app/.cecli"", home conf only).
+  Passing two of the three is an error, not a precedence rule.
+end note
+@enduml

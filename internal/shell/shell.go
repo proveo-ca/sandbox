@@ -2,6 +2,7 @@
 // tested replacement for the unparsed registry/shells.yaml. It captures the real
 // per-shell differences (fish's `set -gx` vs POSIX `export`, and bash's
 // macOS .bash_profile vs Linux .bashrc) so `proveo setup` can self-install.
+// SPEC: _spec/internal/shell/setup-path.puml
 package shell
 
 import (

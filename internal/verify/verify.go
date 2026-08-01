@@ -1,7 +1,7 @@
 // Package verify discovers project verification commands (test/lint/build/…).
 // It replaces defs/lib/detect-verify.sh as the single source of truth.
 //
-// SPEC: _spec/defs/cursor/cursor.paradigm.md
+// SPEC: _spec/internal/verify/verification-discovery.puml, _spec/defs/cursor/cursor-paradigm.puml
 package verify
 
 import (

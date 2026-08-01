@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Thin shim → proveo run. Fat docker/egress/dind logic lives in Go.
-# SPEC: _spec/usage.puml, _spec/components.puml, _spec/defs/cursor/cursor.paradigm.md
+# SPEC: _spec/cmd/proveo/usage.puml, _spec/components.puml, _spec/defs/cursor/cursor-paradigm.puml
 set -euo pipefail
 
 if [[ -z "${PROVEO_BIN:-}" ]]; then

@@ -1,4 +1,4 @@
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml
 ARG BASE_IMAGE=proveo/base:latest
 
 # ── LSP tooling builder ────────────────────────────────────

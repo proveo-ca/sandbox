@@ -1,0 +1,54 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title The four harness paradigms — intended working mode per def
+
+component "claudecode\n**ML blackbox algorithm**\nspec → plan → implement → verify → loop" as CC <<app>>
+component "cursor\n**Policy-gated blackbox**\nsame autonomous loop, bounded by\nnative deny rules + root-owned hooks" as CU <<app>>
+component "opencode\n**Subagent crew**\nsoftware team with HITL oversight" as OC <<app>>
+component "cecli\n**Pair-programming sniper**\nprecise, low-token, human-guided" as CE <<app>>
+
+note bottom of CC
+  Steering: ""CLAUDE.md""
+  Posture: ""--dangerously-skip-permissions"" (intentional —
+  made acceptable by the egress boundary, not by
+  in-container restraint)
+  Detail: _spec/defs/claudecode/claudecode-paradigm.puml
+end note
+
+note bottom of CU
+  Steering: "".cursor/rules/*.mdc"", ""cli-config.json"", ""hooks.json""
+  Posture: ""--force"", but deny rules and enterprise hooks
+  still win — the boundary is layered, not bypassed
+  Detail: _spec/defs/cursor/cursor-paradigm.puml
+end note
+
+note bottom of OC
+  Steering: ""AGENTS.md"" + seeded subagents
+  Posture: role-based; reviewers read-only
+  Detail: _spec/defs/opencode/opencode-paradigm.puml
+end note
+
+note bottom of CE
+  Steering: ""CONVENTIONS.md"" + "".cecli.conf.yml""
+  Posture: conservative; no blanket dangerous flag
+  Detail: _spec/defs/cecli/cecli-paradigm.puml
+end note
+
+note top of CC
+  **Why paradigms are specified at all.** Entrypoints,
+  seeded configs and steering files are optimized per
+  harness. A change to any def must preserve its paradigm
+  — otherwise the defaults drift into a fifth, unstated
+  mode that no diagram describes.
+
+  What they **share** is the containment model, not the
+  permission posture: same runtime-user boundary, same
+  git-identity flow, same egress + credential boundary.
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+CC -right[hidden]- CU
+OC -right[hidden]- CE
+CC -down[hidden]- OC
+' --- END IGNORE ---
+@enduml

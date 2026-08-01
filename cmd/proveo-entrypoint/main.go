@@ -3,7 +3,7 @@
 //	proveo-entrypoint prep [smoke-target]   # setup only; exit 0 (or sleep if smoke)
 //	proveo-entrypoint <smoke-target> -- <cmd> [args...]  # setup then exec
 //
-// SPEC: _spec/paradigms.md, _spec/components.puml
+// SPEC: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/cmd/proveo-entrypoint/prep-sequence.puml, _spec/_paradigms/harness-paradigms.puml
 package main
 
 import (

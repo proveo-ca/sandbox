@@ -37,10 +37,16 @@ assert_output_contains \
   '"/workspace"'
 
 assert_output_contains \
-  '[standalone] allowedTools includes wildcard' \
+  '[claudecode] permissions.allow pre-authorizes Bash' \
   "$IMAGE" \
   "cat /home/claude/.claude.json" \
-  '"*"'
+  '"Bash"'
+
+assert_output_contains \
+  '[claudecode] permissions.allow pre-authorizes MCP tools' \
+  "$IMAGE" \
+  "cat /home/claude/.claude.json" \
+  '"mcp__*"'
 
 assert_output_contains \
   "[standalone] hasCompletedOnboarding=true" \

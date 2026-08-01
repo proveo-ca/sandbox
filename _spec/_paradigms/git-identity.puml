@@ -1,0 +1,52 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Git identity & context — commits attributable, no host gitconfig mounted
+
+node "Host" as HOST <<host>> {
+  component "internal/gitidentity\nResolve(getenv, …) → EnvPairs" as GID <<app>>
+  database "explicit GIT_AUTHOR_* env\n(else host ""git config"")" as SRC <<db>>
+  folder "~/.gitconfig" as HOSTCFG <<error>>
+}
+
+node "Agent container" as CTR <<host>> {
+  component "docker run -e GIT_AUTHOR_NAME …\n-e GIT_COMMITTER_EMAIL …" as ENVIN <<app>>
+  component "bridge_git_identity\n→ GIT_CONFIG_KEY_n / VALUE_n / COUNT" as BRIDGE <<app>>
+  component "report_git_context\nrepo? · origin? · identity? · gh auth?" as REPORT <<app>>
+  component "git / gh (baked in every image)" as GIT <<app>>
+  database "repo-local .git/config" as LOCAL <<db>>
+}
+
+SRC ARROW_MAIN GID
+GID ARROW_MAIN ENVIN : bare ""-e NAME"" pairs
+HOSTCFG ARROW_ERROR CTR : errorLabel(never mounted)
+ENVIN ARROW_MAIN BRIDGE
+BRIDGE ARROW_MAIN GIT : " ""git config --get user.name"" resolves\nfile-free "
+LOCAL ARROW_MAIN GIT : repo-local identity stays authoritative
+BRIDGE ARROW_MAIN REPORT
+REPORT ARROW_MAIN CTR : startup preamble
+
+note right of BRIDGE
+  **Why config-env, not a written file.** Writing a
+  ""~/.gitconfig"" inside the container would (a) need a
+  home the arbitrary uid owns and (b) leave a file the
+  agent can rewrite. ""GIT_CONFIG_KEY_n"" / ""_VALUE_n"" +
+  ""GIT_CONFIG_COUNT"" injects the same values for the
+  process tree only.
+
+  The bridge is **additive and non-overriding**: it only
+  sets keys ""git config --get"" cannot already resolve, so
+  a repo that pins its own identity keeps it.
+
+  Like every other env-shaped step, this must run in the
+  def's shell — ""prep"" cannot export it
+  (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+end note
+
+note bottom of REPORT
+  The preamble states plainly whether this is a tracked
+  repo, whether a remote exists, whose identity commits
+  will carry, and whether ""gh"" is authenticated — so an
+  agent about to commit or push is never guessing, and a
+  human reading the transcript can attribute the work.
+end note
+@enduml

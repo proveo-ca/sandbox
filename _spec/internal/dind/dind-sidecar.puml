@@ -1,0 +1,54 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title DinD sidecar — four gates, and why it is broker-mode only
+
+node "Agent container" as CTR <<host>> {
+  component "docker static client\n(non-setuid, /usr/local/bin/docker)" as CLI <<app>>
+}
+
+component "docker:dind sibling\nprivileged" as DIND <<error>>
+component "internal/dind\nModeSupported · ScopeHasDockerfiles\nEnvEnabled · ShouldStart" as GATE <<app>>
+
+folder "Gates — all four must pass" as G <<host>> {
+  component "1. manifest ""dind: true""\ncecli · opencode · cursor" as G1 <<app>>
+  component "2. ""--egress-mode broker""\nthe ONLY supported mode" as G2 <<app>>
+  component "3. a Dockerfile/compose in scope" as G3 <<app>>
+  component "4. ""PROVEO_DIND=1"" or an interactive yes" as G4 <<app>>
+}
+
+CLI ARROW_MAIN GATE
+GATE ARROW_MAIN G
+G ARROW_QUEUE DIND : attach as ""docker"" on the agent network
+CLI ARROW_MAIN DIND : ""DOCKER_HOST=tcp://docker:2375""
+
+note right of G2
+  **Why broker only.** proxy/firewall put a Squid allowlist
+  and a TLS-inspecting MITM between the agent and the
+  internet. A reachable Docker daemon defeats both: the
+  agent can run a container that bypasses the proxy env,
+  so proveo refuses to attach one and warns if
+  ""PROVEO_DIND"" was set in those modes.
+end note
+
+note bottom of DIND
+  **The one deliberately unhardened component.** Privileged
+  by construction, so an agent that reaches it can
+  ""docker run -v /:/host --privileged"" and read host paths
+  the sandbox intentionally did not mount. That is the
+  whole reason the gates are narrow and the opt-in
+  explicit.
+
+  claudecode stays out on purpose — its permission posture
+  depends on the boundary broker mode removes. Its
+  container story is the per-sandbox engine in
+  _spec/_experiments/docker-sandbox.puml
+end note
+
+note bottom of CLI
+  Shipping the client grants **nothing** on its own — it is
+  an inert binary until all four gates pass. Each capable
+  def installs the same pinned static build (+36 MB);
+  hoisting it into ""proveo/base"" would collapse those
+  copies and the duplicated version pin into one layer.
+end note
+@enduml

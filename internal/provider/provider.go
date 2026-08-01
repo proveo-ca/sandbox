@@ -135,6 +135,20 @@ func ACLBody(name string) (string, bool) {
 	return e.ACL, true
 }
 
+func DetectVars() []string {
+	seen := map[string]bool{}
+	var out []string
+	for i := range entries {
+		for _, v := range entries[i].Detect {
+			if !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
 // KeyVars returns every broker secret env-var name (injectable providers only),
 // so the host side can dump exactly those into the broker's secret env-file.
 func KeyVars() []string {

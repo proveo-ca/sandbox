@@ -9,9 +9,8 @@ stability: candidate
 images:
   claudecode: proveo/claudecode:latest
   claudecode-browser: proveo/claudecode-browser:latest
-  claudecode-solo: proveo/claudecode-solo:latest
   # mcp + Solidity/security toolchain (Foundry, solc, solhint, semgrep)
-  claudecode-sol: proveo/claudecode-sol:latest
+  claudecode-solidity: proveo/claudecode-solidity:latest
 workspace:
   layout: input-output
 home:

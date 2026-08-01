@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/testing.md — credential-forwarding integrity (egress layer).
+// SPEC: _spec/tests/testing-strategy.puml — credential-forwarding integrity (egress layer).
 
 package e2e
 

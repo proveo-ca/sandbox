@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -10,7 +10,9 @@ fi
 # Shared prelude (uid, .env, bridges, git, sentinel) via Go entrypoint when baked.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=cursor
-  proveo-entrypoint prep cursor || true
+  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
+  set_working_directory "/app"
+  load_env quiet
 else
   ensure_runtime_user
   set_working_directory "/app"

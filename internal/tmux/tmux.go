@@ -1,7 +1,7 @@
-// SPEC: _spec/testing.md
+// SPEC: _spec/tests/testing-strategy.puml
 //
 // Package tmux is a headless driver for interactive terminal programs — the
-// reusable surface for agent-E2E tests (see _spec/testing.md). `tmux
+// reusable surface for agent-E2E tests (see _spec/tests/testing-strategy.puml). `tmux
 // new-session -d` gives a detached PTY (no attached terminal needed), so a
 // Dockerized `docker run -it` TUI can be launched, driven with send-keys, and
 // observed with capture-pane, in CI. The runner is injectable so the wait/
@@ -73,6 +73,13 @@ func (s *Session) SendKeys(keys ...string) error {
 // Capture returns the current rendered pane content.
 func (s *Session) Capture() (string, error) {
 	return s.run("capture-pane", "-p", "-t", s.Name)
+}
+
+// CaptureAll returns the pane content INCLUDING scrollback (`-S -`). A harness
+// preamble scrolls off the visible pane as the agent works, so assertions about
+// what the entrypoint printed at boot must read the history, not Capture().
+func (s *Session) CaptureAll() (string, error) {
+	return s.run("capture-pane", "-p", "-S", "-", "-t", s.Name)
 }
 
 // WaitFor polls Capture until it contains substr, returning the matching

@@ -43,7 +43,7 @@ for image in $(images_to_test); do
   done
 done
 
-SOL_IMAGE="${SOL_IMAGE:-proveo/claudecode-sol:latest}"
+SOL_IMAGE="${SOL_IMAGE:-proveo/claudecode-solidity:latest}"
 if docker image inspect "$SOL_IMAGE" >/dev/null 2>&1; then
   for tool_entry in "${TOOLS[@]}" "${SOL_TOOLS[@]}"; do
     IFS=':' read -r name cmd <<< "$tool_entry"

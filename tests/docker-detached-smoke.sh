@@ -9,7 +9,6 @@ TARGETS=(
   "cecli|proveo/cecli:latest"
   "mitmproxy|proveo/mitmproxy:latest"
   "claudecode|proveo/claudecode:latest"
-  "claudecode-solo|proveo/claudecode-solo:latest"
   "opencode|proveo/opencode:latest"
 )
 
@@ -127,7 +126,7 @@ run_target_smoke() {
     cecli|opencode)
       docker_args+=(-v "$workspace:/app" -w /app)
       ;;
-    claudecode|claudecode-solo)
+    claudecode)
       docker_args+=(-v "$workspace:/workspace/input")
       ;;
   esac

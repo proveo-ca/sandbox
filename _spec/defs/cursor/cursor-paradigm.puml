@@ -1,0 +1,70 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title cursor paradigm — policy-gated autonomous loop (layered enforcement)
+
+actor "Developer" as DEV
+
+node "cursor container" as CTR <<host>> {
+  component "defs/cursor/entrypoint.sh" as EP <<app>>
+  component "cursor-agent --force" as CLI <<app>>
+
+  frame "Layer 1 — in-process policy" as L1 <<host>> {
+    component "permissions.deny\ncli-config.json" as DENY <<error>>
+    component "hooks.json\nallow / deny / ask on tool events" as HOOKS <<error>>
+    component "subagents with native readonly" as RO <<app>>
+  }
+
+  database "/app — repo" as WS <<db>>
+}
+
+node "Layer 2 — container + egress" as L2 <<host>> {
+  component "hardened container\ncap-drop · no-new-privileges · pids-limit" as SBX <<app>>
+  component "broker egress\n(vendor-pinned inference)" as EG <<app>>
+}
+
+cloud "api2.cursor.sh\npinned TLS" as VENDOR <<cloud>>
+
+DEV ARROW_MAIN CLI
+CLI ARROW_MAIN DENY : every tool call evaluated
+DENY ARROW_ERROR CLI : errorLabel(deny wins over --force)
+CLI ARROW_MAIN HOOKS
+HOOKS ARROW_ERROR CLI : errorLabel(root-owned — out-ranks the agent)
+CLI ARROW_MAIN WS
+CTR ARROW_MAIN SBX
+SBX ARROW_CLOUD VENDOR : via EG
+
+note right of L1
+  **Enforcement is layered, and ""--force"" only removes
+  the interactive prompt.** ""permissions.deny"" entries are
+  hard stops; the enterprise hook layer is root-owned at
+  ""/etc/cursor/hooks.json"" — highest precedence
+  (enterprise > team > project > user), so the sandboxed
+  agent can neither edit nor out-rank it.
+
+  The harness never trusts prompt-level compliance where
+  a structural control exists.
+end note
+
+note bottom of L2
+  Cursor's own OS sandbox (Landlock/seccomp) is disabled
+  inside the container — Docker is the boundary.
+end note
+
+note bottom of VENDOR
+  **Vendor-pinned inference.** No custom base URL, so
+  ""--local-model"" is rejected. Its TLS is not
+  MITM-brokerable either: firewall/proxy hand the agent a
+  sentinel it cannot use, so cursor defaults to **broker**
+  mode, which forwards the real ""CURSOR_API_KEY"".
+  The provider pin maps that key to "".cursor.sh"" /
+  "".cursor.com"".
+end note
+
+note bottom of EP
+  Seeds user-level config into ""${CURSOR_CONFIG_DIR:-$HOME/.cursor}""
+  from baked defaults, never mutating the mounted
+  workspace; detects a proxied environment and sets
+  ""useHttp1ForAgent"" (agent traffic is HTTP/2 streaming by
+  default, which the proxy hop cannot carry).
+end note
+@enduml

@@ -1,0 +1,61 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Proveo home — durable session state without binding host IDE homes
+
+actor "Developer" as DEV
+
+node "Host" as HOST <<host>> {
+  folder "PROVEO_HOME\n~/.proveo (0700)" as ROOT <<host>>
+  database "cursor/.cursor\nclaudecode/.claude\nopencode/{config,share}\ncecli/.cecli" as STATE <<db>>
+  component "internal/proveohome\nRoot · Prepare · ResumeArgs" as PH <<app>>
+  component "internal/runner\ndocker argv" as RUN <<app>>
+  folder "Host IDE homes\n~/.cursor · ~/.claude" as IDE <<error>>
+}
+
+node "Agent container (--rm)" as CTR <<host>> {
+  component "HOME=/proveo-home" as CHOME <<app>>
+  component "agent CLI\nwrites session transcripts" as AGENT <<app>>
+}
+
+DEV ARROW_MAIN PH : " ""proveo run <target>"" "
+PH ARROW_MAIN ROOT : mkdir 0700 per\n""home.mounts[].host""
+PH ARROW_ERROR STATE : scrub ""home.mounts[].deny""\nbefore every run
+ROOT ARROW_MAIN STATE
+PH ARROW_MAIN RUN : Plan{Mounts, Env}
+RUN ARROW_MAIN CHOME : " ""-v $PROVEO_HOME:/proveo-home"" \n ""-e HOME=/proveo-home"" "
+CHOME ARROW_MAIN AGENT
+AGENT ARROW_MAIN STATE : sessions persist\npast container exit
+PH ARROW_ERROR IDE : never mounted
+
+note right of PH
+  **Why a proveo-owned home**
+  Container is ""--rm"": without a durable mount every
+  session, auth cache and seeded config dies with it.
+  Binding the host IDE home instead would expose the
+  developer's real credentials to an autonomous agent.
+
+  **The scrub is a security control**
+  ""home.mounts[].deny"" lists auth basenames (e.g.
+  ""auth.json"") removed from the host dir *before* the
+  bind. A login token minted inside one sandbox cannot
+  accumulate in the durable cache and be reused by the
+  next run. Basenames only — path separators and
+  ""."" / "".."" are ignored, so a manifest cannot escape
+  its own subdir.
+
+  **Fixed container path**
+  ""ContainerHome = /proveo-home"" — the agent runs as an
+  arbitrary host uid, so HOME must not depend on the
+  image's baked passwd entry.
+end note
+
+note bottom of STATE
+  Reclaimed only by ""proveo clean --homes"".
+  Routine ""proveo clean"" leaves this tree alone —
+  see _spec/internal/clean/clean-lifecycle.puml
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+HOST -down[hidden]- CTR
+' --- END IGNORE ---
+@enduml

@@ -67,6 +67,7 @@ Thumbs.db
 .copilot*
 .opencode/
 .claude/
+.agents/
 
 # --- Sample monorepo (self-contained for testing) ---
 !tests/e2e/samples/

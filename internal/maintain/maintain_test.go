@@ -11,9 +11,8 @@ func TestRegistry(t *testing.T) {
 	t.Parallel()
 	ms := []manifest.Manifest{
 		{Name: "claudecode", Dir: "/d/claudecode", Images: map[string]string{
-			"claudecode":      "proveo/claudecode:latest",
-			"claudecode-solo": "proveo/claudecode-solo:latest",
-			"claudecode-sol":  "proveo/claudecode-sol:latest",
+			"claudecode":          "proveo/claudecode:latest",
+			"claudecode-solidity": "proveo/claudecode-solidity:latest",
 		}},
 		{Name: "cecli", Dir: "/d/cecli", Images: map[string]string{
 			"cecli":      "proveo/cecli:latest",
@@ -26,7 +25,7 @@ func TestRegistry(t *testing.T) {
 	// Stable order: base, harness (sorted), then the sidecars last.
 	wantOrder := []string{
 		"base", "base-node", "base-node-lsp", "base-node-browser", "cecli", "cecli-node", "claudecode",
-		"claudecode-sol", "claudecode-solo", "egress-proxy", "mitmproxy",
+		"claudecode-solidity", "egress-proxy", "mitmproxy",
 	}
 	if len(got) != len(wantOrder) {
 		t.Fatalf("got %d targets, want %d: %+v", len(got), len(wantOrder), got)
@@ -48,8 +47,7 @@ func TestRegistry(t *testing.T) {
 		{"cecli", KindHarness, "proveo/cecli", "/d/cecli"},
 		{"cecli-node", KindHarness, "proveo/cecli-node", "/d/cecli"}, // shares cecli's def dir
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},
-		{"claudecode-sol", KindHarness, "proveo/claudecode-sol", "/d/claudecode"},
-		{"claudecode-solo", KindHarness, "proveo/claudecode-solo", "/d/claudecode"},
+		{"claudecode-solidity", KindHarness, "proveo/claudecode-solidity", "/d/claudecode"},
 		{"egress-proxy", KindSidecar, "proveo/egress-proxy", "/d/sidecars/egress-proxy"},
 		{"mitmproxy", KindSidecar, "proveo/mitmproxy", "/d/sidecars/mitmproxy"},
 	} {
@@ -65,11 +63,8 @@ func TestRegistry(t *testing.T) {
 	if got := byName["claudecode"]; strings.Join(got.BuildArgs, " ") != "--variant mcp" || got.BuildScript != "/d/claudecode/build.sh" {
 		t.Errorf("claudecode recipe = args:%v script:%s", got.BuildArgs, got.BuildScript)
 	}
-	if got := byName["claudecode-solo"]; strings.Join(got.BuildArgs, " ") != "--variant solo" {
-		t.Errorf("claudecode-solo args = %v, want --variant solo", got.BuildArgs)
-	}
-	if got := byName["claudecode-sol"]; strings.Join(got.BuildArgs, " ") != "--variant sol" {
-		t.Errorf("claudecode-sol args = %v, want --variant sol", got.BuildArgs)
+	if got := byName["claudecode-solidity"]; strings.Join(got.BuildArgs, " ") != "--variant solidity" {
+		t.Errorf("claudecode-solidity args = %v, want --variant solidity", got.BuildArgs)
 	}
 	if got := byName["cursor"]; len(got.BuildArgs) != 0 {
 		t.Errorf("cursor should have no variant args, got %v", got.BuildArgs)

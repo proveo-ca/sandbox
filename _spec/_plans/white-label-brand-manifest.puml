@@ -1,0 +1,76 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLANNED — white-labelling via a brand manifest (not implemented)
+
+database "brand.env\nsingle source of truth" as BRAND <<db>>
+
+component "BRAND_NAME  'Proveo'\nhuman-facing: dashboard title, banners, logo alt" as N1 <<app>>
+component "BRAND_SLUG  'proveo'\nenv prefix · fn namespace · /opt/<slug> base" as N2 <<app>>
+component "BRAND_IMAGE_ORG  'proveo'\ndocker org" as N3 <<app>>
+component "BRAND_ASSET_BASE_URL\ninstaller + CDN asset root" as N4 <<app>>
+component "BRAND_IDENTITY_PUML\ndiagram theme include URL" as N5 <<app>>
+
+frame "Consumption — two layers" as CONSUME <<host>> {
+  component "**Build-time templating**\nDockerfiles + baked paths resolve at build.sh;\nthe image ships already-branded" as BUILDTIME <<app>>
+  component "**Runtime indirection**\nimage org · asset/install URLs · dashboard title\nlogo · puml include read from brand.env" as RUNTIME <<app>>
+}
+
+frame "Staged by mechanical difficulty" as STAGES <<host>> {
+  component "**A — variables** (immediate)\ndashboard title · ASCII logo (dedupe to one source)\nimage-org default · install.sh + README asset URLs\nwrangler.toml name · puml include" as SA <<app>>
+  component "**B — build-time paths**\n/opt/proveo → /opt/${BRAND_SLUG}\nin Dockerfiles + entrypoints" as SB <<app>>
+  component "**C — env prefix + fn namespace**\nscripted rename PROVEO_ → ${SLUG^^}_ ,\nproveo_ → ${SLUG}_ , with a compat shim\nreading legacy PROVEO_* for one release" as SC <<error>>
+  component "**D — de-personalize**\nmove the 'Address me as Executor' directive out of\nthe reusable CONVENTIONS.md / AGENTS.md template\ninto a local-only override" as SD <<app>>
+}
+
+component "brand.sh apply  /  make rebrand\nregenerates templated files + a test asserting no\nresidual hardcoded token outside brand.env" as APPLY <<app>>
+
+BRAND ARROW_MAIN N1
+BRAND ARROW_MAIN N2
+BRAND ARROW_MAIN N3
+BRAND ARROW_MAIN N4
+BRAND ARROW_MAIN N5
+BRAND ARROW_MAIN CONSUME
+CONSUME ARROW_MAIN STAGES
+SA ARROW_MAIN SB
+SB ARROW_MAIN SC
+SC ARROW_MAIN SD
+STAGES ARROW_MAIN APPLY
+
+note top of BRAND
+  **Status: PLANNED — no code exists.** This is the one
+  unshipped design carried over from the retired
+  ""plans/"" directory; every other plan there was applied
+  and its design now lives in the diagrams beside this one.
+
+  Imported paradigm: the identity repo already models the
+  discipline — diagrams pull identity from **one** upstream
+  include, so changing it once updates everything. This
+  generalizes that from diagrams to the whole product.
+end note
+
+note bottom of SC
+  **The hard one.** ""proveo"" is compiled into ~91 tracked
+  files (~483 hits under ""defs/"") with no central
+  constant: function names (""proveo_egress_*""), paths
+  (""/opt/proveo/lib"", ""/etc/proveo/mitmproxy-ca-cert.pem""),
+  the ""PROVEO_*"" env prefix, image org, container names
+  (""proveo-dind-*""), the smoke sentinel
+  (""PROVEO_SMOKE_READY""), installer domain, wrangler name,
+  dashboard title and a duplicated ASCII logo.
+
+  Stage C is a mechanical rename across every shell file,
+  so it must be guarded by tests and land after the Go
+  substrate and Go tests are the source of truth — which
+  is why this plan was sequenced last.
+end note
+
+note bottom of APPLY
+  **Acceptance criteria**
+  * changing ""BRAND_NAME"" / ""BRAND_SLUG"" / ""BRAND_IMAGE_ORG""
+    plus one apply step rebrands the product, with a test
+    proving no stray hardcoded token remains
+  * docs render without a live ""proveo-ca"" URL once the
+    identity include is a variable (fork target documented)
+  * the reusable template carries no personal persona directive
+end note
+@enduml

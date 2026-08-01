@@ -101,20 +101,17 @@ else
   printf "${RED}FAIL${NC} [%d] SMALL_MODEL bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# run.sh preserves monorepo structure and root config mounts for repo-aware operation.
 TESTS_RUN=$((TESTS_RUN + 1))
 RUN_WRAPPER="$PROJECT_ROOT/run.sh"
-if grep -q -- '--repo-root' "$RUN_WRAPPER" \
-   && grep -q 'RELATIVE_SCOPE=' "$RUN_WRAPPER" \
-   && grep -q '.git:/app/.git' "$RUN_WRAPPER" \
-   && grep -q '.opencode' "$RUN_WRAPPER" \
-   && grep -q '.env' "$RUN_WRAPPER"; then
+if grep -q 'TARGET="opencode"' "$RUN_WRAPPER" \
+   && grep -q 'exec "$PROVEO_BIN" run' "$RUN_WRAPPER" \
+   && grep -q -- '--repo-root' "$RUN_WRAPPER"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] run.sh preserves monorepo path and root opencode config mounts\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] run.sh shims to proveo run with monorepo flag parity\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("run.sh preserves monorepo path and root opencode config mounts")
-  printf "${RED}FAIL${NC} [%d] opencode run.sh monorepo contract\n" "$TESTS_RUN"
+  FAILURES+=("run.sh shims to proveo run with monorepo flag parity")
+  printf "${RED}FAIL${NC} [%d] opencode run.sh shim contract\n" "$TESTS_RUN"
 fi
 
 # Entrypoint forwards args to opencode

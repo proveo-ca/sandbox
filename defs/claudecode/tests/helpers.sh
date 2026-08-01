@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/helpers.sh - Test framework helpers for proveo/claudecode-solo:latest
+# tests/helpers.sh - Test framework helpers for the claudecode images.
 
 # --- State ---
 TESTS_RUN=0
@@ -9,7 +9,7 @@ TESTS_SKIPPED=0
 FAILURES=()
 
 # --- Image names (overridable) ---
-STANDALONE_IMAGE="${STANDALONE_IMAGE:-proveo/claudecode-solo:latest}"
+STANDALONE_IMAGE="${STANDALONE_IMAGE:-proveo/claudecode:latest}"
 MCP_IMAGE="${MCP_IMAGE:-proveo/claudecode:latest}"
 MCP_IMAGE_AVAILABLE=false
 

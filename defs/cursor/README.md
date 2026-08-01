@@ -13,7 +13,7 @@ Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, 
 - Reusable network egress modes (`broker|proxy|firewall`)
 
 Paradigm: **policy-gated autonomous loop** — see
-[`_spec/defs/cursor/cursor.paradigm.md`](../../_spec/defs/cursor/cursor.paradigm.md).
+[`_spec/defs/cursor/cursor-paradigm.puml`](../../_spec/defs/cursor/cursor-paradigm.puml).
 
 ## Contract Status
 

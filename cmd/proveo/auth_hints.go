@@ -80,7 +80,7 @@ func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 }
 
 // harnessFamily returns the base harness name for resume/auth hint lookups
-// (e.g. claudecode-solo → claudecode).
+// (e.g. claudecode-solidity → claudecode).
 func harnessFamily(name string) string {
 	name = strings.TrimSpace(name)
 	for _, base := range []string{"claudecode", "cursor", "opencode", "cecli"} {

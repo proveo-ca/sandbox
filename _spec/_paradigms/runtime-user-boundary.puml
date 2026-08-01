@@ -1,0 +1,46 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Runtime user boundary — never root, any host uid
+
+actor "Developer\nuid:gid" as DEV
+
+node "Host" as HOST <<host>> {
+  component "cmd/proveo run\ninternal/runner" as RUN <<app>>
+  component "defs/*/run.sh\nthin shim → exec proveo" as SHIM <<app>>
+  database "bind-mounted repo" as REPO <<db>>
+}
+
+node "Agent container" as CTR <<host>> {
+  component "image USER (uid 1000)\nbaked non-root default" as IMGUSER <<app>>
+  component "ensure_runtime_user\npasswd entry + writable HOME" as ENSURE <<app>>
+  component "agent process" as AGENT <<app>>
+  component "root / gosu / privilege drop" as ROOT <<error>>
+}
+
+DEV ARROW_MAIN SHIM
+SHIM ARROW_MAIN RUN
+RUN ARROW_MAIN CTR : " ""docker run --user $(id -u):$(id -g)"" \n""--cap-drop=ALL --security-opt=no-new-privileges""\n""--pids-limit"" "
+IMGUSER ARROW_OPTIONAL AGENT : bare ""docker run"" (no wrapper)\nstill lands non-root
+RUN ARROW_MAIN ENSURE
+ENSURE ARROW_MAIN AGENT
+AGENT ARROW_MAIN REPO : writes come back owned\nby the developer
+CTR ARROW_ERROR ROOT : errorLabel(never used)
+
+note right of ENSURE
+  **The arbitrary-uid problem.** ""--user 501:20"" is a uid
+  the image has never heard of: no passwd entry, no home,
+  so tools that call ""getpwuid"" or write to ""$HOME"" fail.
+  ""ensure_runtime_user"" (packages/lib/entrypoint-lib.sh)
+  synthesizes an identity and a writable HOME **without
+  root** — one generic helper, identical across harnesses.
+
+  There is no gosu and no in-container privilege drop:
+  the process starts unprivileged and stays there.
+end note
+
+note bottom of REPO
+  Running as the invoking uid is what keeps bind-mounted
+  edits usable on the host — a root-owned artifact left
+  behind by an agent is a support burden, not a sandbox.
+end note
+@enduml

@@ -1,7 +1,7 @@
 // Package dind provisions a sibling Docker-in-Docker sidecar for harnesses
 // whose image ships a docker client (manifest dind: true).
 //
-// SPEC: _spec/components.puml, _spec/usage.puml
+// SPEC: _spec/components.puml, _spec/cmd/proveo/usage.puml
 package dind
 
 import (

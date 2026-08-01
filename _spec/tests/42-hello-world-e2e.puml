@@ -1,0 +1,77 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Layer 4 — hello-world E2E (cloud model, three targets, firewall)
+
+participant "go test -tags=e2e\ntests/e2e/hello_world_test.go" as TEST <<app>>
+participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
+database "workspace copy\nof tests/e2e/samples" as WS <<db>>
+database "filtered .env (0600)\nANTHROPIC_API_KEY + model aliases" as ENVF <<error>>
+participant "cmd/proveo run <target>\n--egress-mode firewall" as RUN <<app>>
+participant "proveo-egress\nbroker + policy" as MITM <<app>>
+participant "agent container" as CTR <<host>>
+
+TEST ARROW_MAIN WS : copy samples, ""git init""\nmaterialize the dangling .env symlink
+TEST ARROW_ERROR ENVF : write single-provider env
+TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n""PROVEO_EGRESS_ENV_FILE=<filtered>"" "
+TMUX ARROW_MAIN RUN : PTY — the harness needs ""docker run -it""
+RUN ARROW_ERROR MITM : real key → broker.env
+RUN ARROW_MAIN CTR : sentinel + forwarded model aliases
+CTR ARROW_MAIN CTR : entrypoint prints\n" ""PROVEO_MODELS main=… small=…"" "
+CTR ARROW_CLOUD MITM : model call (key injected at this hop)
+CTR ARROW_MAIN WS : agent writes ""HELLO_WORLD.txt""\nthrough the bind mount
+
+TEST ARROW_MAIN TMUX : " ""CaptureAll()"" — pane + scrollback "
+TEST ARROW_MAIN WS : poll host paths
+
+note over TEST
+  **Two assertions, both prose-independent:**
+  # //bind mount works// — the file exists on the HOST and
+    carries this run's unique marker
+  # //models bridged// — the ""PROVEO_MODELS"" line names the
+    tier the project .env asked for, not the harness default
+
+  Per-target paths differ by workspace layout: ""app""
+  targets write ""HELLO_WORLD.txt"" at the mount root;
+  ""input-output"" (claudecode) is told to write to
+  ""/workspace/output"" and is checked under ""reports/"".
+end note
+
+note over ENVF
+  **Single provider on purpose.** The broker arms only
+  when exactly one provider is detected, so the suite
+  clears ""provider.DetectVars()"" (a superset of the
+  brokerable keys) and supplies one filtered file.
+  Secrets never reach an argv — only the file path does.
+end note
+
+note over TMUX
+  ""CaptureAll"" reads scrollback: the entrypoint preamble
+  scrolls off the visible pane long before the agent
+  finishes, so a plain ""capture-pane"" would miss the
+  contract line it needs to assert.
+end note
+
+note over TEST
+  **Third assertion — a clean boot.** A harness can come up
+  DEGRADED and still write the file, so the suite scans the
+  pane for operator-level failure signatures (MCP handshake
+  failures, tracebacks, ""command not found"", entrypoint line
+  errors) and fails on them.
+
+  Written after cecli shipped for weeks with its Serena MCP
+  server dead on every boot — a package version skew — while
+  the side-effect assertion stayed green.
+end note
+
+note over CTR
+  **Let the run end itself.** The test waits for the tmux
+  session to exit before ""t.Cleanup"" kills it: killing the
+  pane early SIGHUPs proveo mid-run and strands the egress
+  sidecars plus their three networks. Enough leaked subnets
+  and Docker refuses new ones outright ("all predefined
+  address pools have been fully subnetted"), which then
+  looks like a proveo bug in the next unrelated run.
+  ""proveo run"" also handles SIGHUP so an abrupt kill still
+  tears the topology down.
+end note
+@enduml

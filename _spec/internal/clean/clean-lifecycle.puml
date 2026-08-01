@@ -1,0 +1,58 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title `proveo clean` — reclaim leaked run state without killing live runs
+
+actor "Maintainer" as MT
+
+node "Host" as HOST <<host>> {
+  component "cmd/proveo clean\ngathers inventory · executes plan" as CMD <<app>>
+  component "internal/clean\nBuildPlan(inv, opts) — pure" as CORE <<app>>
+
+  frame "Inventory" as INV <<host>> {
+    component "egress session containers\n(mitm · squid · ollama)" as C <<app>>
+    component "leaked DinD sidecars\n(not session-labeled)" as D <<app>>
+    component "egress networks\n+ HasEndpoints" as N <<app>>
+    database "<stateDir>/egress/<sid>\nholds injected broker.env" as ST <<error>>
+    database "proveo/* images" as IMG <<db>>
+    database "PROVEO_HOME (~/.proveo)\nsessions + seeded config" as PH <<db>>
+  }
+}
+
+MT ARROW_MAIN CMD
+CMD ARROW_MAIN CORE : Inventory + Options
+CORE ARROW_MAIN CMD : Plan{remove…, SkippedLive}
+
+CORE ARROW_MAIN C : routine — dead sessions only
+CORE ARROW_MAIN D : routine
+CORE ARROW_MAIN N : routine — only when no endpoints
+CORE ARROW_ERROR ST : routine — successLabel(wipes broker.env)
+CORE ARROW_OPTIONAL IMG : ""--deep"" only
+CORE ARROW_OPTIONAL PH : ""--homes"" only
+
+note right of CORE
+  **Pure decision core.** ""BuildPlan"" performs no I/O:
+  ""cmd/proveo"" gathers the inventory and executes. That
+  is what makes the liveness rules unit-testable without
+  Docker.
+
+  **Liveness is the invariant.** A running container, or
+  a network that still has endpoints, is left alone and
+  reported in ""SkippedLive"" — a concurrent ""proveo run""
+  must survive a clean. ""--force"" is the only override.
+end note
+
+note bottom of ST
+  Wiping egress state is a **security** action, not just
+  disk hygiene: a crashed run can leave the injected
+  ""broker.env"" (the real provider key) on disk. Routine
+  clean removes it.
+end note
+
+note bottom of PH
+  Deliberately excluded from both routine and ""--deep"":
+  it is the user's durable session history, not run
+  ephemera. Upstream sidecar bases (squid, ollama,
+  docker:dind) are likewise left — shared and cheap to
+  re-pull. See _spec/internal/proveohome/proveo-home-components.puml
+end note
+@enduml

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Minimal "agent" fixture for the Layer-4 promptful E2E (see _spec/testing.md).
+# Minimal "agent" fixture for the Layer-4 promptful E2E (see _spec/tests/testing-strategy.puml).
 # It behaves like a real harness for the purposes of the test: prints a ready
 # prompt, reads a task from stdin (sent via tmux send-keys), calls the LOCAL
 # model over the OpenAI-compatible endpoint the --local-model bridge points at

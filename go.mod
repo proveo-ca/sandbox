@@ -2,6 +2,12 @@ module github.com/proveo-ca/proveo
 
 go 1.26
 
+// The project's Go pin. GOTOOLCHAIN=auto (the default) makes ANY go >= 1.21
+// re-exec exactly this toolchain, so a contributor on g, mise, brew or CI all
+// compile with the same one — no `compile: version ... does not match` skew.
+// Bump here; `g install 1.26.5` just makes it the local default too.
+toolchain go1.26.5
+
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/martian/v3 v3.3.3

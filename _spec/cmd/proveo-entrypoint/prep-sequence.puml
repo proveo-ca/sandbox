@@ -1,0 +1,46 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Entrypoint startup — the correct order for a def using the Go prelude
+
+participant "docker run\n-w /app -e …" as DOCKER <<host>>
+participant "defs/<name>/entrypoint.sh" as SH <<app>>
+participant "proveo-entrypoint prep\n(child)" as PREP <<app>>
+participant "packages/lib/entrypoint-lib.sh\n(sourced INTO the shell)" as LIB <<app>>
+participant "agent CLI" as AGENT <<app>>
+
+DOCKER ARROW_MAIN SH : PID 1, env from ""-e"", cwd from ""-w""
+SH ARROW_MAIN LIB : " ""source /entrypoint-lib.sh"" "
+
+group prep — process-external setup only
+  SH ARROW_MAIN PREP : " ""prep <target> || true"" "
+  PREP ARROW_MAIN PREP : uid/passwd · git context · RTK
+  PREP ARROW_ERROR SH : errorLabel(cwd + exports discarded)
+end
+
+group redo in-shell — the part prep cannot carry
+  SH ARROW_MAIN LIB : " ""set_working_directory /app"" "
+  LIB ARROW_MAIN SH : cwd now the mounted scope
+  SH ARROW_MAIN LIB : " ""load_env quiet"" "
+  LIB ARROW_OPTIONAL SH : proxy/firewall → skip source,\napply broker sentinel
+  LIB ARROW_MAIN SH : broker mode → ""set -a; source .env""
+  SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
+end
+
+SH ARROW_MAIN SH : preamble — versions, detected config,\n" ""PROVEO_MODELS main=… small=…"" "
+SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
+AGENT ARROW_MAIN AGENT : inherits cwd + bridged model env
+
+note over SH, LIB
+  **Why ""quiet"".** ""prep"" already printed the "".env""
+  detection lines; the in-shell repeat would double them.
+  ""load_env quiet"" suppresses the echo, not the work.
+end note
+
+note over AGENT
+  ""PROVEO_MODELS"" is the assertable contract: one
+  machine-greppable line naming the model each harness
+  actually resolved. tests/e2e asserts it instead of
+  trusting the model's prose — see
+  _spec/tests/42-hello-world-e2e.puml
+end note
+@enduml

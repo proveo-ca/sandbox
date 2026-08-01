@@ -1,0 +1,49 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Egress policy — read-allow / write-deny / DLP at the firewall MITM hop
+
+component "internal/egresspolicy\npure decisions — Decide(req)" as CORE <<app>>
+component "internal/egressproxy\nmartian RequestModifier chain" as PROXY <<app>>
+component "internal/broker\ncredential inject / strip" as BROKER <<app>>
+
+component "egress-policy-components.puml\nhost → proveo-egress → Squid;\nbroker then policy; destinations" as D1 <<app>>
+component "egress-policy-layers.puml\nA method · B exfil sinks\nC DLP + budget · config" as D2 <<app>>
+component "egress-policy-decide.puml\nprovider skip · allow path\nblock + 403" as D3 <<app>>
+
+PROXY ARROW_MAIN BROKER : 1. credentials
+PROXY ARROW_MAIN CORE : 2. policy
+CORE ARROW_OPTIONAL D1
+CORE ARROW_OPTIONAL D2
+CORE ARROW_OPTIONAL D3
+
+note right of CORE
+  **Order matters.** The broker runs first so a request
+  to the pinned provider already carries its real auth
+  header when policy evaluates it; policy then decides
+  method / destination / payload for everything else.
+
+  Full layers A/B/C exist only in **firewall** mode —
+  ""proxy"" and ""broker"" cannot decrypt TLS, so there is
+  no body to scan and no header to strip.
+end note
+
+note bottom of D2
+  Design bias: **allow inbound reads broadly, constrain
+  outbound tightly** — a data-diode posture. Reading is
+  ""GET"", small out, large in; exfiltration is data
+  //out//: a POST body, a fat query string, a stream to
+  an attacker sink. Destination allowlists are the wrong
+  axis; the asymmetry is.
+
+  Non-goal: a hermetic seal. The goal is turning
+  "trivially exfiltrate a 9 KB .env" into "a few bytes,
+  slowly, off-list, on the record".
+end note
+
+note bottom of D3
+  Related: credential inject/strip on this same hop is
+  specified in _spec/_paradigms/credential-boundary.puml;
+  the claudecode topology in
+  _spec/defs/claudecode/claudecode-egress-topology.puml
+end note
+@enduml

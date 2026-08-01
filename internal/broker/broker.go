@@ -12,6 +12,7 @@
 // This package is intentionally stdlib-only (operates on *http.Request) so the
 // security-critical classification and header logic is unit-testable without
 // the proxy runtime. The martian adapter lives in internal/egressproxy.
+// SPEC: _spec/_paradigms/credential-boundary.puml
 package broker
 
 import (

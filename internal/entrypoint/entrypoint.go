@@ -2,7 +2,7 @@
 // runtime user, .env load, env bridges, git identity, smoke mode, and
 // credential-broker sentinels.
 //
-// SPEC: _spec/paradigms.md, _spec/components.puml
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/_paradigms/harness-paradigms.puml
 package entrypoint
 
 import (
@@ -19,6 +19,22 @@ import (
 // DefaultSentinel replaces real provider secrets in the agent process when the
 // credential broker is active (firewall inject/strip at the MITM).
 const DefaultSentinel = "proveo-brokered"
+
+// ConfigVars are the NON-SECRET harness preferences (CODING_HARNESSES.md "Model
+// aliases" / "UI aliases") forwarded into the agent BY VALUE. They cannot ride
+// the project .env like the harness entrypoints assume: proxy/firewall mask
+// every dotenv file under the mounted tree, and the input-output layout
+// (claudecode) never mounts one at all — so without this the agent silently
+// falls back to its baked-in default model instead of the one the user chose.
+// Secrets never appear here; those stay on the broker (firewall) or a declared
+// manifest env var.
+var ConfigVars = []string{
+	"ARCHITECT_MODEL",
+	"EDITOR_MODEL",
+	"SMALL_MODEL",
+	"DARK_MODE",
+	"CODE_THEME",
+}
 
 // EnsureRuntimeUser synthesizes a passwd entry for the current uid when missing
 // and ensures HOME is writable (mirrors packages/lib/entrypoint-lib.sh).

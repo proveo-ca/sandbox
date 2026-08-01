@@ -1,0 +1,52 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Verification-command discovery — telling the agent how to check its own work
+
+node "Agent container" as CTR <<host>> {
+  component "def entrypoint preamble" as SH <<app>>
+  component "proveo-entrypoint verify <dir>\n(internal/verify)" as VER <<app>>
+  component "Detect(root, lookPath)\n→ []Command{category, command}" as DET <<app>>
+  component "FormatLines(cmds)\ncategory|command" as FMT <<app>>
+  folder "Mounted workspace" as WS <<db>> {
+    artifact "go.mod" as GOMOD <<db>>
+    artifact "package.json + lockfile" as PKG <<db>>
+    artifact "Cargo.toml" as CARGO <<db>>
+    artifact "Dockerfile / compose" as DOCKER <<db>>
+  }
+  component "agent CLI\nreads the printed block" as AGENT <<app>>
+}
+
+SH ARROW_MAIN VER : " ""verify $(pwd)"" "
+VER ARROW_MAIN DET
+DET ARROW_MAIN WS : detect project shape
+GOMOD ARROW_OPTIONAL DET
+PKG ARROW_OPTIONAL DET
+CARGO ARROW_OPTIONAL DET
+DOCKER ARROW_OPTIONAL DET
+DET ARROW_MAIN FMT
+FMT ARROW_MAIN SH : "── Verification Commands ──"
+SH ARROW_MAIN AGENT : preamble on stdout
+
+note right of DET
+  **Two gates, both required.** A command is suggested
+  only when the project manifest exists **and** the tool
+  resolves on PATH (""lookPath""). Suggesting ""cargo test""
+  in an image without cargo would send the agent into a
+  loop against a missing binary.
+
+  Detection is per-language and additive: a polyglot
+  monorepo yields several categories at once.
+end note
+
+note bottom of AGENT
+  This is advisory context, not enforcement — nothing
+  runs these for the agent. It exists so an autonomous
+  loop closes with a real check instead of the model
+  inventing a build command that does not exist in
+  this repo.
+
+  The Bash fallback (""defs/lib/detect-verify.sh"") is used
+  only when ""proveo-entrypoint"" is not baked into the
+  image; the Go detector is authoritative.
+end note
+@enduml

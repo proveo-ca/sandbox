@@ -58,14 +58,14 @@ Use the root scripts for the definition-local command surface:
 ./build.sh
 
 # Build one variant
-./build.sh --variant solo
+./build.sh --variant solidity
 ./build.sh --variant mcp --tag local
 
 # Run the default MCP variant
 CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh
 
 # Run the solo variant
-CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh --variant solo
+CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh --variant solidity
 
 # Pass additional Claude options through to the variant runner
 CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --debug --mcp-debug
@@ -81,13 +81,13 @@ proveo run claudecode --resume <session-id>
 Default images:
 
 - MCP variant: `proveo/claudecode:latest`
-- Solo variant: `proveo/claudecode-solo:latest`
+- Solidity variant: `proveo/claudecode-solidity:latest`
 
 Image overrides:
 
 ```bash
 ./run.sh --variant mcp --image example/claudecode:tag
-./run.sh --variant solo --image example/claudecode-solo:tag
+./run.sh --variant solidity --image example/claudecode-solidity:tag
 ```
 
 Variant runners mount:
@@ -109,7 +109,7 @@ Open a variant debug shell through the parent run wrapper:
 
 ```bash
 ./run.sh --variant mcp --shell
-./run.sh --variant solo --shell
+./run.sh --variant solidity --shell
 ```
 
 ## Environment Variables
@@ -184,7 +184,7 @@ export CLAUDE_CODE_OAUTH_TOKEN="sk-your-token-here"
 ### Debug Container Access
 ```bash
 ./run.sh --variant mcp --shell   # Access the MCP variant debug shell
-./run.sh --variant solo --shell  # Access the solo variant debug shell
+./run.sh --variant solidity --shell  # Access the solo variant debug shell
 ```
 
 ## License

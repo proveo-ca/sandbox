@@ -1,0 +1,69 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title proveo-entrypoint prep — what does and does NOT cross the process boundary
+
+node "Agent container" as CTR <<host>> {
+
+  component "defs/<name>/entrypoint.sh\n(PID 1 shell — execs the agent)" as SH <<app>>
+
+  component "proveo-entrypoint prep <target>\n(child process)" as PREP <<app>>
+
+  frame "Crosses the boundary\n(external to the process)" as OK {
+    component "ensure_runtime_user\npasswd entry + writable HOME" as UID <<app>>
+    component "report_git_context\nstdout preamble" as GITCTX <<app>>
+    component "attach_rtk\nfilesystem" as RTK <<app>>
+    component "SmokeReady\nprints sentinel, sleeps" as SMOKE <<async>>
+  }
+
+  frame "Dies with the child\n(process-local state)" as LOST <<error>> {
+    component "set_working_directory\nchdir(2)" as CWD <<error>>
+    component "load_env\nsource .env → exports" as ENV <<error>>
+    component "ApplyEnvBridges\nOPENCODE_MODEL, …" as BRIDGE <<error>>
+    component "bridge_git_identity\nGIT_CONFIG_KEY_n exports" as GITID <<error>>
+  }
+
+  component "agent CLI\n(inherits the SHELL's env + cwd)" as AGENT <<app>>
+}
+
+SH ARROW_MAIN PREP : " ""proveo-entrypoint prep <target> || true"" "
+PREP ARROW_MAIN OK : effects outlive the child
+PREP ARROW_ERROR LOST : errorLabel(discarded on exit)
+SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
+
+note right of LOST
+  **A child cannot mutate its parent.**
+  ""chdir"" and ""setenv"" are per-process. ""prep"" exits 0
+  whether or not any of this took effect, so the failure
+  is **silent** — the agent simply starts with the image
+  ""WORKDIR"" and no project env.
+
+  Observed before this was specified:
+  * opencode ignored ""ARCHITECT_MODEL"" → baked default
+  * claudecode had no ""ANTHROPIC_MODEL"" at all
+  * ""find_env_file"" searched the wrong directory
+    (masked in real runs only because ""proveo run""
+     passes ""docker run -w /app"")
+end note
+
+note bottom of SH
+  **Contract for def entrypoints.** After calling ""prep"",
+  redo the process-local steps IN THIS SHELL:
+  ""set_working_directory <dir>"" then ""load_env quiet""
+  then the harness's own model bridge. All are idempotent
+  and only fill slots still unset, so a value already
+  supplied by ""docker run -e"" wins.
+
+  ""load_env"" must never delegate back to ""prep"" — a
+  function whose job is exporting cannot do it from a
+  subprocess. See _spec/packages/lib/steps.puml.
+end note
+
+note top of SMOKE
+  **Still owned by prep:** under ""PROVEO_SMOKE_TEST=1""
+  ""prep"" prints ""PROVEO_SMOKE_READY"" and sleeps, so
+  anything a def prints *after* ""prep"" is unreachable in
+  smoke mode. Defs whose tests assert their own preamble
+  must run ""prep"" with the flag cleared and call
+  ""run_smoke_test"" at the end of their own preamble.
+end note
+@enduml

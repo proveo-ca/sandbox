@@ -150,7 +150,7 @@ Harness images should:
 - avoid logging secret values while still reporting whether required keys were detected.
 
 **Credential isolation by egress mode** (see [`README.md`](README.md) and
-[`_spec/paradigms.md`](_spec/paradigms.md)):
+[`_spec/_paradigms/harness-paradigms.puml`](_spec/_paradigms/harness-paradigms.puml)):
 
 | Mode | Secret confinement |
 | --- | --- |

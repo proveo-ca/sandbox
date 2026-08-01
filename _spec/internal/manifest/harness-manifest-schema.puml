@@ -1,0 +1,107 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title harness.manifest — the single registration point (schema)
+
+class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
+  name : string
+  description : string
+  --
+  egress : bool
+  dind : bool
+  provider : string
+  subscription : bool
+  stability : experimental|candidate|stable
+  --
+  images : map[target]imageRef
+  --
+  Dir : string  (set by Load, not YAML)
+}
+
+class "Workspace\nworkspace:" as W <<app>> {
+  layout : app | input-output
+  configDir : string
+  gitMode : rw | ro
+  output : bool
+  mode : rw | ro
+}
+
+class "Home\nhome:" as H <<app>> {
+  enabled : bool
+}
+
+class "HomeMount\nhome.mounts[]" as HM <<db>> {
+  host : string  (relative to PROVEO_HOME)
+  container : string  (absolute)
+  mode : rw | ro
+  deny : []string  (basenames scrubbed each run)
+}
+
+class "EnvVar\nenv[]" as E <<error>> {
+  name : string
+  description : string
+  secret : bool
+}
+
+class "config[]" as C <<app>> {
+  names of NON-SECRET host preferences
+  forwarded by value (-e NAME=value)
+}
+
+M *-- W
+M *-- H
+H *-- HM
+M *-- E
+M *-- C
+
+note right of M
+  **Adding a harness = dropping a def dir + this file.**
+  Everything else enumerates from it: runnable targets,
+  image refs, mount model, egress lifecycle, DinD
+  offer, auth prompts, build/test/deploy registry.
+
+  Validated by ""Manifest.Validate"" at load; ""Targets""
+  flattens ""images"" across defs and rejects a duplicate
+  target name.
+
+  Loaded from disk (""Load"") or from the binary's
+  embedded copy (""LoadFS"" + ""embed.go""), so the CLI
+  works with no defs tree present.
+end note
+
+note bottom of W
+  ""layout"" drives ""internal/workspace"":
+  * **app** — repo (or scope subdir) at ""/app"", ""-w /app"";
+    monorepo case also binds root ""/app/.git"", the
+    ""rootFiles"" allowlist and ""configDir""
+  * **input-output** — ""/workspace/input"" +
+    ""/workspace/output"", no ""-w""
+  ""mode:ro"" makes the tree read-only; ""output:true"" adds
+  ""/app/output"".
+end note
+
+note bottom of HM
+  The **only** durable state across a ""--rm"" run.
+  ""deny"" is a security control, not hygiene — see
+  _spec/internal/proveohome/proveo-home-components.puml
+end note
+
+note bottom of E
+  Declared env the harness reads. ""secret:true"" is never
+  put on an argv: firewall forwards a sentinel and the
+  broker holds the real value; broker mode forwards it
+  by name; proxy withholds it.
+end note
+
+note bottom of C
+  The **non-secret** counterpart to ""env"": these are
+  forwarded BY VALUE onto the docker argv, on top of the
+  shared baseline in ""entrypoint.ConfigVars"" (the model +
+  UI aliases every def bridges — see
+  _spec/internal/entrypoint/model-alias-bridges.puml).
+
+  Because the value lands on an argv in plain sight,
+  ""Validate"" rejects a manifest that lists a name already
+  declared in ""env"" — a secret must stay on the broker
+  path, never here.
+end note
+@enduml

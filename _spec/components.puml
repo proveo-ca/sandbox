@@ -16,7 +16,7 @@ actor "Maintainer" as Maintainer
 actor "AI Agent" as Agent
 
 package "Repository Root" as RepoRoot {
- component "README / plans / CONVENTIONS" as RootDocs <<doc>>
+ component "README / CONVENTIONS" as RootDocs <<doc>>
  component "pnpm workspace" as WorkspaceConfig <<config>>
  component "mise toolchain" as ToolchainConfig <<config>>
  component "embed.go\n//go:embed manifests + squid" as Embed <<config>>
@@ -25,31 +25,39 @@ package "Repository Root" as RepoRoot {
 package "Specifications\n_spec/" as Specs {
  component "components.puml" as ComponentsSpec <<spec>>
  component "usage.puml" as UsageSpec <<spec>>
- component "paradigms.md" as Paradigms <<spec>>
- component "testing.md + tests/*.puml" as TestingSpec <<spec>>
+ component "_paradigms/*.puml" as Paradigms <<spec>>
+ component "tests/*.puml" as TestingSpec <<spec>>
  component "per-harness paradigm + topology" as HarnessSpecs <<spec>>
 }
 
 package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "cmd/proveo\nlist · run · projects · setup" as ProveoCLI <<app>>
  component "cmd/proveo-egress\nMITM · broker · detect" as ProveoEgress <<app>>
- component "cmd/proveo-entrypoint\nin-container prelude + sentinel" as ProveoEP <<app>>
+ component "cmd/proveo-entrypoint\nprocess-external prelude only\n(cwd + exports cannot cross)" as ProveoEP <<app>>
  package "internal/" as Internals {
  component "manifest\nharness.manifest" as Manifest <<app>>
  component "runner\nhardened docker argv" as Runner <<app>>
  component "workspace\nscope + mount plan" as Workspace <<app>>
  component "egress\nBuildPlan · lifecycle" as EgressPkg <<app>>
+ component "egressproxy · egresspolicy\nMITM · read-allow/write-deny/DLP" as PolicyPkg <<app>>
  component "dind\nsibling docker:dind" as DindPkg <<app>>
  component "provider · broker\nregistry + inject/strip" as CredPkg <<app>>
  component "gitidentity\nGIT_* forwarding" as GitId <<app>>
  component "entrypoint\n.env · bridges · sentinel" as EPPkg <<app>>
+ component "proveohome\n~/.proveo mounts + deny scrub" as HomePkg <<app>>
+ component "cdn\nlatest.json · checksum update" as CdnPkg <<app>>
+ component "maintain\nbuild · test · deploy registry" as MaintainPkg <<app>>
+ component "verify\nverification-command discovery" as VerifyPkg <<app>>
+ component "clean\nreclaim plan (liveness-safe)" as CleanPkg <<app>>
+ component "shell\ncross-shell PATH setup" as ShellPkg <<app>>
+ component "tmux · ui · contract\ntest driver · output · gates" as SupportPkg <<app>>
  }
 }
 
 package "Definitions\ndefs/" as Defs {
  package "Coding harnesses" as CodingDefs {
  component "cecli" as DefCecli <<definition>>
- component "claudecode\nmcp + solo" as DefClaude <<definition>>
+ component "claudecode\nmcp + solidity" as DefClaude <<definition>>
  component "opencode" as DefOpen <<definition>>
  component "cursor" as DefCursor <<definition>>
  }

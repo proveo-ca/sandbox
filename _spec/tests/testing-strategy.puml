@@ -1,0 +1,67 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Testing strategy — four layers, speed traded for fidelity
+
+component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
+component "**2. Contract**\nGo builders + goldens\nDockerRunArgs · BuildPlan · Detect · writeBrokerEnv\n//always, no Docker//" as L2 <<app>>
+component "**3. Infra integration**\ninternal/egress ""//go:build integration//""\nreal containers, no model\n//-tags=integration + PROVEO_EGRESS_INTEGRATION=1//" as L3 <<async>>
+component "**4. Agent E2E (promptful)**\ntests/e2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e + PROVEO_LLM_TEST=1//" as L4 <<async>>
+
+database "cov/unit\ngo tool covdata merge → percent" as COV <<db>>
+
+L1 ARROW_MAIN L2
+L2 ARROW_MAIN L3
+L3 ARROW_MAIN L4
+L1 ARROW_QUEUE COV
+L2 ARROW_QUEUE COV
+
+note right of L1
+  Host orchestration under test is **Go**
+  (""cmd/proveo"", ""internal/{runner,workspace,egress,
+  dind,gitidentity,manifest}""). Fat bash runners and the
+  ""defs/lib/egress.sh"" lifecycle are retired.
+end note
+
+note right of L2
+  **Go-first contracts:** execute the builders and diff
+  the argv/plan, rather than grepping source for literal
+  strings. A grep contract survives the deletion of the
+  thing it claimed to test — it passes while testing
+  nothing. Bash remains only for image smoke suites.
+end note
+
+note right of L3
+  Topology is owned (""BuildPlan"" + ""ExecRunner""), so do
+  **not** add testcontainers-go for Squid/proxy. Apply
+  its //practices// instead: wait on the CA file / HTTP
+  ready (never sleep-only), ""t.Cleanup"" teardown, env
+  gate + ""docker"" LookPath skip.
+end note
+
+note right of L4
+  Two suites, different credentials:
+  * ""e2e_test.go"" — local model (Ollama), opencode,
+    broker mode; keyless and CI-honest
+  * ""hello_world_test.go"" — cloud model, all three
+    targets, firewall + credential broker
+  Both assert **side effects on the host**, never the
+  model's prose. See 42-hello-world-e2e.puml.
+end note
+
+note bottom of COV
+  Default ""go test ./..."" never compiles Layer 3/4 — the
+  PR path stays fast and keyless. No hard coverage gate
+  until a baseline exists; CI publishes the percent as an
+  artifact.
+
+  **Deferred (Stage 0b):** ""proveo/egress-proxy:cover""
+  from ""go build -cover"" + a bind-mounted ""GOCOVERDIR"",
+  so Layer 3 reports statement coverage from inside the
+  container. Topology coverage does not require it.
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+L1 -down[hidden]- L2
+L3 -down[hidden]- L4
+' --- END IGNORE ---
+@enduml

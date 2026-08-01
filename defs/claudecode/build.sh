@@ -14,7 +14,7 @@ PUSH=""
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [--variant mcp|solo|sol|all] [--browser] [--tag <tag>] [--no-cache] [--push]
+  ./build.sh [--variant mcp|solidity|all] [--browser] [--tag <tag>] [--no-cache] [--push]
 
 Builds the claudecode harness images. Defaults to all variants.
 sol = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
@@ -78,33 +78,29 @@ fi
 
 # sol layers the Solidity/security toolchain (Foundry, solc, solhint, semgrep)
 # on the mcp image: ensure the same-tag parent exists, then build FROM it.
-build_sol() {
+build_solidity() {
   if ! docker image inspect "proveo/claudecode:$TAG" >/dev/null 2>&1; then
     build_variant mcp proveo/claudecode
   fi
-  echo "Building proveo/claudecode-sol:$TAG from sol..."
+  echo "Building proveo/claudecode-solidity:$TAG from solidity..."
   proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \
     --build-arg BASE_IMAGE="proveo/claudecode:$TAG" \
-    -t "proveo/claudecode-sol:$TAG" -f "$SCRIPT_DIR/sol/Dockerfile" "$SCRIPT_DIR/../.."
+    -t "proveo/claudecode-solidity:$TAG" -f "$SCRIPT_DIR/solidity/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
-# mcp/solo build FROM proveo/base-node-lsp (adds the shared workspace LSP servers)
+# mcp builds FROM proveo/base-node-lsp (adds the shared workspace LSP servers)
 "$SCRIPT_DIR/../base-node-lsp/ensure.sh"
 
 case "$VARIANT" in
   mcp)
     build_variant mcp proveo/claudecode
     ;;
-  solo)
-    build_variant solo proveo/claudecode-solo
-    ;;
-  sol)
-    build_sol
+  solidity)
+    build_solidity
     ;;
   all)
     build_variant mcp proveo/claudecode
-    build_variant solo proveo/claudecode-solo
-    build_sol
+    build_solidity
     ;;
   *)
     echo "Unknown variant: $VARIANT" >&2

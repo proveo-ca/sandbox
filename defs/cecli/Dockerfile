@@ -43,20 +43,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python3 -m venv /opt/cecli \
   && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
-  && /opt/cecli/bin/pip install cecli-dev boto3 botocore
-
-# Serena MCP server (LSP-backed semantic code tools) — cecli has no native LSP,
-# so its MCP surface gets Serena. Isolated in its own venv to avoid dependency
-# conflicts with the cecli/aider venv; only the stdio launcher is exposed on
-# PATH. The entrypoint seeds ~/.cecli.conf.yml (aider-style home config) with the
-# MCP entry, so the mounted repo is never touched.
-RUN python3 -m venv /opt/serena \
-  && /opt/serena/bin/pip install --no-cache-dir serena-agent \
-  && ln -sf /opt/serena/bin/serena /usr/local/bin/serena \
+  && /opt/cecli/bin/pip install cecli-dev boto3 botocore \
   && rm -rf /root/.cache /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
 ENV PATH="/opt/cecli/bin:${PATH}"
+
+RUN DOCKER_VERSION=26.1.4 \
+    && case "$(uname -m)" in \
+         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
+         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
+         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker /tmp/docker.tgz
 
 WORKDIR /app
 

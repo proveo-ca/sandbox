@@ -26,9 +26,9 @@ const (
 
 // Target is one buildable/deployable image in the maintainer registry.
 type Target struct {
-	Name        string   // e.g. "claudecode-solo"
+	Name        string   // e.g. "claudecode-solidity"
 	Kind        string   // KindBase | KindHarness | KindSidecar
-	Image       string   // org/name without a tag, e.g. "proveo/claudecode-solo"
+	Image       string   // org/name without a tag, e.g. "proveo/claudecode-solidity"
 	DefDir      string   // def directory holding build.sh / test.sh
 	BuildScript string   // DefDir/build.sh
 	BuildArgs   []string // extra build.sh flags — the variant selector (e.g. --variant mcp)
@@ -43,12 +43,11 @@ var sidecars = []string{"egress-proxy", "mitmproxy"}
 // claudecode ships three images from one def: mcp is the base "claudecode"
 // image, solo drops MCP, sol layers a Solidity/security toolchain on mcp.
 var variantArgs = map[string][]string{
-	"claudecode":         {"--variant", "mcp"},
-	"claudecode-solo":    {"--variant", "solo"},
-	"claudecode-sol":     {"--variant", "sol"},
-	"claudecode-browser": {"--browser"},
-	"opencode-browser":   {"--browser"},
-	"cursor-browser":     {"--browser"},
+	"claudecode":          {"--variant", "mcp"},
+	"claudecode-solidity": {"--variant", "solidity"},
+	"claudecode-browser":  {"--browser"},
+	"opencode-browser":    {"--browser"},
+	"cursor-browser":      {"--browser"},
 }
 
 // Registry returns the maintainer targets in stable order: the base image, then

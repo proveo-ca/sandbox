@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode.paradigm.md
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml
 # Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
 set -e
 
@@ -10,7 +10,7 @@ fi
 
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=claudecode
-  proveo-entrypoint prep claudecode || true
+  env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
 else
   ensure_runtime_user
   set_working_directory "/workspace"
@@ -21,6 +21,30 @@ else
   run_smoke_test "claudecode"
   ensure_project_tools
 fi
+
+# ── Model aliases → Claude Code env (CODING_HARNESSES.md) ──
+set_working_directory "/workspace"
+load_env quiet
+
+bare_model() { printf '%s' "${1##*/}"; }
+
+if [[ -z "${ANTHROPIC_MODEL:-}" ]]; then
+  for candidate in "${ARCHITECT_MODEL:-}" "${EDITOR_MODEL:-}"; do
+    if [[ -n "$candidate" ]]; then
+      ANTHROPIC_MODEL="$(bare_model "$candidate")"
+      export ANTHROPIC_MODEL
+      break
+    fi
+  done
+fi
+
+if [[ -z "${ANTHROPIC_SMALL_FAST_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
+  ANTHROPIC_SMALL_FAST_MODEL="$(bare_model "$SMALL_MODEL")"
+  export ANTHROPIC_SMALL_FAST_MODEL
+fi
+
+printf 'PROVEO_MODELS main=%s small=%s\n' \
+  "${ANTHROPIC_MODEL:-unset}" "${ANTHROPIC_SMALL_FAST_MODEL:-unset}"
 
 # ── Verification command discovery ────────────────────────
 # Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
@@ -70,6 +94,8 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 [[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
 [[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
+
+run_smoke_test "claudecode"
 
 echo "🚀 Launching Claude Code..."
 # Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP).

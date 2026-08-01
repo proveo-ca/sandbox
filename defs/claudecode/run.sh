@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Thin shim → proveo run.
-# SPEC: _spec/usage.puml, _spec/components.puml, _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
+# SPEC: _spec/cmd/proveo/usage.puml, _spec/components.puml, _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 set -euo pipefail
 
 if [[ -z "${PROVEO_BIN:-}" ]]; then
@@ -46,9 +46,9 @@ done
 
 case "$VARIANT" in
  mcp) TARGET="claudecode" ;;
- solo|sol) TARGET="claudecode-solo" ;;
+ solidity) TARGET="claudecode-solidity" ;;
  *)
- echo "Unknown --variant '$VARIANT' (expected: mcp, solo)" >&2
+ echo "Unknown --variant '$VARIANT' (expected: mcp, solidity)" >&2
  exit 1
  ;;
 esac

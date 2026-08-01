@@ -268,9 +268,11 @@ func doRun(p runParams) error {
 	}
 
 	// Sub-project scope: an explicit --scope, else an interactive picker when in a
-	// monorepo, on a TTY, and not just printing.
+	// monorepo, on a TTY, and not just printing. PROVEO_WIZARD=off suppresses the
+	// picker (same switch as the env wizard) so a PTY-driven, non-interactive
+	// caller — the agent E2E suite, CI — never blocks on a keypress.
 	subScope := strings.Trim(p.scope, "/")
-	if subScope == "" && !p.printOnly && isStdinTTY() && ws.IsRepo {
+	if subScope == "" && !p.printOnly && isStdinTTY() && wizardEnabled() && ws.IsRepo {
 		if projs := workspace.DiscoverProjects(repoRoot); len(projs) > 0 {
 			subScope = pickProject(projs, os.Stdin, os.Stderr)
 		}
@@ -320,7 +322,7 @@ func doRun(p runParams) error {
 	wantDind := false
 	browserImage := man.Images[p.target+"-browser"]         // the -browser variant, if this harness has one
 	dindOfferable := man.Dind && dind.ModeSupported(p.mode) // DinD needs broker egress (see ModeSupported)
-	if !p.printOnly && isStdinTTY() {
+	if !p.printOnly && isStdinTTY() && wizardEnabled() {
 		var caps []capability
 		if browserImage != "" && p.image != browserImage {
 			caps = append(caps, capability{"browser", "browser variant — Playwright + Chromium image"})
@@ -399,6 +401,9 @@ func doRun(p runParams) error {
 	// cursor when CURSOR_API_KEY lives only in the host env. Write secrets up front.
 	detected := provider.Detect(lookup)
 	providerName := brokerProvider(p.mode, man, detected, lookup, brokerEnabled())
+	if reason := brokerOffReason(p.mode, providerName, detected, brokerEnabled()); reason != "" {
+		ui.Warnf("%s", reason)
+	}
 	var brokerFile string
 	if providerName != "" {
 		if p.printOnly {
@@ -462,6 +467,19 @@ func doRun(p runParams) error {
 		}
 		if len(brokerKeyNames) > 0 {
 			env = append(env, "PROVEO_CREDENTIAL_BROKER_KEYS="+strings.Join(brokerKeyNames, ","))
+		}
+	}
+	// Non-secret model/UI preferences, forwarded by value from the host env or the
+	// host-side .env. The entrypoints bridge these into tool-specific vars
+	// (OPENCODE_MODEL, CECLI_MODEL, ANTHROPIC_MODEL, …); they must arrive as env
+	// because .env is masked in proxy/firewall and unmounted in the input-output
+	// layout. --local-model overrides them: its -e pairs land in plan.AgentArgs,
+	// which docker applies after Env. The shared baseline plus whatever this
+	// harness declares in `config:` (secrets belong in `env:`, which is brokered).
+	for _, k := range configVarsFor(man) {
+		if v := strings.TrimSpace(lookup(k)); v != "" {
+			env = append(env, k+"="+v)
+			warnUnknownModel(k, v, p.localModel)
 		}
 	}
 	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
@@ -581,6 +599,45 @@ func brokerProvider(mode string, man manifest.Manifest, detected []string, looku
 		return detected[0]
 	}
 	return ""
+}
+
+func warnUnknownModel(key, value, localModel string) {
+	if localModel != "" || !strings.HasSuffix(key, "_MODEL") {
+		return
+	}
+	if known, ok := provider.CheckModel(value); ok && !known {
+		ui.Warnf("%s=%q is not a model id this proveo build recognizes — if it is a typo the agent will "+
+			"fail on every call; if it is newer than this binary, ignore this.", key, value)
+	}
+}
+
+func configVarsFor(man manifest.Manifest) []string {
+	out := append([]string(nil), entrypoint.ConfigVars...)
+	seen := make(map[string]bool, len(out))
+	for _, k := range out {
+		seen[k] = true
+	}
+	for _, k := range man.Config {
+		if k = strings.TrimSpace(k); k != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func brokerOffReason(mode, providerName string, detected []string, brokerOn bool) string {
+	if mode != "firewall" || providerName != "" || len(detected) == 0 {
+		return ""
+	}
+	if !brokerOn {
+		return fmt.Sprintf("credential broker disabled (PROVEO_CREDENTIAL_BROKER) — the agent gets the %q "+
+			"sentinel, not a working key", entrypoint.DefaultSentinel)
+	}
+	return fmt.Sprintf("credential broker OFF: %d providers detected (%s) and firewall mode brokers exactly one — "+
+		"the agent will receive the %q sentinel and the provider will reject it. Unset the keys you are not using "+
+		"for this run, or use --egress-mode broker to forward the real key.",
+		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
 // needsLifecycle reports whether the plan created any network/sidecar, so the run
@@ -751,7 +808,7 @@ func execAgent(agent runner.Config) error {
 // that the caller should defer.
 func onSignalCleanup(cleanup func()) (stop func()) {
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		if _, ok := <-sigs; ok {
 			cleanup()

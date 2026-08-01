@@ -1,3 +1,4 @@
+// SPEC: _spec/_paradigms/egress-boundary.puml
 package egress
 
 import (

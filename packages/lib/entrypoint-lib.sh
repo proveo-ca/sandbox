@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/packages/lib/steps.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -79,33 +80,34 @@ find_env_file() {
 }
 
 load_env() {
- # Prefer the Go prelude when baked into the image.
- if command -v proveo-entrypoint >/dev/null 2>&1; then
- proveo-entrypoint prep "${PROVEO_SMOKE_TARGET:-harness}" || true
- return 0
- fi
+ local quiet=0
+ [[ "${1:-}" == "quiet" ]] && quiet=1
+ say() { (( quiet )) || echo "$@"; }
 
  # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
  # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
  # into the agent process. Non-secret harness flags should be passed via -e.
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
  proxy|firewall)
- echo "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
+ say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
  apply_broker_sentinel
+ unset -f say
  return 0
  ;;
  esac
 
  local env_path; env_path="$(find_env_file || true)"
  if [[ -n "$env_path" ]]; then
- echo "✅ Found .env at $env_path"
+ say "✅ Found .env at $env_path"
  set -a
+ # shellcheck source=/dev/null
  source "$env_path"
  set +a
- echo "✅ Loaded environment variables from .env"
+ say "✅ Loaded environment variables from .env"
  else
- echo "🔎 No .env found"
+ say "🔎 No .env found"
  fi
+ unset -f say
 
  # Bridge Google/Gemini API key aliases
  if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then

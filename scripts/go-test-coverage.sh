@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/testing.md, _spec/tests/00-testing-overview.puml
+# SPEC: _spec/tests/testing-strategy.puml, _spec/tests/00-testing-overview.puml
 # Unit/contract coverage via -test.gocoverdir; merge + report via go tool covdata.
 # Stage 0b (containerized proveo-egress GOCOVERDIR) is documented but not required for v1.
 set -euo pipefail

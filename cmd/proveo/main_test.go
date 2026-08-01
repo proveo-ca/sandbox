@@ -120,6 +120,43 @@ func TestBrokerProvider(t *testing.T) {
 	}
 }
 
+func TestBrokerOffReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		mode         string
+		providerName string
+		detected     []string
+		on           bool
+		wantSubstr   string // "" = expect no warning at all
+	}{
+		{"two providers → explain", "firewall", "", []string{"anthropic", "openai"}, true, "anthropic, openai"},
+		{"broker disabled → explain", "firewall", "", []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
+		{"broker armed → silent", "firewall", "anthropic", []string{"anthropic"}, true, ""},
+		{"broker mode → silent", "broker", "", []string{"anthropic", "openai"}, true, ""},
+		{"proxy mode → silent", "proxy", "", []string{"anthropic", "openai"}, true, ""},
+		{"no keys at all → silent", "firewall", "", nil, true, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := brokerOffReason(tc.mode, tc.providerName, tc.detected, tc.on)
+			if tc.wantSubstr == "" {
+				if got != "" {
+					t.Errorf("brokerOffReason(...) = %q, want no warning", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantSubstr) {
+				t.Errorf("brokerOffReason(...) = %q, want it to mention %q", got, tc.wantSubstr)
+			}
+			if !strings.Contains(got, entrypoint.DefaultSentinel) {
+				t.Errorf("warning must name the sentinel the agent will get; got %q", got)
+			}
+		})
+	}
+}
+
 func TestAssembleAndDispatch(t *testing.T) {
 	t.Parallel()
 

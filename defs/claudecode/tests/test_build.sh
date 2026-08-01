@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # tests/test_build.sh - Image build verification
 
-# --- Build solo image ---
+# --- Build the default (mcp) image ---
 # Variant Dockerfiles resolve COPY paths from the repo root (same context
 # build.sh uses), not the variant directory.
 TESTS_RUN=$((TESTS_RUN + 1))
-printf "Building solo image... "
-if docker build -t "$STANDALONE_IMAGE" -f "$PROJECT_ROOT/solo/Dockerfile" "$PROJECT_ROOT/../.." 2>&1; then
+printf "Building claudecode image... "
+if docker build -t "$STANDALONE_IMAGE" -f "$PROJECT_ROOT/mcp/Dockerfile" "$PROJECT_ROOT/../.." 2>&1; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] solo image builds successfully\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] claudecode image builds successfully\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("solo image builds successfully")
-  printf "${RED}FAIL${NC} [%d] solo image builds successfully\n" "$TESTS_RUN"
-  echo "FATAL: Cannot continue without solo image."
+  FAILURES+=("claudecode image builds successfully")
+  printf "${RED}FAIL${NC} [%d] claudecode image builds successfully\n" "$TESTS_RUN"
+  echo "FATAL: Cannot continue without the claudecode image."
   print_summary
   exit 1
 fi
@@ -26,13 +26,13 @@ fi
 
 # --- Verify Docker labels ---
 assert_inspect \
-  "[solo] has security.non-root=true label" \
+  "[claudecode] has security.non-root=true label" \
   "$STANDALONE_IMAGE" \
   '{{index .Config.Labels "security.non-root"}}' \
   "true"
 
 assert_inspect \
-  "[solo] has security.hardened=true label" \
+  "[claudecode] has security.hardened=true label" \
   "$STANDALONE_IMAGE" \
   '{{index .Config.Labels "security.hardened"}}' \
   "true"

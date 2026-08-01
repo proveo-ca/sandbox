@@ -1,0 +1,38 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title `proveo setup` — cross-shell PATH wiring
+
+actor "Consumer" as USER
+
+node "Consumer host" as HOST <<host>> {
+  component "dist/install.sh\n(hands off, else prints a note)" as INSTALL <<app>>
+  component "cmd/proveo setup" as CMD <<app>>
+  component "internal/shell\nDetect · RCFile · PathLine\nExportLine · AlreadyConfigured" as SH <<app>>
+  database "rc file\n.bashrc/.bash_profile · .zshrc\nconfig.fish · .profile" as RC <<db>>
+  component "proveo binary dir\n(GOPATH/bin or install dir)" as BIN <<app>>
+}
+
+USER ARROW_MAIN INSTALL
+INSTALL ARROW_MAIN CMD : after install
+USER ARROW_OPTIONAL CMD : " ""proveo setup"" "
+CMD ARROW_MAIN SH : " ""Detect($SHELL)"" "
+SH ARROW_MAIN SH : " ""RCFile(goos, home)"" "
+SH ARROW_OPTIONAL RC : checks ""AlreadyConfigured(content, binDir)""\nno-op when the dir is already on PATH
+SH ARROW_MAIN RC : appends ""PathLine(binDir)""
+RC ARROW_MAIN BIN : next login shell resolves ""proveo""
+
+note right of SH
+  **Syntax differs per shell, so it is data, not a
+  template.** bash/zsh export ""PATH=…:$PATH""; fish uses
+  ""set -gx PATH … $PATH""; csh-family uses ""setenv"".
+  ""Supported"" marks shells proveo can write for —
+  an unrecognized ""$SHELL"" is reported, never guessed at.
+
+  **macOS bash takes ""~/.bash_profile"", Linux bash takes
+  ""~/.bashrc""** — a login-shell difference that silently
+  no-ops if you pick wrong.
+
+  ""AlreadyConfigured"" makes the command idempotent: run
+  it twice and the rc file gains one line, not two.
+end note
+@enduml

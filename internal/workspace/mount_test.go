@@ -11,6 +11,15 @@ import (
 	"github.com/proveo-ca/proveo/internal/runner"
 )
 
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func touch(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -50,7 +59,7 @@ func TestMountPlanInputOutputRO(t *testing.T) {
 
 func TestMountPlanAppWholeRepo(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
 	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "broker"}.Plan()
 	want := []runner.Mount{
@@ -67,7 +76,7 @@ func TestMountPlanAppWholeRepo(t *testing.T) {
 
 func TestMountPlanAppWholeRepoFirewallMasksEnv(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
 	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "firewall"}.Plan()
 	byContainer := map[string]runner.Mount{}
@@ -93,7 +102,7 @@ func maskedEnvSet(mounts []runner.Mount) map[string]bool {
 
 func TestMountPlanInputOutputFirewallMasksNestedEnv(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
 	touch(t, filepath.Join(root, "svc", "api", ".env")) // nested
 	touch(t, filepath.Join(root, ".env.local"))
@@ -117,7 +126,7 @@ func TestMountPlanInputOutputFirewallMasksNestedEnv(t *testing.T) {
 
 func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
 	touch(t, filepath.Join(root, "packages", "worker", ".env")) // nested per-package
 	touch(t, filepath.Join(root, "node_modules", "x", ".env"))  // pruned
@@ -134,7 +143,7 @@ func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
 
 func TestMountPlanAppSubdirFirewallMasksEnv(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, ".env"))
 	touch(t, filepath.Join(scope, "sub", ".env"))
@@ -149,8 +158,8 @@ func TestMountPlanAppSubdirFirewallMasksEnv(t *testing.T) {
 
 func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	secrets := filepath.Join(t.TempDir(), "secrets.env")
+	root := tempDir(t)
+	secrets := filepath.Join(tempDir(t), "secrets.env")
 	touch(t, secrets)
 	if err := os.Symlink(secrets, filepath.Join(root, ".env")); err != nil {
 		t.Fatal(err)
@@ -172,7 +181,7 @@ func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
 
 func TestMountPlanAppSubdir(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	touch(t, filepath.Join(root, "package.json"))
 	touch(t, filepath.Join(root, "pnpm-workspace.yaml"))
 	touch(t, filepath.Join(root, ".cursor", "cli.json"))
@@ -221,7 +230,7 @@ func TestMountPlanAppSubdir(t *testing.T) {
 
 func TestMountPlanAppGitROAndOutput(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	scope := filepath.Join(root, "svc")
 	touch(t, filepath.Join(scope, "go.mod"))
 	got, _ := MountSpec{
@@ -255,7 +264,7 @@ func TestMountPlanAppNonRepoReadOnly(t *testing.T) {
 
 func TestEnvFileSourcePrefersRepoRoot(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	sub := filepath.Join(root, "apps", "web")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -272,7 +281,7 @@ func TestEnvFileSourcePrefersRepoRoot(t *testing.T) {
 
 func TestEnvFileSourcePrefersInvocationWD(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := tempDir(t)
 	scope := filepath.Join(root, "scope")
 	if err := os.MkdirAll(scope, 0o755); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 // Package manifest reads the per-harness `defs/<name>/harness.manifest` files —
 // the single registration point. Adding a harness should mean dropping
 // a def dir with a manifest; nothing else enumerates harnesses by hand.
+// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 package manifest
 
 import (
@@ -79,8 +80,13 @@ type Manifest struct {
 	Images       map[string]string `yaml:"images"`       // target name -> image ref
 	Workspace    Workspace         `yaml:"workspace"`    // mount model
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
-	Env          []EnvVar          `yaml:"env"`          // env vars the harness reads
-	Dir          string            `yaml:"-"`            // def directory (set by Load)
+	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
+	// Config names NON-SECRET host preferences this harness wants forwarded by
+	// value (`-e NAME=value`), on top of the shared baseline in
+	// entrypoint.ConfigVars. Use it for a harness-specific knob — a secret
+	// belongs in Env, which is brokered rather than forwarded.
+	Config []string `yaml:"config"`
+	Dir    string   `yaml:"-"` // def directory (set by Load)
 }
 
 // MissingEnv returns the declared env vars whose value is empty per getenv,
@@ -137,6 +143,17 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest %q: duplicate env entry %q", m.Name, e.Name)
 		}
 		seen[e.Name] = true
+	}
+	for _, c := range m.Config {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return fmt.Errorf("manifest %q: config entry with empty name", m.Name)
+		}
+		// config is forwarded BY VALUE, so a secret listed here would land on the
+		// docker argv in plain sight. Declared secrets go through Env.
+		if seen[c] {
+			return fmt.Errorf("manifest %q: %q is declared in env (brokered) — it cannot also be a config passthrough", m.Name, c)
+		}
 	}
 	if err := m.Home.validate(m.Name); err != nil {
 		return err

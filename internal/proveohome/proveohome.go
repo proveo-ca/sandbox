@@ -1,6 +1,7 @@
 // Package proveohome resolves durable, proveo-owned session/config mounts under
 // PROVEO_HOME (default ~/.proveo). These survive container --rm without binding
 // host IDE homes (~/.cursor, ~/.claude) or persisting login tokens.
+// SPEC: _spec/internal/proveohome/proveo-home-components.puml, _spec/internal/proveohome/proveo-home-lifecycle.puml
 package proveohome
 
 import (
@@ -85,7 +86,7 @@ func scrubDeny(dir string, deny []string) error {
 }
 
 // ResumeArgs maps proveo --resume/--continue/--ls onto harness CLI argv.
-// target is the runnable image target (e.g. cursor-browser, claudecode-solo).
+// target is the runnable image target (e.g. cursor-browser, claudecode-solidity).
 func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 	base := harnessFamily(target)
 	switch {

@@ -1,0 +1,75 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
+
+component "<<app>>  first-party app / runtime service" as R1 <<app>>
+queue     "<<async>>  queue · scheduler · background" as R2 <<async>>
+node      "<<host>>  host / platform / operator boundary" as R3 <<host>>
+cloud     "<<cloud>>  external SaaS / vendor" as R4 <<cloud>>
+database  "<<db>>  persistence / state store" as R5 <<db>>
+component "<<error>>  destructive · failure · security-sensitive" as R6 <<error>>
+
+R1 ARROW_MAIN     R2 : ARROW_MAIN — primary / synchronous
+R2 ARROW_QUEUE    R3 : ARROW_QUEUE — internal async hand-off
+R3 ARROW_OPTIONAL R5 : ARROW_OPTIONAL — alt · retry · optional
+R3 ARROW_CLOUD    R4 : ARROW_CLOUD — crosses to an external system
+R1 ARROW_ERROR    R6 : ARROW_ERROR — failure / destructive
+
+note top of R1
+  **Directory rule.** ""_spec/"" mirrors the source tree —
+  ""_spec/internal/<pkg>/"", ""_spec/cmd/<bin>/"",
+  ""_spec/defs/<name>/"", ""_spec/packages/lib/"". A folder
+  that does **not** correspond to a live source folder is
+  prefixed with an underscore: ""_assets"", ""_paradigms"",
+  ""_conventions"", ""_experiments"", ""_refactors"".
+end note
+
+note bottom of R3
+  **Identity is remote.** Every diagram includes
+  ""proveo.puml"" from the identity repo, so the palette
+  changes in one place. Legacy files using the older
+  includeurl form of ""proveo.iuml"" with the ""PATH_MAIN""
+  and ""errorLabel"" macros still render — those names are
+  kept as aliases — but author new work with stereotypes
+  and the ""ARROW_*"" macros.
+end note
+
+note bottom of R5
+  **Text.** A doubled-quote pair marks ""monospace"" — use
+  it for identifiers, paths and env vars; **bold** for
+  section labels; //italic// for concepts.
+
+  Because that delimiter //is// a quote pair, a literal
+  double quote inside a label miscounts it: write string
+  literals with single quotes, as in 'pause'.
+end note
+
+note bottom of R6
+  **SPEC lifecycle — what keeps diagrams honest:**
+  * every ""\.puml"" is referenced from at least one source
+    file, on one top-line ""SPEC:"" comment (comma-separated)
+  * source deleted or renamed → move the comment to the
+    file that replaced the behavior; do not delete the diagram
+  * delete a diagram only when the whole feature is gone;
+    reimplemented on new tech → mark it OUTDATED instead
+  * refactor moves logic → move the comment, update the
+    diagram if the architecture actually changed
+  * ""_spec/_refactors/"" (frozen snapshots) and
+    ""_spec/_plans/"" (designs with no code yet) are exempt
+    from the referencing rule — nothing exists to link them
+    from. A ""_plans"" diagram is titled PLANNED and moves
+    out (or is deleted) once it ships.
+
+  **Default to current-state truth.** Keep future
+  direction in notes; never rename a current component to
+  the abstraction it is meant to grow into.
+
+  **Validate before committing:** ""plantuml -checkonly f.puml""
+  (empty output + exit 0 = clean).
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+R1 -down[hidden]- R3
+R4 -down[hidden]- R6
+' --- END IGNORE ---
+@enduml

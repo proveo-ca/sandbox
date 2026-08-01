@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml
 # Enterprise-layer beforeShellExecution hook: append the shell request payload
 # (JSON on stdin: command, cwd, conversation_id, ...) to an NDJSON audit log,
 # then allow. This hook is AUDIT ONLY and fail-open by design — enforcement

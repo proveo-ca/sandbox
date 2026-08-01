@@ -9,6 +9,8 @@
 //     broker.env secret; wiping them is a security win after a crashed run).
 //   - --deep: routine + the reusable proveo/* images. Upstream sidecar bases
 //     (squid/ollama/docker:dind) are left — shared and cheap to re-pull.
+//
+// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package clean
 
 // Container is a proveo-managed container. Session is the egress session id

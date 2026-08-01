@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/opencode/opencode-topology.puml, _spec/defs/opencode/opencode.paradigm.md
+# SPEC: _spec/defs/opencode/opencode-topology.puml, _spec/defs/opencode/opencode-paradigm.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -10,7 +10,10 @@ fi
 # Shared prelude (uid, .env, model bridges, git, sentinel) via Go when baked.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=opencode
-  proveo-entrypoint prep opencode || true
+  env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
+  set_working_directory "/app"
+  load_env quiet
+  apply_env_bridges
 else
   ensure_runtime_user
   set_working_directory "/app"
@@ -259,6 +262,9 @@ if (( ${#agent_files[@]} > 0 )); then
   echo "🧑‍💻 Subagents available: ${agent_files[*]}"
 fi
 echo "─────────────────────────────────────────────────────"
+
+printf 'PROVEO_MODELS main=%s small=%s\n' \
+  "${OPENCODE_MODEL:-unset}" "${OPENCODE_SMALL_MODEL:-unset}"
 
 if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-opencode}"

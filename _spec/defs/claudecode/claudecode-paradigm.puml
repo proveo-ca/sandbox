@@ -1,0 +1,65 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title claudecode paradigm — ML blackbox algorithm (spec → plan → implement → verify → loop)
+
+actor "Developer\ngoal + stopping condition" as DEV
+
+node "claudecode container" as CTR <<host>> {
+  component "defs/claudecode/mcp/entrypoint.sh" as EP <<app>>
+  component "claude --dangerously-skip-permissions" as CLI <<error>>
+  artifact "CLAUDE.md\nloop pattern + acceptance criteria" as MD <<db>>
+  component "verification commands\n(internal/verify preamble)" as VER <<app>>
+  database "/workspace/input (repo)\n/workspace/output (artifacts)" as WS <<db>>
+}
+
+DEV ARROW_MAIN CLI : goal
+EP ARROW_MAIN MD : seed when absent
+EP ARROW_MAIN VER
+EP ARROW_MAIN CLI : " ""ANTHROPIC_MODEL"" \n""ANTHROPIC_SMALL_FAST_MODEL"" (bare ids) "
+CLI ARROW_MAIN WS : implement
+CLI ARROW_MAIN VER : verify
+VER ARROW_MAIN CLI : loop until acceptance criteria met
+CLI ARROW_MAIN DEV : stops on the stated condition
+
+note right of CLI
+  **The dangerous flag is deliberate** — and is only
+  acceptable because containment is external: hardened
+  container + enforced egress + credential broker
+  (_spec/_paradigms/egress-boundary.puml,
+   _spec/_paradigms/credential-boundary.puml).
+  Nothing here relies on the model's restraint.
+
+  Small verifiable loops beat large open-ended tasks;
+  errors are expected — the value is fast iteration
+  inside the loop.
+end note
+
+note bottom of WS
+  ""layout: input-output"" — the only harness that does not
+  use ""/app"". ""/workspace"" itself is **not** a mount, so a
+  path outside ""input""/""output"" is written into the
+  container's ephemeral layer and lost on exit.
+end note
+
+note bottom of EP
+  Variants share this paradigm: ""mcp"" is the **default**
+  image (""proveo/claudecode""); ""solidity"" layers the EVM
+  contract toolchain (Foundry · solc · solhint · semgrep)
+  **on top of mcp** — the heaviest variant; ""-browser"" is
+  mcp FROM base-node-browser (Playwright + Chromium).
+
+  Subscription harness: proveo warns rather than prompts
+  when ""CLAUDE_CODE_OAUTH_TOKEN"" is absent and lets the
+  agent handle login.
+end note
+
+note right of CLI
+  **No DinD.** Alone in the fleet, claudecode ships no
+  docker client and stays ""dind: false"": the privileged
+  sibling is ""broker""-mode only, and this is the harness
+  whose permission posture depends on the boundary that
+  mode removes. Container work is deferred to the
+  per-sandbox engine in
+  _spec/_experiments/docker-sandbox.puml.
+end note
+@enduml

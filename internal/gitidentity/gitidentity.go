@@ -3,7 +3,7 @@
 // client env at docker run time — secrets stay off argv when set as KEY only,
 // but identity is non-secret so KEY=value is fine).
 //
-// SPEC: _spec/paradigms.md, _spec/components.puml
+// SPEC: _spec/_paradigms/git-identity.puml, _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
 package gitidentity
 
 import (

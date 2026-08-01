@@ -221,3 +221,27 @@ func TestLoadFSInvalidManifestErrors(t *testing.T) {
 		t.Error("LoadFS must surface a validation error from a bad manifest")
 	}
 }
+
+func TestConfigPassthroughValidation(t *testing.T) {
+	t.Parallel()
+	base := Manifest{Name: "x", Images: map[string]string{"x": "proveo/x:latest"}}
+
+	ok := base
+	ok.Config = []string{"ARCHITECT_MODEL", "MY_HARNESS_THEME"}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("plain config passthrough must validate: %v", err)
+	}
+
+	empty := base
+	empty.Config = []string{"  "}
+	if err := empty.Validate(); err == nil {
+		t.Error("an empty config entry must be rejected")
+	}
+
+	leak := base
+	leak.Env = []EnvVar{{Name: "SOME_TOKEN", Secret: true}}
+	leak.Config = []string{"SOME_TOKEN"}
+	if err := leak.Validate(); err == nil {
+		t.Error("a declared secret must not be forwardable as a config passthrough")
+	}
+}

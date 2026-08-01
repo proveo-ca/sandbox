@@ -1,0 +1,53 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title opencode paradigm — subagent crew with HITL oversight
+
+actor "Developer\nreviews between loops" as DEV
+
+node "opencode container" as CTR <<host>> {
+  component "defs/opencode/entrypoint.sh" as EP <<app>>
+  component "opencode TUI / run --auto" as CLI <<app>>
+
+  frame "Seeded crew (~/.config/opencode/agents)" as CREW <<host>> {
+    component "plan\nread-only: edit+bash denied" as PLAN <<app>>
+    component "build\nedit allow · bash ask" as BUILD <<app>>
+    component "reviewers\nadversarial · security · spec-keeper" as REV <<app>>
+  }
+
+  component "native LSP\nauto-enabled per detected language" as LSP <<app>>
+  artifact "AGENTS.md" as MD <<db>>
+  database "/app — repo (rw, .git rw)" as WS <<db>>
+}
+
+DEV ARROW_MAIN CLI
+EP ARROW_MAIN CREW : seed missing only\n(""OPENCODE_RESEED=1"" forces)
+EP ARROW_MAIN MD : seed when absent
+EP ARROW_MAIN LSP : detect workspace languages
+EP ARROW_MAIN CLI : " ""OPENCODE_MODEL"" · ""OPENCODE_BUILD_MODEL"" \n""OPENCODE_SMALL_MODEL"" (provider-prefixed) "
+CLI ARROW_MAIN BUILD : implement
+BUILD ARROW_MAIN WS
+CLI ARROW_OPTIONAL PLAN : specs and step lists
+BUILD ARROW_QUEUE REV : review loop
+REV ARROW_MAIN DEV : findings surface to the human
+
+note right of CREW
+  **Roles are structural, not advisory.** The plan agent
+  has ""edit"" and ""bash"" set to deny and reviewers are
+  read-only, so "don't change code while reviewing" is a
+  permission, not a prompt instruction.
+
+  ""build"" keeps ""bash: ask"" — the HITL point.
+end note
+
+note bottom of EP
+  Model ids are **provider-prefixed** here
+  (""anthropic/claude-…""); ""apply_env_bridges"" normalizes a
+  bare id and fills the small slot from ""EDITOR_MODEL""
+  first, ""SMALL_MODEL"" second — the one harness whose
+  tier mapping differs
+  (_spec/internal/entrypoint/model-alias-bridges.puml).
+
+  Supports ""--local-model"" (Ollama sidecar, litellm-free
+  OpenAI-compatible endpoint) and DinD.
+end note
+@enduml

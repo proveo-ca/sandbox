@@ -1,0 +1,62 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Distribution + self-update — install.sh and `proveo update`
+
+actor "Consumer" as USER
+
+node "Maintainer host" as MH <<host>> {
+  component "goreleaser\nmulti-arch static binaries" as GR <<app>>
+  component "scripts/stage-cli-cdn.sh\nstages apps/cli/public/cli" as STAGE <<app>>
+}
+
+cloud "Cloudflare — proveo.ca/cli" as CDN <<cloud>> {
+  artifact "latest.json\n{version, checksums{basename→sha256}, base_url}" as MANIFEST <<db>>
+  artifact "proveo-<goos>-<goarch>[.exe]" as ASSET <<db>>
+}
+
+node "Consumer host" as CH <<host>> {
+  component "dist/install.sh · install.ps1" as INSTALL <<app>>
+  component "cmd/proveo update\n--check | --force" as UPD <<app>>
+  component "internal/cdn\nBaseURL · FetchManifest\nCurrentAssetName · Newer\nDownloadAsset · IsDevVersion" as CDNPKG <<app>>
+  component "proveo binary on PATH" as BIN <<app>>
+  component "cmd/proveo setup\nPATH via internal/shell" as SETUP <<app>>
+}
+
+GR ARROW_MAIN STAGE
+STAGE ARROW_CLOUD CDN : wrangler deploy
+USER ARROW_MAIN INSTALL
+INSTALL ARROW_CLOUD MANIFEST : fetch
+INSTALL ARROW_CLOUD ASSET : download
+INSTALL ARROW_MAIN BIN : install + successLabel(sha256 verified)
+INSTALL ARROW_OPTIONAL SETUP : hand off PATH wiring
+
+USER ARROW_MAIN UPD
+UPD ARROW_MAIN CDNPKG
+CDNPKG ARROW_CLOUD MANIFEST : " ""FetchManifest(client, BaseURL())"" "
+CDNPKG ARROW_MAIN CDNPKG : " ""Newer(remote, local)"" "
+CDNPKG ARROW_CLOUD ASSET : " ""DownloadAsset(…, wantHex)"" "
+CDNPKG ARROW_ERROR BIN : errorLabel(checksum mismatch → abort)
+CDNPKG ARROW_MAIN BIN : atomic replace
+
+note right of CDNPKG
+  **Checksum is the trust root.** The asset is only
+  installed when its sha256 matches the ""checksums""
+  entry in ""latest.json""; a mismatch aborts without
+  touching the installed binary. The manifest may
+  redirect downloads via its own ""base_url"".
+
+  ""AssetName(goos, goarch)"" is the naming contract
+  shared by goreleaser, the staged CDN tree and the
+  updater — they must agree or every update 404s.
+
+  A dev build (""IsDevVersion"", e.g. ""dev@<sha>"") is
+  never auto-replaced unless ""--force"" is passed, so a
+  locally built binary is not clobbered by a release.
+end note
+
+note bottom of CDN
+  Release assets only — no application code runs here.
+  Publishing: an exact git tag builds semver artifacts
+  (no GitHub Release); otherwise ""--snapshot"".
+end note
+@enduml

@@ -1,4 +1,4 @@
-// SPEC: _spec/tests/20-contract.puml, _spec/defs/cursor/cursor.paradigm.md
+// SPEC: _spec/tests/20-contract.puml, _spec/defs/cursor/cursor-paradigm.puml
 package contract_test
 
 import (

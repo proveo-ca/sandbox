@@ -1,7 +1,13 @@
+# Go is pinned in go.mod (`toolchain go1.26.5`) — the one place every tool obeys
+# via GOTOOLCHAIN=auto, including CI. It is deliberately absent here: mise would
+# install a SECOND GOROOT alongside the one `g` (github.com/stefanmaric/g) manages,
+# and two toolchains over one build cache fail with
+# `compile: version "goX" does not match go tool version "goY"`.
+#   g install 1.26.5   # match go.mod locally (download + activate)
+#   g list             # what's installed / active
 [tools]
 node = "24"
 pnpm = "10"
-go = "1.26"
 tmux = "3.7b"
 golangci-lint = "2.12.2"
 
@@ -22,7 +28,7 @@ dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-# Hard gates from ROADMAP static-analysis: gofmt -l · go vet · golangci-lint run
+# Hard gates: gofmt -l · go vet · golangci-lint run
 unformatted="$(gofmt -l internal cmd tests 2>/dev/null || true)"
 # Also cover any other module packages (embed.go at root, etc.)
 unformatted_root="$(gofmt -l *.go 2>/dev/null || true)"

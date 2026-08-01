@@ -1,0 +1,61 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Maintainer image pipeline — proveo build / test / deploy
+
+actor "Maintainer" as MT
+
+node "Maintainer host" as HOST <<host>> {
+  component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
+  component "cmd/proveo build|test|deploy\n(internal/maintain)" as CMD <<app>>
+  component "internal/manifest\nharness.manifest set" as MAN <<app>>
+  component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nbuildScript · buildArgs · testScript" as REG <<app>>
+  component "defs/<name>/build.sh\n→ defs/lib/docker-build.sh (buildx)" as BUILD <<app>>
+  component "defs/<name>/test.sh\nimage contract suites" as TEST <<app>>
+}
+
+folder "Target kinds" as KINDS <<host>> {
+  component "base\nbase · base-node · base-node-lsp\nbase-node-browser" as KB <<app>>
+  component "harness\nfrom images{} — incl. variants\n(claudecode-solidity, -browser)" as KH <<app>>
+  component "sidecar\nsquid-proxy · egress-proxy\nmitmproxy · dind" as KS <<app>>
+}
+
+cloud "Registry (docker push)" as REGISTRY <<cloud>>
+
+MT ARROW_MAIN MISE
+MISE ARROW_MAIN CMD : " ""go run ./cmd/proveo build …"" "
+CMD ARROW_MAIN MAN : enumerate defs
+MAN ARROW_MAIN REG
+REG ARROW_MAIN KINDS : one Target per buildable image
+REG ARROW_MAIN BUILD : local → buildx ""--load"" (host arch)
+REG ARROW_OPTIONAL TEST : ""proveo test <target>""
+BUILD ARROW_CLOUD REGISTRY : deploy → buildx ""--push""\n""PROVEO_PLATFORMS"" (default linux/amd64,linux/arm64)
+
+note right of REG
+  **Derived, never hardcoded.** The buildable set comes
+  from the manifest ""images"" map plus a fixed sidecar
+  list (sidecars have no harness manifest). A variant is
+  a Target whose ""buildArgs"" carry the selector, e.g.
+  ""--variant mcp"" — so ""claudecode"" and
+  ""claudecode-solidity"" share one def dir and one build.sh.
+end note
+
+note bottom of BUILD
+  Local builds ""--load"" the host platform only, because
+  a multi-arch manifest list cannot be loaded into the
+  local docker image store. Multi-arch exists only on
+  the ""--push"" path.
+
+  Bases are ensured before dependents: a harness build
+  invokes its base's ""ensure.sh"" first, so
+  ""base-node-lsp"" exists before claudecode/opencode
+  build ""FROM"" it.
+end note
+
+note bottom of TEST
+  Image contract suites assert the *runtime* contract —
+  non-root default user, baked tooling, seeded defaults,
+  entrypoint bridging — against the built image, not the
+  source. Grep-the-source assertions are retired
+  (see _spec/tests/20-contract.puml).
+end note
+@enduml

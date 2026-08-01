@@ -2,7 +2,7 @@
 
 Guidelines for adding or changing image definitions under `defs/`. The general definition
 contract lives in [`CODING_HARNESSES.md`](CODING_HARNESSES.md); each harness's intended
-working mode lives in [`_spec/paradigms.md`](_spec/paradigms.md) and
+working mode lives in [`_spec/_paradigms/harness-paradigms.puml`](_spec/_paradigms/harness-paradigms.puml) and
 `_spec/defs/<name>/<name>.paradigm.md`. This file collects the cross-cutting rules every
 contribution must satisfy.
 
@@ -81,7 +81,7 @@ to symlink resolution or smoke-test fixtures.
 The credential broker is a property of **`firewall` egress mode only**. It runs on the
 Go MITM sidecar (`proveo-egress`), the only hop where TLS is decrypted. `proxy` and
 `broker`/`proxy` modes cannot inject or strip auth headers on HTTPS traffic; they keep the
-key-in-agent behavior with the existing honest warnings (see `_spec/paradigms.md`,
+key-in-agent behavior with the existing honest warnings (see `_spec/_paradigms/harness-paradigms.puml`,
 Credential Boundary).
 
 **Firewall gaps contributors should not worsen**
@@ -124,7 +124,7 @@ When you add a definition:
 - `Dockerfile`, `entrypoint.sh`, `build.sh`, `run.sh`, `test.sh`, `README.md`, `tests/`
  per the [coding harness contract](CODING_HARNESSES.md).
 - A paradigm doc + topology diagram under `_spec/defs/<name>/`, referenced from source via
- `# SPEC:` comments (see `_spec/README.md` for the lifecycle rules).
+ `# SPEC:` comments (see `_spec/_conventions/spec-conventions.puml` for the lifecycle rules).
 - Baked defaults stay container-internal: never mutate the user-mounted workspace on first
  run; workspace seeding is opt-in and re-seeding is explicit (`<HARNESS>_RESEED=1`).
 - Validate any new/edited `.puml` with `plantuml -checkonly`.

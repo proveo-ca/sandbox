@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Thin wrapper → proveo-entrypoint verify (Go: internal/verify).
 # Kept as detect-verify.sh so baked image paths (/opt/proveo/lib/) keep working.
-# SPEC: _spec/defs/cursor/cursor.paradigm.md
+# SPEC: _spec/defs/cursor/cursor-paradigm.puml
 
 detect_verify_commands() {
   local root="${1:-$(pwd)}"

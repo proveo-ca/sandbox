@@ -2,9 +2,9 @@
 
 > Portable, hardened Docker sandboxes for AI coding agents — one command, any repo.
 
-![proveo run — capability picker on the sample repo](_spec/assets/hero.gif)
+![proveo run — capability picker on the sample repo](_spec/_assets/hero.gif)
 
-<sub>The capability picker on `tests/e2e/samples`. Record a live terminal version with `vhs _spec/assets/hero.tape`.</sub>
+<sub>The capability picker on `tests/e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
 
 `proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
@@ -56,7 +56,7 @@ enter to continue* — then launches the agent against your repo with the guaran
 | Agent | Images | Notes |
 | --- | --- | --- |
 | **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
-| **Claude Code** | `claudecode` (+ `-solo`, `-sol`, `-browser`) | MCP / solo / Solidity; subscription auth (Anthropic) |
+| **Claude Code** | `claudecode` (+ `-solidity`, `-browser`) | MCP / Solidity toolchain; subscription auth (Anthropic) |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
 | **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
@@ -65,7 +65,7 @@ layer).
 
 **Local models** (`--local-model` / Ollama sidecar): **opencode** and **cecli** only. Cursor is
 vendor-pinned (rejected). Claude Code speaks the Anthropic API shape, not Ollama’s OpenAI-compatible
-endpoint — the sidecar is not a drop-in ([`_spec/testing.md`](_spec/testing.md)).
+endpoint — the sidecar is not a drop-in ([`_spec/tests/testing-strategy.puml`](_spec/tests/testing-strategy.puml)).
 
 **Subscription agents** (claudecode, cursor): proveo warns if auth env is missing and
 lets the agent handle login; after the sandbox exits it prints shell-specific setup hints
@@ -76,7 +76,7 @@ lets the agent handle login; after the sandbox exits it prints shell-specific se
 Every run is a host-orchestrated, ephemeral sandbox: detect provider auth → mount the repo →
 provision egress → boot the agent → record + tear down.
 
-![proveo run lifecycle](_spec/assets/run-lifecycle.png)
+![proveo run lifecycle](_spec/_assets/run-lifecycle.png)
 
 ## Security — egress & credentials
 
@@ -84,7 +84,7 @@ The default `--egress-mode firewall` routes the agent through a MITM proxy + Squ
 a DLP scan, plus a **credential broker** that injects your API key **host-side** so it never
 enters the agent (the container only ever sees a sentinel).
 
-![egress policy layers](_spec/assets/egress-layers.png)
+![egress policy layers](_spec/_assets/egress-layers.png)
 
 | Mode | Credentials | Egress |
 | --- | --- | --- |
@@ -113,5 +113,5 @@ Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --hom
 ## Specs
 
 Architecture, the full egress policy, testing strategy, and the
-[Docker-Sandbox experiment](_spec/experiments/docker-sandbox.puml) live in [`_spec/`](_spec)
+[Docker-Sandbox experiment](_spec/_experiments/docker-sandbox.puml) live in [`_spec/`](_spec)
 as PlantUML diagrams + notes. Conventions: [`CONVENTIONS.md`](CONVENTIONS.md).
