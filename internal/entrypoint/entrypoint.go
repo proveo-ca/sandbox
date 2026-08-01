@@ -136,10 +136,11 @@ func LoadEnvFile(path string) error {
 	return sc.Err()
 }
 
-// ShouldSkipEnvLoad is true in proxy/firewall so secrets stay on the host/broker.
+// ShouldSkipEnvLoad is true whenever the egress layer holds the credential, so
+// secrets stay on the host/broker. Forwarded-credential runs set no mode env.
 func ShouldSkipEnvLoad(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "proxy", "firewall":
+	case "open", "allowlist", "review", "proxy", "firewall":
 		return true
 	}
 	return false

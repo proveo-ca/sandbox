@@ -88,6 +88,47 @@ func Notef(format string, a ...any) { Default.Notef(format, a...) }
 // Iconf writes an icon-decorated line on Default.
 func Iconf(icon, format string, a ...any) { Default.Iconf(icon, format, a...) }
 
+// The proveo identity palette — the SAME six semantic roles the spec diagrams
+// use (see _spec/_conventions/spec-conventions.puml, which pulls them from the
+// identity repo's proveo.puml). One palette for diagrams and the CLI: a role's
+// colour is defined here exactly once, as hex, and each surface maps it to what
+// its terminal library speaks.
+//
+// SPEC: _spec/_conventions/spec-conventions.puml
+const (
+	ColorApp   = 0x005F7F // first-party app / runtime service — teal
+	ColorAsync = 0xCBDB2A // queue · scheduler · background — lime
+	ColorHost  = 0x00BAC6 // host / platform / operator boundary — cyan
+	ColorCloud = 0x585858 // external SaaS / vendor — slate
+	ColorDB    = 0xE5E4E4 // persistence / state store — light
+	ColorError = 0xCB2000 // destructive · failure · security-sensitive — red
+)
+
+// Semantic aliases for CLI status vocabulary, expressed in palette roles so the
+// mapping is stated once rather than re-decided per call site.
+const (
+	ColorBrand     = ColorHost  // the mark and any selected/active element
+	ColorAccent    = ColorApp   // first-party emphasis
+	ColorWarn      = ColorAsync // attention, not yet a failure
+	ColorFail      = ColorError
+	ColorSecondary = ColorCloud // dim supporting text
+)
+
+// ANSI renders a palette colour as a 24-bit foreground escape. Callers guard it
+// behind Printer.Plain so NO_COLOR / TERM=dumb / non-TTY output stays clean.
+func ANSI(rgb int) string {
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", (rgb>>16)&0xFF, (rgb>>8)&0xFF, rgb&0xFF)
+}
+
+// ANSIReset ends any colour started with ANSI.
+const ANSIReset = "\033[0m"
+
+// ANSIBold and ANSIDim are the two weights the identity uses.
+const (
+	ANSIBold = "\033[1m"
+	ANSIDim  = "\033[2m"
+)
+
 // BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
 const BrandBanner = `        ┌───────●                        ───────┐
         │                                       │
@@ -105,15 +146,15 @@ func WriteBrandBanner(w io.Writer) {
 	p := New(w)
 	fmt.Fprintln(w)
 	if !p.Plain {
-		fmt.Fprint(w, "\033[1m\033[36m") // bold cyan
+		fmt.Fprint(w, ANSIBold+ANSI(ColorBrand))
 	}
 	fmt.Fprintln(w, BrandBanner)
 	if !p.Plain {
-		fmt.Fprint(w, "\033[0m")
+		fmt.Fprint(w, ANSIReset)
 	}
 	if p.Plain {
 		fmt.Fprintf(w, "  %s\n\n", BrandTagline)
 	} else {
-		fmt.Fprintf(w, "  \033[2m%s\033[0m\n\n", BrandTagline) // dim
+		fmt.Fprintf(w, "  "+ANSI(ColorSecondary)+"%s"+ANSIReset+"\n\n", BrandTagline)
 	}
 }

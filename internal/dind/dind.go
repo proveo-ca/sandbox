@@ -9,22 +9,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/wsscan"
 )
-
-// MaxDepth is how deep ScopeHasDockerfiles walks (matches the bash helper).
-const MaxDepth = 7
-
-// dockerFileNames are basenames that trigger the DinD offer.
-var dockerFileNames = map[string]bool{
-	"Dockerfile":          true,
-	"docker-compose.yml":  true,
-	"docker-compose.yaml": true,
-	"compose.yml":         true,
-	"compose.yaml":        true,
-}
 
 // EnvEnabled reports whether PROVEO_DIND is on.
 func EnvEnabled() bool {
@@ -37,7 +26,19 @@ func EnvEnabled() bool {
 // be reached across (a legacy --link does not span networks), and attaching the
 // internet-capable daemon to that network would defeat egress enforcement.
 func ModeSupported(mode string) bool {
-	return strings.EqualFold(strings.TrimSpace(mode), "broker")
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "open", "broker":
+		return true
+	}
+	return false
+}
+
+// CredentialsSupported reports whether the credential mode leaves an
+// internet-capable agent network for a DinD attach. Brokered credentials put the
+// agent behind the MITM on an --internal network; attaching a daemon there would
+// either lose the internet or bypass the injector.
+func CredentialsSupported(credentials string) bool {
+	return strings.EqualFold(strings.TrimSpace(credentials), "forward")
 }
 
 func truthy(v string) bool {
@@ -48,76 +49,16 @@ func truthy(v string) bool {
 	return false
 }
 
-// ScopeHasDockerfiles walks scopeDir up to MaxDepth looking for Dockerfile /
-// Compose files, pruning .git and plain directory basenames from the nearest
-// .gitignore (same rules as the bash helper).
+// ScopeHasDockerfiles reports whether the scope has Dockerfile/Compose files of
+// its OWN. It delegates to internal/wsscan so the prune set is shared: an npm
+// package's Dockerfile under node_modules must not offer a privileged sidecar for
+// a repo that ships none.
 func ScopeHasDockerfiles(scopeDir string) bool {
-	if scopeDir == "" {
-		return false
-	}
-	info, err := os.Stat(scopeDir)
-	if err != nil || !info.IsDir() {
-		return false
-	}
-	prune := gitignorePruneNames(scopeDir)
-	prune[".git"] = true
-	return walkHasDocker(scopeDir, scopeDir, 0, prune)
-}
-
-func gitignorePruneNames(scopeDir string) map[string]bool {
-	out := map[string]bool{}
-	dir := scopeDir
-	for {
-		gi := filepath.Join(dir, ".gitignore")
-		if data, err := os.ReadFile(gi); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
-					continue
-				}
-				clean := strings.TrimPrefix(strings.TrimSuffix(line, "/"), "/")
-				if clean == "" || clean == "." || clean == ".." {
-					continue
-				}
-				if strings.ContainsAny(clean, "/*?[") {
-					continue
-				}
-				out[clean] = true
-			}
-			return out
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return out
-		}
-		dir = parent
-	}
-}
-
-func walkHasDocker(root, dir string, depth int, prune map[string]bool) bool {
-	if depth > MaxDepth {
-		return false
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() {
-			if prune[name] {
-				continue
-			}
-			if walkHasDocker(root, filepath.Join(dir, name), depth+1, prune) {
-				return true
-			}
-			continue
-		}
-		if dockerFileNames[name] {
-			return true
-		}
-	}
-	return false
+	res := wsscan.Scan(scopeDir, scopeDir, []wsscan.Marker{{
+		Label: "docker",
+		Names: []string{"Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"},
+	}}, 0)
+	return res.Has("docker")
 }
 
 // ShouldStart reports whether DinD should be launched for a dind-capable

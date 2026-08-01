@@ -51,6 +51,18 @@ proveo run opencode --local-model gemma4     # fully local via an Ollama sidecar
 `proveo run` opens a **capability picker** — *press tab to add an option (browser, DinD), or
 enter to continue* — then launches the agent against your repo with the guarantees below.
 
+## Supported languages & tooling
+
+Detected in your workspace and provisioned on demand — nothing is baked into every image.
+
+![go](https://img.shields.io/badge/go-00ADD8?style=flat-square&logoColor=white) ![node](https://img.shields.io/badge/node-5FA04E?style=flat-square&logoColor=white) ![nx](https://img.shields.io/badge/nx-143055?style=flat-square&logoColor=white) ![turbo](https://img.shields.io/badge/turbo-EF4444?style=flat-square&logoColor=white) ![mise](https://img.shields.io/badge/mise-CBDB2A?style=flat-square&logoColor=white) ![python](https://img.shields.io/badge/python-3776AB?style=flat-square&logoColor=white) ![rust](https://img.shields.io/badge/rust-DEA584?style=flat-square&logoColor=white) ![docker](https://img.shields.io/badge/docker-2496ED?style=flat-square&logoColor=white)
+
+Detection is monorepo-aware: it walks the invocation scope to depth 7, pruning dependency
+and build trees (`node_modules`, `vendor`, `target`, `dist`, …) so a dependency's
+`Dockerfile` is never mistaken for the workspace's own. The registry lives in
+`cmd/proveo/main.go` (`toolingMarkers`) and is the single source of truth for both these
+pills and the first-run choice prompt.
+
 ## Agents & variants
 
 | Agent | Images | Notes |
@@ -80,9 +92,26 @@ provision egress → boot the agent → record + tear down.
 
 ## Security — egress & credentials
 
-The default `--egress-mode firewall` routes the agent through a MITM proxy + Squid allowlist with
-a DLP scan, plus a **credential broker** that injects your API key **host-side** so it never
-enters the agent (the container only ever sees a sentinel).
+Two independent axes. `--egress-mode` picks the **network tier**, and the tiers are cumulative:
+
+| tier | network |
+| --- | --- |
+| `open` | no allowlist — the agent may reach any host |
+| `allowlist` (default) | Squid allowlist + method pin + DLP scan |
+| `review` | the allowlist, plus an interactive prompt per new connection |
+
+`--credentials` picks how the agent authenticates. The default `broker` keeps your API key
+**host-side** and injects it at the MITM, so it never enters the agent (the container only ever
+sees a sentinel). `forward` hands the real value to the container, which is required for the two
+cases injection cannot serve: a vendor that pins its TLS (cursor), and DinD.
+
+Every tier brokers credentials except `--egress-mode open --credentials forward`, which is the
+deliberate bypass. Even `open` keeps the exfil-sink denylist and the DLP secret scan — an open
+network must not become an open channel for the key itself.
+
+The older `--egress-mode broker|proxy|firewall` names still work and map to
+`open|review|allowlist`, with a warning: they used to imply credential handling, which now lives
+on `--credentials`.
 
 ![egress policy layers](_spec/_assets/egress-layers.png)
 

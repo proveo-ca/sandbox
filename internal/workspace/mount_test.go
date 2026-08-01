@@ -61,7 +61,7 @@ func TestMountPlanAppWholeRepo(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
-	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "broker"}.Plan()
+	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "open", Credentials: "forward"}.Plan()
 	want := []runner.Mount{
 		{Host: root, Container: "/app"},
 		{Host: filepath.Join(root, ".env"), Container: "/app/.env", ReadOnly: true},
@@ -78,7 +78,7 @@ func TestMountPlanAppWholeRepoFirewallMasksEnv(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
-	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "firewall"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "allowlist"}.Plan()
 	byContainer := map[string]runner.Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
@@ -108,7 +108,7 @@ func TestMountPlanInputOutputFirewallMasksNestedEnv(t *testing.T) {
 	touch(t, filepath.Join(root, ".env.local"))
 	touch(t, filepath.Join(root, ".env.example"))              // template: must stay readable
 	touch(t, filepath.Join(root, "node_modules", "p", ".env")) // pruned
-	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: root, OutputDir: filepath.Join(root, "reports"), EgressMode: "firewall"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: root, OutputDir: filepath.Join(root, "reports"), EgressMode: "allowlist"}.Plan()
 
 	masked := maskedEnvSet(got)
 	for _, want := range []string{"/workspace/input/.env", "/workspace/input/svc/api/.env", "/workspace/input/.env.local"} {
@@ -130,7 +130,7 @@ func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
 	touch(t, filepath.Join(root, ".env"))
 	touch(t, filepath.Join(root, "packages", "worker", ".env")) // nested per-package
 	touch(t, filepath.Join(root, "node_modules", "x", ".env"))  // pruned
-	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "firewall"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "allowlist"}.Plan()
 
 	masked := maskedEnvSet(got)
 	if !masked["/app/.env"] || !masked["/app/packages/worker/.env"] {
@@ -147,7 +147,7 @@ func TestMountPlanAppSubdirFirewallMasksEnv(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, ".env"))
 	touch(t, filepath.Join(scope, "sub", ".env"))
-	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: scope, EgressMode: "firewall"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: scope, EgressMode: "allowlist"}.Plan()
 
 	// The scope is mounted at /app/apps/web; its .env files are masked under that base.
 	masked := maskedEnvSet(got)
@@ -165,7 +165,7 @@ func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "broker"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "open", Credentials: "forward"}.Plan()
 	byContainer := map[string]runner.Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
@@ -192,7 +192,7 @@ func TestMountPlanAppSubdir(t *testing.T) {
 	got, wd := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
 		RepoRoot:  root, InputDir: scope,
-		EgressMode: "broker",
+		EgressMode: "open", Credentials: "forward",
 	}.Plan()
 
 	if wd != "/app" {

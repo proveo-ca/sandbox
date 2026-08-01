@@ -6,10 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
@@ -18,35 +17,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
-
-func TestCapabilitySelection(t *testing.T) {
-	t.Parallel()
-	caps := []capability{
-		{"browser", "browser variant"},
-		{"dind", "DinD sidecar"},
-	}
-	tests := []struct {
-		name string
-		idxs []int
-		want map[string]bool
-	}{
-		{name: "continue only", idxs: []int{0}, want: map[string]bool{}},
-		{name: "continue + dind", idxs: []int{0, 2}, want: map[string]bool{"dind": true}},
-		{name: "browser only", idxs: []int{1}, want: map[string]bool{"browser": true}},
-		{name: "both add-ons", idxs: []int{1, 2}, want: map[string]bool{"browser": true, "dind": true}},
-		{name: "out of range ignored", idxs: []int{0, 9, -1}, want: map[string]bool{}},
-		{name: "empty", idxs: nil, want: map[string]bool{}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := capabilitySelection(caps, tc.idxs)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("capabilitySelection(%v) mismatch (-want +got):\n%s", tc.idxs, diff)
-			}
-		})
-	}
-}
 
 func TestPickProject(t *testing.T) {
 	t.Parallel()
@@ -85,26 +55,25 @@ func TestBrokerProvider(t *testing.T) {
 	cursorMan := manifest.Manifest{Provider: "cursor"}
 	tests := []struct {
 		name     string
-		mode     string
+		forwards bool
 		man      manifest.Manifest
 		detected []string
 		lookup   func(string) string
 		on       bool
 		want     string
 	}{
-		{"firewall + 1 provider + on", "firewall", manifest.Manifest{}, []string{"anthropic"}, nil, true, "anthropic"},
-		{"broker mode never brokers", "broker", manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
-		{"proxy mode never brokers", "proxy", manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
-		{"two providers → ambiguous, skip", "firewall", manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, ""},
-		{"zero providers", "firewall", manifest.Manifest{}, nil, nil, true, ""},
-		{"broker disabled", "firewall", manifest.Manifest{}, []string{"anthropic"}, nil, false, ""},
-		{"cursor pin + multi-detect + host key", "firewall", cursorMan, []string{"anthropic", "openai", "cursor"}, func(k string) string {
+		{"brokered + 1 provider + on", false, manifest.Manifest{}, []string{"anthropic"}, nil, true, "anthropic"},
+		{"forwarded credentials never broker", true, manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
+		{"two providers → ambiguous, skip", false, manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, ""},
+		{"zero providers", false, manifest.Manifest{}, nil, nil, true, ""},
+		{"broker disabled", false, manifest.Manifest{}, []string{"anthropic"}, nil, false, ""},
+		{"cursor pin + multi-detect + host key", false, cursorMan, []string{"anthropic", "openai", "cursor"}, func(k string) string {
 			if k == "CURSOR_API_KEY" {
 				return "sk-cursor"
 			}
 			return ""
 		}, true, "cursor"},
-		{"cursor pin without key", "firewall", cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, ""},
+		{"cursor pin without key", false, cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,7 +82,7 @@ func TestBrokerProvider(t *testing.T) {
 			if lookup == nil {
 				lookup = func(string) string { return "" }
 			}
-			if got := brokerProvider(tc.mode, tc.man, tc.detected, lookup, tc.on); got != tc.want {
+			if got := brokerProvider(tc.forwards, tc.man, tc.detected, lookup, tc.on); got != tc.want {
 				t.Errorf("brokerProvider(...) = %q, want %q", got, tc.want)
 			}
 		})
@@ -124,23 +93,22 @@ func TestBrokerOffReason(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name         string
-		mode         string
+		forwards     bool
 		providerName string
 		detected     []string
 		on           bool
 		wantSubstr   string // "" = expect no warning at all
 	}{
-		{"two providers → explain", "firewall", "", []string{"anthropic", "openai"}, true, "anthropic, openai"},
-		{"broker disabled → explain", "firewall", "", []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
-		{"broker armed → silent", "firewall", "anthropic", []string{"anthropic"}, true, ""},
-		{"broker mode → silent", "broker", "", []string{"anthropic", "openai"}, true, ""},
-		{"proxy mode → silent", "proxy", "", []string{"anthropic", "openai"}, true, ""},
-		{"no keys at all → silent", "firewall", "", nil, true, ""},
+		{"two providers → explain", false, "", []string{"anthropic", "openai"}, true, "anthropic, openai"},
+		{"broker disabled → explain", false, "", []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
+		{"broker armed → silent", false, "anthropic", []string{"anthropic"}, true, ""},
+		{"forwarded credentials → silent", true, "", []string{"anthropic", "openai"}, true, ""},
+		{"no keys at all → silent", false, "", nil, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := brokerOffReason(tc.mode, tc.providerName, tc.detected, tc.on)
+			got := brokerOffReason(tc.forwards, tc.providerName, tc.detected, tc.on)
 			if tc.wantSubstr == "" {
 				if got != "" {
 					t.Errorf("brokerOffReason(...) = %q, want no warning", got)
@@ -160,10 +128,10 @@ func TestBrokerOffReason(t *testing.T) {
 func TestAssembleAndDispatch(t *testing.T) {
 	t.Parallel()
 
-	t.Run("broker mode: no lifecycle, bare agent", func(t *testing.T) {
+	t.Run("open+forward: no lifecycle, bare agent", func(t *testing.T) {
 		t.Parallel()
 		plan, agent, err := assemble(assembleInput{
-			params: runParams{mode: "broker", target: "opencode", image: "img"},
+			params: runParams{mode: "open", credentials: "forward", target: "opencode", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1000", gid: "1000",
 			pidsLimit: 4096,
 		})
@@ -405,7 +373,7 @@ func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
 	if len(detected) != 1 || detected[0] != "cursor" {
 		t.Fatalf("Detect(lookup) = %v, want [cursor]", detected)
 	}
-	if got := brokerProvider("firewall", manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
+	if got := brokerProvider(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
 		t.Fatalf("brokerProvider = %q, want cursor", got)
 	}
 }
@@ -423,7 +391,7 @@ func TestMoonshotDetectFromHostDotEnvOnly(t *testing.T) {
 	if len(detected) != 1 || detected[0] != "moonshot" {
 		t.Fatalf("Detect(lookup) = %v, want [moonshot]", detected)
 	}
-	if got := brokerProvider("firewall", manifest.Manifest{}, detected, lookup, true); got != "moonshot" {
+	if got := brokerProvider(false, manifest.Manifest{}, detected, lookup, true); got != "moonshot" {
 		t.Fatalf("brokerProvider = %q, want moonshot", got)
 	}
 }
@@ -463,7 +431,7 @@ func TestCursorBrokerWithMultiProviderDotEnv(t *testing.T) {
 	if len(detected) < 2 {
 		t.Fatalf("Detect(lookup) = %v, want multiple providers", detected)
 	}
-	if got := brokerProvider("firewall", manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
+	if got := brokerProvider(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
 		t.Fatalf("brokerProvider = %q, want cursor", got)
 	}
 	path, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject"), lookup)
@@ -485,5 +453,81 @@ func TestHydrateProcessEnvFromLookup(t *testing.T) {
 	hydrateProcessEnv("CURSOR_API_KEY", lookup)
 	if got := os.Getenv("CURSOR_API_KEY"); got != "from-file" {
 		t.Fatalf("CURSOR_API_KEY = %q, want from-file", got)
+	}
+}
+
+// The header must state host-knowable facts as facts and LSP servers as a
+// prediction — presence in the image is a separate question the host cannot see.
+func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, f := range []string{"go.mod", "package.json", "nx.json", "main.go", "Dockerfile"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := filepath.Join(dir, ".opencode")
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []string{"architect.md", "sre.md"} {
+		if err := os.WriteFile(filepath.Join(cfg, "agents", a), []byte("#"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	man := manifest.Manifest{Workspace: manifest.Workspace{ConfigDir: ".opencode"}}
+	got := strings.Join(workspaceHeader(man, dir, dir, t.TempDir()), "\n")
+
+	for _, want := range []string{"tooling:", "go", "nx", "node", "docker", "subagents: 2 definition(s)", ".opencode/settings.json"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header missing %q\n--- got ---\n%s", want, got)
+		}
+	}
+	if !strings.Contains(got, "lsp:      will start") {
+		t.Errorf("LSP servers must be phrased as a prediction, got:\n%s", got)
+	}
+	if strings.Contains(got, "lsp:      detected") {
+		t.Error("LSP presence depends on the image; the host must not claim detection")
+	}
+}
+
+func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
+	t.Parallel()
+	if got := workspaceHeader(manifest.Manifest{}, "", "", ""); got != nil {
+		t.Errorf("no input dir must yield no header, got %v", got)
+	}
+}
+
+// The README's supported-tooling pills are documentation of a registry, so drift
+// between them is a test failure rather than something to notice later.
+func TestReadmePillsMatchToolingRegistry(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(data)
+
+	pill := regexp.MustCompile(`!\[([a-z0-9.+-]+)\]\(https://img\.shields\.io/badge/`)
+	inReadme := map[string]bool{}
+	for _, m := range pill.FindAllStringSubmatch(readme, -1) {
+		inReadme[m[1]] = true
+	}
+	if len(inReadme) == 0 {
+		t.Fatal("no tooling pills found in README.md — the supported-tooling section is missing")
+	}
+
+	for _, label := range ToolingLabels() {
+		if !inReadme[label] {
+			t.Errorf("toolingMarkers has %q but README.md has no pill for it", label)
+		}
+		delete(inReadme, label)
+	}
+	for stale := range inReadme {
+		t.Errorf("README.md has a pill for %q which is not in toolingMarkers", stale)
 	}
 }

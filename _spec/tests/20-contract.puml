@@ -15,7 +15,7 @@ package "Contract suites (Go)" as Suites {
   component "internal/runner\nDockerRunArgs hardening golden" as RunnerPkg <<app>>
   component "internal/provider\nregistry pins · Detect order" as Provider <<app>>
   component "internal/egress\nBuildPlan goldens (no Docker)" as EgressPlan <<app>>
-  component "internal/workspace\n.env mask proxy/firewall\nEnvFileSource" as Workspace <<app>>
+  component "internal/workspace\n.env mask unless forwarded\nEnvFileSource" as Workspace <<app>>
   component "shim / Dockerfile\nstructural asserts (Go)" as Struct <<app>>
 }
 

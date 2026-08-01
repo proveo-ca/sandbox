@@ -104,6 +104,15 @@ func serve() {
 // buildPolicy derives the egress policy from the resolved provider hosts, a
 // default write-allowlist + custom domains, the embedded exfil-sink denylist,
 // and the provider secret values (from the mounted broker env-file) for DLP.
+// envTruthy reports whether an env flag is set to a truthy spelling.
+func envTruthy(k string) bool {
+	switch strings.ToLower(strings.TrimSpace(env(k, ""))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 func buildPolicy(bc broker.Config) egresspolicy.Config {
 	providerHosts := bc.Hosts // set by the provider-driven broker block above
 	custom := splitCSV(strings.ReplaceAll(env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""), " ", ","))
@@ -125,6 +134,7 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	}
 
 	return egresspolicy.Config{
+		OpenNetwork:       envTruthy("PROVEO_EGRESS_OPEN"),
 		ProviderHosts:     providerHosts,
 		WriteHosts:        write,
 		DenySinks:         egresspolicy.DefaultSinks,

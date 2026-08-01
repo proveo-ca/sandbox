@@ -6,7 +6,7 @@ participant "go test -tags=e2e\ntests/e2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
 database "workspace copy\nof tests/e2e/samples" as WS <<db>>
 database "filtered .env (0600)\nANTHROPIC_API_KEY + model aliases" as ENVF <<error>>
-participant "cmd/proveo run <target>\n--egress-mode firewall" as RUN <<app>>
+participant "cmd/proveo run <target>\n--egress-mode allowlist" as RUN <<app>>
 participant "proveo-egress\nbroker + policy" as MITM <<app>>
 participant "agent container" as CTR <<host>>
 

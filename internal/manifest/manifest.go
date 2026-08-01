@@ -86,7 +86,48 @@ type Manifest struct {
 	// entrypoint.ConfigVars. Use it for a harness-specific knob — a secret
 	// belongs in Env, which is brokered rather than forwarded.
 	Config []string `yaml:"config"`
-	Dir    string   `yaml:"-"` // def directory (set by Load)
+	// Capabilities declares which cells of the choice matrix this harness
+	// supports. It is the single source of truth for the per-def constraints that
+	// used to live as target-name special cases in cmd/proveo.
+	Capabilities Capabilities `yaml:"capabilities"`
+	Dir          string       `yaml:"-"` // def directory (set by Load)
+}
+
+// Capabilities is the per-harness choice matrix. An empty list means "no
+// constraint" — every value the CLI offers is allowed.
+type Capabilities struct {
+	// Egress restricts the network tiers this harness can run under. Cursor pins
+	// its TLS, so any intercepting tier breaks it: [open].
+	Egress []string `yaml:"egress"`
+	// Credentials restricts how the key reaches the agent. A vendor whose TLS
+	// cannot be intercepted can only take [forward].
+	Credentials []string `yaml:"credentials"`
+	// Providers restricts which provider registry entries this harness can use.
+	// Empty means any. Declaring it keeps a key the harness cannot use from
+	// entering detection — where two or more keys make the broker refuse to pin
+	// and the agent silently receives the sentinel instead of a working key.
+	Providers []string `yaml:"providers"`
+}
+
+// AllowsEgress reports whether mode is permitted (empty list = unconstrained).
+func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
+
+// AllowsCredentials reports whether mode is permitted (empty list = unconstrained).
+func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
+
+// AllowsProvider reports whether a provider registry name is usable here.
+func (c Capabilities) AllowsProvider(name string) bool { return listAllows(c.Providers, name) }
+
+func listAllows(list []string, v string) bool {
+	if len(list) == 0 {
+		return true
+	}
+	for _, item := range list {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(v)) {
+			return true
+		}
+	}
+	return false
 }
 
 // MissingEnv returns the declared env vars whose value is empty per getenv,

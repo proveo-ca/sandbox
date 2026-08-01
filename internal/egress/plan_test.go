@@ -25,11 +25,12 @@ func TestBuildPlanGolden(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{name: "broker", opts: baseOpts("broker")},
-		{name: "broker_local_model", opts: withModel(baseOpts("broker"), "gemma4")},
-		{name: "proxy", opts: baseOpts("proxy")},
-		{name: "firewall", opts: baseOpts("firewall")},
-		{name: "firewall_inject", opts: withBroker(baseOpts("firewall"), "anthropic", "/state/inject/broker.env")},
+		{name: "open_forward", opts: fwd(baseOpts("open"))},
+		{name: "open_forward_local_model", opts: withModel(fwd(baseOpts("open")), "gemma4")},
+		{name: "review", opts: baseOpts("review")},
+		{name: "open_broker", opts: baseOpts("open")},
+		{name: "allowlist", opts: baseOpts("allowlist")},
+		{name: "allowlist_inject", opts: withBroker(baseOpts("allowlist"), "anthropic", "/state/inject/broker.env")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,6 +58,10 @@ func TestBuildPlanGolden(t *testing.T) {
 }
 
 func withModel(o Options, m string) Options { o.LocalModel = m; return o }
+
+// fwd marks the forwarded-credential tier: nothing to inject, so no MITM and the
+// agent keeps an internet-capable bridge (the DinD / pinned-TLS shape).
+func fwd(o Options) Options { o.Credentials = "forward"; return o }
 func withBroker(o Options, p, f string) Options {
 	o.Provider = p
 	o.BrokerEnvFile = f
@@ -70,7 +75,7 @@ func TestLocalModelRouting(t *testing.T) {
 
 	t.Run("host ollama (broker) spawns no sidecar and reaches the host gateway", func(t *testing.T) {
 		t.Parallel()
-		o := withModel(baseOpts("broker"), "gemma4")
+		o := withModel(fwd(baseOpts("open")), "gemma4")
 		o.HostOllama = true
 		p, err := BuildPlan(o)
 		if err != nil {
@@ -93,7 +98,7 @@ func TestLocalModelRouting(t *testing.T) {
 
 	t.Run("default broker uses the in-network sidecar, no GPU", func(t *testing.T) {
 		t.Parallel()
-		p, err := BuildPlan(withModel(baseOpts("broker"), "gemma4"))
+		p, err := BuildPlan(withModel(fwd(baseOpts("open")), "gemma4"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +119,7 @@ func TestLocalModelRouting(t *testing.T) {
 
 	t.Run("OllamaGPU adds --gpus all to the sidecar", func(t *testing.T) {
 		t.Parallel()
-		o := withModel(baseOpts("broker"), "gemma4")
+		o := withModel(fwd(baseOpts("open")), "gemma4")
 		o.OllamaGPU = true
 		p, err := BuildPlan(o)
 		if err != nil {
@@ -135,7 +140,7 @@ func TestBuildPlanUnknownMode(t *testing.T) {
 
 func TestModesAndValidMode(t *testing.T) {
 	t.Parallel()
-	if got := Modes(); len(got) != 3 || got[0] != "broker" || got[1] != "proxy" || got[2] != "firewall" {
+	if got := Modes(); len(got) != 3 || got[0] != "open" || got[1] != "allowlist" || got[2] != "review" {
 		t.Errorf("Modes() = %v, want [broker proxy firewall]", got)
 	}
 	for _, m := range Modes() {
@@ -157,10 +162,11 @@ func TestPlanImages(t *testing.T) {
 		opts Options
 		want []string
 	}{
-		{name: "broker has no sidecars", opts: baseOpts("broker"), want: nil},
-		{name: "broker with model needs ollama", opts: withModel(baseOpts("broker"), "gemma4"), want: []string{"ollama/ollama:latest"}},
-		{name: "proxy needs squid", opts: baseOpts("proxy"), want: []string{"ubuntu/squid:latest"}},
-		{name: "firewall needs squid and the inspector", opts: baseOpts("firewall"), want: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"}},
+		{name: "open+forward has no sidecars", opts: fwd(baseOpts("open")), want: nil},
+		{name: "open+forward with model needs ollama", opts: withModel(fwd(baseOpts("open")), "gemma4"), want: []string{"ollama/ollama:latest"}},
+		{name: "review needs squid and the inspector", opts: baseOpts("review"), want: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"}},
+		{name: "allowlist needs squid and the inspector", opts: baseOpts("allowlist"), want: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"}},
+		{name: "open+broker needs the inspector but no squid", opts: baseOpts("open"), want: []string{"proveo/egress-proxy:latest"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -182,7 +188,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("broker mode adds no proxy env and no internal network", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(baseOpts("broker"))
+		p, _ := BuildPlan(fwd(baseOpts("open")))
 		if joined := strings.Join(p.AgentArgs, " "); strings.Contains(joined, "HTTP_PROXY") {
 			t.Errorf("broker AgentArgs should not set a proxy, got %q", joined)
 		}
@@ -193,7 +199,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("proxy+firewall agent networks are --internal; only egress net is not", func(t *testing.T) {
 		t.Parallel()
-		for _, mode := range []string{"proxy", "firewall"} {
+		for _, mode := range []string{"review", "allowlist"} {
 			p, _ := BuildPlan(baseOpts(mode))
 			for _, n := range p.Networks {
 				j := strings.Join(n, " ")
@@ -211,7 +217,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("firewall mode trusts the mitm CA and waits for it", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(baseOpts("firewall"))
+		p, _ := BuildPlan(baseOpts("allowlist"))
 		j := strings.Join(p.AgentArgs, " ")
 		for _, v := range []string{"SSL_CERT_FILE=", "NODE_EXTRA_CA_CERTS=", "INSPECT_PROXY=http://mitm:8888"} {
 			if !strings.Contains(j, v) {
@@ -225,7 +231,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("firewall wires provider + env-file into the proxy sidecar", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withBroker(baseOpts("firewall"), "anthropic", "/state/inject/broker.env"))
+		p, _ := BuildPlan(withBroker(baseOpts("allowlist"), "anthropic", "/state/inject/broker.env"))
 		var proxy string
 		for _, c := range p.Sidecars {
 			if strings.Contains(strings.Join(c, " "), "proveo/egress-proxy") {
@@ -242,14 +248,14 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("proxy+firewall blackhole external DNS on the agent", func(t *testing.T) {
 		t.Parallel()
-		for _, mode := range []string{"proxy", "firewall"} {
+		for _, mode := range []string{"review", "allowlist"} {
 			p, _ := BuildPlan(baseOpts(mode))
 			if j := strings.Join(p.AgentArgs, " "); !strings.Contains(j, "--dns 0.0.0.0") {
 				t.Errorf("%s: agent must blackhole external DNS (--dns 0.0.0.0); got %q", mode, j)
 			}
 		}
 		// broker mode must NOT blackhole DNS (it has no proxy to resolve for it).
-		p, _ := BuildPlan(baseOpts("broker"))
+		p, _ := BuildPlan(fwd(baseOpts("open")))
 		if strings.Contains(strings.Join(p.AgentArgs, " "), "--dns") {
 			t.Error("broker mode must not set --dns")
 		}
@@ -257,7 +263,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("local model bypasses the proxy via NO_PROXY", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withModel(baseOpts("firewall"), "gemma4"))
+		p, _ := BuildPlan(withModel(baseOpts("allowlist"), "gemma4"))
 		if j := strings.Join(p.AgentArgs, " "); !strings.Contains(j, "NO_PROXY=ollama") {
 			t.Errorf("local-model AgentArgs must set NO_PROXY for ollama; got %q", j)
 		}
@@ -265,7 +271,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("local model mounts host models read-only and sets the readiness wait", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withModel(baseOpts("broker"), "gemma4"))
+		p, _ := BuildPlan(withModel(fwd(baseOpts("open")), "gemma4"))
 		var ollama string
 		for _, c := range p.Sidecars {
 			if strings.Contains(strings.Join(c, " "), "--network-alias ollama") {
@@ -282,7 +288,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("no ModelsDir means no mount", func(t *testing.T) {
 		t.Parallel()
-		o := withModel(baseOpts("broker"), "gemma4")
+		o := withModel(fwd(baseOpts("open")), "gemma4")
 		o.ModelsDir = ""
 		p, _ := BuildPlan(o)
 		if j := strings.Join(p.Sidecars[0], " "); strings.Contains(j, ":/models:ro") {
@@ -301,7 +307,7 @@ func (f *fakeRunner) Run(args ...string) (string, error) {
 
 func TestApplyOrder(t *testing.T) {
 	t.Parallel()
-	p, _ := BuildPlan(baseOpts("firewall"))
+	p, _ := BuildPlan(baseOpts("allowlist"))
 	var fr fakeRunner
 	if err := p.Apply(&fr); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -325,16 +331,16 @@ func TestBuildPlanAgentNetwork(t *testing.T) {
 	t.Parallel()
 	// Broker + local model: agent is on a user-defined bridge, so AgentNetwork is
 	// exposed for a DinD sidecar to attach to by alias.
-	if p, _ := BuildPlan(withModel(baseOpts("broker"), "gemma4")); p.AgentNetwork == "" {
+	if p, _ := BuildPlan(withModel(fwd(baseOpts("open")), "gemma4")); p.AgentNetwork == "" {
 		t.Error("broker+local-model should set AgentNetwork (user-defined bridge)")
 	}
 	// Broker without a model: agent is on the default bridge → empty (DinD uses --link).
-	if p, _ := BuildPlan(baseOpts("broker")); p.AgentNetwork != "" {
+	if p, _ := BuildPlan(fwd(baseOpts("open"))); p.AgentNetwork != "" {
 		t.Errorf("broker (no model) should leave AgentNetwork empty, got %q", p.AgentNetwork)
 	}
 	// Enforced-egress modes must NEVER expose an agent network for a DinD attach:
 	// doing so would put an internet-capable daemon on the agent's internal net.
-	for _, mode := range []string{"proxy", "firewall"} {
+	for _, mode := range []string{"review", "allowlist"} {
 		if p, _ := BuildPlan(baseOpts(mode)); p.AgentNetwork != "" {
 			t.Errorf("%s must not set AgentNetwork (DinD attach would bypass egress), got %q", mode, p.AgentNetwork)
 		}

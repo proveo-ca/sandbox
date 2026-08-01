@@ -51,6 +51,12 @@ type Config struct {
 	WriteHosts []string
 	// DenySinks are suffixes hard-denied for ALL methods (exfil sinks).
 	DenySinks []string
+	// OpenNetwork drops the write allowlist and the byte budget: the open tier has
+	// no allowlist by definition. The credential protections stay on — the exfil
+	// sink denylist and the DLP secret scan — because the whole point of that tier
+	// is that the key is injected here rather than handed to the agent, and an open
+	// network must still not become an open channel for the key itself.
+	OpenNetwork bool
 	// Secrets are exact secret values scanned for off-provider (URL + body). Values
 	// shorter than minSecretLen are ignored.
 	Secrets []string
@@ -77,6 +83,7 @@ type Policy struct {
 	denySinks     []string
 	scanner       *scanner
 	maxBytes      int64
+	openNetwork   bool
 
 	mu        sync.Mutex
 	outByHost map[string]int64
@@ -94,6 +101,7 @@ func New(cfg Config) *Policy {
 		denySinks:     normHosts(cfg.DenySinks),
 		scanner:       newScanner(cfg.Secrets, cfg.BlockKnownSecrets, cfg.DecodeScan, cfg.BlockEntropy),
 		maxBytes:      cfg.MaxOutBytesPerHost,
+		openNetwork:   cfg.OpenNetwork,
 		outByHost:     map[string]int64{},
 	}
 }
@@ -118,7 +126,7 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	if req.Method == http.MethodConnect {
 		return Decision{Allow: true}
 	}
-	allowlisted := matchHost(host, p.writeHosts)
+	allowlisted := p.openNetwork || matchHost(host, p.writeHosts)
 	// A: write methods only to the write-allowlist.
 	if !isReadMethod(req.Method) && !allowlisted {
 		return Decision{Reason: ReasonWrite}

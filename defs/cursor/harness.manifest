@@ -24,3 +24,10 @@ env:
   - name: CURSOR_API_KEY
     description: Cursor API key — create one at cursor.com/dashboard → API Keys
     secret: true
+
+capabilities:
+  # cursor-agent pins its TLS to Cursor's backend: no tier may intercept it, and
+  # the credential cannot be injected — it has to reach the container intact.
+  egress: [open]
+  credentials: [forward]
+  providers: [cursor]

@@ -36,7 +36,7 @@ package "Execution Loop" as Loop {
 package "Container Sandbox" as Sandbox {
  component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
- component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
+ component "network egress layer\nopen|allowlist|review" as Net <<security>>
 }
 
 cloud "Cursor backend\napi5.cursor.sh (inference)\napi2.cursor.sh (API / auth)" as Backend

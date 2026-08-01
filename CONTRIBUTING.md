@@ -61,10 +61,10 @@ are readable by an autonomous agent regardless of in-tool deny rules; entrypoint
 Contributors should treat `.env` handling as follows:
 
 - **Target posture:** keys live in the host environment (or `docker run -e`); in
- `firewall` egress mode the credential broker injects on the pinned provider host from a
- secret file mounted **outside** every agent bind mount.
-- **Pragmatic mounts today:** in `broker` mode, `internal/workspace` overlays a
- **symlink-resolved** file at `/app/.env`. In `proxy`/`firewall`, the same package
+ every tier except `open`+`--credentials forward`, the credential broker injects on the
+ pinned provider host from a secret file mounted **outside** every agent bind mount.
+- **Pragmatic mounts today:** with `--credentials forward`, `internal/workspace` overlays a
+ **symlink-resolved** file at `/app/.env`. With brokered credentials the same package
  **masks** `.env` with `/dev/null` so a whole-tree bind cannot expose secrets; the
  broker reads the host-side file instead. Document the caveat in harness READMEs
  when `.env` autoload is mentioned.
@@ -76,21 +76,21 @@ When adding or changing `run.sh` / `runners.sh` mount logic, prefer host-env for
 plus broker injection over new `.env` bind mounts unless the change is explicitly scoped
 to symlink resolution or smoke-test fixtures.
 
-### Credential broker (firewall mode only)
+### Credential broker (`--credentials broker`, the default)
 
-The credential broker is a property of **`firewall` egress mode only**. It runs on the
-Go MITM sidecar (`proveo-egress`), the only hop where TLS is decrypted. `proxy` and
-`broker`/`proxy` modes cannot inject or strip auth headers on HTTPS traffic; they keep the
-key-in-agent behavior with the existing honest warnings (see `_spec/_paradigms/harness-paradigms.puml`,
+The credential broker runs on the Go MITM sidecar (`proveo-egress`), the only hop where TLS is
+decrypted — which is why it is available in every tier that intercepts, i.e. all of them except
+`--egress-mode open --credentials forward`. Forwarding keeps the key-in-agent behavior with the
+existing honest warnings (see `_spec/_paradigms/harness-paradigms.puml`,
 Credential Boundary).
 
 **Firewall gaps contributors should not worsen**
 
 | Gap | Where | Status |
 | --- | --- | --- |
-| `.env` mounted into agent | `internal/workspace/mount.go` | **Closed** — masked with `/dev/null` in `proxy`/`firewall` |
-| `load_env` always runs | `packages/lib/entrypoint-lib.sh` | **Closed** — skips when `PROVEO_EGRESS_MODE` is `proxy`/`firewall` |
-| Go CLI forwards secrets in all modes | `cmd/proveo/main.go` | **Closed** — secret env only in `broker` |
+| `.env` mounted into agent | `internal/workspace/mount.go` | **Closed** — masked with `/dev/null` unless `--credentials forward` |
+| `load_env` always runs | `packages/lib/entrypoint-lib.sh` | **Closed** — skips when `PROVEO_EGRESS_MODE` is set (every brokered tier) |
+| Go CLI forwards secrets in all modes | `cmd/proveo/main.go` | **Closed** — real secret env only with `--credentials forward` |
 | Distributable CLI forwards `CURSOR_API_KEY` | `apps/cli/public/cli/lib/runners.sh` | Firewall-only path (consumer CLI has no broker/proxy topology) |
 | Broker reads host env only | `writeBrokerEnv` | **Closed** — host `.env` / `PROVEO_EGRESS_ENV_FILE` ingested into `broker.env` |
 | Sentinel rewrite | `internal/entrypoint`, `packages/lib/entrypoint-lib.sh` | **Closed** — firewall injects sentinel + `PROVEO_CREDENTIAL_BROKER_KEYS` |

@@ -1,0 +1,118 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLANNED — PTY review proxy: interactive connection consent in the review tier
+
+actor "Operator" as OP
+
+node "Host — cmd/proveo" as HOST <<host>> {
+  component "execAgent\nowns the PTY master" as EXEC <<app>>
+  component "stdin pump\nreal tty → master" as IN <<app>>
+  component "stdout pump\nmaster → real tty" as OUT <<app>>
+  component "review daemon\nunix socket + per-host cache" as DAEMON <<app>>
+  component "prompt overlay\ndraw · read y/n · restore" as UI <<app>>
+}
+
+node "Agent container" as CTR <<host>> {
+  component "docker run -it\nPTY slave" as AGENT <<app>>
+}
+
+node "proveo-egress MITM" as MITM <<host>> {
+  component "Policy.Decide\nCONNECT hook" as DECIDE <<app>>
+}
+
+database "session decisions\nhost → allow/deny" as CACHE <<db>>
+component "Timeout · no TTY\n→ default DENY" as DENY <<error>>
+
+OP ARROW_MAIN IN : keystrokes
+IN ARROW_MAIN EXEC
+EXEC ARROW_MAIN AGENT : PTY slave is the agent's tty
+AGENT ARROW_MAIN OUT
+OUT ARROW_MAIN OP : rendered frames
+AGENT ARROW_CLOUD DECIDE : CONNECT host:443
+DECIDE ARROW_QUEUE DAEMON : ask(host) over ""/run/proveo-review.sock""
+DAEMON ARROW_MAIN CACHE : hit? answer without prompting
+DAEMON ARROW_MAIN UI : miss → raise the overlay
+UI ARROW_MAIN OP : 'Allow connection to <host>? [y/N]'
+DAEMON ARROW_ERROR DENY : deadline elapsed · headless run
+
+note right of EXEC
+  **The insertion point already exists.** ""execAgent"" spawns docker
+  and waits — it does not ""syscall.Exec"" — and it already wires stdio
+  by hand:
+
+  ""c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr""
+
+  Replacing those three with a PTY pair makes proveo the **only**
+  reader of the real terminal. That single property is what makes
+  the overlay possible; everything else follows from it.
+end note
+
+note bottom of UI
+  **Why a naive overlay cannot work.**
+
+  //Output.// The alternate screen does not nest. There is one alt
+  buffer; ""\\e[?1049h"" while the TUI owns it pushes no new layer, and
+  ""\\e[?1049l"" drops to the primary buffer and strands the TUI.
+
+  //Input — the real blocker.// The TUI holds the tty in raw mode,
+  blocked in ""read()"". A second reader means the kernel hands each
+  byte to whichever process gets there first, so consent keystrokes
+  are split nondeterministically. No amount of careful drawing fixes
+  this; only removing the second reader does.
+
+  //A bottom status line is not an option either.// In the alt screen
+  the TUI owns every cell. DECSTBM margins can reserve a row, but a
+  full-screen app sets its own and ""\\e[r"" resets yours.
+end note
+
+note bottom of OUT
+  **Restoring the display: force a repaint, do not reconstruct it.**
+
+  While the overlay is up the stdout pump buffers agent output
+  instead of writing it. On dismissal, resize the PTY to
+  ""cols-1"" and back to ""cols"". Both deliver SIGWINCH, and because
+  the dimensions genuinely //change//, TUIs that early-out on a
+  no-op resize still do a full relayout. This is what tmux does on
+  attach.
+
+  A bare SIGWINCH at unchanged dimensions is **not** reliable — many
+  TUIs skip it. The cost is a brief reflow, acceptable for what is
+  explicitly an interrupting pop-up.
+end note
+
+note right of DECIDE
+  **Gate at CONNECT, not at the inner request.** ""Decide"" already sees
+  CONNECT and waves it through after the sink check:
+
+  ""if req.Method == http.MethodConnect { return Decision{Allow: true} }""
+
+  That is the hook. CONNECT carries only ""host:port"" — no query, no
+  body, no credential — so the prompt has nothing leakable to show.
+  Prompting on a ""ReasonSecret"" block would be the opposite: the
+  request is blocked //because// it carries the key, and consenting
+  would be the exfiltration. The overlay must therefore be reachable
+  ONLY from the CONNECT path, never from layers B or C.
+end note
+
+note bottom of CACHE
+  **Per-host, for the session.** One prompt per new host, decaying to
+  zero — a realistic session is 5–20 prompts, not hundreds. This is
+  what keeps the tier usable rather than a click-through reflex.
+end note
+
+note bottom of DENY
+  **Fail closed, always.** Deny on deadline, on a closed socket, and
+  whenever ""term.IsTerminal(os.Stdin.Fd())"" is false, so E2E, CI and
+  cron never hang waiting for a human. Terminal state is restored
+  through the existing ""onSignalCleanup"" path — raw mode must not
+  survive the process.
+end note
+
+note bottom of AGENT
+  **Sharp edges to budget for.** Mouse reporting and bracketed paste:
+  if the TUI enabled them, consent keys arrive as escape sequences —
+  disable and restore those modes around the overlay, or accept only
+  plain y/n. Real SIGWINCH from the operator's terminal must be
+  forwarded to the PTY so normal resizes still reach the agent.
+end note
+@enduml

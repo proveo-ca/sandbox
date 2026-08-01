@@ -63,7 +63,9 @@ PolicyMod -[#6E1100,bold]-> Sinks : block (sink)
 note bottom of Core
 **Off-provider only.** On the pinned-provider host the broker owns
 the request and policy is a no-op (injected key never DLP-flagged).
-Layers A/B/C require TLS decryption → **firewall mode**.
+Layers A/B/C require TLS decryption, so they run wherever the MITM does — every tier
+except ""open"" + ""--credentials forward"". The ""open"" tier drops layer A (the write
+pin) and the byte budget; the sink denylist and DLP scan stay on.
 end note
 
 note right of PolicyMod

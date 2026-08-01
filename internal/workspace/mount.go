@@ -30,14 +30,17 @@ type MountSpec struct {
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
-	// EgressMode controls whether a project .env is bind-mounted into the agent.
-	// broker (default/empty when unset): mount resolved .env at /app/.env:ro when present.
-	// proxy|firewall: mask EVERY dotenv secrets file under the mounted tree
+	// EgressMode + Credentials control whether a project .env is bind-mounted.
+	// Credentials "forward" (or no egress mode): mount the resolved .env at
+	// /app/.env:ro when present, since the agent is meant to hold the real value.
+	// Otherwise the egress layer owns the credential and we mask EVERY dotenv
+	// secrets file under the mounted tree
 	// (recursively, both layouts) with /dev/null, so a hostile/injected agent can't
 	// read a real credential off disk — the structural complement to the broker
 	// header-strip + egress DLP. Templates (.env.example/.sample/.template/.dist)
 	// stay readable.
-	EgressMode string
+	EgressMode  string
+	Credentials string // "broker" (default) | "forward"
 }
 
 // Plan returns the bind mounts and container workdir for the spec, reproducing
@@ -106,8 +109,11 @@ func relSlash(root, path string) string {
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func (w MountSpec) isolateEnv() bool {
+	if strings.EqualFold(strings.TrimSpace(w.Credentials), "forward") {
+		return false
+	}
 	switch strings.ToLower(strings.TrimSpace(w.EgressMode)) {
-	case "proxy", "firewall":
+	case "open", "allowlist", "review", "broker", "proxy", "firewall":
 		return true
 	}
 	return false

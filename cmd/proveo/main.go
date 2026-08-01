@@ -27,6 +27,8 @@ import (
 	"golang.org/x/term"
 
 	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
@@ -38,6 +40,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
+	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -167,7 +170,7 @@ func doList() error {
 }
 
 func runCmd() *cobra.Command {
-	var egressMode, localModel, input, output, scope, dataDir, imageOverride, resumeID string
+	var egressMode, credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
 	var printOnly, shellMode, contSession, listSessions bool
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
@@ -190,11 +193,20 @@ func runCmd() *cobra.Command {
 			// backend is not MITM-brokerable, so only broker mode (which forwards the
 			// real key to the container) authenticates it. Default cursor to broker
 			// unless the user explicitly chose a mode.
-			if target == "cursor" && !cmd.Flags().Changed("egress-mode") {
-				egressMode = "broker"
-			}
+			modeSet := cmd.Flags().Changed("egress-mode")
+			credsSet := cmd.Flags().Changed("credentials")
 			if !egress.ValidMode(egressMode) {
 				return fmt.Errorf("invalid --egress-mode %q (%s)", egressMode, strings.Join(egress.Modes(), "|"))
+			}
+			if canonical, aliased := egress.Canonical(egressMode); aliased {
+				ui.Warnf("--egress-mode %q now means %q: modes name the NETWORK tier only, and credential "+
+					"handling moved to --credentials (default broker — the key stays in the egress layer). "+
+					"If you relied on %q handing the real key to the container, add --credentials forward.",
+					egressMode, canonical, egressMode)
+				egressMode = canonical
+			}
+			if !egress.ValidCredentials(credentials) {
+				return fmt.Errorf("invalid --credentials %q (%s)", credentials, strings.Join(egress.CredentialModes(), "|"))
 			}
 			resumeArgs, err := proveohome.ResumeArgs(target, resumeID, contSession, listSessions)
 			if err != nil {
@@ -205,13 +217,17 @@ func runCmd() *cobra.Command {
 				extra = append(append([]string{}, resumeArgs...), extra...)
 			}
 			return doRun(runParams{
-				target: target, image: image, mode: egressMode, localModel: localModel,
+				target: target, image: image, mode: egressMode, credentials: credentials,
+				modeSet: modeSet, credsSet: credsSet, localModel: localModel,
 				input: input, output: output, scope: scope, dataDir: dataDir,
 				shell: shellMode, printOnly: printOnly, extra: extra,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&egressMode, "egress-mode", "firewall", strings.Join(egress.Modes(), "|")+" (default firewall: enforced egress + credential broker)")
+	cmd.Flags().StringVar(&egressMode, "egress-mode", "allowlist", strings.Join(egress.Modes(), "|")+
+		" — network tier, cumulative (default allowlist: open adds no allowlist, review adds connection prompts)")
+	cmd.Flags().StringVar(&credentials, "credentials", "broker",
+		strings.Join(egress.CredentialModes(), "|")+" (default broker: the key stays in the egress layer and is injected at the proxy)")
 	cmd.Flags().StringVar(&localModel, "local-model", "", "Ollama model to serve locally")
 	cmd.Flags().StringVar(&input, "input", "", "input dir to mount read-only (default: cwd)")
 	cmd.Flags().StringVar(&output, "output", "", "output dir to mount read-write (default: <input>/reports)")
@@ -227,10 +243,32 @@ func runCmd() *cobra.Command {
 }
 
 type runParams struct {
-	target, image, mode, localModel, input, output, scope, dataDir string
-	shell, printOnly                                               bool
-	extra                                                          []string
+	target, image, mode, credentials, localModel, input, output, scope, dataDir string
+	// modeSet/credsSet record whether the operator named the axis explicitly. An
+	// explicit flag wins over a manifest default and pre-selects its prompt row.
+	modeSet, credsSet bool
+	// addons is the settled add-on selection (browser / dind), from the prompt or
+	// the cache. Empty means none.
+	addons           []string
+	shell, printOnly bool
+	extra            []string
 }
+
+// forwards reports whether the real secret goes to the container instead of being
+// injected at the MITM.
+func (p runParams) forwards() bool { return p.credentials == "forward" }
+
+// credentialsOrDefault renders the effective credential mode for messages.
+func (p runParams) credentialsOrDefault() string {
+	if p.credentials == "" {
+		return "broker"
+	}
+	return p.credentials
+}
+
+// intercepts reports whether the run puts a TLS-terminating proxy in front of the
+// agent. Every tier does except open with forwarded credentials.
+func (p runParams) intercepts() bool { return p.mode != "open" || !p.forwards() }
 
 func doRun(p runParams) error {
 	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
@@ -252,9 +290,6 @@ func doRun(p runParams) error {
 	// proxy withholds the key — either way cursor-agent reports "invalid API key".
 	// broker mode forwards the real CURSOR_API_KEY to the container. (This branch only
 	// fires when a non-broker mode was explicitly chosen; cursor defaults to broker.)
-	if p.target == "cursor" && p.mode != "broker" {
-		ui.Warnf("cursor + --egress-mode %s: the credential can't be brokered into cursor-agent's pinned TLS, so it will report \"invalid API key\" — use --egress-mode broker to forward your CURSOR_API_KEY", p.mode)
-	}
 
 	// Monorepo scope: the repo root gives full git/workspace context.
 	start := orWD(p.input)
@@ -283,7 +318,7 @@ func doRun(p runParams) error {
 
 	// Build the mount plan from the manifest's workspace model (embedded whole —
 	// no field-by-field copy to keep in sync).
-	wsSpec := workspace.MountSpec{Workspace: man.Workspace, OutputDir: p.output, EgressMode: p.mode}
+	wsSpec := workspace.MountSpec{Workspace: man.Workspace, OutputDir: p.output, EgressMode: p.mode, Credentials: p.credentials}
 	var workdir string
 	if wsSpec.Layout == "input-output" {
 		wsSpec.InputDir = repoRoot // whole repo mounted read-only
@@ -311,6 +346,51 @@ func doRun(p runParams) error {
 	}
 	lookup := providerLookup(hostEnvFile)
 
+	settingsRoot := proveohome.Root(os.Getenv)
+	settings, err := agentsettings.Load(settingsRoot)
+	if err != nil {
+		ui.Warnf("%v — continuing without cached settings", err)
+	}
+	// Resolution order: an explicit flag always wins; otherwise a cached answer
+	// whose fingerprint still matches the def enters automatically; otherwise ask
+	// once, with any flag pre-selecting its row.
+	cached, cacheHit := settings.Lookup(p.target, man.Capabilities)
+	if cacheHit {
+		if !p.modeSet && cached.Egress != "" {
+			p.mode = cached.Egress
+		}
+		if !p.credsSet && cached.Credentials != "" {
+			p.credentials = cached.Credentials
+		}
+		p.addons = cached.Addons
+	} else if !p.printOnly && wizardEnabled() && isStdinTTY() {
+		if err := p.promptChoices(man, lookup, wsSpec.RepoRoot, settingsRoot); err != nil {
+			return err
+		}
+	}
+	if err := p.applyCapabilities(man.Capabilities); err != nil {
+		return err
+	}
+	if !p.printOnly {
+		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
+			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons,
+		})
+		if err := settings.Save(settingsRoot); err != nil {
+			ui.Warnf("%v", err)
+		}
+	}
+	// wsSpec was built before the axes were settled; its .Plan() runs later, so
+	// refresh the two fields that depend on them.
+	wsSpec.EgressMode, wsSpec.Credentials = p.mode, p.credentials
+
+	// Warned only once the axes are settled: a def whose capabilities force the safe
+	// combination must not be warned about a default it never used.
+	if p.target == "cursor" && p.intercepts() {
+		ui.Warnf("cursor + --egress-mode %s --credentials %s: cursor-agent pins its TLS, so any intercepting tier "+
+			"breaks it (it reports \"invalid API key\") — use --egress-mode open --credentials forward",
+			p.mode, p.credentialsOrDefault())
+	}
+
 	// Optional add-ons, offered before the env wizard as a Tab-multiselect on a TTY
 	// (the wizard may attach a bufio.Reader to stdin, which would starve an interactive
 	// picker). Browser is an image variant; DinD is a sidecar attached to the same
@@ -320,31 +400,19 @@ func doRun(p runParams) error {
 		dindScope = start
 	}
 	wantDind := false
-	browserImage := man.Images[p.target+"-browser"]         // the -browser variant, if this harness has one
-	dindOfferable := man.Dind && dind.ModeSupported(p.mode) // DinD needs broker egress (see ModeSupported)
-	if !p.printOnly && isStdinTTY() && wizardEnabled() {
-		var caps []capability
-		if browserImage != "" && p.image != browserImage {
-			caps = append(caps, capability{"browser", "browser variant — Playwright + Chromium image"})
-		}
-		if dindOfferable {
-			caps = append(caps, capability{"dind", "DinD sidecar — same image + docker:dind"})
-		}
-		if len(caps) > 0 {
-			sel, err := pickRunCapabilities(p.target, caps)
-			if err != nil {
-				return err
-			}
-			if sel["browser"] {
-				p.image = browserImage
-				ui.Iconf("🌐", "variant: browser → %s", browserImage)
-			}
-			if sel["dind"] {
-				wantDind = true
-				ui.Iconf("🐳", "sidecar: DinD (same image)")
-			}
-		}
-	} else if !p.printOnly {
+	browserImage := man.Images[p.target+"-browser"]                                                     // the -browser variant, if this harness has one
+	dindOfferable := man.Dind && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials) // DinD needs broker egress (see ModeSupported)
+	// The add-on selection was settled with the other two axes in the single choice
+	// prompt (or restored from agent-settings.yml), so there is no second prompt.
+	if hasAddon(p.addons, "browser") && browserImage != "" {
+		p.image = browserImage
+		ui.Iconf("🌐", "variant: browser → %s", browserImage)
+	}
+	if hasAddon(p.addons, "dind") && dindOfferable {
+		wantDind = true
+		ui.Iconf("🐳", "sidecar: DinD (same image)")
+	}
+	if len(p.addons) == 0 && !p.printOnly {
 		// Non-interactive: DinD stays env-gated (PROVEO_DIND); the browser variant is
 		// selected by running `proveo run <target>-browser` explicitly.
 		wantDind = dindOfferable && dind.ShouldStart(man.Dind, dindScope, false, nil)
@@ -399,9 +467,12 @@ func doRun(p runParams) error {
 	// not disabled). Vendor-pinned harnesses (manifest provider:) win over the
 	// "exactly one detected key" rule so a multi-provider .env does not block
 	// cursor when CURSOR_API_KEY lives only in the host env. Write secrets up front.
-	detected := provider.Detect(lookup)
-	providerName := brokerProvider(p.mode, man, detected, lookup, brokerEnabled())
-	if reason := brokerOffReason(p.mode, providerName, detected, brokerEnabled()); reason != "" {
+	// Providers the harness cannot use must not enter detection: two or more
+	// detected keys make the broker refuse to pin, and the agent then receives the
+	// sentinel and gets a 403 from a provider it was never going to talk to.
+	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
+	providerName := brokerProvider(p.forwards(), man, detected, lookup, brokerEnabled())
+	if reason := brokerOffReason(p.forwards(), providerName, detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
 	var brokerFile string
@@ -436,11 +507,10 @@ func doRun(p runParams) error {
 			continue
 		}
 		if e.Secret {
-			switch p.mode {
-			case "broker":
+			if p.forwards() {
 				env = append(env, e.Name)
 				hydrateProcessEnv(e.Name, lookup)
-			case "firewall":
+			} else {
 				env = append(env, e.Name+"="+entrypoint.DefaultSentinel)
 				brokerKeyNames = append(brokerKeyNames, e.Name)
 			}
@@ -448,7 +518,7 @@ func doRun(p runParams) error {
 		}
 		env = append(env, e.Name)
 	}
-	if p.mode == "firewall" {
+	if !p.forwards() {
 		for _, k := range provider.KeyVars() {
 			if strings.TrimSpace(lookup(k)) == "" {
 				continue
@@ -575,12 +645,323 @@ func doRun(p runParams) error {
 	return runErr
 }
 
+// applyCapabilities settles the two policy axes against what the harness declares.
+// An axis the operator did not name is defaulted to the def's single allowed
+// value; an axis they did name is refused with the reason, never silently rewritten.
+func (p *runParams) applyCapabilities(c manifest.Capabilities) error {
+	if !c.AllowsEgress(p.mode) {
+		if p.modeSet {
+			return fmt.Errorf("%s does not support --egress-mode %s (allowed: %s)",
+				p.target, p.mode, strings.Join(c.Egress, "|"))
+		}
+		p.mode = c.Egress[0]
+	}
+	if !c.AllowsCredentials(p.credentialsOrDefault()) {
+		if p.credsSet {
+			return fmt.Errorf("%s does not support --credentials %s (allowed: %s)",
+				p.target, p.credentialsOrDefault(), strings.Join(c.Credentials, "|"))
+		}
+		p.credentials = c.Credentials[0]
+	}
+	return nil
+}
+
+// filterProviders drops detected providers the harness cannot use.
+func filterProviders(detected []string, c manifest.Capabilities) []string {
+	if len(c.Providers) == 0 {
+		return detected
+	}
+	out := make([]string, 0, len(detected))
+	for _, d := range detected {
+		if c.AllowsProvider(d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// promptChoices raises the one-shot choice form and settles the axes from it. A
+// cancelled prompt aborts the run: proceeding on a guess is how an operator ends
+// up on a tier they did not choose.
+func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
+	form := &choiceui.Form{
+		Banner: choiceui.Banner(),
+		Title:  fmt.Sprintf("run %s — first run for this harness, choose once", p.target),
+		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
+		Rows: []choiceui.Row{
+			axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode,
+				"this harness supports only this tier"),
+			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault(),
+				"this harness supports only this handling"),
+		},
+	}
+	if addons := addonOptions(man); len(addons) > 0 {
+		form.Rows = append(form.Rows, choiceui.Row{
+			Label: "add-ons", Options: addons, Multi: true, On: make([]bool, len(addons)),
+		})
+		// dind is not independent of the rows above it: it needs an un-intercepted
+		// tier, so its checkbox greys out live rather than accepting a tick that
+		// would be discarded downstream.
+		form.OnChange = gateAddons
+		form.OnChange(form)
+	}
+
+	ok, err := form.Run()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("cancelled at the choice prompt")
+	}
+	if v := form.Selection("egress"); v != "" && !p.modeSet {
+		p.mode = v
+	}
+	if v := form.Selection("credentials"); v != "" && !p.credsSet {
+		p.credentials = v
+	}
+	p.addons = form.Selections("add-ons")
+	return nil
+}
+
+// gateAddons disables add-ons the chosen tier cannot host. Greying out is
+// deliberate: auto-flipping the security tier as a side effect of ticking an
+// add-on inverts the direction of causation.
+func gateAddons(f *choiceui.Form) {
+	tier, creds := f.Selection("egress"), f.Selection("credentials")
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != "add-ons" {
+			continue
+		}
+		r.Off = make([]bool, len(r.Options))
+		for j, opt := range r.Options {
+			if opt == "dind" && (!dind.ModeSupported(tier) || !dind.CredentialsSupported(creds)) {
+				r.Off[j] = true
+				r.Reason = "dind needs egress open + credentials forward"
+			}
+		}
+	}
+}
+
+// axisRow builds one radio row, honouring the def's declared subset. An axis with
+// a single allowed value is locked-with-reason rather than hidden, so the prompt
+// never misrepresents the choice space.
+func axisRow(label string, all, allowed []string, preselect, reason string) choiceui.Row {
+	opts := all
+	if len(allowed) > 0 {
+		opts = allowed
+	}
+	r := choiceui.Row{Label: label, Options: opts}
+	for i, o := range opts {
+		if strings.EqualFold(o, preselect) {
+			r.Selected = i
+		}
+	}
+	if len(opts) == 1 {
+		r.Locked, r.Reason = true, reason
+	}
+	return r
+}
+
+// addonOptions derives the add-on row from the manifest: browser iff a *-browser
+// image exists, dind iff the image ships a docker client.
+func addonOptions(man manifest.Manifest) []string {
+	var opts []string
+	for target := range man.Images {
+		if strings.HasSuffix(target, "-browser") {
+			opts = append(opts, "browser")
+			break
+		}
+	}
+	if man.Dind {
+		opts = append(opts, "dind")
+	}
+	return opts
+}
+
+// hasAddon reports whether name is in the settled add-on selection.
+func hasAddon(addons []string, name string) bool {
+	for _, a := range addons {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// buildHeader assembles the prompt's header: the checkout, the loaded .env, and
+// what the run will find in the workspace.
+func buildHeader(man manifest.Manifest, lookup func(string) string, repoRoot, inputDir, homeRoot string) []string {
+	if inputDir == "" {
+		inputDir = repoRoot
+	}
+	h := gitHeader(repoRoot)
+	h = append(h, choiceui.EnvHeader(loadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
+	return append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
+}
+
+// loadedSecretNames lists the secret env the run can see — NAMES ONLY.
+func loadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
+	seen, out := map[string]bool{}, []string{}
+	add := func(k string) {
+		if k != "" && !seen[k] && strings.TrimSpace(lookup(k)) != "" {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	for _, e := range man.Env {
+		if e.Secret {
+			add(e.Name)
+		}
+	}
+	for _, k := range provider.KeyVars() {
+		add(k)
+	}
+	return out
+}
+
+// loadedSettings lists the NON-secret settings, by value.
+func loadedSettings(man manifest.Manifest, lookup func(string) string) map[string]string {
+	out := map[string]string{}
+	for _, k := range configVarsFor(man) {
+		if v := strings.TrimSpace(lookup(k)); v != "" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// gitHeader shows which checkout the run will operate on.
+func gitHeader(repoRoot string) []string {
+	if repoRoot == "" {
+		return []string{"git:      (not a repository)"}
+	}
+	branch := "detached"
+	if out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+		if b := strings.TrimSpace(string(out)); b != "" {
+			branch = b
+		}
+	}
+	dirty := ""
+	if out, err := exec.Command("git", "-C", repoRoot, "status", "--porcelain").Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		dirty = " (uncommitted changes)"
+	}
+	return []string{fmt.Sprintf("git:      %s on %s%s", filepath.Base(repoRoot), branch, dirty)}
+}
+
+// toolingMarkers is the registry of languages and tools proveo recognises in a
+// workspace. Single source of truth: the choice prompt reports from it, and
+// README's supported-tooling pills are asserted against it.
+var toolingMarkers = []wsscan.Marker{
+	{Label: "go", Names: []string{"go.mod", "go.work"}, Suffixes: []string{".go"}},
+	{Label: "node", Names: []string{"package.json"}},
+	{Label: "nx", Names: []string{"nx.json"}},
+	{Label: "turbo", Names: []string{"turbo.json"}},
+	{Label: "mise", Names: []string{"mise.toml", ".mise.toml", ".tool-versions"}},
+	{Label: "python", Names: []string{"pyproject.toml", "requirements.txt"}, Suffixes: []string{".py"}},
+	{Label: "rust", Names: []string{"Cargo.toml"}},
+	{Label: "docker", Names: []string{"Dockerfile", "compose.yml", "docker-compose.yml"}},
+}
+
+// lspMarkers predicts which language servers the shared detector would start. A
+// PREDICTION: whether a server exists depends on the image, which the host cannot
+// see, so the header phrases these "will start".
+var lspMarkers = []wsscan.Marker{
+	{Label: "gopls", Names: []string{"go.mod"}, Suffixes: []string{".go"}},
+	{Label: "typescript-language-server", Names: []string{"tsconfig.json", "package.json"}, Suffixes: []string{".ts", ".tsx"}},
+	{Label: "pyright", Names: []string{"pyproject.toml"}, Suffixes: []string{".py"}},
+	{Label: "bash-language-server", Suffixes: []string{".sh"}},
+	{Label: "dockerfile-language-server", Names: []string{"Dockerfile"}},
+	{Label: "yaml-language-server", Suffixes: []string{".yml", ".yaml"}},
+}
+
+// ToolingLabels lists the registry's labels, for the README drift test.
+func ToolingLabels() []string {
+	out := make([]string, 0, len(toolingMarkers))
+	for _, m := range toolingMarkers {
+		out = append(out, m.Label)
+	}
+	return out
+}
+
+// workspaceHeader reports what the run will find, computed host-side from the same
+// files the entrypoint inspects.
+func workspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string) []string {
+	if inputDir == "" {
+		return nil
+	}
+	var out []string
+	tools := wsscan.Scan(inputDir, repoRoot, toolingMarkers, 0)
+	if labels := tools.Labels(toolingMarkers); len(labels) > 0 {
+		out = append(out, "tooling:  "+strings.Join(labels, "  "))
+	}
+	lsp := wsscan.Scan(inputDir, repoRoot, lspMarkers, 0)
+	if labels := lsp.Labels(lspMarkers); len(labels) > 0 {
+		out = append(out, "lsp:      will start "+strings.Join(labels, "  "))
+	}
+	// Truncation is logged, never shown: the header stays about the workspace, and
+	// an operator who needs to know a scan was bounded finds it in the run log.
+	if tools.Truncated || lsp.Truncated {
+		ui.Warnf("workspace scan hit its entry budget under %s — tooling/LSP lines may be incomplete", inputDir)
+	}
+	if n := countAgents(man, inputDir, homeRoot); n > 0 {
+		out = append(out, fmt.Sprintf("subagents: %d definition(s)", n))
+	}
+	if hooks := detectHooks(man, inputDir, homeRoot); len(hooks) > 0 {
+		out = append(out, "hooks:    "+strings.Join(hooks, "  "))
+	}
+	return out
+}
+
+// agentDirs are the places a harness keeps subagent definitions: the workspace
+// config dir and the durable proveo-home config for this harness.
+func agentDirs(man manifest.Manifest, inputDir, homeRoot string) []string {
+	var dirs []string
+	if cd := man.Workspace.ConfigDir; cd != "" {
+		dirs = append(dirs, filepath.Join(inputDir, cd, "agents"))
+	}
+	for _, m := range man.Home.Mounts {
+		dirs = append(dirs, filepath.Join(homeRoot, m.Host, "agents"))
+	}
+	return dirs
+}
+
+func countAgents(man manifest.Manifest, inputDir, homeRoot string) int {
+	n := 0
+	for _, d := range agentDirs(man, inputDir, homeRoot) {
+		m, _ := filepath.Glob(filepath.Join(d, "*.md"))
+		n += len(m)
+	}
+	return n
+}
+
+// detectHooks names the hook surfaces present on the host: the harness config's
+// own settings and the repo's git hooks.
+func detectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
+	var out []string
+	if cd := man.Workspace.ConfigDir; cd != "" {
+		for _, f := range []string{"settings.json", "settings.local.json"} {
+			if b, err := os.ReadFile(filepath.Join(inputDir, cd, f)); err == nil && strings.Contains(string(b), `"hooks"`) {
+				out = append(out, cd+"/"+f)
+			}
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(inputDir, ".git", "hooks")); err == nil {
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".sample") {
+				out = append(out, "git/"+e.Name())
+			}
+		}
+	}
+	return out
+}
+
 // brokerProvider returns the provider to broker for this run, or "" for none:
 // firewall mode only (the sole mode whose MITM consumes it) and the broker not
 // disabled. A manifest provider pin (vendor-pinned harness) is used when its
 // detect key is present; otherwise exactly one detected provider is required.
-func brokerProvider(mode string, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) string {
-	if mode != "firewall" || !brokerOn {
+func brokerProvider(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) string {
+	if forwards || !brokerOn {
 		return ""
 	}
 	if pin := strings.TrimSpace(man.Provider); pin != "" {
@@ -626,17 +1007,17 @@ func configVarsFor(man manifest.Manifest) []string {
 	return out
 }
 
-func brokerOffReason(mode, providerName string, detected []string, brokerOn bool) string {
-	if mode != "firewall" || providerName != "" || len(detected) == 0 {
+func brokerOffReason(forwards bool, providerName string, detected []string, brokerOn bool) string {
+	if forwards || providerName != "" || len(detected) == 0 {
 		return ""
 	}
 	if !brokerOn {
 		return fmt.Sprintf("credential broker disabled (PROVEO_CREDENTIAL_BROKER) — the agent gets the %q "+
 			"sentinel, not a working key", entrypoint.DefaultSentinel)
 	}
-	return fmt.Sprintf("credential broker OFF: %d providers detected (%s) and firewall mode brokers exactly one — "+
+	return fmt.Sprintf("credential broker OFF: %d providers detected (%s) and the broker pins exactly one — "+
 		"the agent will receive the %q sentinel and the provider will reject it. Unset the keys you are not using "+
-		"for this run, or use --egress-mode broker to forward the real key.",
+		"for this run, or use --credentials forward to hand the real key to the container.",
 		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
@@ -666,7 +1047,8 @@ type assembleInput struct {
 // unit-testable without Docker (D2).
 func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	plan, err := egress.BuildPlan(egress.Options{
-		Mode: in.params.mode, SessionID: in.sid, AgentName: in.params.target, UID: in.uid, GID: in.gid,
+		Mode: in.params.mode, Credentials: in.params.credentials,
+		SessionID: in.sid, AgentName: in.params.target, UID: in.uid, GID: in.gid,
 		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Provider: in.provider, BrokerEnvFile: in.brokerFile,
 		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
@@ -1001,55 +1383,6 @@ func fuzzyPickProject(projs []workspace.Project) string {
 	return projs[idx-1].Path
 }
 
-// capability is one optional harness add-on offered in the run picker.
-type capability struct {
-	key   string // "browser" | "dind"
-	label string
-}
-
-// continueSentinel is the leading FindMulti row. It is always preselected so Enter
-// confirms the current Tab set instead of selecting whatever row the cursor is on
-// (FindMulti's empty-selection fallback). Index 0 is ignored when mapping keys.
-const continueSentinel = "continue"
-
-// capabilitySelection maps FindMulti indices onto capability keys. Index 0 is the
-// continue sentinel and is never a selected capability.
-func capabilitySelection(caps []capability, idxs []int) map[string]bool {
-	sel := map[string]bool{}
-	for _, i := range idxs {
-		if i <= 0 || i > len(caps) {
-			continue
-		}
-		sel[caps[i-1].key] = true
-	}
-	return sel
-}
-
-// pickRunCapabilities shows optional add-ons as an arrow list: Tab toggles, Enter
-// always continues with the Tab selection (including none). A leading preselected
-// "continue" sentinel keeps FindMulti from treating the cursor row as a selection
-// when nothing was Tabbed. Esc/Ctrl-C aborts to no add-ons.
-func pickRunCapabilities(target string, caps []capability) (map[string]bool, error) {
-	labels := make([]string, 0, len(caps)+1)
-	labels = append(labels, continueSentinel)
-	for _, c := range caps {
-		labels = append(labels, c.label)
-	}
-	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString(target+"> "),
-		// Header is green in go-fuzzyfinder — visually distinct from the item rows.
-		fuzzyfinder.WithHeader("tab to add · enter continues"),
-		fuzzyfinder.WithPreselected(func(i int) bool { return i == 0 }),
-	)
-	if errors.Is(err, fuzzyfinder.ErrAbort) {
-		return map[string]bool{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return capabilitySelection(caps, idxs), nil
-}
-
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {
 	fmt.Fprintln(out, "Monorepo detected — choose a scope:")
 	fmt.Fprintln(out, "   0) <repo root>")
@@ -1091,7 +1424,7 @@ func warnMountedSecrets(dir, mode string, lookup func(string) string) {
 		return
 	}
 	switch strings.ToLower(mode) {
-	case "proxy", "firewall":
+	case "open", "allowlist", "review":
 		return
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {

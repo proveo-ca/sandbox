@@ -57,7 +57,8 @@ note bottom of DIND
 end note
 
 note top of AGENT
-  Mode is selected per run (""proveo run --egress-mode"")
+  Tier is selected per run (""proveo run --egress-mode open|allowlist|review""),
+  credentials independently (""--credentials broker|forward"")
   for every harness with ""egress: true"" in its manifest.
   Each run writes a top-allowed / top-denied report.
 end note
