@@ -36,7 +36,7 @@ package "Execution Loop" as Loop {
 package "Container Sandbox" as Sandbox {
  component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
- component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
+ component "network egress layer\nopen|allowlist|review" as Net <<security>>
 }
 
 cloud "Cursor backend\napi5.cursor.sh (inference)\napi2.cursor.sh (API / auth)" as Backend
@@ -79,5 +79,28 @@ so ""--local-model"" does not apply here.
 end note
 
 Net .> Force : network containment\noffsets full consent
+
+note as CursorSandbox #FFF3F0
+  **Enforcement here is Cursor's, not proveo's.**
+
+  cursor-agent pins its TLS to Cursor's backend, so no proveo tier can
+  intercept it: the def declares ""capabilities: egress [open],
+  credentials [forward]"". That means **no MITM and no Squid allowlist** —
+  proveo contributes the container, the mounts and the credential
+  handling, but **not** egress enforcement.
+
+  The entrypoint therefore launches with ""--sandbox enabled"" (override
+  with ""PROVEO_CURSOR_SANDBOX""). It previously passed
+  ""--sandbox disabled"" on the reasoning that 'Docker is the sandbox' —
+  true for the filesystem and process boundary, but nothing constrains
+  the network once interception is off the table. Cursor's own sandbox
+  is the only egress boundary this harness has.
+
+  Read "cursor runs under proveo" as isolation of the workspace, never
+  as audited egress. The e2e suite reflects this: cursor is absent from
+  the egress-isolation and dotenv-at-egress tables, because it has no
+  egress layer to be isolated from and forwards the real key rather than
+  a sentinel. Its contract lives in ""TestCursorEgressException"".
+end note
 
 @enduml

@@ -30,7 +30,7 @@ OLLAMA ARROW_CLOUD ENVIN : overrides all three tiers\n(""-e"" applied after Env)
 
 note right of RUN
   **Why by value, not via .env.**
-  proxy/firewall **mask every dotenv file** under the
+  brokered tiers **mask every dotenv file** under the
   mounted tree, and the ""input-output"" layout never
   mounts one — so the documented alias contract silently
   did nothing in the default egress mode. Forwarding

@@ -6,7 +6,6 @@
 // TERM=dumb / NO_COLOR is set, the emoji degrade to stable text tags
 // ("ok:", "warn:", "error:") so CI logs and screen-scraping tests stay
 // deterministic.
-//
 // Deliberately line-oriented, never a full-screen TUI: proveo is a launcher
 // that hands the PTY to the agent's own TUI (`docker run -it`), and the tmux
 // agent-E2E layer screen-scrapes its output — both depend on the CLI printing
@@ -88,6 +87,35 @@ func Notef(format string, a ...any) { Default.Notef(format, a...) }
 // Iconf writes an icon-decorated line on Default.
 func Iconf(icon, format string, a ...any) { Default.Iconf(icon, format, a...) }
 
+// SPEC: _spec/_conventions/spec-conventions.puml
+const (
+	ColorApp   = 0x005F7F // first-party app / runtime service — teal
+	ColorAsync = 0xCBDB2A // queue · scheduler · background — lime
+	ColorHost  = 0x00BAC6 // host / platform / operator boundary — cyan
+	ColorCloud = 0x585858 // external SaaS / vendor — slate
+	ColorDB    = 0xE5E4E4 // persistence / state store — light
+	ColorError = 0xCB2000 // destructive · failure · security-sensitive — red
+)
+
+const (
+	ColorBrand     = ColorHost  // the mark and any selected/active element
+	ColorAccent    = ColorApp   // first-party emphasis
+	ColorWarn      = ColorAsync // attention, not yet a failure
+	ColorFail      = ColorError
+	ColorSecondary = ColorCloud // dim supporting text
+)
+
+func ANSI(rgb int) string {
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", (rgb>>16)&0xFF, (rgb>>8)&0xFF, rgb&0xFF)
+}
+
+const ANSIReset = "\033[0m"
+
+const (
+	ANSIBold = "\033[1m"
+	ANSIDim  = "\033[2m"
+)
+
 // BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
 const BrandBanner = `        ┌───────●                        ───────┐
         │                                       │
@@ -105,15 +133,15 @@ func WriteBrandBanner(w io.Writer) {
 	p := New(w)
 	fmt.Fprintln(w)
 	if !p.Plain {
-		fmt.Fprint(w, "\033[1m\033[36m") // bold cyan
+		fmt.Fprint(w, ANSIBold+ANSI(ColorBrand))
 	}
 	fmt.Fprintln(w, BrandBanner)
 	if !p.Plain {
-		fmt.Fprint(w, "\033[0m")
+		fmt.Fprint(w, ANSIReset)
 	}
 	if p.Plain {
 		fmt.Fprintf(w, "  %s\n\n", BrandTagline)
 	} else {
-		fmt.Fprintf(w, "  \033[2m%s\033[0m\n\n", BrandTagline) // dim
+		fmt.Fprintf(w, "  "+ANSI(ColorSecondary)+"%s"+ANSIReset+"\n\n", BrandTagline)
 	}
 }

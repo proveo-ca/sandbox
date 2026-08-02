@@ -136,10 +136,9 @@ func LoadEnvFile(path string) error {
 	return sc.Err()
 }
 
-// ShouldSkipEnvLoad is true in proxy/firewall so secrets stay on the host/broker.
 func ShouldSkipEnvLoad(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "proxy", "firewall":
+	case "open", "allowlist", "review", "proxy", "firewall":
 		return true
 	}
 	return false

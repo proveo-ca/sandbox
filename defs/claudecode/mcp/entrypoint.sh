@@ -66,6 +66,18 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
+# Claude Code reads CLAUDE.md and NOT AGENTS.md, so a project carrying the shared
+# standard is otherwise invisible to it. Bridge with the documented @import rather
+# than copying: the import is re-read each run, a copy would go stale, and a
+# symlink needs Administrator on Windows.
+if [[ -f AGENTS.md && ! -f CLAUDE.md ]]; then
+  if printf '@AGENTS.md\n' > CLAUDE.md 2>/dev/null; then
+    echo "🔗 CLAUDE.md → @AGENTS.md (Claude Code does not read AGENTS.md natively)"
+  else
+    echo "⚠️  Could not bridge AGENTS.md → CLAUDE.md (workspace may be read-only); continuing" >&2
+  fi
+fi
+
 # Seed CLAUDE.md when missing (input is a RW bind by default for input-output).
 if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
   if cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md 2>/dev/null; then

@@ -53,11 +53,11 @@ partition "2 · Filesystem mount  «host»" {
 }
 
 partition "3 · Egress provision  «host»" {
-  if (egress mode == open?) then (yes)
-    :no proxy chain — direct egress (no exfil boundary);
-  elseif (egress mode == proxy?) then (yes)
-    :agent -> **Squid** only\n(destination + port allowlist, no DLP);
-  else (firewall)
+  if (open + ""--credentials forward""?) then (yes)
+    :no proxy chain — direct egress (the deliberate bypass:\nDinD / pinned-TLS vendors);
+  elseif (egress mode == open?) then (yes)
+    :agent ""--internal"" -> **proveo-egress** MITM -> internet\n(broker injects; no Squid, no write pin);
+  else (allowlist / review)
     :create networks — agent net ""--internal"" (no direct route)\n+ external egress net;
     :run **Squid** sidecar (config staged RO, log dir 0777)\n— run **proveo-egress** MITM (broker + DLP);
     :connect nets · agent DNS blackholed ""--dns 0.0.0.0""\n(names resolve proxy-side only);
@@ -68,7 +68,7 @@ partition "3 · Egress provision  «host»" {
       (decode-scan + byte budget).
     end note
   endif
-  if (broker mode AND DinD requested?) then (yes)
+  if (open + forward AND DinD requested?) then (yes)
     :start DinD sidecar, attach to agent network;
   else (no)
   endif

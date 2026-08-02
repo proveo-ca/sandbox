@@ -23,3 +23,6 @@ env:
   - name: CLAUDE_CODE_OAUTH_TOKEN
     description: Claude Code OAuth token — generate one with `claude setup-token`
     secret: true
+
+capabilities:
+  providers: [anthropic]

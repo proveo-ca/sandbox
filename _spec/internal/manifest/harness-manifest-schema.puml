@@ -104,4 +104,36 @@ note bottom of C
   declared in ""env"" — a secret must stay on the broker
   path, never here.
 end note
+
+class "Capabilities\ncapabilities:" as CAP <<app>> {
+  egress []string
+  credentials []string
+  providers []string
+}
+
+M *-- CAP
+
+note bottom of CAP
+  **The per-def choice matrix** — the only source of truth for which
+  cells of the egress/credentials/provider space a harness supports.
+  An empty list means unconstrained.
+
+  * ""egress: [open]"" — cursor pins its TLS; every intercepting tier
+    breaks it
+  * ""credentials: [forward]"" — nothing can be injected into that TLS
+  * ""providers: [anthropic]"" — claudecode reads only its own key and
+    OAuth token
+
+  ""providers"" is not cosmetic. Provider detection is filtered through
+  it, because two or more detected keys make the broker refuse to pin —
+  the agent then receives the ""proveo-brokered"" sentinel and the
+  provider answers 403. A key the harness could never use must not
+  enter the set.
+
+  Declaring the matrix here replaced target-name special cases in
+  ""cmd/proveo"". An axis the operator did not name is defaulted to the
+  def's single allowed value; an axis they did name is refused with the
+  reason rather than silently rewritten.
+end note
+
 @enduml

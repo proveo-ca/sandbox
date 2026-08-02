@@ -24,3 +24,8 @@ env:
   - name: CURSOR_API_KEY
     description: Cursor API key — create one at cursor.com/dashboard → API Keys
     secret: true
+
+capabilities:
+  egress: [open]
+  credentials: [forward]
+  providers: [cursor]

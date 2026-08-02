@@ -54,7 +54,7 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 
 ```bash
 ./run.sh # interactive TUI in the current repo
-./run.sh --egress-mode firewall # fully audited egress
+./run.sh --egress-mode allowlist # fully audited egress (cursor needs --credentials forward)
 ./run.sh --shell # debug shell with the same mounts/env
 ```
 
@@ -133,7 +133,7 @@ Project deny rules extend (and can only tighten alongside) the seeded baseline; 
 
 ## Egress modes
 
-`--egress-mode proxy|firewall` reuses the shared sidecar lifecycle
+`--egress-mode allowlist|review` reuses the shared sidecar lifecycle
 (`defs/lib/egress.sh`). Cursor specifics:
 
 - Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to

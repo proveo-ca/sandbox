@@ -7,6 +7,7 @@
 // Not every provider is broker-injectable: signed-request providers
 // (Bedrock/Azure/Vertex) are detectable and get a Squid ACL, but have no static
 // auth header to inject, so Resolve reports them as non-injectable.
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import "strings"
@@ -36,6 +37,7 @@ type Resolved struct {
 	Header string
 	Query  string
 	Value  string // empty => no injectable key present; strip + pass-through only
+	EnvVar string // which credential was chosen, for reporting
 }
 
 func bearer(envVar string) []AuthOption {
@@ -55,6 +57,36 @@ var entries = []Entry{
 		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
 	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
 		ACL: "dstdomain .moonshot.ai", Hosts: []string{".moonshot.ai"}, Auth: bearer("MOONSHOT_API_KEY")},
+	{Name: "cerebras", Detect: []string{"CEREBRAS_API_KEY"},
+		ACL: "dstdomain .cerebras.ai", Hosts: []string{".cerebras.ai"}, Auth: bearer("CEREBRAS_API_KEY")},
+	{Name: "deepinfra", Detect: []string{"DEEPINFRA_API_KEY"},
+		ACL: "dstdomain .deepinfra.com", Hosts: []string{".deepinfra.com"}, Auth: bearer("DEEPINFRA_API_KEY")},
+	{Name: "baseten", Detect: []string{"BASETEN_API_KEY"},
+		ACL: "dstdomain .baseten.co", Hosts: []string{".baseten.co"}, Auth: bearer("BASETEN_API_KEY")},
+	{Name: "perplexity", Detect: []string{"PERPLEXITYAI_API_KEY", "PERPLEXITY_API_KEY"},
+		ACL: "dstdomain .perplexity.ai", Hosts: []string{".perplexity.ai"}, Auth: bearer("PERPLEXITYAI_API_KEY")},
+	{Name: "sambanova", Detect: []string{"SAMBANOVA_API_KEY"},
+		ACL: "dstdomain .sambanova.ai", Hosts: []string{".sambanova.ai"}, Auth: bearer("SAMBANOVA_API_KEY")},
+	{Name: "nebius", Detect: []string{"NEBIUS_API_KEY"},
+		ACL: "dstdomain .nebius.com .nebius.ai", Hosts: []string{".nebius.com", ".nebius.ai"}, Auth: bearer("NEBIUS_API_KEY")},
+	{Name: "novita", Detect: []string{"NOVITA_API_KEY"},
+		ACL: "dstdomain .novita.ai", Hosts: []string{".novita.ai"}, Auth: bearer("NOVITA_API_KEY")},
+	{Name: "venice", Detect: []string{"VENICEAI_API_KEY", "VENICE_API_KEY"},
+		ACL: "dstdomain .venice.ai", Hosts: []string{".venice.ai"}, Auth: bearer("VENICEAI_API_KEY")},
+	{Name: "minimax", Detect: []string{"MINIMAX_API_KEY"},
+		ACL: "dstdomain .minimax.io .minimaxi.com", Hosts: []string{".minimax.io", ".minimaxi.com"}, Auth: bearer("MINIMAX_API_KEY")},
+	{Name: "copilot", Detect: []string{"GITHUB_COPILOT_API_KEY", "GH_COPILOT_TOKEN"},
+		ACL: "dstdomain .githubcopilot.com .github.com", Hosts: []string{".githubcopilot.com", ".github.com"}, Auth: bearer("GITHUB_COPILOT_API_KEY")},
+	{Name: "deepseek", Detect: []string{"DEEPSEEK_API_KEY"},
+		ACL: "dstdomain .deepseek.com", Hosts: []string{".deepseek.com"}, Auth: bearer("DEEPSEEK_API_KEY")},
+	{Name: "huggingface", Detect: []string{"HUGGINGFACE_API_KEY", "HF_TOKEN"},
+		ACL: "dstdomain .huggingface.co .hf.co", Hosts: []string{".huggingface.co", ".hf.co"},
+		Auth: []AuthOption{
+			{EnvVar: "HUGGINGFACE_API_KEY", Header: "authorization", Bearer: true},
+			{EnvVar: "HF_TOKEN", Header: "authorization", Bearer: true},
+		}},
+	{Name: "zai", Detect: []string{"ZAI_API_KEY", "ZHIPUAI_API_KEY"},
+		ACL: "dstdomain .z.ai .bigmodel.cn", Hosts: []string{".z.ai", ".bigmodel.cn"}, Auth: bearer("ZAI_API_KEY")},
 	{Name: "xai", Detect: []string{"XAI_API_KEY"},
 		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
 	{Name: "google", Detect: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
@@ -170,18 +202,37 @@ func KeyVars() []string {
 // known-injectable but no key is present, Hosts is still populated (for
 // strip-exclusion) and Value is empty (pass-through on the provider host).
 func Resolve(name string, getenv func(string) string) (Resolved, bool) {
+	return ResolveWith(name, "", getenv)
+}
+
+// ResolveWith is Resolve with an explicit credential choice. A provider may accept
+// more than one — anthropic takes an API key OR a subscription OAuth token — and
+// the ordering of Auth would otherwise decide silently for an operator holding
+// both. preferVar names the env var to use; unset or unavailable falls back to the
+// declared order.
+func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, bool) {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok || len(e.Auth) == 0 {
 		return Resolved{}, false
 	}
+	opts := e.Auth
+	if preferVar = strings.TrimSpace(preferVar); preferVar != "" {
+		for _, a := range e.Auth {
+			if strings.EqualFold(a.EnvVar, preferVar) && strings.TrimSpace(getenv(a.EnvVar)) != "" {
+				opts = append([]AuthOption{a}, e.Auth...)
+				break
+			}
+		}
+	}
 	r := Resolved{Hosts: e.Hosts}
-	for _, a := range e.Auth {
+	for _, a := range opts {
 		v := strings.TrimSpace(getenv(a.EnvVar))
 		if v == "" {
 			continue
 		}
 		r.Header = a.Header
 		r.Query = a.Query
+		r.EnvVar = a.EnvVar
 		if a.Bearer {
 			r.Value = "Bearer " + v
 		} else {
@@ -190,4 +241,18 @@ func Resolve(name string, getenv func(string) string) (Resolved, bool) {
 		break
 	}
 	return r, true
+}
+
+// AuthVars lists the credential env vars a provider accepts, in declared order.
+// More than one means the operator has a choice to make.
+func AuthVars(name string) []string {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(e.Auth))
+	for _, a := range e.Auth {
+		out = append(out, a.EnvVar)
+	}
+	return out
 }

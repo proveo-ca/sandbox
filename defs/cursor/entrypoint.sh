@@ -239,11 +239,7 @@ case "${1:-}" in
     ;;
 esac
 
-# Full consent is intentional for the policy-gated autonomous loop: deny rules
-# and the enterprise audit hook survive --force, and the container + egress
-# layer is the outer boundary. Cursor's own OS sandbox is disabled — Docker is
-# the sandbox (Landlock/seccomp inside a cap-dropped container is nondeterministic).
-LAUNCH_ARGS=(--force --sandbox disabled)
+LAUNCH_ARGS=(--force --sandbox "${PROVEO_CURSOR_SANDBOX:-enabled}")
 if [[ -n "${CURSOR_MODEL:-}" ]]; then
   LAUNCH_ARGS+=(--model "$CURSOR_MODEL")
 fi

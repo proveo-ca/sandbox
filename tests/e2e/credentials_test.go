@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
@@ -41,7 +43,11 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("provider.KeyVars() is empty")
 	}
-	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode cursor claudecode cecli"))
+	// cursor is absent by design: it declares capabilities egress:[open]
+	// credentials:[forward], so it has no egress layer to be isolated from and
+	// forwards the REAL key rather than a sentinel. Its contract is asserted by
+	// TestCursorEgressException instead.
+	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode cecli"))
 
 	// Isolation — deterministic, one subtest per agent (parallel: pure --print).
 	for _, agent := range agents {
@@ -80,8 +86,11 @@ func TestProjectDotEnvAtEgressLayer(t *testing.T) {
 		target string
 		key    string
 	}{
+		// cursor is deliberately absent: it declares capabilities egress:[open]
+		// credentials:[forward], so it runs with no MITM and its key reaches the
+		// container intact. There is no egress layer to receive it, which is the
+		// property this test asserts.
 		{target: "opencode", key: "MOONSHOT_API_KEY"},
-		{target: "cursor", key: "CURSOR_API_KEY"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.target, func(t *testing.T) {
@@ -114,13 +123,18 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		t.Fatal(err)
 	}
 
+	// Seed the choice cache so the form opens pre-selected on the tier this test
+	// needs. Seeding alone is NOT enough to skip it: the prompt always shows so the
+	// operator sees the posture they are launching, so the run below must accept it.
+	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
+
 	forceClean(proveoBin)
 	beforeEgress := containersWithSuffix("-egress")
 	beforeAgent := dockerIDsByAncestor("ubuntu:24.04")
 	sess := tmux.New(fmt.Sprintf("proveo-dotenv-%s-%d", target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceClean(proveoBin)
+		forceCleanIfCrowded(proveoBin)
 	})
 
 	// Remove every provider detection variable so the provider can only be
@@ -145,7 +159,10 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		"PROVEO_HOME="+filepath.Join(home, "proveo"),
 		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
 		"PROVEO_AUTO_PROVISION=1",
-		"PROVEO_WIZARD=off",
+		// HOME is overridden above, which hides ~/.docker and so the active context.
+		// Without this the CLI silently falls back to /var/run/docker.sock and every
+		// docker call — starting with the image pull — hangs.
+		"DOCKER_HOST="+dockerHost(t),
 		proveoBin, "run", target,
 		"--image", "ubuntu:24.04",
 		"--egress-mode", "firewall",
@@ -155,15 +172,7 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start %s session: %v", target, err)
 	}
-	// Both manifests offer optional capabilities on a TTY. Continue without them.
-	if _, err := sess.WaitFor("tab to add", 30*time.Second); err != nil {
-		screen, _ := sess.Capture()
-		t.Fatalf("%s capability picker: %v\n--- screen ---\n%s", target, err, screen)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("%s capability picker enter: %v", target, err)
-	}
-
+	acceptChoicePrompt(t, sess, target)
 	egress := waitForNewContainer(t, beforeEgress, "-egress", 5*time.Minute, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
 	if !ok {
@@ -202,7 +211,7 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 		kv = append(kv, k+"="+v)
 	}
 
-	agentCmd := agentCommandLine(t, printFirewallPlan(t, proveoBin, agent, kv))
+	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
 	declared := 0
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
@@ -223,7 +232,11 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
-	kv := []string{"env"}
+	// An isolated HOME is what makes driving the prompt deterministic: the first
+	// run of a harness prompts and caches the answer, so a shared HOME would leak
+	// into the developer's real settings AND skip the prompt on every later run.
+	home := t.TempDir()
+	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t)}
 	for _, k := range keys {
 		v := randToken()
 		want[k] = v
@@ -237,20 +250,26 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	sess := tmux.New(fmt.Sprintf("proveo-cred-egress-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceClean(proveoBin)
-		rmByAncestor("proveo/cursor:latest")
+		forceCleanIfCrowded(proveoBin)
+		rmByAncestor("proveo/claudecode:latest")
 	})
 
+	// claudecode, not cursor: cursor now declares capabilities egress:[open]
+	// credentials:[forward], so it has no MITM and therefore no broker at all.
+	// claudecode declares providers:[anthropic], which narrows the detected set to
+	// one and is precisely what ARMS the broker — with every key detected the
+	// broker refuses to pin and there is no broker.env to inspect.
 	cmd := append(append([]string(nil), kv...),
-		proveoBin, "run", "cursor", "--egress-mode", "firewall", "--shell", "--input", work)
+		proveoBin, "run", "claudecode", "--egress-mode", "allowlist", "--shell", "--input", work)
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
+	acceptChoicePrompt(t, sess, "claudecode")
 
 	egress := waitForNewContainer(t, before, "-egress", 120*time.Second, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
 	if !ok {
-		t.Fatalf("cursor egress container %s has no /broker mount (broker not resolved)", egress)
+		t.Fatalf("claudecode egress container %s has no /broker mount (broker not resolved)", egress)
 	}
 	brokerEnv := filepath.Join(brokerDir, "broker.env")
 	waitForFileExists(t, brokerEnv, 30*time.Second)
@@ -267,33 +286,90 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Logf("egress broker.env verified for %d provider keys, byte-for-byte", len(keys))
 }
 
-// TestCursorEgressException asserts the cursor exception: cursor defaults to
-// broker egress (forwarding the REAL CURSOR_API_KEY), because its vendor-pinned
-// TLS can't be brokered by firewall/proxy; an explicit non-broker mode warns that
-// the credential won't reach cursor-agent. Deterministic (--print, no containers).
+// TestCursorEgressException asserts the cursor exception, now expressed as
+// declared capabilities rather than a target-name special case: cursor's manifest
+// pins egress:[open] credentials:[forward] because its vendor TLS cannot be
+// intercepted. The default therefore forwards the REAL key with no MITM, and an
+// explicitly requested unsupported axis is REFUSED with the reason — not silently
+// rewritten, and no longer a warn-and-continue that hands over a dead sentinel.
+// Deterministic (--print, no containers).
 func TestCursorEgressException(t *testing.T) {
 	proveoBin := buildProveo(t)
 
-	// Default (no --egress-mode) → broker: real key forwarded, no firewall sentinel.
+	// Default → open + forward: real key forwarded, no sentinel, no internal net.
 	def := runPrint(t, proveoBin, "cursor")
 	defCmd := agentCommandLine(t, def)
 	if strings.Contains(defCmd, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
-		t.Error("cursor default should broker the REAL key, not hand the agent the firewall sentinel")
+		t.Error("cursor default should forward the REAL key, not hand the agent the sentinel")
 	}
 	if !hasBareEnv(defCmd, "CURSOR_API_KEY") {
-		t.Errorf("cursor default (broker) should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
+		t.Errorf("cursor default should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
 	}
 	if strings.Contains(defCmd, "--internal") {
-		t.Error("cursor default should not run on a firewall --internal network")
+		t.Error("cursor default must not run behind an --internal network: nothing can intercept its TLS")
+	}
+	if strings.Contains(def, "invalid API key") {
+		t.Errorf("cursor on its own capabilities must not warn about interception:\n%s", def)
 	}
 
-	// Explicit firewall → warns + hands the agent the sentinel (the broken path).
-	fw := runPrint(t, proveoBin, "cursor", "--egress-mode", "firewall")
-	if !strings.Contains(fw, "invalid API key") {
-		t.Errorf("cursor + firewall should warn it can't broker the credential:\n%s", fw)
+	// An explicitly named unsupported axis is refused, naming what IS allowed.
+	for _, tc := range []struct{ flag, value, want string }{
+		{"--egress-mode", "allowlist", "does not support --egress-mode allowlist (allowed: open)"},
+		{"--egress-mode", "review", "does not support --egress-mode review (allowed: open)"},
+		{"--credentials", "broker", "does not support --credentials broker (allowed: forward)"},
+	} {
+		out, err := runPrintErr(t, proveoBin, "cursor", tc.flag, tc.value)
+		if err == nil {
+			t.Errorf("cursor %s %s should be refused, but succeeded:\n%s", tc.flag, tc.value, out)
+			continue
+		}
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("cursor %s %s: want a refusal mentioning %q, got:\n%s", tc.flag, tc.value, tc.want, out)
+		}
+		if strings.Contains(out, entrypoint.DefaultSentinel) {
+			t.Errorf("a refused run must not still plan a sentinel handover:\n%s", out)
+		}
 	}
-	if !strings.Contains(agentCommandLine(t, fw), "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
-		t.Error("cursor + firewall should hand the agent the sentinel")
+}
+
+// runPrintErr is runPrint for the paths that are SUPPOSED to fail: it returns the
+// output and the error instead of failing the test on a non-zero exit.
+func runPrintErr(t *testing.T, proveoBin, target string, extra ...string) (string, error) {
+	t.Helper()
+	work := t.TempDir()
+	args := append([]string{"run", target}, extra...)
+	args = append(args, "--print", "--input", work)
+	cmd := exec.Command(proveoBin, args...)
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// seedAgentSettings pre-writes ~/.proveo/agent-settings.yml for target so the
+// run enters its cached choice instead of prompting. The fingerprint is computed
+// from the def's real capabilities, so this stays correct if they change.
+func seedAgentSettings(t *testing.T, proveoHome, target, egressMode, credentials string) {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	var caps manifest.Capabilities
+	found := false
+	for _, m := range ms {
+		if _, ok := m.Images[target]; ok {
+			caps, found = m.Capabilities, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no manifest declares target %q", target)
+	}
+	st := &agentsettings.Store{}
+	st.Remember(target, caps, agentsettings.Choice{Egress: egressMode, Credentials: credentials})
+	if err := st.Save(proveoHome); err != nil {
+		t.Fatalf("seed agent settings: %v", err)
 	}
 }
 
@@ -341,12 +417,14 @@ func requireLiveStack(t *testing.T) {
 	}
 }
 
-// printFirewallPlan runs `proveo run <agent> --egress-mode firewall --print` with
+// printEnforcedPlan runs `proveo run <agent> --egress-mode allowlist --print` with
 // the random provider keys set (and any real ones stripped), returning its output.
-func printFirewallPlan(t *testing.T, proveoBin, agent string, kv []string) string {
+// printEnforcedPlan renders an agent's plan on the enforced tier, where every
+// declared secret must reach the container as the sentinel.
+func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
 	work := t.TempDir()
-	cmd := exec.Command(proveoBin, "run", agent, "--egress-mode", "firewall", "--print", "--input", work)
+	cmd := exec.Command(proveoBin, "run", agent, "--egress-mode", "allowlist", "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(envWithoutProviderKeys(), kv...)
 	out, err := cmd.CombinedOutput()
@@ -408,6 +486,20 @@ func repoRoot(t *testing.T) string {
 
 func forceClean(proveoBin string) { _ = exec.Command(proveoBin, "clean", "--force").Run() }
 
+// forceCleanIfCrowded is the per-test teardown: `proveo clean --force` removes
+// EVERY proveo container, so running it after each test can tear down a sibling
+// still coming up. Below a small threshold that risk outweighs the benefit —
+// leave them for the suite-level clean and only sweep when they accumulate.
+const cleanThreshold = 10
+
+func forceCleanIfCrowded(proveoBin string) {
+	out, err := exec.Command("docker", "ps", "-aq", "--filter", "label=proveo.egress.session").Output()
+	if err != nil || len(strings.Fields(string(out))) < cleanThreshold {
+		return
+	}
+	forceClean(proveoBin)
+}
+
 func rmByAncestor(image string) {
 	if out, err := exec.Command("docker", "ps", "-aq", "--filter", "ancestor="+image).Output(); err == nil {
 		for _, id := range strings.Fields(string(out)) {
@@ -445,23 +537,6 @@ func containersWithSuffix(suffix string) map[string]bool {
 		}
 	}
 	return set
-}
-
-func waitForNewContainer(t *testing.T, before map[string]bool, suffix string, timeout time.Duration, sess *tmux.Session) string {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		for _, n := range dockerPSNames() {
-			if strings.HasSuffix(n, suffix) && !before[n] {
-				return n
-			}
-		}
-		if time.Now().After(deadline) {
-			screen, _ := sess.Capture()
-			t.Fatalf("no new %q container within %s\n--- screen ---\n%s", suffix, timeout, screen)
-		}
-		time.Sleep(time.Second)
-	}
 }
 
 // mountSource returns the host path bind-mounted at dest inside container, and

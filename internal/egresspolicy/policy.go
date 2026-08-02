@@ -15,6 +15,7 @@ package egresspolicy
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,6 +25,7 @@ import (
 // Reasons a request is blocked (empty => allowed).
 const (
 	ReasonSink   = "sink"                  // host is a known exfil sink (all methods)
+	ReasonReview = "review-denied"         // the operator declined this connection (review tier)
 	ReasonWrite  = "write-not-allowlisted" // write method to a non-allowlisted host
 	ReasonSecret = "secret"                // a credential/secret was found in the URL or body
 	ReasonBudget = "budget"                // outbound byte budget to a non-allowlisted host exceeded
@@ -50,7 +52,9 @@ type Config struct {
 	// and which are exempt from the outbound byte budget.
 	WriteHosts []string
 	// DenySinks are suffixes hard-denied for ALL methods (exfil sinks).
-	DenySinks []string
+	DenySinks     []string
+	OpenNetwork   bool
+	ReviewConnect func(host, port string) bool
 	// Secrets are exact secret values scanned for off-provider (URL + body). Values
 	// shorter than minSecretLen are ignored.
 	Secrets []string
@@ -77,6 +81,8 @@ type Policy struct {
 	denySinks     []string
 	scanner       *scanner
 	maxBytes      int64
+	openNetwork   bool
+	reviewConnect func(host, port string) bool
 
 	mu        sync.Mutex
 	outByHost map[string]int64
@@ -94,6 +100,8 @@ func New(cfg Config) *Policy {
 		denySinks:     normHosts(cfg.DenySinks),
 		scanner:       newScanner(cfg.Secrets, cfg.BlockKnownSecrets, cfg.DecodeScan, cfg.BlockEntropy),
 		maxBytes:      cfg.MaxOutBytesPerHost,
+		openNetwork:   cfg.OpenNetwork,
+		reviewConnect: cfg.ReviewConnect,
 		outByHost:     map[string]int64{},
 	}
 }
@@ -116,9 +124,12 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	// deny) so the tunnel establishes; the inner request carries the real method,
 	// URL, headers, and body and gets the full method-pin + DLP treatment below.
 	if req.Method == http.MethodConnect {
+		if p.reviewConnect != nil && !p.reviewConnect(host, portOf(req)) {
+			return Decision{Reason: ReasonReview}
+		}
 		return Decision{Allow: true}
 	}
-	allowlisted := matchHost(host, p.writeHosts)
+	allowlisted := p.openNetwork || matchHost(host, p.writeHosts)
 	// A: write methods only to the write-allowlist.
 	if !isReadMethod(req.Method) && !allowlisted {
 		return Decision{Reason: ReasonWrite}
@@ -252,4 +263,14 @@ func normHosts(in []string) []string {
 		}
 	}
 	return out
+}
+
+func portOf(req *http.Request) string {
+	if _, port, err := net.SplitHostPort(req.URL.Host); err == nil && port != "" {
+		return port
+	}
+	if req.URL.Scheme == "http" {
+		return "80"
+	}
+	return "443"
 }

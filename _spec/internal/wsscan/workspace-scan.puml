@@ -1,0 +1,69 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Workspace scan — one walker, monorepo-aware, dependency trees pruned
+
+node "internal/wsscan" as PKG <<host>> {
+  component "Scan(scopeDir, repoRoot,\nmarkers, budget) Result" as SCAN <<app>>
+  component "alwaysPrune\nhardcoded deny set" as HARD <<app>>
+  component "gitignoreNames(dir)\nplain basenames only" as GI <<app>>
+}
+
+folder "Consumers — one answer, two callers" as USE <<host>> {
+  component "dind.ScopeHasDockerfiles\nthe DinD offer gate" as DIND <<app>>
+  component "choice prompt header\ntooling · lsp prediction" as HDR <<app>>
+}
+
+database "workspace tree\ndepth <= MaxDepth (7)" as TREE <<db>>
+component "unpruned dependency tree\n→ false-positive DinD offer" as BAD <<error>>
+
+SCAN ARROW_MAIN HARD : always applied
+SCAN ARROW_OPTIONAL GI : scope AND repo root, additive
+SCAN ARROW_MAIN TREE : walk, budgeted
+DIND ARROW_MAIN SCAN
+HDR ARROW_MAIN SCAN
+GI ARROW_ERROR BAD : gitignore alone is not enough
+
+note right of GI
+  **Why .gitignore alone was unsafe — the bug this replaced.**
+
+  Lookup stopped at the FIRST ""\.gitignore"" found walking up, so a
+  monorepo scope with its own file never saw the repo root's
+  ""node_modules"" entry: ""proveo run --scope apps/web"" with an
+  ""apps/web/\.gitignore"" listing only ""\.next/"" walked straight into
+  ""apps/web/node_modules"" to depth 7.
+
+  Two more holes: any pattern containing / * ? [ is unusable as a
+  basename prune (""**/node_modules"" never matched), and a repo
+  relying on ""core.excludesFile"" supplied nothing at all.
+
+  So the derived names are now **additive only** — read from the
+  scope //and// the repo root — on top of a set that always applies.
+end note
+
+note bottom of BAD
+  **Not merely wasteful — wrong.** ""ScopeHasDockerfiles"" feeds the DinD
+  offer, and npm packages ship Dockerfiles. A repo with none of its own
+  could be offered a ""--privileged"" sidecar because of a dependency.
+  That is why the deny set is hardcoded rather than discovered.
+end note
+
+note bottom of TREE
+  **Bounded three ways.** Depth stops at ""MaxDepth"" (7, matching the
+  walker this replaced). ""DefaultBudget"" caps entries examined — the
+  scan runs before the container exists, in front of an operator at a
+  prompt, so a pathological tree must degrade rather than stall. And
+  the walk exits as soon as every marker is found, which in practice is
+  shallow: files at each level are read before descending.
+
+  A bounded scan sets ""Result.Truncated"". That is **logged, never
+  shown** in the prompt header: the header stays about the workspace,
+  and an operator who needs to know finds it in the run log.
+end note
+
+note right of SCAN
+  **Markers, not globs.** ""Names"" match a basename exactly, ""Suffixes""
+  match its end (""\.go""), and either satisfies the marker. Tooling
+  labels are reported as fact; LSP labels are a **prediction** — whether
+  a server exists depends on the image, which the host cannot see.
+end note
+@enduml

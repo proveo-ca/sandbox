@@ -7,11 +7,12 @@ node "Agent container" as CTR <<host>> {
 }
 
 component "docker:dind sibling\nprivileged" as DIND <<error>>
-component "internal/dind\nModeSupported · ScopeHasDockerfiles\nEnvEnabled · ShouldStart" as GATE <<app>>
+component "internal/dind\nModeSupported · CredentialsSupported\nScopeHasDockerfiles · EnvEnabled · ShouldStart" as GATE <<app>>
 
-folder "Gates — all four must pass" as G <<host>> {
+folder "Gates — all five must pass" as G <<host>> {
   component "1. manifest ""dind: true""\ncecli · opencode · cursor" as G1 <<app>>
-  component "2. ""--egress-mode broker""\nthe ONLY supported mode" as G2 <<app>>
+  component "2. ""--egress-mode open""\nthe only non-intercepting tier" as G2 <<app>>
+  component "2b. ""--credentials forward""\nleaves an internet-capable bridge" as G2B <<app>>
   component "3. a Dockerfile/compose in scope" as G3 <<app>>
   component "4. ""PROVEO_DIND=1"" or an interactive yes" as G4 <<app>>
 }
@@ -22,12 +23,16 @@ G ARROW_QUEUE DIND : attach as ""docker"" on the agent network
 CLI ARROW_MAIN DIND : ""DOCKER_HOST=tcp://docker:2375""
 
 note right of G2
-  **Why broker only.** proxy/firewall put a Squid allowlist
-  and a TLS-inspecting MITM between the agent and the
-  internet. A reachable Docker daemon defeats both: the
-  agent can run a container that bypasses the proxy env,
-  so proveo refuses to attach one and warns if
-  ""PROVEO_DIND"" was set in those modes.
+  **Why only open + forward.** Every other combination puts
+  a TLS-inspecting MITM — and in the enforced tiers a Squid
+  allowlist — between the agent and the internet, with the
+  agent on an ""--internal"" network. A reachable Docker daemon
+  defeats that: the agent can run a container that bypasses
+  the proxy env. Brokered credentials fail for the same
+  reason from the other direction — injection is only a
+  guarantee while the injector is the sole egress path, and
+  a DinD attach reopens one. proveo refuses to attach and
+  warns when ""PROVEO_DIND"" was set.
 end note
 
 note bottom of DIND

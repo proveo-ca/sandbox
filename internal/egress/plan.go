@@ -3,6 +3,7 @@ package egress
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -36,18 +37,21 @@ type Plan struct {
 // Options parameterizes a Plan. Zero values are sensible: images default to the
 // proveo/* names, GID falls back to UID.
 type Options struct {
-	Mode       string // "broker" | "proxy" | "firewall"
-	SessionID  string
-	AgentName  string // e.g. "claudecode-mcp" (sanitized into network names)
-	UID, GID   string
-	LocalModel string // optional Ollama model
-	ModelsDir  string // host Ollama model store, mounted read-only at /models
+	Mode        string // "open" | "allowlist" | "review" (aliases resolved by Canonical)
+	Credentials string
+	SessionID   string
+	AgentName   string // e.g. "claudecode-mcp" (sanitized into network names)
+	UID, GID    string
+	LocalModel  string // optional Ollama model
+	ModelsDir   string // host Ollama model store, mounted read-only at /models
 	// Broker (firewall mode): a single resolved provider + host env-file.
 	Provider      string
 	BrokerEnvFile string
 	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
 	ProviderDomains string
+	ReviewSocket    string
+	AuthVar         string
 	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
@@ -102,9 +106,38 @@ var modeBuilders = []struct {
 	name  string
 	build func(Options) Plan
 }{
-	{"broker", buildBroker},
-	{"proxy", buildProxy},
-	{"firewall", buildFirewall},
+	{"open", buildOpen},
+	{"allowlist", buildAllowlist},
+	{"review", buildReview},
+}
+
+var modeAliases = map[string]string{
+	"broker":   "open",
+	"firewall": "allowlist",
+	"proxy":    "review",
+}
+
+func Canonical(name string) (canonical string, aliased bool) {
+	if to, ok := modeAliases[name]; ok {
+		return to, true
+	}
+	return name, false
+}
+
+var credentialModes = []string{"broker", "forward"}
+
+func CredentialModes() []string { return append([]string(nil), credentialModes...) }
+
+func ValidCredentials(name string) bool {
+	if name == "" {
+		return true
+	}
+	for _, c := range credentialModes {
+		if c == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Modes returns the valid egress mode names in canonical order.
@@ -118,6 +151,7 @@ func Modes() []string {
 
 // ValidMode reports whether name is a known egress mode.
 func ValidMode(name string) bool {
+	name, _ = Canonical(name)
 	for _, m := range modeBuilders {
 		if m.name == name {
 			return true
@@ -130,6 +164,7 @@ func ValidMode(name string) bool {
 // invariant that only Squid is internet-capable: the agent and inspector sit on
 // `--internal` networks and can reach the internet only by transiting Squid.
 func BuildPlan(o Options) (Plan, error) {
+	o.Mode, _ = Canonical(o.Mode)
 	for _, m := range modeBuilders {
 		if m.name == o.Mode {
 			return m.build(o), nil
@@ -182,47 +217,46 @@ func (b *builder) done() Plan {
 	return b.p
 }
 
-func buildBroker(o Options) Plan {
-	// Broker egress (direct bridge; ex-open). Only a user-defined bridge (still internet-capable) is needed,
-	// and only when a local model sidecar must be resolvable by name.
-	if o.LocalModel == "" {
-		return Plan{AgentArgs: []string{"--network=bridge", "--add-host=host.docker.internal:127.0.0.1"}}
-	}
-	// Host-Ollama path (e.g. macOS): a Linux container can't reach the host's GPU,
-	// so a sidecar would run CPU-only. Broker is the non-locked mode, so reaching
-	// the host's GPU Ollama over the bridge is acceptable here (and only here — the
-	// locked modes keep the isolated sidecar). No sidecar; map host.docker.internal
-	// to the real host gateway and point the local-model env at it.
-	if o.HostOllama {
-		args := []string{"--network=bridge", "--add-host=host.docker.internal:host-gateway"}
-		return Plan{AgentArgs: append(args, localModelArgs(o.LocalModel, hostOllamaBase)...)}
-	}
-	b := newBuilder(o)
-	net := o.SessionID + "-" + o.safeAgent() + "-broker-net"
-	b.network(net, false)
-	b.p.AgentArgs = []string{"--network", net}
-	b.p.AgentNetwork = net // internet-capable bridge: safe for a DinD attach in broker mode
-	b.attachLocalModel(net)
-	return b.done()
-}
+func (o Options) forwardsCredentials() bool { return o.Credentials == "forward" }
 
-func buildProxy(o Options) Plan {
+func buildOpen(o Options) Plan {
+	if o.forwardsCredentials() {
+		if o.LocalModel == "" {
+			return Plan{AgentArgs: []string{"--network=bridge", "--add-host=host.docker.internal:127.0.0.1"}}
+		}
+		if o.HostOllama {
+			args := []string{"--network=bridge", "--add-host=host.docker.internal:host-gateway"}
+			return Plan{AgentArgs: append(args, localModelArgs(o.LocalModel, hostOllamaBase)...)}
+		}
+		b := newBuilder(o)
+		net := o.SessionID + "-" + o.safeAgent() + "-open-net"
+		b.network(net, false)
+		b.p.AgentArgs = []string{"--network", net}
+		b.p.AgentNetwork = net
+		b.attachLocalModel(net)
+		return b.done()
+	}
 	b := newBuilder(o)
-	agentNet := o.SessionID + "-" + o.safeAgent() + "-squid-net"
-	egressNet := o.SessionID + "-squid-egress-net"
+	agentNet := o.SessionID + "-" + o.safeAgent() + "-open-net"
+	egressNet := o.SessionID + "-open-egress-net"
 	b.network(agentNet, true)
 	b.network(egressNet, false)
-	b.p.UsesSquid = true
-	b.sidecar(squidRun(o, egressNet), squidName(o))
-	b.p.SquidContainer = squidName(o)
-	b.p.Connects = append(b.p.Connects, netConnectAlias(agentNet, squidName(o), "squid"))
-	b.p.AgentArgs = append(b.p.AgentArgs, "--network", agentNet, "--dns", dnsBlackhole, "-e", "ENFORCEMENT_PROXY="+squidUpstream)
-	b.p.AgentArgs = append(b.p.AgentArgs, proxyEnvArgs(o, squidUpstream)...)
+	b.sidecar(proxyRun(o, agentNet, ""), proxyName(o))
+	b.p.Connects = append(b.p.Connects, netConnect(egressNet, proxyName(o)))
+	b.p.AgentArgs = append(b.p.AgentArgs, "--network", agentNet, "--dns", dnsBlackhole,
+		"-e", "INSPECT_PROXY="+inspectProxyURL)
+	b.p.AgentArgs = append(b.p.AgentArgs, proxyEnvArgs(o, inspectProxyURL)...)
+	b.p.AgentArgs = append(b.p.AgentArgs, caTrustArgs(o.ConfDir)...)
+	b.p.CAWaitPath = o.ConfDir + "/mitmproxy-ca-cert.pem"
 	b.attachLocalModel(agentNet)
 	return b.done()
 }
 
-func buildFirewall(o Options) Plan {
+func buildAllowlist(o Options) Plan { return buildEnforced(o) }
+
+func buildReview(o Options) Plan { return buildEnforced(o) }
+
+func buildEnforced(o Options) Plan {
 	b := newBuilder(o)
 	agentNet := o.SessionID + "-" + o.safeAgent() + "-mitm-net"
 	enforceNet := o.SessionID + "-mitm-squid-net"
@@ -233,7 +267,7 @@ func buildFirewall(o Options) Plan {
 	b.p.UsesSquid = true
 	b.sidecar(squidRun(o, egressNet), squidName(o))
 	b.p.SquidContainer = squidName(o)
-	b.sidecar(proxyRun(o, agentNet), proxyName(o))
+	b.sidecar(proxyRun(o, agentNet, squidUpstream), proxyName(o))
 	b.p.Connects = append(b.p.Connects,
 		netConnectAlias(enforceNet, squidName(o), "squid"),
 		netConnect(enforceNet, proxyName(o)),
@@ -296,7 +330,7 @@ func squidRun(o Options, egressNet string) Command {
 	return append(c, o.squidImage())
 }
 
-func proxyRun(o Options, agentNet string) Command {
+func proxyRun(o Options, agentNet, upstream string) Command {
 	c := Command{"run", "-d", "--rm", "--name", proxyName(o)}
 	if u := o.user(); u != "" {
 		c = append(c, "--user", u)
@@ -306,13 +340,28 @@ func proxyRun(o Options, agentNet string) Command {
 	c = append(c, "--memory="+proxyMemoryLimit)
 	c = append(c, "--label", label(o.SessionID), "--network", agentNet, "--network-alias", "mitm",
 		"-e", "PROVEO_EGRESS_LISTEN=:8888",
-		"-e", "PROVEO_EGRESS_UPSTREAM="+squidUpstream,
 		"-e", "PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem",
 		"-e", "PROVEO_EGRESS_FLOWS=/flows/flows.ndjson",
 		"-v", o.ConfDir+":/confdir",
 		"-v", o.FlowsDir+":/flows")
+	if upstream != "" {
+		c = append(c, "-e", "PROVEO_EGRESS_UPSTREAM="+upstream)
+	}
+	if o.Mode == "review" {
+		c = append(c, "-e", "PROVEO_EGRESS_REVIEW=1")
+		if o.ReviewSocket != "" {
+			c = append(c, "-e", "PROVEO_EGRESS_REVIEW_SOCKET=/review/"+filepath.Base(o.ReviewSocket),
+				"-v", filepath.Dir(o.ReviewSocket)+":/review")
+		}
+	}
+	if o.Mode == "open" {
+		c = append(c, "-e", "PROVEO_EGRESS_OPEN=1")
+	}
 	if o.Provider != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER="+o.Provider)
+	}
+	if o.AuthVar != "" {
+		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)
 	}
 	if o.ProviderDomains != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER_DOMAINS="+o.ProviderDomains)
@@ -376,7 +425,6 @@ func caTrustArgs(confDir string) []string {
 //     ANTHROPIC_API_KEY forces the local path over any inherited cloud key.
 //
 // Cursor is intentionally absent: its inference is vendor-pinned (see run wiring).
-//
 // base is the Ollama endpoint root: the sidecar alias (sidecarOllamaBase) or the
 // host gateway (hostOllamaBase) for the macOS host-GPU path.
 func localModelArgs(model, base string) []string {

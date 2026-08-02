@@ -1,0 +1,98 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Egress tiers — cumulative network policy, credentials on their own axis
+
+node "internal/egress" as PKG <<host>> {
+  component "modeBuilders\nopen · allowlist · review" as TABLE <<app>>
+  component "modeAliases + Canonical()\nbroker→open · firewall→allowlist\nproxy→review" as ALIAS <<app>>
+  component "Options.Credentials\nbroker (default) | forward" as CREDS <<app>>
+}
+
+folder "Tiers — each adds to the one above" as TIERS <<host>> {
+  component "open\nMITM only, no Squid,\nno upstream — direct egress" as T1 <<app>>
+  component "allowlist\n+ Squid, method pin, DLP" as T2 <<app>>
+  component "review\n+ interactive connection prompts" as T3 <<app>>
+}
+
+component "open + forward\nthe deliberate bypass:\nno MITM, bridge network" as BYPASS <<error>>
+cloud "Registry / internet" as NET <<cloud>>
+
+ALIAS ARROW_MAIN TABLE : resolved ONCE in BuildPlan
+TABLE ARROW_MAIN TIERS
+CREDS ARROW_OPTIONAL BYPASS : ""forward"" on the open tier
+T1 ARROW_CLOUD NET
+T2 ARROW_CLOUD NET
+T3 ARROW_CLOUD NET
+
+note right of CREDS
+  **Why the axes had to split.** The modes used to conflate network
+  policy with credential handling, which is why cursor and DinD both
+  had to be carved out as target-name exceptions in ""cmd/proveo"".
+  Modes now name the network tier only; credentials are independent.
+
+  Every tier brokers — the key stays host-side and is injected at the
+  MITM — **except** open + ""forward"", which is the one shape with
+  nothing to inject.
+end note
+
+note bottom of T1
+  **The open tier still needs the MITM.** Injection is only a guarantee
+  while the injector is the sole egress path, so the agent sits on an
+  ""--internal"" network behind ""proveo-egress"" even with no allowlist.
+  ""PROVEO_EGRESS_UPSTREAM"" is left unset so the MITM egresses direct
+  rather than through Squid.
+
+  ""PROVEO_EGRESS_OPEN=1"" then makes the policy honest about the word
+  'open': it drops layer A (the write pin) and the byte budget, while
+  **keeping the exfil-sink denylist and the DLP secret scan**. An open
+  network must not become an open channel for the key it was just
+  handed. Without that flag the tier silently enforced an allowlist it
+  claimed not to have.
+end note
+
+note bottom of BYPASS
+  **Two cases injection cannot serve**, and they are the same case from
+  two directions. A vendor pinning its TLS (cursor) cannot be
+  intercepted, so the credential must arrive intact. DinD needs an
+  internet-capable agent network, which reopens a path around the
+  injector — so brokering there would be a guarantee on paper only.
+  Both are declared per def in ""harness.manifest"" ""capabilities"", not
+  special-cased by target name.
+end note
+
+note right of ALIAS
+  **Canonicalize once, in ""BuildPlan"".** Every downstream consumer —
+  builders, golden files, and ""PROVEO_EGRESS_MODE"" in the agent's own
+  env — then sees the current name even when the caller passed a
+  retired one. The alias warning says the meaning //changed//: anyone
+  who relied on ""broker"" handing the real key to the container now
+  needs ""--credentials forward"".
+end note
+
+note bottom of T3
+  ""review"" shares ""allowlist""'s topology exactly; the tiers differ only
+  in what the MITM does on a block, carried by ""PROVEO_EGRESS_REVIEW=1"".
+  The consuming side is the PTY overlay — see
+  ""_spec/internal/reviewgate/pty-review-proxy.puml"".
+end note
+note as BrokerPin #F4F9FB
+  **Pinning one provider is not the same as reaching one.**
+
+  The broker injects a single credential, so it must resolve exactly one
+  provider. With several keys on the host it used to refuse — the agent
+  then got the ""proveo-brokered"" sentinel and the provider answered
+  401/403, which reads as a bad key rather than a proveo decision.
+
+  A model id names its provider, so ""ARCHITECT/EDITOR/SMALL_MODEL""
+  resolve it (""provider.ModelProvider"", including bare ids like ""gpt-5"",
+  ""grok-4"", ""glm-4.6""). If those models disagree the pin is refused
+  rather than guessed.
+
+  **The Squid allowlist does NOT collapse onto that pin.** A
+  non-vendor-locked harness allowlists every detected provider, because a
+  session may switch model mid-run; narrowing reach to the injected
+  provider would block it. Only a manifest ""provider:"" lock keeps the
+  narrow allowlist — that is what a vendor lock means.
+end note
+
+@enduml

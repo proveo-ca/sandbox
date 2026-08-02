@@ -85,8 +85,33 @@ type Manifest struct {
 	// value (`-e NAME=value`), on top of the shared baseline in
 	// entrypoint.ConfigVars. Use it for a harness-specific knob — a secret
 	// belongs in Env, which is brokered rather than forwarded.
-	Config []string `yaml:"config"`
-	Dir    string   `yaml:"-"` // def directory (set by Load)
+	Config       []string     `yaml:"config"`
+	Capabilities Capabilities `yaml:"capabilities"`
+	Dir          string       `yaml:"-"` // def directory (set by Load)
+}
+
+type Capabilities struct {
+	Egress      []string `yaml:"egress"`
+	Credentials []string `yaml:"credentials"`
+	Providers   []string `yaml:"providers"`
+}
+
+func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
+
+func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
+
+func (c Capabilities) AllowsProvider(name string) bool { return listAllows(c.Providers, name) }
+
+func listAllows(list []string, v string) bool {
+	if len(list) == 0 {
+		return true
+	}
+	for _, item := range list {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(v)) {
+			return true
+		}
+	}
+	return false
 }
 
 // MissingEnv returns the declared env vars whose value is empty per getenv,

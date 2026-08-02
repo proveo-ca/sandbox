@@ -1,0 +1,109 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLANNED — Harness choice cache: three axes, declared per def, prompted once
+
+actor "Operator" as OP
+
+node "defs/<target>/harness.manifest" as MAN <<host>> {
+  component "capabilities:\negress · credentials\nproviders · addons" as CAP <<app>>
+}
+
+node "cmd/proveo run <target>" as CLI <<host>> {
+  component "resolve()\nflag > cache > prompt > default" as RES <<app>>
+  component "choice TUI\n3 radio rows + .env header" as TUI <<app>>
+  component "validate against capabilities" as VAL <<app>>
+}
+
+database "~/.proveo/harness-choices.yml\nper target + manifest fingerprint" as CACHE <<db>>
+component "fingerprint mismatch\n→ discard, re-prompt" as STALE <<error>>
+component "headless (no TTY)\n→ never prompt, take default" as HEADLESS <<error>>
+
+CAP ARROW_MAIN VAL : the only source of valid cells
+OP ARROW_MAIN RES : ""--egress-mode"" · ""--credentials"" · ""--browser"" · ""PROVEO_DIND""
+RES ARROW_MAIN CACHE : read
+CACHE ARROW_ERROR STALE : manifest changed
+RES ARROW_MAIN TUI : cache miss or stale
+TUI ARROW_MAIN OP : one prompt, three rows
+TUI ARROW_QUEUE CACHE : persist the answer
+RES ARROW_ERROR HEADLESS
+RES ARROW_MAIN VAL
+
+note right of CAP
+  **The matrix is data, not code.** Cursor's constraint lives in
+  ""cmd/proveo/main.go"" today as ""if target == 'cursor'"". Declaring it
+  here deletes that special case and makes the choice space
+  inspectable per def.
+
+  ""egress: [open]"" — cursor pins its TLS; every intercepting tier
+  breaks it.
+  ""credentials: [forward]"" — nothing can be injected into that TLS.
+  ""providers: [anthropic]"" — claudecode reads only its own key and
+  OAuth token.
+  ""addons"" — derived by default: DinD iff ""dind: true"", browser iff an
+  ""images:"" key ends ""-browser"". claudecode therefore shows no DinD row.
+end note
+
+note bottom of VAL
+  **""providers"" also fixes a live bug.** In a brokered tier
+  ""provider.KeyVars()"" sentinel-injects EVERY detected key, so
+  ""brokerProvider"" sees two or more, refuses to pin, and the agent
+  gets the ""proveo-brokered"" sentinel — the provider then answers 403.
+  Filtering detection through the def's declared providers means a
+  stray key for a harness that cannot use it never enters the set.
+end note
+
+note bottom of TUI
+  **One prompt, three rows.** Header first: ""\.env"" as loaded —
+  **names only** for secrets (manifest ""env[].secret"" ∪
+  ""provider\.KeyVars()""), ""key=value"" for the rest
+  (""entrypoint\.ConfigVars"" ∪ manifest ""config"").
+
+  **A single-option axis is not a choice, so its row is dropped.** Cursor,
+  fixed to open+forward, would otherwise show two controls that cannot
+  move. Where a choice DOES exist, every option stays visible and the
+  unavailable ones are greyed **with the reason on the row** — that is
+  the dind case, which depends on the two axes above it.
+
+  Hiding a row costs the gate its input: ""gateAddons"" falls back to the
+  already-resolved axis value, and capabilities are applied BEFORE the
+  prompt so both the fallback and the pre-selection reflect the def.
+
+  ""go-fuzzyfinder"" is a fuzzy list picker and cannot express a radio
+  grid; ""tcell"" is already vendored beneath it, so the form is a small
+  custom widget.
+end note
+
+note right of RES
+  **The prompt always appears.** A remembered answer SEEDS the selection;
+  it never replaces the form. Silently entering a cached tier hid the
+  security posture of the run — the operator must see, and be able to
+  change, what they are launching.
+
+  **Four axes, shown only when there is something to decide:** network
+  tier, credential handling, which credential (when the pinned provider
+  accepts more than one the operator holds), and add-ons.
+
+  ""review"" is offered on a Linux host with a local daemon and greyed
+  elsewhere with the reason — 'linux only', or 'needs a local docker daemon'
+  for a remote ""DOCKER_HOST"". Naming the constraint beats a blanket 'coming
+  soon': the tier is not unfinished, its transport is platform-bound. See
+  ""_spec/internal/reviewgate/pty-review-proxy.puml"".
+
+  **Resolution order.** An explicit flag always wins, and when a
+  prompt does appear the flag value is **pre-selected** rather than
+  bypassing the row. Otherwise: a valid cache enters automatically
+  (the point of the feature), else prompt, else the manifest default.
+end note
+
+note bottom of STALE
+  **Cached choices do not survive a manifest change.** The cache
+  stores a fingerprint of the def's ""capabilities"" block; any change
+  discards the entry and re-prompts, rather than silently dropping a
+  now-invalid add-on or keeping a tier the def no longer allows.
+end note
+
+note bottom of HEADLESS
+  E2E, CI and cron must never block on a human: with no TTY the
+  resolver takes the manifest default and logs the choice it made.
+end note
+@enduml

@@ -1,0 +1,22 @@
+# networks
+docker network create --label proveo.egress.session=proveo-sess --internal proveo-sess-claudecode-mcp-mitm-net
+docker network create --label proveo.egress.session=proveo-sess --internal proveo-sess-mitm-squid-net
+docker network create --label proveo.egress.session=proveo-sess proveo-sess-squid-egress-net
+# sidecars
+docker run -d --rm --name proveo-sess-squid --label proveo.egress.session=proveo-sess --security-opt=no-new-privileges:true --pids-limit=256 --network proveo-sess-squid-egress-net -v /state/squid/config:/etc/squid:ro -v /state/squid/logs:/var/log/squid ubuntu/squid:latest
+docker run -d --rm --name proveo-sess-egress --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=proveo-sess --network proveo-sess-claudecode-mcp-mitm-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v /state/mitmproxy/confdir:/confdir -v /state/mitmproxy/flows:/flows -e PROVEO_EGRESS_UPSTREAM=http://squid:3128 -e PROVEO_EGRESS_REVIEW=1 proveo/egress-proxy:latest
+# connects
+docker network connect --alias squid proveo-sess-mitm-squid-net proveo-sess-squid
+docker network connect proveo-sess-mitm-squid-net proveo-sess-egress
+# agent-args
+--network proveo-sess-claudecode-mcp-mitm-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e ENFORCEMENT_PROXY=http://squid:3128 -e PROVEO_EGRESS_SESSION_ID=proveo-sess -e PROVEO_EGRESS_MODE=review -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -v /state/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem
+# ca-wait
+/state/mitmproxy/confdir/mitmproxy-ca-cert.pem
+# squid-wait
+proveo-sess-squid
+# cleanup
+docker rm -f proveo-sess-squid
+docker rm -f proveo-sess-egress
+docker network rm proveo-sess-claudecode-mcp-mitm-net
+docker network rm proveo-sess-mitm-squid-net
+docker network rm proveo-sess-squid-egress-net

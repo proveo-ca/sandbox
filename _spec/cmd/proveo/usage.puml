@@ -14,7 +14,7 @@ actor "Maintainer" as Maintainer
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
  component "version · list · run · projects · setup" as Commands <<commands>>
- component "run flags\n--egress-mode · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
+ component "run flags\n--egress-mode · --credentials · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 
 package "Installer" as Install {
@@ -38,7 +38,7 @@ package "Registration" as Reg {
 
 package "Orchestration packages\ninternal/" as Orch {
  component "workspace mounts\napp | input-output" as Mounts <<logic>>
- component "egress BuildPlan\nbroker|proxy|firewall" as Egress <<logic>>
+ component "egress BuildPlan\nopen|allowlist|review\n+ --credentials broker|forward" as Egress <<logic>>
  component "dind (if dind: true)" as Dind <<logic>>
  component "runner hardened argv" as Runner <<logic>>
 }
@@ -88,7 +88,7 @@ manifest ""egress:"" / ""dind:"" flags.
 end note
 
 note bottom of Egress
-Default ""--egress-mode firewall"": MITM
+Default ""--egress-mode allowlist"": MITM
 credential broker + Squid. ""--local-model""
 adds Ollama (not for cursor). Session report
 under the host state dir.

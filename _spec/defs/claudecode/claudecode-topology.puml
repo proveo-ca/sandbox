@@ -30,7 +30,7 @@ package "Execution Loop" as Loop {
 package "Container Sandbox" as Sandbox {
  component "--dangerously-skip-permissions" as Perms <<flag>>
  component "tmpfs mounts\n/workspace/{input,output,temp}" as Mounts <<storage>>
- component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
+ component "network egress layer\nopen|allowlist|review" as Net <<security>>
  component "runs as host uid\n(non-root)" as User <<security>>
 }
 
@@ -58,7 +58,7 @@ end note
 note bottom of Sandbox
 Safety boundary is the container + its network,
 not tool permissions. The network egress layer
-(broker|proxy|firewall) is what makes
+(open|allowlist|review) is what makes
 the dangerous in-container posture acceptable —
 see ""claudecode-egress-topology.puml"".
 end note

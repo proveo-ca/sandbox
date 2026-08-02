@@ -1,0 +1,93 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Provider registry — one entry, four obligations, three invariants
+
+node "internal/provider" as PKG <<host>> {
+  component "registry entry\nName · Detect · ACL · Hosts · Auth" as ENTRY <<app>>
+  component "bareIDPrefixes\nmodel id → provider" as BARE <<app>>
+  component "ambiguousBareIDs\nopen-weights: refuse to pin" as AMBIG <<app>>
+}
+
+folder "The four places a provider must exist" as FOUR <<host>> {
+  component "1. detection\nprovider.Detect(lookup)" as P1 <<app>>
+  component "2. reach\nSquid provider-allow.conf" as P2 <<app>>
+  component "3. pin\nModelProvider → broker" as P3 <<app>>
+  component "4. harness\ncapabilities.providers" as P4 <<app>>
+}
+
+cloud "Harness public docs\nopencode · cursor · cecli" as DOCS <<cloud>>
+component "Advertised but unregistered\n→ silent 401/403" as GHOST <<error>>
+
+DOCS ARROW_CLOUD ENTRY : sync-providers skill
+ENTRY ARROW_MAIN FOUR
+BARE ARROW_MAIN P3
+AMBIG ARROW_ERROR P3 : returns "" rather than guess
+ENTRY ARROW_ERROR GHOST : any of the four missing
+
+note right of ENTRY
+  **A gap in any one of the four is silent.** The operator sets a key,
+  nothing errors, and the agent receives the ""proveo-brokered"" sentinel —
+  the provider then answers 401/403, which reads as a bad key rather
+  than a proveo decision. That was the live failure that started this:
+  a harness holding five keys could not pin, so every run got a
+  sentinel.
+
+  Three invariants are enforced by test, not by care:
+  * every ""bareIDPrefixes"" entry resolves to a REGISTERED provider
+  * every registered provider has an ACL and a detect key
+    (bedrock/vertex exempt: cloud-SDK auth, no blanket ACL)
+  * ""proveo --init"" advertises no key the registry cannot use — it was
+    offering DEEPSEEK/HUGGINGFACE/HF_TOKEN, none of them registered
+end note
+
+note bottom of AMBIG
+  **An open-weights id names the model, not its host.** ""gpt-oss"",
+  ""llama-*"", ""qwen*"", ""mixtral*"" are served by many providers, so
+  claiming one for its originator routes the credential at the wrong
+  vendor — a Cerebras run pinned ""openai"" until this existed. The
+  vendor's own ids (""gpt-5"", ""grok-4"", ""glm-4.6"") still resolve; when a
+  prefix is ambiguous the operator can always use ""provider/model"".
+end note
+
+note bottom of P2
+  **Reach is not the pin.** The broker pins ONE provider because it
+  injects one credential; the allowlist covers EVERY detected provider,
+  because a session may switch model mid-run and narrowing reach to the
+  injected provider would block it. This is a deliberate widening of
+  egress surface for non-vendor-locked harnesses, accepted for that
+  reason. Only a manifest ""provider:"" lock keeps the narrow allowlist.
+end note
+
+note bottom of DOCS
+  **Scope: first-class only.** The registry carries 29 providers — those
+  a harness names first-class in its own docs, or that directly vendor a
+  model family an operator would put in ""ARCHITECT_MODEL"". OpenCode
+  alone lists ~48 and cecli's LiteLLM surface many more; that long tail
+  routes through ""openrouter"" or a custom OpenAI-compatible endpoint,
+  because every individually allowlisted host is unvetted egress
+  surface. Local runtimes (Ollama, LM Studio, llama\.cpp) are not
+  providers at all — no egress to allowlist.
+
+  Keep this reconciled with upstream via the ""sync-providers"" skill.
+end note
+note as AuthChoice #F4F9FB
+  **Which credential, not just how it travels.** A provider may accept
+  more than one — anthropic takes an API key OR a subscription OAuth
+  token — and ""Resolve"" walked the declared ""Auth"" order and took the
+  first one set. An operator holding both therefore ran on the API key
+  with no warning and no way to say otherwise: the choice was an array
+  index, not a decision.
+
+  ""ResolveWith(name, preferVar, getenv)"" honours an explicit credential
+  and falls back to the declared order when the preference is absent, so
+  it never fails closed. The choice surfaces as an ""auth"" row in the
+  prompt — offered ONLY when more than one credential is actually
+  present — persists in ""agent-settings.yml"" as ""authVar"", and reaches
+  the inspector as ""PROVEO_EGRESS_AUTH_VAR"". ""Resolved.EnvVar"" reports
+  which one was used.
+
+  ""--credentials broker|forward"" is a different axis: it governs HOW the
+  credential travels, not WHICH one.
+end note
+
+@enduml

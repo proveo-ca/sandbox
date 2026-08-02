@@ -17,12 +17,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/broker"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/egresspolicy"
 	"github.com/proveo-ca/proveo/internal/egressproxy"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -70,7 +72,7 @@ func serve() {
 	// mounted secret env-file. Explicit PROVEO_EGRESS_BROKER_* env still wins.
 	if name := env("PROVEO_EGRESS_PROVIDER", ""); name != "" {
 		secrets := parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", ""))
-		if r, ok := provider.Resolve(name, func(k string) string { return secrets[k] }); ok {
+		if r, ok := provider.ResolveWith(name, env("PROVEO_EGRESS_AUTH_VAR", ""), func(k string) string { return secrets[k] }); ok {
 			if len(cfg.Broker.Hosts) == 0 {
 				cfg.Broker.Hosts = r.Hosts
 			}
@@ -104,6 +106,25 @@ func serve() {
 // buildPolicy derives the egress policy from the resolved provider hosts, a
 // default write-allowlist + custom domains, the embedded exfil-sink denylist,
 // and the provider secret values (from the mounted broker env-file) for DLP.
+func reviewConnect() func(host, port string) bool {
+	sock := env("PROVEO_EGRESS_REVIEW_SOCKET", "")
+	if sock == "" || !envTruthy("PROVEO_EGRESS_REVIEW") {
+		return nil
+	}
+	ui.Iconf("🛂", "review tier: connections gated by the operator via %s", sock)
+	return func(host, port string) bool {
+		return reviewgate.AskOverSocket(sock, host, port, reviewgate.DefaultDeadline+5*time.Second)
+	}
+}
+
+func envTruthy(k string) bool {
+	switch strings.ToLower(strings.TrimSpace(env(k, ""))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 func buildPolicy(bc broker.Config) egresspolicy.Config {
 	providerHosts := bc.Hosts // set by the provider-driven broker block above
 	custom := splitCSV(strings.ReplaceAll(env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""), " ", ","))
@@ -125,6 +146,8 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	}
 
 	return egresspolicy.Config{
+		OpenNetwork:       envTruthy("PROVEO_EGRESS_OPEN"),
+		ReviewConnect:     reviewConnect(),
 		ProviderHosts:     providerHosts,
 		WriteHosts:        write,
 		DenySinks:         egresspolicy.DefaultSinks,
