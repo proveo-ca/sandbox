@@ -72,7 +72,27 @@ end note
 note bottom of T3
   ""review"" shares ""allowlist""'s topology exactly; the tiers differ only
   in what the MITM does on a block, carried by ""PROVEO_EGRESS_REVIEW=1"".
-  The consuming side is PLANNED — see
-  ""_spec/_plans/pty-review-proxy.puml"".
+  The consuming side is the PTY overlay — see
+  ""_spec/internal/reviewgate/pty-review-proxy.puml"".
 end note
+note as BrokerPin #F4F9FB
+  **Pinning one provider is not the same as reaching one.**
+
+  The broker injects a single credential, so it must resolve exactly one
+  provider. With several keys on the host it used to refuse — the agent
+  then got the ""proveo-brokered"" sentinel and the provider answered
+  401/403, which reads as a bad key rather than a proveo decision.
+
+  A model id names its provider, so ""ARCHITECT/EDITOR/SMALL_MODEL""
+  resolve it (""provider.ModelProvider"", including bare ids like ""gpt-5"",
+  ""grok-4"", ""glm-4.6""). If those models disagree the pin is refused
+  rather than guessed.
+
+  **The Squid allowlist does NOT collapse onto that pin.** A
+  non-vendor-locked harness allowlists every detected provider, because a
+  session may switch model mid-run; narrowing reach to the injected
+  provider would block it. Only a manifest ""provider:"" lock keeps the
+  narrow allowlist — that is what a vendor lock means.
+end note
+
 @enduml

@@ -58,9 +58,15 @@ note bottom of TUI
   ""provider\.KeyVars()""), ""key=value"" for the rest
   (""entrypoint\.ConfigVars"" ∪ manifest ""config"").
 
-  A row whose capability list has one entry renders **locked with a
-  reason** rather than hidden, so the prompt never misrepresents the
-  choice space — cursor shows why its tiers are fixed.
+  **A single-option axis is not a choice, so its row is dropped.** Cursor,
+  fixed to open+forward, would otherwise show two controls that cannot
+  move. Where a choice DOES exist, every option stays visible and the
+  unavailable ones are greyed **with the reason on the row** — that is
+  the dind case, which depends on the two axes above it.
+
+  Hiding a row costs the gate its input: ""gateAddons"" falls back to the
+  already-resolved axis value, and capabilities are applied BEFORE the
+  prompt so both the fallback and the pre-selection reflect the def.
 
   ""go-fuzzyfinder"" is a fuzzy list picker and cannot express a radio
   grid; ""tcell"" is already vendored beneath it, so the form is a small
