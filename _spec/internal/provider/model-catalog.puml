@@ -66,6 +66,10 @@ note as Divergence #F4F9FB
   for one harness is not portable to another, and the operator has no way
   to know which spelling a given harness wants.
 
+  Resolution — how a loose intent becomes an id a harness accepts, and why
+  it takes two phases — is specified in ""model-resolution\.puml"". This
+  diagram is the table's shape; that one is the algorithm.
+
   ""_spec/internal/entrypoint/model-alias-bridges.puml"" covers bridging a
   role var into a harness's own var. It does NOT cover the id itself
   differing between catalogs. That gap is what this plan closes.

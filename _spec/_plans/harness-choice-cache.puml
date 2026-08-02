@@ -14,7 +14,7 @@ node "cmd/proveo run <target>" as CLI <<host>> {
   component "validate against capabilities" as VAL <<app>>
 }
 
-database "~/.proveo/harness-choices.yml\nper target + manifest fingerprint" as CACHE <<db>>
+database "~/.proveo/agent-settings.yml\nper target + manifest fingerprint\negress · credentials · addons\nauthVar · models" as CACHE <<db>>
 component "fingerprint mismatch\n→ discard, re-prompt" as STALE <<error>>
 component "headless (no TTY)\n→ never prompt, take default" as HEADLESS <<error>>
 
@@ -100,6 +100,25 @@ note bottom of STALE
   stores a fingerprint of the def's ""capabilities"" block; any change
   discards the entry and re-prompts, rather than silently dropping a
   now-invalid add-on or keeping a tier the def no longer allows.
+end note
+
+note bottom of CACHE
+  **Models are remembered too, and are not a form row.** ""targets.<t>.models""
+  records the last used ""main"" / ""editor"" / ""small"" as **canonical** ids, so a
+  session that mixes providers is reproducible without retyping three env
+  vars. Canonical rather than harness-specific: the translated spelling would
+  pin the entry to whatever the catalog said the day it was written, and a
+  synced correction would never reach it.
+
+  Precedence matches every other axis — **explicit env or flag > cached >
+  unset** — and a cached id that no longer resolves degrades to a warning
+  and is dropped. proveo must not hard-fail on a file it wrote itself.
+
+  Unlike the three axes, models are not radio cells: they are typed values
+  with an open range, so they appear read-only in the prompt header beside
+  the workspace and ""\.env"". The radio grid stays radios.
+
+  Resolution is specified in ""_spec/internal/provider/model-resolution\.puml"".
 end note
 
 note bottom of HEADLESS
