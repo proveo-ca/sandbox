@@ -367,7 +367,7 @@ func doRun(p runParams) error {
 		}
 	}
 	if !p.printOnly && wizardEnabled() && isStdinTTY() {
-		if err := p.promptChoices(man, lookup, wsSpec.RepoRoot, settingsRoot); err != nil {
+		if err := p.promptChoices(man, lookup, gitRootOrEmpty(ws, repoRoot), settingsRoot); err != nil {
 			return err
 		}
 	}
@@ -903,8 +903,17 @@ func loadedSecretNames(man manifest.Manifest, lookup func(string) string) []stri
 			add(e.Name)
 		}
 	}
-	for _, k := range provider.KeyVars() {
-		add(k)
+	// Only keys for providers this harness can actually use: claudecode declares
+	// providers:[anthropic], so listing OPENAI/XAI/GEMINI implied it could reach
+	// them. The auth row already filters correctly; this line did not.
+	for _, name := range provider.Names() {
+		if !man.Capabilities.AllowsProvider(name) {
+			continue
+		}
+		e, _ := provider.Lookup(name)
+		for _, k := range e.Detect {
+			add(k)
+		}
 	}
 	return out
 }
@@ -917,6 +926,16 @@ func loadedSettings(man manifest.Manifest, lookup func(string) string) map[strin
 		}
 	}
 	return out
+}
+
+// gitRootOrEmpty is the repository root regardless of workspace layout.
+// wsSpec.RepoRoot is only populated for the app layout, so reading it made an
+// input-output harness report a real repository as absent.
+func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {
+	if !ws.IsRepo {
+		return ""
+	}
+	return repoRoot
 }
 
 func gitHeader(repoRoot string) []string {

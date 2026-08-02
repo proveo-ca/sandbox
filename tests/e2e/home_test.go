@@ -259,8 +259,8 @@ func TestProveoHomePersistence(t *testing.T) {
 			dismissCapabilityPicker(t, sess)
 			_ = waitForNewAncestor(t, "proveo/cursor:latest", before, 120*time.Second, sess)
 			if _, err := sess.WaitFor(title, 60*time.Second); err != nil {
-				screen, _ := sess.Capture()
-				t.Fatalf("--ls should show seeded chat %q: %v\n--- screen ---\n%s", title, err, screen)
+				screen, _ := sess.CaptureAll()
+				t.Fatalf("--ls should show seeded chat %q: %v\n--- screen ---\n%s", title, err, screen+diagnostics(screen))
 			}
 			sess.Kill()
 			rmByAncestor("proveo/cursor:latest")
@@ -337,8 +337,8 @@ func dismissCapabilityPicker(t *testing.T, sess *tmux.Session) {
 	t.Helper()
 	// TTY proves the capability picker; continue is preselected — Enter proceeds.
 	if _, err := sess.WaitFor("tab to add", 30*time.Second); err != nil {
-		screen, _ := sess.Capture()
-		t.Fatalf("capability picker: %v\n--- screen ---\n%s", err, screen)
+		screen, _ := sess.CaptureAll()
+		t.Fatalf("capability picker: %v\n--- screen ---\n%s", err, screen+diagnostics(screen))
 	}
 	if err := sess.Enter(); err != nil {
 		t.Fatalf("dismiss capability picker: %v", err)
@@ -466,8 +466,8 @@ func waitForNewAncestor(t *testing.T, image string, before map[string]bool, time
 			}
 		}
 		if time.Now().After(deadline) {
-			screen, _ := sess.Capture()
-			t.Fatalf("no new container for ancestor %s within %s\n--- screen ---\n%s", image, timeout, screen)
+			screen, _ := sess.CaptureAll()
+			t.Fatalf("no new container for ancestor %s within %s\n--- screen ---\n%s", image, timeout, screen+diagnostics(screen))
 		}
 		time.Sleep(time.Second)
 	}

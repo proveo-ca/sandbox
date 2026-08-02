@@ -109,7 +109,7 @@ func TestPromptfulE2E(t *testing.T) {
 			return // all four E2E steps verified
 		}
 		if time.Now().After(deadline) {
-			screen, _ := sess.Capture()
+			screen, _ := sess.CaptureAll()
 			t.Fatalf("E2E side effects incomplete after timeout: mounted=%v changed=%v scraped=%v\n--- screen ---\n%s",
 				mounted, changed, scraped, screen)
 		}

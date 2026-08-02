@@ -123,10 +123,9 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		t.Fatal(err)
 	}
 
-	// Seed the choice cache so no prompt appears: this test is about the dotenv
-	// credential path, not the first-run form (agent_settings_test covers that).
-	// An e2e that has to drive another feature's UI fails for reasons unrelated
-	// to what it asserts.
+	// Seed the choice cache so the form opens pre-selected on the tier this test
+	// needs. Seeding alone is NOT enough to skip it: the prompt always shows so the
+	// operator sees the posture they are launching, so the run below must accept it.
 	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
 
 	forceClean(proveoBin)
@@ -160,6 +159,10 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		"PROVEO_HOME="+filepath.Join(home, "proveo"),
 		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
 		"PROVEO_AUTO_PROVISION=1",
+		// HOME is overridden above, which hides ~/.docker and so the active context.
+		// Without this the CLI silently falls back to /var/run/docker.sock and every
+		// docker call — starting with the image pull — hangs.
+		"DOCKER_HOST="+dockerHost(t),
 		proveoBin, "run", target,
 		"--image", "ubuntu:24.04",
 		"--egress-mode", "firewall",
@@ -169,6 +172,7 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start %s session: %v", target, err)
 	}
+	acceptChoicePrompt(t, sess, target)
 	egress := waitForNewContainer(t, beforeEgress, "-egress", 5*time.Minute, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
 	if !ok {
@@ -260,16 +264,7 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	// First run of this harness raises the choice prompt. Drive it rather than
-	// disabling the wizard: this is the path a person actually takes, and the
-	// accepted defaults are the tier this test is about.
-	if _, err := sess.WaitFor("enter accept", 60*time.Second); err != nil {
-		screen, _ := sess.Capture()
-		t.Fatalf("choice prompt did not appear: %v\n--- screen ---\n%s", err, screen)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("accept choice prompt: %v", err)
-	}
+	acceptChoicePrompt(t, sess, "claudecode")
 
 	egress := waitForNewContainer(t, before, "-egress", 120*time.Second, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
@@ -542,23 +537,6 @@ func containersWithSuffix(suffix string) map[string]bool {
 		}
 	}
 	return set
-}
-
-func waitForNewContainer(t *testing.T, before map[string]bool, suffix string, timeout time.Duration, sess *tmux.Session) string {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		for _, n := range dockerPSNames() {
-			if strings.HasSuffix(n, suffix) && !before[n] {
-				return n
-			}
-		}
-		if time.Now().After(deadline) {
-			screen, _ := sess.Capture()
-			t.Fatalf("no new %q container within %s\n--- screen ---\n%s", suffix, timeout, screen)
-		}
-		time.Sleep(time.Second)
-	}
 }
 
 // mountSource returns the host path bind-mounted at dest inside container, and
