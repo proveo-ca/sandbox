@@ -527,3 +527,22 @@ func TestReadmePillsMatchToolingRegistry(t *testing.T) {
 		t.Errorf("README.md has a pill for %q which is not in toolingMarkers", stale)
 	}
 }
+
+// proveo --init advertises the keys it will copy into a new .env. Advertising a
+// key with no registry entry is a lie: it is never detected, brokered or
+// allowlisted, so the user sets it and the agent still gets nothing.
+func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
+	t.Parallel()
+	known := map[string]bool{}
+	for _, name := range provider.Names() {
+		e, _ := provider.Lookup(name)
+		for _, k := range e.Detect {
+			known[k] = true
+		}
+	}
+	for _, k := range initProviderKeys {
+		if !known[k] {
+			t.Errorf("proveo --init offers %q but no provider registers it — it can never be used", k)
+		}
+	}
+}

@@ -45,12 +45,23 @@ var bareIDPrefixes = []struct{ prefix, provider string }{
 	{"kimi-", "moonshot"}, {"moonshot-", "moonshot"},
 	{"glm-", "zai"},
 	{"deepseek-", "deepseek"},
+	{"minimax-", "minimax"}, {"abab", "minimax"},
+	{"sonar", "perplexity"},
 	{"mistral-", "mistral"}, {"magistral-", "mistral"}, {"codestral-", "mistral"}, {"devstral-", "mistral"},
 	{"command-", "cohere"},
-	{"llama-", "together"}, {"qwen", "together"},
 }
 
+// ambiguousBareIDs are open-weights families that many providers serve, so the
+// id names the model but NOT who hosts it. Claiming one for its originator would
+// route the pin to the wrong vendor.
+var ambiguousBareIDs = []string{"gpt-oss", "llama-", "qwen", "mixtral", "deepseek-r1-distill"}
+
 func bareModelProvider(model string) string {
+	for _, a := range ambiguousBareIDs {
+		if strings.HasPrefix(model, a) {
+			return ""
+		}
+	}
 	for _, e := range bareIDPrefixes {
 		if strings.HasPrefix(model, e.prefix) {
 			return e.provider
