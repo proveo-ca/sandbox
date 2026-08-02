@@ -129,6 +129,18 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 }
 
+// axisLabel reports whether any row is an ordered policy axis (a radio row with
+// more than one option). Add-on checkboxes are unordered, so a lone add-ons row
+// gets no legend.
+func (f *Form) axisLabel() bool {
+	for _, r := range f.Rows {
+		if !r.Multi && len(r.Options) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *Form) firstSelectable() int {
 	for i, r := range f.Rows {
 		if !r.Locked {
@@ -220,6 +232,15 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	}
 	if len(f.Header) > 0 {
 		y++
+	}
+
+	// Axis legend above the rows: both policy axes are ordered riskier → safer, so
+	// one label explains every row at once and the direction is not something the
+	// operator has to infer from the option names.
+	if f.axisLabel() {
+		put(22, dim, "◀ riskier")
+		put(60, dim, "safer ▶")
+		y += 2
 	}
 
 	for i, r := range f.Rows {

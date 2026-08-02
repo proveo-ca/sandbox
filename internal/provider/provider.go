@@ -56,7 +56,7 @@ var entries = []Entry{
 	{Name: "openai", Detect: []string{"OPENAI_API_KEY"},
 		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
 	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
-		ACL: "dstdomain .moonshot.ai", Hosts: []string{".moonshot.ai"}, Auth: bearer("MOONSHOT_API_KEY")},
+		ACL: "dstdomain .moonshot.ai .kimi.com", Hosts: []string{".moonshot.ai", ".kimi.com"}, Auth: bearer("MOONSHOT_API_KEY")},
 	{Name: "cerebras", Detect: []string{"CEREBRAS_API_KEY"},
 		ACL: "dstdomain .cerebras.ai", Hosts: []string{".cerebras.ai"}, Auth: bearer("CEREBRAS_API_KEY")},
 	{Name: "deepinfra", Detect: []string{"DEEPINFRA_API_KEY"},

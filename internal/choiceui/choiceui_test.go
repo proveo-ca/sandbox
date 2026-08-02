@@ -185,3 +185,22 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 		t.Error("cycle must not land on a gated option")
 	}
 }
+
+// Both policy axes are ordered riskier → safer; the legend says so once rather
+// than leaving the operator to infer direction from option names.
+func TestSafetyAxisLegend(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+	}}
+	out := joined(t, f)
+	if !strings.Contains(out, "riskier") || !strings.Contains(out, "safer") {
+		t.Errorf("no safety axis rendered:\n%s", out)
+	}
+	// A prompt with only unordered checkboxes must not claim an axis.
+	only := &Form{Rows: []Row{{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{false}}}}
+	if o := joined(t, only); strings.Contains(o, "riskier") {
+		t.Errorf("checkbox-only prompt should have no axis legend:\n%s", o)
+	}
+}

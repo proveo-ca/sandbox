@@ -124,7 +124,10 @@ func Canonical(name string) (canonical string, aliased bool) {
 	return name, false
 }
 
-var credentialModes = []string{"broker", "forward"}
+// Ordered riskier → safer, because the prompt renders them left to right under a
+// "safer →" axis. forward hands the real key to the container; broker keeps it in
+// the egress layer.
+var credentialModes = []string{"forward", "broker"}
 
 func CredentialModes() []string { return append([]string(nil), credentialModes...) }
 

@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -1388,9 +1389,10 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 	proxy := ptyproxy.New(os.Stdin, os.Stdout)
 	gate := reviewgate.New(func(host, port string) bool {
 		allowed := false
-		if err := proxy.Overlay(func(in io.Reader, out io.Writer) error {
-			allowed = reviewPrompt(in, out, host, port)
-			return nil
+		if err := proxy.Overlay(func(io.Reader, io.Writer) error {
+			var derr error
+			allowed, derr = choiceui.Consent(tcell.NewScreen, host, port)
+			return derr
 		}); err != nil {
 			// Denying is right, but silently denying every connection makes the tier
 			// look broken rather than strict — say why once.
@@ -1417,51 +1419,6 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 			}
 			ui.Iconf("🛂", "review: %d host(s) allowed, %d denied", allowed, denied)
 		}
-	}
-}
-
-func reviewPrompt(in io.Reader, out io.Writer, host, port string) bool {
-	if dbg := os.Getenv("PROVEO_REVIEW_DEBUG"); dbg != "" {
-		if f, err := os.OpenFile(dbg, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			fmt.Fprintf(f, "prompt entered host=%s port=%s\n", host, port)
-			defer func() { fmt.Fprintf(f, "prompt exited host=%s\n", host); _ = f.Close() }()
-		}
-	}
-	fmt.Fprintf(out, "\r\n%s%s  allow connection to %s:%s ? [y/N] %s",
-		ui.ANSIBold, ui.ANSI(ui.ColorBrand), host, port, ui.ANSIReset)
-	allowed := readConsentKey(in)
-	if allowed {
-		fmt.Fprintf(out, "y\r\n")
-	} else {
-		fmt.Fprintf(out, "n\r\n")
-	}
-	return allowed
-}
-
-// readConsentKey takes a SINGLE keypress. A line reader cannot be used here: the
-// agent holds the terminal in raw mode, where Enter sends CR and never LF, so
-// bufio.Scanner waits for a newline that never arrives and the overlay hangs
-// forever — which presents as the agent's TUI freezing mid-prompt.
-//
-// y allows. Anything else denies, including Enter, Esc and ctrl-c, which matches
-// the [y/N] default and keeps the safe answer the easy one.
-func readConsentKey(in io.Reader) bool {
-	buf := make([]byte, 1)
-	for {
-		n, err := in.Read(buf)
-		if err != nil {
-			return false
-		}
-		if n == 0 {
-			continue
-		}
-		switch buf[0] {
-		case 'y', 'Y':
-			return true
-		case '\r', '\n', 'n', 'N', 0x1b, 0x03: // Enter, Esc, ctrl-c
-			return false
-		}
-		// Ignore anything else rather than treating a stray byte as an answer.
 	}
 }
 

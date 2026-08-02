@@ -156,19 +156,20 @@ note as SocketScope #FFF3F0
 end note
 
 note as PromptScope #F4F9FB
-  **Consent is a single keypress, and the terminal stays RAW.**
+  **The overlay is a full-screen modal, not a printed line.**
 
-  The agent holds the terminal in raw mode, where Enter sends CR and never
-  LF. A line reader (""bufio.Scanner"") therefore waits for a newline that never
-  arrives: the overlay never returns and the agent's TUI appears to FREEZE
-  mid-prompt. Observed on the first real Linux run, answering 'y'. So the
-  prompt takes one key — y allows, anything else (n, Enter, Esc, ctrl-c)
-  denies, which keeps the safe answer the easy one and matches [y/N].
+  Two failures on real Linux runs got it here. First: a line reader waits for
+  LF, but the agent holds the terminal in RAW mode where Enter sends CR — so
+  the overlay never returned and the TUI appeared to FREEZE. Second, and
+  fatal to the whole approach: text printed while the agent owns the
+  ALTERNATE SCREEN interleaves with its rendering. The prompt appeared
+  smeared through opencode's frame and left the display corrupted.
 
-  The overlay no longer drops to cooked mode either. That was pointless once
-  the read is a single byte, and harmful: the pump is mid-Read on the same fd,
-  so flipping the line discipline underneath it changes how in-flight bytes
-  arrive.
+  So consent is now ""choiceui.Consent"" — a centred tcell modal that takes the
+  screen for its duration, fills its own box so the agent's frame does not
+  show through, and answers on a single keypress (y allows; n, Esc and Enter
+  deny, keeping the safe answer the easy one). On dismissal the forced resize
+  makes the agent repaint over it.
 
   **Only unsanctioned hosts are asked about.** An already-allowlisted host
   skips the prompt entirely — including a harness's own infrastructure,
