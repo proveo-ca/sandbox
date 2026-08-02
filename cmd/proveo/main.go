@@ -384,6 +384,12 @@ func doRun(p runParams) error {
 	}
 	wsSpec.EgressMode, wsSpec.Credentials = p.mode, p.credentials
 
+	if p.mode == "review" {
+		if ok, why := reviewSupported(os.Getenv); !ok {
+			ui.Warnf("--egress-mode review is %s: the consent gate cannot be reached from the "+
+				"inspector on this host, so every new connection will be DENIED without a prompt", why)
+		}
+	}
 	if p.target == "cursor" && p.intercepts() {
 		ui.Warnf("cursor + --egress-mode %s --credentials %s: cursor-agent pins its TLS, so any intercepting tier "+
 			"breaks it (it reports \"invalid API key\") — use --egress-mode open --credentials forward",
@@ -696,8 +702,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
 		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
-			comingSoon(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode),
-				"review", "review: coming soon"),
+			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode)),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
@@ -810,6 +815,30 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 		if strings.EqualFold(o, preselect) {
 			r.Selected = i
 		}
+	}
+	return r
+}
+
+// reviewSupported reports whether the review tier's consent gate can work here.
+// The gate is a unix socket bind-mounted into the inspector, and a Linux container
+// cannot connect() to one across a Docker Desktop / OrbStack mount — so the tier
+// needs a Linux host AND a local daemon. A remote DOCKER_HOST puts the mount on
+// another machine, where the socket the gate created does not exist at all.
+func reviewSupported(getenv func(string) string) (ok bool, why string) {
+	if runtime.GOOS != "linux" {
+		return false, "linux only"
+	}
+	if h := strings.TrimSpace(getenv("DOCKER_HOST")); h != "" && !strings.HasPrefix(h, "unix://") {
+		return false, "needs a local docker daemon"
+	}
+	return true, ""
+}
+
+// reviewAvailability greys the review option out on hosts whose transport cannot
+// carry the gate, naming the actual reason rather than a blanket 'coming soon'.
+func reviewAvailability(r choiceui.Row) choiceui.Row {
+	if ok, why := reviewSupported(os.Getenv); !ok {
+		return comingSoon(r, "review", "review: "+why)
 	}
 	return r
 }

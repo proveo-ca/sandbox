@@ -128,8 +128,11 @@ note as SocketScope #FFF3F0
   ""Close"" unlinks the socket and its fallback directory. Go removes it on a
   clean close, but a killed run does not, and the strays accumulate.
 
-  **STATUS: not shipped. The prompt option is disabled, marked 'coming soon'.**
-  ""--egress-mode review"" still builds, for development only.
+  **STATUS: Linux-only.** The prompt offers ""review"" on a Linux host with a
+  local daemon, and greys it elsewhere with the reason — 'linux only', or
+  'needs a local docker daemon' when ""DOCKER_HOST"" is remote. Choosing it by
+  flag on an unsupported host warns that every connection will be DENIED
+  without a prompt, rather than failing closed in silence.
 
   **Challenge 1 — the transport is Linux-only.** Diagnosed by logging
   ""reviewPrompt"" entry to a file: the log stays EMPTY while the CONNECT is
@@ -157,15 +160,16 @@ note as SocketScope #FFF3F0
   them (blocking ""GET /pending"", then ""POST /decide""), with a per-session
   token so a loopback port is not an open door.
 
-  **Challenge 3 — allow-then-retry.** The gate holds the CONNECT while asking,
-  so a prompt answered in time simply proceeds and no retry is needed. The
-  deadline is the problem: the gate denies after ~20s and the agent's own HTTP
-  client may give up sooner, so a late allow cannot rescue the request that
-  triggered it. The per-host cache is what saves it — the verdict is recorded,
-  so the agent's NEXT attempt to that host succeeds without asking. The
-  operator-visible contract is therefore 'answer promptly, or approve and ask
-  the agent to retry', and the overlay has to say so: a 403 arriving after a
-  granted approval otherwise looks like the gate ignoring the answer.
+  **The hold is the feature, not a workaround.** The gate blocks the CONNECT
+  while it asks, so an answer given inside the ~20s deadline lets the ORIGINAL
+  request proceed — no retry, no lost work. That window is deliberately
+  generous enough for a human and still short enough to stay inside a typical
+  client timeout. Past it the gate denies, and the recorded verdict means a
+  later attempt to that host is not asked about again.
+
+  **Why the remote-daemon check matters.** ""DOCKER_HOST"" pointing at another
+  machine puts the bind mount there, where the socket the gate created does
+  not exist — so a Linux host is necessary but not sufficient.
 end note
 
 @enduml

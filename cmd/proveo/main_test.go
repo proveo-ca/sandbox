@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -566,5 +567,43 @@ func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	none := func(string) string { return "" }
 	if got := availableAuthVars(man, none); len(got) != 0 {
 		t.Errorf("with no credential = %v, want none", got)
+	}
+}
+
+// The review tier's transport is a bind-mounted unix socket, which only works on a
+// Linux host talking to a local daemon. Anywhere else the gate is unreachable and
+// every connection is denied without a prompt, so the option must say which.
+func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
+	t.Parallel()
+	none := func(string) string { return "" }
+	ok, why := reviewSupported(none)
+	if runtime.GOOS == "linux" {
+		if !ok {
+			t.Errorf("linux host reported unsupported: %q", why)
+		}
+	} else if ok || why != "linux only" {
+		t.Errorf("non-linux host = (%v, %q), want (false, \"linux only\")", ok, why)
+	}
+
+	remote := func(k string) string {
+		if k == "DOCKER_HOST" {
+			return "tcp://10.0.0.5:2375"
+		}
+		return ""
+	}
+	if ok, why := reviewSupported(remote); ok {
+		t.Error("a remote daemon must be unsupported: the bind mount lands on another machine")
+	} else if runtime.GOOS == "linux" && why != "needs a local docker daemon" {
+		t.Errorf("remote daemon reason = %q, want it to name the daemon", why)
+	}
+
+	local := func(k string) string {
+		if k == "DOCKER_HOST" {
+			return "unix:///var/run/docker.sock"
+		}
+		return ""
+	}
+	if ok, _ := reviewSupported(local); ok != (runtime.GOOS == "linux") {
+		t.Errorf("a local unix daemon should track GOOS, got %v on %s", ok, runtime.GOOS)
 	}
 }

@@ -83,10 +83,11 @@ note right of RES
   tier, credential handling, which credential (when the pinned provider
   accepts more than one the operator holds), and add-ons.
 
-  ""review"" is greyed with 'coming soon' — shown rather than hidden, because
-  removing it would misrepresent the tier as nonexistent instead of
-  unfinished. ""--egress-mode review"" still builds so development can drive
-  it; see ""_spec/internal/reviewgate/pty-review-proxy.puml"" for why.
+  ""review"" is offered on a Linux host with a local daemon and greyed
+  elsewhere with the reason — 'linux only', or 'needs a local docker daemon'
+  for a remote ""DOCKER_HOST"". Naming the constraint beats a blanket 'coming
+  soon': the tier is not unfinished, its transport is platform-bound. See
+  ""_spec/internal/reviewgate/pty-review-proxy.puml"".
 
   **Resolution order.** An explicit flag always wins, and when a
   prompt does appear the flag value is **pre-selected** rather than
