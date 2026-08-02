@@ -95,6 +95,9 @@ func TestPromptfulE2E(t *testing.T) {
 		"--", "run", "--auto", "--agent", "build", task); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
+	// --scope . avoids the sub-project picker, but the run still shows the choice
+	// form on a TTY. Accept the pre-selected defaults.
+	acceptChoicePrompt(t, sess, target)
 
 	// Poll host-side for ALL THREE side effects (prose-independent). Generous
 	// enough for a small local model on GPU to churn through the full harness

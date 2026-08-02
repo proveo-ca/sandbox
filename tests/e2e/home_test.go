@@ -333,16 +333,13 @@ func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work str
 	}
 }
 
+// dismissCapabilityPicker accepts the run's choice form. The old add-on picker it
+// waited on ("tab to add") was folded into that single form; seeding a cached
+// answer does not skip it, because the form always shows the posture being
+// launched.
 func dismissCapabilityPicker(t *testing.T, sess *tmux.Session) {
 	t.Helper()
-	// TTY proves the capability picker; continue is preselected — Enter proceeds.
-	if _, err := sess.WaitFor("tab to add", 30*time.Second); err != nil {
-		screen, _ := sess.CaptureAll()
-		t.Fatalf("capability picker: %v\n--- screen ---\n%s", err, screen+diagnostics(screen))
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("dismiss capability picker: %v", err)
-	}
+	acceptChoicePrompt(t, sess, "cursor")
 }
 
 // seedCursorChat writes a minimal cursor-agent chat under proveo home, keyed by
