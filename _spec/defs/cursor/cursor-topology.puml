@@ -97,7 +97,10 @@ note as CursorSandbox #FFF3F0
   is the only egress boundary this harness has.
 
   Read "cursor runs under proveo" as isolation of the workspace, never
-  as audited egress.
+  as audited egress. The e2e suite reflects this: cursor is absent from
+  the egress-isolation and dotenv-at-egress tables, because it has no
+  egress layer to be isolated from and forwards the real key rather than
+  a sentinel. Its contract lives in ""TestCursorEgressException"".
 end note
 
 @enduml

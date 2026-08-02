@@ -74,6 +74,15 @@ note bottom of TUI
 end note
 
 note right of RES
+  **The prompt always appears.** A remembered answer SEEDS the selection;
+  it never replaces the form. Silently entering a cached tier hid the
+  security posture of the run — the operator must see, and be able to
+  change, what they are launching.
+
+  **Four axes, shown only when there is something to decide:** network
+  tier, credential handling, which credential (when the pinned provider
+  accepts more than one the operator holds), and add-ons.
+
   **Resolution order.** An explicit flag always wins, and when a
   prompt does appear the flag value is **pre-selected** rather than
   bypassing the row. Otherwise: a valid cache enters automatically

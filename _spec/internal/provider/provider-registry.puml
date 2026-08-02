@@ -70,4 +70,24 @@ note bottom of DOCS
 
   Keep this reconciled with upstream via the ""sync-providers"" skill.
 end note
+note as AuthChoice #F4F9FB
+  **Which credential, not just how it travels.** A provider may accept
+  more than one — anthropic takes an API key OR a subscription OAuth
+  token — and ""Resolve"" walked the declared ""Auth"" order and took the
+  first one set. An operator holding both therefore ran on the API key
+  with no warning and no way to say otherwise: the choice was an array
+  index, not a decision.
+
+  ""ResolveWith(name, preferVar, getenv)"" honours an explicit credential
+  and falls back to the declared order when the preference is absent, so
+  it never fails closed. The choice surfaces as an ""auth"" row in the
+  prompt — offered ONLY when more than one credential is actually
+  present — persists in ""agent-settings.yml"" as ""authVar"", and reaches
+  the inspector as ""PROVEO_EGRESS_AUTH_VAR"". ""Resolved.EnvVar"" reports
+  which one was used.
+
+  ""--credentials broker|forward"" is a different axis: it governs HOW the
+  credential travels, not WHICH one.
+end note
+
 @enduml

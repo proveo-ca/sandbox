@@ -43,7 +43,11 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("provider.KeyVars() is empty")
 	}
-	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode cursor claudecode cecli"))
+	// cursor is absent by design: it declares capabilities egress:[open]
+	// credentials:[forward], so it has no egress layer to be isolated from and
+	// forwards the REAL key rather than a sentinel. Its contract is asserted by
+	// TestCursorEgressException instead.
+	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode cecli"))
 
 	// Isolation — deterministic, one subtest per agent (parallel: pure --print).
 	for _, agent := range agents {
@@ -203,7 +207,7 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 		kv = append(kv, k+"="+v)
 	}
 
-	agentCmd := agentCommandLine(t, printFirewallPlan(t, proveoBin, agent, kv))
+	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
 	declared := 0
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
@@ -259,7 +263,7 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	// First run of this harness raises the choice prompt. Drive it rather than
 	// disabling the wizard: this is the path a person actually takes, and the
 	// accepted defaults are the tier this test is about.
-	if _, err := sess.WaitFor("choose once", 60*time.Second); err != nil {
+	if _, err := sess.WaitFor("enter accept", 60*time.Second); err != nil {
 		screen, _ := sess.Capture()
 		t.Fatalf("choice prompt did not appear: %v\n--- screen ---\n%s", err, screen)
 	}
@@ -418,12 +422,14 @@ func requireLiveStack(t *testing.T) {
 	}
 }
 
-// printFirewallPlan runs `proveo run <agent> --egress-mode firewall --print` with
+// printEnforcedPlan runs `proveo run <agent> --egress-mode allowlist --print` with
 // the random provider keys set (and any real ones stripped), returning its output.
-func printFirewallPlan(t *testing.T, proveoBin, agent string, kv []string) string {
+// printEnforcedPlan renders an agent's plan on the enforced tier, where every
+// declared secret must reach the container as the sentinel.
+func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
 	work := t.TempDir()
-	cmd := exec.Command(proveoBin, "run", agent, "--egress-mode", "firewall", "--print", "--input", work)
+	cmd := exec.Command(proveoBin, "run", agent, "--egress-mode", "allowlist", "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(envWithoutProviderKeys(), kv...)
 	out, err := cmd.CombinedOutput()
