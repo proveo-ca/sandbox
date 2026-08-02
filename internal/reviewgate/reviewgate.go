@@ -45,6 +45,7 @@ type Gate struct {
 	mu       sync.Mutex
 	decided  map[string]Verdict
 	listener net.Listener
+	path     string
 	asking   sync.Mutex
 }
 
@@ -68,17 +69,26 @@ func Path(dir string) string {
 	if len(full) <= maxSockPath {
 		return full
 	}
+	// The fallback gets its OWN directory, never a bare file in TempDir. The caller
+	// bind-mounts filepath.Dir(socket) into the inspector, so a loose file there
+	// would mount the whole system temp directory — every host temp file, writable,
+	// visible to the agent. A dedicated dir keeps that mount to one socket.
+	//
+	// Portable by construction: short on Linux (/tmp) and macOS (/var/folders/...),
+	// and well under sun_path on both (104 on BSD/macOS, 108 on Linux).
 	sum := sha256.Sum256([]byte(dir))
-	return filepath.Join(os.TempDir(), "proveo-review-"+hex.EncodeToString(sum[:6])+".sock")
+	return filepath.Join(os.TempDir(), "proveo-review-"+hex.EncodeToString(sum[:6]), SocketName)
 }
 
 // Listen binds the socket in dir and serves until Close. The socket is 0600: it
 // grants network reach, so only the invoking user may ask through it.
 func (g *Gate) Listen(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := Path(dir)
+	// 0700 on the socket's own directory: it is bind-mounted into a sidecar, so it
+	// must contain nothing else and be reachable by nobody else.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("review gate: mkdir: %w", err)
 	}
-	path := Path(dir)
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -89,7 +99,7 @@ func (g *Gate) Listen(dir string) error {
 		return fmt.Errorf("review gate: chmod: %w", err)
 	}
 	g.mu.Lock()
-	g.listener = ln
+	g.listener, g.path = ln, path
 	g.mu.Unlock()
 
 	go func() {
@@ -107,13 +117,20 @@ func (g *Gate) Listen(dir string) error {
 // Close stops serving and removes the socket.
 func (g *Gate) Close() error {
 	g.mu.Lock()
-	ln := g.listener
-	g.listener = nil
+	ln, path := g.listener, g.path
+	g.listener, g.path = nil, ""
 	g.mu.Unlock()
 	if ln == nil {
 		return nil
 	}
-	return ln.Close()
+	err := ln.Close()
+	// Unlink explicitly: Go removes the socket on a clean Close, but a killed run
+	// leaves it, and every stale socket is a directory the next run will not reuse.
+	if path != "" {
+		_ = os.Remove(path)
+		_ = os.Remove(filepath.Dir(path)) // no-op unless it is our empty fallback dir
+	}
+	return err
 }
 
 // serve speaks one line per request: "host port\n" in, "allow\n"/"deny\n" out.

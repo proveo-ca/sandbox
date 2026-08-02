@@ -116,4 +116,23 @@ note bottom of AGENT
   plain y/n. Real SIGWINCH from the operator's terminal must be
   forwarded to the PTY so normal resizes still reach the agent.
 end note
+note as SocketScope #FFF3F0
+  **The fallback socket needs its own directory.** When the state dir would
+  push the path past ""sun_path"" (~104 bytes on BSD/macOS, 108 on Linux),
+  the socket moves under the system temp dir — and the caller bind-mounts
+  ""filepath.Dir(socket)"" into the inspector. A bare file there mounted the
+  WHOLE system temp directory into the sidecar: every host temp file,
+  writable, visible to the agent. It now gets a dedicated 0700 directory
+  holding only the socket, which is short on both platforms.
+
+  ""Close"" unlinks the socket and its fallback directory. Go removes it on a
+  clean close, but a killed run does not, and the strays accumulate.
+
+  **Still open:** the tier denies with a 403 rather than prompting. The gate
+  is reached and answers — ""CONNECT tunnel failed, response 403"" — and
+  ""Overlay"" reports no error, so the prompt is being drawn somewhere the
+  operator's terminal does not show. The PTY the agent runs on and the one
+  the overlay writes to are not yet proven to be the same.
+end note
+
 @enduml

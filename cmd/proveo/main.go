@@ -1291,11 +1291,7 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 			return fmt.Errorf("ollama sidecar not ready: %w", err)
 		}
 	}
-	return execAgent(agent)
-}
-
-func execAgent(agent runner.Config) error {
-	return execAgentWithProxy(agent, nil)
+	return execAgentWithProxy(agent, reviewProxy)
 }
 
 func execAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
@@ -1325,10 +1321,15 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 	proxy := ptyproxy.New(os.Stdin, os.Stdout)
 	gate := reviewgate.New(func(host, port string) bool {
 		allowed := false
-		_ = proxy.Overlay(func(in io.Reader, out io.Writer) error {
+		if err := proxy.Overlay(func(in io.Reader, out io.Writer) error {
 			allowed = reviewPrompt(in, out, host, port)
 			return nil
-		})
+		}); err != nil {
+			// Denying is right, but silently denying every connection makes the tier
+			// look broken rather than strict — say why once.
+			ui.Warnf("review prompt unavailable (%v): denying %s:%s", err, host, port)
+			return false
+		}
 		return allowed
 	})
 	dir := filepath.Join(egDir, "review")

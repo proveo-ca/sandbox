@@ -126,3 +126,44 @@ func TestDecisionsAreReported(t *testing.T) {
 		t.Errorf("Decisions() = %v", d)
 	}
 }
+
+// The fallback socket must live in its OWN directory. The caller bind-mounts
+// filepath.Dir(socket) into a sidecar, so a bare file in TempDir would expose
+// every host temp file to the agent.
+func TestFallbackSocketGetsItsOwnDirectory(t *testing.T) {
+	t.Parallel()
+	deep := t.TempDir()
+	for i := 0; i < 12; i++ {
+		deep = filepath.Join(deep, "a-fairly-long-directory-segment")
+	}
+	sock := Path(deep)
+	if dir := filepath.Dir(sock); dir == os.TempDir() {
+		t.Fatalf("fallback socket sits directly in TempDir (%s): mounting its dir would expose all of it", dir)
+	}
+	if len(sock) > maxSockPath {
+		t.Errorf("fallback path is %d bytes, over the %d sun_path ceiling", len(sock), maxSockPath)
+	}
+	if filepath.Base(sock) != SocketName {
+		t.Errorf("fallback basename = %q, want %q so the container path is predictable", filepath.Base(sock), SocketName)
+	}
+}
+
+// A stale socket left by a killed run would make the next one collide.
+func TestCloseUnlinksTheSocket(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	g := New(func(string, string) bool { return true })
+	if err := g.Listen(dir); err != nil {
+		t.Fatal(err)
+	}
+	path := Path(dir)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("socket missing while listening: %v", err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("socket survived Close (%v): a stale socket outlives its run", err)
+	}
+}
