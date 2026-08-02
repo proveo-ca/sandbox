@@ -456,6 +456,11 @@ func doRun(p runParams) error {
 		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", homePlan.Root, proveohome.ContainerHome)
 	}
 
+	if m, ok := ghConfigMount(os.Getenv); ok {
+		mounts = append(mounts, m)
+		ui.Iconf("🔑", "gh session: %s mounted read-only", m.Host)
+	}
+
 	// Credential broker: gated by brokerProvider (firewall + a resolved provider +
 	// not disabled). Vendor-pinned harnesses (manifest provider:) win over the
 	// "exactly one detected key" rule so a multi-provider .env does not block
@@ -615,6 +620,11 @@ func doRun(p runParams) error {
 		// runs after a successful Start (no early return in between).
 	}
 	warnMountedSecrets(wsSpec.InputDir, p.mode, lookup)
+	// Before launch, not after: a hint about how to authenticate is useless once the
+	// operator is already in a session running on the other credential.
+	if len(authMissingAtStart) > 0 {
+		printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
+	}
 	runErr := func() error {
 		if !needsLifecycle(plan) {
 			if dindSidecar == nil {
@@ -642,9 +652,6 @@ func doRun(p runParams) error {
 		}
 		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar, reviewProxy)
 	}()
-	if len(authMissingAtStart) > 0 {
-		printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
-	}
 	return runErr
 }
 
@@ -788,6 +795,36 @@ func addonOptions(man manifest.Manifest) []string {
 		opts = append(opts, "dind")
 	}
 	return opts
+}
+
+// ghConfigMount binds the host's gh CLI config read-only so `gh` inside the
+// container reuses the operator's existing session instead of asking for a token.
+//
+// A deliberate exception to keeping host credentials out of the container:
+// hosts.yml holds an OAuth token the agent can read. Read-only prevents rewriting
+// it, not reading it — the container boundary and the egress allowlist are what
+// bound the damage. Opt out with PROVEO_MOUNT_GH_CONFIG=0.
+func ghConfigMount(getenv func(string) string) (runner.Mount, bool) {
+	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_GH_CONFIG"))) {
+	case "0", "off", "no", "false":
+		return runner.Mount{}, false
+	}
+	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))
+	if dir == "" {
+		home := getenv("HOME")
+		if home == "" {
+			return runner.Mount{}, false
+		}
+		dir = filepath.Join(home, ".config", "gh")
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return runner.Mount{}, false
+	}
+	return runner.Mount{
+		Host:      dir,
+		Container: proveohome.ContainerHome + "/.config/gh",
+		ReadOnly:  true,
+	}, true
 }
 
 func hasAddon(addons []string, name string) bool {
