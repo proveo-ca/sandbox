@@ -223,7 +223,9 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
-	kv := []string{"env"}
+	// Non-interactive usage disables the first-run choice prompt and takes the
+	// manifest defaults — the same posture CI and cron need.
+	kv := []string{"env", "PROVEO_WIZARD=off"}
 	for _, k := range keys {
 		v := randToken()
 		want[k] = v
@@ -238,11 +240,16 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Cleanup(func() {
 		sess.Kill()
 		forceClean(proveoBin)
-		rmByAncestor("proveo/cursor:latest")
+		rmByAncestor("proveo/claudecode:latest")
 	})
 
+	// claudecode, not cursor: cursor now declares capabilities egress:[open]
+	// credentials:[forward], so it has no MITM and therefore no broker at all.
+	// claudecode declares providers:[anthropic], which narrows the detected set to
+	// one and is precisely what ARMS the broker — with every key detected the
+	// broker refuses to pin and there is no broker.env to inspect.
 	cmd := append(append([]string(nil), kv...),
-		proveoBin, "run", "cursor", "--egress-mode", "firewall", "--shell", "--input", work)
+		proveoBin, "run", "claudecode", "--egress-mode", "allowlist", "--shell", "--input", work)
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -250,7 +257,7 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	egress := waitForNewContainer(t, before, "-egress", 120*time.Second, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
 	if !ok {
-		t.Fatalf("cursor egress container %s has no /broker mount (broker not resolved)", egress)
+		t.Fatalf("claudecode egress container %s has no /broker mount (broker not resolved)", egress)
 	}
 	brokerEnv := filepath.Join(brokerDir, "broker.env")
 	waitForFileExists(t, brokerEnv, 30*time.Second)

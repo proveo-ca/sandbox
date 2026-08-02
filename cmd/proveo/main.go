@@ -344,6 +344,12 @@ func doRun(p runParams) error {
 	if err != nil {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
+	// Settle the axes against the def BEFORE anything reads them: the prompt must
+	// pre-select and gate from what this harness actually supports, not from the
+	// flag defaults. Re-applied after the prompt so a chosen value is re-validated.
+	if err := p.applyCapabilities(man.Capabilities); err != nil {
+		return err
+	}
 	cached, cacheHit := settings.Lookup(p.target, man.Capabilities)
 	if cacheHit {
 		if !p.modeSet && cached.Egress != "" {
@@ -670,18 +676,16 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — first run for this harness, choose once", p.target),
 		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
-		Rows: []choiceui.Row{
-			axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode,
-				"this harness supports only this tier"),
-			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault(),
-				"this harness supports only this handling"),
-		},
+		Rows: applicableRows(
+			axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode),
+			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
+		),
 	}
 	if addons := addonOptions(man); len(addons) > 0 {
 		form.Rows = append(form.Rows, choiceui.Row{
 			Label: "add-ons", Options: addons, Multi: true, On: make([]bool, len(addons)),
 		})
-		form.OnChange = gateAddons
+		form.OnChange = func(f *choiceui.Form) { gateAddons(f, p.mode, p.credentialsOrDefault()) }
 		form.OnChange(form)
 	}
 
@@ -702,14 +706,26 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	return nil
 }
 
-func gateAddons(f *choiceui.Form) {
-	tier, creds := f.Selection("egress"), f.Selection("credentials")
+func gateAddons(f *choiceui.Form, tierFallback, credsFallback string) {
+	// A filtered-out axis has no row to read, so fall back to the value already
+	// resolved from the manifest. Without this, hiding cursor's single-option rows
+	// would make the gate see empty strings and wrongly disable dind on the one
+	// harness whose fixed tier can host it.
+	tier := f.Selection("egress")
+	if tier == "" {
+		tier = tierFallback
+	}
+	creds := f.Selection("credentials")
+	if creds == "" {
+		creds = credsFallback
+	}
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if r.Label != "add-ons" {
 			continue
 		}
 		r.Off = make([]bool, len(r.Options))
+		r.Reason = ""
 		for j, opt := range r.Options {
 			if opt == "dind" && (!dind.ModeSupported(tier) || !dind.CredentialsSupported(creds)) {
 				r.Off[j] = true
@@ -719,7 +735,7 @@ func gateAddons(f *choiceui.Form) {
 	}
 }
 
-func axisRow(label string, all, allowed []string, preselect, reason string) choiceui.Row {
+func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
 	opts := all
 	if len(allowed) > 0 {
 		opts = allowed
@@ -730,10 +746,22 @@ func axisRow(label string, all, allowed []string, preselect, reason string) choi
 			r.Selected = i
 		}
 	}
-	if len(opts) == 1 {
-		r.Locked, r.Reason = true, reason
-	}
 	return r
+}
+
+// applicableRows drops axes with nothing to decide. A single-option row is not a
+// choice, and rendering it invites the operator to reason about a control that
+// cannot move — cursor, pinned to open+forward, would otherwise show two inert
+// rows. Axes where a choice DOES exist keep every option, with unavailable ones
+// greyed and explained (see gateAddons).
+func applicableRows(rows ...choiceui.Row) []choiceui.Row {
+	out := make([]choiceui.Row, 0, len(rows))
+	for _, r := range rows {
+		if len(r.Options) > 1 {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func addonOptions(man manifest.Manifest) []string {
@@ -929,7 +957,36 @@ func brokerProvider(forwards bool, man manifest.Manifest, detected []string, loo
 	if len(detected) == 1 {
 		return detected[0]
 	}
-	return ""
+	return modelPinnedProvider(detected, lookup)
+}
+
+// modelPinnedProvider resolves an ambiguous multi-key host by asking the
+// configured model which provider will actually be called. This is not a guess:
+// a model id names its provider, so a host holding five keys but pointed at
+// claude-opus-5 is unambiguously an anthropic run. Without it the broker refuses
+// to pin, the agent gets the sentinel, and the provider answers 401/403 — which
+// reads as a bad key rather than a proveo decision.
+func modelPinnedProvider(detected []string, lookup func(string) string) string {
+	inDetected := func(name string) bool {
+		for _, d := range detected {
+			if d == name {
+				return true
+			}
+		}
+		return false
+	}
+	var found string
+	for _, key := range []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"} {
+		name := provider.ModelProvider(lookup(key))
+		if name == "" || !inDetected(name) {
+			continue
+		}
+		if found != "" && found != name {
+			return "" // the models disagree; pinning either would be a guess
+		}
+		found = name
+	}
+	return found
 }
 
 func warnUnknownModel(key, value, localModel string) {
