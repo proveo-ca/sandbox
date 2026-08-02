@@ -350,8 +350,10 @@ func doRun(p runParams) error {
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
-	cached, cacheHit := settings.Lookup(p.target, man.Capabilities)
-	if cacheHit {
+	// A cached answer seeds the selection; it does not replace the prompt. Silently
+	// entering a remembered tier hides the security posture of the run — the
+	// operator must always see, and be able to change, what they are launching.
+	if cached, ok := settings.Lookup(p.target, man.Capabilities); ok {
 		if !p.modeSet && cached.Egress != "" {
 			p.mode = cached.Egress
 		}
@@ -359,7 +361,8 @@ func doRun(p runParams) error {
 			p.credentials = cached.Credentials
 		}
 		p.addons = cached.Addons
-	} else if !p.printOnly && wizardEnabled() && isStdinTTY() {
+	}
+	if !p.printOnly && wizardEnabled() && isStdinTTY() {
 		if err := p.promptChoices(man, lookup, wsSpec.RepoRoot, settingsRoot); err != nil {
 			return err
 		}
@@ -679,7 +682,7 @@ func filterProviders(detected []string, c manifest.Capabilities) []string {
 func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
-		Title:  fmt.Sprintf("run %s — first run for this harness, choose once", p.target),
+		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
 		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
 			axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode),
@@ -687,8 +690,12 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		),
 	}
 	if addons := addonOptions(man); len(addons) > 0 {
+		on := make([]bool, len(addons))
+		for i, a := range addons {
+			on[i] = hasAddon(p.addons, a)
+		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
-			Label: "add-ons", Options: addons, Multi: true, On: make([]bool, len(addons)),
+			Label: "add-ons", Options: addons, Multi: true, On: on,
 		})...)
 		form.OnChange = func(f *choiceui.Form) { gateAddons(f, p.mode, p.credentialsOrDefault()) }
 		form.OnChange(form)
