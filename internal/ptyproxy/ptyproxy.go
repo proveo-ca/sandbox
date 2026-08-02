@@ -31,6 +31,16 @@ type Proxy struct {
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
+	// overlayIn receives keystrokes while an overlay is up. The pump stays the
+	// SOLE reader of the terminal and re-routes into this channel; it cannot simply
+	// stand down, because a goroutine already blocked in read() will consume the
+	// next byte no matter what a flag says. Handing bytes over is the only way the
+	// overlay can be the exclusive consumer.
+	overlayIn chan []byte
+	// inFd is the operator terminal fd, captured once. Calling In.Fd() from Overlay
+	// races a concurrent close in the pump and additionally forces the file into
+	// blocking mode on every call.
+	inFd int
 }
 
 // New returns a Proxy over the given terminal files. Passing os.Stdin/os.Stdout
@@ -52,11 +62,19 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	if err != nil {
 		return fmt.Errorf("pty: start: %w", err)
 	}
+	p.mu.Lock()
 	p.master = m
-	defer func() { _ = m.Close() }()
+	p.inFd = int(p.In.Fd())
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.master = nil
+		p.mu.Unlock()
+		_ = m.Close()
+	}()
 
-	if st, err := term.MakeRaw(int(p.In.Fd())); err == nil {
-		p.restore = st
+	if st, err := term.MakeRaw(p.fd()); err == nil {
+		p.setRestore(st)
 		defer p.Restore()
 	}
 
@@ -82,10 +100,25 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 // Restore returns the operator's terminal to its original mode. Safe to call more
 // than once.
 func (p *Proxy) Restore() {
-	if p.restore != nil {
-		_ = term.Restore(int(p.In.Fd()), p.restore)
-		p.restore = nil
+	p.mu.Lock()
+	st, fd := p.restore, p.inFd
+	p.restore = nil
+	p.mu.Unlock()
+	if st != nil {
+		_ = term.Restore(fd, st)
 	}
+}
+
+func (p *Proxy) fd() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.inFd
+}
+
+func (p *Proxy) setRestore(st *term.State) {
+	p.mu.Lock()
+	p.restore = st
+	p.mu.Unlock()
 }
 
 // pumpIn forwards keystrokes to the child, unless an overlay has suspended it —
@@ -96,12 +129,17 @@ func (p *Proxy) pumpIn() {
 		n, err := p.In.Read(buf)
 		if n > 0 {
 			p.mu.Lock()
-			suspended := p.suspended
+			ch := p.overlayIn
 			p.mu.Unlock()
-			if !suspended {
-				if _, werr := p.master.Write(buf[:n]); werr != nil {
-					return
+			if ch != nil {
+				b := make([]byte, n)
+				copy(b, buf[:n])
+				select {
+				case ch <- b:
+				default: // overlay already answered; drop rather than block the pump
 				}
+			} else if _, werr := p.masterFile().Write(buf[:n]); werr != nil {
+				return
 			}
 		}
 		if err != nil {
@@ -114,8 +152,9 @@ func (p *Proxy) pumpIn() {
 // so nothing paints over the prompt.
 func (p *Proxy) pumpOut() {
 	buf := make([]byte, 32*1024)
+	m := p.masterFile()
 	for {
-		n, err := p.master.Read(buf)
+		n, err := m.Read(buf)
 		if n > 0 {
 			p.mu.Lock()
 			if p.suspended {
@@ -146,26 +185,35 @@ var ErrNotRunning = errors.New("ptyproxy: no child running")
 // because the dimensions actually change, a TUI that early-outs on a no-op resize
 // still does a full relayout. A bare SIGWINCH at unchanged size is unreliable.
 func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
-	if p.master == nil {
+	p.mu.Lock()
+	running := p.master != nil
+	p.mu.Unlock()
+	if !running {
 		return ErrNotRunning
 	}
+	in := make(chan []byte, 16)
 	p.mu.Lock()
 	p.suspended = true
 	p.buffered = p.buffered[:0]
+	p.overlayIn = in
 	p.mu.Unlock()
 
 	// Leave raw mode so draw can use ordinary line editing if it wants to.
-	if p.restore != nil {
-		_ = term.Restore(int(p.In.Fd()), p.restore)
+	p.mu.Lock()
+	st, fd := p.restore, p.inFd
+	p.mu.Unlock()
+	if st != nil {
+		_ = term.Restore(fd, st)
 	}
-	drawErr := draw(p.In, p.Out)
-	if st, err := term.MakeRaw(int(p.In.Fd())); err == nil {
-		p.restore = st
+	drawErr := draw(&chanReader{ch: in}, p.Out)
+	if raw, err := term.MakeRaw(fd); err == nil {
+		p.setRestore(raw)
 	}
 
 	p.mu.Lock()
 	p.suspended = false
 	p.buffered = p.buffered[:0]
+	p.overlayIn = nil
 	p.mu.Unlock()
 
 	p.forceRepaint()
@@ -174,12 +222,49 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 
 // forceRepaint nudges the child into a full redraw via a real size change.
 func (p *Proxy) forceRepaint() {
-	size, err := pty.GetsizeFull(p.master)
+	// Held for the whole resize: Run nils the master under this same lock before
+	// closing it, so a child that exits mid-overlay turns this into a no-op rather
+	// than an operation on a dead fd.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	m := p.master
+	if m == nil {
+		return
+	}
+	size, err := pty.GetsizeFull(m)
 	if err != nil || size.Cols == 0 {
 		return
 	}
 	shrunk := *size
 	shrunk.Cols = size.Cols - 1
-	_ = pty.Setsize(p.master, &shrunk)
-	_ = pty.Setsize(p.master, size)
+	_ = pty.Setsize(m, &shrunk)
+	_ = pty.Setsize(m, size)
+}
+
+// masterFile reads the PTY master under the lock: Run assigns it from its own
+// goroutine while the pumps and Overlay read it from others.
+func (p *Proxy) masterFile() *os.File {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.master
+}
+
+// chanReader adapts the pump's hand-off channel to io.Reader so an overlay reads
+// the terminal without ever touching the file descriptor the pump owns.
+type chanReader struct {
+	ch  chan []byte
+	buf []byte
+}
+
+func (r *chanReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		b, ok := <-r.ch
+		if !ok {
+			return 0, io.EOF
+		}
+		r.buf = b
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
 }

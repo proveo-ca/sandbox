@@ -92,3 +92,51 @@ func TestOverlaySuspendsBothPumps(t *testing.T) {
 		t.Error("buffered output must be dropped, not replayed over a repaint")
 	}
 }
+
+// The overlay must be the ONLY reader of stdin for its duration. A pump that
+// keeps reading swallows the operator's answer, which is the contention this
+// package exists to remove — and it fails closed, so it looks like a denial
+// rather than a bug.
+func TestOverlayOwnsStdinExclusively(t *testing.T) {
+	t.Parallel()
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately NOT deferred: closing a file the pump is still reading tears the
+	// fd down underneath it, which the race detector reports as a data race against
+	// anything else touching that file. The pipes die with the test process.
+	_ = outR
+	p := New(inR, outW)
+	cmd := exec.Command("cat") // echoes whatever the pump forwards
+	go func() { _ = p.Run(cmd) }()
+	time.Sleep(300 * time.Millisecond) // let Run install the pumps
+
+	got := make(chan string, 1)
+	go func() {
+		_ = p.Overlay(func(in io.Reader, _ io.Writer) error {
+			buf := make([]byte, 16)
+			n, _ := in.Read(buf)
+			got <- string(buf[:n])
+			return nil
+		})
+	}()
+	time.Sleep(300 * time.Millisecond) // let the pump park
+
+	if _, err := inW.Write([]byte("y\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case answer := <-got:
+		if !strings.HasPrefix(answer, "y") {
+			t.Errorf("overlay read %q, want the operator's answer", answer)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the overlay never received the keystroke — the pump swallowed it")
+	}
+	_ = cmd.Process.Kill()
+}
