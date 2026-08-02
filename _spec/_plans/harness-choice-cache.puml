@@ -83,6 +83,11 @@ note right of RES
   tier, credential handling, which credential (when the pinned provider
   accepts more than one the operator holds), and add-ons.
 
+  ""review"" is greyed with 'coming soon' — shown rather than hidden, because
+  removing it would misrepresent the tier as nonexistent instead of
+  unfinished. ""--egress-mode review"" still builds so development can drive
+  it; see ""_spec/internal/reviewgate/pty-review-proxy.puml"" for why.
+
   **Resolution order.** An explicit flag always wins, and when a
   prompt does appear the flag value is **pre-selected** rather than
   bypassing the row. Otherwise: a valid cache enters automatically

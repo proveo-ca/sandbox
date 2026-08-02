@@ -696,7 +696,8 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
 		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
-			axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode),
+			comingSoon(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode),
+				"review", "review: coming soon"),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
@@ -811,6 +812,34 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 		}
 	}
 	return r
+}
+
+// comingSoon greys an option out and moves the selection off it. The row still
+// shows the option with its reason: hiding it would misrepresent the tier as
+// nonexistent rather than unfinished. The --egress-mode flag still accepts it, so
+// development can drive the tier while operators cannot pick it by accident.
+func comingSoon(r choiceui.Row, option, reason string) choiceui.Row {
+	r.Off = make([]bool, len(r.Options))
+	for i, o := range r.Options {
+		if o != option {
+			continue
+		}
+		r.Off[i] = true
+		r.Reason = reason
+		if r.Selected == i {
+			r.Selected = firstEnabled(r)
+		}
+	}
+	return r
+}
+
+func firstEnabled(r choiceui.Row) int {
+	for i := range r.Options {
+		if i >= len(r.Off) || !r.Off[i] {
+			return i
+		}
+	}
+	return 0
 }
 
 // applicableRows drops axes with nothing to decide. A single-option row is not a

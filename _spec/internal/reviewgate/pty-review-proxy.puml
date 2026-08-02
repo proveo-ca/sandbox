@@ -128,25 +128,44 @@ note as SocketScope #FFF3F0
   ""Close"" unlinks the socket and its fallback directory. Go removes it on a
   clean close, but a killed run does not, and the strays accumulate.
 
-  **The unix-socket transport does not work on macOS.** Diagnosed by logging
+  **STATUS: not shipped. The prompt option is disabled, marked 'coming soon'.**
+  ""--egress-mode review"" still builds, for development only.
+
+  **Challenge 1 — the transport is Linux-only.** Diagnosed by logging
   ""reviewPrompt"" entry to a file: the log stays EMPTY while the CONNECT is
-  denied 403, so the gate is never consulted and ""AskOverSocket"" is failing
-  closed. The socket exists, the directory is bind-mounted, and the sidecar
-  has the right path — but a Linux container **cannot ""connect()"" to a unix
+  denied 403, so the gate is never consulted and ""AskOverSocket"" fails
+  closed. The socket exists, its directory is bind-mounted, the sidecar holds
+  the right path — but a Linux container **cannot ""connect()"" to a unix
   socket on a bind-mounted host path** under Docker Desktop or OrbStack. The
-  file is visible; the connection is not possible.
+  file is visible; the connection is not possible. Works on Linux, silently
+  denies everything on macOS — the worst shape for a security gate, because
+  failing closed reads as strictness rather than breakage.
 
-  This works on Linux and fails closed on macOS, which is the worst shape for
-  a security gate: correct-looking on the maintainer's platform, silently
-  denying everything on half the fleet.
+  **Challenge 2 — the obvious fix is unsound.** Host loopback TCP via
+  ""host.docker.internal"" needs the inspector to reach the host gateway. But it
+  sits ONLY on ""--internal"" networks (""agentNet"", ""enforceNet"") and reaches the
+  internet solely through Squid. A sidecar that can route to the host gateway
+  can bypass Squid: trading the egress boundary for a consent prompt is the
+  wrong trade.
 
-  **The transport has to be portable.** Host loopback TCP is: the gate binds
-  ""127.0.0.1:<ephemeral>"" and the sidecar dials
-  ""host.docker.internal:<port>"" — Docker Desktop and OrbStack provide that
-  name, and Linux gets it from the ""--add-host=host.docker.internal:host-gateway""
-  that ""buildOpen"" already uses. A token in the request keeps it from being an
-  open local port. The socket path logic and its sun_path fallback then go away
-  entirely.
+  **The portable shape is to invert the direction.** Publish a port bound to
+  host loopback (""-p 127.0.0.1:0:<port>"") and make proveo the CLIENT. Port
+  publishing is the one host-to-container path identical on macOS, Linux,
+  Windows and Podman — no ""host.docker.internal"", no ""--add-host"", no gateway
+  route, and the sidecar still cannot initiate toward the host. The protocol
+  inverts with it: the inspector exposes pending decisions and proveo polls
+  them (blocking ""GET /pending"", then ""POST /decide""), with a per-session
+  token so a loopback port is not an open door.
+
+  **Challenge 3 — allow-then-retry.** The gate holds the CONNECT while asking,
+  so a prompt answered in time simply proceeds and no retry is needed. The
+  deadline is the problem: the gate denies after ~20s and the agent's own HTTP
+  client may give up sooner, so a late allow cannot rescue the request that
+  triggered it. The per-host cache is what saves it — the verdict is recorded,
+  so the agent's NEXT attempt to that host succeeds without asking. The
+  operator-visible contract is therefore 'answer promptly, or approve and ask
+  the agent to retry', and the overlay has to say so: a 403 arriving after a
+  granted approval otherwise looks like the gate ignoring the answer.
 end note
 
 @enduml
