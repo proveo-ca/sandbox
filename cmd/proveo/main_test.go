@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
@@ -605,5 +606,41 @@ func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	}
 	if ok, _ := reviewSupported(local); ok != (runtime.GOOS == "linux") {
 		t.Errorf("a local unix daemon should track GOOS, got %v on %s", ok, runtime.GOOS)
+	}
+}
+
+// The agent holds the terminal in RAW mode, where Enter is CR and never LF. A
+// line-based reader waits for a newline that never arrives, so the overlay hangs
+// and the agent's TUI appears frozen. Consent must be a single keypress.
+func TestReadConsentKeyHandlesRawModeInput(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"y alone", "y", true},
+		{"y then CR (raw-mode Enter)", "y\r", true},
+		{"uppercase Y", "Y", true},
+		{"n", "n", false},
+		{"bare CR defaults to no", "\r", false},
+		{"esc denies", "\x1b", false},
+		{"ctrl-c denies", "\x03", false},
+		{"stray byte then y", "\t y", true},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			done := make(chan bool, 1)
+			go func() { done <- readConsentKey(strings.NewReader(tc.input)) }()
+			select {
+			case got := <-done:
+				if got != tc.want {
+					t.Errorf("readConsentKey(%q) = %v, want %v", tc.input, got, tc.want)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("readConsentKey(%q) never returned — this is the TUI freeze", tc.input)
+			}
+		})
 	}
 }

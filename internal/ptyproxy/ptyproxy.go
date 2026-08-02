@@ -199,16 +199,11 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.mu.Unlock()
 
 	// Leave raw mode so draw can use ordinary line editing if it wants to.
-	p.mu.Lock()
-	st, fd := p.restore, p.inFd
-	p.mu.Unlock()
-	if st != nil {
-		_ = term.Restore(fd, st)
-	}
+	// The terminal STAYS in raw mode for the overlay. Dropping to cooked mode was
+	// pointless once the prompt reads a single keypress, and it was actively
+	// harmful: the pump is mid-Read on this fd, so flipping the line discipline
+	// underneath it changes how in-flight bytes are delivered.
 	drawErr := draw(&chanReader{ch: in}, p.Out)
-	if raw, err := term.MakeRaw(fd); err == nil {
-		p.setRestore(raw)
-	}
 
 	p.mu.Lock()
 	p.suspended = false

@@ -124,6 +124,12 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	// deny) so the tunnel establishes; the inner request carries the real method,
 	// URL, headers, and body and gets the full method-pin + DLP treatment below.
 	if req.Method == http.MethodConnect {
+		// An explicitly allowlisted host is already sanctioned, so asking about it
+		// again is pure prompt fatigue — and fatigue is what turns a consent gate
+		// into a click-through reflex. Review asks about the UNSANCTIONED only.
+		if matchHost(host, p.writeHosts) {
+			return Decision{Allow: true}
+		}
 		if p.reviewConnect != nil && !p.reviewConnect(host, portOf(req)) {
 			return Decision{Reason: ReasonReview}
 		}

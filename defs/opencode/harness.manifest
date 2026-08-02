@@ -21,3 +21,6 @@ home:
       container: /proveo-home/.local/share/opencode
       mode: rw
       deny: [auth.json]
+
+capabilities:
+  hosts: [.opencode.ai, models.dev]

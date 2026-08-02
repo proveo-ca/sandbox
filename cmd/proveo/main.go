@@ -591,7 +591,7 @@ func doRun(p runParams) error {
 		modelsDir:    modelsDir, provider: providerName, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
-		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
+		providerDomains: joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), man.Capabilities.Hosts),
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
 		ollamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
@@ -681,6 +681,15 @@ func (p *runParams) applyCapabilities(c manifest.Capabilities) error {
 		p.credentials = c.Credentials[0]
 	}
 	return nil
+}
+
+// joinDomains merges the operator's extra domains with the harness's own
+// infrastructure endpoints into the single space-separated list the egress layer
+// consumes for both the Squid ACL and the policy's write allowlist.
+func joinDomains(env string, hosts []string) string {
+	parts := strings.Fields(env)
+	parts = append(parts, hosts...)
+	return strings.Join(parts, " ")
 }
 
 func filterProviders(detected []string, c manifest.Capabilities) []string {
@@ -1420,14 +1429,40 @@ func reviewPrompt(in io.Reader, out io.Writer, host, port string) bool {
 	}
 	fmt.Fprintf(out, "\r\n%s%s  allow connection to %s:%s ? [y/N] %s",
 		ui.ANSIBold, ui.ANSI(ui.ColorBrand), host, port, ui.ANSIReset)
-	sc := bufio.NewScanner(in)
-	if !sc.Scan() {
-		fmt.Fprintf(out, "\r\n")
-		return false
+	allowed := readConsentKey(in)
+	if allowed {
+		fmt.Fprintf(out, "y\r\n")
+	} else {
+		fmt.Fprintf(out, "n\r\n")
 	}
-	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
-	fmt.Fprintf(out, "\r\n")
-	return answer == "y" || answer == "yes"
+	return allowed
+}
+
+// readConsentKey takes a SINGLE keypress. A line reader cannot be used here: the
+// agent holds the terminal in raw mode, where Enter sends CR and never LF, so
+// bufio.Scanner waits for a newline that never arrives and the overlay hangs
+// forever — which presents as the agent's TUI freezing mid-prompt.
+//
+// y allows. Anything else denies, including Enter, Esc and ctrl-c, which matches
+// the [y/N] default and keeps the safe answer the easy one.
+func readConsentKey(in io.Reader) bool {
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if err != nil {
+			return false
+		}
+		if n == 0 {
+			continue
+		}
+		switch buf[0] {
+		case 'y', 'Y':
+			return true
+		case '\r', '\n', 'n', 'N', 0x1b, 0x03: // Enter, Esc, ctrl-c
+			return false
+		}
+		// Ignore anything else rather than treating a stray byte as an answer.
+	}
 }
 
 // onSignalCleanup runs cleanup then exits 130 on SIGINT/SIGTERM. Go does not run
