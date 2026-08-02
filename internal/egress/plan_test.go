@@ -344,3 +344,32 @@ func TestBuildPlanAgentNetwork(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {
+	t.Parallel()
+	withSock := func(o Options, sock string) Options { o.ReviewSocket = sock; return o }
+
+	got, err := BuildPlan(withSock(baseOpts("review"), "/state/egress/sess/review/review.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := got.Render()
+	for _, want := range []string{
+		"PROVEO_EGRESS_REVIEW=1",
+		"PROVEO_EGRESS_REVIEW_SOCKET=/review/review.sock",
+		"/state/egress/sess/review:/review",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("review plan missing %q", want)
+		}
+	}
+
+	bare, _ := BuildPlan(baseOpts("review"))
+	if strings.Contains(bare.Render(), "PROVEO_EGRESS_REVIEW_SOCKET") {
+		t.Error("review without a gate must not mount a socket")
+	}
+	other, _ := BuildPlan(withSock(baseOpts("allowlist"), "/state/egress/sess/review/review.sock"))
+	if strings.Contains(other.Render(), "PROVEO_EGRESS_REVIEW") {
+		t.Error("the allowlist tier must carry no review wiring at all")
+	}
+}

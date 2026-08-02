@@ -17,12 +17,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/broker"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/egresspolicy"
 	"github.com/proveo-ca/proveo/internal/egressproxy"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -104,6 +106,17 @@ func serve() {
 // buildPolicy derives the egress policy from the resolved provider hosts, a
 // default write-allowlist + custom domains, the embedded exfil-sink denylist,
 // and the provider secret values (from the mounted broker env-file) for DLP.
+func reviewConnect() func(host, port string) bool {
+	sock := env("PROVEO_EGRESS_REVIEW_SOCKET", "")
+	if sock == "" || !envTruthy("PROVEO_EGRESS_REVIEW") {
+		return nil
+	}
+	ui.Iconf("🛂", "review tier: connections gated by the operator via %s", sock)
+	return func(host, port string) bool {
+		return reviewgate.AskOverSocket(sock, host, port, reviewgate.DefaultDeadline+5*time.Second)
+	}
+}
+
 func envTruthy(k string) bool {
 	switch strings.ToLower(strings.TrimSpace(env(k, ""))) {
 	case "1", "true", "yes", "on":
@@ -134,6 +147,7 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 
 	return egresspolicy.Config{
 		OpenNetwork:       envTruthy("PROVEO_EGRESS_OPEN"),
+		ReviewConnect:     reviewConnect(),
 		ProviderHosts:     providerHosts,
 		WriteHosts:        write,
 		DenySinks:         egresspolicy.DefaultSinks,

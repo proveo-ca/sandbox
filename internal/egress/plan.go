@@ -3,6 +3,7 @@ package egress
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -49,6 +50,7 @@ type Options struct {
 	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
 	ProviderDomains string
+	ReviewSocket    string
 	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
@@ -346,6 +348,10 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	}
 	if o.Mode == "review" {
 		c = append(c, "-e", "PROVEO_EGRESS_REVIEW=1")
+		if o.ReviewSocket != "" {
+			c = append(c, "-e", "PROVEO_EGRESS_REVIEW_SOCKET=/review/"+filepath.Base(o.ReviewSocket),
+				"-v", filepath.Dir(o.ReviewSocket)+":/review")
+		}
 	}
 	if o.Mode == "open" {
 		c = append(c, "-e", "PROVEO_EGRESS_OPEN=1")

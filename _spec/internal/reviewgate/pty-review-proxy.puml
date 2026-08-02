@@ -1,15 +1,15 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title PLANNED — PTY review proxy: interactive connection consent in the review tier
+title PTY review proxy — interactive connection consent in the review tier
 
 actor "Operator" as OP
 
 node "Host — cmd/proveo" as HOST <<host>> {
-  component "execAgent\nowns the PTY master" as EXEC <<app>>
+  component "execAgentWithProxy\nowns the PTY master" as EXEC <<app>>
   component "stdin pump\nreal tty → master" as IN <<app>>
   component "stdout pump\nmaster → real tty" as OUT <<app>>
-  component "review daemon\nunix socket + per-host cache" as DAEMON <<app>>
-  component "prompt overlay\ndraw · read y/n · restore" as UI <<app>>
+  component "internal/reviewgate\nunix socket + per-host cache" as DAEMON <<app>>
+  component "internal/ptyproxy\noverlay · suspend pumps · restore" as UI <<app>>
 }
 
 node "Agent container" as CTR <<host>> {
@@ -36,15 +36,16 @@ UI ARROW_MAIN OP : 'Allow connection to <host>? [y/N]'
 DAEMON ARROW_ERROR DENY : deadline elapsed · headless run
 
 note right of EXEC
-  **The insertion point already exists.** ""execAgent"" spawns docker
-  and waits — it does not ""syscall.Exec"" — and it already wires stdio
-  by hand:
+  **Shipped.** ""execAgentWithProxy"" hands docker the PTY slave and keeps
+  the master, making proveo the **only** reader of the real terminal.
+  That single property is what makes the overlay possible; everything
+  else follows from it. Without a proxy (headless, or any tier but
+  review) the child inherits the terminal directly.
 
-  ""c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr""
-
-  Replacing those three with a PTY pair makes proveo the **only**
-  reader of the real terminal. That single property is what makes
-  the overlay possible; everything else follows from it.
+  A ""sun_path"" detail bites here: a unix socket path is capped near 104
+  bytes, so ""reviewgate.Path"" falls back to a short hashed name under
+  the temp dir when the state dir is deep. Both halves derive it the
+  same way, so they agree without passing the resolved path around.
 end note
 
 note bottom of UI

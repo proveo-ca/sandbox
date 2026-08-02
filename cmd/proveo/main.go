@@ -36,6 +36,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/ptyproxy"
+	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -552,9 +554,17 @@ func doRun(p runParams) error {
 	}
 	pidsLimit := runner.ResolvePidsLimit(host, browser, ov, ovSet)
 
+	reviewGate, reviewProxy, stopReview := startReviewGate(p.mode, egDir)
+	defer stopReview()
+	reviewSocket := ""
+	if reviewGate != nil {
+		reviewSocket = reviewgate.Path(filepath.Join(egDir, "review"))
+	}
+
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
-		modelsDir: modelsDir, provider: providerName, brokerFile: brokerFile,
+		reviewSocket: reviewSocket,
+		modelsDir:    modelsDir, provider: providerName, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
@@ -599,7 +609,7 @@ func doRun(p runParams) error {
 	runErr := func() error {
 		if !needsLifecycle(plan) {
 			if dindSidecar == nil {
-				return execAgent(agent)
+				return execAgentWithProxy(agent, reviewProxy)
 			}
 			// DinD is running but there's no egress topology (broker without a local
 			// model): no lifecycle teardown, but the privileged sidecar must still come
@@ -610,13 +620,13 @@ func doRun(p runParams) error {
 			defer cleanup()
 			stopSig := onSignalCleanup(cleanup)
 			defer stopSig()
-			return execAgent(agent)
+			return execAgentWithProxy(agent, reviewProxy)
 		}
 		squidProviders := detected
 		if providerName != "" {
 			squidProviders = []string{providerName}
 		}
-		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar)
+		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar, reviewProxy)
 	}()
 	if len(authMissingAtStart) > 0 {
 		printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
@@ -979,7 +989,8 @@ type assembleInput struct {
 	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
-	pidsLimit                           int // host/tier-resolved --pids-limit
+	pidsLimit                           int    // host/tier-resolved --pids-limit
+	reviewSocket                        string // review tier: host path of the consent gate socket
 }
 
 // assemble builds the egress plan and the agent's docker-run config from resolved
@@ -992,6 +1003,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Provider: in.provider, BrokerEnvFile: in.brokerFile,
 		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
+		ReviewSocket:    in.reviewSocket,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),
@@ -1022,7 +1034,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 // execWithEgress stages only what the plan needs (C7), brings up the egress
 // topology, waits for readiness, runs the agent, then tears the topology down —
 // including on SIGINT/SIGTERM (C4), and removes the broker secret (C2).
-func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar) error {
+func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
 	r := egress.ExecRunner{Stderr: true}
 	// rq is the quiet runner for best-effort teardown and readiness probes: those
 	// legitimately hit transient docker errors — "No such container" once a --rm
@@ -1112,14 +1124,74 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 }
 
 func execAgent(agent runner.Config) error {
+	return execAgentWithProxy(agent, nil)
+}
+
+func execAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 	c := exec.Command("docker", runner.DockerRunArgs(agent)...)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := c.Run()
+	var err error
+	if proxy != nil {
+		err = proxy.Run(c)
+	} else {
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+		err = c.Run()
+	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		return agentExitError{code: ee.ExitCode()}
 	}
 	return err
+}
+
+func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, func()) {
+	if mode != "review" {
+		return nil, nil, func() {}
+	}
+	if !ptyproxy.Usable(os.Stdin, os.Stdout) {
+		ui.Warnf("review tier without a terminal: no way to ask, so every new connection will be denied")
+		return nil, nil, func() {}
+	}
+	proxy := ptyproxy.New(os.Stdin, os.Stdout)
+	gate := reviewgate.New(func(host, port string) bool {
+		allowed := false
+		_ = proxy.Overlay(func(in io.Reader, out io.Writer) error {
+			allowed = reviewPrompt(in, out, host, port)
+			return nil
+		})
+		return allowed
+	})
+	dir := filepath.Join(egDir, "review")
+	if err := gate.Listen(dir); err != nil {
+		ui.Warnf("%v — connections will be denied", err)
+		return nil, proxy, func() {}
+	}
+	return gate, proxy, func() {
+		_ = gate.Close()
+		if d := gate.Decisions(); len(d) > 0 {
+			var allowed, denied int
+			for _, v := range d {
+				if v == reviewgate.Allow {
+					allowed++
+				} else {
+					denied++
+				}
+			}
+			ui.Iconf("🛂", "review: %d host(s) allowed, %d denied", allowed, denied)
+		}
+	}
+}
+
+func reviewPrompt(in io.Reader, out io.Writer, host, port string) bool {
+	fmt.Fprintf(out, "\r\n%s%s  allow connection to %s:%s ? [y/N] %s",
+		ui.ANSIBold, ui.ANSI(ui.ColorBrand), host, port, ui.ANSIReset)
+	sc := bufio.NewScanner(in)
+	if !sc.Scan() {
+		fmt.Fprintf(out, "\r\n")
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
+	fmt.Fprintf(out, "\r\n")
+	return answer == "y" || answer == "yes"
 }
 
 // onSignalCleanup runs cleanup then exits 130 on SIGINT/SIGTERM. Go does not run
