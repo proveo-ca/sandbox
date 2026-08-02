@@ -214,12 +214,23 @@ fi
 
 ensure_project_tools
 
+# cecli auto-loads NO conventions file: CONVENTIONS.md is only a naming habit, and
+# AGENTS.md is not read either. Both have to be passed with --rules, so hand it
+# whichever the project actually ships.
+CECLI_RULE_ARGS=()
+for f in AGENTS.md CONVENTIONS.md; do
+  [[ -f "$f" ]] && CECLI_RULE_ARGS+=(--rules "$f")
+done
+if [[ ${#CECLI_RULE_ARGS[@]} -gt 0 ]]; then
+  echo "📐 rules: ${CECLI_RULE_ARGS[*]}"
+fi
+
 if [[ $# -eq 0 ]]; then
-  set -- cecli
+  set -- cecli "${CECLI_RULE_ARGS[@]}"
 elif [[ "$1" == -* ]]; then
-  set -- cecli "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
 elif [[ "$1" != "cecli" && "$1" != "bash" && "$1" != "sh" && "$1" != "python" && "$1" != "python3" && "$1" != "node" && "$1" != "npm" && "$1" != "pnpm" && "$1" != "git" && "$1" != "curl" ]]; then
-  set -- cecli "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
 fi
 
 exec "$@"

@@ -51,4 +51,27 @@ CC -right[hidden]- CU
 OC -right[hidden]- CE
 CC -down[hidden]- OC
 ' --- END IGNORE ---
+note as AgentsMD #F4F9FB
+  **AGENTS.md is the shared standard; two harnesses do not read it.**
+
+  ""opencode"" and ""cursor"" load a root ""AGENTS.md"" natively — proveo does
+  nothing. The other two need a bridge, and each takes a different one
+  because their own docs say so:
+
+  * **claudecode** reads ""CLAUDE\.md"" and explicitly NOT ""AGENTS\.md"", so
+    the entrypoint writes a ""CLAUDE\.md"" containing the documented
+    ""@AGENTS\.md"" import. An import, not a copy: it is re-read every run
+    where a copy would go stale, and a symlink needs Administrator on
+    Windows.
+  * **cecli** auto-loads nothing at all — ""CONVENTIONS\.md"" is a naming
+    habit, not a discovered file — so the entrypoint passes whichever of
+    ""AGENTS\.md"" / ""CONVENTIONS\.md"" exists via ""--rules"".
+
+  Both bridges no-op when the harness's own file already exists: a
+  project that wrote a real ""CLAUDE\.md"" keeps it.
+
+  Do NOT map ""opencode\.md"" (gone from OpenCode's docs) or ""\.cursorrules""
+  (undocumented for the CLI) — neither is supported.
+end note
+
 @enduml
