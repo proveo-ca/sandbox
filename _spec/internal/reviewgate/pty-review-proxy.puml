@@ -171,6 +171,14 @@ note as PromptScope #F4F9FB
   deny, keeping the safe answer the easy one). On dismissal the forced resize
   makes the agent repaint over it.
 
+  **The modal must NOT use tcell's own screen.** ""tcell.NewScreen"" opens
+  ""/dev/tty"" and runs its own input loop, making it a SECOND reader against the
+  pump — the modal renders correctly and then takes no keystrokes at all,
+  which a real run showed. ""Proxy.OverlayScreen"" builds the screen over
+  ""NewTerminfoScreenFromTty"" with an ""OverlayTty"" whose Read is the pump's
+  hand-off channel and whose Write is the operator's terminal. One reader,
+  start to finish — the invariant this whole package exists to hold.
+
   **Only unsanctioned hosts are asked about.** An already-allowlisted host
   skips the prompt entirely — including a harness's own infrastructure,
   declared as ""capabilities.hosts"" (opencode: ""\.opencode\.ai"", ""models\.dev"").

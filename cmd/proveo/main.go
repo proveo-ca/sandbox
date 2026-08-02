@@ -1389,9 +1389,14 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 	proxy := ptyproxy.New(os.Stdin, os.Stdout)
 	gate := reviewgate.New(func(host, port string) bool {
 		allowed := false
-		if err := proxy.Overlay(func(io.Reader, io.Writer) error {
+		// The screen is built over the SUSPENDED terminal, not /dev/tty: tcell's own
+		// screen would open the tty itself and become a second reader competing with
+		// the pump, which renders the modal but never receives a keystroke.
+		if err := proxy.Overlay(func(in io.Reader, _ io.Writer) error {
 			var derr error
-			allowed, derr = choiceui.Consent(tcell.NewScreen, host, port)
+			allowed, derr = choiceui.Consent(func() (tcell.Screen, error) {
+				return proxy.OverlayScreen(in)
+			}, host, port)
 			return derr
 		}); err != nil {
 			// Denying is right, but silently denying every connection makes the tier
