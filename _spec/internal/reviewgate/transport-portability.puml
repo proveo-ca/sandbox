@@ -1,0 +1,88 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Review gate transport — why it is native-Linux only, and how to cross platforms
+
+node "Native Linux — WORKS" as LINUX <<host>> {
+  component "proveo\ngate listens on review.sock" as PL <<app>>
+  component "inspector sidecar\nconnect() succeeds" as IL <<app>>
+}
+
+node "macOS / Windows — FAILS CLOSED" as VM <<error>> {
+  component "proveo (host OS)\nsocket created here" as PM <<app>>
+  component "virtiofs · osxfs · 9p\nfilesystem virtualization" as FS <<cloud>>
+  component "inspector (Linux VM)\nsees the inode, connect() fails" as IM <<error>>
+}
+
+PL ARROW_MAIN IL : same kernel, same socket object
+PM ARROW_CLOUD FS : bind mount
+FS ARROW_ERROR IM : inode projected, AF_UNIX not carried
+
+note bottom of LINUX
+  **Why it works here.** A bind mount on native Linux is the same kernel's
+  mount namespace pointing at the same inode. An ""AF_UNIX"" socket IS that
+  inode plus a kernel socket object, and both sides share the kernel — so
+  ""connect()"" reaches the listener proveo created.
+
+  Necessary but NOT sufficient: a remote ""DOCKER_HOST"" puts the mount on
+  another machine, where the socket does not exist at all. The gate requires
+  Linux **and** a local daemon.
+end note
+
+note bottom of VM
+  **Why it cannot work here.** The container runs inside a Linux VM and the
+  bind mount crosses a filesystem-virtualization layer. That layer projects
+  the socket's directory entry — ""ls"" shows it, ""stat"" reports a socket — but
+  it does not proxy ""AF_UNIX"" semantics. There is no shared kernel socket
+  object, so ""connect()"" fails.
+
+  The failure mode is the dangerous part: ""AskOverSocket"" cannot reach the
+  gate, fails closed, and every connection is denied **without a prompt**.
+  A security gate that denies everything looks like it is working perfectly.
+end note
+
+note as Strategies #F4F9FB
+  **Cross-platform strategies, most to least promising.**
+
+  **A — file handshake over the mount already there.** Regular file I/O
+  crosses every virtualization layer correctly; only ""AF_UNIX"" does not. The
+  inspector writes ""pending/<id>.json"" and polls ""decisions/<id>.json"";
+  proveo does the inverse. Reuses the existing bind mount, adds no network
+  surface, and needs no new capability. Costs a poll loop — ""inotify"" does not
+  propagate over virtiofs/osxfs, so watching is out and a ~100ms tick is
+  required. Trivial against a 20s hold. **Simplest correct option.**
+
+  **B — published port, inverted protocol.** ""-p 127.0.0.1:0:<port>"" on the
+  inspector, with proveo as the CLIENT: blocking ""GET /pending"", then
+  ""POST /decide"", plus a per-session token so a loopback port is not an open
+  door. Port publishing behaves identically on macOS, Linux, Windows and
+  Podman, and the sidecar still cannot initiate toward the host. Lower latency
+  than A; costs a protocol inversion and an HTTP surface inside the inspector.
+
+  **C — ""host.docker.internal"" / ""--add-host=host-gateway"". REJECTED.** It
+  requires the inspector to route to the host gateway, but the inspector sits
+  only on ""--internal"" networks and egresses solely through Squid. A sidecar
+  that can reach the gateway can bypass Squid. This trades the egress boundary
+  for a consent prompt, which is the wrong trade at any latency.
+
+  **D — ""docker exec"" as the channel. REJECTED.** proveo already shells out to
+  docker, but the egress-proxy image is distroless with no shell, and exec
+  per decision is slow and racy.
+
+  **E — attach the sidecar's stdio. REJECTED.** Would mean running the
+  inspector in the foreground, conflicting with the detached-sidecar lifecycle
+  the egress plan is built on — and proveo's own stdio is already committed to
+  the agent's PTY.
+
+  A and B are both genuinely portable. **A is preferred**: it changes the
+  fewest moving parts, adds no listening socket anywhere, and the mount it
+  needs is the one the gate already has.
+end note
+
+note bottom of IM
+  **Detect, never assume.** ""reviewSupported"" gates on ""runtime.GOOS"" plus a
+  local ""unix://"" daemon and greys the prompt option with the specific reason.
+  An explicitly requested ""--egress-mode review"" on an unsupported host warns
+  that connections will be denied. Until a portable transport lands, the tier
+  must announce its own limits rather than appear strict.
+end note
+@enduml

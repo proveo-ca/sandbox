@@ -134,31 +134,14 @@ note as SocketScope #FFF3F0
   flag on an unsupported host warns that every connection will be DENIED
   without a prompt, rather than failing closed in silence.
 
-  **Challenge 1 — the transport is Linux-only.** Diagnosed by logging
-  ""reviewPrompt"" entry to a file: the log stays EMPTY while the CONNECT is
-  denied 403, so the gate is never consulted and ""AskOverSocket"" fails
-  closed. The socket exists, its directory is bind-mounted, the sidecar holds
-  the right path — but a Linux container **cannot ""connect()"" to a unix
-  socket on a bind-mounted host path** under Docker Desktop or OrbStack. The
-  file is visible; the connection is not possible. Works on Linux, silently
-  denies everything on macOS — the worst shape for a security gate, because
-  failing closed reads as strictness rather than breakage.
-
-  **Challenge 2 — the obvious fix is unsound.** Host loopback TCP via
-  ""host.docker.internal"" needs the inspector to reach the host gateway. But it
-  sits ONLY on ""--internal"" networks (""agentNet"", ""enforceNet"") and reaches the
-  internet solely through Squid. A sidecar that can route to the host gateway
-  can bypass Squid: trading the egress boundary for a consent prompt is the
-  wrong trade.
-
-  **The portable shape is to invert the direction.** Publish a port bound to
-  host loopback (""-p 127.0.0.1:0:<port>"") and make proveo the CLIENT. Port
-  publishing is the one host-to-container path identical on macOS, Linux,
-  Windows and Podman — no ""host.docker.internal"", no ""--add-host"", no gateway
-  route, and the sidecar still cannot initiate toward the host. The protocol
-  inverts with it: the inspector exposes pending decisions and proveo polls
-  them (blocking ""GET /pending"", then ""POST /decide""), with a per-session
-  token so a loopback port is not an open door.
+  **The transport is native-Linux only.** A container can only ""connect()"" to
+  a bind-mounted ""AF_UNIX"" socket when it shares the host's kernel; on
+  macOS/Windows the mount crosses a filesystem-virtualization layer that
+  projects the inode but not the socket. It then fails CLOSED, denying every
+  connection without a prompt — see
+  ""_spec/internal/reviewgate/transport-portability.puml"" for the mechanism and
+  the portable strategies (a file handshake over the existing mount is the
+  preferred one).
 
   **The hold is the feature, not a workaround.** The gate blocks the CONNECT
   while it asks, so an answer given inside the ~20s deadline lets the ORIGINAL
