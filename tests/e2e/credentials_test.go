@@ -80,8 +80,11 @@ func TestProjectDotEnvAtEgressLayer(t *testing.T) {
 		target string
 		key    string
 	}{
+		// cursor is deliberately absent: it declares capabilities egress:[open]
+		// credentials:[forward], so it runs with no MITM and its key reaches the
+		// container intact. There is no egress layer to receive it, which is the
+		// property this test asserts.
 		{target: "opencode", key: "MOONSHOT_API_KEY"},
-		{target: "cursor", key: "CURSOR_API_KEY"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.target, func(t *testing.T) {

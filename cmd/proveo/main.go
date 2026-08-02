@@ -687,9 +687,9 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		),
 	}
 	if addons := addonOptions(man); len(addons) > 0 {
-		form.Rows = append(form.Rows, choiceui.Row{
+		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: "add-ons", Options: addons, Multi: true, On: make([]bool, len(addons)),
-		})
+		})...)
 		form.OnChange = func(f *choiceui.Form) { gateAddons(f, p.mode, p.credentialsOrDefault()) }
 		form.OnChange(form)
 	}
@@ -762,7 +762,7 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	out := make([]choiceui.Row, 0, len(rows))
 	for _, r := range rows {
-		if len(r.Options) > 1 {
+		if r.Multi || len(r.Options) > 1 {
 			out = append(out, r)
 		}
 	}
