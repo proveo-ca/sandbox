@@ -28,3 +28,31 @@ func TestOpenWeightsIDsDoNotPinAProvider(t *testing.T) {
 		t.Errorf("ModelProvider(gpt-5) = %q, want openai", got)
 	}
 }
+
+// An operator holding both an API key and a subscription token must not have the
+// choice made by array order.
+func TestResolveWithHonoursAnExplicitCredential(t *testing.T) {
+	env := map[string]string{"ANTHROPIC_API_KEY": "sk-api", "CLAUDE_CODE_OAUTH_TOKEN": "oauth-tok"}
+	get := func(k string) string { return env[k] }
+
+	def, _ := Resolve("anthropic", get)
+	if def.EnvVar != "ANTHROPIC_API_KEY" {
+		t.Errorf("declared order should pick the API key, got %q", def.EnvVar)
+	}
+	sub, _ := ResolveWith("anthropic", "CLAUDE_CODE_OAUTH_TOKEN", get)
+	if sub.EnvVar != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Errorf("explicit choice ignored, got %q", sub.EnvVar)
+	}
+	if sub.Value != "Bearer oauth-tok" || sub.Header != "authorization" {
+		t.Errorf("subscription token must use its own header/shape: %+v", sub)
+	}
+	// An unavailable preference falls back rather than failing closed.
+	delete(env, "CLAUDE_CODE_OAUTH_TOKEN")
+	fb, _ := ResolveWith("anthropic", "CLAUDE_CODE_OAUTH_TOKEN", get)
+	if fb.EnvVar != "ANTHROPIC_API_KEY" {
+		t.Errorf("missing preference should fall back to the declared order, got %q", fb.EnvVar)
+	}
+	if got := AuthVars("anthropic"); len(got) != 2 {
+		t.Errorf("AuthVars(anthropic) = %v, want two options", got)
+	}
+}

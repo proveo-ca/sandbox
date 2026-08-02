@@ -248,6 +248,7 @@ type runParams struct {
 	target, image, mode, credentials, localModel, input, output, scope, dataDir string
 	modeSet, credsSet                                                           bool
 	addons                                                                      []string
+	authVar                                                                     string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
 }
@@ -361,6 +362,9 @@ func doRun(p runParams) error {
 			p.credentials = cached.Credentials
 		}
 		p.addons = cached.Addons
+		if p.authVar == "" {
+			p.authVar = cached.AuthVar
+		}
 	}
 	if !p.printOnly && wizardEnabled() && isStdinTTY() {
 		if err := p.promptChoices(man, lookup, wsSpec.RepoRoot, settingsRoot); err != nil {
@@ -372,7 +376,7 @@ func doRun(p runParams) error {
 	}
 	if !p.printOnly {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
-			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons,
+			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
 		})
 		if err := settings.Save(settingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -696,6 +700,14 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
+	// A provider that accepts more than one credential (anthropic: API key OR
+	// subscription token) would otherwise have the choice made by the declared
+	// order. Offer it only when the operator actually holds more than one.
+	if auth := availableAuthVars(man, lookup); len(auth) > 1 {
+		form.Rows = append(form.Rows, applicableRows(
+			axisRow("auth", auth, auth, orElseFirst(p.authVar, auth)),
+		)...)
+	}
 	if addons := addonOptions(man); len(addons) > 0 {
 		on := make([]bool, len(addons))
 		for i, a := range addons {
@@ -722,7 +734,40 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		p.credentials = v
 	}
 	p.addons = form.Selections("add-ons")
+	if v := form.Selection("auth"); v != "" {
+		p.authVar = v
+	}
 	return nil
+}
+
+// availableAuthVars lists the credentials the operator holds for the provider this
+// run will pin. Fewer than two means there is nothing to decide.
+func availableAuthVars(man manifest.Manifest, lookup func(string) string) []string {
+	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
+	if len(detected) != 1 {
+		if pin := strings.TrimSpace(man.Provider); pin != "" {
+			detected = []string{pin}
+		} else {
+			return nil
+		}
+	}
+	var out []string
+	for _, v := range provider.AuthVars(detected[0]) {
+		if strings.TrimSpace(lookup(v)) != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func orElseFirst(v string, opts []string) string {
+	if v != "" {
+		return v
+	}
+	if len(opts) > 0 {
+		return opts[0]
+	}
+	return ""
 }
 
 func gateAddons(f *choiceui.Form, tierFallback, credsFallback string) {
@@ -1110,6 +1155,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
 		ReviewSocket:    in.reviewSocket,
+		AuthVar:         in.params.authVar,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),

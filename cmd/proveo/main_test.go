@@ -546,3 +546,25 @@ func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
 		}
 	}
 }
+
+// The auth row exists only when the operator actually holds more than one
+// credential for the provider this run will pin — otherwise there is no decision
+// and the row would be inert.
+func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}}}
+	both := func(k string) string {
+		return map[string]string{"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oauth"}[k]
+	}
+	if got := availableAuthVars(man, both); len(got) != 2 {
+		t.Errorf("with both credentials = %v, want two options", got)
+	}
+	only := func(k string) string { return map[string]string{"ANTHROPIC_API_KEY": "sk"}[k] }
+	if got := availableAuthVars(man, only); len(got) != 1 {
+		t.Errorf("with one credential = %v, want one (no row is rendered for <2)", got)
+	}
+	none := func(string) string { return "" }
+	if got := availableAuthVars(man, none); len(got) != 0 {
+		t.Errorf("with no credential = %v, want none", got)
+	}
+}

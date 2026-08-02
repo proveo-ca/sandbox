@@ -22,6 +22,7 @@ type Choice struct {
 	Egress      string   `yaml:"egress"`
 	Credentials string   `yaml:"credentials"`
 	Addons      []string `yaml:"addons,omitempty"`
+	AuthVar     string   `yaml:"authVar,omitempty"`
 	Fingerprint string   `yaml:"fingerprint"`
 }
 

@@ -37,6 +37,7 @@ type Resolved struct {
 	Header string
 	Query  string
 	Value  string // empty => no injectable key present; strip + pass-through only
+	EnvVar string // which credential was chosen, for reporting
 }
 
 func bearer(envVar string) []AuthOption {
@@ -201,18 +202,37 @@ func KeyVars() []string {
 // known-injectable but no key is present, Hosts is still populated (for
 // strip-exclusion) and Value is empty (pass-through on the provider host).
 func Resolve(name string, getenv func(string) string) (Resolved, bool) {
+	return ResolveWith(name, "", getenv)
+}
+
+// ResolveWith is Resolve with an explicit credential choice. A provider may accept
+// more than one — anthropic takes an API key OR a subscription OAuth token — and
+// the ordering of Auth would otherwise decide silently for an operator holding
+// both. preferVar names the env var to use; unset or unavailable falls back to the
+// declared order.
+func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, bool) {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok || len(e.Auth) == 0 {
 		return Resolved{}, false
 	}
+	opts := e.Auth
+	if preferVar = strings.TrimSpace(preferVar); preferVar != "" {
+		for _, a := range e.Auth {
+			if strings.EqualFold(a.EnvVar, preferVar) && strings.TrimSpace(getenv(a.EnvVar)) != "" {
+				opts = append([]AuthOption{a}, e.Auth...)
+				break
+			}
+		}
+	}
 	r := Resolved{Hosts: e.Hosts}
-	for _, a := range e.Auth {
+	for _, a := range opts {
 		v := strings.TrimSpace(getenv(a.EnvVar))
 		if v == "" {
 			continue
 		}
 		r.Header = a.Header
 		r.Query = a.Query
+		r.EnvVar = a.EnvVar
 		if a.Bearer {
 			r.Value = "Bearer " + v
 		} else {
@@ -221,4 +241,18 @@ func Resolve(name string, getenv func(string) string) (Resolved, bool) {
 		break
 	}
 	return r, true
+}
+
+// AuthVars lists the credential env vars a provider accepts, in declared order.
+// More than one means the operator has a choice to make.
+func AuthVars(name string) []string {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(e.Auth))
+	for _, a := range e.Auth {
+		out = append(out, a.EnvVar)
+	}
+	return out
 }

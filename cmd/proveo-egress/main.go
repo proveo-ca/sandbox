@@ -72,7 +72,7 @@ func serve() {
 	// mounted secret env-file. Explicit PROVEO_EGRESS_BROKER_* env still wins.
 	if name := env("PROVEO_EGRESS_PROVIDER", ""); name != "" {
 		secrets := parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", ""))
-		if r, ok := provider.Resolve(name, func(k string) string { return secrets[k] }); ok {
+		if r, ok := provider.ResolveWith(name, env("PROVEO_EGRESS_AUTH_VAR", ""), func(k string) string { return secrets[k] }); ok {
 			if len(cfg.Broker.Hosts) == 0 {
 				cfg.Broker.Hosts = r.Hosts
 			}

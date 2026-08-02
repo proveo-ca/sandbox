@@ -51,6 +51,7 @@ type Options struct {
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
 	ProviderDomains string
 	ReviewSocket    string
+	AuthVar         string
 	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
@@ -358,6 +359,9 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	}
 	if o.Provider != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER="+o.Provider)
+	}
+	if o.AuthVar != "" {
+		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)
 	}
 	if o.ProviderDomains != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER_DOMAINS="+o.ProviderDomains)
