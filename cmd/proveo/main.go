@@ -1354,6 +1354,12 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 }
 
 func reviewPrompt(in io.Reader, out io.Writer, host, port string) bool {
+	if dbg := os.Getenv("PROVEO_REVIEW_DEBUG"); dbg != "" {
+		if f, err := os.OpenFile(dbg, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			fmt.Fprintf(f, "prompt entered host=%s port=%s\n", host, port)
+			defer func() { fmt.Fprintf(f, "prompt exited host=%s\n", host); _ = f.Close() }()
+		}
+	}
 	fmt.Fprintf(out, "\r\n%s%s  allow connection to %s:%s ? [y/N] %s",
 		ui.ANSIBold, ui.ANSI(ui.ColorBrand), host, port, ui.ANSIReset)
 	sc := bufio.NewScanner(in)

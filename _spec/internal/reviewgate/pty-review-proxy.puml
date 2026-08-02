@@ -128,11 +128,25 @@ note as SocketScope #FFF3F0
   ""Close"" unlinks the socket and its fallback directory. Go removes it on a
   clean close, but a killed run does not, and the strays accumulate.
 
-  **Still open:** the tier denies with a 403 rather than prompting. The gate
-  is reached and answers — ""CONNECT tunnel failed, response 403"" — and
-  ""Overlay"" reports no error, so the prompt is being drawn somewhere the
-  operator's terminal does not show. The PTY the agent runs on and the one
-  the overlay writes to are not yet proven to be the same.
+  **The unix-socket transport does not work on macOS.** Diagnosed by logging
+  ""reviewPrompt"" entry to a file: the log stays EMPTY while the CONNECT is
+  denied 403, so the gate is never consulted and ""AskOverSocket"" is failing
+  closed. The socket exists, the directory is bind-mounted, and the sidecar
+  has the right path — but a Linux container **cannot ""connect()"" to a unix
+  socket on a bind-mounted host path** under Docker Desktop or OrbStack. The
+  file is visible; the connection is not possible.
+
+  This works on Linux and fails closed on macOS, which is the worst shape for
+  a security gate: correct-looking on the maintainer's platform, silently
+  denying everything on half the fleet.
+
+  **The transport has to be portable.** Host loopback TCP is: the gate binds
+  ""127.0.0.1:<ephemeral>"" and the sidecar dials
+  ""host.docker.internal:<port>"" — Docker Desktop and OrbStack provide that
+  name, and Linux gets it from the ""--add-host=host.docker.internal:host-gateway""
+  that ""buildOpen"" already uses. A token in the request keeps it from being an
+  open local port. The socket path logic and its sun_path fallback then go away
+  entirely.
 end note
 
 @enduml
