@@ -52,6 +52,12 @@ type Options struct {
 	ProviderDomains string
 	ReviewSocket    string
 	AuthVar         string
+	// WriteHosts are every reachable provider's endpoints. The broker pins ONE
+	// provider for injection, but the policy must permit writes wherever the
+	// allowlist permits connections — otherwise Squid lets a host through and the
+	// inspector blocks it, which under review also surfaces as a consent prompt for
+	// a host that was already sanctioned.
+	WriteHosts []string
 	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
@@ -365,6 +371,9 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	}
 	if o.AuthVar != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)
+	}
+	if len(o.WriteHosts) > 0 {
+		c = append(c, "-e", "PROVEO_EGRESS_WRITE_HOSTS="+strings.Join(o.WriteHosts, ","))
 	}
 	if o.ProviderDomains != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER_DOMAINS="+o.ProviderDomains)

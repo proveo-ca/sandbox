@@ -589,6 +589,7 @@ func doRun(p runParams) error {
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		reviewSocket: reviewSocket,
+		writeHosts:   reachableHosts(detected),
 		modelsDir:    modelsDir, provider: providerName, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
@@ -691,6 +692,19 @@ func joinDomains(env string, hosts []string) string {
 	parts := strings.Fields(env)
 	parts = append(parts, hosts...)
 	return strings.Join(parts, " ")
+}
+
+// reachableHosts collects the endpoints of every provider the allowlist admits.
+// Reach and injection are separate questions: the broker pins one provider, but a
+// session may call any provider whose key is present.
+func reachableHosts(detected []string) []string {
+	var out []string
+	for _, name := range detected {
+		if e, ok := provider.Lookup(name); ok {
+			out = append(out, e.Hosts...)
+		}
+	}
+	return out
 }
 
 func filterProviders(detected []string, c manifest.Capabilities) []string {
@@ -1227,8 +1241,9 @@ type assembleInput struct {
 	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
-	pidsLimit                           int    // host/tier-resolved --pids-limit
-	reviewSocket                        string // review tier: host path of the consent gate socket
+	pidsLimit                           int      // host/tier-resolved --pids-limit
+	reviewSocket                        string   // review tier: host path of the consent gate socket
+	writeHosts                          []string // endpoints of every provider the allowlist admits
 }
 
 // assemble builds the egress plan and the agent's docker-run config from resolved
@@ -1243,6 +1258,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		ProviderDomains: in.providerDomains,
 		ReviewSocket:    in.reviewSocket,
 		AuthVar:         in.params.authVar,
+		WriteHosts:      in.writeHosts,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),

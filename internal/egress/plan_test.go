@@ -373,3 +373,25 @@ func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {
 		t.Error("the allowlist tier must carry no review wiring at all")
 	}
 }
+
+// Squid admits every detected provider, so the inspector must permit writes to
+// the same set. Narrowing the policy to the PINNED provider means Squid lets a
+// host through and the MITM blocks it — and under review that surfaces as a
+// consent prompt for a host the allowlist already sanctioned.
+func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
+	t.Parallel()
+	o := baseOpts("allowlist")
+	o.Provider = "anthropic" // pinned for injection
+	o.WriteHosts = []string{".anthropic.com", ".moonshot.ai", ".kimi.com"}
+	p, err := BuildPlan(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Render()
+	if !strings.Contains(got, "PROVEO_EGRESS_WRITE_HOSTS=.anthropic.com,.moonshot.ai,.kimi.com") {
+		t.Errorf("inspector did not receive every reachable host:\n%s", got)
+	}
+	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDER=anthropic") {
+		t.Error("the pin should still be a single provider")
+	}
+}
