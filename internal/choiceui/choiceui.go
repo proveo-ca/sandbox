@@ -243,14 +243,33 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		y += 2
 	}
 
+	dividerDone := false
 	for i, r := range f.Rows {
+		// The safety axis above orders the POLICY rows only. Add-ons are unordered
+		// toggles, so a centred divider closes that axis rather than letting the
+		// legend appear to govern the whole prompt.
+		if r.Multi && !dividerDone {
+			dividerDone = true
+			label := " " + r.Label + " "
+			pad := (72 - len([]rune(label))) / 2
+			if pad < 0 {
+				pad = 0
+			}
+			y++
+			put(pad, dim, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
+			y += 2
+		}
 		marker := "  "
 		style := tcell.StyleDefault
 		if i == cursor {
 			marker = "› "
 			style = bold
 		}
-		put(0, style, marker+r.Label)
+		rowLabel := r.Label
+		if r.Multi && dividerDone {
+			rowLabel = ""
+		}
+		put(0, style, marker+rowLabel)
 		x := 22
 		for j, opt := range r.Options {
 			var glyph string

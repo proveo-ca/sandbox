@@ -204,3 +204,42 @@ func TestSafetyAxisLegend(t *testing.T) {
 		t.Errorf("checkbox-only prompt should have no axis legend:\n%s", o)
 	}
 }
+
+// The safety axis governs the POLICY rows only. A centred divider closes it so the
+// legend does not appear to order the add-on toggles, which are unordered.
+func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: make([]bool, 2)},
+	}}
+	lines := render(t, f)
+	out := strings.Join(lines, "\n")
+
+	var axisRow, divRow, addonRow = -1, -1, -1
+	for i, l := range lines {
+		switch {
+		case strings.Contains(l, "riskier"):
+			axisRow = i
+		case strings.Contains(l, "─ add-ons ─"):
+			divRow = i
+		case strings.Contains(l, "[ ] browser"):
+			addonRow = i
+		}
+	}
+	if divRow < 0 {
+		t.Fatalf("no centred add-ons divider rendered:\n%s", out)
+	}
+	if axisRow >= divRow || divRow >= addonRow {
+		t.Errorf("order = axis:%d divider:%d addons:%d, want the divider between them", axisRow, divRow, addonRow)
+	}
+	// The divider names the section, so the row must not repeat the label.
+	if strings.Contains(lines[addonRow], "add-ons") {
+		t.Errorf("add-ons label repeated on its row: %q", lines[addonRow])
+	}
+	// It should be indented, not flush left like the policy labels.
+	if i := strings.Index(lines[divRow], "─"); i < 10 {
+		t.Errorf("divider starts at column %d — not centred", i)
+	}
+}
