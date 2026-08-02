@@ -55,6 +55,8 @@ var entries = []Entry{
 		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
 	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
 		ACL: "dstdomain .moonshot.ai", Hosts: []string{".moonshot.ai"}, Auth: bearer("MOONSHOT_API_KEY")},
+	{Name: "zai", Detect: []string{"ZAI_API_KEY", "ZHIPUAI_API_KEY"},
+		ACL: "dstdomain .z.ai .bigmodel.cn", Hosts: []string{".z.ai", ".bigmodel.cn"}, Auth: bearer("ZAI_API_KEY")},
 	{Name: "xai", Detect: []string{"XAI_API_KEY"},
 		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
 	{Name: "google", Detect: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},

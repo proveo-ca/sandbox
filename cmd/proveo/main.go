@@ -628,8 +628,13 @@ func doRun(p runParams) error {
 			defer stopSig()
 			return execAgentWithProxy(agent, reviewProxy)
 		}
+		// The broker pins ONE provider for injection; the allowlist covers every one
+		// the harness can reach. Collapsing the allowlist onto the pin would block a
+		// session that switches model mid-run to another provider — reach and
+		// injection are different questions. A vendor-locked harness (manifest
+		// provider:) is the exception: its allowlist is deliberately just its vendor.
 		squidProviders := detected
-		if providerName != "" {
+		if strings.TrimSpace(man.Provider) != "" && providerName != "" {
 			squidProviders = []string{providerName}
 		}
 		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar, reviewProxy)
