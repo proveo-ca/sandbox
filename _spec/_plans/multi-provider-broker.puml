@@ -1,0 +1,84 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLAN — multi-provider broker: one route table, no pinned provider
+
+node "TODAY — one pin, N-1 sentinels" as NOW <<error>> {
+  component "broker.Config\nHosts · Header · Value\nONE provider" as OLD <<app>>
+  component "modelPinnedProvider\nheuristic chooses the pin" as PIN <<app>>
+  component "ambiguousBareIDs\nrefuses to guess" as AMB <<app>>
+  component "container holds\nproveo-brokered for\nEVERY other key" as SENT <<error>>
+}
+
+node "PLANNED — a route per provider" as NEW <<host>> {
+  component "broker.Config\nRoutes []Route · Strip" as CFG <<app>>
+  component "Route\nHosts · Header · Query · Value" as RT <<app>>
+  component "Apply(req)\nmatch host -> inject that route\nno match -> strip" as APPLY <<app>>
+}
+
+database "inject/broker.env\nalready holds EVERY key\n0600, outside every agent mount" as ENV <<db>>
+
+OLD ARROW_MAIN PIN : needs exactly one
+PIN ARROW_OPTIONAL AMB
+OLD ARROW_ERROR SENT : the bug the operator sees
+CFG ARROW_MAIN RT : one per detected provider
+RT ARROW_MAIN APPLY
+ENV ARROW_MAIN CFG : the file is already right
+
+note bottom of SENT
+  **The failure this removes.** ""ARCHITECT_MODEL=kimi-3"" with
+  ""EDITOR_MODEL=grok-4.5"" needs moonshot AND xai in one session.
+  Whichever gets pinned wins; the other receives the literal
+  ""proveo-brokered"" and the harness reports an invalid API key.
+  Nothing in the topology is wrong — the config shape simply
+  cannot express two providers.
+end note
+
+note right of APPLY
+  **The invariant that makes this safe.** A key is injected only on a
+  request whose destination matches ITS OWN route. Provider A's secret
+  can never appear on a request to provider B — the same property the
+  single-pin broker had, applied N times rather than once.
+
+  Off-route requests still strip ""DefaultStripHeaders"". Unchanged.
+
+  Route matching stays suffix-based on the verified host, so the
+  existing ""isProviderHost"" logic is reused per route rather than
+  reimplemented.
+end note
+
+note as Blast #F4F9FB
+  **The honest tradeoff.** Blast radius widens from one provider's budget
+  to N. It is a smaller step than it looks:
+
+  * **Reach was already N.** The Squid allowlist covers every detected
+    provider, because a session may switch model mid-run. Only the
+    //credential// was pinned.
+  * **""forward"" is strictly worse** and is the current workaround — it puts
+    all N real keys inside the container.
+
+  So this lands between the two, and is the first posture that both serves
+  a multi-provider session AND keeps every key out of the container.
+
+  **Narrowing stays available**: ""--providers moonshot,xai"" restricts the
+  route table explicitly. Opt-in, not a heuristic.
+end note
+
+note bottom of AMB
+  **What this deletes.** ""modelPinnedProvider"" and ""ambiguousBareIDs"" exist
+  ONLY because injection needed a single winner. With a route per provider
+  there is nothing to disambiguate: a model id that cannot be attributed
+  no longer breaks a run.
+
+  Their remaining use is advisory — see the model catalog plan — where a
+  wrong guess costs a warning instead of a 401. Heuristics belong on the
+  warning path, never on the credential path. This codebase has now been
+  bitten twice by one on the credential path.
+end note
+
+note bottom of ENV
+  **No new secret handling.** ""writeBrokerEnv"" already writes every detected
+  key to this file; only the reader's config shape changes. The DLP scanner
+  improves for free: it can require each secret to appear only toward its
+  own provider's hosts, instead of scanning against a single pin.
+end note
+@enduml
