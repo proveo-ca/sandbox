@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
@@ -117,13 +119,19 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		t.Fatal(err)
 	}
 
+	// Seed the choice cache so no prompt appears: this test is about the dotenv
+	// credential path, not the first-run form (agent_settings_test covers that).
+	// An e2e that has to drive another feature's UI fails for reasons unrelated
+	// to what it asserts.
+	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
+
 	forceClean(proveoBin)
 	beforeEgress := containersWithSuffix("-egress")
 	beforeAgent := dockerIDsByAncestor("ubuntu:24.04")
 	sess := tmux.New(fmt.Sprintf("proveo-dotenv-%s-%d", target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceClean(proveoBin)
+		forceCleanIfCrowded(proveoBin)
 	})
 
 	// Remove every provider detection variable so the provider can only be
@@ -148,7 +156,6 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		"PROVEO_HOME="+filepath.Join(home, "proveo"),
 		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
 		"PROVEO_AUTO_PROVISION=1",
-		"PROVEO_WIZARD=off",
 		proveoBin, "run", target,
 		"--image", "ubuntu:24.04",
 		"--egress-mode", "firewall",
@@ -158,15 +165,6 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start %s session: %v", target, err)
 	}
-	// Both manifests offer optional capabilities on a TTY. Continue without them.
-	if _, err := sess.WaitFor("tab to add", 30*time.Second); err != nil {
-		screen, _ := sess.Capture()
-		t.Fatalf("%s capability picker: %v\n--- screen ---\n%s", target, err, screen)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("%s capability picker enter: %v", target, err)
-	}
-
 	egress := waitForNewContainer(t, beforeEgress, "-egress", 5*time.Minute, sess)
 	brokerDir, ok := mountSource(egress, "/broker")
 	if !ok {
@@ -226,9 +224,11 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
-	// Non-interactive usage disables the first-run choice prompt and takes the
-	// manifest defaults — the same posture CI and cron need.
-	kv := []string{"env", "PROVEO_WIZARD=off"}
+	// An isolated HOME is what makes driving the prompt deterministic: the first
+	// run of a harness prompts and caches the answer, so a shared HOME would leak
+	// into the developer's real settings AND skip the prompt on every later run.
+	home := t.TempDir()
+	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t)}
 	for _, k := range keys {
 		v := randToken()
 		want[k] = v
@@ -242,7 +242,7 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	sess := tmux.New(fmt.Sprintf("proveo-cred-egress-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceClean(proveoBin)
+		forceCleanIfCrowded(proveoBin)
 		rmByAncestor("proveo/claudecode:latest")
 	})
 
@@ -255,6 +255,16 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 		proveoBin, "run", "claudecode", "--egress-mode", "allowlist", "--shell", "--input", work)
 	if err := sess.Start(200, 50, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
+	}
+	// First run of this harness raises the choice prompt. Drive it rather than
+	// disabling the wizard: this is the path a person actually takes, and the
+	// accepted defaults are the tier this test is about.
+	if _, err := sess.WaitFor("choose once", 60*time.Second); err != nil {
+		screen, _ := sess.Capture()
+		t.Fatalf("choice prompt did not appear: %v\n--- screen ---\n%s", err, screen)
+	}
+	if err := sess.Enter(); err != nil {
+		t.Fatalf("accept choice prompt: %v", err)
 	}
 
 	egress := waitForNewContainer(t, before, "-egress", 120*time.Second, sess)
@@ -335,6 +345,33 @@ func runPrintErr(t *testing.T, proveoBin, target string, extra ...string) (strin
 	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// seedAgentSettings pre-writes ~/.proveo/agent-settings.yml for target so the
+// run enters its cached choice instead of prompting. The fingerprint is computed
+// from the def's real capabilities, so this stays correct if they change.
+func seedAgentSettings(t *testing.T, proveoHome, target, egressMode, credentials string) {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	var caps manifest.Capabilities
+	found := false
+	for _, m := range ms {
+		if _, ok := m.Images[target]; ok {
+			caps, found = m.Capabilities, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no manifest declares target %q", target)
+	}
+	st := &agentsettings.Store{}
+	st.Remember(target, caps, agentsettings.Choice{Egress: egressMode, Credentials: credentials})
+	if err := st.Save(proveoHome); err != nil {
+		t.Fatalf("seed agent settings: %v", err)
+	}
 }
 
 // ── helpers ─────────────────────────────────────────────────
@@ -447,6 +484,20 @@ func repoRoot(t *testing.T) string {
 }
 
 func forceClean(proveoBin string) { _ = exec.Command(proveoBin, "clean", "--force").Run() }
+
+// forceCleanIfCrowded is the per-test teardown: `proveo clean --force` removes
+// EVERY proveo container, so running it after each test can tear down a sibling
+// still coming up. Below a small threshold that risk outweighs the benefit —
+// leave them for the suite-level clean and only sweep when they accumulate.
+const cleanThreshold = 10
+
+func forceCleanIfCrowded(proveoBin string) {
+	out, err := exec.Command("docker", "ps", "-aq", "--filter", "label=proveo.egress.session").Output()
+	if err != nil || len(strings.Fields(string(out))) < cleanThreshold {
+		return
+	}
+	forceClean(proveoBin)
+}
 
 func rmByAncestor(image string) {
 	if out, err := exec.Command("docker", "ps", "-aq", "--filter", "ancestor="+image).Output(); err == nil {

@@ -7,6 +7,7 @@
 // Not every provider is broker-injectable: signed-request providers
 // (Bedrock/Azure/Vertex) are detectable and get a Squid ACL, but have no static
 // auth header to inject, so Resolve reports them as non-injectable.
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import "strings"
