@@ -259,11 +259,27 @@ func TestBuildPlanInvariants(t *testing.T) {
 		}
 	})
 
-	t.Run("local model bypasses the proxy via NO_PROXY", func(t *testing.T) {
+	// Asserts membership, not a literal: the exempt list is order-independent and
+	// has grown. Loopback matters in EVERY proxied mode — an agent asked about
+	// http://localhost:3000 must not send that request to the MITM, which would
+	// resolve localhost in its own namespace.
+	t.Run("the proxy is bypassed for loopback and the ollama sidecar", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withModel(baseOpts("allowlist"), "gemma4"))
-		if j := strings.Join(p.AgentArgs, " "); !strings.Contains(j, "NO_PROXY=ollama") {
-			t.Errorf("local-model AgentArgs must set NO_PROXY for ollama; got %q", j)
+		for _, tc := range []struct {
+			name string
+			opts Options
+		}{
+			{"local model", withModel(baseOpts("allowlist"), "gemma4")},
+			{"no local model", baseOpts("allowlist")},
+			{"review", baseOpts("review")},
+		} {
+			p, _ := BuildPlan(tc.opts)
+			j := strings.Join(p.AgentArgs, " ")
+			for _, host := range []string{"localhost", "127.0.0.1", "ollama"} {
+				if !strings.Contains(noProxyValue(j), host) {
+					t.Errorf("%s: NO_PROXY must exempt %s; got %q", tc.name, host, j)
+				}
+			}
 		}
 	})
 
@@ -394,4 +410,19 @@ func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDER=anthropic") {
 		t.Error("the pin should still be a single provider")
 	}
+}
+
+// noProxyValue extracts the NO_PROXY value from a flattened arg string so the
+// assertion tests the exempt SET rather than the literal the code happens to emit.
+func noProxyValue(joined string) string {
+	const key = "NO_PROXY="
+	i := strings.Index(joined, key)
+	if i < 0 {
+		return ""
+	}
+	rest := joined[i+len(key):]
+	if j := strings.Index(rest, " "); j >= 0 {
+		return rest[:j]
+	}
+	return rest
 }

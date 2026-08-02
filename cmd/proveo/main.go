@@ -39,6 +39,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/reviewgate"
+	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -270,6 +271,19 @@ func doRun(p runParams) error {
 	sid := fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
 	egDir := filepath.Join(stateDir(), "egress", sid)
 
+	// Open the transcript before anything can fail, so a run that dies during setup
+	// still leaves a record. A logging failure is reported once and then ignored:
+	// losing the transcript must never stop the run.
+	rl, logErr := runlog.Open(sid)
+	if logErr != nil {
+		ui.Warnf("run log unavailable: %v", logErr)
+	} else {
+		ui.TeeTo(rl.Writer())
+		defer rl.Close()
+		rl.Artifacts(egDir)
+		ui.Iconf("📝", "run log: %s", rl.Path())
+	}
+
 	// The harness's mount model comes from its manifest (workspace layout).
 	man, err := manifestForTarget(p.target)
 	if err != nil {
@@ -481,6 +495,20 @@ func doRun(p runParams) error {
 	if reason := brokerOffReason(p.forwards(), providerName, detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
+	rl.Fields("resolved posture", map[string]string{
+		"target":          p.target,
+		"egress tier":     p.mode,
+		"credentials":     p.credentialsOrDefault(),
+		"add-ons":         strings.Join(p.addons, ","),
+		"detected keys":   strings.Join(detected, ","),
+		"broker pin":      providerName,
+		"reachable hosts": strings.Join(reachableHosts(detected), ","),
+		"harness hosts":   strings.Join(man.Capabilities.Hosts, ","),
+		"auth var":        p.authVar,
+		"local model":     p.localModel,
+		"observability":   observability(p.mode, p.credentialsOrDefault()),
+	})
+
 	var brokerFile string
 	if providerName != "" {
 		if p.printOnly {
@@ -1289,6 +1317,44 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 // execWithEgress stages only what the plan needs (C7), brings up the egress
 // topology, waits for readiness, runs the agent, then tears the topology down —
 // including on SIGINT/SIGTERM (C4), and removes the broker secret (C2).
+// captureSidecarLogs writes each egress sidecar's stdout+stderr into egDir so it
+// outlives the container. Best-effort throughout: this runs on the teardown path,
+// including after a failure, and must never be the reason a run reports an error.
+func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
+	for name, file := range map[string]string{
+		plan.ProxyContainer:  "inspector.log",
+		plan.SquidContainer:  "squid.log",
+		plan.OllamaContainer: "ollama.log",
+	} {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		out, err := exec.Command("docker", "logs", name).CombinedOutput()
+		if err != nil && len(out) == 0 {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join(egDir, file), out, 0o600)
+	}
+}
+
+// observability describes what evidence a posture can produce, recorded in the
+// transcript because it decides whether a failure is diagnosable at all.
+//
+// open + forward is the blind spot: it is a plain bridge with no MITM and no
+// Squid, so the real key goes straight to the provider and NOTHING records the
+// exchange. A provider's own 401 and an egress denial look identical from the
+// harness's side, and only one of them can happen here. Reproducing such a
+// failure under allowlist is what turns it into a flow record.
+func observability(mode, credentials string) string {
+	if mode == "open" && credentials == "forward" {
+		return "none — plain bridge, no MITM, no Squid: provider errors are NOT proveo denials"
+	}
+	if mode == "open" {
+		return "flows.ndjson (MITM only, no allowlist)"
+	}
+	return "flows.ndjson + squid access.log"
+}
+
 func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
 	r := egress.ExecRunner{Stderr: true}
 	// rq is the quiet runner for best-effort teardown and readiness probes: those
@@ -1306,6 +1372,12 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
+			// Capture the sidecars' output BEFORE teardown: they run detached with
+			// --rm, so `docker logs` is the only copy and it disappears with the
+			// container. This is the record that says WHICH component refused a
+			// request and why — without it a 403 is indistinguishable from a
+			// provider's own 401, which is exactly the confusion that motivated it.
+			captureSidecarLogs(rq, egDir, plan)
 			plan.Teardown(rq)
 			dindSidecar.Cleanup(dind.ExecRunner{})
 			_ = os.RemoveAll(filepath.Join(egDir, "inject")) // broker.env must not outlive the run

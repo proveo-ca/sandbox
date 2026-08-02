@@ -23,6 +23,7 @@ type Plan struct {
 	CAWaitPath      string    // host path to await before trusting the CA (firewall mode)
 	OllamaContainer string    // local-model sidecar to await before launching the agent
 	SquidContainer  string    // Squid sidecar to await (accepting on :3128) before the agent
+	ProxyContainer  string    // MITM inspector sidecar, named so its logs can be captured at teardown
 	UsesSquid       bool      // proxy/firewall stage a Squid config + logs dir
 	Images          []string  // every sidecar image, for the preflight (in add order)
 	// AgentNetwork names the user-defined Docker network the agent runs on, or ""
@@ -251,6 +252,7 @@ func buildOpen(o Options) Plan {
 	b.network(agentNet, true)
 	b.network(egressNet, false)
 	b.sidecar(proxyRun(o, agentNet, ""), proxyName(o))
+	b.p.ProxyContainer = proxyName(o)
 	b.p.Connects = append(b.p.Connects, netConnect(egressNet, proxyName(o)))
 	b.p.AgentArgs = append(b.p.AgentArgs, "--network", agentNet, "--dns", dnsBlackhole,
 		"-e", "INSPECT_PROXY="+inspectProxyURL)
@@ -277,6 +279,7 @@ func buildEnforced(o Options) Plan {
 	b.sidecar(squidRun(o, egressNet), squidName(o))
 	b.p.SquidContainer = squidName(o)
 	b.sidecar(proxyRun(o, agentNet, squidUpstream), proxyName(o))
+	b.p.ProxyContainer = proxyName(o)
 	b.p.Connects = append(b.p.Connects,
 		netConnectAlias(enforceNet, squidName(o), "squid"),
 		netConnect(enforceNet, proxyName(o)),
@@ -410,8 +413,20 @@ func proxyEnvArgs(o Options, proxyURL string) []string {
 		"-e", "PROVEO_EGRESS_MODE=" + o.Mode,
 		"-e", "HTTP_PROXY=" + proxyURL, "-e", "HTTPS_PROXY=" + proxyURL,
 		"-e", "http_proxy=" + proxyURL, "-e", "https_proxy=" + proxyURL,
+		// Loopback must never be proxied. Without this, an agent asked about
+		// http://localhost:6006 sends that request to the MITM, which resolves
+		// localhost in ITS OWN namespace — so the operator's dev server is
+		// unreachable and a request that should never have left the container
+		// does. localModelArgs sets the same list for the Ollama sidecar; this
+		// is the floor that applies whether or not --local-model is in play.
+		"-e", "NO_PROXY=" + noProxyHosts, "-e", "no_proxy=" + noProxyHosts,
 	}
 }
+
+// noProxyHosts are the destinations that bypass HTTP_PROXY: the agent's own
+// loopback and the Docker host alias. Not an egress hole — nothing here leaves
+// the container's network namespace.
+const noProxyHosts = "localhost,127.0.0.1,::1,ollama,host.docker.internal"
 
 func caTrustArgs(confDir string) []string {
 	return []string{
@@ -449,8 +464,7 @@ func localModelArgs(model, base string) []string {
 		"-e", "ANTHROPIC_BASE_URL=" + base, "-e", "ANTHROPIC_AUTH_TOKEN=ollama",
 		"-e", "ANTHROPIC_API_KEY=",
 		"-e", "ANTHROPIC_MODEL=" + model, "-e", "ANTHROPIC_SMALL_FAST_MODEL=" + model,
-		"-e", "NO_PROXY=ollama,host.docker.internal,localhost,127.0.0.1",
-		"-e", "no_proxy=ollama,host.docker.internal,localhost,127.0.0.1",
+		"-e", "NO_PROXY=" + noProxyHosts, "-e", "no_proxy=" + noProxyHosts,
 	}
 }
 
