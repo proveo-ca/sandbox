@@ -166,3 +166,22 @@ func TestOnChangeFiresSoConstraintsStayLive(t *testing.T) {
 		t.Errorf("OnChange fired %d times after a change, want 1", calls)
 	}
 }
+
+// A gated option is unreachable by design — cycle() will not land on it — so the
+// row MUST say why, or the operator sees an unresponsive checkbox with no cause.
+func TestGatedOptionRendersItsReason(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true,
+		On: make([]bool, 2), Off: []bool{false, true},
+		Reason: "dind needs egress open + credentials forward",
+	}}}
+	if !strings.Contains(joined(t, f), "dind needs egress open") {
+		t.Errorf("a gated option must render its reason\n--- rendered ---\n%s", joined(t, f))
+	}
+	f.Rows[0].Selected = 0
+	f.cycle(0, +1)
+	if f.Rows[0].Selected != 0 {
+		t.Error("cycle must not land on a gated option")
+	}
+}

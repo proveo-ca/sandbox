@@ -26,6 +26,15 @@ func (r *Row) offAt(i int) bool { return i < len(r.Off) && r.Off[i] }
 
 func (r *Row) onAt(i int) bool { return i < len(r.On) && r.On[i] }
 
+func (r *Row) anyOff() bool {
+	for _, off := range r.Off {
+		if off {
+			return true
+		}
+	}
+	return false
+}
+
 type Form struct {
 	Banner   []string
 	Title    string
@@ -244,7 +253,7 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			put(x, st, glyph+opt)
 			x += len(glyph) + len(opt) + 3
 		}
-		if r.Locked && r.Reason != "" {
+		if r.Reason != "" && (r.Locked || r.anyOff()) {
 			put(x, dim, "— "+r.Reason)
 		}
 		y++
