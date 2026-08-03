@@ -92,3 +92,54 @@ func TestSaveIsOwnerOnly(t *testing.T) {
 		t.Errorf("agent-settings.yml perm = %04o, want 0600", perm)
 	}
 }
+
+// TestModelsSurviveSaveAndLoad covers the round trip the run path relies on: a
+// session that set three roles must come back with them, so an operator does not
+// retype ARCHITECT_MODEL/EDITOR_MODEL/SMALL_MODEL on every run.
+func TestModelsSurviveSaveAndLoad(t *testing.T) {
+	root := t.TempDir()
+	caps := manifest.Capabilities{Egress: []string{"allowlist"}, Credentials: []string{"broker"}}
+
+	s, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Remember("opencode", caps, Choice{
+		Egress: "allowlist", Credentials: "broker",
+		Models: map[string]string{"main": "kimi-k3", "editor": "grok-4-5", "small": "grok-4-5-fast"},
+	})
+	if err := s.Save(root); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := again.Lookup("opencode", caps)
+	if !ok {
+		t.Fatal("entry did not survive the round trip")
+	}
+	for role, want := range map[string]string{"main": "kimi-k3", "editor": "grok-4-5", "small": "grok-4-5-fast"} {
+		if got.Models[role] != want {
+			t.Errorf("models[%s] = %q, want %q", role, got.Models[role], want)
+		}
+	}
+}
+
+// Models are the operator's choice, not a capability, so a manifest change must
+// discard the axes (which may no longer be valid) without being able to take the
+// model assignment with it — the entry is dropped as a whole, and the next run
+// re-reads the roles from the environment rather than inheriting a stale set.
+func TestModelsAreNotPartOfTheFingerprint(t *testing.T) {
+	caps := manifest.Capabilities{Egress: []string{"allowlist"}}
+	a := Fingerprint(caps)
+	b := Fingerprint(caps) // same capabilities, regardless of any model
+	if a != b {
+		t.Fatalf("fingerprint is not stable for identical capabilities: %q vs %q", a, b)
+	}
+	wider := Fingerprint(manifest.Capabilities{Egress: []string{"allowlist", "review"}})
+	if a == wider {
+		t.Error("a capability change must change the fingerprint")
+	}
+}

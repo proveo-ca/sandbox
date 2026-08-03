@@ -250,6 +250,7 @@ type runParams struct {
 	target, image, mode, credentials, localModel, input, output, scope, dataDir string
 	modeSet, credsSet                                                           bool
 	addons                                                                      []string
+	roles                                                                       provider.Roles
 	authVar                                                                     string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
@@ -380,6 +381,14 @@ func doRun(p runParams) error {
 		if p.authVar == "" {
 			p.authVar = cached.AuthVar
 		}
+		// Roles follow the same precedence as every other axis: explicit env or
+		// flag wins, then the remembered value, then unset. A remembered role is
+		// only applied when the operator set nothing, so a session never silently
+		// contradicts an ARCHITECT_MODEL they exported themselves.
+		p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
+	}
+	if p.roles == nil {
+		p.roles = provider.RolesFrom(lookup)
 	}
 	if !p.printOnly && wizardEnabled() && isStdinTTY() {
 		if err := p.promptChoices(man, lookup, gitRootOrEmpty(ws, repoRoot), settingsRoot); err != nil {
@@ -392,6 +401,7 @@ func doRun(p runParams) error {
 	if !p.printOnly {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
 			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
+			Models: p.roles.Canonical(),
 		})
 		if err := settings.Save(settingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -499,6 +509,12 @@ func doRun(p runParams) error {
 		ui.Iconf("🔐", "broker: %d providers injected at the egress layer (%s)",
 			len(brokered), strings.Join(brokered, ", "))
 	}
+	// Name the role and the variable. A role pointed at a provider with no key
+	// used to surface as the harness's own "invalid API key", which says nothing
+	// about which of three models was at fault.
+	for _, msg := range p.roles.MissingKeys(detected) {
+		ui.Warnf("%s", msg)
+	}
 	rl.Fields("resolved posture", map[string]string{
 		"target":          p.target,
 		"egress tier":     p.mode,
@@ -511,6 +527,8 @@ func doRun(p runParams) error {
 		"auth var":        p.authVar,
 		"local model":     p.localModel,
 		"observability":   observability(p.mode, p.credentialsOrDefault()),
+		"model roles":     rolesLine(p.roles),
+		"role providers":  strings.Join(p.roles.Providers(), ","),
 	})
 
 	var brokerFile string
@@ -1373,6 +1391,36 @@ func observability(mode, credentials string) string {
 		return "flows.ndjson (MITM only, no allowlist)"
 	}
 	return "flows.ndjson + squid access.log"
+}
+
+// mergeRoles fills roles the operator did not set from the remembered ones. A
+// remembered id that no longer resolves is kept rather than dropped: proveo
+// cannot know whether the catalog is behind or the model is gone, and the
+// harness gives the better error. It never overrides an explicit value.
+func mergeRoles(explicit provider.Roles, remembered map[string]string) provider.Roles {
+	out := provider.Roles{}
+	for k, v := range explicit {
+		out[k] = v
+	}
+	for k, v := range provider.RolesFromCanonical(remembered) {
+		if _, set := out[k]; !set {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// rolesLine renders the role assignment for the transcript and the prompt header.
+func rolesLine(r provider.Roles) string {
+	var parts []string
+	for _, kv := range r.Sorted() {
+		if p := provider.ModelProvider(kv[1]); p != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", kv[0], kv[1], p))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", kv[0], kv[1]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
