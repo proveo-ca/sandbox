@@ -66,8 +66,19 @@ Thumbs.db
 .cecli*
 .copilot*
 .opencode/
-.claude/
+# Project-scoped agent config IS shared: .claude/skills, agents, commands and
+# settings.json encode repo invariants a teammate needs. Only the machine-local
+# permission grants are ignored — they accumulate absolute paths from whatever
+# session wrote them.
+.claude/settings.local.json
+
+# .agents/ holds org-level skills sourced from proveo-ca (e.g. the `spec` diagram
+# conventions), not assets this repo owns. Vendoring them here would fork an
+# upstream asset into one consumer — the same reason `spec` includes the identity
+# palette remotely instead of copying it. .claude/skills/spec symlinks into that
+# tree, so the link is local too.
 .agents/
+.claude/skills/spec
 
 # --- Sample monorepo (self-contained for testing) ---
 !tests/e2e/samples/
