@@ -778,7 +778,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
-		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
+		Header: buildHeader(man, lookup, p.roles, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
 			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode)),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
@@ -1017,13 +1017,20 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-func buildHeader(man manifest.Manifest, lookup func(string) string, repoRoot, inputDir, homeRoot string) []string {
+func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {
 	if inputDir == "" {
 		inputDir = repoRoot
 	}
 	h := gitHeader(repoRoot)
 	h = append(h, choiceui.EnvHeader(loadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
-	return append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
+	h = append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
+	// Models are shown, not chosen: the grid holds closed choices and a model id
+	// is an open value. Reporting the resolved provider beside each role is what
+	// makes a keyless role visible before launch rather than after a failed call.
+	if line := rolesLine(roles); line != "" {
+		h = append(h, "🧠 "+line)
+	}
+	return h
 }
 
 func loadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
