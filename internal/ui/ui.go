@@ -34,6 +34,53 @@ func New(w io.Writer) *Printer {
 // Default is the process-wide status printer (stderr).
 var Default = New(os.Stderr)
 
+// TeeTo mirrors every Default status line into w as well as the terminal, so a run
+// leaves a transcript without changing what the operator sees. The tee is always
+// plain: a log full of escape sequences is a log nobody greps.
+func TeeTo(w io.Writer) {
+	if w == nil {
+		return
+	}
+	term := Default
+	Default = &Printer{W: multi{term: term.W, log: w}, Plain: term.Plain}
+	logOnly = &Printer{W: w, Plain: true}
+}
+
+// logOnly writes to the transcript without touching the terminal. Nil until TeeTo.
+var logOnly *Printer
+
+// Logf records a line in the transcript only — for facts worth having when
+// troubleshooting but too noisy to print on every run.
+func Logf(format string, a ...any) {
+	if logOnly != nil {
+		logOnly.Notef(format, a...)
+	}
+}
+
+// multi writes to the terminal with its styling intact and to the log stripped of
+// escape sequences.
+type multi struct{ term, log io.Writer }
+
+func (m multi) Write(p []byte) (int, error) {
+	n, err := m.term.Write(p)
+	_, _ = m.log.Write(stripANSI(p))
+	return n, err
+}
+
+func stripANSI(p []byte) []byte {
+	out := make([]byte, 0, len(p))
+	for i := 0; i < len(p); i++ {
+		if p[i] == 0x1b {
+			for i < len(p) && p[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		out = append(out, p[i])
+	}
+	return out
+}
+
 func isFancy(w io.Writer) bool {
 	if os.Getenv("TERM") == "dumb" || os.Getenv("NO_COLOR") != "" {
 		return false

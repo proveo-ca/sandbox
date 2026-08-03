@@ -1,0 +1,64 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Run transcript — making a denial diagnosable after the fact
+
+node "PROVEO_HOME/logs" as HOME <<host>> {
+  artifact "<sid>.log\nposture + teed status lines" as LOG <<db>>
+  artifact "latest.log\nsymlink to the newest run" as LATEST <<db>>
+}
+
+node "proveo run" as RUN <<host>> {
+  component "runlog.Open(sid)\nfirst statement in doRun" as OPEN <<app>>
+  component "ui.TeeTo\nstatus lines, ANSI stripped" as TEE <<app>>
+  component "rl.Fields\nresolved posture" as FIELDS <<app>>
+  component "captureSidecarLogs\nteardown, before --rm" as CAP <<app>>
+}
+
+database "egress state dir\nflows.ndjson · squid/logs\ninspector.log · squid.log" as EG <<db>>
+
+OPEN ARROW_MAIN LOG : create 0600
+OPEN ARROW_OPTIONAL LATEST : relink
+TEE ARROW_MAIN LOG
+FIELDS ARROW_MAIN LOG
+CAP ARROW_MAIN EG : docker logs → file
+LOG ARROW_OPTIONAL EG : records where the evidence lives
+
+note right of OPEN
+  **Opened before anything can fail.** A run that dies during
+  bring-up is exactly the one worth a transcript, so the file
+  exists before the manifest is read. A logging failure warns
+  once and is then ignored: losing the transcript must never
+  be the reason a run stops.
+end note
+
+note bottom of CAP
+  **Why teardown is the only chance.** The inspector and Squid run
+  detached with ""--rm"", so ""docker logs"" is the sole copy and it
+  disappears with the container. Capturing at teardown is what lets
+  an operator tell a proveo denial from a provider's own 401 —
+  the two are indistinguishable from the harness's side.
+end note
+
+note as Blind #F4F9FB
+  **The blind spot the transcript names explicitly.**
+
+  ""open"" + ""forward"" returns a plain-bridge plan: no MITM, no Squid,
+  the real key straight to the provider. Nothing observes that
+  exchange, so there is no ""flows.ndjson"" to consult and a provider
+  error CANNOT be an egress denial.
+
+  ""observability"" is therefore recorded alongside the posture, and
+  says so in words. Reproducing the failure under ""allowlist"" is what
+  converts it into a flow record.
+end note
+
+note right of FIELDS
+  **Names and hosts only, never values.** The transcript records which
+  provider was pinned, which keys were detected, which hosts were
+  reachable — never a secret. Keys are meant to stay in the egress
+  layer, and a troubleshooting file is not an exception.
+
+  Fields are sorted so two runs of the same command diff to only what
+  actually differed.
+end note
+@enduml

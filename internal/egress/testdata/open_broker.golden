@@ -6,7 +6,7 @@ docker run -d --rm --name proveo-sess-egress --user 1000:1000 --cap-drop=ALL --s
 # connects
 docker network connect proveo-sess-open-egress-net proveo-sess-egress
 # agent-args
---network proveo-sess-claudecode-mcp-open-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e PROVEO_EGRESS_SESSION_ID=proveo-sess -e PROVEO_EGRESS_MODE=open -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -v /state/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem
+--network proveo-sess-claudecode-mcp-open-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e PROVEO_EGRESS_SESSION_ID=proveo-sess -e PROVEO_EGRESS_MODE=open -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v /state/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem
 # ca-wait
 /state/mitmproxy/confdir/mitmproxy-ca-cert.pem
 # cleanup

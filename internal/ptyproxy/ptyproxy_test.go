@@ -140,3 +140,30 @@ func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	}
 	_ = cmd.Process.Kill()
 }
+
+// tcell must read through the pump's hand-off, never /dev/tty. A screen that
+// opens the tty itself becomes a second reader: the modal renders and then takes
+// no keystrokes, which is what a real run showed.
+func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
+	t.Parallel()
+	fed := make(chan []byte, 1)
+	fed <- []byte("y")
+	close(fed)
+
+	p := New(os.Stdin, os.Stdout)
+	tty := &OverlayTty{in: &chanReader{ch: fed}, out: os.Stdout, fd: p.fd()}
+
+	buf := make([]byte, 1)
+	n, err := tty.Read(buf)
+	if err != nil || n != 1 || buf[0] != 'y' {
+		t.Fatalf("tty.Read = (%d,%q,%v), want the byte handed over by the pump", n, buf[:n], err)
+	}
+	// Close must not touch the proxy's files: they outlive the modal.
+	if err := tty.Close(); err != nil {
+		t.Errorf("Close = %v, want nil (the proxy owns these files)", err)
+	}
+	w, h, err := tty.WindowSize()
+	if err != nil || w <= 0 || h <= 0 {
+		t.Errorf("WindowSize = (%d,%d,%v), want a usable fallback even off a tty", w, h, err)
+	}
+}

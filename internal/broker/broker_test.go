@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -31,21 +32,21 @@ func TestApply(t *testing.T) {
 	}{
 		{
 			name:        "inject on provider host replaces sentinel",
-			cfg:         Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "sk-ant-REAL"},
+			cfg:         Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "sk-ant-REAL"}}},
 			url:         "https://api.anthropic.com/v1/messages",
 			reqHeaders:  map[string]string{"x-api-key": "sentinel"},
 			wantHeaders: http.Header{"X-Api-Key": {"sk-ant-REAL"}},
 		},
 		{
 			name:        "strip credentials off-provider, keep others",
-			cfg:         Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "sk-ant-REAL"},
+			cfg:         Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "sk-ant-REAL"}}},
 			url:         "https://evil.example.com/collect",
 			reqHeaders:  map[string]string{"x-api-key": "sk-ant-REAL", "authorization": "Bearer x", "content-type": "application/json"},
 			wantHeaders: http.Header{"Content-Type": {"application/json"}},
 		},
 		{
 			name:        "pass provider auth through when no value to inject",
-			cfg:         Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", Strip: DefaultStripHeaders},
+			cfg:         Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key"}}, Strip: DefaultStripHeaders},
 			url:         "https://api.anthropic.com/v1/messages",
 			reqHeaders:  map[string]string{"x-api-key": "agents-own-key"},
 			wantHeaders: http.Header{"X-Api-Key": {"agents-own-key"}},
@@ -59,7 +60,7 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name:        "default strip applied off-provider when injecting",
-			cfg:         Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "K"},
+			cfg:         Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "K"}}},
 			url:         "https://evil.com/x",
 			reqHeaders:  map[string]string{"x-goog-api-key": "leak"},
 			wantHeaders: http.Header{},
@@ -83,7 +84,7 @@ func TestApply(t *testing.T) {
 
 func TestApplyInjectsQueryParam(t *testing.T) {
 	t.Parallel()
-	b, err := New(Config{Hosts: []string{"generativelanguage.googleapis.com"}, Query: "key", Value: "GKEY"})
+	b, err := New(Config{Routes: []Route{{Provider: "google", Hosts: []string{"generativelanguage.googleapis.com"}, Query: "key", Value: "GKEY"}}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestApplyInjectsQueryParam(t *testing.T) {
 
 func TestIsProviderHost(t *testing.T) {
 	t.Parallel()
-	b, _ := New(Config{Hosts: []string{".anthropic.com", "openrouter.ai"}, Strip: []string{"authorization"}})
+	b, _ := New(Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com", "openrouter.ai"}}}, Strip: []string{"authorization"}})
 	tests := []struct {
 		host string
 		want bool
@@ -115,7 +116,7 @@ func TestIsProviderHost(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.host, func(t *testing.T) {
 			t.Parallel()
-			if got := b.isProviderHost(tc.host); got != tc.want {
+			if got := b.onRoute(tc.host); got != tc.want {
 				t.Errorf("isProviderHost(%q) = %v, want %v", tc.host, got, tc.want)
 			}
 		})
@@ -124,7 +125,7 @@ func TestIsProviderHost(t *testing.T) {
 
 func TestApplyRecognizesHostFromPortAndProxyShape(t *testing.T) {
 	t.Parallel()
-	b, _ := New(Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "K"})
+	b, _ := New(Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key", Value: "K"}}})
 
 	withPort := newRequest(t, "POST", "https://api.anthropic.com:443/v1/messages", nil)
 	b.Apply(withPort)
@@ -150,7 +151,7 @@ func TestNewReadsValueFileTrimmingNewline(t *testing.T) {
 	if err := os.WriteFile(vf, []byte("sk-ant-REAL\n"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
-	b, err := New(Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key", ValueFile: vf})
+	b, err := New(Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key", ValueFile: vf}}})
 	if err != nil {
 		t.Fatalf("New(ValueFile): %v", err)
 	}
@@ -167,7 +168,7 @@ func TestNewReadsValueFileTrimmingNewline(t *testing.T) {
 // A provider configured with no injectable value must still STRIP off-provider
 // (degrade to strip + pass-through), not go inert. Regression guard for S3.
 func TestBrokerStripsWithoutValue(t *testing.T) {
-	b, err := New(Config{Hosts: []string{".anthropic.com"}, Header: "x-api-key"}) // no Value
+	b, err := New(Config{Routes: []Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Header: "x-api-key"}}}) // no Value
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,5 +189,71 @@ func TestBrokerStripsWithoutValue(t *testing.T) {
 	b.Apply(on)
 	if on.Header.Get("x-api-key") != "agents-own-key" {
 		t.Error("on-provider request must pass the agent's own credential through untouched")
+	}
+}
+
+// TestMultiProviderRoutes is the regression for the failure the route table
+// exists to fix: a session whose roles span vendors — ARCHITECT_MODEL on
+// moonshot, EDITOR_MODEL on xai — needs both keys injected in one run. With a
+// single pinned provider one of them received the "proveo-brokered" sentinel and
+// the harness reported an invalid API key.
+func TestMultiProviderRoutes(t *testing.T) {
+	b, err := New(Config{Routes: []Route{
+		{Provider: "moonshot", Hosts: []string{".moonshot.ai", ".kimi.com"}, Header: "authorization", Value: "Bearer sk-moon"},
+		{Provider: "xai", Hosts: []string{".x.ai"}, Header: "authorization", Value: "Bearer sk-xai"},
+	}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := b.InjectingProviders(); len(got) != 2 {
+		t.Fatalf("both providers must inject; got %v", got)
+	}
+
+	for _, tc := range []struct{ host, want string }{
+		{"api.moonshot.ai", "Bearer sk-moon"},
+		{"api.kimi.com", "Bearer sk-moon"}, // second suffix of the same route
+		{"api.x.ai", "Bearer sk-xai"},
+	} {
+		req, _ := http.NewRequest("POST", "https://"+tc.host+"/v1/chat", nil)
+		b.Apply(req)
+		if got := req.Header.Get("authorization"); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.host, got, tc.want)
+		}
+	}
+
+	// The invariant that makes N routes no worse than one: a provider's secret is
+	// never attached to another provider's request.
+	req, _ := http.NewRequest("POST", "https://api.x.ai/v1/chat", nil)
+	b.Apply(req)
+	if strings.Contains(req.Header.Get("authorization"), "moon") {
+		t.Error("moonshot's key leaked onto an xai request")
+	}
+
+	// Off-route is still stripped, with two routes as with one.
+	off, _ := http.NewRequest("POST", "https://evil.example/collect", nil)
+	off.Header.Set("authorization", "Bearer sk-moon")
+	off.Header.Set("x-api-key", "sk-xai")
+	b.Apply(off)
+	if off.Header.Get("authorization") != "" || off.Header.Get("x-api-key") != "" {
+		t.Errorf("off-route credentials survived: %v", off.Header)
+	}
+}
+
+// TestRouteWithoutSecretPassesThrough covers the mixed case a multi-provider
+// session makes common: one provider has a brokered key, another is present but
+// not injectable (a signed-request provider). The injectable one must still
+// inject, and the other must keep the agent's own credential rather than have it
+// stripped — being on-route is what exempts it.
+func TestRouteWithoutSecretPassesThrough(t *testing.T) {
+	b, _ := New(Config{Routes: []Route{
+		{Provider: "moonshot", Hosts: []string{".moonshot.ai"}, Header: "authorization", Value: "Bearer sk-moon"},
+		{Provider: "bedrock", Hosts: []string{".amazonaws.com"}}, // detectable, not injectable
+	}})
+	req, _ := http.NewRequest("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/model", nil)
+	req.Header.Set("authorization", "AWS4-HMAC-SHA256 Credential=...")
+	b.Apply(req)
+	if !strings.HasPrefix(req.Header.Get("authorization"), "AWS4-HMAC") {
+		t.Errorf("a non-injectable route must pass the agent's own credential through; got %q",
+			req.Header.Get("authorization"))
 	}
 }

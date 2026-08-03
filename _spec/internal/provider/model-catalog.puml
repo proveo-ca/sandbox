@@ -1,0 +1,92 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLAN — model catalog: one canonical id, four harness dialects, three roles
+
+node "proveo host" as HOST <<host>> {
+  component "canonical id\nkimi-k3 · grok-4.5 · grok-4.5-fast" as CANON <<app>>
+  component "catalog\nid -> provider + per-harness id" as CAT <<app>>
+  component "role vars\nARCHITECT_MODEL · EDITOR_MODEL\nSMALL_MODEL" as ROLES <<app>>
+}
+
+folder "harness dialects — same model, four spellings" as DIA <<host>> {
+  component "cecli / aider\nlitellm: provider/model\nCECLI_* · AIDER_*" as CECLI <<app>>
+  component "opencode\nmodels.dev: provider/model\nOPENCODE_MODEL · _SMALL_MODEL" as OC <<app>>
+  component "claudecode\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
+  component "cursor\nvendor-pinned names\n--model, no override" as CUR <<error>>
+}
+
+component "sync-models skill\nfetch, never recall" as SYNC <<cloud>>
+
+CANON ARROW_MAIN CAT
+CAT ARROW_MAIN ROLES
+ROLES ARROW_MAIN CECLI : entrypoint translates
+ROLES ARROW_MAIN OC
+ROLES ARROW_MAIN CC
+ROLES ARROW_ERROR CUR : cannot be retargeted
+SYNC ARROW_CLOUD CAT : periodic, reviewed diff
+
+note right of ROLES
+  **Reuse the vocabulary that already exists.** ""ARCHITECT_MODEL"",
+  ""EDITOR_MODEL"" and ""SMALL_MODEL"" are already proveo-level names that
+  each entrypoint bridges to its own — ""localModelArgs"" sets all three
+  plus the opencode and Anthropic spellings for the Ollama path.
+
+  The catalog generalizes that path from one local model to any
+  catalogued model. No new vocabulary is introduced.
+end note
+
+note bottom of CAT
+  **Why a checked-in table is the right shape.** A published model id is
+  immutable — vendors add ids, they do not redefine them. So the data is
+  stable and the only cost is periodic addition, exactly like the
+  provider registry. What a table buys that a heuristic cannot:
+
+  * ""grok-4.5"" and ""grok-4.5-fast"" resolve to xai by lookup, not by
+    prefix guessing.
+  * A dated or vendor-prefixed spelling maps to one canonical row.
+  * The union of the three roles' providers is a FACT, so the missing-key
+    warning is precise: name the role, the model and the env var.
+end note
+
+note bottom of CUR
+  **The exception that must stay loud.** Cursor's inference is vendor-pinned
+  and its TLS is not MITM-brokerable, so a catalogued model cannot be
+  retargeted at it. The catalog records this as unsupported rather than
+  emitting an id that would silently fail — the same reason the run wiring
+  already rejects ""--local-model"" for cursor.
+end note
+
+note as Divergence #F4F9FB
+  **The divergence this documents** — the open question from the kimi
+  session, recorded here rather than rediscovered.
+
+  Harnesses disagree on how to spell the same model. The prefix differs
+  (""moonshot/"" vs ""moonshotai/""), the id is sometimes dated, sometimes
+  snake-cased, sometimes only reachable via an aggregator. So an id typed
+  for one harness is not portable to another, and the operator has no way
+  to know which spelling a given harness wants.
+
+  Resolution — how a loose intent becomes an id a harness accepts, and why
+  it takes two phases — is specified in ""model-resolution\.puml"". This
+  diagram is the table's shape; that one is the algorithm.
+
+  ""_spec/internal/entrypoint/model-alias-bridges.puml"" covers bridging a
+  role var into a harness's own var. It does NOT cover the id itself
+  differing between catalogs. That gap is what this plan closes.
+
+  **Deliberately no ids in this diagram.** They are data, they are fetched,
+  and a spec that recalls them from memory is how a wrong id becomes
+  authoritative. The skill fetches; review gates the diff.
+end note
+
+note right of SYNC
+  **Mirrors the provider skill.** ""\.claude/skills/sync-providers"" already
+  encodes fetch-don't-recall, the narrowest host, and what NOT to add.
+  A sibling skill does the same for model ids: read each harness's own
+  published catalog, diff against the table, propose additions only.
+
+  Long-tail models stay out — reachable via openrouter, as agreed for
+  providers. The catalog covers what an operator would plausibly set as
+  a role, not everything a gateway can serve.
+end note
+@enduml

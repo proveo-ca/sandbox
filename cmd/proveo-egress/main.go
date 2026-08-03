@@ -60,35 +60,23 @@ func serve() {
 		CACertOut:   env("PROVEO_EGRESS_CA_CERT_OUT", ""),
 		FlowsPath:   env("PROVEO_EGRESS_FLOWS", ""),
 		Broker: broker.Config{
-			Hosts:     splitCSV(env("PROVEO_EGRESS_BROKER_HOSTS", "")),
-			Header:    env("PROVEO_EGRESS_BROKER_HEADER", ""),
-			Query:     env("PROVEO_EGRESS_BROKER_QUERY", ""),
-			ValueFile: env("PROVEO_EGRESS_BROKER_VALUE_FILE", ""),
-			Strip:     splitCSV(env("PROVEO_EGRESS_BROKER_STRIP", "")),
+			Strip: splitCSV(env("PROVEO_EGRESS_BROKER_STRIP", "")),
 		},
 	}
 
-	// Provider-driven broker: resolve host/header/value from the registry using a
-	// mounted secret env-file. Explicit PROVEO_EGRESS_BROKER_* env still wins.
-	if name := env("PROVEO_EGRESS_PROVIDER", ""); name != "" {
-		secrets := parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", ""))
-		if r, ok := provider.ResolveWith(name, env("PROVEO_EGRESS_AUTH_VAR", ""), func(k string) string { return secrets[k] }); ok {
-			if len(cfg.Broker.Hosts) == 0 {
-				cfg.Broker.Hosts = r.Hosts
-			}
-			if cfg.Broker.Header == "" {
-				cfg.Broker.Header = r.Header
-			}
-			if cfg.Broker.Query == "" {
-				cfg.Broker.Query = r.Query
-			}
-			if cfg.Broker.Value == "" {
-				cfg.Broker.Value = r.Value
-			}
-		} else {
-			// Never echo secrets — only the (non-secret) provider name.
-			ui.Warnf("proveo-egress: provider %q not broker-injectable; running inspect-only", name)
-		}
+	// The explicit escape hatch stays a single route: an operator overriding
+	// PROVEO_EGRESS_BROKER_HOSTS is naming one destination on purpose, and it
+	// suppresses registry-driven routing entirely so the override is total.
+	if hosts := splitCSV(env("PROVEO_EGRESS_BROKER_HOSTS", "")); len(hosts) > 0 {
+		cfg.Broker.Routes = []broker.Route{{
+			Provider:  "explicit",
+			Hosts:     hosts,
+			Header:    env("PROVEO_EGRESS_BROKER_HEADER", ""),
+			Query:     env("PROVEO_EGRESS_BROKER_QUERY", ""),
+			ValueFile: env("PROVEO_EGRESS_BROKER_VALUE_FILE", ""),
+		}}
+	} else {
+		cfg.Broker.Routes = registryRoutes()
 	}
 
 	// Egress policy (read-allow / write-deny / DLP) — the S1 destination/method/
@@ -125,8 +113,64 @@ func envTruthy(k string) bool {
 	return false
 }
 
+// registryRoutes builds one broker route per provider whose key is present in
+// the mounted secret env-file — the file already holds every detected key, so
+// the keys present ARE the providers the session can authenticate.
+//
+// Deriving the set from the file rather than from a name passed by the host
+// keeps the two from disagreeing: a host that pins one provider while the file
+// holds three used to leave the other two with the sentinel.
+//
+// PROVEO_EGRESS_PROVIDERS narrows the set explicitly when the operator wants a
+// smaller blast radius; PROVEO_EGRESS_PROVIDER (singular) is still honoured for
+// compatibility with a pinned-provider host.
+func registryRoutes() []broker.Route {
+	secrets := parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", ""))
+	if len(secrets) == 0 {
+		return nil
+	}
+	lookup := func(k string) string { return secrets[k] }
+	allow := map[string]bool{}
+	for _, n := range append(splitCSV(env("PROVEO_EGRESS_PROVIDERS", "")),
+		splitCSV(env("PROVEO_EGRESS_PROVIDER", ""))...) {
+		if n = strings.ToLower(strings.TrimSpace(n)); n != "" && n != "none" {
+			allow[n] = true
+		}
+	}
+	preferVar := env("PROVEO_EGRESS_AUTH_VAR", "")
+
+	var routes []broker.Route
+	var skipped []string
+	// Registry order, so overlapping suffixes (if ever added) resolve
+	// deterministically and the log reads the same way every run.
+	for _, name := range provider.Detect(lookup) {
+		if len(allow) > 0 && !allow[name] {
+			continue
+		}
+		r, ok := provider.ResolveWith(name, preferVar, lookup)
+		if !ok {
+			skipped = append(skipped, name) // signed-request providers: not injectable
+			continue
+		}
+		routes = append(routes, broker.Route{
+			Provider: name, Hosts: r.Hosts, Header: r.Header, Query: r.Query, Value: r.Value,
+		})
+	}
+	if len(skipped) > 0 {
+		// Never echo secrets — only (non-secret) provider names.
+		ui.Warnf("proveo-egress: not broker-injectable, passing the agent's own credential through: %s",
+			strings.Join(skipped, ", "))
+	}
+	return routes
+}
+
 func buildPolicy(bc broker.Config) egresspolicy.Config {
-	providerHosts := bc.Hosts // set by the provider-driven broker block above
+	// Every route's hosts: the destinations the broker treats as on-route, and so
+	// the destinations a provider secret is legitimately allowed to reach.
+	var providerHosts []string
+	for _, r := range bc.Routes {
+		providerHosts = append(providerHosts, r.Hosts...)
+	}
 	custom := splitCSV(strings.ReplaceAll(env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""), " ", ","))
 
 	write := append([]string{}, providerHosts...)
@@ -134,15 +178,19 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	write = append(write, custom...)
 	write = append(write, splitCSV(env("PROVEO_EGRESS_WRITE_HOSTS", ""))...)
 
-	// DLP targets: every provider key value present, plus the resolved inject value.
+	// DLP targets: every provider key value present, plus each route's injected
+	// value. The route values are added bare (without any "Bearer " prefix) so the
+	// scanner matches the secret as it would appear re-encoded in a body.
 	var secrets []string
 	for _, v := range parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", "")) {
 		if v != "" {
 			secrets = append(secrets, v)
 		}
 	}
-	if bc.Value != "" {
-		secrets = append(secrets, strings.TrimSpace(strings.TrimPrefix(bc.Value, "Bearer ")))
+	for _, r := range bc.Routes {
+		if r.Value != "" {
+			secrets = append(secrets, strings.TrimSpace(strings.TrimPrefix(r.Value, "Bearer ")))
+		}
 	}
 
 	return egresspolicy.Config{

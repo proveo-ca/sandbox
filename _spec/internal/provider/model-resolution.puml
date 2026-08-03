@@ -1,0 +1,99 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title PLAN — model resolution: operator intent to harness id, in two phases
+
+component "operator intent\nARCHITECT_MODEL=kimi-3\nEDITOR_MODEL=grok-4.5\nSMALL_MODEL=grok-4.5-fast" as INTENT <<app>>
+
+node "PHASE 1 — host, BEFORE the container exists" as P1 <<host>> {
+  component "normalize\nlowercase · separators · last segment\ndated suffix · vendor prefix" as NORM <<app>>
+  component "catalog lookup\ncanonical id + provider" as LOOK <<app>>
+  component "provider union\nof the three roles" as UNION <<app>>
+  component "broker routes\n+ Squid ACL" as WIRE <<app>>
+}
+
+node "PHASE 2 — container entrypoint" as P2 <<host>> {
+  component "translate\ncanonical -> this harness's id" as XLAT <<app>>
+  component "verify (where listable)\nagainst the harness registry" as VERIFY <<app>>
+  component "export role vars\nCECLI_* · OPENCODE_* · ANTHROPIC_*" as EXPORT <<app>>
+}
+
+database "agent-settings.yml\ntargets.<t>.models\nmain · editor · small\nCANONICAL ids" as CACHE <<db>>
+
+INTENT ARROW_MAIN NORM
+NORM ARROW_MAIN LOOK
+LOOK ARROW_MAIN UNION
+UNION ARROW_MAIN WIRE
+LOOK ARROW_OPTIONAL CACHE : remember what resolved
+CACHE ARROW_OPTIONAL NORM : default when intent is absent
+LOOK ARROW_MAIN XLAT : canonical crosses the boundary
+XLAT ARROW_OPTIONAL VERIFY
+VERIFY ARROW_MAIN EXPORT
+
+note right of P1
+  **Why phase 1 cannot be skipped.** The provider set decides the broker
+  route table and the Squid ACL, and both are argv on ""docker run"" — they
+  must be settled before the container exists. In-container resolution is
+  therefore impossible to rely on for anything security-bearing, no matter
+  how authoritative it is.
+
+  So phase 1 must be **offline and deterministic**: a checked-in table, no
+  network, same answer every run.
+end note
+
+note right of P2
+  **Why phase 2 cannot be skipped either.** Only the harness knows which
+  ids its own build accepts. The catalog says what the vendor published;
+  the installed version is the authority on what it will take.
+
+  Verification is per-harness and only where a documented listing command
+  exists — discovered by the sync skill, never assumed. Where none exists,
+  the id is exported and the harness reports its own error, which is no
+  worse than today.
+end note
+
+note as Miss #F4F9FB
+  **A catalog miss must never block a run.** An id the table has not synced
+  yet — a model released this week — passes through **verbatim with a
+  warning**. Three reasons this is safe:
+
+  * The route table injects every detected provider, so an unattributable
+    model still authenticates as long as its key is present. Correctness
+    lives in the routes, not the catalog.
+  * A catalog that gates the operator makes proveo the reason a brand-new
+    model cannot be used. Unacceptable for a table refreshed by hand.
+  * The failure is legible: the harness names the id it rejected.
+
+  So the catalog is an **ergonomics and warning layer**. This is what makes
+  requirement 3 non-fatal, and it is the direct consequence of requirement 1.
+end note
+
+note bottom of NORM
+  **Intent is loose; ids are exact.** ""kimi-3"", ""kimi k3"" and ""Kimi K3"" are
+  the same intent. Normalization lowercases, collapses space/underscore/dot
+  to a single separator, takes the last path segment (so
+  ""openrouter/vendor/model"" reduces), and strips a dated suffix — the
+  existing ""normalizeModelID"" already does the last three.
+
+  Matching is then EXACT against canonical ids plus per-row aliases. Never
+  fuzzy: two candidates means **list them and stop**, because guessing
+  wrong spends the operator's money on the wrong model and reads as
+  success.
+end note
+
+note bottom of CACHE
+  **Canonical ids, never harness ids.** Storing the translated spelling
+  would pin the cache to whatever the table said on the day it was written,
+  so a synced correction would never reach it. Canonical survives the sync;
+  the harness id is re-derived every run.
+
+  Per target, because a model valid for opencode may be unsupported for
+  cursor. Precedence is unchanged from the choice cache: **explicit env or
+  flag > cached > unset**. A cached id that no longer resolves degrades to
+  a warning and is dropped — never a hard failure on a file proveo wrote
+  itself.
+
+  Shown read-only in the prompt header beside the workspace and ""\.env"" —
+  NOT as a form row. The radio grid stays radios; models are typed
+  elsewhere.
+end note
+@enduml

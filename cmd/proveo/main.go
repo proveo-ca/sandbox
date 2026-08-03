@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -38,6 +39,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/reviewgate"
+	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -248,6 +250,7 @@ type runParams struct {
 	target, image, mode, credentials, localModel, input, output, scope, dataDir string
 	modeSet, credsSet                                                           bool
 	addons                                                                      []string
+	roles                                                                       provider.Roles
 	authVar                                                                     string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
@@ -268,6 +271,19 @@ func doRun(p runParams) error {
 	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
 	sid := fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
 	egDir := filepath.Join(stateDir(), "egress", sid)
+
+	// Open the transcript before anything can fail, so a run that dies during setup
+	// still leaves a record. A logging failure is reported once and then ignored:
+	// losing the transcript must never stop the run.
+	rl, logErr := runlog.Open(sid)
+	if logErr != nil {
+		ui.Warnf("run log unavailable: %v", logErr)
+	} else {
+		ui.TeeTo(rl.Writer())
+		defer rl.Close()
+		rl.Artifacts(egDir)
+		ui.Iconf("📝", "run log: %s", rl.Path())
+	}
 
 	// The harness's mount model comes from its manifest (workspace layout).
 	man, err := manifestForTarget(p.target)
@@ -365,6 +381,14 @@ func doRun(p runParams) error {
 		if p.authVar == "" {
 			p.authVar = cached.AuthVar
 		}
+		// Roles follow the same precedence as every other axis: explicit env or
+		// flag wins, then the remembered value, then unset. A remembered role is
+		// only applied when the operator set nothing, so a session never silently
+		// contradicts an ARCHITECT_MODEL they exported themselves.
+		p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
+	}
+	if p.roles == nil {
+		p.roles = provider.RolesFrom(lookup)
 	}
 	if !p.printOnly && wizardEnabled() && isStdinTTY() {
 		if err := p.promptChoices(man, lookup, gitRootOrEmpty(ws, repoRoot), settingsRoot); err != nil {
@@ -377,6 +401,7 @@ func doRun(p runParams) error {
 	if !p.printOnly {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
 			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
+			Models: p.roles.Canonical(),
 		})
 		if err := settings.Save(settingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -476,12 +501,38 @@ func doRun(p runParams) error {
 	// "exactly one detected key" rule so a multi-provider .env does not block
 	// cursor when CURSOR_API_KEY lives only in the host env. Write secrets up front.
 	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
-	providerName := brokerProvider(p.forwards(), man, detected, lookup, brokerEnabled())
-	if reason := brokerOffReason(p.forwards(), providerName, detected, brokerEnabled()); reason != "" {
+	brokered := brokerProviders(p.forwards(), man, detected, lookup, brokerEnabled())
+	if reason := brokerOffReason(p.forwards(), brokered, detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
+	if len(brokered) > 1 {
+		ui.Iconf("🔐", "broker: %d providers injected at the egress layer (%s)",
+			len(brokered), strings.Join(brokered, ", "))
+	}
+	// Name the role and the variable. A role pointed at a provider with no key
+	// used to surface as the harness's own "invalid API key", which says nothing
+	// about which of three models was at fault.
+	for _, msg := range p.roles.MissingKeys(detected) {
+		ui.Warnf("%s", msg)
+	}
+	rl.Fields("resolved posture", map[string]string{
+		"target":          p.target,
+		"egress tier":     p.mode,
+		"credentials":     p.credentialsOrDefault(),
+		"add-ons":         strings.Join(p.addons, ","),
+		"detected keys":   strings.Join(detected, ","),
+		"brokered":        strings.Join(brokered, ","),
+		"reachable hosts": strings.Join(reachableHosts(detected), ","),
+		"harness hosts":   strings.Join(man.Capabilities.Hosts, ","),
+		"auth var":        p.authVar,
+		"local model":     p.localModel,
+		"observability":   observability(p.mode, p.credentialsOrDefault()),
+		"model roles":     rolesLine(p.roles),
+		"role providers":  strings.Join(p.roles.Providers(), ","),
+	})
+
 	var brokerFile string
-	if providerName != "" {
+	if len(brokered) > 0 {
 		if p.printOnly {
 			brokerFile = filepath.Join(egDir, "inject", "broker.env") // path only in dry-run
 		} else if f, err := writeBrokerEnv(filepath.Join(egDir, "inject"), lookup); err == nil {
@@ -588,10 +639,11 @@ func doRun(p runParams) error {
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		reviewSocket: reviewSocket,
-		modelsDir:    modelsDir, provider: providerName, brokerFile: brokerFile,
+		writeHosts:   reachableHosts(detected),
+		modelsDir:    modelsDir, providers: brokered, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
-		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
+		providerDomains: joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), man.Capabilities.Hosts),
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
 		ollamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
@@ -656,9 +708,13 @@ func doRun(p runParams) error {
 		// session that switches model mid-run to another provider — reach and
 		// injection are different questions. A vendor-locked harness (manifest
 		// provider:) is the exception: its allowlist is deliberately just its vendor.
+		// Reach is still every detected provider — a session may switch model
+		// mid-run — except for a vendor-locked harness, whose allowlist is
+		// deliberately just its vendor. Injection now covers the same set, so the
+		// two no longer disagree.
 		squidProviders := detected
-		if strings.TrimSpace(man.Provider) != "" && providerName != "" {
-			squidProviders = []string{providerName}
+		if strings.TrimSpace(man.Provider) != "" && len(brokered) == 1 {
+			squidProviders = brokered
 		}
 		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar, reviewProxy)
 	}()
@@ -683,6 +739,28 @@ func (p *runParams) applyCapabilities(c manifest.Capabilities) error {
 	return nil
 }
 
+// joinDomains merges the operator's extra domains with the harness's own
+// infrastructure endpoints into the single space-separated list the egress layer
+// consumes for both the Squid ACL and the policy's write allowlist.
+func joinDomains(env string, hosts []string) string {
+	parts := strings.Fields(env)
+	parts = append(parts, hosts...)
+	return strings.Join(parts, " ")
+}
+
+// reachableHosts collects the endpoints of every provider the allowlist admits.
+// Reach and injection are separate questions: the broker pins one provider, but a
+// session may call any provider whose key is present.
+func reachableHosts(detected []string) []string {
+	var out []string
+	for _, name := range detected {
+		if e, ok := provider.Lookup(name); ok {
+			out = append(out, e.Hosts...)
+		}
+	}
+	return out
+}
+
 func filterProviders(detected []string, c manifest.Capabilities) []string {
 	if len(c.Providers) == 0 {
 		return detected
@@ -700,7 +778,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
-		Header: buildHeader(man, lookup, repoRoot, p.input, homeRoot),
+		Header: buildHeader(man, lookup, p.roles, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
 			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode)),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
@@ -939,13 +1017,20 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-func buildHeader(man manifest.Manifest, lookup func(string) string, repoRoot, inputDir, homeRoot string) []string {
+func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {
 	if inputDir == "" {
 		inputDir = repoRoot
 	}
 	h := gitHeader(repoRoot)
 	h = append(h, choiceui.EnvHeader(loadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
-	return append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
+	h = append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
+	// Models are shown, not chosen: the grid holds closed choices and a model id
+	// is an open value. Reporting the resolved provider beside each role is what
+	// makes a keyless role visible before launch rather than after a failed call.
+	if line := rolesLine(roles); line != "" {
+		h = append(h, "🧠 "+line)
+	}
+	return h
 }
 
 func loadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
@@ -1109,26 +1194,34 @@ func detectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
 // firewall mode only (the sole mode whose MITM consumes it) and the broker not
 // disabled. A manifest provider pin (vendor-pinned harness) is used when its
 // detect key is present; otherwise exactly one detected provider is required.
-func brokerProvider(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) string {
+// brokerProviders is every provider the broker will hold a route for. Returning
+// the whole detected set — rather than choosing one — is what lets a session
+// whose roles span vendors authenticate: the broker injects each key only toward
+// its own provider's hosts, so N routes carry the same guarantee as one.
+//
+// It used to pin exactly one, falling back to a model-name heuristic when
+// several keys were present. That made a correct multi-provider .env fail: the
+// unpinned providers received the sentinel and reported an invalid API key.
+func brokerProviders(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) []string {
 	if forwards || !brokerOn {
-		return ""
+		return nil
 	}
+	// A vendor-locked harness (manifest provider:) brokers only its own vendor —
+	// the other keys are not inference providers for it — and does so even when
+	// its key lives in the host env rather than a project .env.
 	if pin := strings.TrimSpace(man.Provider); pin != "" {
 		e, ok := provider.Lookup(pin)
 		if !ok {
-			return ""
+			return nil
 		}
 		for _, v := range e.Detect {
 			if strings.TrimSpace(lookup(v)) != "" {
-				return pin
+				return []string{pin}
 			}
 		}
-		return ""
+		return nil
 	}
-	if len(detected) == 1 {
-		return detected[0]
-	}
-	return modelPinnedProvider(detected, lookup)
+	return detected
 }
 
 // modelPinnedProvider resolves an ambiguous multi-key host by asking the
@@ -1185,17 +1278,20 @@ func configVarsFor(man manifest.Manifest) []string {
 	return out
 }
 
-func brokerOffReason(forwards bool, providerName string, detected []string, brokerOn bool) string {
-	if forwards || providerName != "" || len(detected) == 0 {
+// brokerOffReason explains a posture where the container will hold sentinels
+// with nothing brokering them. The "several providers, broker pins one" case is
+// gone: several providers is now the supported shape, not a warning.
+func brokerOffReason(forwards bool, routed []string, detected []string, brokerOn bool) string {
+	if forwards || len(routed) > 0 || len(detected) == 0 {
 		return ""
 	}
 	if !brokerOn {
 		return fmt.Sprintf("credential broker disabled (PROVEO_CREDENTIAL_BROKER) — the agent gets the %q "+
 			"sentinel, not a working key", entrypoint.DefaultSentinel)
 	}
-	return fmt.Sprintf("credential broker OFF: %d providers detected (%s) and the broker pins exactly one — "+
-		"the agent will receive the %q sentinel and the provider will reject it. Unset the keys you are not using "+
-		"for this run, or use --credentials forward to hand the real key to the container.",
+	return fmt.Sprintf("credential broker OFF: %d key(s) detected (%s) but none is broker-injectable — "+
+		"the agent will receive the %q sentinel and the provider will reject it. Use --credentials forward "+
+		"to hand the real key to the container.",
 		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
@@ -1210,15 +1306,17 @@ type assembleInput struct {
 	params                              runParams
 	sid, egDir                          string
 	uid, gid                            string
-	modelsDir, provider, brokerFile     string
+	modelsDir, brokerFile               string
 	hostOllama, ollamaGPU               bool
 	mounts                              []runner.Mount
 	workdir                             string
 	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
-	pidsLimit                           int    // host/tier-resolved --pids-limit
-	reviewSocket                        string // review tier: host path of the consent gate socket
+	pidsLimit                           int      // host/tier-resolved --pids-limit
+	reviewSocket                        string   // review tier: host path of the consent gate socket
+	providers                           []string // every provider the broker holds a route for
+	writeHosts                          []string // endpoints of every provider the allowlist admits
 }
 
 // assemble builds the egress plan and the agent's docker-run config from resolved
@@ -1228,11 +1326,12 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	plan, err := egress.BuildPlan(egress.Options{
 		Mode: in.params.mode, Credentials: in.params.credentials,
 		SessionID: in.sid, AgentName: in.params.target, UID: in.uid, GID: in.gid,
-		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Provider: in.provider, BrokerEnvFile: in.brokerFile,
+		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Providers: in.providers, BrokerEnvFile: in.brokerFile,
 		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
 		ReviewSocket:    in.reviewSocket,
 		AuthVar:         in.params.authVar,
+		WriteHosts:      in.writeHosts,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),
@@ -1263,6 +1362,74 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 // execWithEgress stages only what the plan needs (C7), brings up the egress
 // topology, waits for readiness, runs the agent, then tears the topology down —
 // including on SIGINT/SIGTERM (C4), and removes the broker secret (C2).
+// captureSidecarLogs writes each egress sidecar's stdout+stderr into egDir so it
+// outlives the container. Best-effort throughout: this runs on the teardown path,
+// including after a failure, and must never be the reason a run reports an error.
+func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
+	for name, file := range map[string]string{
+		plan.ProxyContainer:  "inspector.log",
+		plan.SquidContainer:  "squid.log",
+		plan.OllamaContainer: "ollama.log",
+	} {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		out, err := exec.Command("docker", "logs", name).CombinedOutput()
+		if err != nil && len(out) == 0 {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join(egDir, file), out, 0o600)
+	}
+}
+
+// observability describes what evidence a posture can produce, recorded in the
+// transcript because it decides whether a failure is diagnosable at all.
+//
+// open + forward is the blind spot: it is a plain bridge with no MITM and no
+// Squid, so the real key goes straight to the provider and NOTHING records the
+// exchange. A provider's own 401 and an egress denial look identical from the
+// harness's side, and only one of them can happen here. Reproducing such a
+// failure under allowlist is what turns it into a flow record.
+func observability(mode, credentials string) string {
+	if mode == "open" && credentials == "forward" {
+		return "none — plain bridge, no MITM, no Squid: provider errors are NOT proveo denials"
+	}
+	if mode == "open" {
+		return "flows.ndjson (MITM only, no allowlist)"
+	}
+	return "flows.ndjson + squid access.log"
+}
+
+// mergeRoles fills roles the operator did not set from the remembered ones. A
+// remembered id that no longer resolves is kept rather than dropped: proveo
+// cannot know whether the catalog is behind or the model is gone, and the
+// harness gives the better error. It never overrides an explicit value.
+func mergeRoles(explicit provider.Roles, remembered map[string]string) provider.Roles {
+	out := provider.Roles{}
+	for k, v := range explicit {
+		out[k] = v
+	}
+	for k, v := range provider.RolesFromCanonical(remembered) {
+		if _, set := out[k]; !set {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// rolesLine renders the role assignment for the transcript and the prompt header.
+func rolesLine(r provider.Roles) string {
+	var parts []string
+	for _, kv := range r.Sorted() {
+		if p := provider.ModelProvider(kv[1]); p != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", kv[0], kv[1], p))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", kv[0], kv[1]))
+	}
+	return strings.Join(parts, " ")
+}
+
 func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
 	r := egress.ExecRunner{Stderr: true}
 	// rq is the quiet runner for best-effort teardown and readiness probes: those
@@ -1280,6 +1447,12 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
+			// Capture the sidecars' output BEFORE teardown: they run detached with
+			// --rm, so `docker logs` is the only copy and it disappears with the
+			// container. This is the record that says WHICH component refused a
+			// request and why — without it a 403 is indistinguishable from a
+			// provider's own 401, which is exactly the confusion that motivated it.
+			captureSidecarLogs(rq, egDir, plan)
 			plan.Teardown(rq)
 			dindSidecar.Cleanup(dind.ExecRunner{})
 			_ = os.RemoveAll(filepath.Join(egDir, "inject")) // broker.env must not outlive the run
@@ -1379,9 +1552,15 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 	proxy := ptyproxy.New(os.Stdin, os.Stdout)
 	gate := reviewgate.New(func(host, port string) bool {
 		allowed := false
-		if err := proxy.Overlay(func(in io.Reader, out io.Writer) error {
-			allowed = reviewPrompt(in, out, host, port)
-			return nil
+		// The screen is built over the SUSPENDED terminal, not /dev/tty: tcell's own
+		// screen would open the tty itself and become a second reader competing with
+		// the pump, which renders the modal but never receives a keystroke.
+		if err := proxy.Overlay(func(in io.Reader, _ io.Writer) error {
+			var derr error
+			allowed, derr = choiceui.Consent(func() (tcell.Screen, error) {
+				return proxy.OverlayScreen(in)
+			}, host, port)
+			return derr
 		}); err != nil {
 			// Denying is right, but silently denying every connection makes the tier
 			// look broken rather than strict — say why once.
@@ -1409,25 +1588,6 @@ func startReviewGate(mode, egDir string) (*reviewgate.Gate, *ptyproxy.Proxy, fun
 			ui.Iconf("🛂", "review: %d host(s) allowed, %d denied", allowed, denied)
 		}
 	}
-}
-
-func reviewPrompt(in io.Reader, out io.Writer, host, port string) bool {
-	if dbg := os.Getenv("PROVEO_REVIEW_DEBUG"); dbg != "" {
-		if f, err := os.OpenFile(dbg, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			fmt.Fprintf(f, "prompt entered host=%s port=%s\n", host, port)
-			defer func() { fmt.Fprintf(f, "prompt exited host=%s\n", host); _ = f.Close() }()
-		}
-	}
-	fmt.Fprintf(out, "\r\n%s%s  allow connection to %s:%s ? [y/N] %s",
-		ui.ANSIBold, ui.ANSI(ui.ColorBrand), host, port, ui.ANSIReset)
-	sc := bufio.NewScanner(in)
-	if !sc.Scan() {
-		fmt.Fprintf(out, "\r\n")
-		return false
-	}
-	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
-	fmt.Fprintf(out, "\r\n")
-	return answer == "y" || answer == "yes"
 }
 
 // onSignalCleanup runs cleanup then exits 130 on SIGINT/SIGTERM. Go does not run

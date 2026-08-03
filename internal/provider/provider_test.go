@@ -78,7 +78,7 @@ func TestResolve(t *testing.T) {
 			name: "moonshot is bearer", provider: "moonshot",
 			env:    map[string]string{"MOONSHOT_API_KEY": "sk-m"},
 			wantOK: true,
-			want:   Resolved{Hosts: []string{".moonshot.ai"}, Header: "authorization", Value: "Bearer sk-m", EnvVar: "MOONSHOT_API_KEY"},
+			want:   Resolved{Hosts: []string{".moonshot.ai", ".kimi.com"}, Header: "authorization", Value: "Bearer sk-m", EnvVar: "MOONSHOT_API_KEY"},
 		},
 		{
 			name: "google uses header not bearer", provider: "google",
@@ -136,7 +136,7 @@ func TestACLBody(t *testing.T) {
 		wantOK   bool
 	}{
 		{"anthropic", "dstdomain .anthropic.com", true},
-		{"moonshot", "dstdomain .moonshot.ai", true},
+		{"moonshot", "dstdomain .moonshot.ai .kimi.com", true},
 		{"bedrock", `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`, true},
 		{"nonsense", "", false},
 	}

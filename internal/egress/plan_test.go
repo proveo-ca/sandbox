@@ -61,7 +61,7 @@ func withModel(o Options, m string) Options { o.LocalModel = m; return o }
 
 func fwd(o Options) Options { o.Credentials = "forward"; return o }
 func withBroker(o Options, p, f string) Options {
-	o.Provider = p
+	o.Providers = []string{p}
 	o.BrokerEnvFile = f
 	return o
 }
@@ -236,7 +236,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 				proxy = strings.Join(c, " ")
 			}
 		}
-		if !strings.Contains(proxy, "PROVEO_EGRESS_PROVIDER=anthropic") {
+		if !strings.Contains(proxy, "PROVEO_EGRESS_PROVIDERS=anthropic") {
 			t.Errorf("proxy sidecar missing provider env; got %q", proxy)
 		}
 		if !strings.Contains(proxy, "/broker:ro") {
@@ -259,11 +259,27 @@ func TestBuildPlanInvariants(t *testing.T) {
 		}
 	})
 
-	t.Run("local model bypasses the proxy via NO_PROXY", func(t *testing.T) {
+	// Asserts membership, not a literal: the exempt list is order-independent and
+	// has grown. Loopback matters in EVERY proxied mode — an agent asked about
+	// http://localhost:3000 must not send that request to the MITM, which would
+	// resolve localhost in its own namespace.
+	t.Run("the proxy is bypassed for loopback and the ollama sidecar", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withModel(baseOpts("allowlist"), "gemma4"))
-		if j := strings.Join(p.AgentArgs, " "); !strings.Contains(j, "NO_PROXY=ollama") {
-			t.Errorf("local-model AgentArgs must set NO_PROXY for ollama; got %q", j)
+		for _, tc := range []struct {
+			name string
+			opts Options
+		}{
+			{"local model", withModel(baseOpts("allowlist"), "gemma4")},
+			{"no local model", baseOpts("allowlist")},
+			{"review", baseOpts("review")},
+		} {
+			p, _ := BuildPlan(tc.opts)
+			j := strings.Join(p.AgentArgs, " ")
+			for _, host := range []string{"localhost", "127.0.0.1", "ollama"} {
+				if !strings.Contains(noProxyValue(j), host) {
+					t.Errorf("%s: NO_PROXY must exempt %s; got %q", tc.name, host, j)
+				}
+			}
 		}
 	})
 
@@ -372,4 +388,44 @@ func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {
 	if strings.Contains(other.Render(), "PROVEO_EGRESS_REVIEW") {
 		t.Error("the allowlist tier must carry no review wiring at all")
 	}
+}
+
+// Squid admits every detected provider, so the inspector must permit writes to
+// the same set. Narrowing the policy to the PINNED provider means Squid lets a
+// host through and the MITM blocks it — and under review that surfaces as a
+// consent prompt for a host the allowlist already sanctioned.
+func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
+	t.Parallel()
+	o := baseOpts("allowlist")
+	o.Providers = []string{"anthropic"} // routed for injection
+	o.WriteHosts = []string{".anthropic.com", ".moonshot.ai", ".kimi.com"}
+	p, err := BuildPlan(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Render()
+	if !strings.Contains(got, "PROVEO_EGRESS_WRITE_HOSTS=.anthropic.com,.moonshot.ai,.kimi.com") {
+		t.Errorf("inspector did not receive every reachable host:\n%s", got)
+	}
+	// Reach and injection are separate questions, and the allowlist is the wider
+	// of the two: the inspector is told to route anthropic while every reachable
+	// provider host stays writable.
+	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDERS=anthropic") {
+		t.Error("the inspector did not receive the routed provider set")
+	}
+}
+
+// noProxyValue extracts the NO_PROXY value from a flattened arg string so the
+// assertion tests the exempt SET rather than the literal the code happens to emit.
+func noProxyValue(joined string) string {
+	const key = "NO_PROXY="
+	i := strings.Index(joined, key)
+	if i < 0 {
+		return ""
+	}
+	rest := joined[i+len(key):]
+	if j := strings.Index(rest, " "); j >= 0 {
+		return rest[:j]
+	}
+	return rest
 }

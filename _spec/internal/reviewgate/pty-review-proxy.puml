@@ -155,4 +155,36 @@ note as SocketScope #FFF3F0
   not exist — so a Linux host is necessary but not sufficient.
 end note
 
+note as PromptScope #F4F9FB
+  **The overlay is a full-screen modal, not a printed line.**
+
+  Two failures on real Linux runs got it here. First: a line reader waits for
+  LF, but the agent holds the terminal in RAW mode where Enter sends CR — so
+  the overlay never returned and the TUI appeared to FREEZE. Second, and
+  fatal to the whole approach: text printed while the agent owns the
+  ALTERNATE SCREEN interleaves with its rendering. The prompt appeared
+  smeared through opencode's frame and left the display corrupted.
+
+  So consent is now ""choiceui.Consent"" — a centred tcell modal that takes the
+  screen for its duration, fills its own box so the agent's frame does not
+  show through, and answers on a single keypress (y allows; n, Esc and Enter
+  deny, keeping the safe answer the easy one). On dismissal the forced resize
+  makes the agent repaint over it.
+
+  **The modal must NOT use tcell's own screen.** ""tcell.NewScreen"" opens
+  ""/dev/tty"" and runs its own input loop, making it a SECOND reader against the
+  pump — the modal renders correctly and then takes no keystrokes at all,
+  which a real run showed. ""Proxy.OverlayScreen"" builds the screen over
+  ""NewTerminfoScreenFromTty"" with an ""OverlayTty"" whose Read is the pump's
+  hand-off channel and whose Write is the operator's terminal. One reader,
+  start to finish — the invariant this whole package exists to hold.
+
+  **Only unsanctioned hosts are asked about.** An already-allowlisted host
+  skips the prompt entirely — including a harness's own infrastructure,
+  declared as ""capabilities.hosts"" (opencode: ""\.opencode\.ai"", ""models\.dev"").
+  Being asked to consent to the harness's own model catalog on a fresh run is
+  the prompt-fatigue failure mode, and fatigue is what turns a consent gate
+  into a click-through reflex.
+end note
+
 @enduml

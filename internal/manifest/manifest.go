@@ -94,6 +94,10 @@ type Capabilities struct {
 	Egress      []string `yaml:"egress"`
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
+	// Hosts are endpoints the HARNESS itself needs — a model catalog, a plugin
+	// registry. Infrastructure, not agent-initiated egress: allowlisted, and never
+	// prompted for in the review tier.
+	Hosts []string `yaml:"hosts"`
 }
 
 func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
