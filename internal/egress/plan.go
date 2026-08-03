@@ -45,8 +45,11 @@ type Options struct {
 	UID, GID    string
 	LocalModel  string // optional Ollama model
 	ModelsDir   string // host Ollama model store, mounted read-only at /models
-	// Broker (firewall mode): a single resolved provider + host env-file.
-	Provider      string
+	// Broker (enforced modes): every provider to hold a route for, plus the host
+	// env-file holding their keys. The proxy derives routes from the keys actually
+	// present in that file; this list narrows the set when the operator asks for a
+	// smaller blast radius, or pins a vendor-locked harness to its own vendor.
+	Providers     []string
 	BrokerEnvFile string
 	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
@@ -369,8 +372,8 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	if o.Mode == "open" {
 		c = append(c, "-e", "PROVEO_EGRESS_OPEN=1")
 	}
-	if o.Provider != "" {
-		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER="+o.Provider)
+	if len(o.Providers) > 0 {
+		c = append(c, "-e", "PROVEO_EGRESS_PROVIDERS="+strings.Join(o.Providers, ","))
 	}
 	if o.AuthVar != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)

@@ -491,9 +491,13 @@ func doRun(p runParams) error {
 	// "exactly one detected key" rule so a multi-provider .env does not block
 	// cursor when CURSOR_API_KEY lives only in the host env. Write secrets up front.
 	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
-	providerName := brokerProvider(p.forwards(), man, detected, lookup, brokerEnabled())
-	if reason := brokerOffReason(p.forwards(), providerName, detected, brokerEnabled()); reason != "" {
+	brokered := brokerProviders(p.forwards(), man, detected, lookup, brokerEnabled())
+	if reason := brokerOffReason(p.forwards(), brokered, detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
+	}
+	if len(brokered) > 1 {
+		ui.Iconf("🔐", "broker: %d providers injected at the egress layer (%s)",
+			len(brokered), strings.Join(brokered, ", "))
 	}
 	rl.Fields("resolved posture", map[string]string{
 		"target":          p.target,
@@ -501,7 +505,7 @@ func doRun(p runParams) error {
 		"credentials":     p.credentialsOrDefault(),
 		"add-ons":         strings.Join(p.addons, ","),
 		"detected keys":   strings.Join(detected, ","),
-		"broker pin":      providerName,
+		"brokered":        strings.Join(brokered, ","),
 		"reachable hosts": strings.Join(reachableHosts(detected), ","),
 		"harness hosts":   strings.Join(man.Capabilities.Hosts, ","),
 		"auth var":        p.authVar,
@@ -510,7 +514,7 @@ func doRun(p runParams) error {
 	})
 
 	var brokerFile string
-	if providerName != "" {
+	if len(brokered) > 0 {
 		if p.printOnly {
 			brokerFile = filepath.Join(egDir, "inject", "broker.env") // path only in dry-run
 		} else if f, err := writeBrokerEnv(filepath.Join(egDir, "inject"), lookup); err == nil {
@@ -618,7 +622,7 @@ func doRun(p runParams) error {
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		reviewSocket: reviewSocket,
 		writeHosts:   reachableHosts(detected),
-		modelsDir:    modelsDir, provider: providerName, brokerFile: brokerFile,
+		modelsDir:    modelsDir, providers: brokered, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), man.Capabilities.Hosts),
@@ -686,9 +690,13 @@ func doRun(p runParams) error {
 		// session that switches model mid-run to another provider — reach and
 		// injection are different questions. A vendor-locked harness (manifest
 		// provider:) is the exception: its allowlist is deliberately just its vendor.
+		// Reach is still every detected provider — a session may switch model
+		// mid-run — except for a vendor-locked harness, whose allowlist is
+		// deliberately just its vendor. Injection now covers the same set, so the
+		// two no longer disagree.
 		squidProviders := detected
-		if strings.TrimSpace(man.Provider) != "" && providerName != "" {
-			squidProviders = []string{providerName}
+		if strings.TrimSpace(man.Provider) != "" && len(brokered) == 1 {
+			squidProviders = brokered
 		}
 		return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar, reviewProxy)
 	}()
@@ -1161,26 +1169,34 @@ func detectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
 // firewall mode only (the sole mode whose MITM consumes it) and the broker not
 // disabled. A manifest provider pin (vendor-pinned harness) is used when its
 // detect key is present; otherwise exactly one detected provider is required.
-func brokerProvider(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) string {
+// brokerProviders is every provider the broker will hold a route for. Returning
+// the whole detected set — rather than choosing one — is what lets a session
+// whose roles span vendors authenticate: the broker injects each key only toward
+// its own provider's hosts, so N routes carry the same guarantee as one.
+//
+// It used to pin exactly one, falling back to a model-name heuristic when
+// several keys were present. That made a correct multi-provider .env fail: the
+// unpinned providers received the sentinel and reported an invalid API key.
+func brokerProviders(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) []string {
 	if forwards || !brokerOn {
-		return ""
+		return nil
 	}
+	// A vendor-locked harness (manifest provider:) brokers only its own vendor —
+	// the other keys are not inference providers for it — and does so even when
+	// its key lives in the host env rather than a project .env.
 	if pin := strings.TrimSpace(man.Provider); pin != "" {
 		e, ok := provider.Lookup(pin)
 		if !ok {
-			return ""
+			return nil
 		}
 		for _, v := range e.Detect {
 			if strings.TrimSpace(lookup(v)) != "" {
-				return pin
+				return []string{pin}
 			}
 		}
-		return ""
+		return nil
 	}
-	if len(detected) == 1 {
-		return detected[0]
-	}
-	return modelPinnedProvider(detected, lookup)
+	return detected
 }
 
 // modelPinnedProvider resolves an ambiguous multi-key host by asking the
@@ -1237,17 +1253,20 @@ func configVarsFor(man manifest.Manifest) []string {
 	return out
 }
 
-func brokerOffReason(forwards bool, providerName string, detected []string, brokerOn bool) string {
-	if forwards || providerName != "" || len(detected) == 0 {
+// brokerOffReason explains a posture where the container will hold sentinels
+// with nothing brokering them. The "several providers, broker pins one" case is
+// gone: several providers is now the supported shape, not a warning.
+func brokerOffReason(forwards bool, routed []string, detected []string, brokerOn bool) string {
+	if forwards || len(routed) > 0 || len(detected) == 0 {
 		return ""
 	}
 	if !brokerOn {
 		return fmt.Sprintf("credential broker disabled (PROVEO_CREDENTIAL_BROKER) — the agent gets the %q "+
 			"sentinel, not a working key", entrypoint.DefaultSentinel)
 	}
-	return fmt.Sprintf("credential broker OFF: %d providers detected (%s) and the broker pins exactly one — "+
-		"the agent will receive the %q sentinel and the provider will reject it. Unset the keys you are not using "+
-		"for this run, or use --credentials forward to hand the real key to the container.",
+	return fmt.Sprintf("credential broker OFF: %d key(s) detected (%s) but none is broker-injectable — "+
+		"the agent will receive the %q sentinel and the provider will reject it. Use --credentials forward "+
+		"to hand the real key to the container.",
 		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
@@ -1262,7 +1281,7 @@ type assembleInput struct {
 	params                              runParams
 	sid, egDir                          string
 	uid, gid                            string
-	modelsDir, provider, brokerFile     string
+	modelsDir, brokerFile               string
 	hostOllama, ollamaGPU               bool
 	mounts                              []runner.Mount
 	workdir                             string
@@ -1271,6 +1290,7 @@ type assembleInput struct {
 	squidImage, proxyImage, ollamaImage string
 	pidsLimit                           int      // host/tier-resolved --pids-limit
 	reviewSocket                        string   // review tier: host path of the consent gate socket
+	providers                           []string // every provider the broker holds a route for
 	writeHosts                          []string // endpoints of every provider the allowlist admits
 }
 
@@ -1281,7 +1301,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	plan, err := egress.BuildPlan(egress.Options{
 		Mode: in.params.mode, Credentials: in.params.credentials,
 		SessionID: in.sid, AgentName: in.params.target, UID: in.uid, GID: in.gid,
-		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Provider: in.provider, BrokerEnvFile: in.brokerFile,
+		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Providers: in.providers, BrokerEnvFile: in.brokerFile,
 		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
 		ReviewSocket:    in.reviewSocket,

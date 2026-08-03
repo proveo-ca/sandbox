@@ -48,10 +48,13 @@ func (rt *recordingTransport) headers(host string) http.Header {
 func TestBrokerThroughProxy(t *testing.T) {
 	p, _, closer, err := build(Config{
 		Broker: broker.Config{
-			Hosts:  []string{".anthropic.com"},
-			Header: "x-api-key",
-			Value:  "sk-ant-REAL",
-			Strip:  broker.DefaultStripHeaders,
+			Routes: []broker.Route{{
+				Provider: "anthropic",
+				Hosts:    []string{".anthropic.com"},
+				Header:   "x-api-key",
+				Value:    "sk-ant-REAL",
+			}},
+			Strip: broker.DefaultStripHeaders,
 		},
 	})
 	if err != nil {

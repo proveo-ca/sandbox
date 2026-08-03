@@ -61,7 +61,7 @@ func withModel(o Options, m string) Options { o.LocalModel = m; return o }
 
 func fwd(o Options) Options { o.Credentials = "forward"; return o }
 func withBroker(o Options, p, f string) Options {
-	o.Provider = p
+	o.Providers = []string{p}
 	o.BrokerEnvFile = f
 	return o
 }
@@ -236,7 +236,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 				proxy = strings.Join(c, " ")
 			}
 		}
-		if !strings.Contains(proxy, "PROVEO_EGRESS_PROVIDER=anthropic") {
+		if !strings.Contains(proxy, "PROVEO_EGRESS_PROVIDERS=anthropic") {
 			t.Errorf("proxy sidecar missing provider env; got %q", proxy)
 		}
 		if !strings.Contains(proxy, "/broker:ro") {
@@ -397,7 +397,7 @@ func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {
 func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	t.Parallel()
 	o := baseOpts("allowlist")
-	o.Provider = "anthropic" // pinned for injection
+	o.Providers = []string{"anthropic"} // routed for injection
 	o.WriteHosts = []string{".anthropic.com", ".moonshot.ai", ".kimi.com"}
 	p, err := BuildPlan(o)
 	if err != nil {
@@ -407,8 +407,11 @@ func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	if !strings.Contains(got, "PROVEO_EGRESS_WRITE_HOSTS=.anthropic.com,.moonshot.ai,.kimi.com") {
 		t.Errorf("inspector did not receive every reachable host:\n%s", got)
 	}
-	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDER=anthropic") {
-		t.Error("the pin should still be a single provider")
+	// Reach and injection are separate questions, and the allowlist is the wider
+	// of the two: the inspector is told to route anthropic while every reachable
+	// provider host stays writable.
+	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDERS=anthropic") {
+		t.Error("the inspector did not receive the routed provider set")
 	}
 }
 

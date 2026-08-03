@@ -97,7 +97,7 @@ func TestBuildPolicy(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", ".corp.internal")
 	t.Setenv("PROVEO_EGRESS_WRITE_HOSTS", "extra.example")
 
-	pol := buildPolicy(broker.Config{Hosts: []string{".anthropic.com"}, Value: "Bearer sk-inject-value-789"})
+	pol := buildPolicy(broker.Config{Routes: []broker.Route{{Provider: "anthropic", Hosts: []string{".anthropic.com"}, Value: "Bearer sk-inject-value-789"}}})
 
 	if !contains(pol.ProviderHosts, ".anthropic.com") {
 		t.Errorf("ProviderHosts missing the provider: %v", pol.ProviderHosts)
@@ -137,7 +137,7 @@ func contains(ss []string, want string) bool {
 // A secret value must never leak via a policy field the log/telemetry might read;
 // this also guards that buildPolicy trims the Bearer prefix rather than storing it.
 func TestBuildPolicyStripsBearer(t *testing.T) {
-	pol := buildPolicy(broker.Config{Hosts: []string{".x.com"}, Value: "Bearer tok-abcdefgh"})
+	pol := buildPolicy(broker.Config{Routes: []broker.Route{{Provider: "x", Hosts: []string{".x.com"}, Value: "Bearer tok-abcdefgh"}}})
 	for _, s := range pol.Secrets {
 		if strings.HasPrefix(s, "Bearer ") {
 			t.Errorf("secret retained the Bearer prefix: %q", s)

@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/proveo-ca/proveo/internal/egress"
+
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -51,7 +53,7 @@ func TestPickProject(t *testing.T) {
 // D2 seams — the gating/dispatch/assembly logic that was untestable inside the
 // old god-function.
 
-func TestBrokerProvider(t *testing.T) {
+func TestBrokerProviders(t *testing.T) {
 	t.Parallel()
 	cursorMan := manifest.Manifest{Provider: "cursor"}
 	tests := []struct {
@@ -61,20 +63,26 @@ func TestBrokerProvider(t *testing.T) {
 		detected []string
 		lookup   func(string) string
 		on       bool
-		want     string
+		want     []string
 	}{
-		{"brokered + 1 provider + on", false, manifest.Manifest{}, []string{"anthropic"}, nil, true, "anthropic"},
-		{"forwarded credentials never broker", true, manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
-		{"two providers → ambiguous, skip", false, manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, ""},
-		{"zero providers", false, manifest.Manifest{}, nil, nil, true, ""},
-		{"broker disabled", false, manifest.Manifest{}, []string{"anthropic"}, nil, false, ""},
+		{"brokered + 1 provider + on", false, manifest.Manifest{}, []string{"anthropic"}, nil, true, []string{"anthropic"}},
+		{"forwarded credentials never broker", true, manifest.Manifest{}, []string{"anthropic"}, nil, true, nil},
+		// The row this feature exists for: several keys used to mean "ambiguous,
+		// broker nothing", which handed every provider the sentinel. All of them
+		// are now routed.
+		{"two providers → both routed", false, manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, []string{"anthropic", "openai"}},
+		{"roles spanning vendors → both routed", false, manifest.Manifest{}, []string{"moonshot", "xai"}, nil, true, []string{"moonshot", "xai"}},
+		{"zero providers", false, manifest.Manifest{}, nil, nil, true, nil},
+		{"broker disabled", false, manifest.Manifest{}, []string{"anthropic"}, nil, false, nil},
+		// A vendor-locked harness stays narrow: the other keys are not inference
+		// providers for it.
 		{"cursor pin + multi-detect + host key", false, cursorMan, []string{"anthropic", "openai", "cursor"}, func(k string) string {
 			if k == "CURSOR_API_KEY" {
 				return "sk-cursor"
 			}
 			return ""
-		}, true, "cursor"},
-		{"cursor pin without key", false, cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, ""},
+		}, true, []string{"cursor"}},
+		{"cursor pin without key", false, cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,8 +91,9 @@ func TestBrokerProvider(t *testing.T) {
 			if lookup == nil {
 				lookup = func(string) string { return "" }
 			}
-			if got := brokerProvider(tc.forwards, tc.man, tc.detected, lookup, tc.on); got != tc.want {
-				t.Errorf("brokerProvider(...) = %q, want %q", got, tc.want)
+			got := brokerProviders(tc.forwards, tc.man, tc.detected, lookup, tc.on)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("brokerProviders(...) mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -93,23 +102,26 @@ func TestBrokerProvider(t *testing.T) {
 func TestBrokerOffReason(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		forwards     bool
-		providerName string
-		detected     []string
-		on           bool
-		wantSubstr   string // "" = expect no warning at all
+		name       string
+		forwards   bool
+		routed     []string
+		detected   []string
+		on         bool
+		wantSubstr string // "" = expect no warning at all
 	}{
-		{"two providers → explain", false, "", []string{"anthropic", "openai"}, true, "anthropic, openai"},
-		{"broker disabled → explain", false, "", []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
-		{"broker armed → silent", false, "anthropic", []string{"anthropic"}, true, ""},
-		{"forwarded credentials → silent", true, "", []string{"anthropic", "openai"}, true, ""},
-		{"no keys at all → silent", false, "", nil, true, ""},
+		// Several providers is the supported shape now, so it must be SILENT — the
+		// old "broker pins exactly one" warning was the symptom, not the diagnosis.
+		{"two providers routed → silent", false, []string{"anthropic", "openai"}, []string{"anthropic", "openai"}, true, ""},
+		{"keys present but none routable → explain", false, nil, []string{"anthropic", "openai"}, true, "anthropic, openai"},
+		{"broker disabled → explain", false, nil, []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
+		{"broker armed → silent", false, []string{"anthropic"}, []string{"anthropic"}, true, ""},
+		{"forwarded credentials → silent", true, nil, []string{"anthropic", "openai"}, true, ""},
+		{"no keys at all → silent", false, nil, nil, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := brokerOffReason(tc.forwards, tc.providerName, tc.detected, tc.on)
+			got := brokerOffReason(tc.forwards, tc.routed, tc.detected, tc.on)
 			if tc.wantSubstr == "" {
 				if got != "" {
 					t.Errorf("brokerOffReason(...) = %q, want no warning", got)
@@ -158,7 +170,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 		plan, _, err := assemble(assembleInput{
 			params: runParams{mode: "firewall", target: "claudecode", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1000", gid: "1000",
-			provider: "anthropic", brokerFile: "/st/inject/broker.env",
+			providers: []string{"anthropic"}, brokerFile: "/st/inject/broker.env",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -236,7 +248,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 		plan, agent, err := assemble(assembleInput{
 			params: runParams{mode: "firewall", target: "cursor", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1", gid: "1",
-			provider: "cursor", brokerFile: "/st/inject/broker.env",
+			providers: []string{"cursor"}, brokerFile: "/st/inject/broker.env",
 			env: []string{
 				"CURSOR_API_KEY=" + entrypoint.DefaultSentinel,
 				"PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY",
@@ -253,7 +265,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 			t.Errorf("firewall agent must get broker key list: %s", argv)
 		}
 		sidecar := strings.Join(flattenSidecars(plan), " ")
-		if !strings.Contains(sidecar, "PROVEO_EGRESS_PROVIDER=cursor") {
+		if !strings.Contains(sidecar, "PROVEO_EGRESS_PROVIDERS=cursor") {
 			t.Errorf("proxy must pin cursor: %s", sidecar)
 		}
 		if !strings.Contains(sidecar, "/broker:ro") {
@@ -374,8 +386,8 @@ func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
 	if len(detected) != 1 || detected[0] != "cursor" {
 		t.Fatalf("Detect(lookup) = %v, want [cursor]", detected)
 	}
-	if got := brokerProvider(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
-		t.Fatalf("brokerProvider = %q, want cursor", got)
+	if got := brokerProviders(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); len(got) != 1 || got[0] != "cursor" {
+		t.Fatalf("brokerProviders = %v, want [cursor]", got)
 	}
 }
 
@@ -392,8 +404,8 @@ func TestMoonshotDetectFromHostDotEnvOnly(t *testing.T) {
 	if len(detected) != 1 || detected[0] != "moonshot" {
 		t.Fatalf("Detect(lookup) = %v, want [moonshot]", detected)
 	}
-	if got := brokerProvider(false, manifest.Manifest{}, detected, lookup, true); got != "moonshot" {
-		t.Fatalf("brokerProvider = %q, want moonshot", got)
+	if got := brokerProviders(false, manifest.Manifest{}, detected, lookup, true); len(got) != 1 || got[0] != "moonshot" {
+		t.Fatalf("brokerProviders = %v, want [moonshot]", got)
 	}
 }
 
@@ -432,8 +444,8 @@ func TestCursorBrokerWithMultiProviderDotEnv(t *testing.T) {
 	if len(detected) < 2 {
 		t.Fatalf("Detect(lookup) = %v, want multiple providers", detected)
 	}
-	if got := brokerProvider(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
-		t.Fatalf("brokerProvider = %q, want cursor", got)
+	if got := brokerProviders(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); len(got) != 1 || got[0] != "cursor" {
+		t.Fatalf("brokerProviders = %v, want [cursor]", got)
 	}
 	path, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject"), lookup)
 	if err != nil {
