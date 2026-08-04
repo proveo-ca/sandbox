@@ -1,0 +1,40 @@
+//go:build windows
+
+package ptyproxy
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+)
+
+// ErrNotRunning is returned when an overlay is requested before Run.
+var ErrNotRunning = errors.New("ptyproxy: no child running")
+
+// Proxy is a Windows stub: review-gate PTY overlays need Unix signals and a
+// real PTY, which this GOOS does not provide. Callers already gate on Usable.
+type Proxy struct {
+	In  *os.File
+	Out *os.File
+}
+
+// New returns a Proxy stub over the given terminal files.
+func New(in, out *os.File) *Proxy { return &Proxy{In: in, Out: out} }
+
+// Usable is always false on Windows — no PTY overlay path.
+func Usable(in, out *os.File) bool { return false }
+
+// Run reports that PTY proxying is unavailable on this GOOS.
+func (p *Proxy) Run(cmd *exec.Cmd) error {
+	return fmt.Errorf("ptyproxy: not supported on windows")
+}
+
+// Restore is a no-op on Windows.
+func (p *Proxy) Restore() {}
+
+// Overlay returns ErrNotRunning — there is never a live PTY child on Windows.
+func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
+	return ErrNotRunning
+}
