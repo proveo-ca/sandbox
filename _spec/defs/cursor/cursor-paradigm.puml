@@ -47,7 +47,10 @@ end note
 
 note bottom of L2
   Cursor's own OS sandbox (Landlock/seccomp) is disabled
-  inside the container — Docker is the boundary.
+  on purpose — unprivileged userns fail in this container.
+  Docker is the FS/process boundary today; network
+  containment is deferred to the free-tier ""sbx"" experiment
+  (_spec/_experiments/docker-sandbox.puml), not Landlock.
 end note
 
 note bottom of VENDOR

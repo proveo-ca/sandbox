@@ -81,7 +81,7 @@ end note
 Net .> Force : network containment\noffsets full consent
 
 note as CursorSandbox #FFF3F0
-  **Enforcement here is Cursor's, not proveo's.**
+  **No proveo egress; Landlock is off on purpose.**
 
   cursor-agent pins its TLS to Cursor's backend, so no proveo tier can
   intercept it: the def declares ""capabilities: egress [open],
@@ -89,18 +89,20 @@ note as CursorSandbox #FFF3F0
   proveo contributes the container, the mounts and the credential
   handling, but **not** egress enforcement.
 
-  The entrypoint therefore launches with ""--sandbox enabled"" (override
-  with ""PROVEO_CURSOR_SANDBOX""). It previously passed
-  ""--sandbox disabled"" on the reasoning that 'Docker is the sandbox' —
-  true for the filesystem and process boundary, but nothing constrains
-  the network once interception is off the table. Cursor's own sandbox
-  is the only egress boundary this harness has.
+  The entrypoint launches with ""--sandbox disabled"" (override
+  ""PROVEO_CURSOR_SANDBOX""). Landlock/seccomp needs unprivileged
+  userns; this cap-dropped container returns EPERM, so Cursor's nested
+  sandbox is a dead end here — not a recoverable egress boundary.
+  Docker remains the FS/process boundary only.
 
-  Read "cursor runs under proveo" as isolation of the workspace, never
-  as audited egress. The e2e suite reflects this: cursor is absent from
-  the egress-isolation and dotenv-at-egress tables, because it has no
-  egress layer to be isolated from and forwards the real key rather than
-  a sentinel. Its contract lives in ""TestCursorEgressException"".
+  Free-tier Docker Sandboxes (""sbx"" + local ""sbx policy"") is the
+  experiment candidate for host-side domain allowlisting — see
+  _spec/_experiments/docker-sandbox.puml. Read "cursor runs under
+  proveo" as isolation of the workspace, never as audited egress. The
+  e2e suite reflects this: cursor is absent from the egress-isolation
+  and dotenv-at-egress tables, because it has no egress layer to be
+  isolated from and forwards the real key rather than a sentinel. Its
+  contract lives in ""TestCursorEgressException"".
 end note
 
 @enduml

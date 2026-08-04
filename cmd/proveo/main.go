@@ -431,7 +431,7 @@ func doRun(p runParams) error {
 	}
 	wantDind := false
 	browserImage := man.Images[p.target+"-browser"]                                                     // the -browser variant, if this harness has one
-	dindOfferable := man.Dind && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials) // DinD needs broker egress (see ModeSupported)
+	dindOfferable := man.Dind && !man.SandboxDocker && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials) // DinD needs broker egress (see ModeSupported); sandbox_docker replaces the sidecar
 	if hasAddon(p.addons, "browser") && browserImage != "" {
 		p.image = browserImage
 		ui.Iconf("🌐", "variant: browser → %s", browserImage)
@@ -447,7 +447,7 @@ func doRun(p runParams) error {
 	}
 	// Warn (rather than silently no-op) if DinD was explicitly requested in a mode
 	// that cannot expose a daemon without defeating egress enforcement.
-	if man.Dind && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
+	if man.Dind && !man.SandboxDocker && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
 	}
 
@@ -795,12 +795,14 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	if addons := addonOptions(man); len(addons) > 0 {
 		on := make([]bool, len(addons))
 		for i, a := range addons {
-			on[i] = hasAddon(p.addons, a)
+			on[i] = hasAddon(p.addons, a) || (a == "dind" && man.SandboxDocker)
 		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: "add-ons", Options: addons, Multi: true, On: on,
 		})...)
-		form.OnChange = func(f *choiceui.Form) { gateAddons(f, p.mode, p.credentialsOrDefault()) }
+		form.OnChange = func(f *choiceui.Form) {
+			gateAddons(f, p.mode, p.credentialsOrDefault(), man.SandboxDocker)
+		}
 		form.OnChange(form)
 	}
 
@@ -854,7 +856,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, tierFallback, credsFallback string) {
+func gateAddons(f *choiceui.Form, tierFallback, credsFallback string, sandboxDocker bool) {
 	// A filtered-out axis has no row to read, so fall back to the value already
 	// resolved from the manifest. Without this, hiding cursor's single-option rows
 	// would make the gate see empty strings and wrongly disable dind on the one
@@ -875,7 +877,15 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback string) {
 		r.Off = make([]bool, len(r.Options))
 		r.Reason = ""
 		for j, opt := range r.Options {
-			if opt == "dind" && (!dind.ModeSupported(tier) || !dind.CredentialsSupported(creds)) {
+			if opt != "dind" {
+				continue
+			}
+			if sandboxDocker {
+				r.Off[j] = true
+				r.Reason = "docker accessible via docker sandbox"
+				continue
+			}
+			if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
 				r.Off[j] = true
 				r.Reason = "dind needs egress open + credentials forward"
 			}

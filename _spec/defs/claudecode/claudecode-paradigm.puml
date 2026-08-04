@@ -58,8 +58,9 @@ note right of CLI
   docker client and stays ""dind: false"": the privileged
   sibling is ""broker""-mode only, and this is the harness
   whose permission posture depends on the boundary that
-  mode removes. Container work is deferred to the
+  mode removes. Container work stays deferred to the
   per-sandbox engine in
-  _spec/_experiments/docker-sandbox.puml.
+  _spec/_experiments/docker-sandbox.puml
+  (Cursor-led experiment; claudecode is secondary).
 end note
 @enduml

@@ -1,6 +1,7 @@
 @startuml DockerSandboxExperiment
-' EXPERIMENT — what Docker Sandboxes (sbx) would subsume in proveo's bespoke
-' isolation stack, and what it would NOT. Exploratory; not a decision to adopt.
+' EXPERIMENT — Cursor egress hole is the owning question (free-tier local
+' sbx policy only; no AI Governance). Also sketches what sbx would subsume
+' in proveo's bespoke isolation stack. Exploratory; not a decision to adopt.
 '
 ' Docker Sandboxes research (2026-07, sbx v0.35.0 — "generally stable", pre-GA):
 '   https://docs.docker.com/ai/sandboxes/                     — landing (microVM per workspace)
@@ -26,7 +27,7 @@ skinparam componentStyle rectangle
 skinparam nodesep 12
 skinparam ranksep 60
 
-title Experiment — proveo on Docker Sandboxes (""sbx"")\na per-workspace microVM subsumes most of the hand-built isolation stack (with real trade-offs)
+title Experiment — proveo on Docker Sandboxes (""sbx"", free tier)\nCursor egress hole is the owning question; microVM may also collapse the bespoke stack
 
 package "TODAY — proveo bespoke isolation\n~2,800 LOC Go · 10 pkgs · 5 sidecars · 3 nets · per-session MITM CA" as today #FBECEC {
   component "egress planner\ninternal/egress\nnets · sidecars · DNS blackhole · teardown" as p_egress
@@ -68,20 +69,30 @@ note right of sbx #E7F0FF
 end note
 
 note top of today #E7F0FF
-  **Open decision this experiment now owns: container work for claudecode**
-  claudecode is the one harness with no docker client and ""dind: false"".
-  Attaching the privileged sibling would be cheap mechanically (+36 MB, one
-  manifest line) and wrong structurally:
-  • DinD is ""broker""-mode only — no MITM, no credential broker, no allowlist
-  • claudecode's ""--dangerously-skip-permissions"" is justified **by** that
-    boundary, so the two would be supported only where it is absent
-  • a privileged sibling is an escape hatch: ""docker run -v /:/host --privileged""
-    reaches host paths the sandbox deliberately did not mount
-  ""sbx"" resolves exactly this: a **per-sandbox Docker Engine** inside the microVM
-  (no host socket, no privilege, no mode downgrade). So claudecode's container
-  story is deferred to this path rather than solved with DinD.
-  Blocking question stays the DLP gap below — claudecode is the harness that most
-  depends on payload inspection.
+  **Owning question: Cursor's egress hole (free-tier sbx only)**
+  cursor pins TLS to "".cursor.sh"" / "".cursor.com"" → proveo declares
+  ""egress:[open] credentials:[forward]"" — no MITM, no Squid. Cursor's
+  Landlock sandbox needs unprivileged userns and fails with EPERM inside
+  the cap-dropped container, so the entrypoint keeps ""--sandbox disabled"".
+  Result: container FS/process boundary only; network unconstrained.
+
+  Free path this experiment targets (no AI Governance subscription):
+  • host-side deny-by-default proxy + local ""sbx policy allow"" for
+    "".cursor.sh"" / "".cursor.com"" (Kit ""allowedDomains"")
+  • credentials stay **forward** — header injection still wants TLS
+    intercept Cursor will not allow
+  Explicit non-goal: Docker AI Governance (org-central policy, audit
+  logs, sales licenses). Local ""sbx policy"" is enough for the Cursor gap.
+end note
+
+note left of sbx #FFF3F0
+  **Also unlocked (secondary): claudecode container work**
+  claudecode stays ""dind: false"" — DinD is broker-only and a privileged
+  escape hatch (""docker run -v /:/host --privileged""). A per-sandbox
+  Docker Engine inside the microVM (no host socket, no privilege) would
+  unlock container work without that downgrade. Demoted: Cursor egress
+  owns this experiment; claudecode DinD is an aside, not the driver.
+  claudecode still cares most about the DLP content-scan gap below.
 end note
 
 note bottom of today #FFF6E5
@@ -89,11 +100,14 @@ note bottom of today #FFF6E5
   • platform-gated: macOS Apple-Silicon · Linux + KVM · Win11 Hyper-V
     (proveo runs anywhere Docker does)
   • ""sbx"" v0.35 — "generally stable" but no formal GA yet
-  • microVM RAM overhead (default 50% of host, cap 32 GiB); enforced network/fs
-    policy + audit logs are a **paid** org tier
+  • microVM RAM overhead (default 50% of host, cap 32 GiB)
+  • AI Governance (org-enforced policy + audit logs) is a **separate
+    paid subscription** — optional; **not required** for the Cursor
+    free-tier local-policy experiment
   • DLP **content** scan (base64/entropy on payloads to *allowed* hosts) has **no
     sandbox equivalent** — the proxy allowlists domains + injects headers, it is
     NOT a TLS-terminating body inspector → a capability gap, not just a simplification
+    (hurts claudecode more than cursor, which never had MITM DLP)
   • ""sbx"" ships its own agent templates ⇒ adoption reframes proveo as
     **Kits/templates on sbx** (re-expressing the harness images, the run capability
     picker, the LSP/browser layers), not a ""docker run"" wrapper

@@ -194,7 +194,10 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 		t.Error("cursor manifest must declare CURSOR_API_KEY as secret")
 	}
 	if !cursor.Dind {
-		t.Error("cursor manifest must enable dind (docker client + sibling sidecar offer)")
+		t.Error("cursor manifest must enable dind (docker client shown in add-ons)")
+	}
+	if !cursor.SandboxDocker {
+		t.Error("cursor manifest must set sandbox_docker (DinD locked; docker via sbx)")
 	}
 	if cursor.Provider != "cursor" {
 		t.Errorf("cursor manifest provider = %q, want cursor", cursor.Provider)
@@ -267,7 +270,26 @@ func TestDindCapableHarnessesIncludeCursorAndOpenCode(t *testing.T) {
 	}
 	for name, ok := range want {
 		if !ok {
-			t.Errorf("%s manifest must enable dind (docker client + sibling sidecar offer)", name)
+			t.Errorf("%s manifest must enable dind (docker client add-on)", name)
+		}
+	}
+}
+
+func TestCursorSandboxDockerLocksSidecar(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.Name != "cursor" {
+			if m.SandboxDocker {
+				t.Errorf("%s must not set sandbox_docker (cursor-only experiment)", m.Name)
+			}
+			continue
+		}
+		if !m.Dind || !m.SandboxDocker {
+			t.Errorf("cursor must keep dind:true with sandbox_docker:true (got dind=%v sandbox_docker=%v)", m.Dind, m.SandboxDocker)
 		}
 	}
 }

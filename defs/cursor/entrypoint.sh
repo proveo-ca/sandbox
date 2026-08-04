@@ -239,7 +239,11 @@ case "${1:-}" in
     ;;
 esac
 
-LAUNCH_ARGS=(--force --sandbox "${PROVEO_CURSOR_SANDBOX:-enabled}")
+# Landlock needs unprivileged userns; this cap-dropped container cannot provide
+# them. Docker is the FS/process boundary; network containment is the free-tier
+# sbx experiment (_spec/_experiments/docker-sandbox.puml). Override via
+# PROVEO_CURSOR_SANDBOX only on hosts where userns works.
+LAUNCH_ARGS=(--force --sandbox "${PROVEO_CURSOR_SANDBOX:-disabled}")
 if [[ -n "${CURSOR_MODEL:-}" ]]; then
   LAUNCH_ARGS+=(--model "$CURSOR_MODEL")
 fi

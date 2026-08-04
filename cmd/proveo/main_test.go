@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/egress"
-
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -617,5 +617,45 @@ func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	}
 	if ok, _ := reviewSupported(local); ok != (runtime.GOOS == "linux") {
 		t.Errorf("a local unix daemon should track GOOS, got %v on %s", ok, runtime.GOOS)
+	}
+}
+
+func TestGateAddonsSandboxDockerLocksDind(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true,
+		On: []bool{false, true},
+	}}}
+	gateAddons(f, "open", "forward", true)
+	r := f.Rows[0]
+	if !r.Off[1] {
+		t.Fatal("sandbox_docker must disable dind")
+	}
+	if r.Off[0] {
+		t.Error("browser must stay enabled")
+	}
+	if r.Reason != "docker accessible via docker sandbox" {
+		t.Errorf("reason = %q, want sandbox explanation", r.Reason)
+	}
+	if got := f.Selections("add-ons"); len(got) != 0 {
+		t.Errorf("Selections must omit locked dind even when On, got %v", got)
+	}
+}
+
+func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Options: []string{"dind"}, Multi: true, On: []bool{false},
+	}}}
+	gateAddons(f, "firewall", "inject", false)
+	if !f.Rows[0].Off[0] {
+		t.Fatal("firewall+inject must still disable dind")
+	}
+	if f.Rows[0].Reason != "dind needs egress open + credentials forward" {
+		t.Errorf("reason = %q", f.Rows[0].Reason)
+	}
+	gateAddons(f, "open", "forward", false)
+	if f.Rows[0].Off[0] {
+		t.Error("open+forward without sandbox_docker must leave dind enabled")
 	}
 }

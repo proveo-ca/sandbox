@@ -8,6 +8,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   --
   egress : bool
   dind : bool
+  sandbox_docker : bool
   provider : string
   subscription : bool
   stability : experimental|candidate|stable
@@ -58,6 +59,9 @@ note right of M
   Everything else enumerates from it: runnable targets,
   image refs, mount model, egress lifecycle, DinD
   offer, auth prompts, build/test/deploy registry.
+  ""sandbox_docker: true"" (cursor) keeps the DinD add-on
+  visible but locked — docker comes from the sbx engine,
+  so the privileged sidecar never starts.
 
   Validated by ""Manifest.Validate"" at load; ""Targets""
   flattens ""images"" across defs and rejects a duplicate

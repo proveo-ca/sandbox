@@ -149,7 +149,7 @@ const (
 	ColorAccent    = ColorApp   // first-party emphasis
 	ColorWarn      = ColorAsync // attention, not yet a failure
 	ColorFail      = ColorError
-	ColorSecondary = ColorCloud // dim supporting text
+	ColorSecondary = ColorDB // supporting text — light enough to read on dark terminals
 )
 
 func ANSI(rgb int) string {

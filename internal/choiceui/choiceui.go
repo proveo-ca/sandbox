@@ -5,6 +5,7 @@ package choiceui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -199,16 +200,36 @@ func (f *Form) changed() {
 	}
 }
 
-func styles() (brand, bold, dim tcell.Style) {
-	hex := func(c int) tcell.Color { return tcell.NewHexColor(int32(c)) }
-	return tcell.StyleDefault.Foreground(hex(ui.ColorBrand)).Bold(true),
-		tcell.StyleDefault.Bold(true),
-		tcell.StyleDefault.Foreground(hex(ui.ColorSecondary))
+func hexColor(c int) tcell.Color { return tcell.NewHexColor(int32(c)) }
+
+// palette maps the shared CLI colors onto tcell styles. Background stays the
+// terminal default (Clear); contrast comes from light body text, not a custom fill.
+type palette struct {
+	brand  tcell.Style // cyan — mark, selected / checked
+	accent tcell.Style // teal — labels, first-party emphasis
+	warn   tcell.Style // lime — attention (reasons, gated)
+	body   tcell.Style // light — readable supporting / value text
+	title  tcell.Style // bold default fg — section titles
+	idle   tcell.Style // unchecked / unfocused options
+}
+
+func styles() palette {
+	fg := func(c int) tcell.Style {
+		return tcell.StyleDefault.Foreground(hexColor(c))
+	}
+	return palette{
+		brand:  fg(ui.ColorBrand).Bold(true),
+		accent: fg(ui.ColorAccent).Bold(true),
+		warn:   fg(ui.ColorWarn),
+		body:   fg(ui.ColorSecondary),
+		title:  tcell.StyleDefault.Bold(true),
+		idle:   fg(ui.ColorSecondary),
+	}
 }
 
 func (f *Form) draw(s tcell.Screen, cursor int) {
 	s.Clear()
-	sel, bold, dim := styles()
+	p := styles()
 
 	y := 0
 	put := func(x int, style tcell.Style, text string) {
@@ -218,16 +239,16 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	}
 
 	for _, b := range f.Banner {
-		put(0, sel, b)
+		put(0, p.brand, b)
 		y++
 	}
 	if len(f.Banner) > 0 {
 		y++
 	}
-	put(0, bold, f.Title)
+	put(0, p.title, f.Title)
 	y += 2
 	for _, h := range f.Header {
-		put(2, dim, h)
+		putHeader(put, p, h)
 		y++
 	}
 	if len(f.Header) > 0 {
@@ -260,10 +281,10 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			y += 2
 		}
 		marker := "  "
-		style := tcell.StyleDefault
+		labelStyle := p.accent
 		if i == cursor {
 			marker = "› "
-			style = bold
+			labelStyle = p.brand
 		}
 		rowLabel := r.Label
 		if r.Multi && dividerDone {
@@ -273,14 +294,14 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		x := 22
 		for j, opt := range r.Options {
 			var glyph string
-			st := tcell.StyleDefault
+			st := p.idle
 			switch {
 			case r.Multi && r.onAt(j):
-				glyph, st = "[x] ", sel
+				glyph, st = "[x] ", p.brand
 			case r.Multi:
 				glyph = "[ ] "
 			case j == r.Selected:
-				glyph, st = "(•) ", sel
+				glyph, st = "(•) ", p.brand
 			default:
 				glyph = "( ) "
 			}
@@ -288,13 +309,13 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 				st = st.Underline(true)
 			}
 			if r.Locked || r.offAt(j) {
-				st = dim
+				st = p.warn
 			}
 			put(x, st, glyph+opt)
 			x += len(glyph) + len(opt) + 3
 		}
 		if r.Reason != "" && (r.Locked || r.anyOff()) {
-			put(x, dim, "— "+r.Reason)
+			put(x, p.warn, "— "+r.Reason)
 		}
 		y++
 	}
@@ -307,8 +328,32 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			break
 		}
 	}
-	put(0, dim, hint)
+	put(0, p.body, hint)
 	s.Show()
+}
+
+// putHeader styles "label: value" and indented "KEY=value" lines with accent labels.
+func putHeader(put func(int, tcell.Style, string), p palette, line string) {
+	const x0 = 2
+	runes := []rune(line)
+	i := 0
+	for i < len(runes) && unicode.IsSpace(runes[i]) {
+		i++
+	}
+	indent := i
+	rest := string(runes[i:])
+
+	if colon := strings.IndexByte(rest, ':'); colon > 0 && !strings.ContainsRune(rest[:colon], ' ') {
+		put(x0, p.accent, string(runes[:indent])+rest[:colon+1])
+		put(x0+indent+colon+1, p.body, rest[colon+1:])
+		return
+	}
+	if eq := strings.IndexByte(rest, '='); eq > 0 {
+		put(x0, p.accent, string(runes[:indent])+rest[:eq])
+		put(x0+indent+eq, p.body, rest[eq:])
+		return
+	}
+	put(x0, p.body, line)
 }
 
 func EnvHeader(secretNames []string, settings map[string]string) []string {
