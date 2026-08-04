@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be drawn
 // over the agent's full-screen TUI and dismissed without corrupting it.
 //
