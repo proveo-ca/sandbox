@@ -243,3 +243,41 @@ func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
 		t.Errorf("divider starts at column %d — not centred", i)
 	}
 }
+
+func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
+	t.Parallel()
+	f := &Form{
+		Title:  "run cursor",
+		Header: []string{"git:      sandbox on main", "keys:     CURSOR_API_KEY"},
+		Rows:   []Row{{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: []bool{true, false}}},
+	}
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 40)
+	f.draw(s, 0)
+
+	cells, w, h := s.GetContents()
+	slate := tcell.NewHexColor(int32(ui.ColorCloud))
+	light := tcell.NewHexColor(int32(ui.ColorSecondary))
+	var sawLight, sawSlate bool
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			fg, _, _ := cells[y*w+x].Style.Decompose()
+			if fg == light {
+				sawLight = true
+			}
+			if fg == slate {
+				sawSlate = true
+			}
+		}
+	}
+	if !sawLight {
+		t.Error("header/hint body text must use ColorSecondary (light), not terminal default alone")
+	}
+	if sawSlate {
+		t.Error("ColorCloud slate is too dark for TUI body text on a black background")
+	}
+}

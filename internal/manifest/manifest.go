@@ -70,17 +70,18 @@ type Home struct {
 
 // Manifest describes one harness definition.
 type Manifest struct {
-	Name         string            `yaml:"name"`
-	Description  string            `yaml:"description"`
-	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
-	Dind         bool              `yaml:"dind"`         // image ships docker client; may get DinD sidecar
-	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
-	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
-	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
-	Images       map[string]string `yaml:"images"`       // target name -> image ref
-	Workspace    Workspace         `yaml:"workspace"`    // mount model
-	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
-	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description"`
+	Egress        bool              `yaml:"egress"`         // sources the egress lifecycle
+	Dind          bool              `yaml:"dind"`           // image ships docker client; may get DinD sidecar
+	SandboxDocker bool              `yaml:"sandbox_docker"` // docker via sbx; DinD shown locked, sidecar never starts
+	Provider      string            `yaml:"provider"`       // vendor-pinned broker target (firewall mode); e.g. cursor
+	Subscription  bool              `yaml:"subscription"`   // subscription/login agent: warn, don't prompt for keys
+	Stability     string            `yaml:"stability"`      // experimental | candidate | stable
+	Images        map[string]string `yaml:"images"`         // target name -> image ref
+	Workspace     Workspace         `yaml:"workspace"`      // mount model
+	Home          Home              `yaml:"home"`           // durable ~/.proveo session/config mounts
+	Env           []EnvVar          `yaml:"env"`            // secret/auth env vars the harness reads
 	// Config names NON-SECRET host preferences this harness wants forwarded by
 	// value (`-e NAME=value`), on top of the shared baseline in
 	// entrypoint.ConfigVars. Use it for a harness-specific knob — a secret

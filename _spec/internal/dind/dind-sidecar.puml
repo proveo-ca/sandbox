@@ -45,8 +45,9 @@ note bottom of DIND
 
   claudecode stays out on purpose — its permission posture
   depends on the boundary broker mode removes. Its
-  container story is the per-sandbox engine in
-  _spec/_experiments/docker-sandbox.puml
+  container story stays deferred to the per-sandbox engine
+  in _spec/_experiments/docker-sandbox.puml
+  (Cursor-led; claudecode is secondary).
 end note
 
 note bottom of CLI

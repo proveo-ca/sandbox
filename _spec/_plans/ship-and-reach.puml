@@ -39,11 +39,13 @@ end note
 
 note bottom of HZ
   Docker Sandboxes could collapse most of the bespoke
-  isolation stack — and is where claudecode's container
-  story now lives, rather than DinD. Open questions
-  (platform gating, the DLP content-scan gap, pre-GA
-  status, and whether adoption reframes proveo as Kits on
-  ""sbx"") are mapped in
+  isolation stack. The experiment is owned by Cursor's
+  egress gap (pinned TLS + dead Landlock; free-tier local
+  ""sbx policy"" — not AI Governance). claudecode's
+  container story remains a secondary unlock versus DinD.
+  Open questions (platform gating, the DLP content-scan
+  gap, pre-GA status, and whether adoption reframes proveo
+  as Kits on ""sbx"") are mapped in
   _spec/_experiments/docker-sandbox.puml
 end note
 @enduml

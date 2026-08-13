@@ -31,9 +31,11 @@ func TestFleetDinDMatrix(t *testing.T) {
 		if got := m.Dind && ModeSupported("firewall"); got {
 			t.Errorf("%s: DinD must never be offered under firewall egress", m.Name)
 		}
-		got := m.Dind && ModeSupported("broker") && ShouldStart(m.Dind, scope, false, nil)
-		if got != want {
-			t.Errorf("%s: broker-mode ShouldStart = %v, want %v", m.Name, got, want)
+		// sandbox_docker (cursor) keeps dind:true for the picker but never starts the sidecar.
+		wantSidecar := want && !m.SandboxDocker
+		got := m.Dind && !m.SandboxDocker && ModeSupported("broker") && ShouldStart(m.Dind, scope, false, nil)
+		if got != wantSidecar {
+			t.Errorf("%s: broker-mode sidecar start = %v, want %v", m.Name, got, wantSidecar)
 		}
 	}
 }
