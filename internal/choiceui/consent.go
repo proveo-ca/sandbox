@@ -46,7 +46,7 @@ func Consent(newScreen func() (tcell.Screen, error), host, port string) (bool, e
 
 // drawConsent renders the modal centred on whatever size the terminal is.
 func drawConsent(s tcell.Screen, host, port string) {
-	brand, bold, dim := styles()
+	p := styles()
 	s.Clear()
 	w, h := s.Size()
 
@@ -54,13 +54,13 @@ func drawConsent(s tcell.Screen, host, port string) {
 		text  string
 		style tcell.Style
 	}{
-		{"connection review", dim},
-		{"", dim},
-		{fmt.Sprintf("%s:%s", host, port), brand},
-		{"", dim},
-		{"allow this connection?", bold},
-		{"", dim},
-		{"y  allow      n / esc  deny", dim},
+		{"connection review", p.body},
+		{"", p.body},
+		{fmt.Sprintf("%s:%s", host, port), p.brand},
+		{"", p.body},
+		{"allow this connection?", p.title},
+		{"", p.body},
+		{"y  allow      n / esc  deny", p.body},
 	}
 
 	boxW := 0
@@ -85,7 +85,7 @@ func drawConsent(s tcell.Screen, host, port string) {
 			s.SetContent(x, y, ' ', nil, tcell.StyleDefault)
 		}
 	}
-	drawBorder(s, x0, y0, boxW, boxH, brand)
+	drawBorder(s, x0, y0, boxW, boxH, p.brand)
 
 	for i, l := range lines {
 		y := y0 + 1 + i

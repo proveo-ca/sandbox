@@ -259,8 +259,8 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	// one label explains every row at once and the direction is not something the
 	// operator has to infer from the option names.
 	if f.axisLabel() {
-		put(22, dim, "◀ riskier")
-		put(60, dim, "safer ▶")
+		put(22, p.body, "◀ riskier")
+		put(60, p.body, "safer ▶")
 		y += 2
 	}
 
@@ -277,7 +277,7 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 				pad = 0
 			}
 			y++
-			put(pad, dim, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
+			put(pad, p.body, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
 			y += 2
 		}
 		marker := "  "
@@ -290,7 +290,7 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		if r.Multi && dividerDone {
 			rowLabel = ""
 		}
-		put(0, style, marker+rowLabel)
+		put(0, labelStyle, marker+rowLabel)
 		x := 22
 		for j, opt := range r.Options {
 			var glyph string
