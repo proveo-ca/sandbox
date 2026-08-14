@@ -115,9 +115,35 @@ Open a variant debug shell through the parent run wrapper:
 ## Environment Variables
 
 - `CLAUDE_CODE_OAUTH_TOKEN`: Your Claude Code OAuth token (required)
+- `CLAUDECODE_RESEED=1`: overwrite existing `$HOME/.claude/agents/*.md` with the baked-in defaults
 
 Run `claude setup-token`, login, save the resulting `sk-*` token.
 
+## Baked-in Subagents
+
+The image ships subagent definitions in `/opt/claudecode/defaults/agents/` and seeds them
+into `$HOME/.claude/agents/` on startup (missing-only, so a durable proveo home keeps your
+edits; `CLAUDECODE_RESEED=1` refreshes them). Claude Code also reads project-level
+`.claude/agents/*.md` from the mounted workspace — drop a file there to override or add one.
+
+| Subagent | Tools | Active when |
+| --- | --- | --- |
+| `architect` | read-only | Before implementing anything non-trivial — new module, new contract, more than a couple of files |
+| `monorepo-coordinator` | read-only | The change spans more than one project, touches a shared package, or moves a project boundary |
+| `adversarial-reviewer` | read-only | Always, on the final diff, before the loop declares the task done |
+| `security-reviewer` | read-only | Auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched |
+| `spec-keeper` | `Edit`/`Write` | `_spec/`, `PLAN.md`, `CLAUDE.md`/`AGENTS.md`, architecture boundaries, or harness contracts changed |
+
+The trigger table lives in the seeded `CLAUDE.md` loop rule (steps 3, 6, 7) — the
+definitions alone are inert; the loop rule is what makes them run. `[BLOCKER]` and `[HIGH]`
+findings from either reviewer are completion blockers.
+
+**The read-only split is the point.** This harness launches with
+`--dangerously-skip-permissions`, so a reviewer that could edit would be able to fix its own
+findings and mark itself green. Every advisor is restricted by its frontmatter `tools:`
+allowlist to `Read, Grep, Glob` — no `Edit`, no `Write`, and no `Bash` for anyone. The main
+agent runs `git diff` and hands over the diff. `spec-keeper` is the single writer, and its
+prompt scopes it to `_spec/`, `PLAN.md`, `CLAUDE.md`, and `AGENTS.md`.
 
 ## Security Features
 

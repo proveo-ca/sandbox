@@ -107,6 +107,92 @@ func TestOpenCodeDefaultsExist(t *testing.T) {
 	}
 }
 
+// claudecode runs --dangerously-skip-permissions, so the subagent read-only split
+// is the only thing standing between a reviewer and the working tree: it must come
+// from the tools: allowlist, never from prose. spec-keeper is the one writer, and
+// even it gets no Bash.
+func TestClaudeCodeSubagentTools(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(repoRoot(t), "defs/claudecode/mcp/defaults/agents")
+	readOnly := []string{
+		"adversarial-reviewer.md",
+		"security-reviewer.md",
+		"architect.md",
+		"monorepo-coordinator.md",
+	}
+	for _, name := range append(readOnly, "spec-keeper.md") {
+		b, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Errorf("read %s: %v", name, err)
+			continue
+		}
+		src := string(b)
+		tools, ok := frontmatterField(src, "tools")
+		if !ok {
+			t.Errorf("%s must declare a tools: allowlist", name)
+			continue
+		}
+		if strings.Contains(tools, "Bash") {
+			t.Errorf("%s must not grant Bash; got tools: %s", name, tools)
+		}
+		if name == "spec-keeper.md" {
+			for _, need := range []string{"Read", "Edit", "Write"} {
+				if !strings.Contains(tools, need) {
+					t.Errorf("spec-keeper must grant %s; got tools: %s", need, tools)
+				}
+			}
+			continue
+		}
+		for _, banned := range []string{"Edit", "Write", "NotebookEdit"} {
+			if strings.Contains(tools, banned) {
+				t.Errorf("%s is a read-only advisor but grants %s; got tools: %s", name, banned, tools)
+			}
+		}
+	}
+}
+
+// The claudecode loop rule is what makes a seeded subagent actually run — the
+// definitions alone are inert.
+func TestClaudeCodeLoopDelegates(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/claudecode/mcp/defaults/CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, need := range []string{
+		"Verification Commands",
+		"adversarial-reviewer",
+		"security-reviewer",
+		"architect",
+		"monorepo-coordinator",
+		"spec-keeper",
+	} {
+		if !strings.Contains(src, need) {
+			t.Errorf("CLAUDE.md must reference %q", need)
+		}
+	}
+}
+
+// frontmatterField returns the value of a top-level `key: value` line inside the
+// leading YAML frontmatter block.
+func frontmatterField(src, key string) (string, bool) {
+	rest, ok := strings.CutPrefix(src, "---\n")
+	if !ok {
+		return "", false
+	}
+	fm, _, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return "", false
+	}
+	for _, line := range strings.Split(fm, "\n") {
+		if v, ok := strings.CutPrefix(line, key+":"); ok {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
+}
+
 func TestDeadHostLibsRemoved(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

@@ -102,6 +102,46 @@ seed_claude_proveo_home() {
 }
 seed_claude_proveo_home
 
+# ── Seed user-level subagents (~/.claude/agents) ────────────
+# Claude Code reads user-level agents from $HOME/.claude/agents and project-level
+# ones from .claude/agents in the workspace; the workspace is never written here.
+# Missing-only, so a durable proveo home keeps local edits, unless
+# CLAUDECODE_RESEED=1 forces a refresh from the image bake.
+seed_claude_subagents() {
+  local src="/opt/claudecode/defaults/agents"
+  local dst="${HOME}/.claude/agents"
+  [[ -d "$src" ]] || return 0
+  # set -e is on: a read-only home must degrade to "no subagents", not kill the run.
+  mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not seed subagents into $dst; continuing" >&2; return 0; }
+
+  local seeded=()
+  for f in "$src"/*.md; do
+    [[ -e "$f" ]] || continue
+    local name; name="$(basename "$f")"
+    if [[ "${CLAUDECODE_RESEED:-0}" == "1" || ! -f "$dst/$name" ]]; then
+      if cp -f "$f" "$dst/$name" 2>/dev/null; then
+        seeded+=("agents/$name")
+      fi
+    fi
+  done
+  if (( ${#seeded[@]} > 0 )); then
+    echo "🌱 Seeded Claude Code subagents into $dst: ${seeded[*]}"
+  fi
+}
+seed_claude_subagents
+
+# Surface available subagents (user + project)
+agent_files=()
+[[ -d "${HOME}/.claude/agents" ]] && \
+  while IFS= read -r f; do agent_files+=("$(basename "${f%.md}")"); done \
+  < <(find "${HOME}/.claude/agents" -maxdepth 1 -name '*.md' 2>/dev/null | sort)
+[[ -d .claude/agents ]] && \
+  while IFS= read -r f; do agent_files+=("$(basename "${f%.md}") (project)"); done \
+  < <(find .claude/agents -maxdepth 1 -name '*.md' 2>/dev/null | sort)
+if (( ${#agent_files[@]} > 0 )); then
+  echo "🧑‍💻 Subagents available: ${agent_files[*]}"
+fi
+
 echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 [[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
 [[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
