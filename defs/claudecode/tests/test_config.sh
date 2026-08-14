@@ -83,6 +83,44 @@ assert_success \
   "$IMAGE" \
   "python3 -c \"import json; json.load(open('/home/claude/.claude/settings.local.json'))\""
 
+# Baked-in subagents (seeded into $HOME/.claude/agents by the entrypoint)
+assert_success \
+  "[standalone] all five subagent definitions are baked in" \
+  "$IMAGE" \
+  "test -f /opt/claudecode/defaults/agents/architect.md \
+   && test -f /opt/claudecode/defaults/agents/monorepo-coordinator.md \
+   && test -f /opt/claudecode/defaults/agents/adversarial-reviewer.md \
+   && test -f /opt/claudecode/defaults/agents/security-reviewer.md \
+   && test -f /opt/claudecode/defaults/agents/spec-keeper.md"
+
+# The read-only split is the whole point under --dangerously-skip-permissions:
+# no advisor may hold Edit/Write, and nothing may hold Bash.
+assert_failure \
+  "[standalone] no subagent grants Bash" \
+  "$IMAGE" \
+  "grep -lE '^tools:.*Bash' /opt/claudecode/defaults/agents/*.md | grep -q ."
+
+assert_failure \
+  "[standalone] only spec-keeper may write" \
+  "$IMAGE" \
+  "grep -lE '^tools:.*(Edit|Write)' /opt/claudecode/defaults/agents/*.md \
+   | grep -v spec-keeper.md | grep -q ."
+
+assert_output_contains \
+  "[standalone] entrypoint seeds subagents into \$HOME/.claude/agents" \
+  "$IMAGE" \
+  "export HOME=/tmp/seedhome && mkdir -p \$HOME \
+   && eval \"\$(sed -n '/^seed_claude_subagents() {/,/^}/p' /entrypoint.sh)\" \
+   && seed_claude_subagents >/dev/null \
+   && ls \$HOME/.claude/agents | tr '\n' ' '" \
+  "adversarial-reviewer.md architect.md monorepo-coordinator.md security-reviewer.md spec-keeper.md"
+
+assert_output_contains \
+  "[standalone] CLAUDE.md wires the review gates" \
+  "$IMAGE" \
+  "cat /opt/claudecode/defaults/CLAUDE.md" \
+  "Review Gates"
+
 # ==================== MCP ====================
 
 if $MCP_IMAGE_AVAILABLE; then

@@ -10,12 +10,17 @@ node "claudecode container" as CTR <<host>> {
   artifact "CLAUDE.md\nloop pattern + acceptance criteria" as MD <<db>>
   component "verification commands\n(internal/verify preamble)" as VER <<app>>
   database "/workspace/input (repo)\n/workspace/output (artifacts)" as WS <<db>>
+  component "~/.claude/agents\narchitect · monorepo-coordinator\nadversarial-reviewer · security-reviewer\nspec-keeper" as SUB <<app>>
 }
 
 DEV ARROW_MAIN CLI : goal
 EP ARROW_MAIN MD : seed when absent
 EP ARROW_MAIN VER
+EP ARROW_MAIN SUB : seed when absent\n(""CLAUDECODE_RESEED=1"" refreshes)
 EP ARROW_MAIN CLI : " ""ANTHROPIC_MODEL"" \n""ANTHROPIC_SMALL_FAST_MODEL"" (bare ids) "
+CLI ARROW_OPTIONAL SUB : design before code · review the diff
+SUB ARROW_ERROR CLI : ""[BLOCKER]"" / ""[HIGH]"" blocks completion
+SUB ARROW_MAIN WS : spec-keeper only\n(""_spec/"" · ""PLAN.md"" · ""CLAUDE.md"")
 CLI ARROW_MAIN WS : implement
 CLI ARROW_MAIN VER : verify
 VER ARROW_MAIN CLI : loop until acceptance criteria met
@@ -32,6 +37,21 @@ note right of CLI
   Small verifiable loops beat large open-ended tasks;
   errors are expected — the value is fast iteration
   inside the loop.
+end note
+
+note left of SUB
+  **Read-only by allowlist, not by prose.** Under
+  ""--dangerously-skip-permissions"" a reviewer that could
+  edit could fix its own findings and mark itself green,
+  so every advisor's frontmatter ""tools:"" is
+  ""Read, Grep, Glob"" — no ""Edit"", no ""Write"", no ""Bash""
+  for anyone. The lead runs ""git diff"" and hands it over.
+
+  ""spec-keeper"" is the single writer, scoped by its prompt
+  to ""_spec/"", ""PLAN.md"", ""CLAUDE.md"", ""AGENTS.md"".
+
+  The definitions alone are inert — ""CLAUDE.md"" steps 3, 6
+  and 7 are what make a subagent run.
 end note
 
 note bottom of WS
