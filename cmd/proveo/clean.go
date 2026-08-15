@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 // session cache) — opt-in, never part of routine clean. It never disturbs a
 // live run unless --force. See internal/clean for the decision logic.
 func cleanCmd() *cobra.Command {
-	var deep, force, dryRun, homes bool
+	var deep, force, dryRun, homes, tools bool
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Reclaim leaked proveo run artifacts (--deep also removes proveo/* images)",
@@ -30,7 +31,10 @@ func cleanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force}), dryRun); err != nil {
+			if tools {
+				inv.ToolDirs = gatherToolDirs()
+			}
+			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools}), dryRun); err != nil {
 				return err
 			}
 			if homes {
@@ -43,7 +47,59 @@ func cleanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "also remove resources that look live (disrupts an in-progress run)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
 	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
+	cmd.Flags().BoolVar(&tools, "tools", false,
+		"also remove toolchains provisioned on demand (language servers, Go, JDK) — they reinstall on next run")
 	return cmd
+}
+
+// SPEC: _spec/internal/clean/clean-lifecycle.puml
+var toolSubdirs = []string{
+	".local/share/mise",
+	".local/share/proveo",
+	".local/bin",
+	".go",
+	"go",
+}
+
+func gatherToolDirs() []clean.ToolDir {
+	root := proveohome.Root(os.Getenv)
+	var out []clean.ToolDir
+	for _, sub := range toolSubdirs {
+		p := filepath.Join(root, sub)
+		fi, err := os.Stat(p)
+		if err != nil || !fi.IsDir() {
+			continue
+		}
+		out = append(out, clean.ToolDir{Path: p, Bytes: dirSize(p)})
+	}
+	return out
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr
+		}
+		if info, e := d.Info(); e == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func cleanProveoHomes(dryRun bool) error {
@@ -120,7 +176,7 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 // runClean executes (or, with dryRun, prints) the plan. All removals are
 // best-effort: an image still in use by a live run fails to remove and is left.
 func runClean(p clean.Plan, dryRun bool) error {
-	if len(p.Containers)+len(p.Networks)+len(p.StateDirs)+len(p.Images) == 0 {
+	if len(p.Containers)+len(p.Networks)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
 		if len(p.SkippedLive) == 0 {
 			ui.Okf("nothing to clean")
 			return nil
@@ -155,6 +211,20 @@ func runClean(p clean.Plan, dryRun bool) error {
 			_ = exec.Command("docker", "image", "rm", img).Run()
 		}
 	}
+	var reclaimed int64
+	for _, dir := range p.ToolDirs {
+		size := dirSize(dir)
+		reclaimed += size
+		ui.Iconf("🗑️", "%s toolchain %s (%s)", verb, dir, humanBytes(size))
+		if !dryRun {
+			_ = os.RemoveAll(dir)
+		}
+	}
+	if len(p.ToolDirs) > 0 {
+		ui.Okf("%s %s of provisioned toolchains — they reinstall on the next run that needs them",
+			map[bool]string{true: "would reclaim", false: "reclaimed"}[dryRun], humanBytes(reclaimed))
+	}
+
 	if len(p.SkippedLive) > 0 {
 		ui.Warnf("left %d resource(s) that look live (in-progress run?): %s",
 			len(p.SkippedLive), strings.Join(p.SkippedLive, ", "))

@@ -106,6 +106,8 @@ seed_defaults() {
   fi
 }
 seed_defaults
+ensure_git_safe_directory "$(pwd)"
+scope_git_worktree "$(pwd)"
 
 # ── Local model (Ollama) provider ─────────────────────────
 # opencode resolves `ollama/<model>` only when an `ollama` provider is defined;
@@ -211,7 +213,6 @@ echo "opencode version:   $(command_version opencode unknown --version)"
 echo "Paradigm: GStack subagent crew (software engineering team)"
 echo "node version:       $(command_version node unknown --version)"
 echo "pnpm version:       $(command_version pnpm n/a -v)"
-configure_workspace_lsps
 
 echo "── Team Workflow ────────────────────────────────────"
 echo "Lead flow: classify → plan/design → delegate → build → verify → review"
@@ -272,6 +273,8 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
 fi
 
 ensure_project_tools
+ensure_language_servers "$(pwd)"
+configure_workspace_lsps
 
 # ── API key detection ──────────────────────────────────────
 has_api_key() {

@@ -17,6 +17,9 @@ else
   set_working_directory "/app"
 fi
 
+ensure_git_safe_directory "$(pwd)"
+scope_git_worktree "$(pwd)"
+
 : "${CECLI_HOME:=/app/.cecli}"
 export CECLI_HOME
 mkdir -p "$CECLI_HOME" 2>/dev/null || true

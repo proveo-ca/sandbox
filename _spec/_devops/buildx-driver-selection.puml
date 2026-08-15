@@ -56,13 +56,23 @@ note bottom of HEALTH
 end note
 
 note bottom of DDOCKER
-  **Discovery must tolerate both asterisk forms.** ""docker buildx ls""
-  marks the current builder attached in some versions and spaced in
-  others ('default*' vs 'default *'); blanking the asterisk before the
-  field split keeps discovery working on both. This matters because on
-  a plain Linux daemon the sole docker-driver builder //is// the current
-  one. Node rows (prefixed with a backslash-underscore) and unusable
-  contexts (DRIVER column reads 'error') are skipped.
+  **A docker-driver builder is usable only from ITS OWN context.** buildx
+  refuses ""--builder <name>"" for a docker-driver builder that is not the
+  current context, answering "use ""docker --context=<name> buildx"" to
+  switch". So the current context — ""docker context show"" — is the only
+  candidate; there is nothing to enumerate.
+
+  Enumerating ""docker buildx ls"" and taking the first running
+  docker-driver row is what trap #1 above punishes: on any machine
+  carrying a leftover ""default"" or ""desktop-linux"" context — every
+  OrbStack/Colima/Rancher box, and any Linux box that once ran Docker
+  Desktop — that row inspects as running and then fails at build time
+  with the context error. The asterisk marking the current builder was
+  the signal, and blanking it before the field split threw it away.
+
+  Only the ""--load"" host-platform path reaches this decision. A ""--push""
+  or cross-platform build returns earlier on the container driver, so
+  multi-arch distributables never depend on which context is current.
 end note
 
 note bottom of STALE

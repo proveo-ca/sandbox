@@ -50,6 +50,25 @@ note right of MISE
 end note
 
 note bottom of T4
+  **Presence is not correctness.** PROVEO_HOME is durable and GLOBAL, so the Go
+  installed for one project is still on PATH in the next one. Checking only
+  ""command -v go"" let a repo pinning ""toolchain go1.26.0"" build silently on
+  whatever version an earlier workspace happened to install. The resolved
+  version (""go env GOVERSION"") is compared against the pin, and only an explicit
+  pin triggers a reinstall — with no pin any working toolchain is the right one,
+  and chasing "latest" every boot would re-download for nothing.
+end note
+
+note bottom of T3
+  **Installers are serialized across runs.** PROVEO_HOME is one directory shared
+  by every run on the machine, so two harnesses starting together race on the
+  same ""npm -g --prefix"" tree and mise dir — which corrupts rather than
+  duplicates. An ""flock"" guards both installer sections; failing to lock is not
+  failing to boot (no flock → no locking, timeout → skip installs, since the run
+  holding the lock is installing the same things).
+end note
+
+note bottom of T4
   **Go is detected, never baked.** A toolchain is ~250MB that most
   workspaces never touch, so it follows the same
   detect-then-provision pattern as nx/turbo/mise rather than becoming

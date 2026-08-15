@@ -541,6 +541,35 @@ func TestReadmePillsMatchToolingRegistry(t *testing.T) {
 	}
 }
 
+func TestLSPMarkerLabelsAreRealServerBinaries(t *testing.T) {
+	t.Parallel()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(wd, "..", "..", "packages", "lib", "entrypoint-lib.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	arm := regexp.MustCompile(`(?m)^\s*[a-z]+\)\s+echo\s+"([^"\s]+)`)
+	binaries := map[string]bool{}
+	for _, m := range arm.FindAllStringSubmatch(string(data), -1) {
+		binaries[m[1]] = true
+	}
+	if len(binaries) == 0 {
+		t.Fatalf("no _lsp_server arms parsed from %s", path)
+	}
+
+	for _, m := range lspMarkers {
+		if !binaries[m.Label] {
+			t.Errorf("lspMarkers predicts %q, which is not a command in _lsp_server(); "+
+				"the host would promise a binary the image never installs", m.Label)
+		}
+	}
+}
+
 // proveo --init advertises the keys it will copy into a new .env. Advertising a
 // key with no registry entry is a lie: it is never detected, brokered or
 // allowlisted, so the user sets it and the agent still gets nothing.

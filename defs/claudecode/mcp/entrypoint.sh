@@ -25,6 +25,8 @@ fi
 # ── Model aliases → Claude Code env (CODING_HARNESSES.md) ──
 set_working_directory "/workspace"
 load_env quiet
+ensure_git_safe_directory "$(pwd)"
+scope_git_worktree "$(pwd)"
 
 bare_model() { printf '%s' "${1##*/}"; }
 
@@ -150,7 +152,7 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 run_smoke_test "claudecode"
 
 echo "🚀 Launching Claude Code..."
-# Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP).
+ensure_language_servers "$(pwd)"
 configure_claude_lsp
 
 exec claude --dangerously-skip-permissions "$@"

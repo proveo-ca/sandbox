@@ -18,16 +18,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+RUN CGO_ENABLED=0 GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
 
 FROM debian:bookworm-slim
 
 COPY defs/base/proveo-harden /usr/local/sbin/proveo-harden
-COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
+COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 
 # Universal harness floor. `gh` is not in Debian's default repos, so add the
 # official GitHub CLI apt source (its published keyring is already dearmored, so
 # no gnupg needed). Everything is cleaned in-layer; one harden pass.
-RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint \
+RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint /usr/local/bin/plantuml-lsp \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
          -o /usr/share/keyrings/githubcli-archive-keyring.gpg \

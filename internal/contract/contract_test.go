@@ -50,7 +50,8 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 	}
 	for _, m := range ms {
 		if !m.Home.Active() {
-			t.Errorf("harness %q must declare home.mounts for proveo session persistence", m.Name)
+			t.Errorf("harness %q must declare home.mounts — proveo session persistence AND "+
+				"the durability of on-demand toolchains both depend on it", m.Name)
 			continue
 		}
 		for _, hm := range m.Home.Mounts {
