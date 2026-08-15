@@ -19,6 +19,7 @@ fi
 
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
+ensure_python_env "$(pwd)"
 
 : "${CECLI_HOME:=/app/.cecli}"
 export CECLI_HOME

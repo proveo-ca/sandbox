@@ -228,3 +228,65 @@ func verifyCommandsListed(out string) bool {
 	}
 	return false
 }
+
+// Python environments are detected and provisioned, never inherited: a host
+// venv holds an interpreter and compiled extensions built for the host OS/arch.
+// Asserts the provisioned env is usable, keyed outside the workspace, and that
+// pyright resolves real packages through it.
+func TestPythonEnvironmentIsProvisioned(t *testing.T) {
+	img := harnessImage(t, "opencode")
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"requirements.txt": "requests\n",
+		".python-version":  "3.12\n",
+		"app.py":           "import requests\nprint(requests.__version__)\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A host-built .venv whose interpreter cannot run here must not be adopted.
+	if err := os.MkdirAll(filepath.Join(dir, ".venv", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nonexistent/host/python3", filepath.Join(dir, ".venv", "bin", "python")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
+		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
+		"--entrypoint", "bash", img, "-c", `
+export HOME=/tmp/h; mkdir -p $HOME
+source /lib.sh 2>/dev/null
+ensure_python_env /w
+[ -n "$VIRTUAL_ENV" ] || { echo "NO_VIRTUAL_ENV"; exit 1; }
+case "$VIRTUAL_ENV" in /w/*) echo "ENV_INSIDE_WORKSPACE"; exit 1 ;; esac
+python -c 'import requests' 2>/dev/null || { echo "DEP_UNIMPORTABLE"; exit 1; }
+pyright --outputjson app.py 2>/dev/null | grep -q reportMissingModuleSource && { echo "PYRIGHT_UNRESOLVED"; exit 1; }
+echo "PYENV_OK"`).CombinedOutput()
+
+	if s := string(out); err != nil || !strings.Contains(s, "PYENV_OK") {
+		t.Fatalf("python environment not provisioned correctly: %v\n%s", err, s)
+	}
+}
+
+// A workspace with no Python markers must not provision anything.
+func TestPythonEnvironmentSkipsNonPythonWorkspaces(t *testing.T) {
+	img := harnessImage(t, "opencode")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export const a = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
+		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
+		"--entrypoint", "bash", img, "-c", `
+export HOME=/tmp/h; mkdir -p $HOME
+source /lib.sh 2>/dev/null
+ensure_python_env /w
+[ -z "$VIRTUAL_ENV" ] || { echo "PROVISIONED_ANYWAY"; exit 1; }
+[ -d "$HOME/.cache/proveo/venv" ] && { echo "VENV_DIR_CREATED"; exit 1; }
+echo "SKIP_OK"`).CombinedOutput()
+	if s := string(out); err != nil || !strings.Contains(s, "SKIP_OK") {
+		t.Fatalf("non-Python workspace triggered provisioning: %v\n%s", err, s)
+	}
+}

@@ -534,6 +534,129 @@ ensure_project_tools() {
  _proveo_unlock_installs
 }
 
+# ── 7c. Python Environment (detect → provision → activate) ──
+# SPEC: _spec/packages/lib/python-environment.puml
+_py_project_kind() {
+  local d="${1:-$(pwd)}"
+  [[ -f "$d/environment.yml" || -f "$d/environment.yaml" ]] && { echo conda; return 0; }
+  [[ -f "$d/uv.lock" ]] && { echo uv; return 0; }
+  [[ -f "$d/poetry.lock" ]] && { echo poetry; return 0; }
+  [[ -f "$d/pyproject.toml" || -f "$d/Pipfile" ]] && { echo pip; return 0; }
+  compgen -G "$d/requirements*.txt" >/dev/null 2>&1 && { echo pip; return 0; }
+  return 0
+}
+
+_py_requested_version() {
+  local d="${1:-$(pwd)}" v=""
+  [[ -f "$d/.python-version" ]] && v="$(head -n1 "$d/.python-version" 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$v" && -f "$d/pyproject.toml" ]]; then
+    v="$(sed -n 's/^requires-python[[:space:]]*=[[:space:]]*"[^0-9]*\([0-9]\+\.[0-9]\+\).*/\1/p' "$d/pyproject.toml" | head -n1)"
+  fi
+  printf '%s' "${v:-${PROVEO_PYTHON_VERSION:-3.12}}"
+}
+
+# Presence is not capability: python3-minimal satisfies `command -v python3`
+# while `python3 -m venv` fails, which is how a decoy interpreter gets mistaken
+# for a usable one.
+_py_venv_capable() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  local probe; probe="$(mktemp -d)/v"
+  python3 -m venv "$probe" >/dev/null 2>&1 || { rm -rf "$(dirname "$probe")"; return 1; }
+  rm -rf "$(dirname "$probe")"
+  return 0
+}
+
+_py_env_dir() {
+  local d="${1:-$(pwd)}" h
+  h="$(printf '%s' "$d" | cksum | cut -d' ' -f1)"
+  printf '%s' "${HOME}/.cache/proveo/venv/${h}"
+}
+
+ensure_python_env() {
+  _proveo_tool_path
+  local scan="${1:-$(pwd)}" kind ver env_dir spec
+  kind="$(_py_project_kind "$scan")"
+  [[ -n "$kind" ]] || return 0
+  _proveo_auto_install_enabled || return 0
+  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
+
+  _proveo_lock_installs || return 0
+  ver="$(_py_requested_version "$scan")"
+  env_dir="$(_py_env_dir "$scan")"
+
+  if ! _py_venv_capable; then
+    echo "🐍 Provisioning Python ${ver} (the image's python3 cannot create a venv)..."
+    _mise_install "python@${ver}" "$(_proveo_github_token)" >/dev/null 2>&1 \
+      || { echo "⚠️  Could not provision Python ${ver}; skipping environment setup"; _proveo_unlock_installs; return 0; }
+    _proveo_tool_path
+  fi
+
+  case "$kind" in
+    uv)     spec=uv ;;
+    poetry) spec=poetry ;;
+    conda)  spec=micromamba ;;
+    *)      spec="" ;;
+  esac
+  if [[ -n "$spec" ]] && ! command -v "$spec" >/dev/null 2>&1; then
+    _mise_install "$spec" "$(_proveo_github_token)" >/dev/null 2>&1 \
+      || echo "⚠️  Could not provision ${spec}; falling back to pip"
+    _proveo_tool_path
+  fi
+
+  _py_build_env "$kind" "$scan" "$env_dir"
+  _proveo_unlock_installs
+  _py_activate "$env_dir" "$scan"
+}
+
+_py_build_env() {
+  local kind="$1" scan="$2" env_dir="$3" rc=0
+  mkdir -p "$(dirname "$env_dir")" 2>/dev/null || return 0
+  local bounded="${PROVEO_PYTHON_TIMEOUT:-600}"
+  case "$kind" in
+    conda)
+      [[ -x "$env_dir/bin/python" ]] && return 0
+      _proveo_bounded "$bounded" micromamba create -y -q -p "$env_dir" \
+        -f "$(ls "$scan"/environment.y*ml 2>/dev/null | head -n1)" >/dev/null 2>&1 || rc=$?
+      ;;
+    uv)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" uv venv "$env_dir" >/dev/null 2>&1
+      (cd "$scan" && _proveo_bounded "$bounded" env VIRTUAL_ENV="$env_dir" uv sync --active) >/dev/null 2>&1 || rc=$?
+      ;;
+    poetry)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" python3 -m venv "$env_dir" >/dev/null 2>&1
+      (cd "$scan" && _proveo_bounded "$bounded" env VIRTUAL_ENV="$env_dir" poetry install --no-root) >/dev/null 2>&1 || rc=$?
+      ;;
+    *)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" python3 -m venv "$env_dir" >/dev/null 2>&1
+      local req; req="$(ls "$scan"/requirements*.txt 2>/dev/null | head -n1)"
+      if [[ -n "$req" ]]; then
+        _proveo_bounded "$bounded" "$env_dir/bin/pip" install -q -r "$req" >/dev/null 2>&1 || rc=$?
+      elif [[ -f "$scan/pyproject.toml" ]]; then
+        _proveo_bounded "$bounded" "$env_dir/bin/pip" install -q -e "$scan" >/dev/null 2>&1 || rc=$?
+      fi
+      ;;
+  esac
+  [[ $rc -eq 0 ]] || echo "⚠️  Python dependency install did not complete; the environment may be partial"
+  return 0
+}
+
+_py_activate() {
+  local env_dir="$1" scan="$2"
+  [[ -x "$env_dir/bin/python" ]] || { echo "⚠️  No usable Python environment at ${env_dir}"; return 0; }
+  export VIRTUAL_ENV="$env_dir"
+  case ":${PATH}:" in
+    *":${env_dir}/bin:"*) ;;
+    *) export PATH="${env_dir}/bin:${PATH}" ;;
+  esac
+  if [[ -e "$scan/.venv" && ! -x "$scan/.venv/bin/python" ]]; then
+    echo "⚠️  ${scan}/.venv is a host-built environment and cannot run here; using ${env_dir} instead"
+  fi
+  echo "🐍 Python: $("$env_dir/bin/python" --version 2>&1) · env ${env_dir}"
+}
+
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
 # Detect which languages a workspace uses and which INSTALLED LSP servers cover
 # them, ranked by file count. Pure bash + awk (bash-3.2-safe: no associative

@@ -219,6 +219,7 @@ fi
 run_smoke_test "cursor"
 
 ensure_project_tools
+ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_cursor_lsp_mcp
 

@@ -152,6 +152,7 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 run_smoke_test "claudecode"
 
 echo "🚀 Launching Claude Code..."
+ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_claude_lsp
 

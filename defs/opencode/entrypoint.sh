@@ -273,6 +273,7 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
 fi
 
 ensure_project_tools
+ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_workspace_lsps
 
