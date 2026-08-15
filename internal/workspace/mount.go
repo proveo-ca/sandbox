@@ -75,6 +75,8 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 			{Host: w.OutputDir, Container: "/workspace/output"},
 		}
 		mounts = append(mounts, w.gitOverride(w.InputDir, "/workspace/input", ro)...)
+		mounts = append(mounts, w.worktreeMounts()...)
+		mounts = append(mounts, w.envOverlay()...)
 		// Mask .env under input when egress isolates secrets (proxy/firewall).
 		if w.isolateEnv() {
 			mounts = append(mounts, maskEnvMounts(w.InputDir, "/workspace/input")...)
@@ -122,6 +124,8 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
+	mounts = append(mounts, w.worktreeMounts()...)
+	mounts = append(mounts, w.envOverlay()...)
 	if w.Output && w.OutputDir != "" {
 		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
 	}
@@ -172,6 +176,99 @@ func relSlash(root, path string) string {
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func isDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
+
+// ContainerGitCommonDir is where a linked worktree's shared .git is mounted.
+const ContainerGitCommonDir = "/proveo-git"
+
+// gitWorktree is a LINKED worktree: .git is a FILE holding "gitdir: <abs path>"
+// that points under the MAIN repo, outside the mounted tree. Nothing follows
+// that pointer into the container, so git reports "not a git repository" and
+// every downstream signal (identity, gh, verify) degrades with it.
+type gitWorktree struct {
+	CommonDir string // <main>/.git — objects, refs, config
+	Name      string // per-worktree dir under <common>/worktrees/
+}
+
+// readGitWorktree parses the pointer chain from the filesystem alone, matching
+// how the rest of Plan works (no git binary, no shelling out).
+func readGitWorktree(tree string) (gitWorktree, bool) {
+	b, err := os.ReadFile(filepath.Join(tree, ".git"))
+	if err != nil {
+		return gitWorktree{}, false // a directory (normal repo) or absent
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+	if !ok {
+		return gitWorktree{}, false
+	}
+	gitDir = strings.TrimSpace(gitDir)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(tree, gitDir)
+	}
+	// commondir is written relative to the per-worktree dir.
+	cb, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return gitWorktree{}, false
+	}
+	common := strings.TrimSpace(string(cb))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(gitDir, common)
+	}
+	if !isDir(common) {
+		return gitWorktree{}, false
+	}
+	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir)}, true
+}
+
+// WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil. The
+// per-worktree commondir file is RELATIVE, so pointing GIT_DIR inside the
+// mounted common dir resolves without host and container paths having to match.
+func (w MountSpec) WorktreeEnv() []string {
+	wt, ok := readGitWorktree(w.InputDir)
+	if !ok {
+		return nil
+	}
+	return []string{
+		"GIT_DIR=" + ContainerGitCommonDir + "/worktrees/" + wt.Name,
+		"GIT_WORK_TREE=" + w.containerRoot(),
+	}
+}
+
+func (w MountSpec) containerRoot() string {
+	if w.Layout == "input-output" {
+		return "/workspace/input"
+	}
+	return "/app"
+}
+
+// worktreeMounts carries the shared .git of a linked worktree into the container.
+func (w MountSpec) worktreeMounts() []runner.Mount {
+	wt, ok := readGitWorktree(w.InputDir)
+	if !ok {
+		return nil
+	}
+	return []runner.Mount{{Host: wt.CommonDir, Container: ContainerGitCommonDir}}
+}
+
+// envOverlay binds the workspace .env when it resolves on the host but would not
+// inside the container — the usual cause being a symlink to a path outside the
+// mounted tree (a worktree pointing back at its main checkout). Docker resolves
+// the host path, so binding the link lands the real file. Never in isolate mode,
+// where .env is deliberately masked instead.
+func (w MountSpec) envOverlay() []runner.Mount {
+	if w.isolateEnv() {
+		return nil
+	}
+	src := filepath.Join(w.InputDir, ".env")
+	fi, err := os.Lstat(src)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return nil // absent, or a real file already inside the mount
+	}
+	target, err := filepath.EvalSymlinks(src)
+	if err != nil || underDir(target, w.InputDir) {
+		return nil // dangling on the host too, or resolves within the mount
+	}
+	return []runner.Mount{{Host: target, Container: w.containerRoot() + "/.env", ReadOnly: true}}
+}
 
 // gitOverride pins .git's read-only state when it differs from the parent mount
 // it sits inside, by layering a nested bind over that path. Empty when the

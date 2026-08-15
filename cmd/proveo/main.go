@@ -616,6 +616,7 @@ func doRun(p runParams) error {
 	if rel := wsSpec.ScopeRel(); rel != "" {
 		env = append(env, "PROVEO_SCOPE_REL="+rel)
 	}
+	env = append(env, wsSpec.WorktreeEnv()...)
 
 	if !p.printOnly {
 		if k := resolveGitHubTokenEnv(hostGhAuth(), isStdinTTY() && wizardEnabled(), os.Stdin, os.Stderr); k != "" {

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 var harnessWorkdir = map[string]string{
@@ -172,15 +174,9 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
-	// macOS resolves the temp dir through /private, and the plan prints the
-	// resolved form; compare against both spellings.
-	// Both the tree itself (repo:) and binds nested inside it (repo/.git:…) —
-	// missing the latter would silently drop a .git read-only override, which is
-	// precisely what this test exists to catch.
-	prefixes := []string{repo + ":", repo + "/", "/dev/null:"}
-	if real, err := filepath.EvalSymlinks(repo); err == nil && real != repo {
-		prefixes = append(prefixes, real+":", real+"/")
-	}
+	// Filter by CONTAINER destination, not host prefix: a worktree's shared .git
+	// and an escaping .env symlink both resolve to paths OUTSIDE the workspace,
+	// so a host-prefix filter silently drops the very mounts under test.
 	fields := strings.Fields(string(out))
 	var args []string
 	for i := 0; i < len(fields)-1; i++ {
@@ -188,13 +184,18 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 			continue
 		}
 		spec := fields[i+1]
-		// Workspace binds only: session/home/proxy state is irrelevant here and
-		// would drag host paths that do not exist for a throwaway repo.
-		for _, p := range prefixes {
-			if strings.HasPrefix(spec, p) {
-				args = append(args, "-v", spec)
-				break
-			}
+		parts := strings.Split(spec, ":")
+		if len(parts) < 2 {
+			continue
+		}
+		dst := parts[len(parts)-1]
+		if dst == "ro" || dst == "rw" {
+			dst = parts[len(parts)-2]
+		}
+		if dst == "/app" || strings.HasPrefix(dst, "/app/") ||
+			strings.HasPrefix(dst, "/workspace/") ||
+			dst == workspace.ContainerGitCommonDir || strings.HasPrefix(dst, workspace.ContainerGitCommonDir+"/") {
+			args = append(args, "-v", spec)
 		}
 	}
 	if len(args) == 0 {

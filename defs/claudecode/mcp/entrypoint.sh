@@ -13,7 +13,7 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
 else
   ensure_runtime_user
-  set_working_directory "/workspace"
+  set_working_directory "/workspace/input"
   load_env
   bridge_git_identity /workspace/input
   report_git_context /workspace/input
@@ -23,7 +23,7 @@ else
 fi
 
 # ── Model aliases → Claude Code env (CODING_HARNESSES.md) ──
-set_working_directory "/workspace"
+set_working_directory "/workspace/input"
 load_env quiet
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
