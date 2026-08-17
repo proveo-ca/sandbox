@@ -13,7 +13,7 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
 else
   ensure_runtime_user
-  set_working_directory "/workspace"
+  set_working_directory "/workspace/input"
   load_env
   bridge_git_identity /workspace/input
   report_git_context /workspace/input
@@ -23,8 +23,10 @@ else
 fi
 
 # ── Model aliases → Claude Code env (CODING_HARNESSES.md) ──
-set_working_directory "/workspace"
+set_working_directory "/workspace/input"
 load_env quiet
+ensure_git_safe_directory "$(pwd)"
+scope_git_worktree "$(pwd)"
 
 bare_model() { printf '%s' "${1##*/}"; }
 
@@ -150,7 +152,8 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 run_smoke_test "claudecode"
 
 echo "🚀 Launching Claude Code..."
-# Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP).
+ensure_python_env "$(pwd)"
+ensure_language_servers "$(pwd)"
 configure_claude_lsp
 
 exec claude --dangerously-skip-permissions "$@"

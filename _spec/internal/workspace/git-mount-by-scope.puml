@@ -1,0 +1,84 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Where .git comes from, and how gitMode is honoured in each scope
+
+' covers: internal/workspace/mount.go, internal/manifest/manifest.go,
+'         defs/cecli/harness.manifest, defs/cursor/harness.manifest,
+'         defs/opencode/harness.manifest, defs/claudecode/harness.manifest
+
+component "MountSpec.Plan()" as PLAN <<app>>
+
+node "layout: input-output — claudecode" as IO <<host>> {
+  component "/workspace/input\n.git rides INSIDE + ro override" as IOM <<app>>
+}
+
+node "layout: app — opencode · cursor · cecli" as APP <<host>> {
+  component "**A. scope == repo root**\n/app  ← whole root\n.git rides INSIDE + ro override" as A <<app>>
+  component "**B. scope UNDER repo root**\n/app/<rel> + /app/.git\nits own bind" as B <<app>>
+  component "**C. not a repo**\n/app  ← input dir\nNO .git" as C <<app>>
+}
+
+component """gitMode: ro|rw""\nmanifest field" as GM <<app>>
+component "nested bind over .git\nlayered on the parent mount" as OVER <<app>>
+
+PLAN ARROW_MAIN IOM : Layout == "input-output"
+PLAN ARROW_MAIN A : RepoRoot != "" && InputDir == RepoRoot
+PLAN ARROW_MAIN B : RepoRoot != "" && InputDir under RepoRoot
+PLAN ARROW_MAIN C : RepoRoot == ""
+GM ARROW_MAIN B : its own bind carries the flag
+GM ARROW_MAIN OVER : A · input-output
+OVER ARROW_MAIN A
+OVER ARROW_MAIN IOM
+
+note right of B
+  **Only branch B gives "".git"" a mount of its own**, because only there is the
+  container's ""/app"" assembled from pieces: the scope dir lands at
+  ""/app/<rel>"", so the repo root's "".git"" must be bound separately or git
+  inside the container has no repository at all.
+
+  Here the flag rides the bind itself; elsewhere it needs an override.
+end note
+
+note bottom of A
+  In A and in input-output, ""/app"" (or ""/workspace/input"") IS the mount, so
+  "".git"" arrives as ordinary content within it and inherits that mount's
+  read-only flag (""workspace.mode""), never ""gitMode"".
+
+  A bind mount's read-only flag covers the WHOLE mount, so ""gitMode"" cannot be
+  expressed by the parent bind alone. ""gitOverride"" therefore layers a second,
+  nested bind over "".git"" whenever the requested state differs from the
+  parent's — the more specific path wins. When they agree it emits nothing,
+  because the parent already gives the right answer and an extra mount is noise.
+
+  This is the technique ""maskEnvMounts"" already uses to pin "".env"" files to
+  ""/dev/null"" inside an otherwise writable tree, so the mechanism is not new
+  here — only its application to "".git"".
+end note
+
+note bottom of C
+  Not a repository → no "".git"" mount, which is correct rather than a
+  degradation: there is no history to expose. Agents still run, and
+  ""report_git_context"" prints "Not a git repository" instead of a repo summary.
+end note
+
+note right of OVER
+  **No harness sets ""gitMode: ro"" today, and a contract test keeps it that way.**
+  Committing, amending and branching are normal agent work, so every harness
+  mounts "".git"" read-WRITE in every scope.
+
+  cecli briefly declared ""ro"". While ""gitMode"" was only read in branch B that
+  was invisible at the repo root, so the harness kept working and the
+  declaration looked harmless. Honouring it everywhere turned it into a real
+  block — which is exactly what made the stale declaration worth removing rather
+  than preserving.
+
+  The mechanism stays because it is now honest: if a harness ever needs a
+  read-only history, declaring it will work in every scope instead of one.
+end note
+
+note bottom of PLAN
+  Sibling: ""_spec/internal/workspace/subdir-scope-mounts.puml"" details what
+  ELSE branch B carries — root files, ""rootDirs"" (""_spec"", ""vendor""),
+  dependency trees, and the dotenv masking that spans them.
+end note
+@enduml

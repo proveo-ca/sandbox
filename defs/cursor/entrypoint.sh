@@ -67,6 +67,8 @@ seed_defaults() {
   fi
 }
 seed_defaults
+ensure_git_safe_directory "$(pwd)"
+scope_git_worktree "$(pwd)"
 
 # ── Proxy compatibility ─────────────────────────────────────
 # Cursor's agent traffic uses HTTP/2 bidirectional streaming by default, which
@@ -130,8 +132,6 @@ configure_cursor_lsp_mcp() {
     rm -f "$tmp"
   fi
 }
-configure_cursor_lsp_mcp
-
 command_version() {
   command_version_opencode "$@"
 }
@@ -219,6 +219,9 @@ fi
 run_smoke_test "cursor"
 
 ensure_project_tools
+ensure_python_env "$(pwd)"
+ensure_language_servers "$(pwd)"
+configure_cursor_lsp_mcp
 
 # ── Auth check ─────────────────────────────────────────────
 # All inference transits the Cursor backend; there is no provider-key or

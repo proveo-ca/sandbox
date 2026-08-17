@@ -1,0 +1,82 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Monorepo subdir scope — what reaches /app, and what used to be missing
+
+' covers: internal/workspace/mount.go
+
+node "Host repo" as HOST <<host>> {
+  component "scope dir\n""apps/web""" as SCOPE <<app>>
+  component "root .git" as GIT <<app>>
+  component "rootFiles — FILES\nAGENTS.md · package.json · turbo.json …" as RF <<app>>
+  component "rootDirs — DIRECTORIES\n""_spec"" · ""vendor""" as RD <<app>>
+  component "rootDepDirs\n""node_modules""" as RDD <<app>>
+}
+
+node "Container /app" as APP <<host>> {
+  component "/app/apps/web  rw" as M1 <<app>>
+  component "/app/.git  ro|rw" as M2 <<app>>
+  component "/app/<file>  ro" as M3 <<app>>
+  component "/app/_spec  rw" as M4 <<app>>
+  component "/app/node_modules  rw" as M5 <<app>>
+}
+
+component "dotenv mask\n""/dev/null"":ro" as MASK <<app>>
+component "host-arch binaries\ncannot exec in the container" as ARCH <<error>>
+
+SCOPE ARROW_MAIN M1
+GIT   ARROW_MAIN M2
+RF    ARROW_MAIN M3
+RD    ARROW_MAIN M4
+RDD   ARROW_OPTIONAL M5 : PROVEO_MOUNT_ROOT_DEPS
+M4    ARROW_QUEUE MASK : walked for secrets
+M5    ARROW_ERROR ARCH
+
+note right of RD
+  **The gap this closes.** Before ""rootDirs"", a subdir scope mounted the scope
+  itself, the root "".git"", and a handful of root FILES — every root DIRECTORY
+  except "".git"" and the harness config dir was simply absent. In this fleet
+  that hid ""_spec/"" from the agent: the specs it is asked to read and maintain
+  were not in the container at all.
+
+  ""rootFiles"" cannot express this. Each entry is bind-mounted as a single file,
+  so a directory needs its own list with its own rule.
+end note
+
+note bottom of M4
+  **Read-write, unlike rootFiles.** ""_spec"" is authored, not merely read — the
+  spec-keeper subagent maintains it, and ""plantuml"" is on the floor precisely so
+  an agent can verify the artifact it just edited. A dependency tree likewise
+  must stay writable or an install inside the container fails against a
+  read-only mount.
+end note
+
+note bottom of MASK
+  **Whole directories must not become a hole in the secret masking.** In
+  proxy/firewall mode every dotenv file under the mounted tree is masked with
+  ""/dev/null"", the structural complement to the broker header-strip and the
+  egress DLP. ""rootFiles"" needs no walk — it is a fixed non-secret allowlist —
+  but a vendored package carrying a "".env"" would otherwise be readable here
+  while the scope's own is masked. ""node_modules"" is exempt for the reason
+  ""envMaskPrune"" already skips it: huge, and never the project's own secrets.
+end note
+
+note right of ARCH
+  A dependency tree installed on the HOST holds binaries built for the host
+  OS/arch — esbuild, sharp, better-sqlite3 — and those do not run in the Linux
+  container. Mounting it still pays off for module RESOLUTION in a workspace
+  monorepo, which is why it is on by default and switched off with
+  ""PROVEO_MOUNT_ROOT_DEPS=0"" when the mismatch bites.
+end note
+
+note right of M2
+  This is the only branch where "".git"" gets a mount of its own, and the only
+  one where ""gitMode"" is consulted — see
+  ""_spec/internal/workspace/git-mount-by-scope.puml"".
+end note
+
+note bottom of M1
+  The scope's own copy always wins: a root directory is mounted only when the
+  scope does not already have one by that name, the same union rule ""rootFiles""
+  uses, so a repo never sees a path it lacks.
+end note
+@enduml

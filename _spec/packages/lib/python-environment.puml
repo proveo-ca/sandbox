@@ -1,0 +1,83 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Python environments — detected and provisioned, never inherited
+
+' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
+'         defs/cursor/entrypoint.sh, defs/cecli/entrypoint.sh,
+'         defs/claudecode/mcp/entrypoint.sh
+
+node "Host" as HOST <<host>> {
+  database "miniconda / venv\nabsolute paths · macOS binaries" as HOSTENV <<error>>
+  database "workspace ""\.venv""\nbin/python → host interpreter" as HOSTVENV <<error>>
+}
+
+node "Container — ensure_python_env" as C <<host>> {
+  component "**detect** — ""_py_project_kind""\nconda · uv · poetry · pip" as KIND <<app>>
+  component "**capability** — ""_py_venv_capable""\nnot ""command -v python3""" as CAP <<app>>
+  component "**provision** — mise\npython@X · uv · poetry · micromamba" as PROV <<app>>
+  component "**build** — ""_py_build_env""\nper-kind installer" as BUILD <<app>>
+  component "**activate** — VIRTUAL_ENV + PATH" as ACT <<app>>
+}
+
+database "PROVEO_HOME\n""~/.cache/proveo/venv/<hash>""" as ENV <<db>>
+component "pyright\nresolves real packages" as PYRIGHT <<app>>
+
+KIND ARROW_MAIN CAP
+CAP ARROW_MAIN PROV : only when the image cannot
+PROV ARROW_MAIN BUILD
+BUILD ARROW_MAIN ENV : outside the workspace
+ENV ARROW_MAIN ACT
+ACT ARROW_MAIN PYRIGHT : VIRTUAL_ENV
+HOSTENV ARROW_ERROR C : cannot cross the boundary
+HOSTVENV ARROW_ERROR ACT : shadowed, with a warning
+
+note bottom of HOSTENV
+  **A host environment cannot be inherited, on three counts.** ""pyvenv\.cfg"" and
+  ""activate"" hardcode absolute host paths; ""bin/python"" is a SYMLINK to the host
+  interpreter, which dangles in the container; and — fatally — the interpreter
+  and every compiled extension in ""site-packages"" are host-OS/arch binaries.
+  A macOS arm64 ""\.so"" cannot execute on Linux at any path, so even mounting the
+  whole conda prefix at an identical path fails.
+
+  This is the ""node_modules"" native-binary hazard, but stricter: node_modules is
+  often pure JavaScript, whereas a venv ALWAYS contains a platform interpreter.
+end note
+
+note right of CAP
+  **Presence is not capability.** ""python3-minimal"" arrives as a transitive apt
+  dependency, so ""command -v python3"" succeeds on most harnesses while
+  ""python3 -m venv"" fails — Debian splits ensurepip out. Probing the capability
+  rather than the binary is what stops a decoy interpreter being mistaken for a
+  usable one, the same lesson as clangd installing but not executing.
+
+  No harness ships a usable general-purpose Python: two have the decoy, cecli's
+  belongs to its own agent venv, and cursor has none. So there is nothing to
+  share and no ""base-python"" layer to build — Python is detected and
+  provisioned, exactly like Go.
+end note
+
+note right of PROV
+  **mise is the mechanism, not a competitor to uv.** It is already on the floor
+  provisioning eight language servers, and its registry carries ""uv"",
+  ""poetry"" and ""micromamba"" — so the Python tool a project needs is just
+  another recipe, with the bounded timeouts, GitHub auth and idempotence
+  ""_mise_install"" already provides.
+
+  Measured: interpreter 17s cold and 0s warm, identical to uv's own warm path.
+  Choosing a second mechanism would buy speed that PROVEO_HOME already gives.
+end note
+
+note bottom of ENV
+  Built OUTSIDE the workspace and keyed by workspace path, so it can never
+  collide with the developer's own ""\.venv"" and never lands in a mounted tree
+  that may be read-only. Persisting under PROVEO_HOME is what makes the second
+  run 1s instead of 18s.
+end note
+
+note bottom of PYRIGHT
+  The payoff. pyright is already baked into the LSP images but, with no
+  environment to introspect, resolves no third-party package — it reports
+  ""reportMissingModuleSource"" and falls back to bundled stubs. It honours
+  ""VIRTUAL_ENV"", so activation alone fixes it; no extra LSP config is needed.
+end note
+@enduml

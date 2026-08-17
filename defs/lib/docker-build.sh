@@ -77,6 +77,13 @@ proveo_docker_builder_running() {
        END { exit !found }' <<<"$out"
 }
 
+proveo_docker_builder_is_docker_driver() {
+  local out
+  out="$(docker buildx inspect "$1" 2>/dev/null)" || true
+  awk 'tolower($1) == "driver:" && tolower($2) == "docker" { found = 1 }
+       END { exit !found }' <<<"$out"
+}
+
 proveo_docker_ensure_buildx() {
   local mode="${1:-load}" platforms="${2:-}"
   if ! docker buildx version >/dev/null 2>&1; then
@@ -103,16 +110,14 @@ proveo_docker_ensure_buildx() {
     printf '%s' "$builder"
     return 0
   fi
-  local candidate
-  while read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    if proveo_docker_builder_running "$candidate"; then
-      printf '%s' "$candidate"
-      return 0
-    fi
-  done < <(docker buildx ls 2>/dev/null |
-    awk 'NR>1 { line=$0; gsub(/\*/," ",line); n=split(line,f," ");
-                if (n>=2 && f[1]!~/^\\_/ && f[2]=="docker") print f[1] }')
+  local ctx
+  ctx="$(docker context show 2>/dev/null)" || true
+  if [[ -n "$ctx" ]] \
+     && proveo_docker_builder_is_docker_driver "$ctx" \
+     && proveo_docker_builder_running "$ctx"; then
+    printf '%s' "$ctx"
+    return 0
+  fi
 
   builder="$(proveo_docker_container_builder)"
   echo "⚠️  no running docker-driver builder; using $builder — a locally built base image" >&2

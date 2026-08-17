@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -215,6 +215,64 @@ report_git_context() {
  fi
 }
 
+# ── 2d. Git Access (safe.directory + scoped worktree) ───────
+# SPEC: _spec/internal/workspace/git-mount-by-scope.puml
+# Both run in the ENTRYPOINT SHELL, not the Go prelude: `proveo-entrypoint prep`
+# is a subprocess, so anything it exports dies with it. Only the shell that execs
+# the agent can hand it environment.
+#
+# Under a subdir scope /app is the image's own directory, so its owner differs
+# from the run-as uid and git refuses everything with "dubious ownership".
+ensure_git_safe_directory() {
+  command -v git >/dev/null 2>&1 || return 0
+  local dir="${1:-$(pwd)}" idx
+  [[ -e "${dir}/.git" || -d /app/.git ]] || return 0
+  git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 && return 0
+
+  idx="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_${idx}=safe.directory" "GIT_CONFIG_VALUE_${idx}=$dir"
+  idx=$((idx + 1))
+  export GIT_CONFIG_COUNT="$idx"
+  if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "🔐 git: declared ${dir} safe (worktree owner differs from the run-as uid)"
+  fi
+}
+
+# Only under a subdir scope (PROVEO_SCOPE_REL): the container's worktree root is
+# /app but only part of the repo is mounted there, so git measures the whole-repo
+# index against a partial tree. Point git at a COPY of the index and mark the
+# unmounted paths skip-worktree, so nothing is written into the host's .git.
+scope_git_worktree() {
+  [[ -n "${PROVEO_SCOPE_REL:-}" ]] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+
+  local dir="${1:-$(pwd)}" idx="${HOME}/.cache/proveo/scoped-index"
+  git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+  mkdir -p "$(dirname "$idx")" || return 0
+  local real
+  real="$(git -C "$dir" rev-parse --git-dir 2>/dev/null)/index"
+  [[ -f "$real" ]] || return 0
+  cp "$real" "$idx" 2>/dev/null || return 0
+  export GIT_INDEX_FILE="$idx"
+
+  # Absent-at-STARTUP means "not mounted", never "the agent deleted it" — the
+  # agent has not run yet. Deletions it makes later still show normally.
+  local missing
+  missing="$(cd "$dir" && git ls-files -z | while IFS= read -r -d '' f; do
+    [[ -e "$f" ]] || printf '%s\0' "$f"
+  done | tr '\0' '\n' | wc -l | tr -d ' ')"
+  if [[ "$missing" == "0" ]]; then
+    return 0
+  fi
+  (cd "$dir" && git ls-files -z | while IFS= read -r -d '' f; do
+    [[ -e "$f" ]] || printf '%s\0' "$f"
+  done | xargs -0 -r git update-index --skip-worktree) 2>/dev/null \
+    || { echo "⚠️  Could not scope the git index; status will list unmounted paths as deleted" >&2; return 0; }
+
+  echo "🔭 git scoped to ${PROVEO_SCOPE_REL} (${missing} unmounted path(s) hidden; host .git untouched)"
+}
+
 # ── 3. Attach RTK Repository ────────────────────────────────
 attach_rtk() {
  if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
@@ -318,20 +376,99 @@ apply_env_bridges() {
 }
 
 # ── 7. Automatic Project-Level Tools Installer ──────────────
+
+_proveo_auto_install_enabled() {
+  case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
+    false|0|no|off|disable|disabled) return 1 ;;
+  esac
+  return 0
+}
+
+_proveo_tool_path() {
+  mkdir -p "${HOME}/.local/bin"
+  case ":${PATH}:" in
+    *":${HOME}/.local/bin:"*) ;;
+    *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+  esac
+  case ":${PATH}:" in
+    *":${HOME}/.local/share/mise/shims:"*) ;;
+    *) export PATH="${HOME}/.local/share/mise/shims:${PATH}" ;;
+  esac
+  export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
+}
+
+_proveo_bounded() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
+_proveo_github_token() {
+  if [ -n "${GITHUB_TOKEN:-}" ]; then printf '%s' "$GITHUB_TOKEN"; return 0; fi
+  if [ -n "${GH_TOKEN:-}" ]; then printf '%s' "$GH_TOKEN"; return 0; fi
+  command -v gh >/dev/null 2>&1 || return 0
+  _proveo_bounded 5 gh auth token 2>/dev/null | head -n1
+}
+
+_mise_install() {
+  local spec="$1" tok="${2:-}"
+  if [ -n "$tok" ]; then
+    MISE_YES=1 GITHUB_TOKEN="$tok" \
+      _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
+  else
+    MISE_YES=1 \
+      _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
+  fi
+}
+
+_go_current_version() {
+  command -v go >/dev/null 2>&1 || return 0
+  local v
+  v="$(go env GOVERSION 2>/dev/null)"
+  printf '%s' "${v#go}"
+}
+
+_install_go() {
+  local version="$1"
+  if curl -fsSL --connect-timeout 5 --max-time 120 \
+       -o "${HOME}/.local/bin/g" \
+       https://github.com/stefanmaric/g/releases/latest/download/g; then
+    chmod +x "${HOME}/.local/bin/g"
+    "${HOME}/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
+      || echo "WARN: g could not install Go ${version}"
+  elif command -v mise >/dev/null 2>&1; then
+    mise use -g "go@${version}" >/dev/null 2>&1 \
+      || echo "WARN: mise could not install Go ${version}"
+  else
+    echo "WARN: failed to fetch g; Go not installed"
+  fi
+}
+
+_proveo_lock_installs() {
+  command -v flock >/dev/null 2>&1 || return 0
+  local dir="${HOME}/.local/share/proveo"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  exec 9>"${dir}/install.lock" 2>/dev/null || return 0
+  if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then
+    echo "⏳ another proveo run is provisioning tools under ${HOME}; skipping installs this run"
+    _proveo_unlock_installs
+    return 1
+  fi
+  return 0
+}
+
+_proveo_unlock_installs() { exec 9>&- 2>/dev/null || true; }
+
 ensure_project_tools() {
- # Opt-out: accept the common falsy spellings, case-insensitively. In
- # locked-egress deployments (no outbound network) this should be disabled so
- # startup never blocks on a registry/CDN fetch.
- case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
- false|0|no|off|disable|disabled) return 0 ;;
- esac
+ _proveo_tool_path
+ _proveo_auto_install_enabled || return 0
+ _proveo_lock_installs || return 0
 
  # Bounded network so a blackholed egress can't hang the container at startup.
  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
-
- # Add user-local bin to PATH for prefix-based installations
- mkdir -p "${HOME}/.local/bin"
- export PATH="${HOME}/.local/bin:${PATH}"
 
  # 1. NX Detection & Installation
  if [[ -f nx.json ]]; then
@@ -368,31 +505,23 @@ ensure_project_tools() {
 
  # 4. Go Detection & Installation
  if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
- if ! command -v go >/dev/null 2>&1; then
  export GOROOT="${GOROOT:-${HOME}/.go}"
  export GOPATH="${GOPATH:-${HOME}/go}"
  export PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
 
- local go_version="latest"
+ local go_version="latest" pinned="" current=""
  if [[ -f go.mod ]]; then
- local pinned
  pinned="$(sed -n 's/^toolchain go\([0-9][^ ]*\).*/\1/p' go.mod | head -n1)"
  [[ -n "$pinned" ]] && go_version="$pinned"
  fi
+ current="$(_go_current_version)"
 
+ if [[ -z "$current" ]]; then
  echo "Detected a Go project. Dynamically installing Go ${go_version} via g..."
- if curl -fsSL --connect-timeout 5 --max-time 120 \
-      -o "${HOME}/.local/bin/g" \
-      https://github.com/stefanmaric/g/releases/latest/download/g; then
- chmod +x "${HOME}/.local/bin/g"
- "${HOME}/.local/bin/g" install -y "$go_version" >/dev/null 2>&1 \
-   || echo "WARN: g could not install Go ${go_version}"
- elif command -v mise >/dev/null 2>&1; then
- mise use -g "go@${go_version}" >/dev/null 2>&1 \
-   || echo "WARN: mise could not install Go ${go_version}"
- else
- echo "WARN: failed to fetch g; Go not installed"
- fi
+ _install_go "$go_version"
+ elif [[ -n "$pinned" && "$current" != "$pinned" ]]; then
+ echo "Go ${current} is installed but go.mod pins ${pinned}; installing the pinned toolchain..."
+ _install_go "$pinned"
  fi
 
  if command -v go >/dev/null 2>&1 && ! command -v gopls >/dev/null 2>&1; then
@@ -401,6 +530,131 @@ ensure_project_tools() {
    || echo "WARN: failed to install gopls"
  fi
  fi
+
+ _proveo_unlock_installs
+}
+
+# ── 7c. Python Environment (detect → provision → activate) ──
+# SPEC: _spec/packages/lib/python-environment.puml
+_py_project_kind() {
+  local d="${1:-$(pwd)}"
+  [[ -f "$d/environment.yml" || -f "$d/environment.yaml" ]] && { echo conda; return 0; }
+  [[ -f "$d/uv.lock" ]] && { echo uv; return 0; }
+  [[ -f "$d/poetry.lock" ]] && { echo poetry; return 0; }
+  [[ -f "$d/pyproject.toml" || -f "$d/Pipfile" ]] && { echo pip; return 0; }
+  compgen -G "$d/requirements*.txt" >/dev/null 2>&1 && { echo pip; return 0; }
+  return 0
+}
+
+_py_requested_version() {
+  local d="${1:-$(pwd)}" v=""
+  [[ -f "$d/.python-version" ]] && v="$(head -n1 "$d/.python-version" 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$v" && -f "$d/pyproject.toml" ]]; then
+    v="$(sed -n 's/^requires-python[[:space:]]*=[[:space:]]*"[^0-9]*\([0-9]\+\.[0-9]\+\).*/\1/p' "$d/pyproject.toml" | head -n1)"
+  fi
+  printf '%s' "${v:-${PROVEO_PYTHON_VERSION:-3.12}}"
+}
+
+# Presence is not capability: python3-minimal satisfies `command -v python3`
+# while `python3 -m venv` fails, which is how a decoy interpreter gets mistaken
+# for a usable one.
+_py_venv_capable() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  local probe; probe="$(mktemp -d)/v"
+  python3 -m venv "$probe" >/dev/null 2>&1 || { rm -rf "$(dirname "$probe")"; return 1; }
+  rm -rf "$(dirname "$probe")"
+  return 0
+}
+
+_py_env_dir() {
+  local d="${1:-$(pwd)}" h
+  h="$(printf '%s' "$d" | cksum | cut -d' ' -f1)"
+  printf '%s' "${HOME}/.cache/proveo/venv/${h}"
+}
+
+ensure_python_env() {
+  _proveo_tool_path
+  local scan="${1:-$(pwd)}" kind ver env_dir spec
+  kind="$(_py_project_kind "$scan")"
+  [[ -n "$kind" ]] || return 0
+  _proveo_auto_install_enabled || return 0
+  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
+
+  _proveo_lock_installs || return 0
+  ver="$(_py_requested_version "$scan")"
+  env_dir="$(_py_env_dir "$scan")"
+
+  if ! _py_venv_capable; then
+    echo "🐍 Provisioning Python ${ver} (the image's python3 cannot create a venv)..."
+    _mise_install "python@${ver}" "$(_proveo_github_token)" >/dev/null 2>&1 \
+      || { echo "⚠️  Could not provision Python ${ver}; skipping environment setup"; _proveo_unlock_installs; return 0; }
+    _proveo_tool_path
+  fi
+
+  case "$kind" in
+    uv)     spec=uv ;;
+    poetry) spec=poetry ;;
+    conda)  spec=micromamba ;;
+    *)      spec="" ;;
+  esac
+  if [[ -n "$spec" ]] && ! command -v "$spec" >/dev/null 2>&1; then
+    _mise_install "$spec" "$(_proveo_github_token)" >/dev/null 2>&1 \
+      || echo "⚠️  Could not provision ${spec}; falling back to pip"
+    _proveo_tool_path
+  fi
+
+  _py_build_env "$kind" "$scan" "$env_dir"
+  _proveo_unlock_installs
+  _py_activate "$env_dir" "$scan"
+}
+
+_py_build_env() {
+  local kind="$1" scan="$2" env_dir="$3" rc=0
+  mkdir -p "$(dirname "$env_dir")" 2>/dev/null || return 0
+  local bounded="${PROVEO_PYTHON_TIMEOUT:-600}"
+  case "$kind" in
+    conda)
+      [[ -x "$env_dir/bin/python" ]] && return 0
+      _proveo_bounded "$bounded" micromamba create -y -q -p "$env_dir" \
+        -f "$(ls "$scan"/environment.y*ml 2>/dev/null | head -n1)" >/dev/null 2>&1 || rc=$?
+      ;;
+    uv)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" uv venv "$env_dir" >/dev/null 2>&1
+      (cd "$scan" && _proveo_bounded "$bounded" env VIRTUAL_ENV="$env_dir" uv sync --active) >/dev/null 2>&1 || rc=$?
+      ;;
+    poetry)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" python3 -m venv "$env_dir" >/dev/null 2>&1
+      (cd "$scan" && _proveo_bounded "$bounded" env VIRTUAL_ENV="$env_dir" poetry install --no-root) >/dev/null 2>&1 || rc=$?
+      ;;
+    *)
+      [[ -x "$env_dir/bin/python" ]] || _proveo_bounded "$bounded" python3 -m venv "$env_dir" >/dev/null 2>&1
+      local req; req="$(ls "$scan"/requirements*.txt 2>/dev/null | head -n1)"
+      if [[ -n "$req" ]]; then
+        _proveo_bounded "$bounded" "$env_dir/bin/pip" install -q -r "$req" >/dev/null 2>&1 || rc=$?
+      elif [[ -f "$scan/pyproject.toml" ]]; then
+        _proveo_bounded "$bounded" "$env_dir/bin/pip" install -q -e "$scan" >/dev/null 2>&1 || rc=$?
+      fi
+      ;;
+  esac
+  [[ $rc -eq 0 ]] || echo "⚠️  Python dependency install did not complete; the environment may be partial"
+  return 0
+}
+
+_py_activate() {
+  local env_dir="$1" scan="$2"
+  [[ -x "$env_dir/bin/python" ]] || { echo "⚠️  No usable Python environment at ${env_dir}"; return 0; }
+  export VIRTUAL_ENV="$env_dir"
+  case ":${PATH}:" in
+    *":${env_dir}/bin:"*) ;;
+    *) export PATH="${env_dir}/bin:${PATH}" ;;
+  esac
+  if [[ -e "$scan/.venv" && ! -x "$scan/.venv/bin/python" ]]; then
+    echo "⚠️  ${scan}/.venv is a host-built environment and cannot run here; using ${env_dir} instead"
+  fi
+  echo "🐍 Python: $("$env_dir/bin/python" --version 2>&1) · env ${env_dir}"
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
@@ -426,15 +680,16 @@ _lsp_ext_lang() { case "$1" in
   .tf|.tfvars) echo terraform ;;
   .lua) echo lua ;; .java) echo java ;;
   .c|.h|.cc|.cpp|.cxx|.hpp|.hh) echo cpp ;;
-  .rb) echo ruby ;; .php) echo php ;; .nix) echo nix ;; .zig) echo zig ;;
+  .rb) echo ruby ;; .kt|.kts) echo kotlin ;; .nix) echo nix ;; .zig) echo zig ;;
   .puml|.plantuml) echo plantuml ;;
+  .mmd|.mermaid) echo mermaid ;;
 esac; }
 _lsp_marker_lang() { case "$1" in
   package.json|tsconfig.json|jsconfig.json) echo typescript ;;
   pyproject.toml|requirements.txt|setup.py|Pipfile) echo python ;;
   go.mod) echo go ;; Cargo.toml) echo rust ;;
   Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) echo docker ;;
-  Gemfile) echo ruby ;; composer.json) echo php ;;
+  Gemfile) echo ruby ;;
   .terraform.lock.hcl|Terraform.lock.hcl) echo terraform ;;
 esac; }
 _lsp_server() { case "$1" in
@@ -455,11 +710,97 @@ _lsp_server() { case "$1" in
   java) echo "jdtls" ;;
   cpp) echo "clangd" ;;
   ruby) echo "ruby-lsp" ;;
-  php) echo "intelephense --stdio" ;;
+  kotlin) echo "kotlin-language-server" ;;
   nix) echo "nil" ;;
   zig) echo "zls" ;;
   plantuml) echo "plantuml-lsp" ;;
 esac; }
+
+_lsp_mise_spec() { case "$1" in
+  rust)      echo "rust-analyzer" ;;
+  markdown)  echo "marksman" ;;
+  toml)      echo "taplo" ;;
+  terraform) echo "terraform-ls" ;;
+  lua)       echo "lua-language-server" ;;
+  zig)       echo "zls" ;;
+  cpp)       echo "ubi:clangd/clangd" ;;
+  kotlin)    echo "ubi:fwcd/kotlin-language-server[exe=kotlin-language-server,extract_all=true,bin_path=bin]" ;;
+esac; }
+
+_lsp_precondition() {
+  case "$1" in
+    cpp)
+      case "$(uname -m)" in
+        x86_64|amd64) ;;
+        *) echo "clangd publishes x86_64 Linux builds only — none for $(uname -m)"; return 1 ;;
+      esac ;;
+  esac
+  return 0
+}
+
+_java_major() {
+  command -v java >/dev/null 2>&1 || { echo 0; return 0; }
+  local v
+  v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n1)"
+  echo "${v:-0}"
+}
+
+_lsp_custom_install() { case "$1" in
+  java) _install_jdtls "${2:-}" ;;
+  *)    return 1 ;;
+esac; }
+_lsp_has_custom_install() { case "$1" in
+  java) return 0 ;;
+  *)    return 1 ;;
+esac; }
+
+_install_jdtls() {
+  local gh_token="${1:-}" home="${HOME}/.local/share/proveo/jdtls" tarball rc
+  local url="${PROVEO_JDTLS_URL:-https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz}"
+
+  if [ "$(_java_major)" -lt 21 ]; then
+    echo "   provisioning a Java 21 runtime (jdtls needs it; the floor's JRE is $(_java_major))..."
+    _mise_install "java@21" "$gh_token" >/dev/null 2>&1 \
+      || { echo "   could not provision Java 21"; return 1; }
+    _proveo_tool_path
+  fi
+
+  tarball="$(mktemp)" || return 1
+  _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" \
+    curl -fsSL --connect-timeout 5 "$url" -o "$tarball"
+  rc=$?
+  if [ $rc -ne 0 ]; then rm -f "$tarball"; return 1; fi
+  mkdir -p "$home"
+  tar -xzf "$tarball" -C "$home"
+  rc=$?
+  rm -f "$tarball"
+  [ $rc -eq 0 ] || return 1
+
+  mkdir -p "${HOME}/.local/bin"
+  cat > "${HOME}/.local/bin/jdtls" <<PROVEO_JDTLS
+#!/bin/sh
+J="${home}"
+case "\$(uname -m)" in
+  aarch64|arm64) CFG="\$J/config_linux_arm" ;;
+  *)             CFG="\$J/config_linux" ;;
+esac
+L=\$(ls "\$J"/plugins/org.eclipse.equinox.launcher_*.jar 2>/dev/null | head -n1)
+[ -n "\$L" ] || { echo "jdtls: equinox launcher not found under \$J" >&2; exit 1; }
+exec java \\
+  -Declipse.application=org.eclipse.jdt.ls.core.id1 \\
+  -Dosgi.bundles.defaultStartLevel=4 \\
+  -Declipse.product=org.eclipse.jdt.ls.core.product \\
+  -Dosgi.sharedConfiguration.area="\$CFG" \\
+  -Dosgi.sharedConfiguration.area.readOnly=true \\
+  -Dosgi.configuration.cascaded=true \\
+  --add-modules=ALL-SYSTEM \\
+  --add-opens java.base/java.util=ALL-UNNAMED \\
+  --add-opens java.base/java.lang=ALL-UNNAMED \\
+  -jar "\$L" \\
+  -data "\${JDTLS_WORKSPACE:-\$HOME/.cache/jdtls-workspace}" "\$@"
+PROVEO_JDTLS
+  chmod +x "${HOME}/.local/bin/jdtls"
+}
 
 # _lsp_walk prints "lang<TAB>ftype" for each detected file under scan_root
 # (ftype = the extension, or the filename for Docker; empty when not tracked).
@@ -495,6 +836,84 @@ _lsp_walk() {
              -o -type f -print0 2>/dev/null)
 }
 
+# SPEC: _spec/packages/lib/language-server-provisioning.puml
+# Knobs: PROVEO_AUTO_INSTALL_TOOLS · PROVEO_LSP_INSTALL=off|<csv> ·
+# PROVEO_LSP_MIN_FILES · PROVEO_LSP_INSTALL_TIMEOUT · GITHUB_TOKEN.
+# Call directly, never through a pipe: it exports PATH.
+ensure_language_servers() {
+  _proveo_tool_path
+  _proveo_auto_install_enabled || return 0
+
+  local scan_root="${1:-$(pwd)}" mode min_files installed="" lang cnt server cmd spec reason out rc gh_token
+  mode="$(printf '%s' "${PROVEO_LSP_INSTALL:-auto}" | tr '[:upper:]' '[:lower:]')"
+  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+  min_files="${PROVEO_LSP_MIN_FILES:-1}"
+
+  if ! command -v mise >/dev/null 2>&1; then
+    echo "ℹ️  mise not on PATH — skipping language-server provisioning"
+    return 0
+  fi
+
+  gh_token="$(_proveo_github_token)"
+
+  _proveo_lock_installs || return 0
+
+  while IFS=$'\t' read -r lang cnt; do
+    [[ -n "$lang" ]] || continue
+    [[ "$cnt" -ge "$min_files" ]] || continue
+    if [[ "$mode" != auto ]]; then
+      case ",${mode}," in *",${lang},"*) ;; *) continue ;; esac
+    fi
+    server="$(_lsp_server "$lang")"
+    [[ -n "$server" ]] || continue          # server-less language (mermaid)
+    cmd="${server%% *}"
+    command -v "$cmd" >/dev/null 2>&1 && continue   # image layer, or an earlier run
+
+    spec="$(_lsp_mise_spec "$lang")"
+    if [[ -z "$spec" ]] && ! _lsp_has_custom_install "$lang"; then
+      continue                              # no recipe — see _lsp_mise_spec
+    fi
+
+    if ! reason="$(_lsp_precondition "$lang")"; then
+      echo "⏭️  Skipping ${cmd} for ${lang}: ${reason}"
+      continue
+    fi
+
+    echo "📦 Detected ${lang} (${cnt} files). Installing ${cmd}..."
+    if [[ -n "$spec" ]]; then
+      out="$(_mise_install "$spec" "$gh_token")"
+      rc=$?
+    else
+      out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)"
+      rc=$?
+      [[ -n "$out" ]] && printf '%s\n' "$out"
+    fi
+
+    if [[ $rc -eq 0 ]]; then
+      installed="${installed} ${cmd}"
+    else
+      case "$out" in
+        *403*|*"rate limit"*|*Forbidden*)
+          if [[ -n "$gh_token" ]]; then
+            echo "⚠️  GitHub API refused the request for ${cmd} despite an authenticated token."
+            echo "    Check the token's scopes; code intelligence for ${lang} stays off."
+          else
+            echo "⚠️  GitHub API rate limit while installing ${cmd}, and no token was found."
+            echo "    Run 'gh auth login' on the host (proveo mounts ~/.config/gh into the"
+            echo "    container) or set GITHUB_TOKEN; code intelligence for ${lang} stays off."
+          fi ;;
+        *)
+          echo "⚠️  Failed to install ${cmd}; code intelligence for ${lang} stays off" ;;
+      esac
+    fi
+  done < <(_lsp_walk "$scan_root" | cut -f1 | sort | uniq -c \
+             | awk '{ printf "%s\t%s\n", $2, $1 }')
+
+  _proveo_unlock_installs
+  [[ -n "$installed" ]] && echo "🧠 Provisioned language servers:${installed}"
+  return 0
+}
+
 # detect_workspace_lsps prints "lang|count|cmd|arg…|ext1,ext2" per language whose
 # LSP server is installed, ranked by file count desc, then popularity, then name.
 detect_workspace_lsps() {
@@ -502,7 +921,7 @@ detect_workspace_lsps() {
   local tab; tab="$(printf '\t')"
   _lsp_walk "$scan_root" | awk -F'\t' '
     BEGIN {
-      n = split("typescript python java cpp go rust php ruby bash json yaml docker html css markdown toml terraform lua nix zig plantuml", P, " ")
+      n = split("typescript python java cpp go rust kotlin ruby bash json yaml docker html css markdown toml terraform lua nix zig plantuml mermaid", P, " ")
       for (i = 1; i <= n; i++) pop[P[i]] = i - 1
     }
     {

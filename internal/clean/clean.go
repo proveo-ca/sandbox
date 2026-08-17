@@ -29,6 +29,11 @@ type Net struct {
 	HasEndpoints bool
 }
 
+type ToolDir struct {
+	Path  string
+	Bytes int64
+}
+
 // Inventory is everything cmd/proveo found that clean might act on.
 type Inventory struct {
 	Egress    []Container // containers labeled proveo.egress.session
@@ -36,12 +41,14 @@ type Inventory struct {
 	Networks  []Net       // networks labeled proveo.egress.session
 	StateDirs []string    // session ids present under <stateDir>/egress/
 	Images    []string    // proveo/* image refs (populated only for --deep)
+	ToolDirs  []ToolDir
 }
 
 // Options tunes the plan.
 type Options struct {
 	Deep  bool // also remove proveo/* images
 	Force bool // also remove resources that look live
+	Tools bool
 }
 
 // Plan is what to remove. StateDirs are session ids (cmd/proveo maps them to
@@ -52,6 +59,7 @@ type Plan struct {
 	Networks    []string
 	StateDirs   []string
 	Images      []string
+	ToolDirs    []string
 	SkippedLive []string
 }
 
@@ -99,6 +107,27 @@ func BuildPlan(inv Inventory, o Options) Plan {
 
 	if o.Deep {
 		p.Images = append(p.Images, inv.Images...)
+	}
+
+	if o.Tools {
+		running := false
+		for _, c := range inv.Egress {
+			if c.Running {
+				running = true
+			}
+		}
+		for _, c := range inv.Dind {
+			if c.Running {
+				running = true
+			}
+		}
+		for _, d := range inv.ToolDirs {
+			if running && !o.Force {
+				p.SkippedLive = append(p.SkippedLive, "tools "+d.Path)
+				continue
+			}
+			p.ToolDirs = append(p.ToolDirs, d.Path)
+		}
 	}
 	return p
 }

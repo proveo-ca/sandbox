@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -297,5 +298,225 @@ func TestEnvFileSourcePrefersInvocationWD(t *testing.T) {
 	got := EnvFileSource(root, scope, "")
 	if got != pwdEnv {
 		t.Fatalf("EnvFileSource(pwd, scope, \"\") = %q, want pwd %q", got, pwdEnv)
+	}
+}
+
+func TestPlanSubdirPreservesRootDirs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "_spec", "components.puml"))
+	touch(t, filepath.Join(root, "vendor", "modules.txt"))
+	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "index.ts"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: scope,
+		EgressMode: "open", Credentials: "forward",
+		MountRootDeps: true,
+	}.Plan()
+
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	for _, dir := range []string{"/app/_spec", "/app/vendor", "/app/node_modules"} {
+		m, ok := byContainer[dir]
+		if !ok {
+			t.Errorf("%s not mounted into the subdir scope", dir)
+			continue
+		}
+		if m.ReadOnly {
+			t.Errorf("%s mounted read-only; agents edit specs and installs write to deps", dir)
+		}
+	}
+}
+
+func TestPlanSubdirRootDepsAreOptional(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "_spec", "components.puml"))
+	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "index.ts"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: scope,
+		EgressMode: "open", Credentials: "forward",
+		MountRootDeps: false,
+	}.Plan()
+
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	if _, ok := byContainer["/app/node_modules"]; ok {
+		t.Error("root node_modules mounted despite MountRootDeps=false")
+	}
+	if _, ok := byContainer["/app/_spec"]; !ok {
+		t.Error("_spec must survive the dependency opt-out — it is not a dependency")
+	}
+}
+
+func TestPlanSubdirRootDirsYieldToScope(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "node_modules", ".modules.yaml"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: scope,
+		EgressMode: "open", Credentials: "forward",
+		MountRootDeps: true,
+	}.Plan()
+
+	for _, m := range got {
+		if m.Container == "/app/node_modules" {
+			t.Errorf("root node_modules mounted over a scope that has its own: %+v", m)
+		}
+	}
+}
+
+func TestPlanSubdirIgnoresRootDirNamedFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "_spec")) // a file, not a directory
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "index.ts"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: scope,
+		EgressMode: "open", Credentials: "forward",
+	}.Plan()
+
+	for _, m := range got {
+		if m.Container == "/app/_spec" {
+			t.Errorf("a file named _spec was mounted as the specs directory: %+v", m)
+		}
+	}
+}
+
+func TestPlanSubdirRootDirsAreEnvMasked(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "_spec", "components.puml"))
+	touch(t, filepath.Join(root, "vendor", "pkg", ".env"))
+	touch(t, filepath.Join(root, "vendor", "pkg", ".env.example"))
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "index.ts"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: scope,
+		EgressMode: "firewall", // isolates env
+	}.Plan()
+
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	m, ok := byContainer["/app/vendor/pkg/.env"]
+	if !ok {
+		t.Fatal("a .env inside a mounted root dir was not masked")
+	}
+	if m.Host != os.DevNull || !m.ReadOnly {
+		t.Errorf(".env mask = %+v, want %s read-only", m, os.DevNull)
+	}
+	if _, masked := byContainer["/app/vendor/pkg/.env.example"]; masked {
+		t.Error(".env.example must stay readable, not be masked")
+	}
+}
+
+func TestPlanRootScopeHonorsGitModeRO(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".git", "HEAD"))
+	touch(t, filepath.Join(root, "main.go"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro"},
+		RepoRoot:  root, InputDir: root,
+		EgressMode: "open", Credentials: "forward",
+	}.Plan()
+
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	if m, ok := byContainer["/app"]; !ok || m.ReadOnly {
+		t.Errorf("/app = %+v (ok=%v), want the tree writable", m, ok)
+	}
+	m, ok := byContainer["/app/.git"]
+	if !ok {
+		t.Fatalf("gitMode=ro at repo root must pin /app/.git read-only; mounts=%+v", got)
+	}
+	if !m.ReadOnly || m.Host != filepath.Join(root, ".git") {
+		t.Errorf("/app/.git = %+v, want host %s read-only", m, filepath.Join(root, ".git"))
+	}
+}
+
+func TestPlanRootScopeAddsNoGitMountWhenModesAgree(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".git", "HEAD"))
+
+	for _, gm := range []string{"", "rw"} {
+		got, _ := MountSpec{
+			Workspace: manifest.Workspace{Layout: "app", GitMode: gm},
+			RepoRoot:  root, InputDir: root,
+			EgressMode: "open", Credentials: "forward",
+		}.Plan()
+		for _, m := range got {
+			if m.Container == "/app/.git" {
+				t.Errorf("gitMode=%q matches the parent mount; the extra bind is noise: %+v", gm, m)
+			}
+		}
+	}
+}
+
+func TestPlanInputOutputHonorsGitModeRO(t *testing.T) {
+	t.Parallel()
+	in := t.TempDir()
+	touch(t, filepath.Join(in, ".git", "HEAD"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "input-output", GitMode: "ro"},
+		InputDir:  in, OutputDir: t.TempDir(),
+	}.Plan()
+
+	var found *runner.Mount
+	for i := range got {
+		if got[i].Container == "/workspace/input/.git" {
+			found = &got[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("gitMode=ro must pin .git under the input mount; mounts=%+v", got)
+	}
+	if !found.ReadOnly {
+		t.Errorf("/workspace/input/.git = %+v, want read-only", *found)
+	}
+}
+
+func TestPlanGitModeIgnoredWithoutAGitDir(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "main.go"))
+
+	got, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro"},
+		RepoRoot:  root, InputDir: root,
+		EgressMode: "open", Credentials: "forward",
+	}.Plan()
+
+	for _, m := range got {
+		if strings.HasSuffix(m.Container, "/.git") {
+			t.Errorf("no .git on disk, yet one was mounted: %+v", m)
+		}
 	}
 }

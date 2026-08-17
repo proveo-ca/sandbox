@@ -1,0 +1,91 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Language-server provisioning — §8 of the shared entrypoint lib
+
+' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
+'         defs/cursor/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+
+node "One shared lib, four harnesses" as LIB <<host>> {
+  component "**detect** — ""_lsp_walk""\nextension + marker maps → lang·count" as WALK <<app>>
+  component "**rank** — awk popularity list" as RANK <<app>>
+  component "**eligibility** — ""_lsp_precondition""\ncan this server run HERE?" as PRE <<app>>
+  component "**recipe** — ""_lsp_mise_spec""\n· ""_lsp_custom_install""" as RECIPE <<app>>
+  component "**install** — ""_mise_install""\nbounded · idempotent" as INST <<app>>
+  component "**wire** — ""configure_*_lsp""\nper-harness config format" as WIRE <<app>>
+}
+
+component """_proveo_lock_installs""\nflock fd 9" as LOCK <<async>>
+database "PROVEO_HOME\n""~/.local/share/mise"" · shims" as HOME <<db>>
+cloud "mise registry · ubi → GitHub API\ndownload.eclipse.org" as NET <<cloud>>
+component "wrong-arch binary\npasses ""command -v"" · cannot exec" as TRAP <<error>>
+
+WALK ARROW_MAIN RANK : lang<TAB>ftype
+RANK ARROW_MAIN PRE : ranked languages
+PRE ARROW_MAIN RECIPE : eligible only
+RECIPE ARROW_MAIN INST
+INST ARROW_QUEUE LOCK : serialize across runs
+INST ARROW_CLOUD NET : fetch
+INST ARROW_MAIN HOME : install once
+HOME ARROW_MAIN WIRE : ""command -v"" finds it
+PRE ARROW_ERROR TRAP : the check that prevents this
+
+note right of WALK
+  **Separation of responsibilities.** Detection answers //what the workspace
+  contains//; it never decides what to install. Eligibility answers //can this
+  run on this machine//; it never fetches. Recipes answer //how to obtain it//;
+  they never inspect the workspace. Install is the only step that touches the
+  network, and wiring is the only step that knows a harness's config format.
+
+  That split is why one lib serves four harnesses whose floors differ: opencode
+  and claudecode carry the Node language servers, cursor and cecli carry no Node
+  runtime at all, and only the WIRE step differs between them.
+end note
+
+note bottom of PRE
+  **Eligibility runs BEFORE cost, not after.** ubi will happily install the
+  x86_64 clangd on arm64. It then satisfies ""command -v"" and gets wired in as a
+  server that dies on first use — worse than never installing it, because the
+  failure surfaces to the agent instead of to the installer.
+
+  A post-install health probe was measured and rejected: feeding EOF to healthy
+  servers returns 124 (rust-analyzer), 2 (marksman), 1 (taplo/zls/typescript)
+  and 0 (terraform-ls/lua/kotlin/bash). No exit code separates healthy from
+  broken, so any such probe would discard working servers.
+end note
+
+note bottom of RECIPE
+  **Two mechanisms, because one does not reach.** ""mise"" is already on the
+  floor, so a tool spec costs no new dependency — that covers rust, markdown,
+  toml, terraform, lua, zig, kotlin and cpp. jdtls needs a bespoke installer:
+  eclipse publishes tarballs rather than GitHub releases, its launcher is a
+  python script the Node/Go images cannot run, and its classes are Java 21 while
+  the floor's JRE (present for the plantuml jar) is 17.
+
+  A language in NEITHER table is never auto-installed. nil publishes no release
+  assets at all, and ruby-lsp needs a source-compiled ruby these images have no
+  toolchain for — both are recorded as unreachable rather than silently missing.
+end note
+
+note right of LOCK
+  PROVEO_HOME is one durable directory shared by every run on the machine, so
+  two harnesses starting together race on the same mise tree — which corrupts
+  rather than duplicates. Failing to LOCK is not failing to boot: without flock
+  it degrades to no locking, and on timeout it skips installs, because the run
+  holding the lock is installing the same things anyway.
+end note
+
+note right of NET
+  ubi resolves releases through the GitHub API — 60 requests/hour when
+  unauthenticated, shared PER SOURCE IP, so a fleet behind one NAT hits it
+  routinely and loses code intelligence silently. The token is resolved from
+  the operator's gh session (see ""_spec/cmd/proveo/github-credentials.puml"")
+  and passed to the single install command, never exported to the agent.
+end note
+
+note bottom of WIRE
+  **Ordering is load-bearing.** Every wiring step gates on ""command -v"", so a
+  server installed AFTER the config is rendered stays invisible until the next
+  run. opencode and cursor once rendered their config before the installers ran,
+  which is why Go intelligence only ever appeared on a second run.
+end note
+@enduml

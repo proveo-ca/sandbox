@@ -328,7 +328,10 @@ func doRun(p runParams) error {
 
 	// Build the mount plan from the manifest's workspace model (embedded whole —
 	// no field-by-field copy to keep in sync).
-	wsSpec := workspace.MountSpec{Workspace: man.Workspace, OutputDir: p.output, EgressMode: p.mode, Credentials: p.credentials}
+	wsSpec := workspace.MountSpec{
+		Workspace: man.Workspace, OutputDir: p.output, EgressMode: p.mode, Credentials: p.credentials,
+		MountRootDeps: mountRootDeps(os.Getenv),
+	}
 	var workdir string
 	if wsSpec.Layout == "input-output" {
 		wsSpec.InputDir = repoRoot // whole repo mounted read-only
@@ -430,7 +433,7 @@ func doRun(p runParams) error {
 		dindScope = start
 	}
 	wantDind := false
-	browserImage := man.Images[p.target+"-browser"]                                                     // the -browser variant, if this harness has one
+	browserImage := man.Images[p.target+"-browser"]                                                                           // the -browser variant, if this harness has one
 	dindOfferable := man.Dind && !man.SandboxDocker && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials) // DinD needs broker egress (see ModeSupported); sandbox_docker replaces the sidecar
 	if hasAddon(p.addons, "browser") && browserImage != "" {
 		p.image = browserImage
@@ -610,6 +613,16 @@ func doRun(p runParams) error {
 	}
 	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
 	env = append(env, homePlan.Env...)
+	if rel := wsSpec.ScopeRel(); rel != "" {
+		env = append(env, "PROVEO_SCOPE_REL="+rel)
+	}
+	env = append(env, wsSpec.WorktreeEnv()...)
+
+	if !p.printOnly {
+		if k := resolveGitHubTokenEnv(hostGhAuth(), isStdinTTY() && wizardEnabled(), os.Stdin, os.Stderr); k != "" {
+			env = append(env, k)
+		}
+	}
 
 	var dindSidecar *dind.Sidecar
 
@@ -991,10 +1004,7 @@ func addonOptions(man manifest.Manifest) []string {
 // ghConfigMount binds the host's gh CLI config read-only so `gh` inside the
 // container reuses the operator's existing session instead of asking for a token.
 //
-// A deliberate exception to keeping host credentials out of the container:
-// hosts.yml holds an OAuth token the agent can read. Read-only prevents rewriting
-// it, not reading it — the container boundary and the egress allowlist are what
-// bound the damage. Opt out with PROVEO_MOUNT_GH_CONFIG=0.
+// SPEC: _spec/cmd/proveo/github-credentials.puml
 func ghConfigMount(getenv func(string) string) (runner.Mount, bool) {
 	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_GH_CONFIG"))) {
 	case "0", "off", "no", "false":
@@ -1016,6 +1026,14 @@ func ghConfigMount(getenv func(string) string) (runner.Mount, bool) {
 		Container: proveohome.ContainerHome + "/.config/gh",
 		ReadOnly:  true,
 	}, true
+}
+
+func mountRootDeps(getenv func(string) string) bool {
+	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_ROOT_DEPS"))) {
+	case "0", "off", "no", "false", "disable", "disabled":
+		return false
+	}
+	return true
 }
 
 func hasAddon(addons []string, name string) bool {
@@ -1122,9 +1140,9 @@ var toolingMarkers = []wsscan.Marker{
 var lspMarkers = []wsscan.Marker{
 	{Label: "gopls", Names: []string{"go.mod"}, Suffixes: []string{".go"}},
 	{Label: "typescript-language-server", Names: []string{"tsconfig.json", "package.json"}, Suffixes: []string{".ts", ".tsx"}},
-	{Label: "pyright", Names: []string{"pyproject.toml"}, Suffixes: []string{".py"}},
+	{Label: "pyright-langserver", Names: []string{"pyproject.toml"}, Suffixes: []string{".py"}},
 	{Label: "bash-language-server", Suffixes: []string{".sh"}},
-	{Label: "dockerfile-language-server", Names: []string{"Dockerfile"}},
+	{Label: "docker-langserver", Names: []string{"Dockerfile"}},
 	{Label: "yaml-language-server", Suffixes: []string{".yml", ".yaml"}},
 }
 

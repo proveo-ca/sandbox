@@ -1,9 +1,5 @@
 ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
-FROM golang:1.26-bookworm AS plantuml-lsp-builder
-
-RUN GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
-
 # proveo-entrypoint (shared in-container prelude) is inherited from
 # proveo/base-node — built once in defs/base, no per-harness rebuild.
 FROM ${BASE_IMAGE}
@@ -25,10 +21,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
-# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
-# the hardening pass live there); re-run the harden pass after installing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    unzip xclip plantuml \
+    unzip xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
@@ -49,8 +43,6 @@ RUN DOCKER_VERSION=26.1.4 \
 # The workspace language servers now live in proveo/base-node-lsp (shared with
 # claudecode). Only the opencode agent itself is installed here.
 RUN npm install -g opencode-ai@latest && npm cache clean --force
-
-COPY --from=plantuml-lsp-builder /out/plantuml-lsp /usr/local/bin/plantuml-lsp
 
 RUN mkdir -p /workspace \
              /home/${USER_NAME}/.config/opencode \

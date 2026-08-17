@@ -9,7 +9,7 @@ images:
 workspace:
   layout: app
   configDir: .cecli
-  gitMode: ro
+  gitMode: rw
   output: true
 home:
   enabled: true

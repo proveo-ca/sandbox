@@ -1,0 +1,70 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Toolchain e2e — proving the language registry is true as BEHAVIOUR
+
+' covers: tests/e2e/toolchain_test.go, internal/contract/toolchain_test.go,
+'         tests/e2e/testdata/polyglot22
+
+node "Layer 2 — contract (no Docker)" as L2 <<host>> {
+  component "registry self-consistency\nfour maps must agree" as C1 <<app>>
+  component "baked · provisioned · unreachable\nevery server accounted for once" as C2 <<app>>
+  component "no image reinstalls its base's packages" as C3 <<app>>
+  component "host labels are real binaries" as C4 <<app>>
+}
+
+node "Layer 4 — e2e (real images)" as L4 <<host>> {
+  component "fixture integrity\n(host bash, no Docker)" as E0 <<app>>
+  component "language matrix — opt-in\n19 wired · all resolve" as E1 <<app>>
+  component "idempotence — warm PROVEO_HOME" as E2 <<app>>
+  component "opt-outs · fail-soft · no duplicates" as E3 <<app>>
+  component "floor invariants — EVERY harness" as E4 <<app>>
+  component "baked lib is CURRENT" as E5 <<app>>
+}
+
+database "testdata/polyglot22\none trigger per language" as FIX <<db>>
+component "working-tree lib\nbind-mounted over the baked one" as LIVE <<app>>
+component "stale image\nsource fixed, behaviour unchanged" as STALE <<error>>
+
+FIX ARROW_MAIN E0
+FIX ARROW_MAIN E1
+LIVE ARROW_MAIN E1 : no rebuild needed
+LIVE ARROW_MAIN E3
+E5 ARROW_ERROR STALE : the ONLY test that can see this
+
+note right of L2
+  **Source truth vs behavioural truth.** Layer 2 proves the registry is
+  self-consistent as SOURCE and runs on every ""go test ./..."". Layer 4 proves it
+  is true in a real image. Every bug worth having this suite for passed a static
+  reading: clangd installs an x86_64 binary on arm64 that satisfies
+  ""command -v"", marksman aborts for want of libicu, jdtls needs Java 21 while the
+  floor ships 17.
+end note
+
+note bottom of LIVE
+  Mounting the working-tree lib over the baked one is what lets these run against
+  uncommitted changes with no image rebuild — and is exactly why a stale image
+  is invisible to them.
+end note
+
+note bottom of E5
+  **The failure a source fix cannot cover.** The lib is COPIED into each image at
+  build time, so a harness built before an edit keeps running the old helpers
+  while the working tree looks correct. Every other test here mounts over that,
+  so only a probe of the BAKED lib — no mount — can catch it. It names the
+  rebuild command, because the fix is not live until the image is rebuilt.
+end note
+
+note bottom of E4
+  One lib, four harnesses, four different floors: cursor and cecli carry no Node
+  runtime and cecli no LSP at all. Testing only opencode left three images
+  unverified — including whether ""plantuml-lsp"" reaches the runtime-free ones,
+  which was the whole point of moving it onto ""proveo/base"".
+end note
+
+note right of E1
+  Opt-in behind PROVEO_TOOLCHAIN_TEST: it pulls ~600MB of servers and a JDK. It
+  SKIPS rather than fails when no GitHub token is reachable, because without one
+  the ubi recipes hit the 60/hr anonymous limit and the test would be flaky
+  instead of honest.
+end note
+@enduml

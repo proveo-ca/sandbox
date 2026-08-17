@@ -79,3 +79,60 @@ func TestBuildPlanDeep(t *testing.T) {
 		t.Errorf("deep images = %v", p.Images)
 	}
 }
+
+func TestBuildPlanLeavesToolchainsUnlessAsked(t *testing.T) {
+	t.Parallel()
+	inv := Inventory{ToolDirs: []ToolDir{{Path: "/h/.local/share/mise", Bytes: 100}}}
+	if p := BuildPlan(inv, Options{}); len(p.ToolDirs) != 0 {
+		t.Errorf("routine clean removed toolchains: %v", p.ToolDirs)
+	}
+	if p := BuildPlan(inv, Options{Deep: true}); len(p.ToolDirs) != 0 {
+		t.Errorf("--deep removed toolchains without --tools: %v", p.ToolDirs)
+	}
+	p := BuildPlan(inv, Options{Tools: true})
+	if len(p.ToolDirs) != 1 || p.ToolDirs[0] != "/h/.local/share/mise" {
+		t.Errorf("--tools should remove the toolchain, got %v", p.ToolDirs)
+	}
+}
+
+func TestBuildPlanToolchainsHeldBackByAnyRunningContainer(t *testing.T) {
+	t.Parallel()
+	dirs := []ToolDir{{Path: "/h/.local/share/mise", Bytes: 100}}
+	for _, tc := range []struct {
+		name string
+		inv  Inventory
+	}{
+		{"running egress", Inventory{
+			Egress:   []Container{{Name: "eg", Running: true, Session: "s1"}},
+			ToolDirs: dirs,
+		}},
+		{"running dind", Inventory{
+			Dind:     []Container{{Name: "proveo-dind-1", Running: true}},
+			ToolDirs: dirs,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := BuildPlan(tc.inv, Options{Tools: true})
+			if len(p.ToolDirs) != 0 {
+				t.Errorf("removed a shared toolchain while a run is live: %v", p.ToolDirs)
+			}
+			if len(p.SkippedLive) == 0 {
+				t.Error("skipping a toolchain must be reported, not silent")
+			}
+			if f := BuildPlan(tc.inv, Options{Tools: true, Force: true}); len(f.ToolDirs) != 1 {
+				t.Errorf("--force should remove it anyway, got %v", f.ToolDirs)
+			}
+		})
+	}
+}
+
+func TestBuildPlanToolchainsRemovedWhenNothingRuns(t *testing.T) {
+	t.Parallel()
+	inv := Inventory{
+		Egress:   []Container{{Name: "eg", Running: false, Session: "s1"}},
+		ToolDirs: []ToolDir{{Path: "/h/go", Bytes: 1}},
+	}
+	if p := BuildPlan(inv, Options{Tools: true}); len(p.ToolDirs) != 1 {
+		t.Errorf("stopped containers must not block a toolchain prune, got %v", p.ToolDirs)
+	}
+}
