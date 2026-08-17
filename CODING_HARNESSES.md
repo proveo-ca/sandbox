@@ -174,6 +174,21 @@ Entrypoints should print a concise preamble before launching the tool:
 
 A `debug.sh` wrapper is recommended when troubleshooting requires shell access with the same mounts/env behavior as `run.sh`.
 
+### Agent Evidence
+
+proveo prefers verbose agents: thoughts, tool calls and diffs on screen rather than a black box that reports only its conclusion. A run nobody can read cannot be reviewed, so **every harness launches at its most verbose by default**.
+
+The level is one axis, chosen in the run prompt's `agent evidence` row and shipped to the container as `PROVEO_AGENT_EVIDENCE=verbose|default`. Entrypoints read it through `agent_evidence_verbose` (`packages/lib/entrypoint-lib.sh` §9) and translate it themselves, because each CLI spells verbosity differently — and some only in headless mode. Unset means verbose.
+
+| Harness | Verbose launch adds | Notes |
+| --- | --- | --- |
+| **claudecode** | `--verbose` (+ `--include-partial-messages` when the caller already asked for `--output-format stream-json`) | `--debug` is deliberately excluded: transport noise, not the agent's work. |
+| **cursor** | `--output-format stream-json --stream-partial-output`, headless only | The CLI has no verbosity switch for its TUI, and it suppresses thinking events in print mode. A caller's own `--output-format` wins. |
+| **opencode** | `--log-level DEBUG`; `--print-logs` off the TUI path; `--thinking` on `run` | `--print-logs` writes to stderr, so it is withheld while the TUI owns the terminal. |
+| **cecli** | `--verbose --show-diffs` | `--show-repo-map` / `--show-prompts` print and **exit**, so they can never be defaults. |
+
+An operator opts out per run by picking `default` in the prompt (remembered per harness) or by exporting `PROVEO_AGENT_EVIDENCE=default`. Any other value warns and resolves to verbose.
+
 ## Testing Expectations
 
 Harness tests should verify the contract, not just that the image builds:

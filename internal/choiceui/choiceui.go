@@ -266,11 +266,13 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 
 	dividerDone := false
 	for i, r := range f.Rows {
-		// The safety axis above orders the POLICY rows only. Add-ons are unordered
-		// toggles, so a centred divider closes that axis rather than letting the
-		// legend appear to govern the whole prompt.
+		// The safety axis above orders the POLICY rows only. Checkbox rows are
+		// unordered toggles, so a centred divider closes that axis rather than
+		// letting the legend appear to govern the whole prompt.
+		namedByDivider := false
 		if r.Multi && !dividerDone {
 			dividerDone = true
+			namedByDivider = true
 			label := " " + r.Label + " "
 			pad := (72 - len([]rune(label))) / 2
 			if pad < 0 {
@@ -286,8 +288,11 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			marker = "› "
 			labelStyle = p.brand
 		}
+		// Only the row the divider is named after drops its own label; repeating it
+		// would print the same word twice. Every later checkbox row keeps its label,
+		// or a second section would render as an anonymous set of boxes.
 		rowLabel := r.Label
-		if r.Multi && dividerDone {
+		if namedByDivider {
 			rowLabel = ""
 		}
 		put(0, labelStyle, marker+rowLabel)

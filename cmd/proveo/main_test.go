@@ -688,3 +688,70 @@ func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 		t.Error("open+forward without sandbox_docker must leave dind enabled")
 	}
 }
+
+func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
+	t.Parallel()
+	r := evidenceRow((runParams{}).evidenceOrDefault())
+	if r.Label != evidenceLabel || !r.Multi {
+		t.Fatalf("row = %+v, want a checkbox row labelled %q", r, evidenceLabel)
+	}
+	if len(r.Options) != 2 || r.Options[0] != evidenceDefault || r.Options[1] != evidenceVerbose {
+		t.Fatalf("options = %v, want [%s %s]", r.Options, evidenceDefault, evidenceVerbose)
+	}
+	if r.On[0] || !r.On[1] {
+		t.Errorf("On = %v, want verbose ticked and default clear", r.On)
+	}
+	if got := evidenceRow(evidenceDefault); !got.On[0] || got.On[1] {
+		t.Errorf("a remembered 'default' must tick default only, got %v", got.On)
+	}
+}
+
+// The two boxes are one answer wearing checkbox glyphs: ticking one clears the
+// other, and clearing both reads as default rather than as a third state.
+func TestGateEvidenceKeepsTheLevelsExclusive(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{true}},
+		evidenceRow(evidenceVerbose),
+	}}
+	// Ticking "default" (index 0) must clear the verbose box.
+	f.Rows[1].Selected, f.Rows[1].On[0] = 0, true
+	gateEvidence(f)
+	if f.Rows[1].On[1] {
+		t.Errorf("verbose survived a tick on default: %v", f.Rows[1].On)
+	}
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceDefault {
+		t.Errorf("evidence = %q, want %q", got, evidenceDefault)
+	}
+	// Un-ticking the only box leaves nothing selected, which is still default.
+	f.Rows[1].On[0] = false
+	gateEvidence(f)
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceDefault {
+		t.Errorf("empty row = %q, want %q", got, evidenceDefault)
+	}
+	// Back to verbose, and the other row must be untouched throughout.
+	f.Rows[1].Selected, f.Rows[1].On[1] = 1, true
+	gateEvidence(f)
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceVerbose {
+		t.Errorf("evidence = %q, want %q", got, evidenceVerbose)
+	}
+	if !f.Rows[0].On[0] {
+		t.Error("gateEvidence must not reach into the add-ons row")
+	}
+}
+
+// Anything that is not an explicit opt-out resolves to verbose: a typo in
+// PROVEO_AGENT_EVIDENCE must not quietly buy a black-box run.
+func TestEvidenceOrDefaultOnlyOptsOutOnDefault(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"":              evidenceVerbose,
+		evidenceVerbose: evidenceVerbose,
+		"bogus":         evidenceVerbose,
+		evidenceDefault: evidenceDefault,
+	} {
+		if got := (runParams{evidence: in}).evidenceOrDefault(); got != want {
+			t.Errorf("evidence %q resolved to %q, want %q", in, got, want)
+		}
+	}
+}

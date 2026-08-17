@@ -250,13 +250,47 @@ LAUNCH_ARGS=(--force --sandbox "${PROVEO_CURSOR_SANDBOX:-disabled}")
 if [[ -n "${CURSOR_MODEL:-}" ]]; then
   LAUNCH_ARGS+=(--model "$CURSOR_MODEL")
 fi
+CURSOR_HEADLESS=0
 for arg in "$@"; do
   if [[ "$arg" == "-p" || "$arg" == "--print" ]]; then
-    # Headless runs need workspace trust up front (no prompt to answer).
-    LAUNCH_ARGS+=(--trust)
+    CURSOR_HEADLESS=1
     break
   fi
 done
+if (( CURSOR_HEADLESS )); then
+  # Headless runs need workspace trust up front (no prompt to answer).
+  LAUNCH_ARGS+=(--trust)
+fi
+
+# ── Agent evidence ─────────────────────────────────────────
+# The Cursor CLI has no verbosity switch for its interactive TUI — the only dial
+# it exposes is the headless output format. stream-json emits every tool call and
+# result as it happens (text alone reports just the final message), and
+# --stream-partial-output adds the text deltas. Thinking events are suppressed by
+# the CLI in print mode whatever we pass, so verbose here buys tool calls and
+# diffs, not reasoning.
+#
+# A caller's own --output-format wins: it is a parse contract, not a preference.
+cursor_has_output_format() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --output-format | --output-format=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+if agent_evidence_verbose; then
+  if (( CURSOR_HEADLESS )) && ! cursor_has_output_format "$@"; then
+    LAUNCH_ARGS+=(--output-format stream-json --stream-partial-output)
+    report_agent_evidence --output-format stream-json --stream-partial-output
+  else
+    echo "🔎 agent evidence: verbose requested — cursor-agent exposes no verbosity flag here"
+  fi
+else
+  report_agent_evidence
+fi
 
 echo "🚀 Launching Cursor CLI: agent ${LAUNCH_ARGS[*]}"
 exec agent "${LAUNCH_ARGS[@]}" "$@"

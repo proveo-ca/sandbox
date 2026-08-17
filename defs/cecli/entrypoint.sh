@@ -229,12 +229,27 @@ if [[ ${#CECLI_RULE_ARGS[@]} -gt 0 ]]; then
   echo "📐 rules: ${CECLI_RULE_ARGS[*]}"
 fi
 
+# ── Agent evidence ─────────────────────────────────────────
+# -v narrates each step; --show-diffs prints the patch at commit time, which is
+# the one place cecli otherwise commits work without showing it. --show-repo-map
+# and --show-prompts look like they belong here but they print and EXIT, so they
+# can never be defaults. Streaming and pretty output are already on by default.
+CECLI_EVIDENCE_ARGS=()
+if agent_evidence_verbose; then
+  CECLI_EVIDENCE_ARGS=(--verbose --show-diffs)
+  report_agent_evidence "${CECLI_EVIDENCE_ARGS[@]}"
+else
+  report_agent_evidence
+fi
+
+# Evidence flags ride with the rules: both are ours to add, and both belong only
+# on a cecli invocation — never on the bash/git/... passthroughs below.
 if [[ $# -eq 0 ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}"
 elif [[ "$1" == -* ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
 elif [[ "$1" != "cecli" && "$1" != "bash" && "$1" != "sh" && "$1" != "python" && "$1" != "python3" && "$1" != "node" && "$1" != "npm" && "$1" != "pnpm" && "$1" != "git" && "$1" != "curl" ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
 fi
 
 exec "$@"

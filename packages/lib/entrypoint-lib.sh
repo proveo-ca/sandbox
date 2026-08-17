@@ -968,3 +968,24 @@ configure_claude_lsp() {
   printf '%s\n' "$lsp_json" > "$plugdir/.lsp.json"
   echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }
+
+# ── 9. Agent Evidence (verbosity) ───────────────────────────
+# proveo prefers verbose agents: thoughts, tool calls and diffs on screen rather
+# than a black box that reports only its conclusion. The host picks the level in
+# the choice prompt ("agent evidence") and ships it as PROVEO_AGENT_EVIDENCE;
+# unset means verbose, because a run nobody can read cannot be reviewed. Only
+# the level is shared — each harness spells verbosity differently, and some only
+# in headless mode, so every entrypoint builds its own flag list.
+agent_evidence_verbose() {
+ [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
+}
+
+# report_agent_evidence <flag>... — one line naming what the level bought, so an
+# operator reading the transcript can tell a quiet run from a suppressed one.
+report_agent_evidence() {
+ if (( $# > 0 )); then
+ echo "🔎 agent evidence: verbose — $*"
+ else
+ echo "🔎 agent evidence: default (harness defaults, no extra narration)"
+ fi
+}

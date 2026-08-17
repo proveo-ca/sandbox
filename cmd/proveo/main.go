@@ -252,6 +252,7 @@ type runParams struct {
 	addons                                                                      []string
 	roles                                                                       provider.Roles
 	authVar                                                                     string
+	evidence                                                                    string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
 }
@@ -266,6 +267,23 @@ func (p runParams) credentialsOrDefault() string {
 }
 
 func (p runParams) intercepts() bool { return p.mode != "open" || !p.forwards() }
+
+// Agent evidence: how much of its own work the harness narrates. proveo prefers
+// verbose — thoughts, tool calls and diffs on screen — because a run nobody can
+// read cannot be reviewed, so anything but an explicit "default" resolves to it.
+const (
+	evidenceLabel   = "agent evidence"
+	evidenceVar     = "PROVEO_AGENT_EVIDENCE"
+	evidenceDefault = "default"
+	evidenceVerbose = "verbose"
+)
+
+func (p runParams) evidenceOrDefault() string {
+	if p.evidence == evidenceDefault {
+		return evidenceDefault
+	}
+	return evidenceVerbose
+}
 
 func doRun(p runParams) error {
 	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
@@ -359,6 +377,19 @@ func doRun(p runParams) error {
 	}
 	lookup := providerLookup(hostEnvFile)
 
+	// A host-exported PROVEO_AGENT_EVIDENCE is the non-interactive way to set the
+	// level, and — like every other explicitly set axis — it outranks the
+	// remembered answer. An unrecognized value is named rather than obeyed: a typo
+	// must not quietly buy the operator a black-box run.
+	evidenceSet := false
+	if v := strings.ToLower(strings.TrimSpace(lookup(evidenceVar))); v != "" {
+		if v != evidenceDefault && v != evidenceVerbose {
+			ui.Warnf("%s=%q is not %s|%s — using %s", evidenceVar, v, evidenceDefault, evidenceVerbose, evidenceVerbose)
+			v = evidenceVerbose
+		}
+		p.evidence, evidenceSet = v, true
+	}
+
 	settingsRoot := proveohome.Root(os.Getenv)
 	settings, err := agentsettings.Load(settingsRoot)
 	if err != nil {
@@ -384,6 +415,9 @@ func doRun(p runParams) error {
 		if p.authVar == "" {
 			p.authVar = cached.AuthVar
 		}
+		if !evidenceSet && cached.Evidence != "" {
+			p.evidence = cached.Evidence
+		}
 		// Roles follow the same precedence as every other axis: explicit env or
 		// flag wins, then the remembered value, then unset. A remembered role is
 		// only applied when the operator set nothing, so a session never silently
@@ -404,7 +438,7 @@ func doRun(p runParams) error {
 	if !p.printOnly {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
 			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
-			Models: p.roles.Canonical(),
+			Evidence: p.evidenceOrDefault(), Models: p.roles.Canonical(),
 		})
 		if err := settings.Save(settingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -523,6 +557,7 @@ func doRun(p runParams) error {
 		"egress tier":     p.mode,
 		"credentials":     p.credentialsOrDefault(),
 		"add-ons":         strings.Join(p.addons, ","),
+		"agent evidence":  p.evidenceOrDefault(),
 		"detected keys":   strings.Join(detected, ","),
 		"brokered":        strings.Join(brokered, ","),
 		"reachable hosts": strings.Join(reachableHosts(detected), ","),
@@ -611,6 +646,11 @@ func doRun(p runParams) error {
 			warnUnknownModel(k, v, p.localModel)
 		}
 	}
+	// Evidence level, by value: the entrypoints turn it into whatever verbosity
+	// switches their CLI actually spells, and they default to verbose when it is
+	// absent — so this is only ever the operator overriding that, never the thing
+	// that enables it.
+	env = append(env, evidenceVar+"="+p.evidenceOrDefault())
 	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
 	env = append(env, homePlan.Env...)
 	if rel := wsSpec.ScopeRel(); rel != "" {
@@ -813,11 +853,16 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: "add-ons", Options: addons, Multi: true, On: on,
 		})...)
-		form.OnChange = func(f *choiceui.Form) {
-			gateAddons(f, p.mode, p.credentialsOrDefault(), man.SandboxDocker)
-		}
-		form.OnChange(form)
 	}
+	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
+	// One gate for every toggle row. gateAddons no-ops when its row was filtered
+	// out, so both can run unconditionally instead of the caller tracking which
+	// rows made it onto the form.
+	form.OnChange = func(f *choiceui.Form) {
+		gateAddons(f, p.mode, p.credentialsOrDefault(), man.SandboxDocker)
+		gateEvidence(f)
+	}
+	form.OnChange(form)
 
 	ok, err := form.Run()
 	if err != nil {
@@ -836,7 +881,51 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	if v := form.Selection("auth"); v != "" {
 		p.authVar = v
 	}
+	p.evidence = evidenceFrom(form.Selections(evidenceLabel))
 	return nil
+}
+
+// evidenceRow offers the two levels as checkboxes with verbose ticked. It sits
+// with the other toggles rather than under the riskier → safer legend, which
+// does not order it: narrating more of the run costs tokens and screen, not
+// safety. The pair is exclusive — gateEvidence keeps it that way.
+func evidenceRow(current string) choiceui.Row {
+	opts := []string{evidenceDefault, evidenceVerbose}
+	on := make([]bool, len(opts))
+	for i, o := range opts {
+		on[i] = o == current
+	}
+	return choiceui.Row{Label: evidenceLabel, Options: opts, Multi: true, On: on}
+}
+
+// gateEvidence keeps the two boxes exclusive: a level is one answer, so ticking
+// one clears the other. Clearing both is allowed and reads as "default" —
+// evidenceFrom asks only whether verbose was chosen.
+func gateEvidence(f *choiceui.Form) {
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != evidenceLabel {
+			continue
+		}
+		if r.Selected < 0 || r.Selected >= len(r.On) || !r.On[r.Selected] {
+			return
+		}
+		for j := range r.On {
+			if j != r.Selected {
+				r.On[j] = false
+			}
+		}
+		return
+	}
+}
+
+func evidenceFrom(selected []string) string {
+	for _, v := range selected {
+		if v == evidenceVerbose {
+			return evidenceVerbose
+		}
+	}
+	return evidenceDefault
 }
 
 // availableAuthVars lists the credentials the operator holds for the provider this

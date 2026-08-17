@@ -156,4 +156,35 @@ ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_claude_lsp
 
-exec claude --dangerously-skip-permissions "$@"
+# ── Agent evidence ─────────────────────────────────────────
+# --verbose is Claude Code's own switch for showing full tool inputs and outputs
+# instead of the collapsed one-line summaries, and it is also the flag the CLI
+# requires before it will stream events in print mode. --debug is deliberately
+# NOT added: it logs transport (MCP handshakes, API retries, startup), which is
+# noise about the plumbing rather than evidence of the agent's work.
+#
+# A caller that already asked for stream-json also gets --include-partial-messages,
+# where the reasoning deltas live. A plain -p is left alone: rewriting a script's
+# output format would break its parser, and that is not ours to change.
+claude_wants_stream_json() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      stream-json | --output-format=stream-json) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+CLAUDE_EVIDENCE_ARGS=()
+if agent_evidence_verbose; then
+  CLAUDE_EVIDENCE_ARGS+=(--verbose)
+  if claude_wants_stream_json "$@"; then
+    CLAUDE_EVIDENCE_ARGS+=(--include-partial-messages)
+  fi
+  report_agent_evidence "${CLAUDE_EVIDENCE_ARGS[@]}"
+else
+  report_agent_evidence
+fi
+
+exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"

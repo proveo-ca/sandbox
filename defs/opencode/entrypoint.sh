@@ -302,11 +302,37 @@ if ! has_api_key && ! has_project_config; then
   echo "   Or run 'opencode auth login' to configure credentials interactively."
 fi
 
+# ── Agent evidence ─────────────────────────────────────────
+# opencode splits narration across three switches. --log-level DEBUG records what
+# the harness did; --print-logs puts that on stderr, which is only safe when the
+# TUI is not drawing on the same terminal, so off the TUI path it stays in the
+# log file. On `run`, --thinking keeps the model's reasoning blocks in the
+# transcript instead of collapsing them — the closest thing opencode has to
+# showing its thoughts, and it has to be inserted before the prompt argument.
+OPENCODE_EVIDENCE_ARGS=()
+if agent_evidence_verbose; then
+  OPENCODE_EVIDENCE_ARGS=(--log-level DEBUG)
+  evidence_desc=("${OPENCODE_EVIDENCE_ARGS[@]}")
+  if [[ $# -gt 0 && "$1" != "tui" ]]; then
+    OPENCODE_EVIDENCE_ARGS+=(--print-logs)
+    evidence_desc+=(--print-logs)
+  fi
+  if [[ "${1:-}" == "run" ]]; then
+    shift
+    set -- run --thinking "$@"
+    evidence_desc+=(--thinking)
+  fi
+  report_agent_evidence "${evidence_desc[@]}"
+else
+  report_agent_evidence
+fi
+
 # ── Launch ─────────────────────────────────────────────────
 if [[ $# -gt 0 ]]; then
+  set -- "${OPENCODE_EVIDENCE_ARGS[@]}" "$@"
   echo "🚀 Launching: opencode $*"
   exec opencode "$@"
 fi
 
 echo "🚀 Launching opencode TUI..."
-exec opencode
+exec opencode "${OPENCODE_EVIDENCE_ARGS[@]}"

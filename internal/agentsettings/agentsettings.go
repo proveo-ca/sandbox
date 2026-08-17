@@ -23,6 +23,10 @@ type Choice struct {
 	Credentials string   `yaml:"credentials"`
 	Addons      []string `yaml:"addons,omitempty"`
 	AuthVar     string   `yaml:"authVar,omitempty"`
+	// Evidence is how much of its own work the agent narrates ("verbose" or
+	// "default"). Not part of the fingerprint: it is a preference about reading
+	// the run, not a capability the manifest can invalidate.
+	Evidence string `yaml:"evidence,omitempty"`
 	// Models is the last used model per role, keyed main/editor/small, holding
 	// CANONICAL ids. Storing a harness-specific spelling would pin the entry to
 	// whatever the catalog said when it was written, so a later correction could
