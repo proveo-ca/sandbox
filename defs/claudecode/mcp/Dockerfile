@@ -22,7 +22,11 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Harness extras on top of proveo/base (which carries git/gh/curl/ca-certs/
+# python3/dumb-init/pnpm and the hardening pass). The Solidity/security
+# toolchain (Foundry, solc, solhint, semgrep) lives in the sol variant.
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt

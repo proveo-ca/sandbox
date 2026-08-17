@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 //
 // Package egressproxy is the Go egress inspection proxy: a
 // TLS-terminating MITM proxy built on github.com/google/martian/v3 that records

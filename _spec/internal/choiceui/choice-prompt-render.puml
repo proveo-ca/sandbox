@@ -1,0 +1,40 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
+' row-gating helpers (applicableRows, comingSoon, gateAddons, gateEvidence) lands here (batches 3 and 6).
+' What the answers MEAN and how they are cached: _spec/_plans/harness-choice-cache.puml.
+title Choice prompt render — radio axes above the divider, checkboxes below
+
+node "internal/choiceui" as PKG <<host>> {
+  component "Form\nBanner · Title · Header · Rows" as FORM <<app>>
+  component "Row\nradio: Options + Selected\ncheckbox: Multi + On/Off" as ROW <<app>>
+  component "draw(screen, cursor)\nlegend · divider · markers" as DRAW <<app>>
+  component "Run()\ntcell screen, one key per action" as RUN <<app>>
+  component "OnChange(*Form)\nre-gated after every keystroke" as CHANGE <<app>>
+  component "Selection · Selections\nread back by label" as READ <<app>>
+}
+
+node "cmd/proveo — what may be offered" as GATES <<host>> {
+  component "applicableRows\ndrop an axis with nothing to decide" as APPL <<app>>
+  component "comingSoon\ngrey out + move the selection off" as SOON <<app>>
+  component "gateAddons · gateEvidence\ncross-row exclusivity" as GATE <<app>>
+}
+
+component "Operator terminal\nrequires a TTY" as TTY <<host>>
+component "EnvHeader\ndetected secrets · settings" as HDR <<app>>
+component "A locked or absent row read as an answer" as MISREAD <<error>>
+
+GATES ARROW_MAIN FORM : rows built, then filtered
+HDR ARROW_MAIN FORM
+FORM ARROW_MAIN ROW
+FORM ARROW_MAIN DRAW
+RUN ARROW_MAIN DRAW : redraw per event
+RUN ARROW_MAIN CHANGE
+CHANGE ARROW_MAIN GATE
+APPL ARROW_MAIN FORM
+SOON ARROW_MAIN ROW
+DRAW ARROW_MAIN TTY
+TTY ARROW_MAIN RUN : Enter confirms · Esc/q cancels
+RUN ARROW_MAIN READ
+READ ARROW_ERROR MISREAD : fall back to the resolved value instead
+@enduml

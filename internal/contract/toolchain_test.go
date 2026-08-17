@@ -53,7 +53,9 @@ func caseBody(t *testing.T, src, name string) string {
 }
 
 var (
-	bareEchoRe   = regexp.MustCompile(`\)\s+echo\s+([a-z]+)\s*;;`)
+	// _lsp_ext_lang/_lsp_marker_lang assign REPLY instead of echoing: the LSP
+	// walk calls them once per file, and a subshell per call is the hot path.
+	bareReplyRe  = regexp.MustCompile(`\)\s+REPLY=([a-z]+)\s*;;`)
 	quotedEchoRe = regexp.MustCompile(`(?m)^\s*([a-z]+)\)\s+echo\s+"([^"]+)"`)
 	popularityRe = regexp.MustCompile(`split\("([^"]+)", P, " "\)`)
 )
@@ -62,7 +64,7 @@ func detectedLangs(t *testing.T, src string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
 	for _, fn := range []string{"_lsp_ext_lang", "_lsp_marker_lang"} {
-		for _, m := range bareEchoRe.FindAllStringSubmatch(caseBody(t, src, fn), -1) {
+		for _, m := range bareReplyRe.FindAllStringSubmatch(caseBody(t, src, fn), -1) {
 			out[m[1]] = true
 		}
 	}

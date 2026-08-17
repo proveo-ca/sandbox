@@ -39,7 +39,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 # Harness extras on top of proveo/base (git/gh/curl/jq/dumb-init/bash and the
 # hardening pass live there — NO language runtime); re-run the harden pass after
 # installing.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

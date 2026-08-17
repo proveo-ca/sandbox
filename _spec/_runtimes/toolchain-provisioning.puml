@@ -20,6 +20,7 @@ node "Container startup — ensure_project_tools" as BOOT <<host>> {
 cloud "github.com/stefanmaric/g" as G <<cloud>>
 cloud "npm · mise.run" as NPM <<cloud>>
 component "Blocked egress\nstartup must not hang" as BLOCK <<error>>
+component "Unreachable apt archive\nat BUILD time" as APT <<error>>
 
 CORE ARROW_MAIN BOOT : every harness inherits the floor
 T4 ARROW_CLOUD G : fetch ""g"", then ""g install -y <version>""
@@ -29,6 +30,7 @@ T3 ARROW_CLOUD NPM
 T4 ARROW_OPTIONAL T3 : fallback — ""mise use -g go@<version>""
 T4 ARROW_MAIN GOPLS : only once a toolchain exists
 BOOT ARROW_ERROR BLOCK : bounded timeouts · ""PROVEO_AUTO_INSTALL_TOOLS=false""
+CORE ARROW_ERROR APT : ""APT::Update::Error-Mode=any"" — fail at the fetch, not 15 layers later
 
 note right of PUML
   **Why plantuml is on the floor.** This fleet's specs //are// ""\.puml""
@@ -95,5 +97,25 @@ note bottom of BLOCK
   locked-egress deployments. Installers are downloaded before being
   run: piping a fetch straight into ""sh"" masks the failure, because an
   empty body still exits 0.
+end note
+
+note bottom of APT
+  **The same masked failure, one phase earlier.** ""apt-get update"" only
+  //warns// on an unreachable archive and exits 0. The build then walks on
+  and dies at the next layer with ""E: Unable to locate package <x>"",
+  which reads like a misspelled package rather than a network outage —
+  it sent one Fedora deploy failure looking at the Dockerfile while the
+  fault was DNS inside the buildkit container
+  (""_spec/_devops/buildx-driver-selection\.puml"").
+
+  ""-o APT::Update::Error-Mode=any"" turns those warnings into errors, so
+  the build stops at the fetch that actually failed, naming the host it
+  could not resolve. It also closes a quieter hole: without it apt
+  installs from a //stale// index, silently pinning an image to whatever
+  the last reachable mirror said.
+
+  Every ""apt-get update"" under ""defs/"" carries the flag. ""base-node"" is
+  the exception — NodeSource's setup script runs its own update, and
+  that layer already begins with ""curl -fsSL"", which fails hard.
 end note
 @enduml

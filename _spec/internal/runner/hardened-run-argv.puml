@@ -1,0 +1,41 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/runner/{runner,pids}.go lands here (batch 6).
+title Hardened run argv — one docker-run builder, one pids ceiling
+
+node "internal/runner — pure data, no execution" as PKG <<host>> {
+  component "Config\nname · user · mounts · env\nworkdir · entrypoint · image · command" as CFG <<app>>
+  component "DockerRunArgs(Config)\n{run, flags…, image, command…}" as ARGV <<app>>
+  component "hardeningStatic\ncap-drop=ALL\nno-new-privileges" as HARD <<app>>
+  component "Hardening(pids)\nbaseline + --pids-limit" as HFN <<app>>
+}
+
+node "Pids capacity — internal/runner/pids.go" as PIDS <<host>> {
+  component "DetectHost(preferImages…)\nCPUs · PidMax" as DETECT <<app>>
+  component "HostCeiling(HostInfo)" as CEIL <<app>>
+  component "MinPidsLimit(browser)\ntier floor" as FLOOR <<app>>
+  component "ParsePidsOverride(s)" as OVR <<app>>
+  component "EnsurePidsCapability\nhost meets the tier floor?" as ENSURE <<app>>
+  component "ResolvePidsLimit\nalways a number, never unlimited" as RESOLVE <<app>>
+}
+
+component "IsBrowserImage(image)\npicks the tier" as TIER <<app>>
+database "Linux host /proc\nkernel.pid_max" as PROC <<db>>
+cloud "Docker engine VM\nmacOS · Windows · Colima" as VM <<cloud>>
+component "ErrInsufficientPidsCapability\nhost below the tier floor" as INSUF <<error>>
+component "Caller executes the argv\ncmd/proveo · egress exec path" as CALLER <<host>>
+
+CFG ARROW_MAIN ARGV
+ARGV ARROW_MAIN HFN : always, never optional
+HFN ARROW_MAIN HARD
+ARGV ARROW_MAIN RESOLVE : ""PidsLimit <= 0"" — auto-resolve
+TIER ARROW_MAIN RESOLVE
+TIER ARROW_MAIN FLOOR
+DETECT ARROW_MAIN PROC : Linux
+DETECT ARROW_CLOUD VM : no /proc — probe a local image
+DETECT ARROW_MAIN CEIL
+CEIL ARROW_MAIN RESOLVE
+OVR ARROW_OPTIONAL RESOLVE : clamped, never trusted raw
+ENSURE ARROW_ERROR INSUF : refuse before a container exists
+ARGV ARROW_MAIN CALLER
+@enduml

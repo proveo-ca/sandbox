@@ -1,6 +1,8 @@
+// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/packages/lib/steps.puml
 package workspace
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
 // rootFiles are workspace-shared files preserved (read-only) from the repo root
@@ -49,9 +52,6 @@ type MountSpec struct {
 	MountRootDeps bool
 }
 
-// Plan returns the bind mounts and container workdir for the spec, reproducing
-// the per-harness run.sh mount models. It inspects the filesystem (existence of
-// root files / config dir / .env) exactly as the Bash did.
 // ScopeRel returns the repo-relative scope path when only PART of the repo is
 // mounted, or "" when the container sees the whole tree. The container's git
 // worktree root is /app either way, so in the partial case git measures a
@@ -67,7 +67,11 @@ func (w MountSpec) ScopeRel() string {
 	return relSlash(w.RepoRoot, w.InputDir)
 }
 
-func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
+// Plan returns the bind mounts, the container workdir, and the escaping symlinks
+// it resolved (see Link) for the spec, reproducing the per-harness run.sh mount
+// models. It inspects the filesystem (existence of root files / config dir /
+// .env) exactly as the Bash did.
+func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
 	if w.Layout == "input-output" {
 		ro := w.Mode == "ro"
 		mounts := []runner.Mount{
@@ -81,16 +85,19 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 		if w.isolateEnv() {
 			mounts = append(mounts, maskEnvMounts(w.InputDir, "/workspace/input")...)
 		}
-		return mounts, ""
+		linkMounts, links := w.linkMounts(w.InputDir, "/workspace/input", ro)
+		return append(mounts, linkMounts...), "", links
 	}
 
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
+	scopeHost, scopeContainer := w.InputDir, "/app"
 	switch {
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):
 		mounts = append(mounts, runner.Mount{Host: w.RepoRoot, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.gitOverride(w.RepoRoot, "/app", ro)...)
 		mounts = append(mounts, w.envMounts("")...)
+		scopeHost = w.RepoRoot
 	case w.RepoRoot != "" && underDir(w.InputDir, w.RepoRoot):
 		rel := relSlash(w.RepoRoot, w.InputDir)
 		mounts = append(mounts,
@@ -120,6 +127,7 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
 		mounts = append(mounts, w.envMounts(rel)...)
+		scopeContainer = "/app/" + rel
 	default: // not a repo
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
@@ -129,7 +137,8 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 	if w.Output && w.OutputDir != "" {
 		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
 	}
-	return mounts, "/app"
+	linkMounts, links := w.linkMounts(scopeHost, scopeContainer, ro)
+	return append(mounts, linkMounts...), "/app", links
 }
 
 // resolved returns p with symlinks expanded, or p unchanged when it cannot be.
@@ -375,6 +384,94 @@ func maskEnvMounts(hostDir, containerBase string) []runner.Mount {
 		return nil
 	})
 	return masks
+}
+
+type LinkAction string
+
+const (
+	LinkMounted   LinkAction = "mounted"
+	LinkRefused   LinkAction = "refused"
+	LinkEnvPolicy LinkAction = "env-policy"
+)
+
+type Link struct {
+	Rel    string
+	Target string
+	Action LinkAction
+	Reason string
+}
+
+const (
+	linkScanDepth = 3
+	linkMountCap  = 32
+)
+
+func (w MountSpec) linkMounts(hostDir, containerBase string, ro bool) ([]runner.Mount, []Link) {
+	if hostDir == "" {
+		return nil, nil
+	}
+	root := filepath.Clean(hostDir)
+	var mounts []runner.Mount
+	var links []Link
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || p == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil
+		}
+		depth := len(strings.Split(filepath.ToSlash(rel), "/"))
+		if d.IsDir() {
+			if wsscan.AlwaysPrune(d.Name()) || depth >= linkScanDepth {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink == 0 {
+			return nil
+		}
+		link := Link{Rel: filepath.ToSlash(rel)}
+		if secretEnvFile(d.Name()) {
+			link.Action, link.Reason = LinkEnvPolicy, "placed by the credential policy, not by link resolution"
+			links = append(links, link)
+			return nil
+		}
+		target, terr := filepath.EvalSymlinks(p)
+		if terr != nil {
+			link.Action, link.Reason = LinkRefused, "target does not resolve on the host either"
+			links = append(links, link)
+			return nil
+		}
+		if sameDir(target, root) || underDir(target, root) {
+			return nil
+		}
+		link.Target = target
+		switch {
+		case refuseLinkTarget(target, root) != "":
+			link.Action, link.Reason = LinkRefused, refuseLinkTarget(target, root)
+		case len(mounts) >= linkMountCap:
+			link.Action, link.Reason = LinkRefused, fmt.Sprintf("more than %d escaping symlinks in this tree", linkMountCap)
+		default:
+			mounts = append(mounts, runner.Mount{
+				Host: target, Container: containerBase + "/" + filepath.ToSlash(rel), ReadOnly: ro,
+			})
+			link.Action = LinkMounted
+		}
+		links = append(links, link)
+		return nil
+	})
+	return mounts, links
+}
+
+func refuseLinkTarget(target, root string) string {
+	if clean := filepath.Clean(target); clean == string(filepath.Separator) || underDir(root, clean) {
+		return "target contains the workspace"
+	}
+	if len(strings.Split(strings.Trim(filepath.ToSlash(filepath.Clean(target)), "/"), "/")) < 2 {
+		return "target is a top-level system directory"
+	}
+	return ""
 }
 
 func envMountSource(inputDir, repoRoot string) string {

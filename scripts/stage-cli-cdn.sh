@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage host proveo binaries + checksums + latest.json into apps/cli/public/cli
 # for Cloudflare. Prefers goreleaser dist/ archives; falls back to cross-compiling.
-# SPEC: apps/cli README — Go binary install via CDN
+# SPEC: _spec/internal/cdn/distribution-update.puml
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

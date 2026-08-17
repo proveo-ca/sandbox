@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/runner/hardened-run-argv.puml
 package runner
 
 import (

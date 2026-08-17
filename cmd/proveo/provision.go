@@ -1,3 +1,4 @@
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
 // Image provisioning: the preflight installs missing dependencies instead of
 // only failing fast. Distribution model: `mise build` builds the proveo/*
 // images locally, `mise deploy` pushes them to Docker Hub, and consumers pull

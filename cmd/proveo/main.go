@@ -512,10 +512,11 @@ func doRun(p runParams) error {
 		}
 	}
 
-	mounts, planWorkdir := wsSpec.Plan()
+	mounts, planWorkdir, links := wsSpec.Plan()
 	if planWorkdir != "" {
 		workdir = planWorkdir
 	}
+	reportLinks(links)
 
 	// Durable proveo home (~/.proveo): session transcripts + seeded policy, not
 	// host IDE credentials. Scrubs deny-listed auth files before each run.
@@ -1090,8 +1091,34 @@ func addonOptions(man manifest.Manifest) []string {
 	return opts
 }
 
+// reportLinks explains how each symlink that escapes the workspace was
+// handled, so an operator can see what the sandbox mounted or refused.
+//
+// SPEC: _spec/internal/workspace/mount-symlink-escape.puml
+func reportLinks(links []workspace.Link) {
+	for _, l := range links {
+		switch l.Action {
+		case workspace.LinkMounted:
+			ui.Iconf("🔗", "%s → %s (symlink leaves the workspace; target mounted)", l.Rel, l.Target)
+		case workspace.LinkRefused:
+			target := l.Target
+			if target == "" {
+				target = "(unresolved)"
+			}
+			ui.Warnf("%s → %s is not available inside the sandbox: %s", l.Rel, target, l.Reason)
+		default:
+			ui.Logf("%s: %s", l.Rel, l.Reason)
+		}
+	}
+}
+
 // ghConfigMount binds the host's gh CLI config read-only so `gh` inside the
 // container reuses the operator's existing session instead of asking for a token.
+//
+// A deliberate exception to keeping host credentials out of the container:
+// hosts.yml holds an OAuth token the agent can read. Read-only prevents rewriting
+// it, not reading it — the container boundary and the egress allowlist are what
+// bound the damage. Opt out with PROVEO_MOUNT_GH_CONFIG=0.
 //
 // SPEC: _spec/cmd/proveo/github-credentials.puml
 func ghConfigMount(getenv func(string) string) (runner.Mount, bool) {

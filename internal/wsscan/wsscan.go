@@ -17,8 +17,11 @@ var alwaysPrune = map[string]bool{
 	"dist": true, "build": true, ".venv": true, "venv": true,
 	"__pycache__": true, ".next": true, ".turbo": true, ".nx": true,
 	".cache": true, ".gradle": true, ".tox": true, ".mypy_cache": true,
-	".pytest_cache": true, "Pods": true, ".terraform": true,
+	".pytest_cache": true, ".ruff_cache": true, "Pods": true, ".terraform": true,
+	".pnpm-store": true, ".npm": true, ".yarn": true,
 }
+
+func AlwaysPrune(name string) bool { return alwaysPrune[name] }
 
 type Marker struct {
 	Label    string

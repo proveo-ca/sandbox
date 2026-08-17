@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
 # Maintainer target registry, sourced from the Go `proveo targets` command — the
 # single source of truth. Replaces the Bash manifest parser (manifest-enum.sh)
 # and the target/image/dir maps (runners.sh): Go now owns "what targets exist",

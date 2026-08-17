@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml
 package egressproxy
 
 import (

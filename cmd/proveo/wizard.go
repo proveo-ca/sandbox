@@ -1,3 +1,4 @@
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_paradigms/credential-boundary.puml
 // The missing-env wizard follows the DinD sidecar prompt pattern
 // (apps/cli/public/cli/lib/runners.sh): detect the need, honor an env
 // short-circuit, prompt only on a TTY, and default to the safe path (Enter

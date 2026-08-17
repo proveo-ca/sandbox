@@ -151,7 +151,8 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 
 run_smoke_test "claudecode"
 
-echo "🚀 Launching Claude Code..."
+# Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP);
+# the toolchains they need are provisioned first.
 ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_claude_lsp
@@ -187,4 +188,5 @@ else
   report_agent_evidence
 fi
 
+echo "🚀 Launching Claude Code..."
 exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"

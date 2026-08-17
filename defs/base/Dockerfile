@@ -29,13 +29,15 @@ COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /
 # official GitHub CLI apt source (its published keyring is already dearmored, so
 # no gnupg needed). Everything is cleaned in-layer; one harden pass.
 RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint /usr/local/bin/plantuml-lsp \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
          -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
          > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
        git gh bash dumb-init passwd jq tmux ripgrep default-jre-headless graphviz \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

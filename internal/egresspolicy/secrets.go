@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/internal/egresspolicy/egress-policy-layers.puml
 package egresspolicy
 
 import (

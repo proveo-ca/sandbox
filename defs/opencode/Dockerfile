@@ -21,7 +21,11 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
+# the hardening pass live there); re-run the harden pass after installing.
+# plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     unzip xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

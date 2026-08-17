@@ -4,8 +4,7 @@
 // table-testable without the proxy runtime. internal/egressproxy wires it as
 // a martian RequestModifier.
 //
-// SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml,
-// _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml
+// SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml
 //
 // Every rule applies OFF-provider only: a request to a pinned-provider host is
 // allowed untouched (the broker owns it), so the broker's injected credential is

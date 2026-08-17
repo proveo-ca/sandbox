@@ -667,30 +667,32 @@ _py_activate() {
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
 _lsp_ext_lang() { case "$1" in
-  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) echo typescript ;;
-  .py|.pyi) echo python ;;
-  .go) echo go ;; .rs) echo rust ;;
-  .sh|.bash|.zsh|.ksh) echo bash ;;
-  .json|.jsonc) echo json ;;
-  .yml|.yaml) echo yaml ;;
-  .html|.htm) echo html ;;
-  .css|.scss|.sass|.less) echo css ;;
-  .md|.mdx) echo markdown ;;
-  .toml) echo toml ;;
-  .tf|.tfvars) echo terraform ;;
-  .lua) echo lua ;; .java) echo java ;;
-  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) echo cpp ;;
-  .rb) echo ruby ;; .kt|.kts) echo kotlin ;; .nix) echo nix ;; .zig) echo zig ;;
-  .puml|.plantuml) echo plantuml ;;
-  .mmd|.mermaid) echo mermaid ;;
+  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) REPLY=typescript ;;
+  .py|.pyi) REPLY=python ;;
+  .go) REPLY=go ;; .rs) REPLY=rust ;;
+  .sh|.bash|.zsh|.ksh) REPLY=bash ;;
+  .json|.jsonc) REPLY=json ;;
+  .yml|.yaml) REPLY=yaml ;;
+  .html|.htm) REPLY=html ;;
+  .css|.scss|.sass|.less) REPLY=css ;;
+  .md|.mdx) REPLY=markdown ;;
+  .toml) REPLY=toml ;;
+  .tf|.tfvars) REPLY=terraform ;;
+  .lua) REPLY=lua ;; .java) REPLY=java ;;
+  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) REPLY=cpp ;;
+  .rb) REPLY=ruby ;; .kt|.kts) REPLY=kotlin ;; .nix) REPLY=nix ;; .zig) REPLY=zig ;;
+  .puml|.plantuml) REPLY=plantuml ;;
+  .mmd|.mermaid) REPLY=mermaid ;;
+  *) REPLY="" ;;
 esac; }
 _lsp_marker_lang() { case "$1" in
-  package.json|tsconfig.json|jsconfig.json) echo typescript ;;
-  pyproject.toml|requirements.txt|setup.py|Pipfile) echo python ;;
-  go.mod) echo go ;; Cargo.toml) echo rust ;;
-  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) echo docker ;;
-  Gemfile) echo ruby ;;
-  .terraform.lock.hcl|Terraform.lock.hcl) echo terraform ;;
+  package.json|tsconfig.json|jsconfig.json) REPLY=typescript ;;
+  pyproject.toml|requirements.txt|setup.py|Pipfile) REPLY=python ;;
+  go.mod) REPLY=go ;; Cargo.toml) REPLY=rust ;;
+  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) REPLY=docker ;;
+  Gemfile) REPLY=ruby ;;
+  .terraform.lock.hcl|Terraform.lock.hcl) REPLY=terraform ;;
+  *) REPLY="" ;;
 esac; }
 _lsp_server() { case "$1" in
   typescript) echo "typescript-language-server --stdio" ;;
@@ -811,14 +813,17 @@ _lsp_walk() {
   while IFS= read -r -d '' f; do
     base="${f##*/}"
     lang=""; ftype=""
-    marker="$(_lsp_marker_lang "$base")"
+    _lsp_marker_lang "$base"; marker="$REPLY"
     if [[ -n "$marker" ]]; then
       lang="$marker"
       [[ "$lang" == docker ]] && ftype="$base"
     fi
     if [[ -z "$lang" ]]; then
       if [[ "$base" == *.* ]]; then ext=".${base##*.}"; else ext=""; fi
-      if [[ -n "$ext" ]]; then lang="$(_lsp_ext_lang "$ext")"; [[ -n "$lang" ]] && ftype="$ext"; fi
+      if [[ -n "$ext" ]]; then
+        _lsp_ext_lang "$ext"; lang="$REPLY"
+        [[ -n "$lang" ]] && ftype="$ext"
+      fi
     fi
     if [[ -z "$lang" && ( "$base" == *Dockerfile* || "$base" == *Containerfile* ) ]]; then
       lang=docker; ftype="$base"
@@ -827,12 +832,17 @@ _lsp_walk() {
     printf '%s\t%s\n' "$lang" "$ftype"
     if [[ -n "$marker" && "$base" == *.* ]]; then
       mext=".${base##*.}"
-      ml="$(_lsp_ext_lang "$mext")"
+      _lsp_ext_lang "$mext"; ml="$REPLY"
       [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
     fi
   done < <(find "$scan_root" \
-             \( -name .git -o -name node_modules -o -name .next -o -name dist \
-                -o -name build -o -name target -o -name vendor \) -prune \
+             \( -name .git -o -name node_modules -o -name vendor -o -name target \
+                -o -name dist -o -name build -o -name .next -o -name .nx \
+                -o -name .turbo -o -name .cache -o -name .gradle -o -name .tox \
+                -o -name .venv -o -name venv -o -name __pycache__ \
+                -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache \
+                -o -name .terraform -o -name Pods \
+                -o -name .pnpm-store -o -name .npm -o -name .yarn \) -prune \
              -o -type f -print0 2>/dev/null)
 }
 

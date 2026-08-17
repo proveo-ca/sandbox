@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egress/teardown-and-signals.puml, _spec/internal/egress/egress-tiers.puml
 package egress
 
 import (

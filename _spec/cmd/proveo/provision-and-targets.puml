@@ -1,0 +1,43 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and lib/registry.sh
+' lands here (batches 2 and 6). Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
+title Preflight provisioning, the maintainer registry, and the missing-env wizard
+
+node "Consumer path — before any container exists" as PRE <<host>> {
+  component "preflightImages(plan, manifest, agentImage)\nevery image the run needs" as PF <<app>>
+  component "provisioner.Ensure([]imageDep)\npull, then a confirmed local build" as ENS <<app>>
+  component "provisionConfirm\nPROVEO_AUTO_PROVISION · else ask on a TTY" as CONF <<app>>
+  component "sourceDefsDir\nPROVEO_DEFS_DIR · else the checkout" as SRC <<app>>
+}
+
+node "Maintainer path — source tree required" as MAINT <<host>> {
+  component "proveo targets\nname<TAB>image<TAB>defDir (TSV)" as TGT <<app>>
+  component "lib/registry.sh\nmise tasks read the TSV" as REG <<app>>
+  component "harnessBuildScript · sidecarBuildScript\ndef dir named after the manifest" as BSH <<app>>
+}
+
+node "Missing declared env" as WIZ <<host>> {
+  component "wizardEnabled · isStdinTTY" as WEN <<app>>
+  component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
+  component "termSecret\nread with echo off" as SEC <<app>>
+}
+
+cloud "Docker Hub — proveo/*" as HUB <<cloud>>
+component "Agent + sidecar images present" as READY <<app>>
+component "Non-interactive run\nnever prompts, warns and continues" as HEADLESS <<error>>
+component "Missing image discovered\nafter the network is up" as LATE <<error>>
+
+PF ARROW_MAIN ENS
+ENS ARROW_CLOUD HUB : pull first — the consumer path
+ENS ARROW_OPTIONAL CONF : pull failed and a source tree exists
+CONF ARROW_MAIN SRC
+SRC ARROW_MAIN BSH
+TGT ARROW_MAIN REG
+BSH ARROW_MAIN REG
+ENS ARROW_MAIN READY
+PF ARROW_ERROR LATE : what running the preflight first prevents
+WEN ARROW_MAIN PENV
+PENV ARROW_MAIN SEC
+WEN ARROW_ERROR HEADLESS
+@enduml

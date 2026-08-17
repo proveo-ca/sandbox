@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/runner/hardened-run-argv.puml
 // Package runner builds the single hardened `docker run` invocation shared by
 // every harness. It replaces the hardening baseline
 // that was copy-pasted across the consumer CLI, lib/runners.sh, and each

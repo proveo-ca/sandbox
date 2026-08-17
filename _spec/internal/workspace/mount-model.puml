@@ -1,0 +1,37 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/workspace/{mount,workspace,discover}.go and
+' cmd/proveo/main.go's mount + env-forwarding blocks lands here (batches 3 and 6).
+' Escaping symlinks have their own diagram: mount-symlink-escape.puml.
+title Mount model — two layouts, one scope resolver, secrets decided by egress
+
+node "Scope resolution" as SCOPE <<host>> {
+  component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>
+  component "DiscoverProjects(root)\npnpm · npm/yarn · convention globs" as DISC <<app>>
+  component "scope picker\n--scope, else a TTY menu" as PICK <<app>>
+}
+
+node "MountSpec.Plan() — manifest workspace model" as PLAN <<host>> {
+  component "layout: input-output\n/workspace/input + /workspace/output" as IO <<app>>
+  component "layout: app\nagent edits in place at /app" as APP <<app>>
+  component "monorepo subdir scope\n/app/<rel> + /app/.git + rootFiles" as SUB <<app>>
+  component "envMounts · maskEnvMounts\nescapingEnvFile" as ENV <<app>>
+}
+
+database "Host checkout\nmode ro|rw · gitMode ro|rw" as HOST <<db>>
+component "runner.Mount list\nhost:container[:ro]" as MOUNTS <<app>>
+component "Secrets readable inside the agent\n.env left in the mounted tree" as LEAK <<error>>
+
+RES ARROW_MAIN PICK : repo root vs subdir
+DISC ARROW_MAIN PICK
+PICK ARROW_MAIN PLAN : InputDir · RepoRoot
+PLAN ARROW_MAIN IO
+PLAN ARROW_MAIN APP
+APP ARROW_OPTIONAL SUB : InputDir under RepoRoot
+IO ARROW_MAIN ENV
+APP ARROW_MAIN ENV
+SUB ARROW_MAIN ENV
+HOST ARROW_MAIN MOUNTS
+ENV ARROW_MAIN MOUNTS
+ENV ARROW_ERROR LEAK : what isolating egress exists to prevent
+@enduml
