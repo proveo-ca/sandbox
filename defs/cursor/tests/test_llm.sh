@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_llm.sh - Live round-trip through the Cursor backend (needs CURSOR_API_KEY)
 
 if [[ -z "${CURSOR_API_KEY:-}" ]]; then

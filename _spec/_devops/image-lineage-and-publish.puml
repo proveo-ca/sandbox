@@ -114,4 +114,18 @@ note bottom of CHAIN
   ""runPlan"" stops at the first failure, so a mid-fleet failure leaves a
   partially published set.
 end note
+note bottom of ENSURE
+  **Every def carries the same two-script pair, and the chain is what makes
+  a single build work from cold.** A ""build\.sh"" builds exactly its own
+  image and calls its parent's ""ensure\.sh"" first; that parent's build in
+  turn chains its own parent's. So building any harness from a clean machine
+  walks the lineage upward once, and no script needs to know the whole
+  chain — only its immediate parent.
+
+  Build context is the repo root for every def, because variant Dockerfiles
+  resolve ""COPY"" paths from there; a def-local context would break the
+  shared ""packages/lib"" copies.
+end note
+
+
 @enduml

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_workspace.sh - Directory structure and permissions
 
 for image in $(images_to_test); do

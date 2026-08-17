@@ -6,10 +6,6 @@ set -euo pipefail
 #
 # In `firewall` egress mode this runs as the agent's first hop:
 #   agent -> mitmproxy (decrypts + records) -> squid (enforces) -> internet
-#
-# HTTPS interception is ON by default (the whole point of using mitmproxy over
-# Charles). The agent must trust this proxy's CA; the egress lifecycle mounts
-# the generated CA cert into the agent and points its CA env vars at it.
 
 : "${PROVEO_MITM_PORT:=8888}"
 : "${PROVEO_MITM_CONFDIR:=/mitmproxy-confdir}"

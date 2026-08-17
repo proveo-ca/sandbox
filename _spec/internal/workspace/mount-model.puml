@@ -90,4 +90,36 @@ note bottom of ENV
   Secrets do not travel this path: they are declared in ""env:"" and go through
   the broker (""_spec/_paradigms/credential-boundary\.puml"").
 end note
+note right of ENV
+  **Masking is recursive and uses ""/dev/null"", not omission.** Every dotenv
+  secrets file under the mounted tree is shadowed, so a hostile or injected
+  agent cannot read a real credential off disk — the structural complement
+  to the broker's header-strip and the egress DLP. Templates
+  (""\.env\.example"" / ""\.sample"" / ""\.template"" / ""\.dist"") stay readable,
+  because agents legitimately consult them.
+
+  The walk prunes ""\.git"" and ""node_modules"" only — deliberately narrower
+  than the shared prune set, since a secrets file inside ""dist/"" still has
+  to be masked. It does not follow symlinks, so there are no loops and a
+  symlinked ""\.env"" is still masked at its container path.
+
+  **Two mounted sets are deliberately not walked**: the hoisted repo-root
+  files are a fixed non-secret allowlist, and the config dir is a
+  tool-config directory — neither is a conventional secrets location, and
+  walking them would add cost for no coverage.
+
+  For broker ingestion the host-side ""\.env"" is resolved through symlinks
+  on the host, following the invocation dir → scope → repo-root order the
+  Bash lifecycle used, so a project that symlinks its env file still feeds
+  the broker.
+end note
+
+note right of SUB
+  The hoisted root files are a superset across harnesses, each mounted only
+  when it exists at the root **and** is absent from the scope dir — so the
+  union is safe: a harness never sees a file its repo does not have, and a
+  scope that ships its own ""package\.json"" keeps it.
+end note
+
+
 @enduml

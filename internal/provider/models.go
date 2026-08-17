@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import (
@@ -33,10 +34,6 @@ func ModelProvider(model string) string {
 	return bareModelProvider(strings.ToLower(model))
 }
 
-// bareIDPrefixes maps an unprefixed model id to its provider. opencode and cecli
-// are not vendor-locked, so an operator names a model without a provider prefix
-// and the broker still has to know who will be called — without this the pin
-// silently fails for everyone not on Claude.
 var bareIDPrefixes = []struct{ prefix, provider string }{
 	{"claude-", "anthropic"},
 	{"gpt-", "openai"}, {"o1-", "openai"}, {"o3-", "openai"}, {"o4-", "openai"}, {"chatgpt-", "openai"},
@@ -51,9 +48,6 @@ var bareIDPrefixes = []struct{ prefix, provider string }{
 	{"command-", "cohere"},
 }
 
-// ambiguousBareIDs are open-weights families that many providers serve, so the
-// id names the model but NOT who hosts it. Claiming one for its originator would
-// route the pin to the wrong vendor.
 var ambiguousBareIDs = []string{"gpt-oss", "llama-", "qwen", "mixtral", "deepseek-r1-distill"}
 
 func bareModelProvider(model string) string {

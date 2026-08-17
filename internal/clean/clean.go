@@ -1,15 +1,3 @@
-// Package clean is the pure decision core for `proveo clean`: given an inventory
-// of proveo-created Docker resources + on-disk egress state, it decides what to
-// remove for a routine reclaim vs a --deep reset, without ever touching live
-// runs (unless --force). cmd/proveo gathers the inventory and executes the plan.
-//
-// Two tiers:
-//   - routine: leaked per-run ephemera — egress session containers/networks,
-//     leaked DinD sidecars, and egress state dirs (which hold the injected
-//     broker.env secret; wiping them is a security win after a crashed run).
-//   - --deep: routine + the reusable proveo/* images. Upstream sidecar bases
-//     (squid/ollama/docker:dind) are left — shared and cheap to re-pull.
-//
 // SPEC: _spec/internal/clean/clean-lifecycle.puml
 package clean
 
@@ -51,9 +39,6 @@ type Options struct {
 	Tools bool
 }
 
-// Plan is what to remove. StateDirs are session ids (cmd/proveo maps them to
-// <stateDir>/egress/<sid>). SkippedLive lists resources left because they look
-// live (a running container, or a network with endpoints) and --force was off.
 type Plan struct {
 	Containers  []string
 	Networks    []string
@@ -63,9 +48,6 @@ type Plan struct {
 	SkippedLive []string
 }
 
-// BuildPlan decides the removal set. A session is "live" when any of its egress
-// containers is running; its networks and state dir are then preserved. DinD
-// sidecars have no session, so a running one is treated as live on its own.
 func BuildPlan(inv Inventory, o Options) Plan {
 	live := map[string]bool{}
 	for _, c := range inv.Egress {

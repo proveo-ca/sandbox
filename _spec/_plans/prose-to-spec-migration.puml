@@ -1,6 +1,6 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title PLANNED — Logic-bearing prose → _spec: 1343 lines across 44 files, six new diagrams
+title DONE — Logic-bearing prose → _spec: 1309 lines migrated, six new diagrams, zero prose blocks left in 140 source files
 
 node "Source tree — 140 files scanned" as SRC <<host>> {
   component "**1343 prose lines** in 44 files\nblocks of 3+ consecutive\ncomment lines" as PROSE <<app>>
@@ -114,11 +114,16 @@ note bottom of GATE
   | 3 **DONE** | ""main\.go"" by theme — all 7 landed. 259 prose lines in 62 blocks → **0**; short comments 57 → 38 (all labels); file 2059 → 1756 lines. Prose reached 15 diagrams. | 259 |
   | 4 **DONE** | egress cluster, 8 files — ""plan\.go"" 75 · egresspolicy 68 · ""broker\.go"" 42 · ""proveo-egress"" 42 · exec/recorder/proxy 30. **257 → 0**, across 10 diagrams. | 257 |
   | 5 **DONE** | entrypoints and Dockerfiles, 20 files — entrypoint-lib\.sh 43 · cursor 24+24 · opencode 18+3 · claudecode 16+3 · cecli 12+3 · bases 42 · sidecars/fixtures 12 · registry\.sh 17 · ensure\.sh 9. **232 → 0**, across 14 diagrams. | 232 |
-  | 6 | long tail — provider · ptyproxy · reviewgate · manifest · dind · ui · choiceui · tmux · runlog · clean · maintain | ~350 |
+  | 6 **DONE** | long tail, 60 files (the estimate missed every ""build\.sh"" / ""ensure\.sh"" / ""tests/*\.sh"") — ""mount\.go"" 36 · provider 53 · ptyproxy 32 · reviewgate 26 · manifest 24 · maintain 38 · provision/wizard/targets 46 · dind 20 · clean 22 · runner 29 · platform pkgs 66 · scripts 106 · misc 63. **561 → 0**, across 25 diagrams. | 561 |
 
-  Batches 1 and 2 carry no risk and unblock the rest. Batch 3 was the
+  Batches 1 and 2 carried no risk and unblocked the rest. Batch 3 was the
   one to review hardest: it is the file where the seven themes were
   tangled, and splitting them was the actual work.
+
+  **Final state:** 140 non-test source files hold **0 prose blocks** and 887
+  short comment lines — labels by the rule above. Every diagram the prose
+  landed in is reachable from the code it describes; only ""_plans/"" and two
+  ""tests/"" diagrams name no source file, which is the standing convention.
 
   **What batch 3 found by reading prose against its destination** —
   worth expecting again in 4–6. Two blocks were already stated in a

@@ -52,4 +52,25 @@ note bottom of VM
   precisely so the probe has something to run; the full sidecar
   preflight still happens later, once the plan is assembled.
 end note
+note right of HARD
+  **The hardening baseline is not optional and not per-def.** It replaced a
+  block copy-pasted across the consumer CLI, ""lib/runners\.sh"" and every
+  ""defs/*/run\.sh"" — three copies that drifted. A contract test asserts no
+  def re-declares any of it.
+
+  The argv is built as pure data and in deterministic order, so it is
+  golden-testable; executing it is the caller's concern. That split is what
+  makes "what flags does a run actually get" answerable without Docker.
+end note
+
+note bottom of RESOLVE
+  **A limit is always returned — never unlimited.** The tiers are
+  ""clamp(cpus×256, 512, ceiling)"" for a normal image and
+  ""clamp(cpus×512, 1024, ceiling)"" for a browser image, which needs more
+  because Chromium is process-hungry. An operator override is clamped too
+  (floor 256, same ceiling): an unbounded override would re-open the fork-bomb
+  the limit exists to contain, so it is honoured but bounded.
+end note
+
+
 @enduml

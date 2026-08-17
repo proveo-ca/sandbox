@@ -1,6 +1,3 @@
-// Package manifest reads the per-harness `defs/<name>/harness.manifest` files —
-// the single registration point. Adding a harness should mean dropping
-// a def dir with a manifest; nothing else enumerates harnesses by hand.
 // SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 package manifest
 
@@ -22,9 +19,6 @@ const Filename = "harness.manifest"
 // Workspace declares how a harness mounts the working tree — the model the
 // run.sh files encode today, lifted into data so `proveo run` can reproduce it.
 type Workspace struct {
-	// Layout: "app" (mount the repo at /app, -w /app; the monorepo model used by
-	// cursor/opencode/cecli) or "input-output" (claudecode: /workspace/input +
-	// /workspace/output).
 	Layout string `yaml:"layout"`
 	// ConfigDir is the tool config dir preserved from the repo root in the
 	// monorepo-subdir case (e.g. ".cursor", ".opencode", ".cecli"). app layout only.
@@ -39,20 +33,12 @@ type Workspace struct {
 	Mode string `yaml:"mode"`
 }
 
-// EnvVar declares an environment variable a harness reads at run time, so the
-// CLI can forward it into the container and — when it is missing — prompt for
-// it (interactive wizard) or warn (non-TTY). Secret values are prompted with
-// echo off and are only ever forwarded by name (`-e NAME`), never on an argv.
 type EnvVar struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Secret      bool   `yaml:"secret"`
 }
 
-// HomeMount is one bind under PROVEO_HOME (default ~/.proveo) into the container.
-// Host is relative to PROVEO_HOME; Container is an absolute path (typically under
-// /proveo-home). Deny lists basenames scrubbed from the host dir before each run
-// so login tokens never accumulate in the durable session cache.
 type HomeMount struct {
 	Host      string   `yaml:"host"`
 	Container string   `yaml:"container"`
@@ -60,9 +46,6 @@ type HomeMount struct {
 	Deny      []string `yaml:"deny"`
 }
 
-// Home declares durable proveo-owned session/config mounts. Enabled with at
-// least one mount; proveo sets HOME=/proveo-home when Home is active so tools
-// write into the mounted tree regardless of the run-as uid.
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
 	Mounts  []HomeMount `yaml:"mounts"`
@@ -82,23 +65,16 @@ type Manifest struct {
 	Workspace     Workspace         `yaml:"workspace"`      // mount model
 	Home          Home              `yaml:"home"`           // durable ~/.proveo session/config mounts
 	Env           []EnvVar          `yaml:"env"`            // secret/auth env vars the harness reads
-	// Config names NON-SECRET host preferences this harness wants forwarded by
-	// value (`-e NAME=value`), on top of the shared baseline in
-	// entrypoint.ConfigVars. Use it for a harness-specific knob — a secret
-	// belongs in Env, which is brokered rather than forwarded.
-	Config       []string     `yaml:"config"`
-	Capabilities Capabilities `yaml:"capabilities"`
-	Dir          string       `yaml:"-"` // def directory (set by Load)
+	Config        []string          `yaml:"config"`
+	Capabilities  Capabilities      `yaml:"capabilities"`
+	Dir           string            `yaml:"-"` // def directory (set by Load)
 }
 
 type Capabilities struct {
 	Egress      []string `yaml:"egress"`
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
-	// Hosts are endpoints the HARNESS itself needs — a model catalog, a plugin
-	// registry. Infrastructure, not agent-initiated egress: allowlisted, and never
-	// prompted for in the review tier.
-	Hosts []string `yaml:"hosts"`
+	Hosts       []string `yaml:"hosts"`
 }
 
 func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }

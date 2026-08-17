@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Ensure proveo/base-node-lsp is available before building an LSP harness FROM it.
-# Its build.sh chains defs/base-node/ensure.sh (→ base) first, so a clean machine
-# builds base → base-node → base-node-lsp → harness in order.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Ensure proveo/base-node is available before building a Node harness FROM it.
-# Its build.sh chains defs/base/ensure.sh (the parent) first, so a clean machine
-# builds base → base-node → harness in order.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
+# SPEC: _spec/internal/provider/provider-registry.puml
 set -euo pipefail
 
 # Keep the provider allowlist fresh by reconciling it against a public, maintained
 # model registry — the FireHOL-updater pattern, applied to LLM endpoints.
-#
-# Honest scope (see the project notes): a registry like LiteLLM's reliably gives
-# the *set of provider names*, but not always their API *hostnames*, and it makes
-# no *trust* judgment. So this script does the mechanical half:
-#   - pulls the upstream provider list (LiteLLM model JSON; cached fallback),
-#   - diffs it against the providers defs/lib/egress.sh actually maps,
-#   - reports drift: upstream providers we don't map yet (candidates to add) and
-#     mapped providers upstream no longer lists (possibly stale),
-#   - best-effort suggests hostnames from any api_base fields it finds.
-# It is NON-destructive: it never edits egress.sh. Which providers are *trusted*
-# (jurisdiction / no-train) stays a human curation decision in egress.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_URL="${PROVEO_PROVIDER_SOURCE_URL:-https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}"

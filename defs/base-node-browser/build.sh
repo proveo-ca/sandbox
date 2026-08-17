@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Build proveo/base-node-browser (proveo/base-node-lsp + Playwright + Chromium).
-# Ensures proveo/base-node-lsp exists first (which chains base-node → base). The
-# Dockerfile pulls nothing from the repo, so the build context is this dir.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

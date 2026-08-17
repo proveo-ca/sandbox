@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package main
 
 import (
@@ -14,12 +15,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// cleanCmd reclaims leaked proveo run artifacts. Two tiers: routine (per-run
-// ephemera left by crashed/killed runs — egress containers/networks, DinD
-// sidecars, and egress state dirs incl. any leaked broker.env secret) and
-// --deep (also removes proveo/* images). --homes removes ~/.proveo (durable
-// session cache) — opt-in, never part of routine clean. It never disturbs a
-// live run unless --force. See internal/clean for the decision logic.
 func cleanCmd() *cobra.Command {
 	var deep, force, dryRun, homes, tools bool
 	cmd := &cobra.Command{

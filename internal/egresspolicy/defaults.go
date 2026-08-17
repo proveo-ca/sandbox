@@ -1,9 +1,5 @@
 package egresspolicy
 
-// DefaultSinks are domain suffixes that exist to RECEIVE exfil; denied for all
-// methods (so even a GET to webhook.site is blocked). Curated starter set,
-// refreshable later. Operators extend/override via PROVEO_EGRESS_* config.
-//
 // SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
 var DefaultSinks = []string{
 	// paste bins
@@ -18,9 +14,6 @@ var DefaultSinks = []string{
 	"bit.ly", "tinyurl.com", "t.co", "is.gd",
 }
 
-// DefaultWriteHosts are non-provider hosts where write methods stay allowed by
-// default so real agent workflows (git push, opening PRs) keep working. Extend
-// via PROVEO_EGRESS_WRITE_HOSTS.
 var DefaultWriteHosts = []string{
 	"github.com", "api.github.com", "gitlab.com", "bitbucket.org",
 }

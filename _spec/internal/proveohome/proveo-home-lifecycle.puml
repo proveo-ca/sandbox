@@ -48,4 +48,13 @@ note over RUN
   project state in ""/app/.cecli"", home conf only).
   Passing two of the three is an error, not a precedence rule.
 end note
+note over PH
+  Host subdirectories are created 0700 and the whole of ""PROVEO_HOME"" is
+  bind-mounted, rather than mounting each declared path — one mount keeps
+  the container's view of its own home coherent. The scrub of deny-listed
+  auth basenames runs **before** the bind, so a credential file that
+  landed there is gone rather than merely unreferenced.
+end note
+
+
 @enduml

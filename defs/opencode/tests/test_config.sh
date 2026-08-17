@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_config.sh - Entrypoint configuration detection
-#
-# Exercise entrypoint.sh by mounting a small fixture project into /app and
-# running it without args (TUI launch is short-circuited by feeding no TTY +
-# `--help` style discoveries; here we just inspect the preamble output).
 
 FIXTURE_DIR=$(mktemp -d)
 trap 'rm -rf "$FIXTURE_DIR"' RETURN
@@ -21,9 +18,6 @@ cat >"$FIXTURE_DIR/.env" <<'EOF'
 OPENCODE_TEST_MARKER=loaded_from_env
 EOF
 
-# Run the entrypoint but force the inner `exec opencode` to short-circuit by
-# sending an unsupported flag that exits quickly. `opencode --version` exits 0
-# after printing.
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \

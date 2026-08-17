@@ -1,15 +1,3 @@
-// Package ui is the single home for the CLI's human-facing status vocabulary —
-// the ✓/⚠️/❌ prefixes the Bash wrappers established, lifted into Go so every
-// binary (proveo, proveo-egress, later proveo-entrypoint) speaks it once.
-// Status lines go to stderr so stdout stays reserved for machine output
-// (plans, lists, generated config). When the writer is not a terminal, or
-// TERM=dumb / NO_COLOR is set, the emoji degrade to stable text tags
-// ("ok:", "warn:", "error:") so CI logs and screen-scraping tests stay
-// deterministic.
-// Deliberately line-oriented, never a full-screen TUI: proveo is a launcher
-// that hands the PTY to the agent's own TUI (`docker run -it`), and the tmux
-// agent-E2E layer screen-scrapes its output — both depend on the CLI printing
-// a few stable lines and getting out of the way.
 package ui
 
 import (
@@ -34,9 +22,6 @@ func New(w io.Writer) *Printer {
 // Default is the process-wide status printer (stderr).
 var Default = New(os.Stderr)
 
-// TeeTo mirrors every Default status line into w as well as the terminal, so a run
-// leaves a transcript without changing what the operator sees. The tee is always
-// plain: a log full of escape sequences is a log nobody greps.
 func TeeTo(w io.Writer) {
 	if w == nil {
 		return
@@ -134,7 +119,7 @@ func Notef(format string, a ...any) { Default.Notef(format, a...) }
 // Iconf writes an icon-decorated line on Default.
 func Iconf(icon, format string, a ...any) { Default.Iconf(icon, format, a...) }
 
-// SPEC: _spec/_conventions/spec-conventions.puml
+// SPEC: _spec/_conventions/spec-conventions.puml, _spec/internal/runlog/run-transcript.puml
 const (
 	ColorApp   = 0x005F7F // first-party app / runtime service — teal
 	ColorAsync = 0xCBDB2A // queue · scheduler · background — lime

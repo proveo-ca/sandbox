@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_security.sh - Security hardening verification
 
 for image in $(images_to_test); do

@@ -72,4 +72,21 @@ note bottom of CLI
   hoisting it into ""proveo/base"" would collapse those
   copies and the duplicated version pin into one layer.
 end note
+note bottom of GATE
+  **Only broker mode can expose a daemon at all**, because a Docker daemon
+  the agent can reach is an internet-capable path around the injector — on
+  an enforced tier that would make the credential guarantee a paper one.
+
+  **Reachability is wired two different ways, and the difference is the
+  network.** A legacy ""--link"" resolves the ""docker"" hostname only while
+  both containers sit on the default bridge (broker without a local model);
+  on a user-defined network the sidecar is attached with the alias
+  ""docker"" instead. The env flags pointing the client at the daemon are
+  applied either way, so only the name resolution differs.
+
+  The offer itself is scope-gated — Dockerfiles present in the scope — and
+  the interactive answer is consulted only when there is a TTY to ask.
+end note
+
+
 @enduml

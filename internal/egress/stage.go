@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egress/teardown-and-signals.puml
 package egress
 
 import (
@@ -16,10 +17,6 @@ var squidStaticFiles = []string{
 	"firehol-ipset.conf",
 }
 
-// StageSquidConfig materializes the Squid enforcement config for a session:
-// copies the static confs from fsys (the embedded defs, or an os.DirFS working
-// tree) into destDir and writes a generated provider-allow.conf pinning writes
-// to the given providers. destDir is what the plan mounts at /etc/squid:ro.
 func StageSquidConfig(fsys fs.FS, destDir string, providers []string, customDomains string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err

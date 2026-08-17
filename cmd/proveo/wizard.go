@@ -1,11 +1,4 @@
 // SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_paradigms/credential-boundary.puml
-// The missing-env wizard follows the DinD sidecar prompt pattern
-// (apps/cli/public/cli/lib/runners.sh): detect the need, honor an env
-// short-circuit, prompt only on a TTY, and default to the safe path (Enter
-// skips, non-interactive runs just warn). Collected values are set in the
-// process env only — provider detection, the broker secret file, and the bare
-// `-e NAME` forwarding all read them from there, so a secret never lands on
-// an argv.
 package main
 
 import (
@@ -42,9 +35,6 @@ func termSecret() (string, error) {
 	return string(b), err
 }
 
-// promptYesNo asks a one-line question and reads one line: y/yes => true,
-// empty => def, anything else => false (the DinD-prompt convention: only an
-// explicit yes is a yes).
 func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	suffix := "[Y/n]"
 	if !def {
@@ -61,10 +51,6 @@ func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	return false
 }
 
-// promptEnv asks for each missing declared env var and returns name->value for
-// the ones the user filled in. Enter (or a read error) skips a var — skipped
-// vars stay missing and the caller warns about them, exactly like today's
-// non-interactive behavior.
 func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Writer, readSecret secretReader) map[string]string {
 	p := ui.New(out)
 	n := "s"

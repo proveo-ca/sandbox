@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
 //go:build !windows
 
 package ptyproxy
@@ -11,12 +12,6 @@ import (
 )
 
 // OverlayTty presents the suspended terminal to a tcell screen.
-//
-// tcell's default screen opens /dev/tty and runs its own input loop, which would
-// make it a SECOND reader competing with the pump — the exact contention this
-// package exists to remove, and the reason a rendered modal took no keystrokes.
-// Feeding tcell through this adapter keeps the pump the sole reader: input comes
-// from the hand-off channel, output goes to the operator's terminal.
 type OverlayTty struct {
 	in  io.Reader
 	out *os.File

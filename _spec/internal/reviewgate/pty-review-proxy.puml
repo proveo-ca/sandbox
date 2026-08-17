@@ -194,4 +194,54 @@ note as PromptScope #F4F9FB
   into a click-through reflex.
 end note
 
+note bottom of IN
+  **The proxy is the ONLY reader of the real terminal, and that is the whole
+  design.** The child gets the slave, so an overlay never contends with it
+  for stdin. When an overlay goes up the pump does not stand down — it
+  cannot: a goroutine already blocked in ""read()"" will consume the next
+  byte no matter what a flag says. Instead it re-routes bytes into a
+  hand-off channel, making the overlay the exclusive consumer without a
+  second reader ever existing.
+
+  The terminal fd is captured **once**. Calling ""In\.Fd()"" later races the
+  pump's concurrent close, and additionally forces the file back into
+  blocking mode on every call.
+
+  Raw mode is restored on every exit path, signals included — raw mode
+  must not survive the process.
+
+  **Restoring after an overlay does not replay buffered output.** The child
+  owns the alternate screen and would repaint over it anyway, so instead it
+  is made to repaint by a //genuine// resize: one column narrower, then
+  back. Both deliver SIGWINCH, and because the dimensions actually change,
+  a TUI that early-outs on a no-op resize still relayouts. A bare SIGWINCH
+  at unchanged size is unreliable. The resize holds the lock for its whole
+  duration, so a child that exits mid-overlay turns it into a no-op rather
+  than an operation on a dead fd.
+
+  The terminal **stays** in raw mode for the overlay. Dropping to cooked
+  mode became pointless once the prompt read a single keypress, and it was
+  actively harmful: the pump sits mid-""Read"" on that fd, so flipping the
+  line discipline underneath changes how in-flight bytes arrive.
+end note
+
+note bottom of DAEMON
+  **A held decision is worse than a denial.** The deadline exists because a
+  request parked past its client's own timeout makes the agent retry while
+  the operator is still reading the prompt — so the gate fails **closed** on
+  timeout, when no Asker exists, and on any transport failure from the
+  sidecar's client half. Deny is always the safe answer: the agent sees a
+  blocked connection, which is a state the tier already models.
+
+  The Asker is injected rather than reached for, which is what lets the
+  gate be tested without a terminal and lets the PTY overlay supply the
+  question in production.
+
+  **One prompt per new host, decaying to zero.** The cache is what keeps
+  the tier usable instead of a click-through reflex — and an
+  already-allowlisted host is never asked about at all, since asking about
+  a sanctioned destination is pure fatigue.
+end note
+
+
 @enduml

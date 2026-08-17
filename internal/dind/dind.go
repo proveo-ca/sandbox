@@ -20,11 +20,6 @@ func EnvEnabled() bool {
 	return truthy(os.Getenv("PROVEO_DIND"))
 }
 
-// ModeSupported reports whether DinD can run under the given egress mode. Only
-// broker mode (direct bridge egress) can expose a Docker daemon to the agent:
-// under proxy/firewall the agent sits on an --internal network the daemon cannot
-// be reached across (a legacy --link does not span networks), and attaching the
-// internet-capable daemon to that network would defeat egress enforcement.
 func ModeSupported(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "open", "broker":
@@ -53,10 +48,6 @@ func ScopeHasDockerfiles(scopeDir string) bool {
 	return res.Has("docker")
 }
 
-// ShouldStart reports whether DinD should be launched for a dind-capable
-// harness given the scope and (optional) interactive answer.
-// promptYes is only consulted when env is off and interactive is true;
-// pass nil to treat interactive as "no".
 func ShouldStart(capable bool, scopeDir string, interactive bool, promptYes func() bool) bool {
 	if !capable || scopeDir == "" {
 		return false
@@ -122,9 +113,6 @@ type Sidecar struct {
 	ScopeDir string
 }
 
-// EnvArgs are the docker-run env flags pointing the agent's docker client at the
-// sidecar daemon. Always applied when DinD is attached, regardless of how the
-// agent reaches the daemon.
 func (s *Sidecar) EnvArgs() []string {
 	if s == nil || s.Name == "" {
 		return nil
@@ -135,10 +123,6 @@ func (s *Sidecar) EnvArgs() []string {
 	}
 }
 
-// LinkArgs wire the agent to the sidecar via a legacy --link. This resolves the
-// `docker` hostname ONLY when both share the default bridge (broker mode without
-// a local-model network). For a user-defined agent network use ConnectNetwork —
-// --link does not span networks.
 func (s *Sidecar) LinkArgs() []string {
 	if s == nil || s.Name == "" {
 		return nil
@@ -151,10 +135,6 @@ func (s *Sidecar) AgentArgs() []string {
 	return append(s.LinkArgs(), s.EnvArgs()...)
 }
 
-// ConnectNetwork attaches the sidecar to a user-defined network with the alias
-// `docker`, so an agent on that network resolves the daemon by name. Used for
-// broker mode with a local-model sidecar, where the agent is on a user-defined
-// bridge rather than the default bridge. No-op when name/network is empty.
 func (s *Sidecar) ConnectNetwork(r Runner, network string) error {
 	if s == nil || s.Name == "" || network == "" {
 		return nil

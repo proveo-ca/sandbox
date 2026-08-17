@@ -92,4 +92,16 @@ in any other header, which is also what covers the multi-provider case
 where a second provider's key rides a header the strip list never named.
 end note
 
+note right of B
+  **The sink list is about the receiving end, not the method.** These are
+  hosts that exist to //accept// exfil — a paste bin, a webhook catcher — so
+  even a ""GET"" to one is denied: a read-shaped request to a sink is still a
+  write in effect.
+
+  Its counterpart is the default write allowlist: non-provider hosts where
+  write methods stay allowed so real agent workflows (a ""git push"", a
+  package publish) are not collateral damage of a policy aimed at exfil.
+end note
+
+
 @enduml

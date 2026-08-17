@@ -58,4 +58,32 @@ note bottom of TEST
   source. Grep-the-source assertions are retired
   (see _spec/tests/20-contract.puml).
 end note
+note bottom of REG
+  **Registry order is build order, and it is hand-made rather than sorted.**
+  The base image first, then harness targets by name, then the egress
+  sidecars — so a caller iterating the registry never builds a child before
+  its parent.
+
+  **Build and deploy answer different questions, so they are different
+  plans.** ""BuildPlan"" leaves the image tagged locally through
+  ""defs/lib/docker-build\.sh"", which ""--load""s a single platform; ""DeployPlan""
+  rebuilds with ""buildx --push"" for ""linux/amd64,linux/arm64"". A plain
+  ""docker push"" of a locally built image cannot substitute — it would
+  publish one architecture under a manifest the fleet expects to be
+  multi-arch. The verify step's ""docker image inspect"" is run quiet because
+  its //failure// is the signal, not its output.
+end note
+
+note bottom of CMD
+  **Target selection has three shapes and one ordering rule.** An explicit
+  name, the literal ""all"", or — with no argument on a TTY — a picker:
+  type-to-filter, ""Tab"" toggles several (space is reserved for the filter
+  query, which is why Tab is the multi-select key), ""Enter"" confirms.
+
+  The chosen set is then returned **in registry order, not in
+  Tab-selection order**, because build order matters and the operator's
+  click sequence carries no dependency information.
+end note
+
+
 @enduml

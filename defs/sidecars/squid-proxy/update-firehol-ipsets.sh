@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
+# SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
 set -euo pipefail
 
 FIREHOL_IPSET="${FIREHOL_IPSET:-firehol_level1}"
-# Fetch from a PINNABLE ref, not a moving branch. Set FIREHOL_REF to a commit SHA
-# (and FIREHOL_SHA256 to the netset's checksum) for a reproducible, verified
-# fetch; the `master` default is a mutable supply-chain risk and warns below.
 FIREHOL_REF="${FIREHOL_REF:-master}"
 FIREHOL_SOURCE_URL="${FIREHOL_SOURCE_URL:-https://raw.githubusercontent.com/firehol/blocklist-ipsets/${FIREHOL_REF}/${FIREHOL_IPSET}.netset}"
 FIREHOL_SHA256="${FIREHOL_SHA256:-}"

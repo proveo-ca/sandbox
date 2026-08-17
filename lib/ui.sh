@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Interactive TUI selector for the maintainer mise tasks (build/deploy/test/debug).
-# Self-contained: defines its own TTY-gated colors so it can be sourced alone.
-# Ported from the retired consumer CLI's lib/ui.sh (the consumer menus moved to
-# the Go `proveo` binary; only the picker the mise tasks reuse remains here).
+# SPEC: _spec/cmd/proveo/provision-and-targets.puml
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   BOLD=$'\033[1m'
@@ -16,9 +13,6 @@ else
   RESET=""
 fi
 
-# tui_select PROMPT_OPTIONS... — render an arrow-key/j-k/type-to-filter menu on
-# stderr and return the zero-based index of the chosen option as the exit code.
-# Returns 255 when the user cancels (q / Esc-less quit). Callers read $? .
 tui_select() {
   local -a options=("$@")
   if [[ ${#options[@]} -eq 0 ]]; then

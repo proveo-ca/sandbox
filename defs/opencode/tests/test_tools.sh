@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_tools.sh - Verify expected tools/runtimes are installed
 
 TOOLS=(

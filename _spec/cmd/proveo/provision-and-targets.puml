@@ -56,4 +56,35 @@ note bottom of REG
 end note
 
 
+note bottom of ENS
+  **The preflight installs rather than only failing fast**, in dependency
+  order, before any network or container exists. The distribution model is
+  what makes that the right default: ""mise build"" builds the ""proveo/*""
+  images locally, ""mise deploy"" pushes them, and consumers **pull** — so a
+  missing image is far more likely to be un-pulled than un-built.
+
+  A build is only offered when a pull fails **and** a source tree is
+  present. ""PROVEO_AUTO_PROVISION"" forces the answer either way; on a TTY
+  it asks, defaulting to yes — declining just reproduces the failure the
+  prompt exists to avoid. The source tree is ""PROVEO_DEFS_DIR"" for dev
+  iteration, else the enclosing checkout when it actually carries the build
+  scripts; no tree means pull-only.
+
+  Mapping an image to its ""build\.sh"" goes through the manifest rather than
+  the image name, which is what covers images whose name differs from their
+  def directory (""proveo/cecli-node"" → ""defs/cecli"").
+end note
+
+note bottom of WEN
+  **The wizard follows the DinD-prompt pattern deliberately**: detect the
+  need, honour an env short-circuit, prompt only on a TTY, default to the
+  safe path. Only an explicit yes is a yes; ""Enter"" skips a variable and a
+  skipped variable stays missing, so the caller still warns about it —
+  identical to non-interactive behaviour rather than a second code path.
+
+  Collected values are set in the proveo **process** env, which is what
+  lets provider detection and the broker see a key typed at the prompt.
+end note
+
+
 @enduml

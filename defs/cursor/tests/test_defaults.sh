@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_defaults.sh - Baked defaults exist, seed correctly, and never touch /app uninvited.
 
 # Defaults are baked at /opt/cursor/defaults
@@ -67,9 +68,6 @@ else
   printf "${RED}FAIL${NC} [%d] seed check (output: %.300s)\n" "$TESTS_RUN" "$CHECK"
 fi
 
-# NOTE: the CLI itself normalizes ~/.cursor/cli-config.json on every launch
-# (invalid files are backed up as .bad and rewritten). The seeding tests below
-# park in smoke mode so they measure the ENTRYPOINT's behavior, not the CLI's.
 
 # --- CURSOR_RESEED=1 overwrites user-modified config ---
 TESTS_RUN=$((TESTS_RUN + 1))

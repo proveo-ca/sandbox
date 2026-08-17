@@ -90,4 +90,23 @@ note as AuthChoice #F4F9FB
   credential travels, not WHICH one.
 end note
 
+note bottom of ENTRY
+  **Detectability and broker-injectability are different properties.**
+  Signed-request providers — Bedrock, Azure, Vertex — are detected and get
+  a Squid write-pin ACL, but they have no static auth header to inject, so
+  the broker cannot serve them. Resolution reports "not ok" for those
+  rather than pretending, and a provider that accepts more than one
+  credential (anthropic: an API key **or** a subscription OAuth token) is
+  resolved against an explicit choice instead of a first-match guess.
+end note
+
+note bottom of AMBIG
+  **A bare id names the model, not always who hosts it.** opencode and cecli
+  are not vendor-locked, so an operator may write an unprefixed id and mean
+  any of several hosts. Open-weights families are the ambiguous case —
+  many providers serve them — so those ids are classified as ambiguous
+  rather than mapped, and the pin is refused instead of guessed.
+end note
+
+
 @enduml

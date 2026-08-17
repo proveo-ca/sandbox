@@ -130,9 +130,6 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 }
 
-// axisLabel reports whether any row is an ordered policy axis (a radio row with
-// more than one option). Add-on checkboxes are unordered, so a lone add-ons row
-// gets no legend.
 func (f *Form) axisLabel() bool {
 	for _, r := range f.Rows {
 		if !r.Multi && len(r.Options) > 1 {
@@ -255,9 +252,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		y++
 	}
 
-	// Axis legend above the rows: both policy axes are ordered riskier → safer, so
-	// one label explains every row at once and the direction is not something the
-	// operator has to infer from the option names.
 	if f.axisLabel() {
 		put(22, p.body, "◀ riskier")
 		put(60, p.body, "safer ▶")
@@ -266,9 +260,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 
 	dividerDone := false
 	for i, r := range f.Rows {
-		// The safety axis above orders the POLICY rows only. Checkbox rows are
-		// unordered toggles, so a centred divider closes that axis rather than
-		// letting the legend appear to govern the whole prompt.
 		namedByDivider := false
 		if r.Multi && !dividerDone {
 			dividerDone = true
@@ -288,9 +279,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			marker = "› "
 			labelStyle = p.brand
 		}
-		// Only the row the divider is named after drops its own label; repeating it
-		// would print the same word twice. Every later checkbox row keeps its label,
-		// or a second section would render as an anonymous set of boxes.
 		rowLabel := r.Label
 		if namedByDivider {
 			rowLabel = ""

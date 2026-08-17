@@ -44,9 +44,6 @@ type HostInfo struct {
 	PidMax int // kernel.pid_max, or pidMaxFallback
 }
 
-// DetectHost inspects the local machine for CPU count and kernel PID capacity.
-// preferImages are tried first when probing Docker for pid_max (macOS/Windows);
-// pass the agent image so a just-pulled/built harness can supply the reading.
 func DetectHost(preferImages ...string) HostInfo {
 	cpus := runtime.NumCPU()
 	if q := cgroupCPUQuota(); q > 0 && q < cpus {
@@ -130,13 +127,6 @@ func EnsurePidsCapability(h HostInfo, browser bool, override int, overrideSet bo
 	return nil
 }
 
-// ResolvePidsLimit picks the agent --pids-limit from host capacity, tier, and
-// optional override. A limit is always returned (never unlimited).
-// Caller should EnsurePidsCapability first so the host meets the tier floor.
-//
-//	base:    clamp(cpus*256, 512, ceiling)
-//	browser: clamp(cpus*512, 1024, ceiling)
-//	override (when set): clamp(value, 256, ceiling)
 func ResolvePidsLimit(h HostInfo, browser bool, override int, overrideSet bool) int {
 	ceiling := HostCeiling(h)
 	if overrideSet {
@@ -193,9 +183,6 @@ func parseCPUMax(s string) int {
 	return (quota + period - 1) / period
 }
 
-// readPidMax returns kernel.pid_max from the Linux host, or — on macOS/Windows
-// Docker Desktop / Colima / similar — from the engine's Linux VM via a short
-// local-image probe. Returns 0 when unknown (caller applies pidMaxFallback).
 func readPidMax(preferImages ...string) int {
 	if n := parseIntFile("/proc/sys/kernel/pid_max"); n > 0 {
 		return n
@@ -218,9 +205,6 @@ func cachedDockerPidMax(preferImages ...string) int {
 	return dockerPidMaxVal
 }
 
-// probeDockerPidMax reads the Docker engine kernel's pid_max using an already
-// local image (--pull=never). Darwin/Windows hosts have no /proc; the value
-// that matters for --pids-limit is the Linux VM behind the engine.
 func probeDockerPidMax(preferImages ...string) int {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return 0

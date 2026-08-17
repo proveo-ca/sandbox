@@ -14,10 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
-// rootFiles are workspace-shared files preserved (read-only) from the repo root
-// into a monorepo-subdir `/app` mount. A superset across harnesses; each is
-// mounted only if it exists at the root and not already in the scope dir — so
-// the union is safe (a harness never sees a file its repo doesn't have).
 var rootFiles = []string{
 	"AGENTS.md", "CONVENTIONS.md", "CLAUDE.md", ".cursorrules",
 	"package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "package-lock.json",
@@ -34,22 +30,14 @@ var rootDepDirs = []string{
 	"node_modules",
 }
 
-// MountSpec is the resolved input to mount planning: the manifest's mount model
-// (embedded — the single source of that shape, D5) plus the concrete paths for
-// this run. It lives beside the git-scope resolver here, not in runner, which
-// stays a pure argv formatter (D4).
 type MountSpec struct {
 	manifest.Workspace        // Layout, ConfigDir, GitMode, Output, Mode
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
-	// (recursively, both layouts) with /dev/null, so a hostile/injected agent can't
-	// read a real credential off disk — the structural complement to the broker
-	// header-strip + egress DLP. Templates (.env.example/.sample/.template/.dist)
-	// stay readable.
-	EgressMode    string
-	Credentials   string // "broker" (default) | "forward"
-	MountRootDeps bool
+	EgressMode         string
+	Credentials        string // "broker" (default) | "forward"
+	MountRootDeps      bool
 }
 
 // ScopeRel returns the repo-relative scope path when only PART of the repo is
@@ -305,16 +293,6 @@ func (w MountSpec) isolateEnv() bool {
 	return false
 }
 
-// envMounts returns .env-related mounts for the app-layout tree (host = InputDir,
-// mounted at containerBase = /app[/<relativeScope>]). In broker mode it overlays
-// the resolved host .env at /app/.env. In proxy/firewall it masks every dotenv
-// secrets file under the mounted tree with /dev/null so a hostile/injected agent
-// can't read a real credential off disk — the structural complement to the broker
-// header-strip and the egress DLP (see internal/broker, internal/egresspolicy).
-//
-// The separately-mounted repo-root files (rootFiles) and configDir are not walked:
-// rootFiles is a fixed non-secret allowlist, and configDir is a tool-config dir —
-// neither is a conventional secrets location.
 func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
 	if w.isolateEnv() {
 		base := "/app"
@@ -333,9 +311,6 @@ func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
 // huge and never the project's own secrets.
 var envMaskPrune = map[string]bool{".git": true, "node_modules": true}
 
-// secretEnvFile reports whether basename is a dotenv secrets file that must not be
-// readable inside the agent. Matches ".env" and ".env.*" but leaves the
-// conventional non-secret templates readable (agents legitimately consult them).
 func secretEnvFile(name string) bool {
 	if name != ".env" && !strings.HasPrefix(name, ".env.") {
 		return false
@@ -348,11 +323,6 @@ func secretEnvFile(name string) bool {
 	return true
 }
 
-// maskEnvMounts walks hostDir (pruning .git/node_modules; WalkDir does not follow
-// symlinks, so no loops and a symlinked .env is still masked at its container
-// path) and returns a /dev/null:ro mask for every dotenv secrets file, at its
-// path under containerBase. Best-effort by design — a read error on any entry is
-// skipped rather than aborting the run.
 func maskEnvMounts(hostDir, containerBase string) []runner.Mount {
 	if hostDir == "" {
 		return nil
@@ -487,9 +457,6 @@ func envMountSource(inputDir, repoRoot string) string {
 	return ""
 }
 
-// resolveRegularFile returns the absolute path of a regular file, following
-// symlinks on the host. Used for .env overlays when the project symlink points
-// outside the bind-mounted tree.
 func resolveRegularFile(path string) string {
 	if _, err := os.Lstat(path); err != nil {
 		return ""
@@ -509,10 +476,6 @@ func resolveRegularFile(path string) string {
 	return abs
 }
 
-// EnvFileSource returns a host-side .env path for broker ingestion (never for
-// agent mounts in proxy/firewall). Matches the legacy egress.sh order:
-// invocationWD (host PWD) first, then scope inputDir / repoRoot, then
-// proveo-entrypoint's git-root / walk-up search.
 func EnvFileSource(invocationWD, inputDir, repoRoot string) string {
 	if invocationWD != "" {
 		if p := resolveRegularFile(filepath.Join(invocationWD, ".env")); p != "" {

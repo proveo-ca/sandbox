@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/helpers.sh - Test framework helpers for the claudecode images.
 
 # --- State ---
@@ -19,9 +20,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-# --- Core: run a command inside a container, capture output ---
-# Usage: docker_exec <image> <command_string>
-# Sets LAST_OUTPUT and returns the command's exit code
 docker_exec() {
   local image="$1"; shift
   local cmd="$*"

@@ -58,4 +58,19 @@ note bottom of REPORT
   for the app layout, so an input-output harness reported
   a real repository as absent.
 end note
+note bottom of GID
+  **Identity is resolved on the host and forwarded as bare env**, never by
+  mounting the developer's git config: the config may reference signing
+  keys, credential helpers and include-paths that mean nothing inside the
+  container. Explicit ""GIT_AUTHOR_*"" / ""GIT_COMMITTER_*"" win, then the
+  host's own ""git config"" values.
+
+  In-container the bridge writes them into git's **config-env**
+  (""GIT_CONFIG_KEY_n"" / ""VALUE_n"") rather than a file, so a config read
+  resolves without writing anywhere — and an identity the repo already
+  carries is left alone, because a local ""\.git/config"" is a deliberate
+  choice by whoever made it.
+end note
+
+
 @enduml

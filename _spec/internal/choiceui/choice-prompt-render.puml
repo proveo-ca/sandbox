@@ -108,4 +108,22 @@ note right of HDR
   Each role carries the provider it resolved to. That is what makes a keyless
   role visible BEFORE launch rather than after a failed call.
 end note
+note bottom of ROW
+  **The legend describes only the radio rows, which is why it is drawn
+  once, above them.** Both policy axes are ordered riskier → safer, so a
+  single label explains every one of them and the operator does not have to
+  infer direction from option names. A row that is a checkbox set carries no
+  such order, so the centred divider closes the axis rather than letting the
+  legend appear to govern the whole prompt — and only the row the divider is
+  named after drops its own label, or a second checkbox section would render
+  as an anonymous pair of boxes.
+
+  **The consent modal takes the whole screen rather than composing with
+  this form.** It answers one connection at a time, mid-run, over a
+  suspended agent TUI — a different question from the one-shot posture
+  prompt, and sharing layout would couple two lifecycles that have nothing
+  else in common.
+end note
+
+
 @enduml

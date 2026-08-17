@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/helpers.sh - Test framework helpers for opencode image
 
 TESTS_RUN=0
@@ -14,9 +15,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-# Portable command timeout. GNU coreutils ships `timeout`; macOS ships it as
-# `gtimeout` (via `brew install coreutils`). If neither is present, run the
-# step without a wall-clock limit so the suite still works on a bare host.
 if command -v timeout >/dev/null 2>&1; then
   TIMEOUT_BIN="timeout"
 elif command -v gtimeout >/dev/null 2>&1; then
