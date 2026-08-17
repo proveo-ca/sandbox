@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/packages/lib/steps.puml
+// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
 package workspace
 
 import (

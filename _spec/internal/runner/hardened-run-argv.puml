@@ -38,4 +38,18 @@ CEIL ARROW_MAIN RESOLVE
 OVR ARROW_OPTIONAL RESOLVE : clamped, never trusted raw
 ENSURE ARROW_ERROR INSUF : refuse before a container exists
 ARGV ARROW_MAIN CALLER
+
+note bottom of VM
+  **macOS and Windows have no host ""/proc"", so the ceiling is read
+  from inside the engine.** The number that matters for
+  ""--pids-limit"" is the Linux VM's ""kernel\.pid_max"", and the only
+  way to read it is from a container: ""DetectHost"" runs
+  ""cat /proc/sys/kernel/pid_max"" in an //already local// image with
+  ""--pull=never"", so a capacity probe never triggers a network fetch.
+
+  **That makes the probe order-dependent for the caller.**
+  ""cmd/proveo"" preflights the agent image //before// detection
+  precisely so the probe has something to run; the full sidecar
+  preflight still happens later, once the plan is assembled.
+end note
 @enduml

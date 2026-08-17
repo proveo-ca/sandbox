@@ -111,14 +111,23 @@ note bottom of GATE
   | # | scope | prose moved |
   | 1 **DONE** | six new diagrams authored — structure only, no source touched | 0 |
   | 2 **DONE** | 10 orphan files given a ""SPEC:"" header, 3 existing headers extended so every new diagram is referenced | 0 |
-  | 3 | ""main\.go"", one commit per theme above | 259 |
+  | 3 **DONE** | ""main\.go"" by theme — all 7 landed. 259 prose lines in 62 blocks → **0**; short comments 57 → 38 (all labels); file 2059 → 1756 lines. Prose reached 15 diagrams. | 259 |
   | 4 | egress cluster — ""plan\.go"" 75 · egresspolicy 68 · ""broker\.go"" 42 · ""proveo-egress"" 42 · exec/recorder 17 | 244 |
   | 5 | entrypoints and Dockerfiles — ""entrypoint-lib\.sh"" 54 · cursor 36 · opencode 20 · claudecode 18 · cecli 13 · Dockerfiles 54 | 195 |
   | 6 | long tail — provider · ptyproxy · reviewgate · manifest · dind · ui · choiceui · tmux · runlog · clean · maintain | ~350 |
 
-  Batches 1 and 2 carry no risk and unblock the rest. Batch 3 is the
-  one to review hardest: it is the file where the seven themes are
-  currently tangled, and splitting them is the actual work.
+  Batches 1 and 2 carry no risk and unblock the rest. Batch 3 was the
+  one to review hardest: it is the file where the seven themes were
+  tangled, and splitting them was the actual work.
+
+  **What batch 3 found by reading prose against its destination** —
+  worth expecting again in 4–6. Two blocks were already stated in a
+  diagram and became delete-only. One contradicted its destination and
+  was refused rather than migrated (""_plans/role-cache-resolution-drift"").
+  Two code defects surfaced: a mounted-"".env"" warning dead for a release
+  cycle after a tier rename, and a function with no callers. One id
+  (""S4"") was cited once and defined nowhere, and was retired rather than
+  recovered. None of these are findable by reading either side alone.
 
   **The gate, run at the end of every batch:**
   ""gofmt -l ./cmd ./internal"" empty · ""go test ./\.\.\. -race"" green ·
@@ -136,6 +145,12 @@ note bottom of HDR
   ""egress-policy-decide"" looking unreferenced; and
   ""scripts/stage-cli-cdn\.sh"" pointed at a README instead of
   ""internal/cdn/distribution-update"".
+
+  **A third defect, found by reading the prose rather than the paths:**
+  the ""(D1)…(D6)"" and ""(C1)…(C7)"" ids cited in eleven places were defined
+  nowhere in the repo. Recovered from their citing prose into
+  ""_conventions/design-decision-ids\.puml"" and wired back from the three
+  citing sources, so a reader can now resolve an id instead of trusting it.
 
   Still open, outside this plan: ""tests/40-agent-e2e-components"",
   ""tests/41-agent-e2e-sequence"" and ""tests/42-hello-world-e2e"" name no

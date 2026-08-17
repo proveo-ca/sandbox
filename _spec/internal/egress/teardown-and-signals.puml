@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' Destination diagram — prose from cmd/proveo/main.go (execWithEgress, cleanup, onSignalCleanup,
-' captureSidecarLogs, the Squid log-dir chmod) and internal/egress/exec.go lands here (batches 3 and 4).
+' SPEC source: cmd/proveo/main.go (execWithEgress · cleanup · onSignalCleanup ·
+' captureSidecarLogs · the Squid log-dir chmod) and internal/egress/exec.go.
 title Bring-up and teardown — who owns cleanup when a signal skips every defer
 
 node "cmd/proveo — execWithEgress" as EXEC <<host>> {
@@ -19,22 +19,126 @@ node "internal/egress — Plan" as PLAN <<host>> {
   component "Teardown(Runner)\nquiet runner — expected errors stay quiet" as DOWN <<app>>
 }
 
-component "dind.Sidecar.Cleanup" as DIND <<app>>
+component "assemble(assembleInput)\n→ Plan + runner.Config" as ASM <<app>>
+component "dind.Sidecar.Cleanup\nNOT safe to call concurrently" as DIND <<app>>
 database "<egDir>/inject/broker.env\n0600, must not outlive the run" as INJECT <<db>>
 component "Agent container\ndocker run -it" as AGENT <<app>>
 component "Leaked sidecar · network · secret\nsignal skipped every defer" as LEAK <<error>>
 component "Cold-start race\nagent's first request beats Squid" as RACE <<error>>
 
+ASM ARROW_MAIN STAGE : everything below is applied, nothing is decided
 STAGE ARROW_MAIN APPLY
-ONCE ARROW_MAIN SIG : same func, either path
+ONCE ARROW_MAIN SIG : same once-guarded func, either path
 APPLY ARROW_MAIN WSQ
 APPLY ARROW_OPTIONAL WOL : local-model add-on
 APPLY ARROW_OPTIONAL WCA : firewall tier only
 WSQ ARROW_MAIN AGENT : only once ready
 WSQ ARROW_ERROR RACE : without the probe
 AGENT ARROW_QUEUE LOGS : on exit
-LOGS ARROW_MAIN DOWN : order is load-bearing — --rm discards them
+LOGS ARROW_MAIN DOWN : order is load-bearing — ""--rm"" discards them
 DOWN ARROW_MAIN DIND
 DOWN ARROW_MAIN INJECT : remove
 SIG ARROW_ERROR LEAK : what this guards against
+
+note left of ASM
+  **The plan is decided before this path starts, and deciding it touches
+  nothing.** ""assemble"" reads only its resolved inputs — no environment,
+  no filesystem, no exec — so the topology and the agent's run config can
+  be asserted in a unit test with no Docker present. Everything below
+  this line is execution: it may fail on the host, and that is why it
+  needs the cleanup contract rather than a return value.
+end note
+
+note right of ONCE
+  **Teardown is owned by the exec path, not by the caller that built the
+  plan.** Two branches own it — ""execWithEgress"" for a run with an egress
+  topology, and a signal-safe branch for the bare path — and exactly one
+  of them always runs after a successful start, with no early return
+  between. Registering the cleanup //before// any staging is what makes an
+  early failure still tear down what ""doRun"" already brought up, which in
+  practice means the privileged DinD sidecar.
+
+  It must be once-guarded and nil-safe: it can fire from the signal
+  goroutine while the normal-return defer runs it too, and most runs have
+  no DinD sidecar to clean up at all.
+
+  **The awkward case is DinD without a topology** — brokered credentials
+  and no local model. There is no lifecycle teardown to hang it on, but a
+  privileged sidecar must still come down on a signal, so the same single
+  guarded function backs both the defer and the handler. ""Cleanup"" is not
+  safe to call concurrently, so //one// guarded entry point is not a
+  stylistic choice.
+end note
+
+note bottom of SIG
+  **Go does not run deferred functions when a signal ends the process.**
+  Every ""defer"" in the run is therefore useless for the case an operator
+  is most likely to cause: Ctrl-C. Anything that outlives the process if
+  skipped — the egress topology, the injected secret, a privileged
+  sidecar — needs this handler instead.
+
+  It runs the cleanup and exits 130 (the shell's convention for
+  SIGINT), and returns a stop func so the caller can deregister it on the
+  normal path.
+end note
+
+note right of LOGS
+  **The sidecars' output is captured before teardown because there is no
+  second copy.** They run detached with ""--rm"", so ""docker logs"" is the
+  only record and it disappears with the container.
+
+  That record is what names //which// component refused a request and
+  why. Without it a 403 from Squid is indistinguishable from the
+  provider's own 401 — the exact confusion this capture exists to end. It
+  runs on the teardown path, including after a failure, so it is
+  best-effort throughout: it must never itself be the reason a run
+  reports an error.
+end note
+
+note right of WSQ
+  **Squid is the internet-facing upstream that both enforced tiers transit**,
+  so it is the one sidecar the agent cannot start ahead of: the probe waits
+  for it to accept connections on :3128 before ""docker run"", which is what
+  keeps the agent's first request from racing a cold Squid.
+end note
+
+note bottom of STAGE
+  **Only what the plan needs is staged** — Squid config and log dir when
+  a Squid sidecar exists, the mitmproxy confdir and flow dir only on the
+  firewall tier.
+
+  **The Squid log dir is world-writable, and only Linux reveals why.**
+  Squid starts as root and drops to its own ""proxy"" user (uid 13) to
+  write ""access\.log"" and ""cache\.log"". On Linux a bind mount preserves
+  host ownership, so a directory owned by the invoking host uid at 0755
+  is //not// writable by uid 13: Squid exits during startup, ""--rm"" leaves
+  it "marked for removal", and the network-connect inside ""Apply"" fails
+  with nothing pointing at permissions. Docker Desktop on macOS makes
+  bind mounts permissive, which is why this reproduces on Linux hosts
+  only.
+
+  World-write is acceptable for a per-user, per-session state directory.
+  The egress-proxy directories stay 0755 because that sidecar runs as
+  the host uid and already owns them.
+end note
+
+note bottom of DOWN
+  **Teardown and readiness probes run on a quiet runner.** Both
+  legitimately hit transient docker errors: "No such container" once a
+  ""--rm"" sidecar has already removed itself, "connection refused" while
+  Squid is still binding :3128. Those lines are expected, and letting
+  docker's stderr reach the operator's terminal makes a healthy run look
+  broken.
+
+  ""Apply"" keeps stderr on. Its failures are real and must be seen — the
+  distinction is between an error that is part of the protocol and one
+  that ends the run.
+end note
+
+note right of DIND
+  Attached to the agent's user-defined network so the agent resolves
+  ""docker"" by alias — the broker-plus-local-model case. On the default
+  bridge the same reachability is wired with ""--link"" instead. A no-op
+  when the run has no sidecar or no network.
+end note
 @enduml

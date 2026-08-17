@@ -61,6 +61,27 @@ note bottom of VENDOR
   mode, which forwards the real ""CURSOR_API_KEY"".
   The provider pin maps that key to "".cursor.sh"" /
   "".cursor.com"".
+
+  **What an intercepting tier looks like from inside the
+  container.** ""cursor-agent""'s TLS to ""api2\.cursor\.sh""
+  is pinned, so the MITM hop cannot be made to carry the
+  real header: the allowlist tier (//firewall//) hands the
+  agent the ""proveo-brokered"" sentinel and the review tier
+  (//proxy//) withholds the key altogether. Either way the
+  CLI reports //"invalid API key"// — an error that blames
+  the credential rather than the tier that removed it, so
+  the operator cannot tell a revoked key from a proveo
+  decision.
+
+  **So the posture is declared, not defaulted per-flag.**
+  cursor's manifest declares ""capabilities: egress:[open] ·
+  credentials:[forward] · providers:[cursor]"", which is the
+  only combination that authenticates it; an intercepting
+  selection is warned about by name, pointing at
+  ""--egress-mode open --credentials forward"". Earlier the
+  same guarantee was a run-time default — broker unless the
+  operator had //explicitly// changed the mode flag — and
+  that is the shape the removed ""main\.go"" prose described.
 end note
 
 note bottom of EP

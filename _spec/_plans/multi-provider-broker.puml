@@ -33,6 +33,32 @@ note bottom of SENT
   cannot express two providers.
 end note
 
+note bottom of CFG
+  **This landed.** ""brokerProviders"" returns the whole detected set and
+  ""broker\.Config"" carries ""Routes"" — one entry per broker-injectable
+  provider, in registry order — so the right-hand node is the shipped
+  shape and the left-hand one is history. What follows is the history
+  worth keeping, recovered from the ""main\.go"" prose it replaced.
+
+  **The old shape and its failure.** It used to pin exactly one
+  provider, falling back to a model-name heuristic when several keys
+  were present. That made a //correct// multi-provider "".env"" fail:
+  the unpinned providers received the sentinel and the harness reported
+  an invalid API key. Returning the whole set is what lets a session
+  whose roles span vendors authenticate — each key is injected only
+  toward its own provider's hosts, so N routes carry the same guarantee
+  as one did.
+
+  **The warning shrank with it.** The "several providers, broker pins
+  one" warning is gone; several providers is the supported shape, not a
+  caveat. What ""brokerOffReason"" still explains is the one posture
+  where the container holds sentinels with //nothing// brokering them —
+  keys detected but none broker-injectable, or the broker disabled
+  through ""PROVEO_CREDENTIAL_BROKER"" — because from inside the
+  container that is indistinguishable from a bad key, and the way out
+  is ""--credentials forward"".
+end note
+
 note right of APPLY
   **The invariant that makes this safe.** A key is injected only on a
   request whose destination matches ITS OWN route. Provider A's secret
@@ -73,6 +99,19 @@ note bottom of AMB
   wrong guess costs a warning instead of a 401. Heuristics belong on the
   warning path, never on the credential path. This codebase has now been
   bitten twice by one on the credential path.
+
+  **As shipped: ""modelPinnedProvider"" is now deleted.** The credential
+  path had already stopped calling it — ""brokerProviders"" returns the
+  whole detected set — so it sat in ""cmd/proveo/main\.go"" as a definition
+  with no caller until the prose migration noticed. Removing it was
+  bookkeeping, not a behavior change.
+
+  Its reasoning is not lost: a model id //names// its provider, so a host
+  holding five keys but pointed at ""claude-opus-5"" is unambiguously an
+  anthropic run, and roles that disagree refuse the pin rather than
+  guess. That is recorded in the ""BrokerPin"" note of
+  ""_spec/internal/egress/egress-tiers\.puml"", which is where the rule
+  belongs now that no single function owns it.
 end note
 
 note bottom of ENV

@@ -70,6 +70,13 @@ note right of M
   Loaded from disk (""Load"") or from the binary's
   embedded copy (""LoadFS"" + ""embed.go""), so the CLI
   works with no defs tree present.
+
+  **Which of the two ""cmd/proveo"" picks is an override, not
+  a search.** ""loadManifests"" reads the manifests embedded in
+  the binary, and reads a working-tree defs dir instead when
+  ""PROVEO_DEFS_DIR"" is set. That env var exists for dev
+  iteration: a def can be edited and run without rebuilding
+  the binary to re-embed it.
 end note
 
 note bottom of W

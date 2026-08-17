@@ -58,6 +58,13 @@ note bottom of BYPASS
   injector — so brokering there would be a guarantee on paper only.
   Both are declared per def in ""harness.manifest"" ""capabilities"", not
   special-cased by target name.
+
+  **And it is the one posture with no record.** A plain bridge means no
+  MITM and no Squid: the real key goes straight to the provider and
+  nothing observes the exchange. So a provider's own 401 and an egress
+  denial look identical from the harness's side — except that only the
+  first can happen here. Reproducing such a failure under ""allowlist"" is
+  what turns it into a flow record worth reading.
 end note
 
 note right of ALIAS

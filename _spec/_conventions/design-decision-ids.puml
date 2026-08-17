@@ -1,0 +1,153 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' SPEC source (every file that cites an id):
+'   cmd/proveo/main.go · cmd/proveo/main_test.go — C6, D2
+'   internal/egress/plan.go · internal/egress/egress_test.go — D1, D3, C1
+'   internal/workspace/mount.go · internal/workspace/mount_test.go — D4, D5, D6
+title Design decision ids — recovered from the source that cites them
+
+node "D-series — structural decisions\nwhere a thing lives and how it is extended" as DS <<host>> {
+  component "**D1**\none definition, no parallel list" as D1 <<app>>
+  component "**D2**\npure seams, testable without Docker" as D2 <<app>>
+  component "**D3**\na variant is one table entry" as D3 <<app>>
+  component "**D4**\nrunner formats argv, it does not decide" as D4 <<app>>
+  component "**D5**\nthe manifest owns a shape" as D5 <<app>>
+  component "**D6**\nthe mount model is declared, not coded" as D6 <<app>>
+}
+
+node "C-series — runtime constraints\nwhat must hold while a run executes" as CS <<host>> {
+  component "**C1**\noperator domains are honoured unconditionally" as C1 <<app>>
+  component "**C2**\nthe injected secret does not outlive the run" as C2 <<app>>
+  component "**C4**\nteardown survives signals" as C4 <<app>>
+  component "**C6**\nthe agent's exit code passes through" as C6 <<app>>
+  component "**C7**\nstage only what the plan needs" as C7 <<app>>
+}
+
+component "An id cited by code but defined nowhere\nreads as a promise someone else already checked" as DEAD <<error>>
+database "This diagram — the definitions,\nderived from the citing prose" as DEFS <<db>>
+
+DS ARROW_MAIN DEFS
+CS ARROW_MAIN DEFS
+DEFS ARROW_ERROR DEAD : what these citations were until now
+
+note bottom of DEAD
+  **Provenance, stated plainly.** These ids are cited in eleven places
+  across ""cmd/proveo"", ""internal/egress"" and ""internal/workspace"", and they
+  were **never defined anywhere in this repository** — not in ""_spec"", not
+  in any ""\.md"", and not even in the commit that introduced them
+  (""feat: go migration & upgrades""). They arrived from a design
+  conversation that never landed.
+
+  So the source is the only authority, and every definition below is
+  //derived from the prose that cites it//. That prose is quoted closely
+  rather than re-imagined: an id whose meaning is reconstructed loosely is
+  worse than no id at all, because it silently re-labels a decision
+  nobody made.
+
+  Four ids —​ **D2 · C2 · C4 · C7** —​ were cited by prose that has since
+  moved into named diagrams, which now state those facts without an id.
+  Their entries here exist so an old citation, a commit message or a
+  reviewer's memory still resolves.
+
+end note
+
+note right of D1
+  **Every created resource is paired with its teardown at the moment it is
+  added, and shared wiring is written once.**
+
+  ""builder"" records each network and sidecar together with the command
+  that removes it, instead of a second hand-synced cleanup list — the
+  original form was a silent container-leak hazard, because forgetting an
+  entry produced no error at all.
+
+  Same principle on the other side: ""attachLocalModel"" is shared by all
+  three modes and ""localModelArgs"" is one superset each harness consumes
+  selectively, so the local-model wiring cannot drift per mode or per
+  agent. //Cited at// ""internal/egress/plan\.go"" ×3.
+end note
+
+note right of D2
+  **The gating, dispatch and assembly logic is extracted into pure seams.**
+  ""assemble"" reads only resolved inputs — no environment, filesystem or
+  exec — so a topology and an agent run config can be asserted with no
+  Docker present.
+
+  The test file names the motivation directly: these are "the seams that
+  were untestable inside the old god-function". //Cited at//
+  ""cmd/proveo/main_test\.go"", and by the ""assemble"" prose now held in
+  ""_spec/internal/egress/teardown-and-signals\.puml"".
+end note
+
+note right of D3
+  **Adding an egress mode is a one-line entry.** ""modeBuilders"" is the
+  single source of both the canonical order (CLI help and validation) and
+  the plan builder (dispatch), so a new mode cannot be half-added — present
+  in the switch but missing from help, or vice versa.
+  //Cited at// ""internal/egress/plan\.go"".
+end note
+
+note right of D4
+  **""internal/runner"" stays a pure argv formatter.** Mount planning lives
+  in ""internal/workspace"", beside the git-scope resolver that decides what
+  to mount — not in the package that renders flags. Execution is the
+  caller's concern, which is what keeps the argv golden-testable.
+  //Cited at// ""internal/workspace/mount\.go"".
+end note
+
+note right of D5
+  **A shape declared in the manifest is embedded, never re-declared.**
+  ""MountSpec"" embeds ""manifest\.Workspace"" rather than copying its fields,
+  so the manifest stays the single source of that shape and a schema change
+  cannot leave two definitions disagreeing.
+  //Cited at// ""internal/workspace/mount\.go"".
+end note
+
+note right of D6
+  **The workspace mount model is declared per def, not decided in code** —
+  including ""mode: ro"", which is what makes an ""/app"" mount read-only. A
+  harness changes its mount posture by editing its manifest, not by
+  reaching into mount planning. //Cited at//
+  ""internal/workspace/mount_test\.go"".
+end note
+
+note left of C1
+  **Operator-supplied domains are honoured whether or not a provider is
+  pinned.** The regression this guards: an early return dropped custom
+  domains entirely when no named provider was detected, so a run with only
+  ""\.myhost\.internal"" got an allowlist that admitted nothing.
+  //Cited at// ""internal/egress/egress_test\.go"".
+end note
+
+note left of C2
+  **The injected credential must not outlive the run.** The broker env file
+  is removed on every teardown path, including the signal path.
+  Enforcement now described in
+  ""_spec/internal/egress/teardown-and-signals\.puml"".
+end note
+
+note left of C4
+  **Teardown survives SIGINT and SIGTERM.** Go does not run deferred
+  functions when a signal ends the process, so the topology, the secret and
+  any privileged sidecar come down from a signal handler instead.
+  Enforcement now described in
+  ""_spec/internal/egress/teardown-and-signals\.puml"".
+end note
+
+note left of C6
+  **The agent's own non-zero exit is not a proveo error.** Its code
+  propagates verbatim, with no ""error:"" prefix, so a harness's exit status
+  survives the wrapper.
+
+  Only the agent's. A failed helper subprocess — ""docker pull"", a
+  ""build\.sh"" — also wraps an ""*exec\.ExitError"", and treating that as an
+  agent exit would end the run silently. A named exit type is what keeps
+  the two apart. //Cited at// ""cmd/proveo/main\.go"" and its regression test.
+end note
+
+note left of C7
+  **Only what the plan needs is staged.** Squid config and log dir when
+  there is a Squid sidecar, the mitmproxy confdir and flow dir only on the
+  firewall tier. Enforcement now described in
+  ""_spec/internal/egress/teardown-and-signals\.puml"".
+end note
+@enduml

@@ -100,3 +100,11 @@ apps/cli/public/cli/checksums.txt
 # Go coverage data dirs (go tool covdata)
 cov/
 *.coverprofile
+
+# Diagram renders. _spec/**/*.puml is the source of truth and every diagram is
+# regenerated on demand (plantuml -tsvg / -tpng); a checked-in render goes stale
+# the moment its source changes. Validate with `plantuml -checkonly`, which
+# writes nothing. Curated README assets under _spec/_assets are not renders.
+_spec/**/*.svg
+_spec/**/*.png
+!_spec/_assets/**

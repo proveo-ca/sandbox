@@ -107,6 +107,13 @@ note bottom of DENY
   cron never hang waiting for a human. Terminal state is restored
   through the existing ""onSignalCleanup"" path — raw mode must not
   survive the process.
+
+  **But a silent denial reads as a broken tier, not a strict one.** Both
+  ways the prompt can be unreachable say so once: no usable terminal at
+  bring-up warns that every new connection will be denied, and an
+  ""Overlay"" error at ask-time warns with the error and the ""host:port"" it
+  is refusing. Denying is still the right answer — the operator just has
+  to be able to tell it apart from a tier that is failing.
 end note
 
 note bottom of AGENT

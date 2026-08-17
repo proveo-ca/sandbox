@@ -1,0 +1,82 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' SPEC source: internal/provider/roles.go (RolesFromCanonical) · cmd/proveo/main.go (mergeRoles)
+' Record of a plan-vs-implementation drift found by the batch-3 prose migration, and the
+' decision taken: the spec was amended to describe what ships.
+title DECIDED — A remembered model id is kept verbatim, not dropped (spec amended to match source)
+
+node "What ships today" as SHIPPED <<host>> {
+  component "cmd/proveo mergeRoles\nfills only roles the operator did not set" as MERGE <<app>>
+  component "provider.RolesFromCanonical\ncopies every non-empty id through:\nno catalog lookup · no warning · no drop" as COPY <<app>>
+}
+
+node "What two diagrams claimed" as CLAIMED <<host>> {
+  component "internal/provider/model-resolution\n""a cached id that no longer resolves\ndegrades to a warning and is dropped""" as D1 <<app>>
+  component "_plans/harness-choice-cache\nthe same sentence, same claim" as D2 <<app>>
+}
+
+database "~/.proveo/agent-settings\.yml\ntargets.<t>.models — canonical ids" as CACHE <<db>>
+component "Two opposite rules inside _spec\nif the prose had been migrated as written" as SPLIT <<error>>
+component "Rejected for now: implement the drop\n(catalog lookup at merge time + a warning path)" as DROP <<error>>
+
+CACHE ARROW_MAIN MERGE : remembered roles
+MERGE ARROW_MAIN COPY
+COPY ARROW_ERROR D1 : contradicted
+COPY ARROW_ERROR D2 : contradicted
+D1 ARROW_ERROR SPLIT
+D2 ARROW_ERROR SPLIT
+CLAIMED ARROW_OPTIONAL DROP : the other way to resolve it
+
+note bottom of COPY
+  **The code, verified line by line.** ""RolesFromCanonical""
+  (""internal/provider/roles\.go:104"") walks ""RoleVars"" and assigns every
+  remembered value that is non-empty after trimming. There is no catalog
+  lookup in that path, so "no longer resolves" is a state it cannot
+  observe, and nothing warns or drops.
+
+  ""mergeRoles"" then applies a remembered role **only** where the operator
+  set nothing, so an exported ""ARCHITECT_MODEL"" is never contradicted and
+  one explicit role does not discard the two remembered beside it. That
+  half was always accurate in both diagrams.
+end note
+
+note right of SPLIT
+  **How it surfaced, and why nothing was written.** The batch-3 prose
+  migration (""_spec/_plans/prose-to-spec-migration\.puml"") assigned the
+  ""mergeRoles"" comment to these two diagrams. Migrating it as written would
+  have placed keep-verbatim next to drop-with-warning in ""_spec"" — two
+  opposite rules for one code path — so the block was left whole in the
+  source and escalated instead of half-trimmed. It is the only block in
+  batch 3 that was refused.
+
+  Worth naming the general trap: **a diagram titled PLANNED is not
+  evidence of behaviour.** Both of these were, and both had been read as
+  description for long enough that the source comment looked like the
+  stale side. The drift guard compares fingerprints, not semantics, so
+  only reading the two together catches this class.
+end note
+
+note bottom of MERGE
+  **The decision: the spec now describes keep-verbatim.** The reasoning in
+  the source comment stands on its own — proveo cannot tell a catalog that
+  is //behind// from a model that is //gone//, and the harness that owns the
+  model list produces the better error than a launcher guessing from a
+  table it may not have synced.
+
+  What survives from the old sentence is its real constraint: proveo must
+  not hard-fail on a file it wrote itself. Keeping the id honours that as
+  well as dropping it would have.
+end note
+
+note bottom of DROP
+  **Not implemented, and recorded so the option is not lost.** Dropping a
+  stale id would need a catalog lookup at merge time, a warning path for
+  the dropped role, and both diagrams reverted to their earlier wording.
+
+  The argument for it: a remembered id that no longer exists sends the run
+  to the harness only to fail there. The argument against is the one that
+  won: proveo's catalog is synced from the harnesses (""sync-models""), so it
+  is the side more likely to be stale, and dropping on its say-so would
+  discard a model that actually works.
+end note
+@enduml

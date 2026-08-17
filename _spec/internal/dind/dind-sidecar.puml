@@ -35,6 +35,21 @@ note right of G2
   warns when ""PROVEO_DIND"" was set.
 end note
 
+note right of DIND
+  **""DOCKER_HOST"" is only half the attachment — how the
+  name ""docker"" resolves depends on where the agent runs.**
+  Both shapes are broker mode; the env flags are the same
+  either way, only the reachability differs:
+
+  | agent network | how ""docker"" resolves |
+  | default bridge — broker //without// a local model | a legacy ""--link"", appended to the agent's argv at start |
+  | user-defined network — broker //with// a local model | the daemon is attached to that network under the alias ""docker"" |
+
+  The alias case is wired later, from ""execWithEgress"",
+  because the network does not exist yet when the daemon
+  starts.
+end note
+
 note bottom of DIND
   **The one deliberately unhardened component.** Privileged
   by construction, so an agent that reaches it can

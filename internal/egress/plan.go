@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml
 package egress
 
 import (
