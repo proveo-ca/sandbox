@@ -66,6 +66,12 @@ the request and policy is a no-op (injected key never DLP-flagged).
 Layers A/B/C require TLS decryption, so they run wherever the MITM does — every tier
 except ""open"" + ""--credentials forward"". The ""open"" tier drops layer A (the write
 pin) and the byte budget; the sink denylist and DLP scan stay on.
+
+**Attachment is a flag, not a mode name.** The proxy attaches the policy on
+""EnforcePolicy"", and the tier is expressed //inside// the config (""OpenNetwork"")
+rather than by which modifier gets wired — so a tier rename cannot silently
+detach enforcement. A zero ""Config"" is itself fail-closed: reads allowed, every
+off-provider write denied, detectors simply inactive where their fields are empty.
 end note
 
 note right of PolicyMod

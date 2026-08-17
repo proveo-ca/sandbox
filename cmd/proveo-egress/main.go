@@ -1,13 +1,6 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_plans/multi-provider-broker.puml, _spec/_conventions/design-decision-ids.puml
 //
-// Command proveo-egress is the egress inspection sidecar for firewall
-// mode: a Go MITM proxy that records flows, brokers credentials, and forwards to
-// Squid upstream. It replaces the Python mitmproxy sidecar.
-//
-// Configuration is by environment so the egress lifecycle can wire it with
-// `docker run -e`. Secrets are NOT passed on argv/env: the broker reads provider
-// keys from a mounted 0600 env-file (PROVEO_EGRESS_BROKER_ENVFILE) and resolves
-// the right one via the provider registry given PROVEO_EGRESS_PROVIDER.
+// Command proveo-egress is the egress inspection sidecar for firewall mode.
 package main
 
 import (
@@ -29,9 +22,6 @@ import (
 )
 
 func main() {
-	// Subcommands let defs/lib/egress.sh delegate provider detection + Squid
-	// allowlist generation to this single Go source (PROVEO_EGRESS_BIN). With no
-	// subcommand the binary serves the proxy (the image ENTRYPOINT).
 	switch cmd := firstArg(); cmd {
 	case "detect":
 		fmt.Println(strings.Join(provider.Detect(mergedLookup()), " "))
@@ -64,9 +54,6 @@ func serve() {
 		},
 	}
 
-	// The explicit escape hatch stays a single route: an operator overriding
-	// PROVEO_EGRESS_BROKER_HOSTS is naming one destination on purpose, and it
-	// suppresses registry-driven routing entirely so the override is total.
 	if hosts := splitCSV(env("PROVEO_EGRESS_BROKER_HOSTS", "")); len(hosts) > 0 {
 		cfg.Broker.Routes = []broker.Route{{
 			Provider:  "explicit",
@@ -91,9 +78,6 @@ func serve() {
 	}
 }
 
-// buildPolicy derives the egress policy from the resolved provider hosts, a
-// default write-allowlist + custom domains, the embedded exfil-sink denylist,
-// and the provider secret values (from the mounted broker env-file) for DLP.
 func reviewConnect() func(host, port string) bool {
 	sock := env("PROVEO_EGRESS_REVIEW_SOCKET", "")
 	if sock == "" || !envTruthy("PROVEO_EGRESS_REVIEW") {
@@ -113,17 +97,6 @@ func envTruthy(k string) bool {
 	return false
 }
 
-// registryRoutes builds one broker route per provider whose key is present in
-// the mounted secret env-file — the file already holds every detected key, so
-// the keys present ARE the providers the session can authenticate.
-//
-// Deriving the set from the file rather than from a name passed by the host
-// keeps the two from disagreeing: a host that pins one provider while the file
-// holds three used to leave the other two with the sentinel.
-//
-// PROVEO_EGRESS_PROVIDERS narrows the set explicitly when the operator wants a
-// smaller blast radius; PROVEO_EGRESS_PROVIDER (singular) is still honoured for
-// compatibility with a pinned-provider host.
 func registryRoutes() []broker.Route {
 	secrets := parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", ""))
 	if len(secrets) == 0 {
@@ -178,9 +151,6 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	write = append(write, custom...)
 	write = append(write, splitCSV(env("PROVEO_EGRESS_WRITE_HOSTS", ""))...)
 
-	// DLP targets: every provider key value present, plus each route's injected
-	// value. The route values are added bare (without any "Bearer " prefix) so the
-	// scanner matches the secret as it would appear re-encoded in a body.
 	var secrets []string
 	for _, v := range parseEnvFile(env("PROVEO_EGRESS_BROKER_ENVFILE", "")) {
 		if v != "" {
@@ -194,21 +164,14 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	}
 
 	return egresspolicy.Config{
-		OpenNetwork:       envTruthy("PROVEO_EGRESS_OPEN"),
-		ReviewConnect:     reviewConnect(),
-		ProviderHosts:     providerHosts,
-		WriteHosts:        write,
-		DenySinks:         egresspolicy.DefaultSinks,
-		Secrets:           secrets,
-		BlockKnownSecrets: true,
-		// Primary encoding-evasion defense (F1), on by default: decode base64/hex
-		// tokens in the URL/body and re-scan for the exact secret + credential
-		// shapes. Low false-positive — only fires when a token decodes to a real
-		// secret. Disable with PROVEO_EGRESS_DLP_DECODE=off.
-		DecodeScan: envBool("PROVEO_EGRESS_DLP_DECODE", true),
-		// Opt-in backstop: catches encoded UNKNOWN high-entropy blobs too, but
-		// false-positives on legitimate high-entropy URLs (presigned links, JWTs),
-		// so it is off by default. Enable with PROVEO_EGRESS_DLP_ENTROPY=on.
+		OpenNetwork:        envTruthy("PROVEO_EGRESS_OPEN"),
+		ReviewConnect:      reviewConnect(),
+		ProviderHosts:      providerHosts,
+		WriteHosts:         write,
+		DenySinks:          egresspolicy.DefaultSinks,
+		Secrets:            secrets,
+		BlockKnownSecrets:  true,
+		DecodeScan:         envBool("PROVEO_EGRESS_DLP_DECODE", true),
 		BlockEntropy:       envBool("PROVEO_EGRESS_DLP_ENTROPY", false),
 		MaxOutBytesPerHost: envInt("PROVEO_EGRESS_MAX_OUT_BYTES", 16384),
 	}
@@ -252,9 +215,6 @@ func firstArg() string {
 	return ""
 }
 
-// mergedLookup reads a var from the process env first, then falls back to the
-// mounted secret env-file — mirroring the Bash `proveo_egress_key_present`,
-// which checks both the environment and PROVEO_EGRESS_ENV_FILE.
 func mergedLookup() func(string) string {
 	secrets := parseEnvFile(env("PROVEO_EGRESS_ENV_FILE", ""))
 	return func(k string) string {
@@ -302,10 +262,6 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// parseEnvFile reads a mounted KEY=VALUE secret file (the shape of a project
-// .env). Missing/unreadable file => empty map (broker degrades to pass-through).
-// Tolerates blank lines, `#` comments, a leading `export `, and surrounding
-// single/double quotes on the value.
 func parseEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	if path == "" {

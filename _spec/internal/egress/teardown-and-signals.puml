@@ -100,6 +100,18 @@ note right of WSQ
   so it is the one sidecar the agent cannot start ahead of: the probe waits
   for it to accept connections on :3128 before ""docker run"", which is what
   keeps the agent's first request from racing a cold Squid.
+
+  The probe is a bash ""/dev/tcp"" connect run //inside// the container, for a
+  blunt reason: the ""ubuntu/squid"" image ships bash but neither ""nc"" nor
+  ""squidclient"", so the shell's own socket redirection is the only test
+  available without adding a package to the image.
+end note
+
+note bottom of WOL
+  Readiness here means the server accepts connections — ""ollama list""
+  succeeding. Model **cold-load** is not covered and still happens on the
+  agent's first inference call, so a first prompt against a large local
+  model is slow by design rather than hung.
 end note
 
 note bottom of STAGE

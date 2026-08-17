@@ -42,9 +42,6 @@ func (p Plan) Apply(r Runner) error {
 // ollamaPollInterval is the WaitOllamaReady poll cadence (var so tests can shrink it).
 var ollamaPollInterval = 500 * time.Millisecond
 
-// WaitOllamaReady polls `docker exec <name> ollama list` until it succeeds (the
-// server is accepting connections) or the timeout elapses. Model cold-load still
-// happens on the agent's first inference call, not here.
 func WaitOllamaReady(r Runner, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -61,12 +58,6 @@ func WaitOllamaReady(r Runner, name string, timeout time.Duration) error {
 // squidPollInterval is the WaitSquidReady poll cadence (var so tests can shrink it).
 var squidPollInterval = 300 * time.Millisecond
 
-// WaitSquidReady polls until the Squid sidecar accepts a TCP connection on :3128
-// (a bash /dev/tcp probe run inside the container — the ubuntu/squid image has
-// bash but no nc/squidclient) or the timeout elapses. It closes the startup race
-// where the agent (proxy mode) or the egress proxy (firewall mode) fires its
-// first request into a not-yet-listening Squid; the CA-wait and Ollama-wait were
-// the only gates before.
 func WaitSquidReady(r Runner, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {

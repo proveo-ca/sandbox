@@ -1,14 +1,5 @@
-// Package egresspolicy is the pure, stdlib-only egress policy core for
-// firewall mode. It implements the read-allow / write-deny / DLP decision
-// (layers A, B, C) over an *http.Request so the security-critical logic is
-// table-testable without the proxy runtime. internal/egressproxy wires it as
-// a martian RequestModifier.
-//
-// SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml
-//
-// Every rule applies OFF-provider only: a request to a pinned-provider host is
-// allowed untouched (the broker owns it), so the broker's injected credential is
-// never mis-flagged by the DLP scanner.
+// Package egresspolicy is the stdlib-only egress policy core for firewall mode.
+// SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
 import (
@@ -36,16 +27,8 @@ type Decision struct {
 	Reason string // "" when allowed; one of the Reason* constants otherwise
 }
 
-// Config declares the policy. The posture is read-allow / write-deny: reads are
-// allowed to any non-sink host, writes only to ProviderHosts or WriteHosts.
-// Empty DLP fields disable those detectors. A Policy always enforces this posture
-// once attached; the wiring attaches it only for firewall (open/proxy
-// modes leave it off), so a zero Config is a safe fail-closed default (reads
-// allowed, all off-provider writes denied).
+// Config declares the policy: read-allow / write-deny, DLP detectors off where empty.
 type Config struct {
-	// ProviderHosts are pinned-provider domain suffixes (e.g. ".anthropic.com").
-	// Requests here are allowed untouched — the broker owns them; DLP is skipped so
-	// the injected credential is not self-flagged.
 	ProviderHosts []string
 	// WriteHosts are suffixes where write methods (POST/PUT/PATCH/DELETE) are allowed
 	// and which are exempt from the outbound byte budget.
@@ -59,15 +42,8 @@ type Config struct {
 	Secrets []string
 	// BlockKnownSecrets enables the generic secret-shape patterns (sk-, AKIA, ...).
 	BlockKnownSecrets bool
-	// DecodeScan enables decode-and-rescan: base64/hex tokens in the URL/body are
-	// decoded (one level) and re-checked against the exact-value and pattern
-	// matchers. This is the primary defense against encoding-based DLP evasion and
-	// is low-false-positive (only fires when a token decodes to an actual secret).
-	DecodeScan bool
-	// BlockEntropy enables the high-entropy-token heuristic — an opt-in backstop
-	// that also catches encoded UNKNOWN blobs, at the cost of false positives on
-	// legitimately high-entropy URLs.
-	BlockEntropy bool
+	DecodeScan        bool
+	BlockEntropy      bool
 	// MaxOutBytesPerHost caps cumulative (query+body) bytes to a non-allowlisted host
 	// over the policy's lifetime. 0 => unlimited.
 	MaxOutBytesPerHost int64
@@ -118,14 +94,7 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	if matchHost(host, p.denySinks) {
 		return Decision{Reason: ReasonSink}
 	}
-	// CONNECT is TLS tunnel setup, not the real request — a MITM proxy runs the
-	// modifier on it AND on the decrypted inner request. Allow it (past the sink
-	// deny) so the tunnel establishes; the inner request carries the real method,
-	// URL, headers, and body and gets the full method-pin + DLP treatment below.
 	if req.Method == http.MethodConnect {
-		// An explicitly allowlisted host is already sanctioned, so asking about it
-		// again is pure prompt fatigue — and fatigue is what turns a consent gate
-		// into a click-through reflex. Review asks about the UNSANCTIONED only.
 		if matchHost(host, p.writeHosts) {
 			return Decision{Allow: true}
 		}
@@ -148,10 +117,6 @@ func (p *Policy) Decide(req *http.Request) Decision {
 			return Decision{Reason: ReasonSecret}
 		}
 	}
-	// C(2): outbound byte budget for non-allowlisted hosts. Charge the whole
-	// request-target — path AND query — plus body, so data smuggled in the URL
-	// path (GET /<base64…>) is bounded like any other exfil, closing the
-	// path-not-counted budget bypass (F2).
 	if p.maxBytes > 0 && !allowlisted {
 		if p.charge(host, int64(len(req.URL.RequestURI()))+bodyLen) {
 			return Decision{Reason: ReasonBudget}
@@ -160,10 +125,6 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	return Decision{Allow: true}
 }
 
-// scanHeaders reports whether any request header value carries a secret. The
-// broker strips a fixed set of header NAMES off-provider; this catches a secret
-// smuggled in any header (and covers the multi-provider case where the broker is
-// not wired to strip at all).
 func (p *Policy) scanHeaders(req *http.Request) bool {
 	for _, vals := range req.Header {
 		for _, v := range vals {
@@ -182,12 +143,6 @@ func (p *Policy) charge(host string, n int64) bool {
 	return p.outByHost[host] > p.maxBytes
 }
 
-// peekBody reads at most maxBodyScan bytes of req.Body for the DLP scan and
-// reattaches an equivalent body that streams the untouched remainder — so proxy
-// memory stays bounded by maxBodyScan regardless of upload size (a multi-GiB
-// push is no longer fully buffered). Returns the scanned prefix and the body
-// length for the budget: the client's ContentLength when set, else the scanned
-// length (the tail is not drained to measure it). Bodyless requests return nil, 0.
 func peekBody(req *http.Request) (scan []byte, fullLen int64) {
 	if req.Body == nil {
 		return nil, 0
@@ -225,9 +180,6 @@ func (b *prefixBody) Read(p []byte) (int, error) {
 
 func (b *prefixBody) Close() error { return b.rest.Close() }
 
-// matchHost reports whether host equals or is a dot-anchored subdomain of any
-// suffix (".foo.com" and "foo.com" both match "api.foo.com"; "evil-foo.com" does
-// not). Same semantics as the broker's provider-host classifier.
 func matchHost(host string, suffixes []string) bool {
 	host = strings.ToLower(host)
 	for _, s := range suffixes {

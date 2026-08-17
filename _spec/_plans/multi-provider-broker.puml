@@ -114,6 +114,23 @@ note bottom of AMB
   belongs now that no single function owns it.
 end note
 
+note bottom of CFG
+  **The route set is derived from the mounted secret file, not from a name
+  the host passes down.** That file already holds every detected key, so
+  the keys present //are// the providers the session can authenticate to —
+  and deriving from it keeps the two sides from disagreeing. The failure
+  it retired: a host that pinned one provider while the file held three
+  left the other two holding the sentinel.
+
+  Two narrowings remain, both explicit. ""PROVEO_EGRESS_PROVIDERS"" shrinks
+  the set when an operator wants a smaller blast radius, and
+  ""PROVEO_EGRESS_PROVIDER"" (singular) is still honoured for a
+  pinned-provider host. ""PROVEO_EGRESS_BROKER_HOSTS"" is different in kind:
+  overriding it names one destination on purpose, so it collapses to a
+  single route and suppresses registry-driven routing entirely — an
+  escape hatch is only an escape hatch if it is total.
+end note
+
 note bottom of ENV
   **No new secret handling.** ""writeBrokerEnv"" already writes every detected
   key to this file; only the reader's config shape changes. The DLP scanner

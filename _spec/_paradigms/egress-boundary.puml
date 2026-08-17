@@ -56,6 +56,13 @@ note bottom of SQUID
   admits, because a session may call any provider whose key is present.
   Reach and injection are separate axes — see
   ""_spec/internal/egress/egress-tiers\.puml"".
+
+  **The two hops must admit the same set, or the mismatch shows up as an
+  unreadable denial.** The policy's write allowlist is therefore every
+  reachable provider endpoint, not just the pinned one: narrow it and
+  Squid connects to a host the policy then refuses to write to, which
+  reads to the agent as the provider misbehaving rather than as a proveo
+  decision.
 end note
 
 note bottom of OLLAMA
@@ -85,6 +92,24 @@ note bottom of OLLAMA
   makes the sidecar fail to start, so the runtime list from
   ""docker info"" is probed and the flag added only on a positive
   match.
+
+  **The context window is raised to 32k, and that is a floor rather
+  than a preference.** Ollama's default of 2–4k truncates tool
+  schemas plus repo context, which breaks every local-capable
+  harness — agentic coding does not degrade gracefully when the
+  schema itself is cut off. 32k is what the vendor docs recommend
+  for agent use.
+
+  **One endpoint, three provider dialects.** The local-model env is a
+  superset each harness consumes selectively, speaking to the same
+  Ollama at once as OpenAI-compatible (""OPENAI_BASE_URL"" + ""…/v1"",
+  opencode), as litellm/Ollama (""OLLAMA_API_BASE"" +
+  ""ollama_chat/<model>"", cecli/aider) and as Anthropic Messages
+  (""ANTHROPIC_BASE_URL"" at Ollama's native endpoint, Claude Code) —
+  one superset rather than per-harness wiring that drifts. The base is
+  either the sidecar alias or the host gateway, per the macOS
+  redirection above. Per-harness variable bridging:
+  ""_spec/internal/entrypoint/model-alias-bridges\.puml"".
 end note
 
 note bottom of DIND

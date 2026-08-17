@@ -33,6 +33,40 @@ note right of CREDS
   Every tier brokers — the key stays host-side and is injected at the
   MITM — **except** open + ""forward"", which is the one shape with
   nothing to inject.
+
+  The two values are ordered riskier → safer, because the prompt renders
+  them left to right under a "safer →" axis: ""forward"" hands the real key
+  to the container, ""broker"" keeps it in the egress layer.
+end note
+
+note bottom of TIERS
+  **One invariant holds across every enforced tier: only Squid is
+  internet-capable.** The agent and the inspector both sit on
+  ""--internal"" networks, so the only way out is through the hop that
+  enforces policy. Every other guarantee here — the write pin, the sink
+  denylist, the DLP scan — is downstream of that placement; break it and
+  the rest are advisory.
+
+  **DNS is closed the same way.** On the enforced tiers the agent's DNS
+  upstream is a blackhole address: it resolves nothing itself, because the
+  proxy resolves target hosts on its behalf. Pointing the agent's external
+  resolution at a dead address shuts the DNS-tunnelling channel that would
+  otherwise carry data out under the policy's nose.
+
+  **Loopback is the one thing that must never be proxied.** An agent asked
+  about ""http://localhost:6006"" would otherwise send that request to the
+  MITM, which resolves ""localhost"" in **its own** namespace — so the
+  operator's dev server is unreachable and the proxy answers about itself.
+  The no-proxy set is the agent's own loopback plus the Docker host alias,
+  and it is not an egress hole: nothing in it leaves the container's
+  network namespace.
+
+  **Capabilities are dropped per sidecar, not uniformly.** Sidecars that
+  run as a fixed user — the Go proxy, Ollama — get all Linux capabilities
+  dropped. Squid is deliberately omitted: it needs ""CAP_SETUID"" and
+  ""CAP_SETGID"" to drop from root to its own worker user, which is the very
+  thing that makes its log directory need to be world-writable
+  (""_spec/internal/egress/teardown-and-signals\.puml"").
 end note
 
 note bottom of T1
