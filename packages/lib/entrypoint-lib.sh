@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -22,12 +22,6 @@ ensure_runtime_user() {
  fi
 }
 
-# Guarantee a writable HOME in THIS shell, at source time, for every entrypoint —
-# not just the bash-fallback branch. The Go prelude (`proveo-entrypoint prep`)
-# runs as a subprocess and can only set HOME within its own process, so a shell
-# whose run-as uid has no passwd entry keeps HOME='/' (unwritable) and any later
-# `mkdir "$HOME/.<tool>"` fails ("cannot create directory '//.cursor'"). Sourced
-# before the prelude, this makes ~/… seeding work for an arbitrary uid.
 if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
@@ -84,9 +78,6 @@ load_env() {
  [[ "${1:-}" == "quiet" ]] && quiet=1
  say() { (( quiet )) || echo "$@"; }
 
- # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
- # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
- # into the agent process. Non-secret harness flags should be passed via -e.
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
  proxy|firewall)
  say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
@@ -294,11 +285,6 @@ run_smoke_test() {
  fi
 }
 
-# Note: there is intentionally NO project-dependency auto-install here. The
-# entrypoint is a fail-fast gate that assumes the image already ships the
-# runtimes/toolchains it promises; installing a project's own deps (pnpm install
-# / npm ci) is the coding agent's job at task time (and works under firewall
-# egress, since package downloads are allowed reads).
 
 # ── 5. Tool Sourcing & Command Version Helpers ──────────────
 # Cecli style command version check (fallback cmd [args])
@@ -338,11 +324,6 @@ _normalize_model() {
  esac
 }
 
-# _apply_env_bridge resolves one bridge from→to with an optional fallback var, an
-# optional default (a literal, or "$VAR" to reference another var), and an
-# optional "normalize" transform. Skips when `to` is already set; exports the
-# result so later bridges whose default is "$VAR" can see it. Reads/writes via
-# printenv/export (no indirect expansion) so it is safe under `set -u`.
 _apply_env_bridge() {
  local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
  printenv "$to" >/dev/null 2>&1 && return 0
@@ -658,12 +639,6 @@ _py_activate() {
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
-# Detect which languages a workspace uses and which INSTALLED LSP servers cover
-# them, ranked by file count. Pure bash + awk (bash-3.2-safe: no associative
-# arrays). Shared by every agent that supports language servers; each entrypoint
-# renders detect_workspace_lsps output into its own config format
-# (opencode.json "lsp" / Claude Code plugin ".lsp.json"). Agents WITHOUT native
-# LSP use the Serena MCP server instead (wired in their MCP config).
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
 _lsp_ext_lang() { case "$1" in
@@ -804,10 +779,6 @@ PROVEO_JDTLS
   chmod +x "${HOME}/.local/bin/jdtls"
 }
 
-# _lsp_walk prints "lang<TAB>ftype" for each detected file under scan_root
-# (ftype = the extension, or the filename for Docker; empty when not tracked).
-# A marker file (package.json, go.mod, …) is credited to its marker language AND
-# to its own extension's language, mirroring the original detector.
 _lsp_walk() {
   local scan_root="$1" f base ext lang marker ftype mext ml
   while IFS= read -r -d '' f; do
@@ -951,11 +922,6 @@ detect_workspace_lsps() {
   done
 }
 
-# configure_claude_lsp renders the shared detector output into a Claude Code
-# skills-directory plugin (~/.claude/skills/proveo-lsp/) declaring the workspace's
-# installed LSP servers via .lsp.json. Skills-dir plugins auto-load on the next
-# session (no marketplace), and claudecode runs --dangerously-skip-permissions so
-# it loads headlessly. No-op when nothing is detected.
 configure_claude_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}" lsp_json plugdir="${HOME}/.claude/skills/proveo-lsp"
@@ -980,12 +946,6 @@ configure_claude_lsp() {
 }
 
 # ── 9. Agent Evidence (verbosity) ───────────────────────────
-# proveo prefers verbose agents: thoughts, tool calls and diffs on screen rather
-# than a black box that reports only its conclusion. The host picks the level in
-# the choice prompt ("agent evidence") and ships it as PROVEO_AGENT_EVIDENCE;
-# unset means verbose, because a run nobody can read cannot be reviewed. Only
-# the level is shared — each harness spells verbosity differently, and some only
-# in headless mode, so every entrypoint builds its own flag list.
 agent_evidence_verbose() {
  [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
 }

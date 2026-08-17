@@ -30,9 +30,6 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-# Install lightweight docker static client (non-setuid).
-# Resolve the tarball arch from the build platform so arm64 images get an
-# arm64 (aarch64) binary instead of a non-runnable x86_64 one.
 RUN DOCKER_VERSION=26.1.4 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \

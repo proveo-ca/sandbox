@@ -110,12 +110,6 @@ ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
 # ── Local model (Ollama) provider ─────────────────────────
-# opencode resolves `ollama/<model>` only when an `ollama` provider is defined;
-# without it opencode silently falls back to its default cloud model (the bug the
-# agent-E2E caught). When the harness is launched with --local-model, the run
-# wiring exports PROVEO_LOCAL_MODEL + OLLAMA_API_BASE and bridges
-# OPENCODE_MODEL=ollama/<model>; here we register the matching OpenAI-compatible
-# provider pointing at the Ollama sidecar so that reference resolves.
 configure_opencode_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   command -v jq >/dev/null 2>&1 || { echo "⚠️  jq missing; cannot wire Ollama provider" >&2; return 0; }
@@ -160,16 +154,10 @@ seed_project_agents_md() {
 }
 seed_project_agents_md
 
-# detect_workspace_lsps + its _lsp_* helpers now live in the shared
-# entrypoint-lib.sh (§8), reused by every LSP-capable harness. This entrypoint
-# only renders its output into opencode's own config format below.
 configure_workspace_lsps() {
   local config_file="${HOME}/.config/opencode/opencode.json"
   local matched_json
 
-  # Parse the detector's "lang|count|cmd|arg…|extcsv" lines into
-  # {lang:{command:[cmd,args…],extensions:[…]}}. command = the fields between the
-  # count and the trailing extension CSV; extensions = that CSV split on ",".
   matched_json="$(detect_workspace_lsps "$(pwd)" | jq -R -s '
     split("\n") | map(select(length > 0) | split("|")) | map({
       key: .[0],
@@ -303,12 +291,6 @@ if ! has_api_key && ! has_project_config; then
 fi
 
 # ── Agent evidence ─────────────────────────────────────────
-# opencode splits narration across three switches. --log-level DEBUG records what
-# the harness did; --print-logs puts that on stderr, which is only safe when the
-# TUI is not drawing on the same terminal, so off the TUI path it stays in the
-# log file. On `run`, --thinking keeps the model's reasoning blocks in the
-# transcript instead of collapsing them — the closest thing opencode has to
-# showing its thoughts, and it has to be inserted before the prompt argument.
 OPENCODE_EVIDENCE_ARGS=()
 if agent_evidence_verbose; then
   OPENCODE_EVIDENCE_ARGS=(--log-level DEBUG)

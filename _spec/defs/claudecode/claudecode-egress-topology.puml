@@ -128,6 +128,15 @@ mirroring the Bash helper it replaced, which checked
 both.
 end note
 
+note bottom of Mitm
+  **Lineage:** the Python mitmproxy sidecar this Go inspector replaced was
+  itself chosen over a Charles wiring — mitmproxy is Apache-2.0,
+  headless-native, and can decrypt HTTPS to see method/path/body, which the
+  Charles setup could not. Each step kept the decryption and dropped a
+  dependency.
+end note
+
+
 note right of Squid
 Squid is the enforcement proxy:
 - allow HTTP :80

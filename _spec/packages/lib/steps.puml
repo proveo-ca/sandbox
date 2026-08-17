@@ -128,6 +128,31 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
   :apply declarative env-var bridges (model routing);
   :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched over egress = allowed reads);
   :exec agent CLI\n(agent installs the repo's own deps on demand — reads pass firewall);
+  note left
+  **Three contracts the shared lib holds for every entrypoint.**
+
+  //The "".env"" skip is a containment step, not an optimisation.// Under
+  proxy/firewall the wrapper has already masked ""/app/\.env"" and kept the
+  secret host-side, so the lib does not source the file at all — a leaked
+  or unmasked copy must not be able to re-export keys into the agent
+  process. Non-secret harness flags travel as ""-e"" instead.
+
+  //Agent evidence defaults to verbose.// The host ships
+  ""PROVEO_AGENT_EVIDENCE"" and anything other than an explicit ""default""
+  resolves to verbose, because a run nobody can read cannot be reviewed.
+  Only the level is shared: each harness spells verbosity differently — and
+  some only in headless mode — so every entrypoint builds its own flag list
+  and reports what the level bought.
+
+  //The detector has one output contract.// ""_lsp_walk"" emits
+  one tab-separated lang + ftype pair per file, where ftype is the extension, or the filename
+  for Docker, or empty when untracked; a marker file (""package\.json"",
+  ""go\.mod"") is credited to its marker language AND to its own extension's
+  language. Each harness renders that same stream into its own config —
+  claudecode into a skills-directory plugin at
+  ""~/\.claude/skills/proveo-lsp/\.lsp\.json"", which auto-loads on the next
+  session with no marketplace involved.
+  end note
 }
 
 partition "5 · Reports / logging, post-session  «host»" {
@@ -137,5 +162,6 @@ partition "5 · Reports / logging, post-session  «host»" {
 }
 
 stop
+
 
 @enduml

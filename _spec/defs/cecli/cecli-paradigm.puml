@@ -51,4 +51,26 @@ note bottom of WS
   ""/app/.cecli"" while home config persists in
   ""~/.proveo/.cecli"".
 end note
+note bottom of CONV
+  **cecli auto-loads no conventions file at all.** ""CONVENTIONS\.md"" is a
+  naming habit rather than a feature, and ""AGENTS\.md"" is not read either —
+  both have to be passed with ""--rules"", so the entrypoint hands it
+  whichever the project actually ships.
+end note
+
+note bottom of CLI
+  **Evidence: ""-v"" narrates each step and ""--show-diffs"" prints the patch at
+  commit time** — the one place cecli otherwise commits work without
+  showing it. ""--show-repo-map"" and ""--show-prompts"" look like they belong
+  in the same list but they print and **exit**, so they can never be
+  defaults.
+
+  **Local model: cecli reaches Ollama through litellm**, and the
+  ""ollama_chat/"" prefix matters — not the plain ""ollama/"" spelling bridged
+  from ""ARCHITECT_MODEL"". It selects the chat-plus-tools formatter that
+  agentic edits need; the plain prefix yields a completion formatter that
+  cannot drive edits.
+end note
+
+
 @enduml

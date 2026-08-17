@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/_devops/image-lineage-and-publish.puml
-# Ensure proveo/base is available before building a harness image FROM it:
-# present with a usable floor → done; else pull (mise deploy publishes it to
-# Docker Hub); else build from this checkout. Called by each harness def's
-# build.sh (Node harnesses go through defs/base-node/ensure.sh, which chains
-# here first).
-#
-# A local tag alone is not enough: a stale proveo/base:latest from a different
-# lineage (e.g. the old Playwright-browser base) looks "present" but has the
-# wrong floor, so harness builds would silently ship the wrong contents. The
-# floor probe below is what makes `mise build <harness>` safe on any machine.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

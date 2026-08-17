@@ -69,4 +69,22 @@ plan = read-only spec producer
 build = edit-capable implementer
 end note
 
+note right of Env
+  **""ollama/<model>"" resolves only when an ""ollama"" provider is DEFINED.**
+  Without that block opencode does not error — it silently falls back to
+  its default cloud model, which is the failure the agent-E2E suite caught:
+  a run that looks local, bills remotely, and sends the workspace out.
+  So ""--local-model"" writes the provider definition, not just the model id.
+end note
+
+note right of Lsp
+  The shared detector emits ""lang|count|cmd|arg…|extcsv"" lines; this
+  entrypoint renders them into opencode's own ""lsp"" shape —
+  ""{lang: {command: [cmd, args…], extensions: [.…]}}"" — where command is
+  every field between the count and the trailing CSV. The detector itself
+  lives in ""packages/lib/entrypoint-lib\.sh"" and is shared by every
+  LSP-capable harness; only this rendering is opencode-specific.
+end note
+
+
 @enduml

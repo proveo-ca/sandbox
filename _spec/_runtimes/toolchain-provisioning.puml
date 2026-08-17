@@ -91,6 +91,17 @@ note bottom of GOPLS
   every LSP-capable harness.
 end note
 
+note right of BOOT
+  **What this step deliberately does NOT do: install the project's own
+  dependencies.** No ""pnpm install"", no ""pip install -r"". The entrypoint is
+  a fail-fast gate that assumes the image already ships the runtimes and
+  toolchains it promises; the agent installs what the repo needs, on demand,
+  once it can see the repo. Prefetching them here would make every start
+  pay for a tree the session may never touch, and would hide a missing
+  runtime behind a successful-looking install.
+end note
+
+
 note bottom of BLOCK
   Every fetch is time-bounded so a blackholed egress cannot hang the
   container at startup, and the whole installer is opt-out for

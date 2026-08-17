@@ -40,4 +40,20 @@ PF ARROW_ERROR LATE : what running the preflight first prevents
 WEN ARROW_MAIN PENV
 PENV ARROW_MAIN SEC
 WEN ARROW_ERROR HEADLESS
+note bottom of REG
+  **The Bash side owns no knowledge of what targets exist.**
+  ""lib/registry\.sh"" sources ""proveo targets"" and fills parallel
+  ""REG_NAMES"" / ""REG_IMAGES"" / ""REG_DIRS"" arrays (bash-3.2-safe, no
+  associative arrays), replacing a Bash manifest parser and three
+  hand-maintained target/image/dir maps that drifted from the manifests.
+
+  **Which binary answers matters more than it looks.** ""PROVEO_BIN"" wins
+  when set — the debug task points it at a freshly built binary — then an
+  installed ""proveo"" on PATH **only if it is current**, else ""go run"" from
+  the checkout. A maintainer task that silently used a stale binary off
+  PATH would report a registry that no longer matches the source it is
+  building.
+end note
+
+
 @enduml

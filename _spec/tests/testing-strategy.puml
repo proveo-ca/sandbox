@@ -64,4 +64,14 @@ end note
 L1 -down[hidden]- L2
 L3 -down[hidden]- L4
 ' --- END IGNORE ---
+note as ECHOAGENT
+  **The Layer-4 promptful E2E runs against a fixture agent, not a vendor
+  CLI.** ""defs/tests/echo-agent"" is a minimal image that reads a prompt and
+  calls the local model through the OpenAI-compatible endpoint
+  ""--local-model"" already provides — so the suite exercises proveo's own
+  wiring (mounts, egress, model routing) without a paid API key or a
+  vendor's release cadence in the loop.
+end note
+
+
 @enduml

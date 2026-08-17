@@ -105,4 +105,18 @@ note as CursorSandbox #FFF3F0
   contract lives in ""TestCursorEgressException"".
 end note
 
+note right of Net
+  **Cursor's agent traffic is HTTP/2 bidirectional streaming, and that does
+  not survive every proxy chain** — Squid CONNECT plus MITM interception is
+  enough to break it. Behind a proxy the entrypoint forces the documented
+  HTTP/1.1 SSE fallback in the seeded config.
+
+  It has to be written as the nested ""network.useHttp1ForAgent"": the
+  shipped CLI's config normalizer silently drops the top-level spelling.
+  The edit starts from the existing config — or a minimal document when it
+  is missing or invalid — so a hand-edited config is extended rather than
+  replaced.
+end note
+
+
 @enduml

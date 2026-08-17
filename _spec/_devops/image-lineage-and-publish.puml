@@ -74,6 +74,36 @@ note bottom of REQ
   actionable message naming ""proveo deploy all"" and the parent target.
 end note
 
+note right of CHAIN
+  **Each layer exists where it does so its consumers can decline it.**
+
+  | layer | holds | why not lower |
+  | ""proveo/base"" | git · gh · ca-certs · curl · jq · dumb-init · bash · tmux · ""proveo-entrypoint"" · the harden pass | the universally-shared floor, and **no language runtime** |
+  | ""proveo/base-node"" | Node + pnpm | cursor and cecli would otherwise carry a Node runtime they never call |
+  | ""proveo/base-node-lsp"" | the language servers ""_lsp_server()"" can run | a non-LSP Node consumer should not pay for them |
+  | ""proveo/base-node-browser"" | Playwright + Chromium + ~150 apt libs | only browser-capable harnesses need it |
+  | ""claudecode-solidity"" | Foundry · solc-select · solhint · semgrep | ~1.5 GB of toolchain, on the one harness that audits contracts |
+
+  **Two size lessons are baked into the shape.** The Solidity toolchain was
+  split out because it alone doubled the harness image; and its per-user
+  toolchains are installed **once, as the runtime user** — the earlier
+  root-install-then-copy-to-home pattern shipped the 400 MB toolkit twice
+  in one image.
+
+  **The browser layer pins Playwright deliberately.** CLI, driver and the
+  installed browser must move together — a mismatch surfaces as "can't
+  locate browser executables" rather than as a version error. The browser
+  store is shared and world-readable because the harness never runs as
+  root: an arbitrary run-as uid has to be able to launch Chromium, and a
+  repo-local Playwright honours the same variable, so a project's own
+  ""npx playwright install"" lands in the same place.
+
+  Every layer that runs apt or npm re-runs the harden pass over the
+  prefixes it touched, because a new package can reintroduce a setuid
+  binary.
+end note
+
+
 note bottom of CHAIN
   **""proveo deploy all"" is the coherent publish path.** The maintainer
   registry is hand-ordered bases-first, then harnesses alphabetically,

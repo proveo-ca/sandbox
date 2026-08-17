@@ -68,10 +68,6 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
-# Claude Code reads CLAUDE.md and NOT AGENTS.md, so a project carrying the shared
-# standard is otherwise invisible to it. Bridge with the documented @import rather
-# than copying: the import is re-read each run, a copy would go stale, and a
-# symlink needs Administrator on Windows.
 if [[ -f AGENTS.md && ! -f CLAUDE.md ]]; then
   if printf '@AGENTS.md\n' > CLAUDE.md 2>/dev/null; then
     echo "🔗 CLAUDE.md → @AGENTS.md (Claude Code does not read AGENTS.md natively)"
@@ -105,10 +101,6 @@ seed_claude_proveo_home() {
 seed_claude_proveo_home
 
 # ── Seed user-level subagents (~/.claude/agents) ────────────
-# Claude Code reads user-level agents from $HOME/.claude/agents and project-level
-# ones from .claude/agents in the workspace; the workspace is never written here.
-# Missing-only, so a durable proveo home keeps local edits, unless
-# CLAUDECODE_RESEED=1 forces a refresh from the image bake.
 seed_claude_subagents() {
   local src="/opt/claudecode/defaults/agents"
   local dst="${HOME}/.claude/agents"
@@ -158,15 +150,6 @@ ensure_language_servers "$(pwd)"
 configure_claude_lsp
 
 # ── Agent evidence ─────────────────────────────────────────
-# --verbose is Claude Code's own switch for showing full tool inputs and outputs
-# instead of the collapsed one-line summaries, and it is also the flag the CLI
-# requires before it will stream events in print mode. --debug is deliberately
-# NOT added: it logs transport (MCP handshakes, API retries, startup), which is
-# noise about the plumbing rather than evidence of the agent's work.
-#
-# A caller that already asked for stream-json also gets --include-partial-messages,
-# where the reasoning deltas live. A plain -p is left alone: rewriting a script's
-# output format would break its parser, and that is not ours to change.
 claude_wants_stream_json() {
   local a
   for a in "$@"; do

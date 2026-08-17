@@ -1,7 +1,4 @@
-# SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
-# Go egress inspection proxy (Plan 4 Phase 2): a TLS-terminating MITM proxy that
-# records flows, brokers credentials, and forwards to Squid upstream. Replaces
-# the Python mitmproxy sidecar on the firewall path.
+# SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml
 #
 # Build context is the REPO ROOT (the Go module), not this directory:
 #   docker build -f defs/sidecars/egress-proxy/Dockerfile -t proveo/egress-proxy:latest .

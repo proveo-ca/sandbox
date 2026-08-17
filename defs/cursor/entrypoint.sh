@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_experiments/docker-sandbox.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -71,19 +71,11 @@ ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
 # ── Proxy compatibility ─────────────────────────────────────
-# Cursor's agent traffic uses HTTP/2 bidirectional streaming by default, which
-# does not survive every proxy chain (Squid CONNECT + mitmproxy interception).
-# Behind a proxy, force the documented HTTP/1.1 SSE fallback in the seeded
-# config; the CLI's Node stack honors HTTP(S)_PROXY and NODE_EXTRA_CA_CERTS.
 configure_proxy_compat() {
   [[ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}" ]] || return 0
   export NODE_USE_ENV_PROXY=1
   local cfg="$CURSOR_HOME/cli-config.json" tmp
   tmp="$(mktemp)"
-  # Start from the existing config (or a minimal doc if missing/invalid), then set
-  # the nested network.useHttp1ForAgent=true. The shipped CLI's config normalizer
-  # drops the top-level spelling, so it MUST live under "network". jq auto-creates
-  # the object; guard against a non-object "network" value.
   local base='{"version":1}'
   if [[ -f "$cfg" ]] && jq -e . "$cfg" >/dev/null 2>&1; then
     base="$(cat "$cfg")"
@@ -100,12 +92,6 @@ configure_proxy_compat() {
 configure_proxy_compat
 
 # ── LSP code intelligence via mcp-language-server ──────────
-# Cursor has no native external-LSP config, so LSP-grade tools are exposed
-# through the mcp-language-server MCP bridge (one instance per language server).
-# The SHARED detector (entrypoint-lib.sh §8) selects only the languages present
-# whose static-binary LSP is installed in the image; each is wrapped in an
-# mcp-language-server entry written to the GLOBAL ~/.cursor/mcp.json — never the
-# mounted repo. Existing entries win on merge (don't clobber user config).
 configure_cursor_lsp_mcp() {
   command -v mcp-language-server >/dev/null 2>&1 || return 0
   local mcp_file="$CURSOR_HOME/mcp.json" tmp base entries
@@ -242,10 +228,6 @@ case "${1:-}" in
     ;;
 esac
 
-# Landlock needs unprivileged userns; this cap-dropped container cannot provide
-# them. Docker is the FS/process boundary; network containment is the free-tier
-# sbx experiment (_spec/_experiments/docker-sandbox.puml). Override via
-# PROVEO_CURSOR_SANDBOX only on hosts where userns works.
 LAUNCH_ARGS=(--force --sandbox "${PROVEO_CURSOR_SANDBOX:-disabled}")
 if [[ -n "${CURSOR_MODEL:-}" ]]; then
   LAUNCH_ARGS+=(--model "$CURSOR_MODEL")
@@ -263,12 +245,6 @@ if (( CURSOR_HEADLESS )); then
 fi
 
 # ── Agent evidence ─────────────────────────────────────────
-# The Cursor CLI has no verbosity switch for its interactive TUI — the only dial
-# it exposes is the headless output format. stream-json emits every tool call and
-# result as it happens (text alone reports just the final message), and
-# --stream-partial-output adds the text deltas. Thinking events are suppressed by
-# the CLI in print mode whatever we pass, so verbose here buys tool calls and
-# diffs, not reasoning.
 #
 # A caller's own --output-format wins: it is a parse contract, not a preference.
 cursor_has_output_format() {

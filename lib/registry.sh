@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
-# Maintainer target registry, sourced from the Go `proveo targets` command — the
-# single source of truth. Replaces the Bash manifest parser (manifest-enum.sh)
-# and the target/image/dir maps (runners.sh): Go now owns "what targets exist",
-# this file just consumes them. Populates TARGETS + parallel REG_* arrays and
-# offers reg_image / reg_dir lookups. Requires REPO_ROOT.
 
-# _resolve_proveo picks the proveo binary for maintainer tooling and exports
-# PROVEO_BIN. Precedence: an explicit PROVEO_BIN (the `debug` task sets it to a
-# freshly-built binary) → an installed `proveo` on PATH, but ONLY if it is current
-# enough to know `targets` (a stale pre-migration binary would silently break the
-# registry) → otherwise leave it unset so proveo_maint builds from the repo via
-# `go run`. The `targets` probe runs from REPO_ROOT so it sees the defs/ tree.
 _resolve_proveo() {
   [[ -n "${PROVEO_BIN:-}" && -x "${PROVEO_BIN}" ]] && return
   local p
@@ -20,9 +9,6 @@ _resolve_proveo() {
   fi
 }
 
-# proveo_maint runs the proveo CLI for maintainer tooling: PROVEO_BIN (resolved
-# above) when set, else `go run` from the repo — always the current source of
-# truth, never a possibly-stale binary chosen blindly off PATH.
 proveo_maint() {
   if [[ -n "${PROVEO_BIN:-}" && -x "${PROVEO_BIN}" ]]; then
     "$PROVEO_BIN" "$@"
@@ -31,9 +17,6 @@ proveo_maint() {
   ( cd "$REPO_ROOT" && go run ./cmd/proveo "$@" )
 }
 
-# proveo_load_registry fills TARGETS + REG_NAMES/REG_IMAGES/REG_DIRS from
-# `proveo targets` (name<TAB>image<TAB>defDir). Bash 3.2-safe (parallel arrays,
-# no associative arrays).
 proveo_load_registry() {
   TARGETS=()
   REG_NAMES=()

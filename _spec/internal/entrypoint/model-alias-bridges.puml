@@ -90,4 +90,17 @@ note top of SRC
   and 404s on every call with a vendor error that reads
   like an outage.
 end note
+note bottom of BRIDGE
+  **One resolver, declared per bridge.** ""_apply_env_bridge"" takes a
+  from→to pair plus three optionals: a fallback variable, a default (a
+  literal, or ""$VAR"" to point at another variable), and a ""normalize""
+  transform. It skips when ""to"" is already set, so an operator's own
+  export always wins over a derived value, and exports the result so the
+  harness process inherits it.
+
+  Declaring bridges as data rather than writing one ""if"" per harness is
+  what keeps four harnesses' model plumbing from drifting apart.
+end note
+
+
 @enduml
