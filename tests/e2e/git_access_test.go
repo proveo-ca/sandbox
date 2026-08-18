@@ -266,3 +266,102 @@ func scopedMountArgs(t *testing.T, target, repo, scope string) []string {
 	}
 	return workspaceMountArgs(t, target, repo, input)
 }
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	c := exec.Command("git", args...)
+	c.Dir = dir
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// A LINKED worktree is the hard case: its .git is a FILE pointing into the main
+// repo, and two pointer files hold HOST paths that do not exist in the
+// container. Left incoherent, git marks the worktree prunable — so a routine
+// `git worktree prune` (reachable through gc) deletes the host's registration,
+// and any tool doing its own discovery fails outright. Asserts the container
+// view is coherent, writes land, and the HOST worktree survives intact.
+func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
+	for _, name := range []string{"claudecode", "opencode"} { // input-output and app layouts
+		t.Run(name, func(t *testing.T) {
+			// Keep the generated pointer files out of the developer's ~/.proveo.
+			t.Setenv("PROVEO_HOME", t.TempDir())
+
+			base := t.TempDir()
+			main := filepath.Join(base, "main")
+			if err := os.MkdirAll(main, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			seedRepo(t, main)
+			tree := filepath.Join(base, "wt")
+			gitIn(t, main, "worktree", "add", "-q", tree, "-b", "proveo-e2e")
+			// seedRepo's untracked file lives in main; the worktree is a clean
+			// checkout, so give it its own file for the container to commit.
+			if err := os.WriteFile(filepath.Join(tree, "tracked.txt"), []byte("v1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			if fi, err := os.Lstat(filepath.Join(tree, ".git")); err != nil || fi.IsDir() {
+				t.Fatalf("expected a linked worktree whose .git is a file: %v", err)
+			}
+			pointerBefore, err := os.ReadFile(filepath.Join(tree, ".git"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			img := harnessImage(t, name)
+			wd := harnessWorkdir[name]
+			script := `set -e
+source /entrypoint-lib.sh 2>/dev/null || true
+ensure_git_safe_directory "$PWD" 2>/dev/null || true
+[ -z "${GIT_DIR:-}" ] || { echo "GIT_DIR is pinned; the overlay should make that unnecessary"; exit 1; }
+git rev-parse --is-inside-work-tree >/dev/null
+# a tool that does its own discovery rather than inheriting the env
+env -u GIT_DIR -u GIT_WORK_TREE git status --short >/dev/null
+# a sibling repo must resolve to ITSELF, not to this worktree's admin dir
+mkdir -p /tmp/other && git -C /tmp/other init -q
+[ "$(git -C /tmp/other rev-parse --git-dir)" = ".git" ] || { echo "sibling repo captured"; exit 1; }
+# prune must be a no-op: the chain resolves, so nothing looks stale
+git worktree prune
+ls /proveo-git/worktrees/ >/dev/null || { echo "prune destroyed the admin dir"; exit 1; }
+git add tracked.txt
+git commit -q -m "written from inside a linked worktree"
+echo "WORKTREE_OK"`
+
+			args := []string{"run", "--rm"}
+			args = append(args, workspaceMountArgs(t, name, tree)...)
+			args = append(args,
+				"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
+				"-w", wd, "--user", hostUIDGID(t),
+				"-e", "GIT_AUTHOR_NAME=proveo e2e", "-e", "GIT_AUTHOR_EMAIL=e2e@proveo.test",
+				"-e", "GIT_COMMITTER_NAME=proveo e2e", "-e", "GIT_COMMITTER_EMAIL=e2e@proveo.test",
+				"--entrypoint", "bash", img, "-c", script)
+			out, err := exec.Command("docker", args...).CombinedOutput()
+			if err != nil || !strings.Contains(string(out), "WORKTREE_OK") {
+				t.Fatalf("%s worktree linkage is not usable: %v\n%s", name, err, out)
+			}
+
+			// The host pointer must be untouched, or the operator's own worktree breaks.
+			pointerAfter, err := os.ReadFile(filepath.Join(tree, ".git"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(pointerAfter) != string(pointerBefore) {
+				t.Errorf("host .git pointer was rewritten:\n before: %q\n after:  %q", pointerBefore, pointerAfter)
+			}
+			if strings.Contains(string(pointerAfter), workspace.ContainerGitCommonDir) {
+				t.Errorf("host .git now holds a container path: %q", pointerAfter)
+			}
+			// The host worktree still works AND sees what the container committed.
+			gitIn(t, tree, "status", "--short")
+			log, err := exec.Command("git", "-C", tree, "log", "--oneline", "-1").Output()
+			if err != nil {
+				t.Fatalf("host worktree is broken after the run: %v", err)
+			}
+			if !strings.Contains(string(log), "written from inside a linked worktree") {
+				t.Errorf("host worktree does not see the container's commit: %q", log)
+			}
+		})
+	}
+}

@@ -446,6 +446,14 @@ func doRun(p runParams) error {
 		}
 	}
 
+	// A linked worktree needs container-correct pointer files before planning, so
+	// the mounts can reference them. On failure fall through to the GIT_DIR pin.
+	worktreeLinks, err := wsSpec.PrepareWorktreeLinks(proveohome.Root(os.Getenv))
+	if err != nil {
+		ui.Warnf("git worktree: %v; falling back to GIT_DIR pinning", err)
+	}
+	wsSpec.WorktreeLinkDir = worktreeLinks
+
 	mounts, planWorkdir, links := wsSpec.Plan()
 	if planWorkdir != "" {
 		workdir = planWorkdir
@@ -565,7 +573,11 @@ func doRun(p runParams) error {
 	if rel := wsSpec.ScopeRel(); rel != "" {
 		env = append(env, "PROVEO_SCOPE_REL="+rel)
 	}
-	env = append(env, wsSpec.WorktreeEnv()...)
+	// Only when the pointer overlay is unavailable: a coherent .git chain needs no
+	// pin, and GIT_DIR would also capture any nested repo the agent visits.
+	if wsSpec.WorktreeLinkDir == "" {
+		env = append(env, wsSpec.WorktreeEnv()...)
+	}
 
 	if !p.printOnly {
 		if k := resolveGitHubTokenEnv(hostGhAuth(), isStdinTTY() && wizardEnabled(), os.Stdin, os.Stderr); k != "" {

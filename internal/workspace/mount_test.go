@@ -706,3 +706,212 @@ func TestMountPlanSkipsLinksInPrunedAndDeepDirs(t *testing.T) {
 		t.Errorf("Plan() with pruned + deep links mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// linkedWorktree builds the on-disk shape `git worktree add` produces: the tree's
+// .git is a FILE pointing at <main>/.git/worktrees/<name>, whose commondir points
+// back up to the shared .git. Returns the worktree tree and the common dir.
+func linkedWorktree(t *testing.T, base, name string) (tree, common string) {
+	t.Helper()
+	common = filepath.Join(base, "main", ".git")
+	admin := filepath.Join(common, "worktrees", name)
+	tree = filepath.Join(base, name)
+	touch(t, filepath.Join(common, "HEAD"))
+	if err := os.MkdirAll(admin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(admin, "commondir"), []byte("../..\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The host pointers hold HOST paths — the very thing the overlay replaces.
+	if err := os.WriteFile(filepath.Join(admin, "gitdir"), []byte(filepath.Join(tree, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, filepath.Join(tree, "README.md"))
+	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+admin+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tree, common
+}
+
+func TestPrepareWorktreeLinksWritesContainerPointers(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	tree, _ := linkedWorktree(t, base, "wt")
+	root := filepath.Join(base, "proveo-home")
+
+	spec := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: tree}
+	dir, err := spec.PrepareWorktreeLinks(root)
+	if err != nil {
+		t.Fatalf("PrepareWorktreeLinks: %v", err)
+	}
+	if dir == "" {
+		t.Fatal("PrepareWorktreeLinks returned no dir for a linked worktree")
+	}
+
+	// The chain must be coherent in CONTAINER terms: .git → admin dir → back.
+	for name, want := range map[string]string{
+		"dotgit": "gitdir: " + ContainerGitCommonDir + "/worktrees/wt\n",
+		"gitdir": "/workspace/input/.git\n",
+	} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(b) != want {
+			t.Errorf("%s = %q, want %q", name, b, want)
+		}
+	}
+
+	// The host copies still point at host paths — rewriting them would break the
+	// operator's own use of the worktree.
+	b, err := os.ReadFile(filepath.Join(tree, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), ContainerGitCommonDir) {
+		t.Errorf("host .git was rewritten to a container path: %q", b)
+	}
+}
+
+func TestPrepareWorktreeLinksUsesAppRootForAppLayout(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	tree, _ := linkedWorktree(t, base, "wt")
+
+	spec := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, InputDir: tree, RepoRoot: tree}
+	dir, err := spec.PrepareWorktreeLinks(filepath.Join(base, "proveo-home"))
+	if err != nil {
+		t.Fatalf("PrepareWorktreeLinks: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "/app/.git\n" {
+		t.Errorf("app-layout gitdir = %q, want %q", b, "/app/.git\n")
+	}
+}
+
+func TestPrepareWorktreeLinksSkipsNonWorktrees(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	root := filepath.Join(base, "repo")
+	touch(t, filepath.Join(root, ".git", "HEAD")) // a normal repo: .git is a directory
+
+	for _, tc := range []struct{ name, input, home string }{
+		{"normal repo", root, filepath.Join(base, "home")},
+		{"no root to write into", root, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			spec := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, InputDir: tc.input, RepoRoot: tc.input}
+			dir, err := spec.PrepareWorktreeLinks(tc.home)
+			if err != nil {
+				t.Fatalf("PrepareWorktreeLinks: %v", err)
+			}
+			if dir != "" {
+				t.Errorf("PrepareWorktreeLinks = %q, want \"\" (nothing to overlay)", dir)
+			}
+		})
+	}
+}
+
+func TestPrepareWorktreeLinksKeyIsPerRepoNotPerName(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	// Two DIFFERENT repos, each with a worktree called "feature".
+	a, _ := linkedWorktree(t, filepath.Join(base, "a"), "feature")
+	b, _ := linkedWorktree(t, filepath.Join(base, "b"), "feature")
+	root := filepath.Join(base, "home")
+
+	dirA, err := (MountSpec{Workspace: manifest.Workspace{Layout: "app"}, InputDir: a, RepoRoot: a}).PrepareWorktreeLinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirB, err := (MountSpec{Workspace: manifest.Workspace{Layout: "app"}, InputDir: b, RepoRoot: b}).PrepareWorktreeLinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirA == dirB {
+		t.Errorf("same-named worktrees in different repos share %q; one would overwrite the other", dirA)
+	}
+}
+
+func TestMountPlanWorktreeOverlaysBothPointerFiles(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	tree, common := linkedWorktree(t, base, "wt")
+	links := filepath.Join(base, "links")
+
+	got, _, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "input-output"},
+		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
+		EgressMode: "open", Credentials: "forward",
+		WorktreeLinkDir: links,
+	}.Plan()
+
+	want := []runner.Mount{
+		{Host: tree, Container: "/workspace/input"},
+		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
+		{Host: common, Container: ContainerGitCommonDir},
+		{Host: filepath.Join(links, "dotgit"), Container: "/workspace/input/.git", ReadOnly: true},
+		{Host: filepath.Join(links, "gitdir"), Container: ContainerGitCommonDir + "/worktrees/wt/gitdir", ReadOnly: true},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("worktree mounts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMountPlanWorktreeWithoutLinkDirBindsCommonDirOnly(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	tree, common := linkedWorktree(t, base, "wt")
+
+	got, _, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "input-output"},
+		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
+		EgressMode: "open", Credentials: "forward",
+	}.Plan()
+
+	want := []runner.Mount{
+		{Host: tree, Container: "/workspace/input"},
+		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
+		{Host: common, Container: ContainerGitCommonDir},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("fallback worktree mounts mismatch (-want +got):\n%s", diff)
+	}
+	// WorktreeEnv is the fallback that this shape depends on.
+	wantEnv := []string{"GIT_DIR=" + ContainerGitCommonDir + "/worktrees/wt", "GIT_WORK_TREE=/workspace/input"}
+	gotEnv := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: tree}.WorktreeEnv()
+	if diff := cmp.Diff(wantEnv, gotEnv); diff != "" {
+		t.Errorf("WorktreeEnv mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMountPlanWorktreeHonorsGitModeRO(t *testing.T) {
+	t.Parallel()
+	base := tempDir(t)
+	tree, common := linkedWorktree(t, base, "wt")
+
+	got, _, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "input-output", GitMode: "ro"},
+		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
+		EgressMode: "open", Credentials: "forward",
+		WorktreeLinkDir: filepath.Join(base, "links"),
+	}.Plan()
+
+	var found bool
+	for _, m := range got {
+		if m.Container != ContainerGitCommonDir {
+			continue
+		}
+		found = true
+		if m.Host != common || !m.ReadOnly {
+			t.Errorf("gitMode=ro shared .git = %+v, want host %s read-only", m, common)
+		}
+	}
+	if !found {
+		t.Fatalf("no %s mount planned for a linked worktree: %+v", ContainerGitCommonDir, got)
+	}
+}

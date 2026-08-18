@@ -2,14 +2,15 @@
 package contract_test
 
 import (
-	proveo "github.com/proveo-ca/proveo"
-	"github.com/proveo-ca/proveo/internal/manifest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
 var wantLanguages = []string{

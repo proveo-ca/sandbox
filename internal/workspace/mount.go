@@ -1,7 +1,9 @@
-// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
+// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/workspace/worktree-git-linkage.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
 package workspace
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -38,6 +40,9 @@ type MountSpec struct {
 	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
 	MountRootDeps      bool
+	// WorktreeLinkDir holds the container-only pointer files written by
+	// PrepareWorktreeLinks. Empty disables the overlay (see worktreeMounts).
+	WorktreeLinkDir string
 }
 
 // ScopeRel returns the repo-relative scope path when only PART of the repo is
@@ -219,6 +224,11 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 // WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil. The
 // per-worktree commondir file is RELATIVE, so pointing GIT_DIR inside the
 // mounted common dir resolves without host and container paths having to match.
+//
+// FALLBACK ONLY, for when PrepareWorktreeLinks could not write the pointer files.
+// GIT_DIR is absolute and process-global, so it also captures any nested or
+// sibling repo the agent visits; the pointer overlay has neither problem. Do not
+// set both — a coherent chain needs no pin.
 func (w MountSpec) WorktreeEnv() []string {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok {
@@ -238,12 +248,77 @@ func (w MountSpec) containerRoot() string {
 }
 
 // worktreeMounts carries the shared .git of a linked worktree into the container.
+//
+// Binding the common dir alone leaves the linkage INCOHERENT: the tree's .git
+// file and <common>/worktrees/<name>/gitdir both hold host paths that do not
+// exist here, so git marks the worktree prunable — `git worktree prune` (also
+// reached via gc) then deletes the host's registration, and any tool that does
+// its own discovery instead of inheriting GIT_DIR reports "not a git repository".
+// WorktreeLinkDir supplies container-correct replacements for exactly those two
+// pointer files, layered as nested read-only binds so the HOST copies are never
+// rewritten — the same masking trick envMounts uses for .env. With the chain
+// coherent, plain discovery works and WorktreeEnv's GIT_DIR pin is unnecessary.
 func (w MountSpec) worktreeMounts() []runner.Mount {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok {
 		return nil
 	}
-	return []runner.Mount{{Host: wt.CommonDir, Container: ContainerGitCommonDir}}
+	mounts := []runner.Mount{{
+		Host: wt.CommonDir, Container: ContainerGitCommonDir, ReadOnly: w.GitMode == "ro",
+	}}
+	if w.WorktreeLinkDir == "" {
+		return mounts
+	}
+	return append(mounts,
+		runner.Mount{
+			Host:      filepath.Join(w.WorktreeLinkDir, worktreeDotGitFile),
+			Container: w.containerRoot() + "/.git",
+			ReadOnly:  true,
+		},
+		runner.Mount{
+			Host:      filepath.Join(w.WorktreeLinkDir, worktreeGitDirFile),
+			Container: ContainerGitCommonDir + "/worktrees/" + wt.Name + "/gitdir",
+			ReadOnly:  true,
+		},
+	)
+}
+
+// Pointer-file basenames under WorktreeLinkDir.
+const (
+	worktreeDotGitFile = "dotgit" // replaces <tree>/.git
+	worktreeGitDirFile = "gitdir" // replaces <common>/worktrees/<name>/gitdir
+)
+
+// PrepareWorktreeLinks materialises the two container-only pointer files for a
+// linked worktree under root and returns the directory holding them, for the
+// caller to assign to WorktreeLinkDir. Returns "" (no error) when InputDir is
+// not a linked worktree, so callers need no special-casing.
+//
+// This is the one part of mount planning that WRITES, which is why it is a
+// separate step: Plan stays a pure function of the filesystem.
+func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
+	wt, ok := readGitWorktree(w.InputDir)
+	if !ok || root == "" {
+		return "", nil
+	}
+	// The per-worktree name alone collides across repos (every checkout may hold
+	// a worktree called "feature"), so key the dir by the common dir too.
+	sum := sha256.Sum256([]byte(wt.CommonDir + "\x00" + wt.Name))
+	dir := filepath.Join(root, "worktrees", wt.Name+"-"+hex.EncodeToString(sum[:6]))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("worktree links: mkdir %s: %w", dir, err)
+	}
+	files := map[string]string{
+		worktreeDotGitFile: "gitdir: " + ContainerGitCommonDir + "/worktrees/" + wt.Name + "\n",
+		worktreeGitDirFile: w.containerRoot() + "/.git\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			return "", fmt.Errorf("worktree links: write %s: %w", path, err)
+		}
+	}
+	return dir, nil
 }
 
 // envOverlay binds the workspace .env when it resolves on the host but would not

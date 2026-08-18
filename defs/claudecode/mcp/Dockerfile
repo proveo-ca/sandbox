@@ -77,9 +77,12 @@ RUN chmod +x /entrypoint.sh
 USER ${USER_NAME}
 WORKDIR /workspace
 
-# claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base
-ENV NODE_ENV=production \
-    YAMA_PTRACE_SCOPE=1
+# claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base.
+# NODE_ENV is deliberately NOT baked here: it would make every `npm`/`pnpm install`
+# the agent runs in the workspace skip devDependencies (tsc, eslint, test runners),
+# which are exactly the tools the agent needs. Leave it undefined and let the
+# project's own .env set it if it wants one (load_env exports .env with `set -a`).
+ENV YAMA_PTRACE_SCOPE=1
 
 # Add security labels
 LABEL security.non-root=true \

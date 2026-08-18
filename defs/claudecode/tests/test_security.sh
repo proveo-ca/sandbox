@@ -51,11 +51,14 @@ for image in $(images_to_test); do
     "touch /etc/testfile 2>/dev/null"
 
   # Environment variables
+  # NODE_ENV must stay unbaked: setting it to production makes the agent's own
+  # `npm`/`pnpm install` skip devDependencies (tsc, eslint, test runners). The
+  # project's .env is the only place allowed to set it.
   assert_output_contains \
-    "[$tag] NODE_ENV is production" \
+    "[$tag] NODE_ENV is not baked into the image" \
     "$image" \
-    'echo $NODE_ENV' \
-    "production"
+    'echo "${NODE_ENV:-unset}"' \
+    "unset"
 
   assert_output_contains \
     "[$tag] RLIMIT_CORE is 0" \
