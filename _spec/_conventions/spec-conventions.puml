@@ -15,6 +15,19 @@ R3 ARROW_OPTIONAL R5 : ARROW_OPTIONAL — alt · retry · optional
 R3 ARROW_CLOUD    R4 : ARROW_CLOUD — crosses to an external system
 R1 ARROW_ERROR    R6 : ARROW_ERROR — failure / destructive
 
+note bottom of R6
+  **No renders in the tree.** ""_spec/"" holds sources: ""\.puml"", ""\.mmd"",
+  ""\.vega\.json"". A committed ""\.svg"" or ""\.png"" goes stale the moment its
+  source changes, and nothing makes the staleness visible — so
+  ""_spec/**/*\.svg"" and ""*\.png"" are gitignored, and ""plantuml -checkonly""
+  (which writes no file) is the gate before committing. Render to a scratch
+  path when you need to look at a picture.
+
+  The one exception is ""_spec/_assets/"": curated documentation images the
+  README embeds, produced by hand or by ""vhs"" from a ""\.tape"" — authored
+  artifacts, not diagram output.
+end note
+
 note top of R1
   **Directory rule.** ""_spec/"" mirrors the source tree —
   ""_spec/internal/<pkg>/"", ""_spec/cmd/<bin>/"",

@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 package choiceui
 
 import (
@@ -6,12 +7,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// Consent draws a centered modal asking to allow one connection, and returns the
-// answer. It takes the whole screen rather than printing a line, because the
-// agent owns the alternate screen: plain text written into a running TUI
-// interleaves with its rendering and corrupts the display instead of appearing
-// above it.
-//
 // newScreen is injected so the dialog is testable against a SimulationScreen.
 func Consent(newScreen func() (tcell.Screen, error), host, port string) (bool, error) {
 	s, err := newScreen()

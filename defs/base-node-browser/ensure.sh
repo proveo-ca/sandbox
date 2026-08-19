@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Ensure proveo/base-node-browser is available before building a browser harness
-# variant FROM it. Its build.sh chains defs/base-node-lsp/ensure.sh (→ base-node →
-# base), so a clean machine builds base → base-node → base-node-lsp →
-# base-node-browser → variant in order.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -83,4 +83,20 @@ note right of CLI
   _spec/_experiments/docker-sandbox.puml
   (Cursor-led experiment; claudecode is secondary).
 end note
+note bottom of CLI
+  **""--verbose"" is the switch that shows full tool inputs and outputs**
+  instead of collapsed one-line summaries, and it is also what the CLI
+  requires before it will stream events in print mode.
+
+  ""--debug"" is deliberately NOT added: it logs transport — MCP handshakes,
+  API retries, startup — which is noise about the plumbing rather than
+  evidence of the agent's work.
+
+  A caller that already asked for ""stream-json"" also gets
+  ""--include-partial-messages"", where the reasoning deltas live. A plain
+  ""-p"" is left alone: changing a script's output format would break its
+  parser, and that contract is the caller's, not ours.
+end note
+
+
 @enduml

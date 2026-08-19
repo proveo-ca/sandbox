@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_mcp.sh - Critical: MCP server config is loaded and tools become callable.
 #
 # Two layers:

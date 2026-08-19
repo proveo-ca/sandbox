@@ -60,6 +60,20 @@ note bottom of TREE
   and an operator who needs to know finds it in the run log.
 end note
 
+note left of HARD
+  **One deny set, three walks.** ""AlwaysPrune"" is exported because the
+  same question is asked by this scan, by mount planning's symlink walk
+  (""_spec/internal/workspace/mount-symlink-escape\.puml"") and by the
+  in-container LSP detector's ""find"" expression — and three private
+  copies drift the moment one is corrected.
+
+  Package stores earn their place on it. ""\.pnpm-store"" was 110k of the
+  123k files the LSP detector crossed on one monorepo, and a store
+  object can never be workspace source: it is content-addressed and has
+  no extension. This scan's budget usually stops before reaching one,
+  which is why the names arrived late.
+end note
+
 note right of SCAN
   **Markers, not globs.** ""Names"" match a basename exactly, ""Suffixes""
   match its end (""\.go""), and either satisfies the marker. Tooling

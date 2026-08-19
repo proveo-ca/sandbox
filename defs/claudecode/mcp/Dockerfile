@@ -22,7 +22,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
@@ -76,9 +77,12 @@ RUN chmod +x /entrypoint.sh
 USER ${USER_NAME}
 WORKDIR /workspace
 
-# claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base
-ENV NODE_ENV=production \
-    YAMA_PTRACE_SCOPE=1
+# claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base.
+# NODE_ENV is deliberately NOT baked here: it would make every `npm`/`pnpm install`
+# the agent runs in the workspace skip devDependencies (tsc, eslint, test runners),
+# which are exactly the tools the agent needs. Leave it undefined and let the
+# project's own .env set it if it wants one (load_env exports .env with `set -a`).
+ENV YAMA_PTRACE_SCOPE=1
 
 # Add security labels
 LABEL security.non-root=true \

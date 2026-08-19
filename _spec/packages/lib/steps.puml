@@ -95,9 +95,64 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
     as static Go binaries (cursor); **Serena**
     via the existing Python venv (cecli).
   end note
+  note left
+    **This step is on the startup path, so its cost is
+    the agent's time-to-first-prompt.** Two things kept
+    it from being: a subshell per file, and a prune list
+    that missed the package stores.
+
+    ""_lsp_walk"" consults an extension map and a marker
+    map for every file it sees. Read back through
+    ""$(...)"" that is a fork each — and on a pnpm
+    monorepo (123k files with ""node_modules"" already
+    pruned) it made detection take ~85s on a tree
+    ""find"" crosses in 3. The maps answer in ""REPLY""
+    instead; every branch must set it, default
+    included, or a no-match reports the previous
+    file's language.
+
+    ""\.pnpm-store"" alone was 110k of those 123k files,
+    none of them ever a match: store objects are
+    content-addressed and carry no extension. The prune
+    expression now mirrors ""wsscan.AlwaysPrune"" so the
+    host's tooling preview and this detector describe
+    the same notion of workspace source.
+
+    Ordering matters too. The step ran AFTER
+    claudecode's ""Launching Claude Code..."" line, so its
+    time read as the agent failing to start rather than
+    prep still running. The launch line is now last
+    before the ""exec"": whatever appears next is the
+    agent's own output.
+  end note
   :apply declarative env-var bridges (model routing);
   :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched over egress = allowed reads);
   :exec agent CLI\n(agent installs the repo's own deps on demand — reads pass firewall);
+  note left
+  **Three contracts the shared lib holds for every entrypoint.**
+
+  //The "".env"" skip is a containment step, not an optimisation.// Under
+  proxy/firewall the wrapper has already masked ""/app/\.env"" and kept the
+  secret host-side, so the lib does not source the file at all — a leaked
+  or unmasked copy must not be able to re-export keys into the agent
+  process. Non-secret harness flags travel as ""-e"" instead.
+
+  //Agent evidence defaults to verbose.// The host ships
+  ""PROVEO_AGENT_EVIDENCE"" and anything other than an explicit ""default""
+  resolves to verbose, because a run nobody can read cannot be reviewed.
+  Only the level is shared: each harness spells verbosity differently — and
+  some only in headless mode — so every entrypoint builds its own flag list
+  and reports what the level bought.
+
+  //The detector has one output contract.// ""_lsp_walk"" emits
+  one tab-separated lang + ftype pair per file, where ftype is the extension, or the filename
+  for Docker, or empty when untracked; a marker file (""package\.json"",
+  ""go\.mod"") is credited to its marker language AND to its own extension's
+  language. Each harness renders that same stream into its own config —
+  claudecode into a skills-directory plugin at
+  ""~/\.claude/skills/proveo-lsp/\.lsp\.json"", which auto-loads on the next
+  session with no marketplace involved.
+  end note
 }
 
 partition "5 · Reports / logging, post-session  «host»" {
@@ -107,5 +162,6 @@ partition "5 · Reports / logging, post-session  «host»" {
 }
 
 stop
+
 
 @enduml

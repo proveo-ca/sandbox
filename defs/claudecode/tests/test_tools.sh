@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_tools.sh - Verify all expected tools are installed
 
 # Core toolchain: present in every claudecode variant.

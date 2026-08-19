@@ -1,11 +1,3 @@
-// Package maintain is the maintainer-side target registry and build/deploy/test
-// orchestration: the single source of truth for which images the tooling
-// operates on, where each is defined, and how each is built. Harness targets are
-// drawn from the harness manifests (internal/manifest); the shared base image
-// and the egress sidecars are fixed entries with no manifest. It is consumed by
-// the `proveo targets|build|deploy|test` commands (cmd/proveo) — replacing the
-// Bash lib/manifest-enum.sh, lib/runners.sh, and lib/{build,deploy,test}.sh.
-//
 // Plans are pure data ([]Command); cmd/proveo executes or prints them.
 //
 // SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
@@ -49,11 +41,6 @@ var variantArgs = map[string][]string{
 	"cursor-browser":      {"--browser"},
 }
 
-// Registry returns the maintainer targets in stable order: the base image, then
-// the harness targets (sorted by name) from ms, then the egress sidecars.
-// defsDir is the on-disk defs/ root; the base + sidecar DefDirs are joined onto
-// it, while harness DefDirs come from each manifest's own Dir. build/test script
-// paths are conventional (DefDir/{build,test}.sh); existence is checked at run.
 func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	out := []Target{
 		{Name: "base", Kind: KindBase, Image: "proveo/base", DefDir: filepath.Join(defsDir, "base")},
@@ -95,19 +82,12 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	return out
 }
 
-// Command is one step of a maintainer plan: argv run in Dir (empty => inherit).
-// Quiet discards stdout (used for the verify `docker image inspect`, whose JSON
-// is noise — only its exit code matters).
 type Command struct {
 	Dir   string
 	Argv  []string
 	Quiet bool
 }
 
-// BuildPlan builds the target and leaves it tagged :tag locally. defs/*/build.sh
-// go through defs/lib/docker-build.sh (buildx): local builds --load the host
-// platform; multi-arch publish is DeployPlan. For a non-latest tag the script
-// receives --tag (no separate `docker tag` hop).
 func (t Target) BuildPlan(tag string, noCache bool) []Command {
 	tag = normTag(tag)
 	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
@@ -123,9 +103,6 @@ func (t Target) BuildPlan(tag string, noCache bool) []Command {
 	}
 }
 
-// DeployPlan rebuilds with buildx --push for linux/amd64,linux/arm64 (see
-// defs/lib/docker-build.sh / PROVEO_PLATFORMS). A plain `docker push` of a
-// locally --load'd image cannot publish a multi-arch manifest.
 func (t Target) DeployPlan(tag string) []Command {
 	tag = normTag(tag)
 	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)

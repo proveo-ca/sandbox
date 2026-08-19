@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_functional.sh - Token-required functional tests
 
 # --- claude --version (may work without token) ---

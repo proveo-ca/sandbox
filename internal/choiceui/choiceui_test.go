@@ -281,3 +281,39 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 		t.Error("ColorCloud slate is too dark for TUI body text on a black background")
 	}
 }
+
+// Only the row the divider is named after gives up its own label. A second
+// checkbox section has no divider to name it, so dropping its label too would
+// leave the operator staring at an anonymous pair of boxes.
+func TestSecondMultiRowKeepsItsLabel(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
+		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: make([]bool, 2)},
+		{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true, On: []bool{false, true}},
+	}}
+	lines := render(t, f)
+	out := strings.Join(lines, "\n")
+
+	var addonRow, evidenceRow = -1, -1
+	for i, l := range lines {
+		switch {
+		case strings.Contains(l, "[ ] browser"):
+			addonRow = i
+		case strings.Contains(l, "[x] verbose"):
+			evidenceRow = i
+		}
+	}
+	if addonRow < 0 || evidenceRow < 0 {
+		t.Fatalf("both checkbox rows should render:\n%s", out)
+	}
+	if strings.Contains(lines[addonRow], "add-ons") {
+		t.Errorf("the divider already names add-ons; row repeats it: %q", lines[addonRow])
+	}
+	if !strings.Contains(lines[evidenceRow], "agent evidence") {
+		t.Errorf("second checkbox row lost its label: %q", lines[evidenceRow])
+	}
+	if strings.Count(out, "─ agent evidence ─") != 0 {
+		t.Errorf("only the first checkbox row gets a divider:\n%s", out)
+	}
+}

@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/workspace/mount-model.puml
 package workspace
 
 import (
@@ -24,12 +25,6 @@ var markerFiles = []string{"package.json", "project.json", "Cargo.toml", "go.mod
 // members — the same defaults the old registry encoded.
 var conventionGlobs = []string{"apps/*", "packages/*", "libs/*", "projects/*", "services/*"}
 
-// DiscoverProjects enumerates the monorepo members under root. It is
-// manifest-driven — pnpm-workspace.yaml `packages`, then package.json
-// `workspaces` (turbo/nx/lerna/npm/yarn all use this) — and falls back to
-// convention globs when neither is present. Only directories containing a
-// project marker are returned, sorted by path. Replaces the unparsed
-// registry/monorepos.yaml with a typed, tested implementation.
 func DiscoverProjects(root string) []Project {
 	patterns, tool := workspacePatterns(root)
 

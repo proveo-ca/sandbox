@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_config.sh - Entrypoint behavior: smoke mode, proxy compat, preamble
 
 # Smoke mode: entrypoint completes setup, prints the ready marker, then parks.
@@ -63,9 +64,6 @@ else
   printf "${RED}FAIL${NC} [%d] useHttp1ForAgent behaviour (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# Without a proxy, the entrypoint never enables the HTTP/1.1 fallback. (The CLI
-# itself normalizes the config on launch and writes the key as false — so
-# assert on ": true", not on the key's presence.)
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   --entrypoint bash \

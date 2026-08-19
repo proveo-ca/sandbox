@@ -1,14 +1,7 @@
-# SPEC: _spec/components.puml
-# proveo/base-node-lsp — proveo/base-node + the workspace language servers the
-# shared LSP detector (packages/lib/entrypoint-lib.sh §8) can run in a Node
-# image. Kept OUT of base-node so non-LSP Node consumers don't carry servers
-# they never use. Shared by the LSP-capable Node harnesses (opencode, claudecode).
+# SPEC: _spec/components.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/packages/lib/steps.puml
 ARG BASE_IMAGE=proveo/base-node:latest
 FROM ${BASE_IMAGE}
 
-# Language servers matching _lsp_server() in the shared detector. Node + pnpm
-# come from base-node. vscode-langservers-extracted provides the json/html/css
-# servers. Re-run the scoped harden after installing into /usr and /opt.
 RUN npm install -g --no-optional \
     typescript-language-server \
     vscode-langservers-extracted \

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Maintainer helpers for the proveo mise tasks. The build/deploy/test
-# orchestration moved to Go (`proveo build|deploy|test`); what remains here is
-# used by the `debug` task (with lib/ui.sh + lib/registry.sh).
+# SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/internal/maintain/image-build-deploy.puml
 
 print_error() {
   echo "❌ $*" >&2
@@ -16,9 +14,6 @@ require_tag() {
   fi
 }
 
-# is_valid_target / require_target validate against TARGETS (built in
-# lib/registry.sh from `proveo targets`, sourced by the same tasks). Late binding
-# is fine: these run after all sources, by which point TARGETS is populated.
 is_valid_target() {
   local target="$1"
   local item

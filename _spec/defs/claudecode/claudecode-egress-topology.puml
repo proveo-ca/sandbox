@@ -103,7 +103,39 @@ else, so a key the agent read from a mounted
 ""\.env"" is useless for exfiltration.
 (""PROVEO_EGRESS_INSPECTOR=mitmproxy"" selects the
 legacy Python sidecar, without the broker.)
+
+**Configured entirely by environment**, so the egress
+lifecycle can wire it with ""docker run -e"" — but
+secrets are **not** among those variables. The broker
+reads provider keys from the mounted 0600 env-file;
+an argv or env secret is visible to anything that can
+read ""/proc"" or a ""docker inspect"".
+
+**The same binary answers subcommands**, which is how
+""defs/lib/egress\.sh"" delegates provider detection and
+Squid allowlist generation to one Go source
+(""PROVEO_EGRESS_BIN"") instead of reimplementing them in
+Bash. With no subcommand it serves the proxy — that is
+the image ENTRYPOINT.
+
+The env-file parser is deliberately tolerant of the
+shape of a project "".env"": blank lines, ""#"" comments and
+a leading ""export "" all pass. A missing or unreadable
+file yields an empty map, which degrades the broker to
+pass-through rather than failing the run. Variable
+lookups check the process env first, then that file —
+mirroring the Bash helper it replaced, which checked
+both.
 end note
+
+note bottom of Mitm
+  **Lineage:** the Python mitmproxy sidecar this Go inspector replaced was
+  itself chosen over a Charles wiring — mitmproxy is Apache-2.0,
+  headless-native, and can decrypt HTTPS to see method/path/body, which the
+  Charles setup could not. Each step kept the decryption and dropped a
+  dependency.
+end note
+
 
 note right of Squid
 Squid is the enforcement proxy:

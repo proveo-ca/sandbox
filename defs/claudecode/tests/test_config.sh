@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_config.sh - Claude configuration verification
 
 # ==================== Standalone ====================

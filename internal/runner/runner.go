@@ -1,8 +1,4 @@
-// Package runner builds the single hardened `docker run` invocation shared by
-// every harness. It replaces the hardening baseline
-// that was copy-pasted across the consumer CLI, lib/runners.sh, and each
-// defs/<name>/run.sh. The argv is built as pure data so it is golden-testable;
-// execution is the caller's concern.
+// SPEC: _spec/internal/runner/hardened-run-argv.puml
 package runner
 
 import "fmt"
@@ -14,9 +10,6 @@ type Mount struct {
 	ReadOnly  bool
 }
 
-// Config describes a harness container run. The security hardening (cap-drop,
-// no-new-privileges, pids-limit) is NOT optional — it is always applied.
-// PidsLimit is host/tier-resolved by the caller (or auto-resolved when <= 0).
 type Config struct {
 	Name        string   // container name (optional)
 	User        string   // "uid:gid"; empty => runtime default (caller should set)
@@ -33,17 +26,11 @@ type Config struct {
 	PidsLimit   int      // --pids-limit; <=0 => ResolvePidsLimit(DetectHost(), IsBrowserImage(Image), …)
 }
 
-// hardeningStatic is the non-negotiable baseline every harness container runs
-// with, aside from the host-scaled --pids-limit appended by DockerRunArgs.
-// The contract test asserts no def re-declares these.
 var hardeningStatic = []string{
 	"--cap-drop=ALL",
 	"--security-opt=no-new-privileges:true",
 }
 
-// DockerRunArgs returns the full argument vector after the literal `docker`,
-// i.e. {"run", ...flags..., image, ...command...}. Deterministic ordering so
-// golden tests are stable.
 func DockerRunArgs(cfg Config) []string {
 	args := []string{"run"}
 	if cfg.Interactive {

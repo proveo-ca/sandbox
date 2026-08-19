@@ -48,5 +48,29 @@ note bottom of REPORT
   will carry, and whether ""gh"" is authenticated — so an
   agent about to commit or push is never guessing, and a
   human reading the transcript can attribute the work.
+
+  **The host-side header answers the same question, and
+  once answered it wrongly.** ""gitRootOrEmpty"" is the
+  repository root //regardless of workspace layout//: it
+  gates on ""workspace\.Scope\.IsRepo"" and returns the
+  resolved repo root. Reading ""wsSpec\.RepoRoot"" instead
+  is the bug it replaced — that field is populated only
+  for the app layout, so an input-output harness reported
+  a real repository as absent.
 end note
+note bottom of GID
+  **Identity is resolved on the host and forwarded as bare env**, never by
+  mounting the developer's git config: the config may reference signing
+  keys, credential helpers and include-paths that mean nothing inside the
+  container. Explicit ""GIT_AUTHOR_*"" / ""GIT_COMMITTER_*"" win, then the
+  host's own ""git config"" values.
+
+  In-container the bridge writes them into git's **config-env**
+  (""GIT_CONFIG_KEY_n"" / ""VALUE_n"") rather than a file, so a config read
+  resolves without writing anywhere — and an identity the repo already
+  carries is left alone, because a local ""\.git/config"" is a deliberate
+  choice by whoever made it.
+end note
+
+
 @enduml

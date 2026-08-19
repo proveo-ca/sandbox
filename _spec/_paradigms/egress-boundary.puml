@@ -43,11 +43,73 @@ note right of MITM
   this same hop: _spec/internal/egresspolicy/*.puml
 end note
 
+note bottom of SQUID
+  **One domain list, two enforcement points.** The operator's extra
+  domains and the harness's own infrastructure endpoints merge into a
+  single space-separated list that the egress layer feeds to //both// the
+  Squid ACL and the policy's write allowlist. Two lists would drift, and
+  a domain reachable by one hop but denied by the other is the hardest
+  denial to read.
+
+  What the list admits is a wider question than what the broker injects:
+  the reachable set is the endpoints of //every// provider the allowlist
+  admits, because a session may call any provider whose key is present.
+  Reach and injection are separate axes — see
+  ""_spec/internal/egress/egress-tiers\.puml"".
+
+  **The two hops must admit the same set, or the mismatch shows up as an
+  unreadable denial.** The policy's write allowlist is therefore every
+  reachable provider endpoint, not just the pinned one: narrow it and
+  Squid connects to a host the policy then refuses to write to, which
+  reads to the agent as the provider misbehaving rather than as a proveo
+  decision.
+end note
+
 note bottom of OLLAMA
   **Local-model exceptions.** cursor is vendor-pinned (no
   custom base URL). claudecode speaks the Anthropic API
   shape, not Ollama's OpenAI-compatible endpoint, so the
   sidecar is not a drop-in there.
+
+  **An opt-in add-on, and //where// inference runs is a second
+  decision.** The host models dir is resolved only when
+  ""--local-model"" is requested; alongside it the run decides
+  whether inference lands on the host's Ollama or in a sidecar,
+  and whether that sidecar gets a GPU.
+
+  **On macOS the sidecar loses the GPU, so inference moves to
+  the host.** A Linux container cannot reach the Metal GPU, so
+  an in-network sidecar runs CPU-only and is unusably slow,
+  while the host's Ollama at ""host\.docker\.internal"" is
+  GPU-accelerated. The redirection is honored **only in broker
+  mode** (""egress\.buildBroker""); the locked tiers keep the
+  isolated sidecar regardless. ""PROVEO_LOCAL_MODEL_SIDECAR=1""
+  forces the in-network sidecar even on macOS.
+
+  **The sidecar is GPU-accelerated only on Linux with the NVIDIA
+  container runtime registered in Docker**, which is what makes
+  ""--gpus all"" a valid flag. Passing it without the runtime
+  makes the sidecar fail to start, so the runtime list from
+  ""docker info"" is probed and the flag added only on a positive
+  match.
+
+  **The context window is raised to 32k, and that is a floor rather
+  than a preference.** Ollama's default of 2–4k truncates tool
+  schemas plus repo context, which breaks every local-capable
+  harness — agentic coding does not degrade gracefully when the
+  schema itself is cut off. 32k is what the vendor docs recommend
+  for agent use.
+
+  **One endpoint, three provider dialects.** The local-model env is a
+  superset each harness consumes selectively, speaking to the same
+  Ollama at once as OpenAI-compatible (""OPENAI_BASE_URL"" + ""…/v1"",
+  opencode), as litellm/Ollama (""OLLAMA_API_BASE"" +
+  ""ollama_chat/<model>"", cecli/aider) and as Anthropic Messages
+  (""ANTHROPIC_BASE_URL"" at Ollama's native endpoint, Claude Code) —
+  one superset rather than per-harness wiring that drifts. The base is
+  either the sidecar alias or the host gateway, per the macOS
+  redirection above. Per-harness variable bridging:
+  ""_spec/internal/entrypoint/model-alias-bridges\.puml"".
 end note
 
 note bottom of DIND

@@ -5,9 +5,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Provider detection + the Squid write-pin ACL live in Go (internal/provider,
-# internal/egress); egress.sh delegates to the proveo-egress binary. Build it
-# once so residual egress.sh contracts exercise that real path.
 if command -v go >/dev/null 2>&1; then
   _bin_dir="$(mktemp -d)"
   ( cd "$REPO_ROOT" && go build -o "$_bin_dir/proveo-egress" ./cmd/proveo-egress )

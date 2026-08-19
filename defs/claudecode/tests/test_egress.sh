@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # Egress contract tests — orchestration covered by Go golden/integration tests.
 # This suite keeps Squid policy static checks + provider detect/allow via proveo-egress.
 set -euo pipefail

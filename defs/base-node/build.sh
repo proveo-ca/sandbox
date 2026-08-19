@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Build proveo/base-node (proveo/base + Node runtime). Ensures proveo/base exists
-# first. The Dockerfile pulls nothing from the repo, so the build context is this
-# dir (not the repo root).
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

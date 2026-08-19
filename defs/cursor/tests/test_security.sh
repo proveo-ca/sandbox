@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_security.sh - Runtime hardening posture
 
 assert_output_contains \

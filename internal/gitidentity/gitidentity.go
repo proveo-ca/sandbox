@@ -1,8 +1,3 @@
-// Package gitidentity resolves the developer's git author/committer identity
-// for forwarding into harness containers as bare -e GIT_* env (value from the
-// client env at docker run time — secrets stay off argv when set as KEY only,
-// but identity is non-secret so KEY=value is fine).
-//
 // SPEC: _spec/_paradigms/git-identity.puml, _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
 package gitidentity
 
@@ -18,10 +13,6 @@ type Identity struct {
 	Email string
 }
 
-// Resolve returns identity from getenv (GIT_AUTHOR_* / GIT_COMMITTER_* win),
-// else from `git config --get user.name/email` when git is available.
-// getenv may be nil (uses os.Getenv). gitConfig is injectable for tests;
-// nil uses the host git binary.
 func Resolve(getenv func(string) string, gitConfig func(key string) string) Identity {
 	if getenv == nil {
 		getenv = os.Getenv

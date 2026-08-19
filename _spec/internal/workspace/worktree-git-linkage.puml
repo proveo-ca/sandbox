@@ -1,0 +1,90 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Linked-worktree git linkage — two pointer files overlaid, never rewritten
+
+node "Host checkout" as HOST <<host>> {
+  database "<main>/.git\nobjects · refs · config · worktrees/" as COMMON <<db>>
+  component "<tree>/.git — a FILE\n'gitdir: <main>/.git/worktrees/<name>'" as DOTGIT <<app>>
+  component "worktrees/<name>/gitdir\n'<tree>/.git'" as GITDIR <<app>>
+}
+
+node "Container" as CONT <<host>> {
+  component "/proveo-git\nbind of the shared .git (rw unless gitMode ro)" as CCOMMON <<app>>
+  component "/workspace/input | /app\nthe worktree tree" as CTREE <<app>>
+  component "overlay: dotgit\n'gitdir: /proveo-git/worktrees/<name>'" as CDOT <<app>>
+  component "overlay: gitdir\n'<containerRoot>/.git'" as CGIT <<app>>
+}
+
+component "PrepareWorktreeLinks(root)\nwrites both files under PROVEO_HOME" as PREP <<app>>
+component "worktree reported 'prunable'\ngit worktree prune deletes the host registration" as PRUNE <<error>>
+
+DOTGIT ARROW_MAIN COMMON : host path
+GITDIR ARROW_MAIN DOTGIT : host path
+PREP ARROW_MAIN CDOT
+PREP ARROW_MAIN CGIT
+CDOT ARROW_MAIN CCOMMON : container path
+CGIT ARROW_MAIN CDOT : container path
+COMMON ARROW_MAIN CCOMMON : bind
+CDOT ARROW_ERROR PRUNE : what an incoherent chain causes
+CTREE ARROW_OPTIONAL CDOT : nested bind shadows the host file
+
+note right of PREP
+  **A linked worktree's ""\.git"" is a FILE, not a directory**, holding
+  ""gitdir: <main>/\.git/worktrees/<name>"" — a //host// path that does not
+  exist inside the container. Binding the shared ""\.git"" at ""/proveo-git""
+  makes objects and refs writable, but leaves the linkage incoherent,
+  because two pointer files still disagree with container reality:
+  the tree's ""\.git"", and ""worktrees/<name>/gitdir"" pointing back at it.
+
+  **The overlay replaces exactly those two files** with container-correct
+  copies, as nested read-only binds — the same shadowing trick
+  ""maskEnvMounts"" uses for ""\.env"". The host copies are never rewritten,
+  so the operator's own use of the worktree keeps working; only the
+  container sees the rewritten chain. ""commondir"" needs no overlay: it is
+  already relative (""\.\./\.\."").
+
+  The files are read-only on purpose. Git writes to the per-worktree admin
+  dir, never to these pointers — the only writer would be
+  ""git worktree move/repair"", which must not reach the host.
+end note
+
+note bottom of PRUNE
+  **An incoherent chain is not merely cosmetic — it is destructive.**
+  ""gitdir"" names a path that is absent in the container, so git marks the
+  worktree prunable and ""git worktree prune"" (also reached through ""gc"")
+  **deletes** ""<main>/\.git/worktrees/<name>"" on the **host**. The operator's
+  worktree is then dead: ""fatal: not a git repository"".
+
+  With the overlay in place ""prune"" is a no-op and the admin dir survives.
+end note
+
+note left of CTREE
+  **Why the overlay and not ""GIT_DIR""/""GIT_WORK_TREE"".** Env pinning also
+  makes commits work, but it is a pin, not a fix, and it fails two ways:
+
+  * a tool that does its own discovery instead of inheriting the env dies
+    on the stale path — ""fatal: not a git repository""
+  * ""GIT_DIR"" is absolute and process-global, so it captures **any** nested
+    or sibling repo the agent visits: ""git -C /other rev-parse --git-dir""
+    answers with the outer worktree's admin dir
+
+  A coherent chain needs no pin, so plain discovery works everywhere.
+  ""WorktreeEnv"" is kept only as the fallback for when the pointer files
+  cannot be written, and the two are never set together.
+end note
+
+note bottom of CCOMMON
+  **""gitMode: ro"" applies here too.** ""gitOverride"" bails on a worktree —
+  it requires ""\.git"" to be a //directory// — so before this the shared
+  ""\.git"" was writable no matter what ""gitMode"" said. The read-only state
+  now rides on the ""/proveo-git"" bind itself.
+
+  The pointer dir is keyed by //common dir + name//, not name alone: every
+  checkout may hold a worktree called 'feature', and a name-only key would
+  let one repo's overlay overwrite another's.
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+HOST -down[hidden]- PREP
+' --- END IGNORE ---
+@enduml

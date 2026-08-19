@@ -1,0 +1,68 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/egressproxy/{proxy,recorder}.go lands here (batch 4).
+title MITM and flow record — martian chain, fail-closed policy, query strings never logged
+
+node "internal/egressproxy — Run(Config)" as PKG <<host>> {
+  component "build(Config)\nper-session CA · MITM config · closer" as BUILD <<app>>
+  component "reqChain\nordered RequestModifiers" as CHAIN <<app>>
+  component "brokerModifier\ninject for the pinned provider" as BRK <<app>>
+  component "policyModifier\noff-provider rules" as POL <<app>>
+  component "Recorder.ModifyResponse\none NDJSON line per flow" as REC <<app>>
+}
+
+cloud "Squid upstream :3128" as SQUID <<cloud>>
+cloud "Provider API" as PROV <<cloud>>
+database "flows.ndjson\nhost · method · path · status\nNO query, headers or body" as FLOWS <<db>>
+database "CA cert\nwritten for the agent to trust" as CA <<db>>
+component "Agent container" as AGENT <<app>>
+component "SkipRoundTrip on a block\nmodifier error alone still forwards" as CLOSED <<error>>
+component "Secret in a query string\n?key= recorded to disk" as SECRET <<error>>
+
+AGENT ARROW_MAIN CHAIN : proxied TLS
+BUILD ARROW_MAIN CHAIN
+BUILD ARROW_MAIN CA
+CHAIN ARROW_MAIN BRK
+CHAIN ARROW_MAIN POL
+POL ARROW_ERROR CLOSED : denied — upstream never contacted
+POL ARROW_MAIN SQUID : allowed
+SQUID ARROW_CLOUD PROV
+CHAIN ARROW_QUEUE REC
+REC ARROW_MAIN FLOWS
+REC ARROW_ERROR SECRET : the reason the path is stripped
+POL ARROW_QUEUE FLOWS : RecordBlock — reason only
+
+note right of BUILD
+  **This package is the only impure layer, and that is the point.**
+  ""internal/broker"" and ""internal/egresspolicy"" are stdlib-only and
+  operate on an ""*http\.Request"", so the security-critical classification,
+  header handling and DLP decisions are unit-testable with no proxy
+  runtime present. Everything that knows about martian lives here.
+
+  ""build"" is split from ""Run"" for the same reason: a test can drive the
+  proxy with its own listener and transport. It wires a per-session CA,
+  the MITM config, the optional Squid downstream, the broker modifier and
+  the recorder, and returns a closer that releases the proxy — so a test
+  does not leak a listener between cases.
+end note
+
+note bottom of SECRET
+  **The recorded path never includes the query string, and that is a
+  deliberate divergence** from the Python mitmproxy addon whose field set
+  ""flowRecord"" otherwise matches. The broker can inject a credential //as a
+  query parameter// — Gemini's ""?key="" — so recording the query would
+  write the very secret this hop exists to contain into a file on disk.
+
+  ""RecordBlock"" holds the same discipline on the deny path: host, method,
+  path and the reason, never the query, headers or body — which are
+  exactly where the secret that triggered the block tends to live.
+end note
+
+note bottom of FLOWS
+  **What the DLP scanner is given to look for**: every provider key value
+  present in the mounted secret file, plus each route's injected value.
+  Route values are added **bare**, without any ""Bearer "" prefix, because
+  the scanner has to match the secret as it would appear re-encoded in an
+  exfil attempt — a prefix would make every encoded hit miss.
+end note
+@enduml

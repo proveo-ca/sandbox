@@ -1,3 +1,4 @@
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/internal/maintain/image-build-deploy.puml
 package main
 
 import (
@@ -12,11 +13,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
-// targetsCmd prints the maintainer build/deploy/test registry as TSV
-// (name<TAB>image<TAB>defDir), one target per line. It is the single source of
-// truth the maintainer mise tasks read (lib/registry.sh) instead of re-parsing
-// the harness manifests in Bash. Maintainer tooling only — needs an on-disk
-// defs/ tree (a checkout), not the embedded manifests.
 func targetsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "targets",
@@ -41,9 +37,6 @@ func targetsCmd() *cobra.Command {
 	}
 }
 
-// maintainerDefsDir resolves the on-disk defs/ root: PROVEO_DEFS_DIR, else the
-// enclosing repo's defs/. Errors when neither exists (targets needs the source
-// tree to locate each def's build.sh / test.sh).
 func maintainerDefsDir() (string, error) {
 	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
 		return d, nil

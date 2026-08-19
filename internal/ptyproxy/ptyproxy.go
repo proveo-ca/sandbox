@@ -20,9 +20,6 @@ import (
 	"golang.org/x/term"
 )
 
-// Proxy owns the PTY between the operator's terminal and a child process. Being
-// the ONLY reader of the real terminal is the whole point: the child gets the
-// slave, so an overlay never contends with it for stdin.
 type Proxy struct {
 	In  *os.File // the operator's terminal (stdin)
 	Out *os.File // the operator's terminal (stdout)
@@ -33,16 +30,8 @@ type Proxy struct {
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
-	// overlayIn receives keystrokes while an overlay is up. The pump stays the
-	// SOLE reader of the terminal and re-routes into this channel; it cannot simply
-	// stand down, because a goroutine already blocked in read() will consume the
-	// next byte no matter what a flag says. Handing bytes over is the only way the
-	// overlay can be the exclusive consumer.
 	overlayIn chan []byte
-	// inFd is the operator terminal fd, captured once. Calling In.Fd() from Overlay
-	// races a concurrent close in the pump and additionally forces the file into
-	// blocking mode on every call.
-	inFd int
+	inFd      int
 }
 
 // New returns a Proxy over the given terminal files. Passing os.Stdin/os.Stdout
@@ -56,9 +45,6 @@ func Usable(in, out *os.File) bool {
 		term.IsTerminal(int(in.Fd())) && term.IsTerminal(int(out.Fd()))
 }
 
-// Run starts cmd on a PTY, pumps both directions, and waits. The operator's
-// terminal is put in raw mode for the duration and restored on every exit path,
-// including a signal — raw mode must not survive the process.
 func (p *Proxy) Run(cmd *exec.Cmd) error {
 	m, err := pty.Start(cmd)
 	if err != nil {
@@ -180,12 +166,6 @@ var ErrNotRunning = errors.New("ptyproxy: no child running")
 
 // Overlay suspends both pumps, hands the terminal to draw, then restores the
 // child's display. draw owns the terminal exclusively for its duration.
-//
-// Restoring does NOT replay the buffered output: the child owns the alternate
-// screen and would repaint over it anyway. Instead the child is made to repaint by
-// a genuine resize — one column narrower, then back. Both deliver SIGWINCH, and
-// because the dimensions actually change, a TUI that early-outs on a no-op resize
-// still does a full relayout. A bare SIGWINCH at unchanged size is unreliable.
 func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.mu.Lock()
 	running := p.master != nil
@@ -200,11 +180,6 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.overlayIn = in
 	p.mu.Unlock()
 
-	// Leave raw mode so draw can use ordinary line editing if it wants to.
-	// The terminal STAYS in raw mode for the overlay. Dropping to cooked mode was
-	// pointless once the prompt reads a single keypress, and it was actively
-	// harmful: the pump is mid-Read on this fd, so flipping the line discipline
-	// underneath it changes how in-flight bytes are delivered.
 	drawErr := draw(&chanReader{ch: in}, p.Out)
 
 	p.mu.Lock()
@@ -219,9 +194,6 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 
 // forceRepaint nudges the child into a full redraw via a real size change.
 func (p *Proxy) forceRepaint() {
-	// Held for the whole resize: Run nils the master under this same lock before
-	// closing it, so a child that exits mid-overlay turns this into a no-op rather
-	// than an operation on a dead fd.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	m := p.master

@@ -68,10 +68,6 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
-# Claude Code reads CLAUDE.md and NOT AGENTS.md, so a project carrying the shared
-# standard is otherwise invisible to it. Bridge with the documented @import rather
-# than copying: the import is re-read each run, a copy would go stale, and a
-# symlink needs Administrator on Windows.
 if [[ -f AGENTS.md && ! -f CLAUDE.md ]]; then
   if printf '@AGENTS.md\n' > CLAUDE.md 2>/dev/null; then
     echo "🔗 CLAUDE.md → @AGENTS.md (Claude Code does not read AGENTS.md natively)"
@@ -105,10 +101,6 @@ seed_claude_proveo_home() {
 seed_claude_proveo_home
 
 # ── Seed user-level subagents (~/.claude/agents) ────────────
-# Claude Code reads user-level agents from $HOME/.claude/agents and project-level
-# ones from .claude/agents in the workspace; the workspace is never written here.
-# Missing-only, so a durable proveo home keeps local edits, unless
-# CLAUDECODE_RESEED=1 forces a refresh from the image bake.
 seed_claude_subagents() {
   local src="/opt/claudecode/defaults/agents"
   local dst="${HOME}/.claude/agents"
@@ -151,9 +143,33 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 
 run_smoke_test "claudecode"
 
-echo "🚀 Launching Claude Code..."
+# Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP);
+# the toolchains they need are provisioned first.
 ensure_python_env "$(pwd)"
 ensure_language_servers "$(pwd)"
 configure_claude_lsp
 
-exec claude --dangerously-skip-permissions "$@"
+# ── Agent evidence ─────────────────────────────────────────
+claude_wants_stream_json() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      stream-json | --output-format=stream-json) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+CLAUDE_EVIDENCE_ARGS=()
+if agent_evidence_verbose; then
+  CLAUDE_EVIDENCE_ARGS+=(--verbose)
+  if claude_wants_stream_json "$@"; then
+    CLAUDE_EVIDENCE_ARGS+=(--include-partial-messages)
+  fi
+  report_agent_evidence "${CLAUDE_EVIDENCE_ARGS[@]}"
+else
+  report_agent_evidence
+fi
+
+echo "🚀 Launching Claude Code..."
+exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"

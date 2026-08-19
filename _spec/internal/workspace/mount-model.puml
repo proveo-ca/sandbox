@@ -1,0 +1,125 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/workspace/{mount,workspace,discover}.go and
+' cmd/proveo/main.go's mount + env-forwarding blocks lands here (batches 3 and 6).
+' Escaping symlinks have their own diagram: mount-symlink-escape.puml.
+title Mount model — two layouts, one scope resolver, secrets decided by egress
+
+node "Scope resolution" as SCOPE <<host>> {
+  component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>
+  component "DiscoverProjects(root)\npnpm · npm/yarn · convention globs" as DISC <<app>>
+  component "scope picker\n--scope, else a TTY menu" as PICK <<app>>
+}
+
+node "MountSpec.Plan() — manifest workspace model" as PLAN <<host>> {
+  component "layout: input-output\n/workspace/input + /workspace/output" as IO <<app>>
+  component "layout: app\nagent edits in place at /app" as APP <<app>>
+  component "monorepo subdir scope\n/app/<rel> + /app/.git + rootFiles" as SUB <<app>>
+  component "envMounts · maskEnvMounts\nescapingEnvFile" as ENV <<app>>
+}
+
+database "Host checkout\nmode ro|rw · gitMode ro|rw" as HOST <<db>>
+component "runner.Mount list\nhost:container[:ro]" as MOUNTS <<app>>
+component "Secrets readable inside the agent\n.env left in the mounted tree" as LEAK <<error>>
+
+RES ARROW_MAIN PICK : repo root vs subdir
+DISC ARROW_MAIN PICK
+PICK ARROW_MAIN PLAN : InputDir · RepoRoot
+PLAN ARROW_MAIN IO
+PLAN ARROW_MAIN APP
+APP ARROW_OPTIONAL SUB : InputDir under RepoRoot
+IO ARROW_MAIN ENV
+APP ARROW_MAIN ENV
+SUB ARROW_MAIN ENV
+HOST ARROW_MAIN MOUNTS
+ENV ARROW_MAIN MOUNTS
+ENV ARROW_ERROR LEAK : what isolating egress exists to prevent
+
+note left of RES
+  **Resolution starts from the repository root, not from the directory the
+  command was invoked in.** ""--input"" (or the cwd) only says where to start
+  looking; the root is what carries full git and workspace context, so once
+  ""workspace\.Resolve"" reports a repo everything downstream hangs off the
+  root instead of the entry point — the default ""reports/"" output dir,
+  project discovery for the picker, and the tree the input-output layout
+  mounts read-only.
+end note
+
+note right of PICK
+  **The picker opens only when every condition holds: no explicit ""--scope"",
+  a repo, a TTY, and not a print-only run.** An explicit ""--scope"" is the
+  answer and needs no question; a run that only prints its argv has nothing
+  to ask about.
+
+  ""PROVEO_WIZARD=off"" suppresses it — deliberately the same switch as the
+  missing-env wizard, so one variable silences every prompt rather than one
+  per prompt. A PTY-driven, non-interactive caller — the agent E2E suite, CI
+  — would otherwise block forever on a keypress nobody is there to press:
+  a PTY //passes// the TTY check, so the TTY check alone is not enough.
+
+  **Two pickers behind one call.** On a real TTY ""pickProject"" shows an
+  fzf-style arrow-key + type-to-filter finder; when its reader is a pipe or
+  a test's ""strings\.Reader"" it falls back to a numbered prompt driven by
+  that reader. The fallback is not a downgrade for looks: the fuzzy finder
+  reads ""/dev/tty"" directly and so escapes any injected reader, which is
+  exactly what would make tests and CI non-hermetic.
+
+  **Anything unresolved means the repo root.** Entry 0 is ""<repo root>"", and
+  Esc/Ctrl-C (""ErrAbort""), a finder failure, and any invalid or empty
+  numbered input all resolve to the empty scope — the whole repo, never a
+  half-chosen subdirectory. Whether stdin counts as a terminal at all is one
+  shared ioctl check, described in
+  ""_spec/internal/choiceui/choice-prompt-render\.puml"".
+end note
+
+note bottom of ENV
+  **Model and UI preferences are forwarded by value, never read from a file
+  inside the container.** They are the non-secret half of the environment —
+  the shared baseline plus whatever this harness declares in ""config:"" — and
+  each entrypoint bridges them into its own tool-specific variable
+  (""OPENCODE_MODEL"", ""CECLI_MODEL"", ""ANTHROPIC_MODEL"", …).
+
+  They //must// arrive as env because the file they would otherwise be read
+  from is not there to read: ""\.env"" is masked on the proxy and firewall
+  tiers, and the input-output layout does not mount it at all.
+
+  **""--local-model"" overrides them by construction, not by a conditional.**
+  Its ""-e"" pairs land in ""plan\.AgentArgs"", which docker applies //after//
+  ""Env"", so the later assignment is the one the agent process sees.
+
+  Secrets do not travel this path: they are declared in ""env:"" and go through
+  the broker (""_spec/_paradigms/credential-boundary\.puml"").
+end note
+note right of ENV
+  **Masking is recursive and uses ""/dev/null"", not omission.** Every dotenv
+  secrets file under the mounted tree is shadowed, so a hostile or injected
+  agent cannot read a real credential off disk — the structural complement
+  to the broker's header-strip and the egress DLP. Templates
+  (""\.env\.example"" / ""\.sample"" / ""\.template"" / ""\.dist"") stay readable,
+  because agents legitimately consult them.
+
+  The walk prunes ""\.git"" and ""node_modules"" only — deliberately narrower
+  than the shared prune set, since a secrets file inside ""dist/"" still has
+  to be masked. It does not follow symlinks, so there are no loops and a
+  symlinked ""\.env"" is still masked at its container path.
+
+  **Two mounted sets are deliberately not walked**: the hoisted repo-root
+  files are a fixed non-secret allowlist, and the config dir is a
+  tool-config directory — neither is a conventional secrets location, and
+  walking them would add cost for no coverage.
+
+  For broker ingestion the host-side ""\.env"" is resolved through symlinks
+  on the host, following the invocation dir → scope → repo-root order the
+  Bash lifecycle used, so a project that symlinks its env file still feeds
+  the broker.
+end note
+
+note right of SUB
+  The hoisted root files are a superset across harnesses, each mounted only
+  when it exists at the root **and** is absent from the scope dir — so the
+  union is safe: a harness never sees a file its repo does not have, and a
+  scope that ships its own ""package\.json"" keeps it.
+end note
+
+
+@enduml

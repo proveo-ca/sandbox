@@ -48,8 +48,10 @@ proveo run cursor                            # broker egress (Cursor inference i
 proveo run opencode --local-model gemma4     # fully local via an Ollama sidecar — no cloud key
 ```
 
-`proveo run` opens a **capability picker** — *press tab to add an option (browser, DinD), or
-enter to continue* — then launches the agent against your repo with the guarantees below.
+`proveo run` opens a **capability picker** — *press tab to add an option (browser, DinD, agent
+evidence), or enter to continue* — then launches the agent against your repo with the guarantees
+below. Agents run at their most verbose by default: thoughts, tool calls and diffs on screen
+([`CODING_HARNESSES.md`](CODING_HARNESSES.md#agent-evidence)).
 
 ## Supported languages & tooling
 

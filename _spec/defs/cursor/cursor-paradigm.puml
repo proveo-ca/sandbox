@@ -61,6 +61,27 @@ note bottom of VENDOR
   mode, which forwards the real ""CURSOR_API_KEY"".
   The provider pin maps that key to "".cursor.sh"" /
   "".cursor.com"".
+
+  **What an intercepting tier looks like from inside the
+  container.** ""cursor-agent""'s TLS to ""api2\.cursor\.sh""
+  is pinned, so the MITM hop cannot be made to carry the
+  real header: the allowlist tier (//firewall//) hands the
+  agent the ""proveo-brokered"" sentinel and the review tier
+  (//proxy//) withholds the key altogether. Either way the
+  CLI reports //"invalid API key"// — an error that blames
+  the credential rather than the tier that removed it, so
+  the operator cannot tell a revoked key from a proveo
+  decision.
+
+  **So the posture is declared, not defaulted per-flag.**
+  cursor's manifest declares ""capabilities: egress:[open] ·
+  credentials:[forward] · providers:[cursor]"", which is the
+  only combination that authenticates it; an intercepting
+  selection is warned about by name, pointing at
+  ""--egress-mode open --credentials forward"". Earlier the
+  same guarantee was a run-time default — broker unless the
+  operator had //explicitly// changed the mode flag — and
+  that is the shape the removed ""main\.go"" prose described.
 end note
 
 note bottom of EP
@@ -70,4 +91,45 @@ note bottom of EP
   ""useHttp1ForAgent"" (agent traffic is HTTP/2 streaming by
   default, which the proxy hop cannot carry).
 end note
+note bottom of CLI
+  **The CLI is installed system-wide under a root-owned prefix**, by
+  pointing HOME at ""/opt/cursor-dist"" for the install only. Two properties
+  follow: the agent, running as the host uid, cannot tamper with its own
+  binary, and the CLI's runtime auto-update cannot write there either. The
+  image is immutable — updating the CLI means rebuilding it.
+
+  There is no documented pinning variable, so the installer resolves
+  whatever release is current; ""CURSOR_INSTALL_URL"" points it at a mirrored
+  copy, and real pinning means fetching a versioned tarball yourself.
+
+  Pre-baked defaults (deny config, read-only reviewer subagents, the loop
+  rule) are seeded into ""~/.cursor"" on first run, or re-seeded with
+  ""CURSOR_RESEED=1"". The loop rule reaches the workspace only when asked
+  for explicitly.
+
+  **Evidence is limited by the CLI, not by policy.** There is no verbosity
+  switch for the interactive TUI; the only dial is the headless output
+  format, where ""stream-json"" emits each tool call and result as it happens
+  (plain text reports just the final message) and
+  ""--stream-partial-output"" adds text deltas. Thinking events are
+  suppressed in print mode whatever is passed — so verbose here buys tool
+  calls and diffs, never reasoning.
+end note
+
+note bottom of SBX
+  **Cursor's own Landlock sandbox is disabled deliberately.** Landlock
+  needs an unprivileged user namespace, which a cap-dropped container
+  cannot provide, so enabling it would fail rather than confine. Docker is
+  the filesystem and process boundary here; network containment is the
+  egress tier. Overridable with ""PROVEO_CURSOR_SANDBOX"" — see
+  ""_spec/_experiments/docker-sandbox\.puml"".
+
+  **LSP arrives over MCP because cursor has no external-LSP config.** The
+  ""mcp-language-server"" bridge runs one instance per language server, and
+  the bridge plus gopls are built as **static** binaries so a Go runtime
+  never ships in the final image. The shared detector picks only the
+  languages the workspace uses //and// the image installed.
+end note
+
+
 @enduml

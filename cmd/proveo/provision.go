@@ -1,14 +1,4 @@
-// Image provisioning: the preflight installs missing dependencies instead of
-// only failing fast. Distribution model: `mise build` builds the proveo/*
-// images locally, `mise deploy` pushes them to Docker Hub, and consumers pull
-// them — so every missing image is pulled first (the consumer path, same as
-// the distributed CLI's ensure_image_available). When the pull fails (offline,
-// unpublished tag, maintainer iterating pre-publish) and a source checkout is
-// available, the preflight offers to run the def's build.sh instead, gated by
-// the same wizard pattern as the missing-env prompt (TTY-only,
-// PROVEO_AUTO_PROVISION short-circuit, decline keeps an actionable failure).
-// The enforcement images are the egress trust root: production should pin
-// digests via the PROVEO_*_IMAGE overrides rather than float on :latest.
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
 import (
@@ -41,10 +31,6 @@ type provisioner struct {
 	UI      *ui.Printer
 }
 
-// Ensure makes every dep's image available, in order, before any network or
-// container exists — a missing image still fails fast, it just tries to
-// install first: pull (the consumer path), then a confirmed local build when
-// the pull fails and a source checkout is present. Duplicates are checked once.
 func (pv provisioner) Ensure(deps []imageDep) error {
 	seen := map[string]bool{}
 	for _, d := range deps {
@@ -109,9 +95,6 @@ func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string)
 	return pv.Ensure(deps)
 }
 
-// provisionConfirm decides whether to build a missing proveo/* image:
-// PROVEO_AUTO_PROVISION forces yes/no, else ask on a TTY (default yes —
-// declining just reproduces the failure the prompt is trying to avoid).
 func provisionConfirm(question string) bool {
 	switch strings.ToLower(os.Getenv("PROVEO_AUTO_PROVISION")) {
 	case "1", "true", "yes", "on":
@@ -125,9 +108,6 @@ func provisionConfirm(question string) bool {
 	return promptYesNo("🔨 "+question, true, os.Stdin, os.Stderr)
 }
 
-// sourceDefsDir locates a defs/ tree the preflight may build from:
-// PROVEO_DEFS_DIR (dev iteration), else the enclosing repo checkout when it
-// carries the sidecar build scripts. "" means no source tree — pull-only.
 func sourceDefsDir() string {
 	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
 		return d
@@ -155,9 +135,6 @@ func sidecarBuildScript(defsDir, image string) string {
 	return ""
 }
 
-// harnessBuildScript maps the agent image to its def's build.sh via the
-// manifest (the def dir is named after the manifest, ), covering images
-// whose name differs from the def (e.g. proveo/cecli-node -> defs/cecli).
 func harnessBuildScript(defsDir string, man manifest.Manifest, agentImage string) string {
 	if _, ok := proveoImageBase(agentImage); defsDir == "" || man.Name == "" || !ok {
 		return ""

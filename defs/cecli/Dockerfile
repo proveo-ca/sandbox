@@ -29,10 +29,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
-# Python runtime + build tooling for the venv. proveo/base carries only
-# git/gh/curl/dumb-init + the harden pass — no language runtime — so python lives
-# here (cecli is the one python-primary harness). Re-run the scoped harden after.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \

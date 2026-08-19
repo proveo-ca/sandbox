@@ -65,4 +65,21 @@ end note
 
 Net ..> Perms : network containment offsets full tool consent
 
+note right of ClaudeMd
+  **Claude Code reads ""CLAUDE\.md"" and not ""AGENTS\.md""**, so a project
+  carrying the shared standard is otherwise invisible to it. The bridge is
+  the documented ""@import"" rather than a copy: an import is re-read every
+  run, a copy goes stale silently, and a symlink needs Administrator on
+  Windows.
+end note
+
+note bottom of Entrypoint
+  **Subagents are seeded at user level, never into the workspace.** Claude
+  Code reads ""$HOME/\.claude/agents"" plus the project's own
+  ""\.claude/agents""; proveo writes only the former, missing-only, so a
+  durable proveo home keeps local edits across runs. ""CLAUDECODE_RESEED=1""
+  forces a refresh from the image bake.
+end note
+
+
 @enduml

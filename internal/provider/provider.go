@@ -1,12 +1,3 @@
-// Package provider is the single source of truth about inference providers:
-// how each is auto-detected (which env vars imply it), its Squid write-pin ACL,
-// and — for the broker-injectable ones — the auth header/host used to inject a
-// credential. It replaces provider knowledge that was duplicated between
-// defs/lib/egress.sh (Bash) and the broker.
-//
-// Not every provider is broker-injectable: signed-request providers
-// (Bedrock/Azure/Vertex) are detectable and get a Squid ACL, but have no static
-// auth header to inject, so Resolve reports them as non-injectable.
 // SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
@@ -197,19 +188,10 @@ func KeyVars() []string {
 	return out
 }
 
-// Resolve produces broker inputs for name using getenv. ok is false when the
-// provider is unknown OR not broker-injectable (no static auth header). When
-// known-injectable but no key is present, Hosts is still populated (for
-// strip-exclusion) and Value is empty (pass-through on the provider host).
 func Resolve(name string, getenv func(string) string) (Resolved, bool) {
 	return ResolveWith(name, "", getenv)
 }
 
-// ResolveWith is Resolve with an explicit credential choice. A provider may accept
-// more than one — anthropic takes an API key OR a subscription OAuth token — and
-// the ordering of Auth would otherwise decide silently for an operator holding
-// both. preferVar names the env var to use; unset or unavailable falls back to the
-// declared order.
 func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, bool) {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok || len(e.Auth) == 0 {

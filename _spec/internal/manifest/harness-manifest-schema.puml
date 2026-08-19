@@ -70,6 +70,13 @@ note right of M
   Loaded from disk (""Load"") or from the binary's
   embedded copy (""LoadFS"" + ""embed.go""), so the CLI
   works with no defs tree present.
+
+  **Which of the two ""cmd/proveo"" picks is an override, not
+  a search.** ""loadManifests"" reads the manifests embedded in
+  the binary, and reads a working-tree defs dir instead when
+  ""PROVEO_DEFS_DIR"" is set. That env var exists for dev
+  iteration: a def can be edited and run without rebuilding
+  the binary to re-embed it.
 end note
 
 note bottom of W
@@ -139,5 +146,28 @@ note bottom of CAP
   def's single allowed value; an axis they did name is refused with the
   reason rather than silently rewritten.
 end note
+
+note bottom of M
+  **One registration point: adding a harness should mean dropping a def
+  directory in, not editing the CLI.** Everything the host needs to run a
+  target is declared here rather than discovered by target name.
+
+  ""layout"" picks the mount model — ""app"" (repo at ""/app"", the monorepo
+  shape cursor/opencode/cecli use) or ""input-output"" (claudecode's
+  ""/workspace/input"" plus a writable output dir).
+
+  ""env"" declares variables the harness reads at run time, which is what
+  lets the CLI both forward them and prompt for a missing one. ""config"" is
+  the non-secret counterpart, forwarded **by value** on top of the shared
+  baseline. ""hosts"" are endpoints the **harness itself** needs — a model
+  catalog, a plugin registry — infrastructure rather than agent-initiated
+  egress, so they are allowlisted and never brokered.
+
+  ""home"" declares durable proveo-owned mounts under ""PROVEO_HOME"", with
+  Host relative to it and Container absolute; declaring at least one is
+  what activates ""HOME=/proveo-home"" so the harness's own tools write
+  where the run can keep them.
+end note
+
 
 @enduml

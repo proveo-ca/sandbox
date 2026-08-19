@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_defaults.sh - Default opencode.json + subagents are baked in and seeded.
 
 # Defaults are baked at /opt/opencode/defaults
@@ -57,9 +58,6 @@ assert_output_contains \
   'cat /opt/opencode/defaults/opencode.json' \
   '"model": "{env:OPENCODE_BUILD_MODEL}"'
 
-# --- Runtime seeding via entrypoint ---
-# A fresh container's HOME has no ~/.config/opencode/opencode.json until the
-# entrypoint runs. Drive the entrypoint (it forwards --version and exits).
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm \
   --entrypoint /entrypoint.sh \

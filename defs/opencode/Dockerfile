@@ -21,14 +21,15 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
+# the hardening pass live there); re-run the harden pass after installing.
+# plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
     unzip xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-# Install lightweight docker static client (non-setuid).
-# Resolve the tarball arch from the build platform so arm64 images get an
-# arm64 (aarch64) binary instead of a non-runnable x86_64 one.
 RUN DOCKER_VERSION=26.1.4 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \

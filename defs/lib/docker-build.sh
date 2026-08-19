@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/image-lineage-and-publish.puml
 # Shared docker buildx helper for defs/*/build.sh.
-#
-# Default platforms: linux/amd64,linux/arm64 (override with PROVEO_PLATFORMS).
-# Local builds use --load (single platform — host arch when multi is requested).
-# Registry publishes use --push / PROVEO_DOCKER_PUSH=1 for a real multi-arch manifest.
-#
-# Usage (from a def build.sh):
-#   source "$SCRIPT_DIR/../lib/docker-build.sh"          # defs/<name>/
-#   source "$SCRIPT_DIR/../../lib/docker-build.sh"       # defs/sidecars/<name>/
-#   proveo_docker_build [--push] [docker build args...]
 
 # proveo_docker_host_platform prints the linux/<arch> matching this machine.
 proveo_docker_host_platform() {
@@ -125,9 +116,6 @@ proveo_docker_ensure_buildx() {
   printf '%s' "$builder"
 }
 
-# proveo_docker_build [--push] [args...] runs `docker buildx build` with the
-# proveo platform defaults. Remaining args are forwarded as to `docker build`
-# (-t, -f, --build-arg, --no-cache, context, …).
 proveo_docker_build() {
   local push=0
   local -a docker_args=()

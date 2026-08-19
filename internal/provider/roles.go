@@ -7,10 +7,6 @@ import (
 	"strings"
 )
 
-// RoleVars are the proveo-level model role variables, in the order they are
-// reported. Each harness entrypoint translates these into its own names —
-// CECLI_MODEL / AIDER_MODEL, OPENCODE_MODEL, ANTHROPIC_MODEL — so an operator
-// sets the role once and it lands wherever that harness expects it.
 var RoleVars = []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"}
 
 // Roles is a session's model assignment, keyed by RoleVars name. Empty entries
@@ -29,15 +25,6 @@ func RolesFrom(lookup func(string) string) Roles {
 	return r
 }
 
-// Providers is the set of providers this assignment implies, in registry order.
-// This is phase 1 of resolution: it runs on the host, before the container
-// exists, because the result decides the broker's route table and the Squid
-// allowlist — both of which are argv on docker run.
-//
-// A model whose provider cannot be attributed contributes nothing rather than a
-// guess. That is safe because the broker routes every detected provider anyway:
-// attribution here informs warnings and optional narrowing, never whether a key
-// gets injected.
 func (r Roles) Providers() []string {
 	seen := map[string]bool{}
 	for _, model := range r {
@@ -54,14 +41,6 @@ func (r Roles) Providers() []string {
 	return out
 }
 
-// MissingKeys reports the roles whose provider has no credential among detected.
-// This is the diagnosis an operator could not previously get: a role pointed at
-// a provider with no key produced a generic "invalid API key" from the harness,
-// with nothing naming which role or which variable was at fault.
-//
-// Roles whose provider cannot be attributed are omitted — an unknown id is not
-// evidence of a missing key, and a false warning about a model that works is
-// worse than silence.
 func (r Roles) MissingKeys(detected []string) []string {
 	have := map[string]bool{}
 	for _, d := range detected {
@@ -87,10 +66,6 @@ func (r Roles) MissingKeys(detected []string) []string {
 	return out
 }
 
-// Canonical returns the assignment with each value normalized, for storing in
-// agent-settings.yml. Canonical rather than harness-specific: a translated
-// spelling would pin the entry to whatever the catalog said the day it was
-// written, so a later correction could never reach it.
 func (r Roles) Canonical() map[string]string {
 	out := make(map[string]string, len(r))
 	for role, model := range r {
@@ -111,9 +86,6 @@ func RolesFromCanonical(m map[string]string) Roles {
 	return r
 }
 
-// roleKey is the short yaml key for a role var: ARCHITECT_MODEL -> main.
-// "main" rather than "architect" because it is the name three of the four
-// harnesses use for the primary model; architect is aider's term.
 func roleKey(v string) string {
 	switch v {
 	case "ARCHITECT_MODEL":
@@ -160,10 +132,6 @@ func knownRole(v string) bool {
 
 // normalizeIntent turns a loose operator spelling into the id the registry
 // matches against: "Kimi K3", "kimi_k3" and "kimi.k3" are one intent.
-//
-// It deliberately preserves a provider prefix ("moonshot/kimi-k3"), because that
-// prefix is how a harness disambiguates a model several providers serve, and
-// ModelProvider reads it. Only the separators and case are normalized.
 func normalizeIntent(model string) string {
 	s := strings.TrimSpace(strings.ToLower(model))
 	for _, sep := range []string{" ", "_", "."} {

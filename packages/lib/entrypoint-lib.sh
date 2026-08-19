@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -22,12 +22,6 @@ ensure_runtime_user() {
  fi
 }
 
-# Guarantee a writable HOME in THIS shell, at source time, for every entrypoint —
-# not just the bash-fallback branch. The Go prelude (`proveo-entrypoint prep`)
-# runs as a subprocess and can only set HOME within its own process, so a shell
-# whose run-as uid has no passwd entry keeps HOME='/' (unwritable) and any later
-# `mkdir "$HOME/.<tool>"` fails ("cannot create directory '//.cursor'"). Sourced
-# before the prelude, this makes ~/… seeding work for an arbitrary uid.
 if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
@@ -84,9 +78,6 @@ load_env() {
  [[ "${1:-}" == "quiet" ]] && quiet=1
  say() { (( quiet )) || echo "$@"; }
 
- # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
- # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
- # into the agent process. Non-secret harness flags should be passed via -e.
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
  proxy|firewall)
  say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
@@ -294,11 +285,6 @@ run_smoke_test() {
  fi
 }
 
-# Note: there is intentionally NO project-dependency auto-install here. The
-# entrypoint is a fail-fast gate that assumes the image already ships the
-# runtimes/toolchains it promises; installing a project's own deps (pnpm install
-# / npm ci) is the coding agent's job at task time (and works under firewall
-# egress, since package downloads are allowed reads).
 
 # ── 5. Tool Sourcing & Command Version Helpers ──────────────
 # Cecli style command version check (fallback cmd [args])
@@ -338,11 +324,6 @@ _normalize_model() {
  esac
 }
 
-# _apply_env_bridge resolves one bridge from→to with an optional fallback var, an
-# optional default (a literal, or "$VAR" to reference another var), and an
-# optional "normalize" transform. Skips when `to` is already set; exports the
-# result so later bridges whose default is "$VAR" can see it. Reads/writes via
-# printenv/export (no indirect expansion) so it is safe under `set -u`.
 _apply_env_bridge() {
  local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
  printenv "$to" >/dev/null 2>&1 && return 0
@@ -658,39 +639,35 @@ _py_activate() {
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
-# Detect which languages a workspace uses and which INSTALLED LSP servers cover
-# them, ranked by file count. Pure bash + awk (bash-3.2-safe: no associative
-# arrays). Shared by every agent that supports language servers; each entrypoint
-# renders detect_workspace_lsps output into its own config format
-# (opencode.json "lsp" / Claude Code plugin ".lsp.json"). Agents WITHOUT native
-# LSP use the Serena MCP server instead (wired in their MCP config).
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
 _lsp_ext_lang() { case "$1" in
-  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) echo typescript ;;
-  .py|.pyi) echo python ;;
-  .go) echo go ;; .rs) echo rust ;;
-  .sh|.bash|.zsh|.ksh) echo bash ;;
-  .json|.jsonc) echo json ;;
-  .yml|.yaml) echo yaml ;;
-  .html|.htm) echo html ;;
-  .css|.scss|.sass|.less) echo css ;;
-  .md|.mdx) echo markdown ;;
-  .toml) echo toml ;;
-  .tf|.tfvars) echo terraform ;;
-  .lua) echo lua ;; .java) echo java ;;
-  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) echo cpp ;;
-  .rb) echo ruby ;; .kt|.kts) echo kotlin ;; .nix) echo nix ;; .zig) echo zig ;;
-  .puml|.plantuml) echo plantuml ;;
-  .mmd|.mermaid) echo mermaid ;;
+  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) REPLY=typescript ;;
+  .py|.pyi) REPLY=python ;;
+  .go) REPLY=go ;; .rs) REPLY=rust ;;
+  .sh|.bash|.zsh|.ksh) REPLY=bash ;;
+  .json|.jsonc) REPLY=json ;;
+  .yml|.yaml) REPLY=yaml ;;
+  .html|.htm) REPLY=html ;;
+  .css|.scss|.sass|.less) REPLY=css ;;
+  .md|.mdx) REPLY=markdown ;;
+  .toml) REPLY=toml ;;
+  .tf|.tfvars) REPLY=terraform ;;
+  .lua) REPLY=lua ;; .java) REPLY=java ;;
+  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) REPLY=cpp ;;
+  .rb) REPLY=ruby ;; .kt|.kts) REPLY=kotlin ;; .nix) REPLY=nix ;; .zig) REPLY=zig ;;
+  .puml|.plantuml) REPLY=plantuml ;;
+  .mmd|.mermaid) REPLY=mermaid ;;
+  *) REPLY="" ;;
 esac; }
 _lsp_marker_lang() { case "$1" in
-  package.json|tsconfig.json|jsconfig.json) echo typescript ;;
-  pyproject.toml|requirements.txt|setup.py|Pipfile) echo python ;;
-  go.mod) echo go ;; Cargo.toml) echo rust ;;
-  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) echo docker ;;
-  Gemfile) echo ruby ;;
-  .terraform.lock.hcl|Terraform.lock.hcl) echo terraform ;;
+  package.json|tsconfig.json|jsconfig.json) REPLY=typescript ;;
+  pyproject.toml|requirements.txt|setup.py|Pipfile) REPLY=python ;;
+  go.mod) REPLY=go ;; Cargo.toml) REPLY=rust ;;
+  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) REPLY=docker ;;
+  Gemfile) REPLY=ruby ;;
+  .terraform.lock.hcl|Terraform.lock.hcl) REPLY=terraform ;;
+  *) REPLY="" ;;
 esac; }
 _lsp_server() { case "$1" in
   typescript) echo "typescript-language-server --stdio" ;;
@@ -802,23 +779,22 @@ PROVEO_JDTLS
   chmod +x "${HOME}/.local/bin/jdtls"
 }
 
-# _lsp_walk prints "lang<TAB>ftype" for each detected file under scan_root
-# (ftype = the extension, or the filename for Docker; empty when not tracked).
-# A marker file (package.json, go.mod, …) is credited to its marker language AND
-# to its own extension's language, mirroring the original detector.
 _lsp_walk() {
   local scan_root="$1" f base ext lang marker ftype mext ml
   while IFS= read -r -d '' f; do
     base="${f##*/}"
     lang=""; ftype=""
-    marker="$(_lsp_marker_lang "$base")"
+    _lsp_marker_lang "$base"; marker="$REPLY"
     if [[ -n "$marker" ]]; then
       lang="$marker"
       [[ "$lang" == docker ]] && ftype="$base"
     fi
     if [[ -z "$lang" ]]; then
       if [[ "$base" == *.* ]]; then ext=".${base##*.}"; else ext=""; fi
-      if [[ -n "$ext" ]]; then lang="$(_lsp_ext_lang "$ext")"; [[ -n "$lang" ]] && ftype="$ext"; fi
+      if [[ -n "$ext" ]]; then
+        _lsp_ext_lang "$ext"; lang="$REPLY"
+        [[ -n "$lang" ]] && ftype="$ext"
+      fi
     fi
     if [[ -z "$lang" && ( "$base" == *Dockerfile* || "$base" == *Containerfile* ) ]]; then
       lang=docker; ftype="$base"
@@ -827,12 +803,17 @@ _lsp_walk() {
     printf '%s\t%s\n' "$lang" "$ftype"
     if [[ -n "$marker" && "$base" == *.* ]]; then
       mext=".${base##*.}"
-      ml="$(_lsp_ext_lang "$mext")"
+      _lsp_ext_lang "$mext"; ml="$REPLY"
       [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
     fi
   done < <(find "$scan_root" \
-             \( -name .git -o -name node_modules -o -name .next -o -name dist \
-                -o -name build -o -name target -o -name vendor \) -prune \
+             \( -name .git -o -name node_modules -o -name vendor -o -name target \
+                -o -name dist -o -name build -o -name .next -o -name .nx \
+                -o -name .turbo -o -name .cache -o -name .gradle -o -name .tox \
+                -o -name .venv -o -name venv -o -name __pycache__ \
+                -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache \
+                -o -name .terraform -o -name Pods \
+                -o -name .pnpm-store -o -name .npm -o -name .yarn \) -prune \
              -o -type f -print0 2>/dev/null)
 }
 
@@ -941,11 +922,6 @@ detect_workspace_lsps() {
   done
 }
 
-# configure_claude_lsp renders the shared detector output into a Claude Code
-# skills-directory plugin (~/.claude/skills/proveo-lsp/) declaring the workspace's
-# installed LSP servers via .lsp.json. Skills-dir plugins auto-load on the next
-# session (no marketplace), and claudecode runs --dangerously-skip-permissions so
-# it loads headlessly. No-op when nothing is detected.
 configure_claude_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}" lsp_json plugdir="${HOME}/.claude/skills/proveo-lsp"
@@ -967,4 +943,19 @@ configure_claude_lsp() {
     > "$plugdir/.claude-plugin/plugin.json"
   printf '%s\n' "$lsp_json" > "$plugdir/.lsp.json"
   echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
+}
+
+# ── 9. Agent Evidence (verbosity) ───────────────────────────
+agent_evidence_verbose() {
+ [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
+}
+
+# report_agent_evidence <flag>... — one line naming what the level bought, so an
+# operator reading the transcript can tell a quiet run from a suppressed one.
+report_agent_evidence() {
+ if (( $# > 0 )); then
+ echo "🔎 agent evidence: verbose — $*"
+ else
+ echo "🔎 agent evidence: default (harness defaults, no extra narration)"
+ fi
 }

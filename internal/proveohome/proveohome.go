@@ -1,6 +1,3 @@
-// Package proveohome resolves durable, proveo-owned session/config mounts under
-// PROVEO_HOME (default ~/.proveo). These survive container --rm without binding
-// host IDE homes (~/.cursor, ~/.claude) or persisting login tokens.
 // SPEC: _spec/internal/proveohome/proveo-home-components.puml, _spec/internal/proveohome/proveo-home-lifecycle.puml
 package proveohome
 
@@ -40,9 +37,6 @@ type Plan struct {
 	Env    []string // HOME=/proveo-home
 }
 
-// Prepare creates host subdirs (0700), scrubs deny-listed auth basenames, and
-// bind-mounts the whole PROVEO_HOME at /proveo-home so HOME is writable for
-// sibling files (.claude.json, .cecli.conf.yml). No-op when home is inactive.
 func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 	if !h.Active() {
 		return Plan{}, nil

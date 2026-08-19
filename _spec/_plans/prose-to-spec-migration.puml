@@ -1,0 +1,164 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title DONE — Logic-bearing prose → _spec: 1309 lines migrated, six new diagrams, zero prose blocks left in 140 source files
+
+node "Source tree — 140 files scanned" as SRC <<host>> {
+  component "**1343 prose lines** in 44 files\nblocks of 3+ consecutive\ncomment lines" as PROSE <<app>>
+  component "919 short comment lines\n1–2 lines: labels and contracts" as SHORT <<app>>
+  component "58 files carry a ""SPEC:"" header" as HDR <<app>>
+}
+
+node "_spec — 60 diagrams, 53 referenced" as SPEC <<host>> {
+  component "~20 existing diagrams\nabsorb prose as notes" as EXIST <<app>>
+  component "6 new diagrams\nauthored empty, then filled" as NEW <<app>>
+}
+
+component "10 prose-bearing files\nwith NO destination diagram" as GAP <<error>>
+component "Prose deleted before its\ndiagram exists — knowledge lost" as LOSS <<error>>
+database "Gate per batch\ngofmt · go test ./... · plantuml -checkonly\nreference integrity · prose-count delta" as GATE <<db>>
+
+PROSE ARROW_MAIN EXIST : theme has a home
+PROSE ARROW_QUEUE NEW : theme has none yet
+GAP ARROW_QUEUE NEW : batch 1 authors these first
+HDR ARROW_MAIN SPEC : the pointer that replaces the prose
+SHORT ARROW_OPTIONAL EXIST : swept per file, never in bulk
+NEW ARROW_MAIN GATE
+EXIST ARROW_MAIN GATE
+PROSE ARROW_ERROR LOSS : any batch that strips before authoring
+
+note right of PROSE
+  **The rule, from the precedent already set in this repo.**
+
+  //Moves to a diagram:// why this and not that · history ("it used
+  to…") · the bug that motivated the shape · edge cases and failure
+  modes · cross-component invariants · security reasoning ·
+  measured performance findings · platform quirks.
+
+  //Stays in the source:// the ""SPEC:"" pointer · build and tooling
+  directives (""go:build"", ""nolint"", ""shellcheck"", shebang) ·
+  navigational section dividers in the shell libs · single-line
+  labels that state WHAT a symbol or field is, never WHY it is that
+  way.
+
+  The test is the sentence's subject. "Plan returns the mounts and
+  the workdir" is a label and stays. "Plan mounts the target at the
+  link's own path because runc resolves the destination through the
+  symlink" is a decision and moves.
+end note
+
+note bottom of SHORT
+  **Not a bulk target.** Most of the 919 are mechanical (""// add -it"").
+  A minority are pure rationale on one line — ""// Mask \.env under input
+  when egress isolates secrets"" — and those move with their file's
+  batch. Sweeping them by pattern would strip the labels too.
+end note
+
+note right of NEW
+  **Six diagrams that do not exist yet**, each the natural home for
+  prose that currently has nowhere to go:
+
+  | diagram | absorbs |
+  | ""internal/runner/hardened-run-argv\.puml"" | ""runner\.go"" + ""pids\.go"" (30) · the macOS/Windows pid_max probe |
+  | ""internal/workspace/mount-model\.puml"" | ""mount\.go"" env masking · rootFiles · monorepo scope (36) |
+  | ""internal/egress/teardown-and-signals\.puml"" | signal-owned teardown · sidecar log capture before ""--rm"" · Squid uid 13 |
+  | ""internal/egressproxy/mitm-and-flow-record\.puml"" | ""proxy\.go"" + ""recorder\.go"" (21) |
+  | ""internal/choiceui/choice-prompt-render\.puml"" | divider · legend · gating · comingSoon · applicableRows |
+  | ""cmd/proveo/provision-and-targets\.puml"" | ""provision\.go"" · ""targets\.go"" · ""wizard\.go"" (46) |
+end note
+
+note bottom of GAP
+  **These carry prose and name no diagram**, so they are the ones at
+  risk of a lossy strip: ""cmd/proveo/provision\.go"" (24) ·
+  ""internal/egresspolicy/secrets\.go"" (20) · ""lib/registry\.sh"" (17) ·
+  ""cmd/proveo/maintain_cmd\.go"" (16) · ""internal/runner/pids\.go"" (15) ·
+  ""cmd/proveo/wizard\.go"" (14) · ""internal/runner/runner\.go"" (14) ·
+  ""internal/egress/exec\.go"" (9) · ""internal/egressproxy/recorder\.go"" (8) ·
+  ""cmd/proveo/targets\.go"" (8).
+
+  ""secrets\.go"" is the cheap one: the egresspolicy diagrams already
+  exist and one of them, ""egress-policy-decide"", is the home its
+  prose describes.
+end note
+
+note bottom of LOSS
+  **Order is the whole safety property.** A batch may only strip a
+  comment once its destination diagram exists and holds the same
+  fact. So every batch is: author or extend the diagram, validate it,
+  strip the source, then check the prose-count delta matches what the
+  diagram gained. The reverse order loses reasoning permanently —
+  ""git log"" is not where a reader looks for a design decision.
+end note
+
+note right of EXIST
+  **The largest single source is ""cmd/proveo/main\.go"": 259 prose
+  lines in 62 blocks**, and it names exactly one diagram today. Its
+  prose is not one story but seven, which is why it splits by theme
+  rather than by file:
+
+  | theme | lines | destination |
+  | axis resolution · prompt · cache | ~55 | ""_plans/harness-choice-cache"" + new choiceui diagram |
+  | broker · provider pinning · missing-env | ~50 | ""_paradigms/credential-boundary"" · ""_plans/multi-provider-broker"" |
+  | egress plan · teardown · sidecars | ~65 | ""_paradigms/egress-boundary"" · ""internal/egress/egress-tiers"" · new teardown diagram |
+  | DinD · docker client · local model | ~20 | ""internal/dind/dind-sidecar"" |
+  | TTY · overlay · scope picker | ~18 | ""internal/reviewgate/pty-review-proxy"" |
+  | exit codes · transcript · manifests | ~15 | ""internal/runlog/run-transcript"" · ""cmd/proveo/usage"" |
+  | env forwarding · gh-config exception | ~18 | new mount-model · ""_paradigms/credential-boundary"" |
+end note
+
+note bottom of GATE
+  **Batch order — six batches, each independently green.**
+
+  | # | scope | prose moved |
+  | 1 **DONE** | six new diagrams authored — structure only, no source touched | 0 |
+  | 2 **DONE** | 10 orphan files given a ""SPEC:"" header, 3 existing headers extended so every new diagram is referenced | 0 |
+  | 3 **DONE** | ""main\.go"" by theme — all 7 landed. 259 prose lines in 62 blocks → **0**; short comments 57 → 38 (all labels); file 2059 → 1756 lines. Prose reached 15 diagrams. | 259 |
+  | 4 **DONE** | egress cluster, 8 files — ""plan\.go"" 75 · egresspolicy 68 · ""broker\.go"" 42 · ""proveo-egress"" 42 · exec/recorder/proxy 30. **257 → 0**, across 10 diagrams. | 257 |
+  | 5 **DONE** | entrypoints and Dockerfiles, 20 files — entrypoint-lib\.sh 43 · cursor 24+24 · opencode 18+3 · claudecode 16+3 · cecli 12+3 · bases 42 · sidecars/fixtures 12 · registry\.sh 17 · ensure\.sh 9. **232 → 0**, across 14 diagrams. | 232 |
+  | 6 **DONE** | long tail, 60 files (the estimate missed every ""build\.sh"" / ""ensure\.sh"" / ""tests/*\.sh"") — ""mount\.go"" 36 · provider 53 · ptyproxy 32 · reviewgate 26 · manifest 24 · maintain 38 · provision/wizard/targets 46 · dind 20 · clean 22 · runner 29 · platform pkgs 66 · scripts 106 · misc 63. **561 → 0**, across 25 diagrams. | 561 |
+
+  Batches 1 and 2 carried no risk and unblocked the rest. Batch 3 was the
+  one to review hardest: it is the file where the seven themes were
+  tangled, and splitting them was the actual work.
+
+  **Final state:** 140 non-test source files hold **0 prose blocks** and 887
+  short comment lines — labels by the rule above. Every diagram the prose
+  landed in is reachable from the code it describes; only ""_plans/"" and two
+  ""tests/"" diagrams name no source file, which is the standing convention.
+
+  **What batch 3 found by reading prose against its destination** —
+  worth expecting again in 4–6. Two blocks were already stated in a
+  diagram and became delete-only. One contradicted its destination and
+  was refused rather than migrated (""_plans/role-cache-resolution-drift"").
+  Two code defects surfaced: a mounted-"".env"" warning dead for a release
+  cycle after a tier rename, and a function with no callers. One id
+  (""S4"") was cited once and defined nowhere, and was retired rather than
+  recovered. None of these are findable by reading either side alone.
+
+  **The gate, run at the end of every batch:**
+  ""gofmt -l ./cmd ./internal"" empty · ""go test ./\.\.\. -race"" green ·
+  ""plantuml -checkonly"" on every touched diagram · the reference scan
+  reporting zero dangling ""SPEC:"" paths and every new diagram
+  referenced · and the prose count for the batch's files dropping by
+  the number of lines the diagrams gained.
+end note
+
+note bottom of HDR
+  **Two reference defects found by the scan and already fixed**, since
+  the migration rides on this mechanism: ""egresspolicy/policy\.go""
+  wrapped its ""SPEC:"" list across two lines, which hides every
+  diagram after the wrap from any parser and left
+  ""egress-policy-decide"" looking unreferenced; and
+  ""scripts/stage-cli-cdn\.sh"" pointed at a README instead of
+  ""internal/cdn/distribution-update"".
+
+  **A third defect, found by reading the prose rather than the paths:**
+  the ""(D1)…(D6)"" and ""(C1)…(C7)"" ids cited in eleven places were defined
+  nowhere in the repo. Recovered from their citing prose into
+  ""_conventions/design-decision-ids\.puml"" and wired back from the three
+  citing sources, so a reader can now resolve an id instead of trusting it.
+
+  Still open, outside this plan: ""tests/40-agent-e2e-components"",
+  ""tests/41-agent-e2e-sequence"" and ""tests/42-hello-world-e2e"" name no
+  source file. ""_plans/"" and ""_experiments/"" are exempt by convention.
+end note
+@enduml

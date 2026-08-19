@@ -1,3 +1,4 @@
+// SPEC: _spec/_paradigms/credential-boundary.puml
 package main
 
 import (
@@ -34,9 +35,6 @@ var subscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 	},
 }
 
-// printSubscriptionAuthHints prints shell-specific persistence instructions after
-// a subscription harness run that started without declared auth env. Suggests
-// the local project .env or a SAFE host location (shell rc / secret manager).
 func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar, out io.Writer) {
 	if len(missing) == 0 {
 		return

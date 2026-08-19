@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
 import (
@@ -28,21 +29,12 @@ var knownSecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`), // PEM private keys
 }
 
-// Candidate encoded runs for decode-and-rescan. Minimum lengths avoid decoding
-// every short word (base64 of an 8-byte secret is ~11-12 chars; hex is 2x the
-// bytes). "-" is last in the class so it stays literal. Extracting per-encoding
-// runs — rather than reusing the entropy tokenizer, which keeps "/","+","=" and
-// so glues URL delimiters onto tokens — is what lets `/<base64url>` decode.
 var (
 	reB64URL = regexp.MustCompile(`[A-Za-z0-9_-]{12,}`)
 	reB64Std = regexp.MustCompile(`[A-Za-z0-9+/]{12,}={0,2}`)
 	reHex    = regexp.MustCompile(`[0-9a-fA-F]{16,}`)
 )
 
-// scanner detects secrets in a text haystack via four optional detectors:
-// exact user secret values, generic credential-shape patterns, decode-and-rescan
-// of base64/hex tokens (the primary counter to encoding evasion), and a
-// high-entropy-token heuristic (an opt-in backstop for unknown encoded blobs).
 type scanner struct {
 	secrets  []string // exact values (len >= minSecretLen), matched case-sensitively
 	patterns bool
@@ -74,10 +66,6 @@ func (s *scanner) hit(hay string) bool {
 	if s.matchKnown(hay) {
 		return true
 	}
-	// Primary encoding-evasion defense: a base64/hex token that DECODES to a
-	// known secret or credential shape. Unlike the entropy heuristic this only
-	// fires on tokens that decode to an ACTUAL secret, so it does not flag benign
-	// high-entropy URLs (S3 presigned links, JWTs, content hashes).
 	if s.decode && s.decodedHit(hay) {
 		return true
 	}
@@ -102,10 +90,6 @@ func (s *scanner) matchKnown(hay string) bool {
 	return false
 }
 
-// decodedHit reports whether any base64/hex-encoded run in hay decodes (one
-// level) to a value carrying a known secret or credential shape. Runs are
-// extracted per-encoding so URL delimiters ("/", "?", "=", "&") that border a
-// token don't defeat the decode.
 func (s *scanner) decodedHit(hay string) bool {
 	for _, m := range reB64URL.FindAllString(hay, -1) {
 		if b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(m, "=")); err == nil && s.matchDecoded(b) {
@@ -131,9 +115,6 @@ func (s *scanner) decodedHit(hay string) bool {
 	return false
 }
 
-// matchDecoded runs the exact/pattern matchers on decoded bytes, ignoring
-// decodings too short or clearly binary — a benign random signature decodes to
-// non-text bytes and is dropped rather than scanned (no false positive).
 func (s *scanner) matchDecoded(b []byte) bool {
 	return len(b) >= minSecretLen && isMostlyPrintable(b) && s.matchKnown(string(b))
 }

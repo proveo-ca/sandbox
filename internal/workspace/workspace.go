@@ -1,7 +1,4 @@
-// Package workspace resolves the monorepo scope for a run: the git repo root
-// and the repo-relative prefix of the start directory, so a harness launched
-// from a subproject still mounts full repo/git context (, porting
-// the monorepo logic from apps/cli/public/cli/lib/workspace.sh).
+// SPEC: _spec/internal/workspace/mount-model.puml
 package workspace
 
 import (

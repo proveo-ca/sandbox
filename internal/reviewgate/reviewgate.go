@@ -19,9 +19,6 @@ import (
 // SocketName is the gate's unix socket basename inside the egress state dir.
 const SocketName = "review.sock"
 
-// DefaultDeadline bounds how long a decision may block. A request held past its
-// client's own timeout is worse than a denial: the agent retries and the operator
-// is asked again for a connection nobody is waiting on any more.
 const DefaultDeadline = 20 * time.Second
 
 // Verdict is the answer sent back over the socket.
@@ -32,9 +29,6 @@ const (
 	Deny  Verdict = "deny"
 )
 
-// Asker renders the question and reports whether the operator allowed it. It is
-// injected so the gate is testable without a terminal, and so the PTY overlay can
-// be swapped for any other surface.
 type Asker func(host, port string) bool
 
 // Gate answers host:port questions, caching each answer for the session.
@@ -55,25 +49,13 @@ func New(ask Asker) *Gate {
 	return &Gate{Ask: ask, Deadline: DefaultDeadline, decided: map[string]Verdict{}}
 }
 
-// maxSockPath is the portable ceiling on a unix socket path. sockaddr_un.sun_path
-// is 104 bytes on darwin/BSD and 108 on Linux; bind fails outright past it, so a
-// deep state dir must not be a hard error.
 const maxSockPath = 100
 
-// Path returns the socket path for dir. When dir is deep enough that the socket
-// would exceed sun_path, it falls back to a short, collision-resistant name under
-// the system temp dir — derived from dir, so the client and server agree without
-// passing the resolved path around.
 func Path(dir string) string {
 	full := filepath.Join(dir, SocketName)
 	if len(full) <= maxSockPath {
 		return full
 	}
-	// The fallback gets its OWN directory, never a bare file in TempDir. The caller
-	// bind-mounts filepath.Dir(socket) into the inspector, so a loose file there
-	// would mount the whole system temp directory — every host temp file, writable,
-	// visible to the agent. A dedicated dir keeps that mount to one socket.
-	//
 	// Portable by construction: short on Linux (/tmp) and macOS (/var/folders/...),
 	// and well under sun_path on both (104 on BSD/macOS, 108 on Linux).
 	sum := sha256.Sum256([]byte(dir))
@@ -159,9 +141,6 @@ func splitRequest(line string) (host, port string) {
 	}
 }
 
-// Decide answers for host, consulting the cache first. One prompt per new host,
-// decaying to zero: that is what keeps the tier usable rather than a
-// click-through reflex.
 func (g *Gate) Decide(host, port string) Verdict {
 	g.mu.Lock()
 	if v, ok := g.decided[host]; ok {
@@ -188,9 +167,6 @@ func (g *Gate) Decide(host, port string) Verdict {
 	return v
 }
 
-// ask runs the Asker under a deadline, failing closed on timeout or when no Asker
-// exists. Deny is always the safe answer: the agent sees a blocked connection,
-// which is the tier's normal failure mode.
 func (g *Gate) ask(host, port string) Verdict {
 	if g.Ask == nil {
 		return Deny
@@ -223,9 +199,6 @@ func (g *Gate) Decisions() map[string]Verdict {
 	return out
 }
 
-// AskOverSocket is the client half, used by the MITM sidecar: it asks the gate
-// about host:port and reports whether it was allowed. Any transport failure is a
-// denial — a gate that cannot be reached must not become an open door.
 func AskOverSocket(socket, host, port string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", socket, timeout)
 	if err != nil {

@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
 import (
@@ -19,11 +20,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// The build/deploy/test subcommands are the Go maintainer image pipeline — the
-// replacement for lib/{build,deploy,test}.sh. They resolve the target registry
-// (internal/maintain), pick target(s), and execute (or --print) the pure-data
-// plan. They are hidden: consumer-facing help stays about run/ls/init.
-
 func loadMaintainRegistry() ([]maintain.Target, error) {
 	defsDir, err := maintainerDefsDir()
 	if err != nil {
@@ -44,9 +40,6 @@ func targetNames(reg []maintain.Target) string {
 	return strings.Join(ns, ", ")
 }
 
-// selectTargets resolves the targets a maintainer command operates on: an
-// explicit name, the literal "all", or — with no arg on a TTY — an interactive
-// pick. Non-interactive with no arg errors (be explicit in scripts/CI).
 func selectTargets(reg []maintain.Target, arg, verb string) ([]maintain.Target, error) {
 	arg = strings.TrimSpace(arg)
 	if arg == "all" {
@@ -66,9 +59,6 @@ func selectTargets(reg []maintain.Target, arg, verb string) ([]maintain.Target, 
 	return nil, fmt.Errorf("no target given; pass a target name or 'all' (targets: %s)", targetNames(reg))
 }
 
-// pickTargets returns the chosen maintainer targets ("all" = every target). On a
-// real TTY it shows an fzf-style arrow-key + type-to-filter picker; otherwise
-// (pipe/test) it falls back to a numbered prompt driven by in.
 func pickTargets(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
 	if isReaderTTY(in) {
 		return fuzzyPickTargets(reg, verb)
@@ -83,9 +73,6 @@ func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, er
 	for _, t := range reg {
 		labels = append(labels, t.Name)
 	}
-	// FindMulti: type to filter, Tab toggles multiple targets, Enter confirms
-	// (space is reserved for the filter query, so Tab is the multi-select key).
-	// With nothing toggled, Enter selects the target under the cursor.
 	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
 		fuzzyfinder.WithPromptString(verb+" [tab=multi]> "))
 	if errors.Is(err, fuzzyfinder.ErrAbort) {
@@ -94,9 +81,6 @@ func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, er
 	if err != nil {
 		return nil, err
 	}
-	// Return in registry order (bases before the harnesses that build FROM them),
-	// NOT the Tab-selection order — build order matters. Labels are ["all"] + reg,
-	// so ascending index == registry order.
 	sort.Ints(idxs)
 	out := make([]maintain.Target, 0, len(idxs))
 	for _, i := range idxs {

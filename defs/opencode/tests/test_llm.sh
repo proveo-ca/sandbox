@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_llm.sh - Critical: direct LLM API connection works.
 #
 # Verifies opencode can authenticate to each provider via env-var alone and

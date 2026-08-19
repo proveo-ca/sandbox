@@ -1,0 +1,139 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' SPEC source (the logic this diagram tracks):
+'   internal/workspace/mount.go — MountSpec.Plan, linkMounts, refuseLinkTarget, escapingEnvFile
+'   cmd/proveo/main.go          — reportLinks (operator-facing record of each decision)
+'   internal/wsscan/wsscan.go   — AlwaysPrune, the shared deny set the walk reuses
+title Symlinks that leave the mount — a bind mount carries the link's text, not its meaning
+
+node "Host — mount planning, before the container exists" as HOST <<host>> {
+  component "MountSpec.Plan()\nper-layout mount model" as PLAN <<app>>
+  component "linkMounts(hostDir,\ncontainerBase, ro)" as WALK <<app>>
+  component "refuseLinkTarget(target, root)\nthe two guardrails" as GUARD <<app>>
+  component "wsscan.AlwaysPrune\nshared deny set" as PRUNE <<app>>
+  component "envMounts · maskEnvMounts\nescapingEnvFile — the credential policy" as ENV <<app>>
+  component "reportLinks\n[]Link → screen + transcript" as REPORT <<app>>
+}
+
+database "Workspace tree\ndepth <= 3, pruned" as TREE <<db>>
+database "Escape target\noutside the mounted tree" as OUT <<db>>
+
+node "Container runtime" as RT <<host>> {
+  component "runc — resolves a mount\ndestination THROUGH the symlink" as RUNC <<app>>
+  component "/workspace/input/_spec\nstill a symlink, now resolvable" as SEEN <<app>>
+}
+
+component "Dangling link inside the container\nempty directory · no error · feature absent" as DEAD <<error>>
+
+PLAN ARROW_MAIN WALK : once per bind-mounted tree
+WALK ARROW_MAIN TREE : WalkDir, never follows a link
+WALK ARROW_MAIN PRUNE : same answer as every other walk
+WALK ARROW_MAIN GUARD : may this target be mounted?
+WALK ARROW_OPTIONAL ENV : dotenv is not ours to place
+WALK ARROW_MAIN OUT : mount target AT the link's own container path
+OUT ARROW_MAIN RUNC
+RUNC ARROW_MAIN SEEN : materialises the target path in the rootfs
+WALK ARROW_MAIN REPORT : every decision, never silent
+GUARD ARROW_ERROR DEAD : refused — the link stays broken, with a reason
+PLAN ARROW_ERROR DEAD : without this pass, EVERY escaping link ends here
+
+note right of DEAD
+  **The failure this exists to remove.** A bind mount copies a symlink's
+  //text//. ""_spec -> ~/specs/pluvo"" — the idiom for carrying scaffolding a
+  repo must not commit — arrives in the container pointing at a path that
+  does not exist there. ""ls _spec/"" reports an empty directory, nothing
+  logs a warning, and the feature the link carries is simply gone.
+
+  It bit this repo twice. An ad-hoc ""_spec"" symlink made the spec tooling
+  unavailable inside the agent, and ""\.env -> ~/base\.env"" printed
+  ""No \.env found"" in the ""input-output"" layout, which had no overlay to
+  fall back on the way ""app"" does.
+end note
+
+note bottom of RUNC
+  **Why mounting at the link's own path works.** The destination is
+  resolved through the symlink inside the container's mount namespace, so
+  the target path is created in the rootfs and the link resolves — while
+  staying a link. Reads //and// writes land in the real host directory,
+  which is what lets ""spec-keeper"" edit a symlinked ""_spec"".
+
+  Nothing in the workspace is rewritten. Repointing the link in place
+  would mutate the operator's own checkout and is impossible anyway when
+  the tree is mounted ""ro"". Copying the target in would drift and lose
+  write-back. Docker has no follow-symlinks bind mode to ask for.
+
+  An absolute escape materialises the host-absolute path inside the
+  container; a relative one (""\.\./shared/x"") lands under the mount's own
+  parent. Both resolve. The link mount inherits the workspace's ""ro""
+  mode, never widening it.
+end note
+
+note right of WALK
+  **The case matrix.**
+
+  | link resolves to | disposition |
+  | inside the mounted tree | nothing — it already works, and saying so buries the rest |
+  | outside, absolute | mounted at the link's container path |
+  | outside, relative | mounted (destination resolves under the mount) |
+  | nowhere on the host | refused — broken before proveo saw it |
+  | a path containing the workspace | refused |
+  | a top-level system directory | refused |
+  | a dotenv secrets file | left to the credential policy |
+  | past the 32-mount cap | refused, and counted out loud |
+end note
+
+note bottom of PRUNE
+  **Bounded three ways, for one reason.** Depth stops at 3, ""AlwaysPrune""
+  drops installed and generated trees, and 32 mounts cap docker's argv.
+
+  Escaping links are a scaffolding idiom — ""_spec"", ""docs"", ""\.env"" — that
+  lives at or near the root. Walking a six-figure monorepo once per run to
+  find one is the cost that made LSP detection unusable (see
+  ""_lsp_walk"" in ""packages/lib/entrypoint-lib\.sh""), and this walk runs in
+  front of an operator waiting for a container to start.
+
+  ""WalkDir"" does not follow symlinks, so a link to a directory arrives as
+  an entry that is never descended into: no cycle is reachable however
+  the link points.
+end note
+
+note bottom of GUARD
+  **Two rules, about scale rather than taste.** The operator wrote the
+  link themselves, inside their own repo, so planning honours an explicit
+  local instruction — the guardrails exist to stop a catastrophic one.
+
+  //Target contains the workspace// rejects ""/"", a home directory holding
+  the checkout, and the monorepo root above a subdir scope: mounting it
+  would nest the tree inside itself and hand back the scope the run was
+  narrowed to. //Top-level system directory// rejects a single-segment
+  target (""/etc"", ""/usr"", ""/Users"", ""/home"").
+
+  **Documented limit:** a two-segment target elsewhere on the disk is
+  allowed, and on macOS ""/etc"" resolves to ""/private/etc"" and passes the
+  second rule. The first rule still covers every case that matters,
+  because a repo under the operator's home makes that home a container of
+  the workspace.
+end note
+
+note right of ENV
+  **Dotenv is owned by the credential policy, not by link resolution.**
+  Isolating egress masks every secrets file with ""/dev/null""; a forwarding
+  run overlays the resolved host file. Both decide what belongs at that
+  container path, and a second mount on the same destination is a docker
+  error rather than a fallback — so the walk records the link and places
+  nothing.
+
+  ""escapingEnvFile"" closes the ""input-output"" gap: it overlays the
+  resolved target only when the path IS a symlink leaving the tree. A real
+  file there already works, and mounting it over itself would add a
+  redundant ""-v"".
+end note
+
+note bottom of REPORT
+  **A mounted link widens what the sandbox can reach**, so it is named on
+  screen rather than applied quietly: one line per link, target included,
+  teed into the run transcript. A refused link is the line the operator
+  came looking for — the answer to "why is my ""_spec"" empty" — and the
+  cap refuses out loud rather than truncating in silence.
+end note
+@enduml

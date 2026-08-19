@@ -1,9 +1,6 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 //
-// Package egressproxy is the Go egress inspection proxy: a
-// TLS-terminating MITM proxy built on github.com/google/martian/v3 that records
-// flows, brokers credentials (internal/broker), and forwards to Squid upstream.
-// It replaces the Python mitmproxy sidecar on the firewall path.
+// Package egressproxy is the Go egress inspection proxy (TLS-terminating MITM).
 package egressproxy
 
 import (
@@ -50,11 +47,6 @@ func (m brokerModifier) ModifyRequest(req *http.Request) error {
 	return nil
 }
 
-// policyModifier enforces the egress policy. On a blocked decision it records
-// the block (host/method/reason, never the secret) and fails CLOSED: a martian
-// request-modifier error is only logged (the request would still round-trip), so
-// we SkipRoundTrip (the upstream is never contacted — the real guarantee) and
-// hijack the connection to return a clear 403 to the agent.
 type policyModifier struct {
 	pol *egresspolicy.Policy
 	rec *Recorder
@@ -100,10 +92,6 @@ func (c reqChain) ModifyRequest(req *http.Request) error {
 	return nil
 }
 
-// build wires up the martian proxy: fresh CA (per-session), MITM config, the
-// optional Squid downstream, the broker request modifier, and the flow recorder.
-// Split from Run so tests can drive the proxy with their own listener/transport.
-// The returned closer releases the proxy and the flow log.
 func build(cfg Config) (*martian.Proxy, *broker.Broker, func(), error) {
 	b, err := broker.New(cfg.Broker)
 	if err != nil {

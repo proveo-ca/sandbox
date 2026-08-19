@@ -1,0 +1,90 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and lib/registry.sh
+' lands here (batches 2 and 6). Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
+title Preflight provisioning, the maintainer registry, and the missing-env wizard
+
+node "Consumer path — before any container exists" as PRE <<host>> {
+  component "preflightImages(plan, manifest, agentImage)\nevery image the run needs" as PF <<app>>
+  component "provisioner.Ensure([]imageDep)\npull, then a confirmed local build" as ENS <<app>>
+  component "provisionConfirm\nPROVEO_AUTO_PROVISION · else ask on a TTY" as CONF <<app>>
+  component "sourceDefsDir\nPROVEO_DEFS_DIR · else the checkout" as SRC <<app>>
+}
+
+node "Maintainer path — source tree required" as MAINT <<host>> {
+  component "proveo targets\nname<TAB>image<TAB>defDir (TSV)" as TGT <<app>>
+  component "lib/registry.sh\nmise tasks read the TSV" as REG <<app>>
+  component "harnessBuildScript · sidecarBuildScript\ndef dir named after the manifest" as BSH <<app>>
+}
+
+node "Missing declared env" as WIZ <<host>> {
+  component "wizardEnabled · isStdinTTY" as WEN <<app>>
+  component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
+  component "termSecret\nread with echo off" as SEC <<app>>
+}
+
+cloud "Docker Hub — proveo/*" as HUB <<cloud>>
+component "Agent + sidecar images present" as READY <<app>>
+component "Non-interactive run\nnever prompts, warns and continues" as HEADLESS <<error>>
+component "Missing image discovered\nafter the network is up" as LATE <<error>>
+
+PF ARROW_MAIN ENS
+ENS ARROW_CLOUD HUB : pull first — the consumer path
+ENS ARROW_OPTIONAL CONF : pull failed and a source tree exists
+CONF ARROW_MAIN SRC
+SRC ARROW_MAIN BSH
+TGT ARROW_MAIN REG
+BSH ARROW_MAIN REG
+ENS ARROW_MAIN READY
+PF ARROW_ERROR LATE : what running the preflight first prevents
+WEN ARROW_MAIN PENV
+PENV ARROW_MAIN SEC
+WEN ARROW_ERROR HEADLESS
+note bottom of REG
+  **The Bash side owns no knowledge of what targets exist.**
+  ""lib/registry\.sh"" sources ""proveo targets"" and fills parallel
+  ""REG_NAMES"" / ""REG_IMAGES"" / ""REG_DIRS"" arrays (bash-3.2-safe, no
+  associative arrays), replacing a Bash manifest parser and three
+  hand-maintained target/image/dir maps that drifted from the manifests.
+
+  **Which binary answers matters more than it looks.** ""PROVEO_BIN"" wins
+  when set — the debug task points it at a freshly built binary — then an
+  installed ""proveo"" on PATH **only if it is current**, else ""go run"" from
+  the checkout. A maintainer task that silently used a stale binary off
+  PATH would report a registry that no longer matches the source it is
+  building.
+end note
+
+
+note bottom of ENS
+  **The preflight installs rather than only failing fast**, in dependency
+  order, before any network or container exists. The distribution model is
+  what makes that the right default: ""mise build"" builds the ""proveo/*""
+  images locally, ""mise deploy"" pushes them, and consumers **pull** — so a
+  missing image is far more likely to be un-pulled than un-built.
+
+  A build is only offered when a pull fails **and** a source tree is
+  present. ""PROVEO_AUTO_PROVISION"" forces the answer either way; on a TTY
+  it asks, defaulting to yes — declining just reproduces the failure the
+  prompt exists to avoid. The source tree is ""PROVEO_DEFS_DIR"" for dev
+  iteration, else the enclosing checkout when it actually carries the build
+  scripts; no tree means pull-only.
+
+  Mapping an image to its ""build\.sh"" goes through the manifest rather than
+  the image name, which is what covers images whose name differs from their
+  def directory (""proveo/cecli-node"" → ""defs/cecli"").
+end note
+
+note bottom of WEN
+  **The wizard follows the DinD-prompt pattern deliberately**: detect the
+  need, honour an env short-circuit, prompt only on a TTY, default to the
+  safe path. Only an explicit yes is a yes; ""Enter"" skips a variable and a
+  skipped variable stays missing, so the caller still warns about it —
+  identical to non-interactive behaviour rather than a second code path.
+
+  Collected values are set in the proveo **process** env, which is what
+  lets provider detection and the broker see a key typed at the prompt.
+end note
+
+
+@enduml

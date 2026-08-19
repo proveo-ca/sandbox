@@ -61,4 +61,30 @@ note right of FIELDS
   Fields are sorted so two runs of the same command diff to only what
   actually differed.
 end note
+note bottom of TEE
+  **The tee changes what is recorded, never what the operator sees.** Every
+  status line goes to both the terminal and the transcript, with the log
+  copy stripped of escape sequences — a log full of ANSI is a log nobody
+  greps.
+
+  **The status vocabulary is one package for one reason:** proveo is a
+  launcher that hands the terminal to the agent's own TUI, and the tmux
+  agent-E2E layer screen-scrapes what proveo printed before that handover.
+  So it stays strictly line-oriented, never a full-screen TUI of its own,
+  and the ✓/⚠/❌ prefixes degrade to stable ""ok:"" / ""warn:"" / ""error:"" tags
+  when the writer is not a terminal — which is what keeps CI logs and
+  screen-scraping tests deterministic.
+
+  Status lines go to **stderr** so stdout stays reserved for machine output:
+  plans, lists, generated config.
+end note
+
+note bottom of FIELDS
+  Fields are written sorted so two runs of the same command produce
+  transcripts that diff to only what actually differed — the property that
+  makes a transcript useful for comparing a working run against a broken
+  one.
+end note
+
+
 @enduml

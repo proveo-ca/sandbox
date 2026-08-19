@@ -35,4 +35,11 @@ note right of SH
   ""AlreadyConfigured"" makes the command idempotent: run
   it twice and the rc file gains one line, not two.
 end note
+note bottom of SH
+  A typed, tested resolver rather than a regex over an rc file: the shells
+  differ in which file is read for a login versus an interactive session,
+  and an unparsed edit to the wrong one silently fails to take effect.
+end note
+
+
 @enduml

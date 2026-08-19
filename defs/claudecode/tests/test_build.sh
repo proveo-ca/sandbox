@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_build.sh - Image build verification
 
-# --- Build the default (mcp) image ---
-# Variant Dockerfiles resolve COPY paths from the repo root (same context
-# build.sh uses), not the variant directory.
 TESTS_RUN=$((TESTS_RUN + 1))
 printf "Building claudecode image... "
 if docker build -t "$STANDALONE_IMAGE" -f "$PROJECT_ROOT/mcp/Dockerfile" "$PROJECT_ROOT/../.." 2>&1; then

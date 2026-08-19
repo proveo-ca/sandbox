@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_tools.sh - Required CLI/runtime tools are installed
 
 assert_success \

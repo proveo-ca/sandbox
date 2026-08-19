@@ -1,7 +1,3 @@
-// Package entrypoint implements the shared in-container harness prelude:
-// runtime user, .env load, env bridges, git identity, smoke mode, and
-// credential-broker sentinels.
-//
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/_paradigms/harness-paradigms.puml
 package entrypoint
 
@@ -20,14 +16,6 @@ import (
 // credential broker is active (firewall inject/strip at the MITM).
 const DefaultSentinel = "proveo-brokered"
 
-// ConfigVars are the NON-SECRET harness preferences (CODING_HARNESSES.md "Model
-// aliases" / "UI aliases") forwarded into the agent BY VALUE. They cannot ride
-// the project .env like the harness entrypoints assume: proxy/firewall mask
-// every dotenv file under the mounted tree, and the input-output layout
-// (claudecode) never mounts one at all — so without this the agent silently
-// falls back to its baked-in default model instead of the one the user chose.
-// Secrets never appear here; those stay on the broker (firewall) or a declared
-// manifest env var.
 var ConfigVars = []string{
 	"ARCHITECT_MODEL",
 	"EDITOR_MODEL",
@@ -163,9 +151,6 @@ func BridgeGoogleKeys() {
 	}
 }
 
-// ApplyBrokerSentinel rewrites listed env vars to the sentinel so the agent
-// process never holds the real provider secret. keysCSV is comma-separated
-// names; empty means no-op. Only rewrites when mode is firewall.
 func ApplyBrokerSentinel(mode, keysCSV, sentinel string) []string {
 	if strings.ToLower(strings.TrimSpace(mode)) != "firewall" {
 		return nil

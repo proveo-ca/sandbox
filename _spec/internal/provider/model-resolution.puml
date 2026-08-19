@@ -88,12 +88,46 @@ note bottom of CACHE
 
   Per target, because a model valid for opencode may be unsupported for
   cursor. Precedence is unchanged from the choice cache: **explicit env or
-  flag > cached > unset**. A cached id that no longer resolves degrades to
-  a warning and is dropped — never a hard failure on a file proveo wrote
-  itself.
+  flag > cached > unset**.
+
+  **A remembered id is kept verbatim, not validated.**
+  ""RolesFromCanonical"" copies every non-empty value through — no catalog
+  lookup, so "no longer resolves" is not a state this path can observe, and
+  nothing warns or drops. proveo cannot tell a catalog that is //behind//
+  from a model that is //gone//, and the harness that owns the model list
+  gives the better error than a launcher guessing from a table it may not
+  have synced. What that preserves either way: proveo never hard-fails on a
+  file it wrote itself. Drift record:
+  ""_spec/_plans/role-cache-resolution-drift\.puml"".
+
+  **The merge is per role, not per set.** A remembered role is applied only
+  where the operator set nothing, so a run never silently contradicts an
+  ""ARCHITECT_MODEL"" they exported themselves — one explicit role does not
+  discard the two remembered ones beside it.
 
   Shown read-only in the prompt header beside the workspace and ""\.env"" —
   NOT as a form row. The radio grid stays radios; models are typed
   elsewhere.
 end note
+note bottom of P1
+  **An unattributable model contributes nothing rather than a guess.** That
+  is safe because the broker routes every //detected// provider anyway, so a
+  model whose provider cannot be named still works — it simply adds no
+  claim. The same restraint governs the warning: a role whose provider
+  cannot be attributed is omitted from ""MissingKeys"", because an unknown id
+  is not evidence of a missing key, and a false warning about a model that
+  works is worse than no warning.
+
+  **Role names are proveo-level and translated per harness.** The stored
+  yaml keys are ""main"" / ""editor"" / ""small"" — "main" rather than
+  "architect" because three of the four harnesses call it that; architect
+  is aider's term, and ""ARCHITECT_MODEL"" is the variable, not the concept.
+
+  Normalization deliberately **preserves a provider prefix**
+  (""moonshot/kimi-k3""): that prefix is how a harness disambiguates a model
+  several providers serve, so stripping it would destroy the only routing
+  information the id carries.
+end note
+
+
 @enduml

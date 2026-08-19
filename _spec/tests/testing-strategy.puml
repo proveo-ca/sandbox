@@ -64,4 +64,32 @@ end note
 L1 -down[hidden]- L2
 L3 -down[hidden]- L4
 ' --- END IGNORE ---
+note as ECHOAGENT
+  **The Layer-4 promptful E2E runs against a fixture agent, not a vendor
+  CLI.** ""defs/tests/echo-agent"" is a minimal image that reads a prompt and
+  calls the local model through the OpenAI-compatible endpoint
+  ""--local-model"" already provides — so the suite exercises proveo's own
+  wiring (mounts, egress, model routing) without a paid API key or a
+  vendor's release cadence in the loop.
+end note
+
+
+note as DEFTESTS
+  **Each def ships its own container test suite**, and they share a shape:
+  a helper that runs a command inside the built image and captures output
+  for assertions, plus a portable timeout — GNU ships ""timeout"", macOS
+  ships it as ""gtimeout"" via coreutils, and where neither exists the suite
+  degrades rather than failing on the tooling.
+
+  Two habits worth keeping when editing them. The entrypoint is exercised
+  by mounting a fixture project and **short-circuiting the final exec**
+  (an unsupported flag that exits immediately), so a TUI launch does not
+  hang a test. And several assertions have to tolerate the harness CLI
+  normalising its own config on launch — cursor rewrites
+  ""~/\.cursor/cli-config\.json"" every start and backs up an invalid one as
+  ""\.bad"", so a test asserting on a config file must account for the CLI
+  having touched it.
+end note
+
+
 @enduml

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,9 +41,6 @@ echo "--- Phase 7: Direct LLM API ---"
 source "$SCRIPT_DIR/test_llm.sh"
 echo ""
 
-# Phase 8 (interactive TUI / scope discovery) retired with the bash consumer
-# CLI: scope selection now lives in the Go `proveo` binary and is covered by its
-# unit tests (cmd/proveo pickProject, internal/workspace DiscoverProjects).
 
 print_summary
 exit $?

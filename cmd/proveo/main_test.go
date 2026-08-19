@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -12,12 +13,14 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -686,5 +689,119 @@ func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 	gateAddons(f, "open", "forward", false)
 	if f.Rows[0].Off[0] {
 		t.Error("open+forward without sandbox_docker must leave dind enabled")
+	}
+}
+
+func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
+	t.Parallel()
+	r := evidenceRow((runParams{}).evidenceOrDefault())
+	if r.Label != evidenceLabel || !r.Multi {
+		t.Fatalf("row = %+v, want a checkbox row labelled %q", r, evidenceLabel)
+	}
+	if len(r.Options) != 2 || r.Options[0] != evidenceDefault || r.Options[1] != evidenceVerbose {
+		t.Fatalf("options = %v, want [%s %s]", r.Options, evidenceDefault, evidenceVerbose)
+	}
+	if r.On[0] || !r.On[1] {
+		t.Errorf("On = %v, want verbose ticked and default clear", r.On)
+	}
+	if got := evidenceRow(evidenceDefault); !got.On[0] || got.On[1] {
+		t.Errorf("a remembered 'default' must tick default only, got %v", got.On)
+	}
+}
+
+// The two boxes are one answer wearing checkbox glyphs: ticking one clears the
+// other, and clearing both reads as default rather than as a third state.
+func TestGateEvidenceKeepsTheLevelsExclusive(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{true}},
+		evidenceRow(evidenceVerbose),
+	}}
+	// Ticking "default" (index 0) must clear the verbose box.
+	f.Rows[1].Selected, f.Rows[1].On[0] = 0, true
+	gateEvidence(f)
+	if f.Rows[1].On[1] {
+		t.Errorf("verbose survived a tick on default: %v", f.Rows[1].On)
+	}
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceDefault {
+		t.Errorf("evidence = %q, want %q", got, evidenceDefault)
+	}
+	// Un-ticking the only box leaves nothing selected, which is still default.
+	f.Rows[1].On[0] = false
+	gateEvidence(f)
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceDefault {
+		t.Errorf("empty row = %q, want %q", got, evidenceDefault)
+	}
+	// Back to verbose, and the other row must be untouched throughout.
+	f.Rows[1].Selected, f.Rows[1].On[1] = 1, true
+	gateEvidence(f)
+	if got := evidenceFrom(f.Selections(evidenceLabel)); got != evidenceVerbose {
+		t.Errorf("evidence = %q, want %q", got, evidenceVerbose)
+	}
+	if !f.Rows[0].On[0] {
+		t.Error("gateEvidence must not reach into the add-ons row")
+	}
+}
+
+// Anything that is not an explicit opt-out resolves to verbose: a typo in
+// PROVEO_AGENT_EVIDENCE must not quietly buy a black-box run.
+func TestEvidenceOrDefaultOnlyOptsOutOnDefault(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"":              evidenceVerbose,
+		evidenceVerbose: evidenceVerbose,
+		"bogus":         evidenceVerbose,
+		evidenceDefault: evidenceDefault,
+	} {
+		if got := (runParams{evidence: in}).evidenceOrDefault(); got != want {
+			t.Errorf("evidence %q resolved to %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The mounted-.env warning was dead for a release cycle: the guard returned on
+// all three canonical tiers after broker/firewall/proxy were renamed. Nothing
+// asserted it, which is why the rename went unnoticed.
+func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
+	dirWithEnv := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirWithEnv, ".env"), []byte("ANTHROPIC_API_KEY=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withKey := func(name string) string {
+		if name == "ANTHROPIC_API_KEY" {
+			return "sk-test"
+		}
+		return ""
+	}
+	noKey := func(string) string { return "" }
+
+	cases := []struct {
+		name, dir, mode string
+		lookup          func(string) string
+		wantWarning     bool
+	}{
+		{"open tier warns — the plain bridge has no DLP", dirWithEnv, "open", withKey, true},
+		{"allowlist stays silent — DLP blocks the exfil", dirWithEnv, "allowlist", withKey, false},
+		{"review stays silent — same topology as allowlist", dirWithEnv, "review", withKey, false},
+		{"mode is matched case-insensitively", dirWithEnv, "OPEN", withKey, true},
+		{"no .env in the mounted tree", t.TempDir(), "open", withKey, false},
+		{"no provider key on the host", dirWithEnv, "open", noKey, false},
+		{"no mounted dir at all", "", "open", withKey, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			restore := ui.Default
+			ui.Default = ui.New(&buf)
+			t.Cleanup(func() { ui.Default = restore })
+
+			warnMountedSecrets(tc.dir, tc.mode, tc.lookup)
+
+			got := strings.Contains(buf.String(), ".env is mounted")
+			if got != tc.wantWarning {
+				t.Errorf("warnMountedSecrets(%q, %q, lookup) warned = %v, want %v (output %q)",
+					tc.dir, tc.mode, got, tc.wantWarning, buf.String())
+			}
+		})
 	}
 }

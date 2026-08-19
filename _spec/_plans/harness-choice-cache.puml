@@ -14,11 +14,13 @@ node "cmd/proveo run <target>" as CLI <<host>> {
   component "validate against capabilities" as VAL <<app>>
 }
 
-database "~/.proveo/agent-settings.yml\nper target + manifest fingerprint\negress · credentials · addons\nauthVar · models" as CACHE <<db>>
+database "~/.proveo/agent-settings.yml\nper target + manifest fingerprint\negress · credentials · addons\nauthVar · evidence · models" as CACHE <<db>>
+component "agent evidence axis\n""default"" | ""verbose""\nPROVEO_AGENT_EVIDENCE" as EVID <<app>>
 component "fingerprint mismatch\n→ discard, re-prompt" as STALE <<error>>
 component "headless (no TTY)\n→ never prompt, take default" as HEADLESS <<error>>
 
 CAP ARROW_MAIN VAL : the only source of valid cells
+EVID ARROW_MAIN RES : the fifth axis — no capability to validate against
 OP ARROW_MAIN RES : ""--egress-mode"" · ""--credentials"" · ""--browser"" · ""PROVEO_DIND""
 RES ARROW_MAIN CACHE : read
 CACHE ARROW_ERROR STALE : manifest changed
@@ -41,6 +43,11 @@ note right of CAP
   OAuth token.
   ""addons"" — derived by default: DinD iff ""dind: true"", browser iff an
   ""images:"" key ends ""-browser"". claudecode therefore shows no DinD row.
+
+  **The two add-ons are not the same kind of thing.** ""browser"" swaps the image
+  for the ""-browser"" variant; ""dind"" attaches a sidecar to the same base image.
+  Neither needs the form: non-interactively they are the ""-browser"" target and
+  ""PROVEO_DIND"".
 end note
 
 note bottom of VAL
@@ -50,6 +57,12 @@ note bottom of VAL
   gets the ""proveo-brokered"" sentinel — the provider then answers 403.
   Filtering detection through the def's declared providers means a
   stray key for a harness that cannot use it never enters the set.
+
+  **The axes are settled against the def twice, and the first time is before
+  anything reads them.** Once BEFORE the prompt, so the form pre-selects and
+  gates from what this harness actually supports rather than from the flag
+  defaults; once AFTER, so a value the operator just chose is re-validated
+  instead of trusted.
 end note
 
 note bottom of TUI
@@ -79,9 +92,10 @@ note right of RES
   security posture of the run — the operator must see, and be able to
   change, what they are launching.
 
-  **Four axes, shown only when there is something to decide:** network
+  **Five axes, shown only when there is something to decide:** network
   tier, credential handling, which credential (when the pinned provider
-  accepts more than one the operator holds), and add-ons.
+  accepts more than one the operator holds), add-ons, and how much of its
+  own work the agent narrates.
 
   ""review"" is offered on a Linux host with a local daemon and greyed
   elsewhere with the reason — 'linux only', or 'needs a local docker daemon'
@@ -111,8 +125,11 @@ note bottom of CACHE
   synced correction would never reach it.
 
   Precedence matches every other axis — **explicit env or flag > cached >
-  unset** — and a cached id that no longer resolves degrades to a warning
-  and is dropped. proveo must not hard-fail on a file it wrote itself.
+  unset**. A remembered id is then applied **verbatim**: nothing validates
+  it against the catalog, because proveo cannot distinguish a catalog that
+  is behind from a model that is gone, and the harness gives the better
+  error. proveo must not hard-fail on a file it wrote itself either way.
+  Drift record: ""_spec/_plans/role-cache-resolution-drift\.puml"".
 
   Unlike the three axes, models are not radio cells: they are typed values
   with an open range, so they appear read-only in the prompt header beside
@@ -124,5 +141,24 @@ end note
 note bottom of HEADLESS
   E2E, CI and cron must never block on a human: with no TTY the
   resolver takes the manifest default and logs the choice it made.
+end note
+
+note right of EVID
+  **How much of its own work the harness narrates** — thoughts, tool calls and
+  diffs on screen. proveo prefers verbose, and anything but an explicit
+  ""default"" resolves to it: **a run nobody can read cannot be reviewed**.
+
+  **The value is a level, not a switch.** Each entrypoint turns it into whatever
+  verbosity flags its own CLI actually spells, and they default to verbose when
+  the variable is absent — so this axis is only ever the operator overriding
+  that default, never the thing that enables it.
+
+  A host-exported ""PROVEO_AGENT_EVIDENCE"" is the non-interactive way to set the
+  level and, like every other explicitly set axis, it outranks the remembered
+  answer. An unrecognized value is **named rather than obeyed**: a typo must not
+  quietly buy the operator a black-box run.
+
+  It has no ""capabilities"" cell — every harness can be asked to say more — so
+  the row is always offered and there is nothing for ""VAL"" to reject.
 end note
 @enduml

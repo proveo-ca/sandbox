@@ -1,0 +1,129 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
+' row-gating helpers (applicableRows, comingSoon, gateAddons, gateEvidence) lands here (batches 3 and 6).
+' What the answers MEAN and how they are cached: _spec/_plans/harness-choice-cache.puml.
+title Choice prompt render — radio axes above the divider, checkboxes below
+
+node "internal/choiceui" as PKG <<host>> {
+  component "Form\nBanner · Title · Header · Rows" as FORM <<app>>
+  component "Row\nradio: Options + Selected\ncheckbox: Multi + On/Off" as ROW <<app>>
+  component "draw(screen, cursor)\nlegend · divider · markers" as DRAW <<app>>
+  component "Run()\ntcell screen, one key per action" as RUN <<app>>
+  component "OnChange(*Form)\nre-gated after every keystroke" as CHANGE <<app>>
+  component "Selection · Selections\nread back by label" as READ <<app>>
+}
+
+node "cmd/proveo — what may be offered" as GATES <<host>> {
+  component "applicableRows\ndrop an axis with nothing to decide" as APPL <<app>>
+  component "comingSoon\ngrey out + move the selection off" as SOON <<app>>
+  component "gateAddons · gateEvidence\ncross-row exclusivity" as GATE <<app>>
+}
+
+component "Operator terminal\nrequires a TTY" as TTY <<host>>
+component "EnvHeader\ndetected secrets · settings" as HDR <<app>>
+component "A locked or absent row read as an answer" as MISREAD <<error>>
+
+GATES ARROW_MAIN FORM : rows built, then filtered
+HDR ARROW_MAIN FORM
+FORM ARROW_MAIN ROW
+FORM ARROW_MAIN DRAW
+RUN ARROW_MAIN DRAW : redraw per event
+RUN ARROW_MAIN CHANGE
+CHANGE ARROW_MAIN GATE
+APPL ARROW_MAIN FORM
+SOON ARROW_MAIN ROW
+DRAW ARROW_MAIN TTY
+TTY ARROW_MAIN RUN : Enter confirms · Esc/q cancels
+RUN ARROW_MAIN READ
+READ ARROW_ERROR MISREAD : fall back to the resolved value instead
+
+note bottom of DRAW
+  **The divider separates two kinds of question.** Above it the radio axes,
+  ordered riskier → safer by the legend the draw pass prints; below it the
+  checkbox toggles, which that ordering does not describe.
+
+  **""agent evidence"" is a toggle, not a tier.** It sits with the add-ons rather
+  than under the legend because narrating more of the run costs tokens and
+  screen, not safety — nothing about it is riskier or safer. ""evidenceRow"" draws
+  the two levels as checkboxes with ""verbose"" ticked, and the pair is kept
+  exclusive by ""gateEvidence"".
+end note
+
+note right of GATE
+  **One gate per toggle row, run unconditionally.** ""gateAddons"" no-ops when its
+  row was filtered out, so both gates can fire on every keystroke instead of the
+  caller tracking which rows made it onto the form.
+
+  ""gateEvidence"" keeps the two evidence boxes exclusive: a level is one answer,
+  so ticking one clears the other. Clearing BOTH is allowed and reads as
+  ""default"" — ""evidenceFrom"" asks only whether verbose was chosen.
+end note
+
+note bottom of SOON
+  **Greyed, never hidden.** ""comingSoon"" marks the option off and moves the
+  selection away from it, but the row still shows it with the reason attached:
+  removing it would misrepresent the tier as nonexistent rather than unfinished.
+
+  ""--egress-mode"" still accepts the value, so development can drive an
+  unfinished tier while an operator cannot pick it by accident.
+
+  ""review"" is greyed by its platform rather than its state, and the row names
+  which constraint failed — 'linux only' or 'needs a local docker daemon'. The
+  transport reason is in ""_spec/internal/reviewgate/pty-review-proxy\.puml"".
+end note
+
+note bottom of MISREAD
+  **A filtered-out axis has no row to read, and empty is not an answer.** The
+  gate falls back to the value already resolved from the manifest. Without that
+  fallback, hiding cursor's single-option rows made the gate see empty strings
+  and wrongly disable ""dind"" — on the one harness whose fixed tier can host it.
+end note
+
+note left of TTY
+  **The add-ons picker runs BEFORE the missing-env wizard, and the order is
+  load-bearing.** The wizard may attach a ""bufio\.Reader"" to stdin, and a
+  buffered reader starves an interactive picker of the keystrokes it is waiting
+  for. So the multiselect is answered first, while stdin is still raw.
+end note
+
+note right of TTY
+  **""isStdinTTY"" is the one gate in front of every interactive prompt** — the
+  monorepo scope picker and the missing-env wizard both ask it — so no prompt
+  can decide on its own that a run is interactive.
+
+  It is a real ioctl check (""term\.IsTerminal"" on an ""*os\.File"" descriptor),
+  **not** a char-device stat. ""/dev/null"" is a character device too, so a stat
+  would read a stdin redirected to null as an operator waiting to answer and
+  block a run that can never reply. A reader that is not an ""*os\.File"" at all
+  — a test's ""strings\.Reader"" — is likewise not a terminal, which is what
+  lets the scope picker fall back to its numbered form under test.
+end note
+
+note right of HDR
+  **Models are shown, not chosen.** The grid holds closed choices and a model id
+  is an open value, so the roles are printed in the header — beside the git repo,
+  the loaded ""\.env"" and the workspace layout — and never become a row.
+
+  Each role carries the provider it resolved to. That is what makes a keyless
+  role visible BEFORE launch rather than after a failed call.
+end note
+note bottom of ROW
+  **The legend describes only the radio rows, which is why it is drawn
+  once, above them.** Both policy axes are ordered riskier → safer, so a
+  single label explains every one of them and the operator does not have to
+  infer direction from option names. A row that is a checkbox set carries no
+  such order, so the centred divider closes the axis rather than letting the
+  legend appear to govern the whole prompt — and only the row the divider is
+  named after drops its own label, or a second checkbox section would render
+  as an anonymous pair of boxes.
+
+  **The consent modal takes the whole screen rather than composing with
+  this form.** It answers one connection at a time, mid-run, over a
+  suspended agent TUI — a different question from the one-shot posture
+  prompt, and sharing layout would couple two lifecycles that have nothing
+  else in common.
+end note
+
+
+@enduml

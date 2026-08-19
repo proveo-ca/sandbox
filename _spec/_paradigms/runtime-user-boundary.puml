@@ -26,6 +26,18 @@ ENSURE ARROW_MAIN AGENT
 AGENT ARROW_MAIN REPO : writes come back owned\nby the developer
 CTR ARROW_ERROR ROOT : errorLabel(never used)
 
+note bottom of ENSURE
+  **HOME is made writable in the shell itself, at source time — not only
+  inside the prelude.** ""proveo-entrypoint prep"" runs as a subprocess, so it
+  can only set HOME for its own process. A shell whose run-as uid has no
+  passwd entry therefore keeps ""HOME=/"", and every later
+  ""mkdir \"$HOME/.<tool>\""" fails with the tell-tale ""//.cursor"" double
+  slash. Sourcing the guard before the prelude is what makes ~/… seeding
+  work for an arbitrary uid, in every entrypoint rather than just the
+  bash-fallback branch.
+end note
+
+
 note right of ENSURE
   **The arbitrary-uid problem.** ""--user 501:20"" is a uid
   the image has never heard of: no passwd entry, no home,

@@ -71,4 +71,23 @@ note bottom of PH
   docker:dind) are likewise left — shared and cheap to
   re-pull. See _spec/internal/proveohome/proveo-home-components.puml
 end note
+note bottom of CORE
+  **The decision core is pure: an inventory in, a removal set out.** That is
+  what lets the two tiers be asserted without Docker present.
+
+  **"Live" is defined by a running container, and it protects the whole
+  session.** When any of a session's egress containers is still running,
+  its networks //and// its state directory are preserved — the state dir
+  holds the injected secret and the flow record a live run is still
+  writing. Anything skipped for that reason is reported rather than
+  silently kept, so an operator who expected a reclaim learns why it did
+  not happen.
+
+  Routine covers per-run ephemera left by a crashed or killed run — egress
+  session containers and networks, leaked DinD sidecars, session state
+  dirs. The deeper tier is opt-in because it reaches images the next run
+  would otherwise reuse.
+end note
+
+
 @enduml

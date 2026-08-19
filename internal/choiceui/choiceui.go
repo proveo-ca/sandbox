@@ -1,5 +1,5 @@
 // Package choiceui renders the one-shot harness choice prompt.
-// SPEC: _spec/_plans/harness-choice-cache.puml
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/_plans/harness-choice-cache.puml
 package choiceui
 
 import (
@@ -130,9 +130,6 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 }
 
-// axisLabel reports whether any row is an ordered policy axis (a radio row with
-// more than one option). Add-on checkboxes are unordered, so a lone add-ons row
-// gets no legend.
 func (f *Form) axisLabel() bool {
 	for _, r := range f.Rows {
 		if !r.Multi && len(r.Options) > 1 {
@@ -255,9 +252,6 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		y++
 	}
 
-	// Axis legend above the rows: both policy axes are ordered riskier → safer, so
-	// one label explains every row at once and the direction is not something the
-	// operator has to infer from the option names.
 	if f.axisLabel() {
 		put(22, p.body, "◀ riskier")
 		put(60, p.body, "safer ▶")
@@ -266,11 +260,10 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 
 	dividerDone := false
 	for i, r := range f.Rows {
-		// The safety axis above orders the POLICY rows only. Add-ons are unordered
-		// toggles, so a centred divider closes that axis rather than letting the
-		// legend appear to govern the whole prompt.
+		namedByDivider := false
 		if r.Multi && !dividerDone {
 			dividerDone = true
+			namedByDivider = true
 			label := " " + r.Label + " "
 			pad := (72 - len([]rune(label))) / 2
 			if pad < 0 {
@@ -287,7 +280,7 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			labelStyle = p.brand
 		}
 		rowLabel := r.Label
-		if r.Multi && dividerDone {
+		if namedByDivider {
 			rowLabel = ""
 		}
 		put(0, labelStyle, marker+rowLabel)

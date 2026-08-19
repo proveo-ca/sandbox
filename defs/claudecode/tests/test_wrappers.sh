@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_wrappers.sh - Wrapper contract checks that do not require Docker.
 
 WRAPPER_FILES=(

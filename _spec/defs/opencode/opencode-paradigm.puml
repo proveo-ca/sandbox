@@ -50,4 +50,16 @@ note bottom of EP
   Supports ""--local-model"" (Ollama sidecar, litellm-free
   OpenAI-compatible endpoint) and DinD.
 end note
+note bottom of CLI
+  **Narration is split across three switches, and one of them is unsafe on
+  the TUI path.** ""--log-level DEBUG"" records what the harness did;
+  ""--print-logs"" puts that on stderr, which only works when the TUI is not
+  drawing on the same terminal, so off the TUI path it stays in the log
+  file instead. On ""run"", ""--thinking"" keeps the model's reasoning blocks in
+  the transcript rather than collapsing them — the closest opencode comes
+  to showing its thoughts — and it has to be inserted before the prompt
+  argument.
+end note
+
+
 @enduml

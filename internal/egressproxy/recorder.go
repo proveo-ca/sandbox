@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml
 package egressproxy
 
 import (
@@ -8,11 +9,6 @@ import (
 	"time"
 )
 
-// flowRecord is one NDJSON line consumed by the egress dashboard. It matches the
-// field set the previous Python mitmproxy addon emitted, with ONE deliberate
-// change: the path never includes the query string. The broker can inject a
-// secret as a query param (e.g. Gemini ?key=), and query strings can carry
-// tokens generally, so logging them would write secrets to disk.
 type flowRecord struct {
 	TS       string `json:"ts"`
 	Source   string `json:"source"`
@@ -77,9 +73,6 @@ func (r *Recorder) ModifyResponse(res *http.Response) error {
 	return r.enc.Encode(&rec) // Encoder appends '\n'
 }
 
-// RecordBlock appends a "blocked" flow when the policy denies a request. Like
-// ModifyResponse it records only host/method/path + the reason — never the
-// query string, headers, or body (which may carry the secret that triggered it).
 func (r *Recorder) RecordBlock(req *http.Request, reason string) {
 	if r == nil || req == nil || req.URL == nil {
 		return

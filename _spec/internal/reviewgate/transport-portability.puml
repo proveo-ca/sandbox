@@ -85,4 +85,17 @@ note bottom of IM
   that connections will be denied. Until a portable transport lands, the tier
   must announce its own limits rather than appear strict.
 end note
+note bottom of FS
+  **The socket path has a hard ceiling, and it differs per platform.**
+  ""sockaddr_un.sun_path"" is 104 bytes on darwin/BSD and 108 on Linux, and
+  ""bind"" fails outright past it — not truncates. A session state dir nested
+  deep enough silently becomes unbindable, so past the limit the gate falls
+  back to a short, collision-resistant name.
+
+  **The fallback gets its own directory, never a bare file in TempDir.**
+  The caller bind-mounts ""filepath\.Dir(socket)"" into the inspector, so a
+  loose file in a shared temp directory would mount the whole of it.
+end note
+
+
 @enduml

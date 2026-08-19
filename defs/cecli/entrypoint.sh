@@ -83,11 +83,6 @@ if [[ -n "${SMALL_MODEL:-}" ]]; then
   export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
 fi
 
-# Local model: cecli reaches Ollama through litellm. The ollama_chat/ prefix (not
-# the plain ollama/ one bridged from ARCHITECT_MODEL) selects the chat+tools
-# formatter that agentic edits need; OLLAMA_API_BASE (set by --local-model) points
-# litellm at the sidecar. cecli reads the CECLI_ env prefix (auto_env_var_prefix),
-# so the AIDER_ aliases above are unnecessary here — override every model tier.
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
   export CECLI_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
   export CECLI_EDITOR_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
@@ -218,9 +213,6 @@ fi
 
 ensure_project_tools
 
-# cecli auto-loads NO conventions file: CONVENTIONS.md is only a naming habit, and
-# AGENTS.md is not read either. Both have to be passed with --rules, so hand it
-# whichever the project actually ships.
 CECLI_RULE_ARGS=()
 for f in AGENTS.md CONVENTIONS.md; do
   [[ -f "$f" ]] && CECLI_RULE_ARGS+=(--rules "$f")
@@ -229,12 +221,23 @@ if [[ ${#CECLI_RULE_ARGS[@]} -gt 0 ]]; then
   echo "📐 rules: ${CECLI_RULE_ARGS[*]}"
 fi
 
+# ── Agent evidence ─────────────────────────────────────────
+CECLI_EVIDENCE_ARGS=()
+if agent_evidence_verbose; then
+  CECLI_EVIDENCE_ARGS=(--verbose --show-diffs)
+  report_agent_evidence "${CECLI_EVIDENCE_ARGS[@]}"
+else
+  report_agent_evidence
+fi
+
+# Evidence flags ride with the rules: both are ours to add, and both belong only
+# on a cecli invocation — never on the bash/git/... passthroughs below.
 if [[ $# -eq 0 ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}"
 elif [[ "$1" == -* ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
 elif [[ "$1" != "cecli" && "$1" != "bash" && "$1" != "sh" && "$1" != "python" && "$1" != "python3" && "$1" != "node" && "$1" != "npm" && "$1" != "pnpm" && "$1" != "git" && "$1" != "curl" ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "$@"
+  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
 fi
 
 exec "$@"

@@ -13,6 +13,7 @@ node "Maintainer host — Fedora or macOS" as HOST <<host>> {
 database "Local daemon image store" as LOCAL <<db>>
 cloud "Registry" as REG <<cloud>>
 component "Stale-parent build\n(silent: no error, no warning)" as STALE <<error>>
+component "Builder netns cannot resolve\nwhile the host resolves fine" as DNS <<error>>
 
 LIB ARROW_MAIN SEL : platforms resolved BEFORE the builder
 SEL ARROW_MAIN HEALTH : candidate alive?
@@ -22,6 +23,7 @@ SEL ARROW_OPTIONAL DCONT : ""--load"" · cross-arch — warns first
 DDOCKER ARROW_MAIN LOCAL : ""FROM"" resolves the image just built
 DCONT ARROW_CLOUD REG : ""FROM"" resolves the PUBLISHED image
 DCONT ARROW_ERROR STALE : cross-arch ""--load"" — a locally edited parent is invisible
+DCONT ARROW_ERROR DNS : own network namespace · own frozen ""/etc/resolv\.conf""
 
 note right of SEL
   **The driver is not a detail — it decides where ""FROM"" resolves.**
@@ -73,6 +75,29 @@ note bottom of DDOCKER
   Only the ""--load"" host-platform path reaches this decision. A ""--push""
   or cross-platform build returns earlier on the container driver, so
   multi-arch distributables never depend on which context is current.
+end note
+
+note bottom of DNS
+  **The container driver resolves names for you, not with you.** buildkit
+  runs in its own container, so every ""RUN"" fetch goes through the
+  ""/etc/resolv\.conf"" docker handed //that// container when it was created
+  — not the host's current one. A builder alive for days can hold a
+  resolver that has since gone away, and the host resolving fine proves
+  nothing about it.
+
+  Read the wording before reaching for firewalld. apt says
+  ""Could not resolve"" for a resolver that //answered// negatively
+  (""EAI_NONAME"": split-horizon or VPN DNS, a container-DNS shim with no
+  upstream) and ""Temporary failure resolving"" when there is no reachable
+  resolver at all (dropped forwarding, no nameserver). Only the second
+  points at ""net\.ipv4\.ip_forward"" or a firewalld zone.
+
+  Recreating the builder re-reads ""resolv\.conf"":
+  ""docker buildx rm proveo-multiarch"" and the next build recreates it. A
+  builder on host networking skips the question — created with
+  ""--driver-opt network=host"" and selected via ""PROVEO_BUILDX_BUILDER"".
+  Not the default: host networking drops the isolation the driver exists
+  for.
 end note
 
 note bottom of STALE

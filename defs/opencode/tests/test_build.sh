@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/testing-strategy.puml
 # tests/test_build.sh - Image availability verification
 
 TESTS_RUN=$((TESTS_RUN + 1))

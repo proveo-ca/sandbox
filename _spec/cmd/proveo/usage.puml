@@ -78,6 +78,48 @@ note right of Proveo
 **Product CLI is Go only.**
 No installed bash lib/*.sh runners.
 ""PROVEO_DEFS_DIR"" overrides embeds for dev.
+
+**One binary composed of three packages**, and the
+composition is the point: ""internal/runner"" builds the
+hardened docker-run argv, ""internal/egress"" orchestrates
+the topology, ""internal/provider"" detects which vendor a
+run is talking to. That logic was previously triplicated
+across the consumer CLI, ""lib/runners\.sh"" and every
+""defs/*/run\.sh"" — three copies that drifted.
+
+Shipped as a single checksummed static binary
+(""\.goreleaser\.yaml"", ""dist/install\.sh""), which is what
+lets a consumer run a harness without a source checkout.
+end note
+
+note bottom of Artifacts
+**The version string is stamped in at link time, never read at runtime.**
+The variable's literal in ""main\.go"" is ""dev"" and the real value arrives
+from the linker (""-ldflags -X main\.version=<v>""): a dev install
+(""mise run build-cli"") stamps ""dev@<git-short-sha>"", so a bug report
+names the commit it came from, while a release stamps the semver tag.
+A binary built outside either path keeps the literal and honestly
+reports ""dev"" rather than claiming a release it is not.
+end note
+
+note bottom of Commands
+**The tagline is printed once, which is why cobra's ""Short"" is left empty
+on the root command.** ""ui\.WriteBrandBanner"" already renders it dimmed
+under the banner from the root help hook, so filling ""Short"" in as well
+would print the same line twice on ""proveo --help"".
+
+**A message about the absence of results is not a result.**
+""proveo projects"" with nothing to list writes its note to stderr and
+leaves stdout empty, so a scripted caller counting rows sees zero rows
+instead of one line of prose it would have to recognise and discard.
+end note
+
+note bottom of Commands
+**The command list is the whole consumer surface.** cobra's
+default ""completion"" command is disabled rather than
+inherited: a shell-completion generator is maintainer
+plumbing, and every command shown here is something a
+consumer is meant to run.
 end note
 
 note right of RunFlags

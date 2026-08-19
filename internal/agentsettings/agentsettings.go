@@ -19,15 +19,11 @@ import (
 const FileName = "agent-settings.yml"
 
 type Choice struct {
-	Egress      string   `yaml:"egress"`
-	Credentials string   `yaml:"credentials"`
-	Addons      []string `yaml:"addons,omitempty"`
-	AuthVar     string   `yaml:"authVar,omitempty"`
-	// Models is the last used model per role, keyed main/editor/small, holding
-	// CANONICAL ids. Storing a harness-specific spelling would pin the entry to
-	// whatever the catalog said when it was written, so a later correction could
-	// never reach it. Not part of the fingerprint: a model is the operator's
-	// choice, not a capability, and a manifest change must not silently drop it.
+	Egress      string            `yaml:"egress"`
+	Credentials string            `yaml:"credentials"`
+	Addons      []string          `yaml:"addons,omitempty"`
+	AuthVar     string            `yaml:"authVar,omitempty"`
+	Evidence    string            `yaml:"evidence,omitempty"`
 	Models      map[string]string `yaml:"models,omitempty"`
 	Fingerprint string            `yaml:"fingerprint"`
 }

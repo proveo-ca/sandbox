@@ -1,10 +1,4 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
-//
-// Package egress holds the egress-lifecycle policy logic being ported from
-// defs/lib/egress.sh: provider detection and the Squid
-// write-pin allowlist. It is the Go source of truth; egress.sh delegates to the
-// `proveo-egress` subcommands when PROVEO_EGRESS_BIN is set, else uses its Bash
-// fallback (behavior parity is asserted by tests).
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egress/egress-tiers.puml
 package egress
 
 import (
@@ -13,12 +7,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 )
 
-// ProviderAllowConf renders the Squid `provider-allow.conf` include for the
-// given provider(s), mirroring `proveo_egress_write_provider_allow`. It pins the
-// visible write methods (POST/...) to only those providers' endpoints; every
-// other host stays write-denied by squid.conf. customDomains (space-separated),
-// when set, adds an extra dstdomain ACL. Returns the file content plus the
-// matched and unknown provider names.
 func ProviderAllowConf(providers []string, customDomains string) (conf string, matched, unknown []string) {
 	providers = normalize(providers)
 	customDomains = strings.TrimSpace(customDomains)

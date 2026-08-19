@@ -1,12 +1,6 @@
 // Package runlog gives every run a transcript under PROVEO_HOME/logs so a failure
 // can be diagnosed after the fact.
 //
-// The motivating case: an egress tier returns 403 and the operator sees only the
-// harness's own error ("Forbidden", "incorrect API key"). What proveo resolved —
-// which tier, which credential mode, which provider got pinned, where the
-// inspector's flow record and Squid's access log live — was printed to a terminal
-// that has since scrolled away, or never printed at all.
-//
 // SPEC: _spec/internal/runlog/run-transcript.puml
 package runlog
 
@@ -89,10 +83,6 @@ func (l *Log) Section(name string) {
 	fmt.Fprintf(l.f, "\n=== %s === %s\n", name, time.Now().Format(time.RFC3339))
 }
 
-// Fields records key=value pairs sorted for diffability: two runs of the same
-// command should produce transcripts that diff to only what actually differed.
-// Values are recorded verbatim, so callers must pass names and hosts — never
-// secret values.
 func (l *Log) Fields(section string, kv map[string]string) {
 	if l == nil || l.f == nil {
 		return
