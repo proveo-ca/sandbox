@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -652,43 +653,50 @@ func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	}
 }
 
-func TestGateAddonsSandboxDockerLocksDind(t *testing.T) {
+// TestAddonOptionsNeverOffersBothDaemons is the overlap this enum retired: a
+// harness declares ONE docker mode, so the picker can never show both
+// "docker (sandbox)" and "docker (dind)" — there is no locked-but-visible state
+// left to explain, because the second option does not exist.
+func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
 	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true,
-		On: []bool{false, true},
-	}}}
-	gateAddons(f, "open", "forward", true)
-	r := f.Rows[0]
-	if !r.Off[1] {
-		t.Fatal("sandbox_docker must disable dind")
-	}
-	if r.Off[0] {
-		t.Error("browser must stay enabled")
-	}
-	if r.Reason != "docker accessible via docker sandbox" {
-		t.Errorf("reason = %q, want sandbox explanation", r.Reason)
-	}
-	if got := f.Selections("add-ons"); len(got) != 0 {
-		t.Errorf("Selections must omit locked dind even when On, got %v", got)
+	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx, manifest.DockerDind} {
+		man := manifest.Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
+		opts := addonOptions(man)
+		if slices.Contains(opts, addonSandbox) && slices.Contains(opts, addonDind) {
+			t.Errorf("docker %q offered both daemons: %v", mode, opts)
+		}
+		switch mode {
+		case manifest.DockerSbx:
+			if !slices.Contains(opts, addonSandbox) {
+				t.Errorf("docker: sbx must offer %q, got %v", addonSandbox, opts)
+			}
+		case manifest.DockerDind:
+			if !slices.Contains(opts, addonDind) {
+				t.Errorf("docker: dind must offer %q, got %v", addonDind, opts)
+			}
+		default:
+			if len(opts) != 0 {
+				t.Errorf("a harness with no docker mode must be offered none, got %v", opts)
+			}
+		}
 	}
 }
 
 func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{"dind"}, Multi: true, On: []bool{false},
+		Label: "add-ons", Options: []string{addonDind}, Multi: true, On: []bool{false},
 	}}}
-	gateAddons(f, "firewall", "inject", false)
+	gateAddons(f, "firewall", "inject", "")
 	if !f.Rows[0].Off[0] {
 		t.Fatal("firewall+inject must still disable dind")
 	}
-	if f.Rows[0].Reason != "dind needs egress open + credentials forward" {
+	if f.Rows[0].Reason != addonDind+" needs egress open + credentials forward" {
 		t.Errorf("reason = %q", f.Rows[0].Reason)
 	}
-	gateAddons(f, "open", "forward", false)
+	gateAddons(f, "open", "forward", "")
 	if f.Rows[0].Off[0] {
-		t.Error("open+forward without sandbox_docker must leave dind enabled")
+		t.Error("open+forward on a docker: dind harness must leave the add-on enabled")
 	}
 }
 
@@ -846,7 +854,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 
 	cfg, kit, secrets := sandboxSpec(in)
 
-	// Secrets are injected host-side; they must not ride the env passthrough.
 	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false, "ANTHROPIC_API_KEY": false}
 	if len(secrets) != len(wantSecrets) {
 		t.Fatalf("secrets = %v, want exactly the declared+provider keys %v", secrets, wantSecrets)
@@ -866,7 +873,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	// Non-secret declared vars resolve by value.
 	var sawBaseURL bool
 	for _, e := range cfg.Env {
 		if e == "ANTHROPIC_BASE_URL=https://api.anthropic.com" {
@@ -888,7 +894,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	// Allowlist = manifest hosts + detected provider endpoints, deny-by-default.
 	if len(kit.Network.AllowedDomains) == 0 {
 		t.Error("allowlist must include at least the manifest hosts")
 	}
@@ -905,7 +910,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		t.Errorf("kit credentialsEnv = %v, want %d names", got, len(wantSecrets))
 	}
 
-	// Invocation shape.
 	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
 		t.Errorf("run config name/image = %q/%q", cfg.Name, cfg.Image)
 	}
@@ -958,9 +962,185 @@ func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
 	if !strings.Contains(greyed.Reason, "sandbox") {
 		t.Errorf("reason = %q, want it to name the sandbox backend", greyed.Reason)
 	}
-	// Without the backend, host gating applies (linux-only transport).
 	keep := reviewAvailability(choiceui.Row{Label: "egress", Options: []string{"open", "review"}}, false)
 	if runtime.GOOS == "linux" && len(keep.Off) != 0 {
 		t.Errorf("linux host without sbx must leave review enabled, got Off=%v", keep.Off)
+	}
+}
+
+func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "cursor", image: "proveo/cursor:latest",
+			mode: "open", credentials: "forward", evidence: evidenceDefault,
+		},
+		man: manifest.Manifest{
+			Name: "cursor",
+			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
+			Capabilities: manifest.Capabilities{
+				Hosts:       []string{"api2.cursor.sh"},
+				Egress:      []string{"open"},
+				Credentials: []string{"forward"},
+			},
+		},
+		sid:    "proveo-cursor-1",
+		lookup: lookup,
+	}
+
+	cfg, kit, secrets := sandboxSpec(in)
+
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
+	}
+	if len(kit.CredentialsEnv) != 0 {
+		t.Errorf("kit.CredentialsEnv = %v, want empty in forward mode", kit.CredentialsEnv)
+	}
+	var bare bool
+	for _, e := range cfg.Env {
+		if e == "CURSOR_API_KEY" {
+			bare = true
+		}
+		if strings.HasPrefix(e, "CURSOR_API_KEY=") {
+			t.Errorf("forwarded key must stay a bare -e name, got %q (value would ride argv)", e)
+		}
+	}
+	if !bare {
+		t.Errorf("cfg.Env = %v, want a bare CURSOR_API_KEY forwarded from the host", cfg.Env)
+	}
+}
+
+func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value"}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "claudecode", image: "proveo/claudecode:latest",
+			mode: "broker", credentials: "", evidence: evidenceDefault,
+		},
+		man: manifest.Manifest{
+			Name: "claudecode",
+			Env:  []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		},
+		sid:    "proveo-cc-1",
+		lookup: lookup,
+	}
+
+	_, kit, secrets := sandboxSpec(in)
+
+	if len(secrets) == 0 {
+		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
+	}
+	found := false
+	for _, n := range kit.CredentialsEnv {
+		if n == "CLAUDE_CODE_OAUTH_TOKEN" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("kit.CredentialsEnv = %v, want CLAUDE_CODE_OAUTH_TOKEN", kit.CredentialsEnv)
+	}
+}
+
+func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name:   "claudecode",
+		Docker: manifest.DockerSbx,
+		Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
+	}
+	got := addonOptions(man)
+	want := []string{"browser", addonSandbox}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("addonOptions() mismatch (-want +got):\n%s", diff)
+	}
+	if opts := addonOptions(manifest.Manifest{Name: "opencode", Docker: manifest.DockerDind}); !slices.Contains(opts, addonDind) || slices.Contains(opts, addonSandbox) {
+		t.Errorf("a docker: dind harness must not be offered the sandbox: %v", opts)
+	}
+}
+
+func TestSandboxAddonIsOnUntilAnAnswerSaysOtherwise(t *testing.T) {
+	t.Parallel()
+	if !(&runParams{}).sandboxAddonOn() {
+		t.Error("a first run must take the sandbox backend without being asked")
+	}
+	if !(&runParams{addons: []string{addonSandbox}, addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("a remembered yes must keep the sandbox on")
+	}
+	if (&runParams{addons: []string{"browser"}, addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("a remembered answer WITHOUT the add-on means the operator turned it off")
+	}
+	if (&runParams{addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("an empty remembered answer is still an answer — the sandbox stays off")
+	}
+}
+
+func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Options: []string{"browser", addonSandbox}, Multi: true, On: []bool{false, true},
+	}}}
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH")
+	r := f.Rows[0]
+	if !r.Off[1] {
+		t.Fatal("the sandbox add-on must be greyed out when sbx is unavailable")
+	}
+	if !strings.Contains(r.Reason, "sbx CLI not found on PATH") {
+		t.Errorf("reason = %q, want the availability reason", r.Reason)
+	}
+	if got := f.Selections("add-ons"); len(got) != 0 {
+		t.Errorf("a greyed add-on must not count as selected, got %v", got)
+	}
+	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
+	gateAddons(f, "open", "forward", "")
+	if f.Rows[0].Off[1] {
+		t.Error("an available sbx must leave the add-on checkable")
+	}
+}
+
+func TestGateReviewFollowsTheSandboxAddon(t *testing.T) {
+	t.Parallel()
+	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
+	f := &choiceui.Form{Rows: []choiceui.Row{row}}
+	gateReview(f, true)
+	if !f.Rows[0].Off[1] {
+		t.Fatal("review must be greyed out while the sandbox add-on is on")
+	}
+	if f.Rows[0].Selected == 1 {
+		t.Error("selection must move off a greyed option")
+	}
+	if !strings.Contains(f.Rows[0].Reason, "docker sandbox backend") {
+		t.Errorf("reason = %q", f.Rows[0].Reason)
+	}
+	gateReview(f, false)
+	if ok, _ := reviewSupported(func(string) string { return "" }); ok && f.Rows[0].Off[1] {
+		t.Error("turning the add-on off must hand the review tier back")
+	}
+}
+
+func TestBothDockerAddonsStartChecked(t *testing.T) {
+	t.Parallel()
+	opts := []string{"browser", addonSandbox, addonDind}
+	got := (&runParams{}).addonDefaults(opts)
+	if diff := cmp.Diff([]bool{false, true, true}, got); diff != "" {
+		t.Errorf("first-run defaults mismatch (-want +got):\n%s", diff)
+	}
+	// A remembered answer is authoritative in both directions.
+	remembered := &runParams{addons: []string{"browser"}, addonsAnswered: true}
+	if diff := cmp.Diff([]bool{true, false, false}, remembered.addonDefaults(opts)); diff != "" {
+		t.Errorf("remembered choice mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestNormalizeAddonsUpgradesTheRememberedDindName(t *testing.T) {
+	t.Parallel()
+	got := normalizeAddons([]string{"browser", "dind"})
+	if diff := cmp.Diff([]string{"browser", addonDind}, got); diff != "" {
+		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -38,8 +38,10 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 
 1. **Build tags.** Layer 3 files: `//go:build integration`. Layer 4 files: `//go:build e2e`.
    Default `go test ./...` must not compile them.
-2. **Env gate + skip.** Still require `PROVEO_EGRESS_INTEGRATION=1` / `PROVEO_LLM_TEST=1`, and
-   `t.Skip` when `docker` (or `tmux` / Ollama) is missing — never fail CI for absent infra.
+2. **Skip on missing prerequisites.** Layer 3 still requires `PROVEO_EGRESS_INTEGRATION=1`.
+   Layer 4 has NO env gate — the `e2e` build tag is the opt-in — so every test `t.Skip`s
+   itself when `docker`, `tmux`, the harness image, Ollama or the credential it spends is
+   missing (`tests/e2e/preconditions_test.go`) — never fail CI for absent infra.
 3. **Wait strategies.** Poll for a condition (CA file size > 0, HTTP 200, log substring) with a
    deadline. Do not use sleep-only synchronization; bounded retry-with-check is fine.
 4. **`t.Cleanup` teardown.** Register `plan.Teardown`, inject-dir wipe, and tmux kill on every
@@ -53,7 +55,7 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 PROVEO_EGRESS_INTEGRATION=1 go test -tags=integration -race ./internal/egress/ -v -timeout 120s
 
 # Layer 4
-PROVEO_LLM_TEST=1 go test -tags=e2e ./internal/tmux/ -run PromptfulE2E -v -timeout 300s
+go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 300s
 ```
 
 ## Coverage

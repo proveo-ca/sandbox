@@ -7,8 +7,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   description : string
   --
   egress : bool
-  dind : bool
-  sandbox_docker : bool
+  docker : sbx|dind|(absent)
   provider : string
   subscription : bool
   stability : experimental|candidate|stable
@@ -59,9 +58,17 @@ note right of M
   Everything else enumerates from it: runnable targets,
   image refs, mount model, egress lifecycle, DinD
   offer, auth prompts, build/test/deploy registry.
-  ""sandbox_docker: true"" (cursor) keeps the DinD add-on
-  visible but locked — docker comes from the sbx engine,
-  so the privileged sidecar never starts.
+  **""docker:"" is an ENUM, not two booleans.** The two ways to
+  hand an agent a daemon are mutually exclusive stories —
+  ""sbx"" runs it inside a sandbox VM that has its own, ""dind""
+  links a privileged sibling — so a harness declares ONE
+  (""IsSbx"" / ""IsDind"" / ""WantsDocker""). The overlap that let a
+  manifest claim both is unrepresentable rather than merely
+  discouraged, and the picker shows the single checked add-on
+  it implies: ""docker (sandbox)"" or ""docker (dind)"".
+  The retired ""dind:"" / ""sandbox_docker:"" keys are still
+  PARSED, so a stale manifest fails loudly at load instead of
+  losing its docker story to the unknown-key rule.
 
   Validated by ""Manifest.Validate"" at load; ""Targets""
   flattens ""images"" across defs and rejects a duplicate

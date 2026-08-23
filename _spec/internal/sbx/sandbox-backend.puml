@@ -1,8 +1,8 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Sandbox backend — auto-selected for subscription harnesses;\ndocker+egress stays as the fallback path
+title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
 
-component "doRun backend selection\n""man.SandboxDocker && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "doRun backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (v0.35 pre-GA)\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
@@ -17,9 +17,12 @@ SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
 
 note right of SEL
-  **Auto w/ fallback.** Harnesses with ""sandbox_docker: true""
-  (""claudecode"", ""cursor"") take the sandbox backend whenever the host
-  supports it; there is no flag to force either way. Unsupported hosts
+  **Auto w/ fallback, one operator override.** Harnesses with
+  ""docker: sbx"" (""claudecode"", ""cursor"") take the sandbox backend
+  whenever the host supports it. The choice prompt carries it as the
+  CHECKED add-on ""docker (sandbox)"" — unchecking is the one way to send
+  such a run down docker+egress instead, and the answer is remembered
+  per harness like every other axis. Unsupported hosts
   (no sbx on PATH, or no Apple Silicon / KVM) fall back to docker+egress
   with a single warn naming the reason. ""--print"" renders whichever
   backend was selected (""sbx run …"" vs ""docker run ..."").
@@ -44,8 +47,61 @@ end note
 
 note left of FB
   **Fallback contract:** open-source harnesses (""opencode"", ""cecli"") never set
-  ""sandbox_docker"" and always run here. Subscription harnesses land here only
+  ""docker: sbx"" (they take ""docker: dind"") and always run here. Subscription
+  harnesses land here only
   when the gate above fails. Def-local shell suites keep covering the fallback
   images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
+
+  **Plan vs proof.** The print-only tests assert the ARGV (pure ""sandboxSpec"",
+  no VM). ""TestSandboxBackendRunsDockerInsideTheSandbox"" is the one that runs
+  the harness for real on this backend and asserts the four claims
+  ""docker: sbx"" makes: the sbx line was printed (not the fallback), the
+  workspace mount carries writes back to the host, ""docker version"" INSIDE the
+  sandbox reaches a daemon, and the sandbox is gone afterwards. It drives
+  ""--shell"", so it costs no model call and no credential.
 end note
+note bottom of SBX
+  **One pinned CLI surface.** ""sbx"" is pre-GA (v0.35), so every flag it takes
+  is encoded in exactly four places — ""RunArgs"", ""RemoveArgs"",
+  ""SecretSetArgs"", ""WriteKit"" — and callers stay declarative. Drift against
+  the tool then costs one edit in one package rather than a sweep through
+  ""cmd/proveo"".
+
+  Reference docs:
+  | ""https://docs.docker.com/ai/sandboxes/install/""        | platform gate + standalone install
+  | ""https://docs.docker.com/ai/sandboxes/usage/""          | run / exec / cp / ports / policy / secret
+  | ""https://docs.docker.com/ai/sandboxes/customize/kits/"" | Kit spec.yaml
+end note
+
+note bottom of KIT
+  **""WriteKit"" returns the directory, not the file.** ""--kit"" takes a
+  directory (or a ZIP), while the rendered document is ""«dir»/spec\.yaml"".
+  Returning the path to the file invited exactly one bug — handing ""--kit"" a
+  ""spec\.yaml"" — so the function returns the value the flag wants and the
+  caller has nothing left to get wrong. The rendered file is ""0600"": it holds
+  no secret values, but the posture it declares is private.
+end note
+
+note bottom of SEL
+  **Purity split.** ""sandboxSpec"" is a pure function of ""runSandboxInput"":
+  same input, same Kit + argv + secret list, no side effects — which is what
+  makes ""--print"" and the unit tests able to assert the whole invocation
+  without a sandbox. Every effect lives in ""runSandbox"": render the Kit,
+  hydrate the forwarded host env, ""sbx secret set"", exec, then ""sbx rm"" the
+  VM, its images and its volumes on the way out.
+end note
+
+note right of SEC
+  **Credential posture follows the harness, not the backend.**
+
+  | ""--credentials broker"" (claudecode's default) | ""sbx secret set"" host-side; the name is listed in the Kit's ""credentialsEnv"" and the value never enters argv, the env, or the VM filesystem |
+  | ""--credentials forward"" (cursor's only mode)  | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
+
+  cursor cannot use the brokered path at all: it pins TLS to "".cursor\.sh"" /
+  "".cursor\.com"", so header injection has nothing to inject into. Forwarding
+  on the sandbox backend therefore has to match what the docker path already
+  does for it, or cursor would reach the agent with no usable key — the
+  parity break that kept the harness second-class here.
+end note
+
 @enduml

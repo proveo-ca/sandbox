@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/ui/output-vocabulary.puml
 package ui
 
 import (

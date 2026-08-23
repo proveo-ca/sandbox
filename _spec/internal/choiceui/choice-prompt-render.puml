@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
 ' row-gating helpers (applicableRows, comingSoon, gateAddons, gateEvidence) lands here (batches 3 and 6).
-' What the answers MEAN and how they are cached: _spec/_plans/harness-choice-cache.puml.
+' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
 title Choice prompt render — radio axes above the divider, checkboxes below
 
 node "internal/choiceui" as PKG <<host>> {

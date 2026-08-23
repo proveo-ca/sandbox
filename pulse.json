@@ -20,7 +20,7 @@
     "available": true,
     "path": "internal/tmux/e2e_test.go",
     "runner": "go test (+ agent-e2e layer documented in _spec)",
-    "notes": "Go e2e_test.go for tmux; Layer-4 agent-E2E documented in _spec/tests/40-agent-e2e-*.puml and TODO.md (PROVEO_LLM_TEST=1). Also apps/cli/public/cli/tests/run_tests.sh smoke suite."
+    "notes": "Go e2e_test.go for tmux; Layer-4 agent-E2E documented in _spec/tests/40-agent-e2e-*.puml and TODO.md (-tags=e2e; skips per missing prerequisite). Also apps/cli/public/cli/tests/run_tests.sh smoke suite."
   },
   "spec_coverage": {
     "available": true,

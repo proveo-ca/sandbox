@@ -5,7 +5,7 @@ title Testing strategy — four layers, speed traded for fidelity
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
 component "**2. Contract**\nGo builders + goldens\nDockerRunArgs · BuildPlan · Detect · writeBrokerEnv\n//always, no Docker//" as L2 <<app>>
 component "**3. Infra integration**\ninternal/egress ""//go:build integration//""\nreal containers, no model\n//-tags=integration + PROVEO_EGRESS_INTEGRATION=1//" as L3 <<async>>
-component "**4. Agent E2E (promptful)**\ntests/e2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e + PROVEO_LLM_TEST=1//" as L4 <<async>>
+component "**4. Agent E2E (promptful)**\ntests/e2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
 
 database "cov/unit\ngo tool covdata merge → percent" as COV <<db>>
 

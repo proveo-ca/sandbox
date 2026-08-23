@@ -7,7 +7,6 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -32,7 +31,7 @@ import (
 // Targets run in dependency-of-confidence order: cecli (simplest loop), then
 // opencode, then claudecode.
 //
-//	PROVEO_LLM_TEST=1 go test -tags=e2e ./tests/e2e/ -run HelloWorldE2E -v -timeout 40m
+//	go test -tags=e2e ./tests/e2e/ -run HelloWorldE2E -v -timeout 40m
 //
 // Credentials never reach an argv: the run gets a filtered, 0600 .env holding
 // only ANTHROPIC_API_KEY plus the non-secret model aliases, handed over as
@@ -41,15 +40,10 @@ import (
 // (see brokerProvider in cmd/proveo) — a multi-provider .env would silently
 // disable the broker and hand the agent a sentinel with nothing behind it.
 func TestHelloWorldE2E(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the agent hello-world E2E")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed (brew install tmux)")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	requireTmux(t)
+	requireDocker(t)
+	// This suite spends real tokens; no key in the environment or the repo .env
+	// means there is nothing to spend, so it is a skip rather than a failure.
 	if hostEnvValue(t, "ANTHROPIC_API_KEY") == "" {
 		t.Skip("ANTHROPIC_API_KEY not in the environment or the repo .env")
 	}
@@ -59,10 +53,7 @@ func TestHelloWorldE2E(t *testing.T) {
 
 	for _, h := range helloHarnesses {
 		t.Run(h.target, func(t *testing.T) {
-			image := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(h.target), "proveo/"+h.target+":latest")
-			if !dockerImagePresent(t, image) {
-				t.Skipf("harness image %s not built (mise run build %s)", image, h.target)
-			}
+			harnessImage(t, h.target)
 			runHelloWorld(t, h, proveoBin, mode)
 		})
 	}

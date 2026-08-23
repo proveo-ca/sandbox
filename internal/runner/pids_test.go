@@ -324,9 +324,6 @@ func TestReadPidMaxDockerFallback(t *testing.T) {
 }
 
 func TestReadPidMaxDarwinFallback(t *testing.T) {
-	// Serial: swaps package vars. A clean mac has no /proc and possibly no
-	// cached image for the docker probe; it must fall back to the VM-scale
-	// default instead of the historic Linux one (browser tier needs >= 1024).
 	origProbe, origGoos := readPidMaxDocker, goos
 	t.Cleanup(func() { readPidMaxDocker, goos = origProbe, origGoos })
 

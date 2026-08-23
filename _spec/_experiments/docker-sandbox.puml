@@ -96,6 +96,14 @@ note left of sbx #FFF3F0
   claudecode still cares most about the DLP content-scan gap below.
 end note
 
+note bottom of sbx #F3F0FB
+  **No docker engine substitutes for this.** proveo names the engine behind the
+  docker CLI (OrbStack, Docker Desktop, Colima, Rancher Desktop, Podman, Lima),
+  but every one of them shares a single Linux kernel — the engine is a naming
+  concern, not an alternative backend. See
+  ""_spec/internal/engine/container-engine\.puml"".
+end note
+
 note bottom of today #FFF6E5
   **Caveats — why this stays an experiment**
   • platform-gated: macOS Apple-Silicon · Linux + KVM · Win11 Hyper-V

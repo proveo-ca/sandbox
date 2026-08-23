@@ -1,12 +1,4 @@
-// SPEC: _spec/_experiments/docker-sandbox.puml
-//
-// Backend adapter for Docker Sandboxes ("sbx", free-tier local policy). The CLI
-// surface below is pinned centrally so drift against the pre-GA tool is cheap:
-// only RunArgs/RemoveArgs/SecretSetArgs/WriteKit encode flags; callers stay
-// declarative. Docs referenced by the experiment spec:
-//
-//	https://docs.docker.com/ai/sandboxes/usage/
-//	https://docs.docker.com/ai/sandboxes/customize/kits/
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml
 package sbx
 
 import (
@@ -33,9 +25,7 @@ var (
 	stat      = os.Stat
 )
 
-// Available reports whether the host can run the sbx backend, and when it
-// cannot, why (the reason is user-facing). Platform gate follows the experiment
-// spec: macOS Apple Silicon or Linux with KVM.
+// Available reports whether the host can run the sbx backend, and if not, why.
 func Available() (bool, string) {
 	if _, err := lookPath(Binary); err != nil {
 		return false, fmt.Sprintf("%s CLI not found on PATH", Binary)
@@ -53,6 +43,23 @@ func Available() (bool, string) {
 	}
 }
 
+// InstallHint is the platform's install line for the sbx CLI.
+func InstallHint() string {
+	switch goos {
+	case "darwin":
+		if goarch != "arm64" {
+			return ""
+		}
+		return "brew trust docker/tap && brew install docker/tap/sbx && sbx login"
+	case "windows":
+		return "winget install -h Docker.sbx && sbx login"
+	case "linux":
+		return "curl -fsSL https://get.docker.com | sudo REPO_ONLY=1 sh && sudo apt install docker-sbx && sbx login"
+	default:
+		return ""
+	}
+}
+
 // Mount is a workspace bind into the sandbox VM.
 type Mount struct {
 	Host      string
@@ -60,8 +67,7 @@ type Mount struct {
 	ReadOnly  bool
 }
 
-// RunConfig describes one agent run on the sbx backend. Credentials never ride
-// Env — they are injected host-side via SecretSet before RunArgs executes.
+// RunConfig describes one agent run on the sbx backend.
 type RunConfig struct {
 	Name    string   // sandbox/session name; empty lets sbx assign one
 	KitDir  string   // directory holding the rendered Kit spec.yaml
@@ -109,13 +115,12 @@ func RemoveArgs(name string) []string {
 	return []string{"rm", name}
 }
 
-// SecretSetArgs builds the credential-injection argv; the value travels on
-// stdin, never on the command line.
+// SecretSetArgs builds the credential-injection argv.
 func SecretSetArgs(name string) []string {
 	return []string{"secret", "set", name}
 }
 
-// secretSet is overridable in tests; production pipes value into the CLI stdin.
+// secretSet is overridable in tests.
 var secretSet = func(name, value string) error {
 	cmd := exec.Command(Binary, SecretSetArgs(name)...)
 	cmd.Stdin = strings.NewReader(value)
@@ -124,14 +129,12 @@ var secretSet = func(name, value string) error {
 	return cmd.Run()
 }
 
-// SecretSet injects one credential host-side; the value never enters the VM's
-// filesystem or the sandbox argv.
+// SecretSet injects one credential host-side.
 func SecretSet(name, value string) error {
 	return secretSet(name, value)
 }
 
-// Kit is the declarative posture rendered as a Kit spec.yaml: deny-by-default
-// network with an explicit allowlist, plus the credentials the harness reads.
+// Kit is the posture rendered as a Kit spec.yaml.
 type Kit struct {
 	Name           string   `yaml:"name"`
 	Image          string   `yaml:"image"`
@@ -139,12 +142,12 @@ type Kit struct {
 	CredentialsEnv []string `yaml:"credentialsEnv"`
 }
 
-// KitNet carries the allowlist; everything not listed is denied (deny wins).
+// KitNet carries the allowlist.
 type KitNet struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty"`
 }
 
-// WriteKit renders k into dir/spec.yaml and returns the path.
+// WriteKit renders k into dir/spec.yaml and returns dir.
 func WriteKit(dir string, k Kit) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -158,9 +161,8 @@ func WriteKit(dir string, k Kit) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("sbx kit dir: %w", err)
 	}
-	path := filepath.Join(dir, "spec.yaml")
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), buf.Bytes(), 0o600); err != nil {
 		return "", fmt.Errorf("sbx kit write: %w", err)
 	}
-	return path, nil
+	return dir, nil
 }

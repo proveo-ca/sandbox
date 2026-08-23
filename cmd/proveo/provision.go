@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -63,7 +64,6 @@ func (pv provisioner) Ensure(deps []imageDep) error {
 	return nil
 }
 
-// Test seams for the docker preflight.
 var (
 	preflightLookPath = exec.LookPath
 	preflightGOOS     = runtime.GOOS
@@ -71,21 +71,25 @@ var (
 		_, err := exec.Command("docker", "info", "--format", "{{.ServerVersion}}").Output()
 		return err
 	}
+	preflightEngine = engine.DetectOffline
 )
 
-// ensureDockerUsable failfasts with an OS-specific hint before any image
-// operation, so a mac whose CLI is off-PATH or whose OrbStack/Docker Desktop VM
-// is not running gets an actionable message instead of a raw pull failure.
+// ensureDockerUsable failfasts with an engine-specific hint before any image
+// operation.
 func ensureDockerUsable() error {
 	if _, err := preflightLookPath("docker"); err != nil {
 		if preflightGOOS == "darwin" {
-			return errors.New("docker CLI not found on PATH — OrbStack users: run 'orb' once to link the docker CLI (or check ~/.orbstack/bin), Docker Desktop users: install via the app, then retry")
+			return errors.New("docker CLI not found on PATH — OrbStack users: run 'orb' once to link the docker CLI (or check ~/.orbstack/bin); Colima/Podman/Rancher Desktop users: check that engine's shell setup; Docker Desktop users: install via the app, then retry")
 		}
 		return errors.New("docker CLI not found on PATH — install docker or add its bin dir to PATH")
 	}
 	if err := preflightInfo(); err != nil {
+		eng := preflightEngine()
+		if start := eng.StartHint(); start != "" {
+			return fmt.Errorf("docker daemon unreachable — start %s (`%s`), wait for it to come up, then retry", eng.Name(), start)
+		}
 		if preflightGOOS == "darwin" {
-			return errors.New("docker daemon unreachable — start OrbStack (`open -a OrbStack`) or Docker Desktop, wait for it to come up, then retry")
+			return errors.New("docker daemon unreachable — start your container engine (OrbStack: `open -a OrbStack`, Colima: `colima start`, Podman: `podman machine start`, or Docker Desktop), wait for it to come up, then retry")
 		}
 		return fmt.Errorf("docker daemon unreachable (`docker info` failed): %w", err)
 	}

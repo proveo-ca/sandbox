@@ -19,21 +19,22 @@ func TestFleetDinDMatrix(t *testing.T) {
 	}
 	t.Setenv("PROVEO_DIND", "1")
 
-	wantCapable := map[string]bool{"cecli": true, "opencode": true, "cursor": true, "claudecode": false}
+	wantCapable := map[string]bool{"cecli": true, "opencode": true, "cursor": false, "claudecode": false}
 	for _, m := range ms {
 		want, tracked := wantCapable[m.Name]
 		if !tracked {
 			continue
 		}
-		if m.Dind != want {
-			t.Errorf("%s: manifest dind=%v, want %v", m.Name, m.Dind, want)
+		if m.IsDind() != want {
+			t.Errorf("%s: manifest docker=%q (dind=%v), want dind=%v", m.Name, m.Docker, m.IsDind(), want)
 		}
-		if got := m.Dind && ModeSupported("firewall"); got {
+		if got := m.IsDind() && ModeSupported("firewall"); got {
 			t.Errorf("%s: DinD must never be offered under firewall egress", m.Name)
 		}
-		// sandbox_docker (cursor) keeps dind:true for the picker but never starts the sidecar.
-		wantSidecar := want && !m.SandboxDocker
-		got := m.Dind && !m.SandboxDocker && ModeSupported("broker") && ShouldStart(m.Dind, scope, false, nil)
+		// docker: sbx harnesses (cursor, claudecode) are not dind-capable at all —
+		// the enum makes "both" unrepresentable, so there is nothing to subtract.
+		wantSidecar := want
+		got := m.IsDind() && ModeSupported("broker") && ShouldStart(m.IsDind(), scope, false, nil)
 		if got != wantSidecar {
 			t.Errorf("%s: broker-mode sidecar start = %v, want %v", m.Name, got, wantSidecar)
 		}

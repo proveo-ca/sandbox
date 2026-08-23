@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/internal/cdn/distribution-update.puml
 # Consumer CDN install suite: checksum-verified Go proveo via install.sh.
 set -euo pipefail
 

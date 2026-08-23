@@ -1,5 +1,5 @@
 // Command proveo is the harness CLI.
-// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/_plans/multi-provider-broker.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_plans/harness-choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml
+// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml
 package main
 
 import (
@@ -29,6 +29,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -233,6 +234,7 @@ type runParams struct {
 	target, image, mode, credentials, localModel, input, output, scope, dataDir string
 	modeSet, credsSet                                                           bool
 	addons                                                                      []string
+	addonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
 	roles                                                                       provider.Roles
 	authVar                                                                     string
 	evidence                                                                    string
@@ -362,7 +364,7 @@ func doRun(p runParams) error {
 		if !p.credsSet && cached.Credentials != "" {
 			p.credentials = cached.Credentials
 		}
-		p.addons = cached.Addons
+		p.addons, p.addonsAnswered = normalizeAddons(cached.Addons), true
 		if p.authVar == "" {
 			p.authVar = cached.AuthVar
 		}
@@ -411,19 +413,19 @@ func doRun(p runParams) error {
 	}
 	wantDind := false
 	browserImage := man.Images[p.target+"-browser"] // the -browser variant, if this harness has one
-	dindOfferable := man.Dind && !man.SandboxDocker && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials)
+	dindOfferable := man.IsDind() && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials)
 	if hasAddon(p.addons, "browser") && browserImage != "" {
 		p.image = browserImage
 		ui.Iconf("🌐", "variant: browser → %s", browserImage)
 	}
-	if hasAddon(p.addons, "dind") && dindOfferable {
+	if hasAddon(p.addons, addonDind) && dindOfferable {
 		wantDind = true
 		ui.Iconf("🐳", "sidecar: DinD (same image)")
 	}
 	if len(p.addons) == 0 && !p.printOnly {
-		wantDind = dindOfferable && dind.ShouldStart(man.Dind, dindScope, false, nil)
+		wantDind = dindOfferable && dind.ShouldStart(man.IsDind(), dindScope, false, nil)
 	}
-	if man.Dind && !man.SandboxDocker && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
+	if man.IsDind() && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
 	}
 
@@ -586,16 +588,15 @@ func doRun(p runParams) error {
 		}
 	}
 
-	// Backend selection (see _spec/_experiments/docker-sandbox.puml): harnesses
-	// with sandbox_docker run on Docker Sandboxes when the host supports them;
-	// the docker+egress orchestration below remains the fallback path.
 	sbxBackend := false
-	if man.SandboxDocker && p.mode != "review" {
-		ok, why := sbx.Available()
-		sbxBackend = ok
-		if !ok {
-			ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
-		} else {
+	if man.IsSbx() && p.mode != "review" {
+		switch ok, why := sbx.Available(); {
+		case !p.sandboxAddonOn():
+			ui.Iconf("🐳", "docker sandbox: off (add-on unchecked) — running on docker+egress")
+		case !ok:
+			reportSbxUnavailable(why)
+		default:
+			sbxBackend = true
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
 		}
 	}
@@ -616,6 +617,9 @@ func doRun(p runParams) error {
 			cfg, _, _ := sandboxSpec(in)
 			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
 			return nil
+		}
+		if len(authMissingAtStart) > 0 {
+			printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
 		}
 		return runSandbox(in)
 	}
@@ -751,18 +755,17 @@ func filterProviders(detected []string, c manifest.Capabilities) []string {
 }
 
 func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
-	// The review tier's consent gate has no sbx transport yet: when this run
-	// will take the sandbox backend, grey review out regardless of host.
-	sbxBackend := false
-	if man.SandboxDocker {
-		sbxBackend, _ = sbx.Available()
+	sbxBackend, sbxWhy := false, ""
+	if man.IsSbx() {
+		sbxBackend, sbxWhy = sbx.Available()
 	}
+	sandboxOn := sbxBackend && p.sandboxAddonOn()
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
 		Header: buildHeader(man, lookup, p.roles, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
-			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode), sbxBackend),
+			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode), sandboxOn),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
@@ -772,17 +775,16 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 		)...)
 	}
 	if addons := addonOptions(man); len(addons) > 0 {
-		on := make([]bool, len(addons))
-		for i, a := range addons {
-			on[i] = hasAddon(p.addons, a) || (a == "dind" && man.SandboxDocker)
-		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
-			Label: "add-ons", Options: addons, Multi: true, On: on,
+			Label: "add-ons", Options: addons, Multi: true, On: p.addonDefaults(addons),
 		})...)
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, p.mode, p.credentialsOrDefault(), man.SandboxDocker)
+		gateAddons(f, p.mode, p.credentialsOrDefault(), sbxWhy)
+		// Toggling the sandbox add-on moves the review tier with it: the consent
+		// gate has no sbx transport, so review is reachable only off that backend.
+		gateReview(f, hasAddon(f.Selections("add-ons"), addonSandbox))
 		gateEvidence(f)
 	}
 	form.OnChange(form)
@@ -800,7 +802,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	if v := form.Selection("credentials"); v != "" && !p.credsSet {
 		p.credentials = v
 	}
-	p.addons = form.Selections("add-ons")
+	p.addons, p.addonsAnswered = form.Selections("add-ons"), true
 	if v := form.Selection("auth"); v != "" {
 		p.authVar = v
 	}
@@ -876,7 +878,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, tierFallback, credsFallback string, sandboxDocker bool) {
+func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy string) {
 	tier := f.Selection("egress")
 	if tier == "" {
 		tier = tierFallback
@@ -893,20 +895,71 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback string, sandboxDoc
 		r.Off = make([]bool, len(r.Options))
 		r.Reason = ""
 		for j, opt := range r.Options {
-			if opt != "dind" {
+			if opt == addonSandbox {
+				// Offered, but only checkable on a host that can actually run it.
+				if sbxWhy != "" {
+					r.Off[j] = true
+					r.Reason = "docker sandbox: " + sbxWhy
+				}
 				continue
 			}
-			if sandboxDocker {
-				r.Off[j] = true
-				r.Reason = "docker accessible via docker sandbox"
+			if opt != addonDind {
 				continue
 			}
 			if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
 				r.Off[j] = true
-				r.Reason = "dind needs egress open + credentials forward"
+				r.Reason = addonDind + " needs egress open + credentials forward"
 			}
 		}
 	}
+}
+
+// gateReview re-greys the review tier whenever the sandbox add-on is toggled,
+// so the egress row keeps telling the truth about what this run can reach.
+func gateReview(f *choiceui.Form, sandboxOn bool) {
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != "egress" {
+			continue
+		}
+		if len(r.Off) != len(r.Options) {
+			r.Off = make([]bool, len(r.Options))
+		}
+		for j, opt := range r.Options {
+			if opt != "review" {
+				continue
+			}
+			reason := ""
+			switch {
+			case sandboxOn:
+				reason = "review: not supported on the docker sandbox backend"
+			default:
+				if ok, why := reviewSupported(os.Getenv); !ok {
+					reason = "review: " + why
+				}
+			}
+			r.Off[j] = reason != ""
+			switch {
+			case reason != "":
+				r.Reason = reason
+			case strings.HasPrefix(r.Reason, "review:"):
+				r.Reason = ""
+			}
+			if r.Off[j] && r.Selected == j {
+				r.Selected = firstSelectableIn(r)
+			}
+		}
+	}
+}
+
+// firstSelectableIn is the fallback selection when the current one is greyed out.
+func firstSelectableIn(r *choiceui.Row) int {
+	for i := range r.Options {
+		if i >= len(r.Off) || !r.Off[i] {
+			return i
+		}
+	}
+	return 0
 }
 
 func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
@@ -935,8 +988,7 @@ func reviewSupported(getenv func(string) string) (ok bool, why string) {
 }
 
 // reviewAvailability greys the review option out on hosts whose transport
-// cannot carry the gate, or when the run takes the sbx backend (no consent-gate
-// transport there yet).
+// cannot carry the gate.
 func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
 	if sandboxBackend {
 		return comingSoon(r, "review", "review: not supported on the docker sandbox backend")
@@ -983,6 +1035,17 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	return out
 }
 
+// The docker add-ons: one row entry per way a harness can hand the agent a
+// Docker daemon. Both are CHECKED by default wherever the manifest declares
+// them — the picker shows what the run is about to do, and unchecking is how an
+// operator opts out (sandbox → docker+egress; dind → no sidecar). Each is still
+// subject to its own gate, so an entry can be checked and greyed at once, with
+// the reason on the row.
+const (
+	addonSandbox = "docker (sandbox)"
+	addonDind    = "docker (dind)"
+)
+
 func addonOptions(man manifest.Manifest) []string {
 	var opts []string
 	for target := range man.Images {
@@ -991,10 +1054,47 @@ func addonOptions(man manifest.Manifest) []string {
 			break
 		}
 	}
-	if man.Dind {
-		opts = append(opts, "dind")
+	// One entry, never two: the manifest's docker mode IS the choice, so the
+	// picker cannot offer a harness both daemons.
+	switch man.Docker {
+	case manifest.DockerSbx:
+		opts = append(opts, addonSandbox)
+	case manifest.DockerDind:
+		opts = append(opts, addonDind)
 	}
 	return opts
+}
+
+// sandboxAddonOn reports whether this run takes the sandbox backend. It is
+// default-ON: only a remembered or prompted answer can turn it off, so a first
+// run — and every non-interactive one — still gets the sandbox.
+func (p *runParams) sandboxAddonOn() bool {
+	return hasAddon(p.addons, addonSandbox) || !p.addonsAnswered
+}
+
+// addonDefaults is the picker's initial checkbox state: a remembered answer
+// wins, and absent one BOTH docker add-ons start checked — the run is going to
+// use them, so the box that says so is ticked before the operator is asked.
+func (p *runParams) addonDefaults(opts []string) []bool {
+	on := make([]bool, len(opts))
+	for i, a := range opts {
+		on[i] = hasAddon(p.addons, a) ||
+			((a == addonSandbox || a == addonDind) && !p.addonsAnswered)
+	}
+	return on
+}
+
+// normalizeAddons upgrades the names a previous version remembered, so a cached
+// choice keeps meaning what the operator picked.
+func normalizeAddons(addons []string) []string {
+	out := make([]string, 0, len(addons))
+	for _, a := range addons {
+		if a == "dind" {
+			a = addonDind
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 func reportLinks(links []workspace.Link) {
@@ -1336,8 +1436,19 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	return plan, agent, nil
 }
 
-// runSandboxInput is the fully-resolved, side-effect-free input to the sbx
-// backend; everything is derived in doRun so sandboxSpec stays pure.
+// reportSbxUnavailable warns that the run fell back, naming the host engine.
+func reportSbxUnavailable(why string) {
+	ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
+	if eng := engine.Detect(); eng.Kind != engine.Unknown {
+		ui.Notef("    engine: %s (%s)", eng.Label(), eng.Isolation())
+	}
+	if hint := sbx.InstallHint(); hint != "" {
+		ui.Notef("    sbx is standalone and does not need Docker Desktop:")
+		ui.Notef("      %s", hint)
+	}
+}
+
+// runSandboxInput is the resolved input to the sbx backend.
 type runSandboxInput struct {
 	params           runParams
 	man              manifest.Manifest
@@ -1354,9 +1465,7 @@ type runSandboxInput struct {
 	dataDir          string
 }
 
-// sandboxSpec resolves the sbx invocation without side effects: the Kit
-// posture (deny-by-default allowlist), the non-secret env pairs, and the
-// credentials to inject host-side via sbx secret.
+// sandboxSpec resolves the sbx invocation: RunConfig, Kit, and host-side secrets.
 func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	p := in.params
 
@@ -1386,19 +1495,42 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 		secrets = append(secrets, [2]string{name, v})
 	}
-	for _, e := range in.man.Env {
-		if e.Secret {
-			addSecret(e.Name)
+	forwards := p.forwards()
+	var forwarded []string
+	addForward := func(name string) {
+		if in.lookup(name) == "" {
+			return
 		}
+		for _, n := range forwarded {
+			if n == name {
+				return
+			}
+		}
+		forwarded = append(forwarded, name)
+	}
+	for _, e := range in.man.Env {
+		if !e.Secret {
+			continue
+		}
+		if forwards {
+			addForward(e.Name)
+			continue
+		}
+		addSecret(e.Name)
 	}
 	for _, k := range provider.KeyVars() {
+		if forwards {
+			addForward(k)
+			continue
+		}
 		addSecret(k)
 	}
 
 	var env []string
+	env = append(env, forwarded...)
 	for _, e := range in.man.Env {
 		if e.Secret {
-			continue // injected host-side via sbx secret, never via env
+			continue
 		}
 		if v := strings.TrimSpace(in.lookup(e.Name)); v != "" {
 			env = append(env, e.Name+"="+v)
@@ -1456,15 +1588,19 @@ func secretNames(secrets [][2]string) []string {
 	return out
 }
 
-// runSandbox renders the Kit, injects credentials host-side (values never enter
-// the VM's filesystem or argv), runs the agent, and tears the sandbox down.
+// runSandbox renders the Kit, injects credentials, runs the agent, tears down.
 func runSandbox(in runSandboxInput) error {
 	cfg, kit, secrets := sandboxSpec(in)
-	kitPath, err := sbx.WriteKit(filepath.Join(in.egDir, "sbx", "kit"), kit)
+	kitDir, err := sbx.WriteKit(filepath.Join(in.egDir, "sbx", "kit"), kit)
 	if err != nil {
 		return err
 	}
-	cfg.KitDir = kitPath
+	cfg.KitDir = kitDir
+	for _, e := range cfg.Env {
+		if !strings.Contains(e, "=") {
+			hydrateProcessEnv(e, in.lookup)
+		}
+	}
 	for _, kv := range secrets {
 		ui.Iconf("🔐", "sandbox secret: %s (host-side injection)", kv[0])
 		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {

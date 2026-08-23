@@ -12,7 +12,7 @@ if [[ -z "${PROVEO_BIN:-}" ]]; then
 fi
 
 VARIANT="mcp"
-ARGS=
+ARGS=()
 while [[ $# -gt 0 ]]; do
  case "$1" in
  --variant)

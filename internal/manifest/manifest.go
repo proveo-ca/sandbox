@@ -53,22 +53,49 @@ type Home struct {
 
 // Manifest describes one harness definition.
 type Manifest struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	Egress        bool              `yaml:"egress"`         // sources the egress lifecycle
-	Dind          bool              `yaml:"dind"`           // image ships docker client; may get DinD sidecar
-	SandboxDocker bool              `yaml:"sandbox_docker"` // docker via sbx; DinD shown locked, sidecar never starts
-	Provider      string            `yaml:"provider"`       // vendor-pinned broker target (firewall mode); e.g. cursor
-	Subscription  bool              `yaml:"subscription"`   // subscription/login agent: warn, don't prompt for keys
-	Stability     string            `yaml:"stability"`      // experimental | candidate | stable
-	Images        map[string]string `yaml:"images"`         // target name -> image ref
-	Workspace     Workspace         `yaml:"workspace"`      // mount model
-	Home          Home              `yaml:"home"`           // durable ~/.proveo session/config mounts
-	Env           []EnvVar          `yaml:"env"`            // secret/auth env vars the harness reads
-	Config        []string          `yaml:"config"`
-	Capabilities  Capabilities      `yaml:"capabilities"`
-	Dir           string            `yaml:"-"` // def directory (set by Load)
+	Name         string            `yaml:"name"`
+	Description  string            `yaml:"description"`
+	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
+	Docker       DockerMode        `yaml:"docker"`       // how the agent gets a Docker daemon: sbx | dind | (absent)
+	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
+	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
+	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
+	Images       map[string]string `yaml:"images"`       // target name -> image ref
+	Workspace    Workspace         `yaml:"workspace"`    // mount model
+	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
+	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
+	Config       []string          `yaml:"config"`
+	Capabilities Capabilities      `yaml:"capabilities"`
+	Dir          string            `yaml:"-"` // def directory (set by Load)
+
+	// Retired flags, still parsed so a stale manifest fails loudly at load
+	// instead of silently losing its docker story to the unknown-key rule.
+	RetiredDind          bool `yaml:"dind"`
+	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
 }
+
+// DockerMode is how a harness hands its agent a Docker daemon. The two ways are
+// mutually exclusive by construction: sbx runs the agent in a sandbox VM that
+// has its own daemon, dind links a privileged sibling. A harness that shipped
+// both would be claiming two daemons and two isolation stories at once, so the
+// manifest carries ONE value rather than two booleans that have to agree.
+type DockerMode string
+
+const (
+	DockerNone DockerMode = ""     // no daemon reaches the agent
+	DockerSbx  DockerMode = "sbx"  // docker sandboxes (internal/sbx)
+	DockerDind DockerMode = "dind" // privileged sibling sidecar (internal/dind)
+)
+
+// IsSbx reports whether this harness runs on the sandbox backend.
+func (m Manifest) IsSbx() bool { return m.Docker == DockerSbx }
+
+// IsDind reports whether this harness can get the privileged sidecar.
+func (m Manifest) IsDind() bool { return m.Docker == DockerDind }
+
+// WantsDocker reports whether the agent is promised a daemon at all — the half
+// of the contract the image must honour by shipping a docker client.
+func (m Manifest) WantsDocker() bool { return m.Docker != DockerNone }
 
 type Capabilities struct {
 	Egress      []string `yaml:"egress"`
@@ -119,6 +146,15 @@ func (m Manifest) Validate() error {
 		if target == "" || image == "" {
 			return fmt.Errorf("manifest %q: empty target or image (%q: %q)", m.Name, target, image)
 		}
+	}
+	switch m.Docker {
+	case DockerNone, DockerSbx, DockerDind:
+	default:
+		return fmt.Errorf("manifest %q: invalid docker %q (want %q or %q)", m.Name, m.Docker, DockerSbx, DockerDind)
+	}
+	if m.RetiredDind || m.RetiredSandboxDocker {
+		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare one docker mode instead (docker: %s or docker: %s)",
+			m.Name, DockerDind, DockerSbx)
 	}
 	switch m.Stability {
 	case "", "experimental", "candidate", "stable":

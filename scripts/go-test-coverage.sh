@@ -67,10 +67,8 @@ run_integration() {
 
 run_e2e() {
   need_go
-  if [[ "${PROVEO_LLM_TEST:-}" != "1" ]]; then
-    echo "set PROVEO_LLM_TEST=1 to run Layer 4" >&2
-    exit 1
-  fi
+  # No env gate: -tags=e2e IS the opt-in. Each test skips itself when its own
+  # prerequisites (tmux, docker, harness image, credential) are absent.
   go test -tags=e2e ./tests/e2e/ -count=1 -timeout 900s "$@"
 }
 

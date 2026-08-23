@@ -11,7 +11,7 @@ For every non-trivial task:
 4. **Smallest Verifiable Step**. Make the smallest change that can be verified.
 5. **Execute & Inspect**. Run the verification command(s). If they fail, read the output, form a new hypothesis, and repeat.
 6. **Review Gates**. Before declaring completion, hand the diff to `adversarial-reviewer` — always — and to `security-reviewer` when the triggers below fire. `[BLOCKER]` and `[HIGH]` findings are completion blockers.
-7. **Spec Sync**. If `_spec/`, planning docs, architecture boundaries, or harness contracts changed, hand the diff to `spec-keeper`.
+7. **Spec Sync**. If `_spec/`, planning docs, architecture boundaries, or harness contracts changed, hand the diff to `spec-keeper`. Hand it the diff too when your edits added comment blocks carrying reasoning — `spec-keeper` migrates that prose into a diagram and hands you back a `REQUEST TO MAIN AGENT — REMOVE MIGRATED PROSE` list. **Apply that list verbatim**: delete exactly the named line ranges, keep every `SPEC:` pointer, build directive, and one-line label, then re-run verification. It cannot edit source; the strip is yours.
 8. **Stopping Condition**. Stop only when verification passes and the gates are clear, or the human explicitly stops you.
 
 ## Subagents
@@ -26,7 +26,7 @@ they read, they never edit, and they never verify on your behalf.
 | `monorepo-coordinator` | The change spans more than one project, touches a shared package, or moves a project boundary. |
 | `adversarial-reviewer` | Always, on the final diff, before you claim the task is done. |
 | `security-reviewer` | Auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched. |
-| `spec-keeper` | `_spec/`, `PLAN.md`, `CLAUDE.md`/`AGENTS.md`, architecture boundaries, or harness contracts changed. |
+| `spec-keeper` | `_spec/`, `PLAN.md`, `CLAUDE.md`/`AGENTS.md`, architecture boundaries, or harness contracts changed — or your diff added prose comments to migrate. |
 
 A reviewer answering `READY TO MERGE: no` means you fix the finding or ask the human to
 accept the risk explicitly. Do not ask a reviewer to fix its own findings on the first pass.

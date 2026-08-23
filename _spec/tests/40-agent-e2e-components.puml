@@ -1,5 +1,5 @@
 @startuml TestingLayer4Components
-' SPEC source: internal/tmux/e2e_test.go
+' SPEC source: tests/e2e/e2e_test.go
 ' Layer 4 — the promptful agent-E2E topology (headless tmux + local model).
 ' Build tag: //go:build e2e — not compiled by default go test ./...
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
@@ -7,7 +7,7 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
-title Layer 4 · Agent E2E (promptful) — components\n(-tags=e2e + PROVEO_LLM_TEST=1)
+title Layer 4 · Agent E2E (promptful) — components\n(-tags=e2e · skips per missing prerequisite)
 
 actor "E2E test / CI" as Test <<actor>>
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -147,8 +148,10 @@ func TestBuildScriptResolution(t *testing.T) {
 }
 
 func TestEnsureDockerUsable(t *testing.T) {
-	origLook, origGoos, origInfo := preflightLookPath, preflightGOOS, preflightInfo
-	t.Cleanup(func() { preflightLookPath, preflightGOOS, preflightInfo = origLook, origGoos, origInfo })
+	origLook, origGoos, origInfo, origEngine := preflightLookPath, preflightGOOS, preflightInfo, preflightEngine
+	t.Cleanup(func() {
+		preflightLookPath, preflightGOOS, preflightInfo, preflightEngine = origLook, origGoos, origInfo, origEngine
+	})
 
 	set := func(path string, goos string, infoErr error) {
 		preflightLookPath = func(string) (string, error) {
@@ -159,6 +162,7 @@ func TestEnsureDockerUsable(t *testing.T) {
 		}
 		preflightGOOS = goos
 		preflightInfo = func() error { return infoErr }
+		preflightEngine = func() engine.Info { return engine.Info{Kind: engine.Unknown} }
 	}
 
 	t.Run("healthy host passes", func(t *testing.T) {
@@ -199,6 +203,32 @@ func TestEnsureDockerUsable(t *testing.T) {
 			t.Errorf("ensureDockerUsable() = %v, want docker-info failure", err)
 		}
 	})
+
+	for _, tc := range []struct {
+		kind      engine.Kind
+		wantName  string
+		wantStart string
+	}{
+		{engine.OrbStack, "OrbStack", "open -a OrbStack"},
+		{engine.Colima, "Colima", "colima start"},
+		{engine.Podman, "Podman", "podman machine start"},
+		{engine.RancherDesktop, "Rancher Desktop", "open -a 'Rancher Desktop'"},
+	} {
+		t.Run("unreachable daemon names "+string(tc.kind), func(t *testing.T) {
+			set("/usr/local/bin/docker", "darwin", errors.New("cannot connect"))
+			preflightEngine = func() engine.Info { return engine.Info{Kind: tc.kind} }
+			err := ensureDockerUsable()
+			if err == nil {
+				t.Fatal("ensureDockerUsable() = nil, want an unreachable-daemon error")
+			}
+			if !strings.Contains(err.Error(), tc.wantName) || !strings.Contains(err.Error(), tc.wantStart) {
+				t.Errorf("ensureDockerUsable() = %v, want it to name %q and %q", err, tc.wantName, tc.wantStart)
+			}
+			if tc.kind != engine.DockerDesktop && strings.Contains(err.Error(), "Docker Desktop") {
+				t.Errorf("ensureDockerUsable() = %v, must not send a %s user to Docker Desktop", err, tc.wantName)
+			}
+		})
+	}
 }
 
 func TestPromptYesNo(t *testing.T) {

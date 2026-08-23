@@ -28,10 +28,6 @@ const pidsOverrideFloor = 256
 // kernel.pid_max (matches the historic Linux default).
 const pidMaxFallback = 32768
 
-// Darwin hosts have no /proc and may have no cached image to probe; their
-// Docker VMs (OrbStack, Docker Desktop) run modern Linux kernels whose default
-// pid_max is far above the historic fallback. Without this, HostCeiling's
-// pidMax/64 term would failfast the browser tier (512 < 1024) on a clean mac.
 const pidMaxDarwinFallback = 4194304
 
 // goos is overridable in tests.

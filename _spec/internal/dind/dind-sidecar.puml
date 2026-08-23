@@ -10,7 +10,7 @@ component "docker:dind sibling\nprivileged" as DIND <<error>>
 component "internal/dind\nModeSupported · CredentialsSupported\nScopeHasDockerfiles · EnvEnabled · ShouldStart" as GATE <<app>>
 
 folder "Gates — all five must pass" as G <<host>> {
-  component "1. manifest ""dind: true""\ncecli · opencode · cursor" as G1 <<app>>
+  component "1. manifest ""docker: dind""\ncecli · opencode" as G1 <<app>>
   component "2. ""--egress-mode open""\nthe only non-intercepting tier" as G2 <<app>>
   component "2b. ""--credentials forward""\nleaves an internet-capable bridge" as G2B <<app>>
   component "3. a Dockerfile/compose in scope" as G3 <<app>>

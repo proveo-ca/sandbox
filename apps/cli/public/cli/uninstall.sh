@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sidecar uninstall for curl-pipe installs. Prefer `proveo uninstall` when the
-# binary is still available; otherwise strip PATH markers and remove the install root.
+# SPEC: _spec/internal/cdn/distribution-update.puml
+# Sidecar uninstall for curl-pipe installs.
 set -euo pipefail
 
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"

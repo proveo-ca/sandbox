@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_plans/multi-provider-broker.puml, _spec/_conventions/design-decision-ids.puml
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_paradigms/credential-boundary.puml, _spec/_conventions/design-decision-ids.puml
 //
 // Command proveo-egress is the egress inspection sidecar for firewall mode.
 package main

@@ -1,8 +1,7 @@
+# SPEC: _spec/internal/cdn/distribution-update.puml
 # Product installer (Windows): download checksum-verified Go proveo into %USERPROFILE%\.proveo\bin.
 # Usage: irm https://proveo.ca/cli/install.ps1 | iex
 #    or: powershell -ExecutionPolicy Bypass -File install.ps1
-#
-# Version comes from latest.json unless $env:PROVEO_VERSION is set.
 $ErrorActionPreference = 'Stop'
 
 $InstallRoot  = if ($env:PROVEO_INSTALL_ROOT) { $env:PROVEO_INSTALL_ROOT } else { Join-Path $env:USERPROFILE '.proveo' }

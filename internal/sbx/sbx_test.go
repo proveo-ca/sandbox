@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// withProbes pins the availability seams for one test: path=="" simulates a
-// missing CLI; kvmMissing simulates the absence of /dev/kvm on linux.
+// withProbes pins the availability seams for one test.
 func withProbes(t *testing.T, path, wantGoos, wantGoarch string, kvmMissing bool) {
 	t.Helper()
 	oldLook, oldGoos, oldGoarch, oldKvm, oldStat := lookPath, goos, goarch, kvmDevice, stat
@@ -119,7 +118,7 @@ func TestSecretSetPipesValueViaStdin(t *testing.T) {
 
 func TestWriteKitRendersDenyByDefaultAllowlist(t *testing.T) {
 	dir := t.TempDir()
-	path, err := WriteKit(filepath.Join(dir, "kit"), Kit{
+	kitDir, err := WriteKit(filepath.Join(dir, "kit"), Kit{
 		Name:           "claudecode",
 		Image:          "proveo/claudecode:latest",
 		Network:        KitNet{AllowedDomains: []string{"api.anthropic.com", "statsig.anthropic.com"}},
@@ -128,9 +127,10 @@ func TestWriteKitRendersDenyByDefaultAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(path) != "spec.yaml" {
-		t.Fatalf("unexpected kit path %q", path)
+	if kitDir != filepath.Join(dir, "kit") {
+		t.Fatalf("WriteKit returned %q, want the kit directory (what --kit takes)", kitDir)
 	}
+	path := filepath.Join(kitDir, "spec.yaml")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -160,12 +160,46 @@ func TestWriteKitRendersDenyByDefaultAllowlist(t *testing.T) {
 
 func TestWriteKitOmitsEmptyNetwork(t *testing.T) {
 	dir := t.TempDir()
-	path, err := WriteKit(dir, Kit{Name: "cursor", Image: "proveo/cursor:latest"})
+	kitDir, err := WriteKit(dir, Kit{Name: "cursor", Image: "proveo/cursor:latest"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := os.ReadFile(path)
+	b, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	if strings.Contains(string(b), "allowedDomains") {
 		t.Errorf("empty allowlist should be omitted:\n%s", b)
+	}
+}
+
+func TestInstallHintIsPlatformSpecific(t *testing.T) {
+	origOS, origArch := goos, goarch
+	t.Cleanup(func() { goos, goarch = origOS, origArch })
+
+	tests := []struct {
+		os, arch string
+		want     string // substring; "" => no hint at all
+	}{
+		{"darwin", "arm64", "brew install docker/tap/sbx"},
+		{"darwin", "amd64", ""},
+		{"windows", "amd64", "winget install -h Docker.sbx"},
+		{"linux", "amd64", "docker-sbx"},
+		{"freebsd", "amd64", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.os+"/"+tc.arch, func(t *testing.T) {
+			goos, goarch = tc.os, tc.arch
+			got := InstallHint()
+			if tc.want == "" {
+				if got != "" {
+					t.Errorf("InstallHint() = %q, want no hint on %s/%s", got, tc.os, tc.arch)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("InstallHint() = %q, want it to contain %q", got, tc.want)
+			}
+			if strings.Contains(got, "Docker Desktop") {
+				t.Errorf("InstallHint() = %q, must not imply Docker Desktop is required", got)
+			}
+		})
 	}
 }

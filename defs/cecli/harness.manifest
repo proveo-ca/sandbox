@@ -2,7 +2,7 @@
 name: cecli
 description: Pair-programming specialist (cecli/aider, low-token, human-guided)
 egress: true
-dind: true
+docker: dind
 stability: candidate
 images:
   cecli: proveo/cecli:latest

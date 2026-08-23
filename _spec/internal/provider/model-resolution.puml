@@ -97,8 +97,7 @@ note bottom of CACHE
   from a model that is //gone//, and the harness that owns the model list
   gives the better error than a launcher guessing from a table it may not
   have synced. What that preserves either way: proveo never hard-fails on a
-  file it wrote itself. Drift record:
-  ""_spec/_plans/role-cache-resolution-drift\.puml"".
+  file it wrote itself.
 
   **The merge is per role, not per set.** A remembered role is applied only
   where the operator set nothing, so a run never silently contradicts an

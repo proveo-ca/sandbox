@@ -6,11 +6,12 @@
 // (2) attaches a LOCAL model (Ollama), (3) drives the agent NON-INTERACTIVELY
 // (`opencode run --auto`, task from argv), and (4) asserts observable SIDE
 // EFFECTS on the host — the mounted sample workspace was seen, files were
-// changed, and a page was scraped over egress — never the model's prose. Gated
-// on PROVEO_LLM_TEST=1 and the local stack, so it never fails CI for missing
+// changed, and a page was scraped over egress — never the model's prose. The
+// e2e build tag is the only gate; each test then skips on its own missing
+// prerequisites (see preconditions_test.go), so it never fails CI for missing
 // infra.
 //
-//	PROVEO_LLM_TEST=1 [PROVEO_TEST_LOCAL_MODEL=gemma4] \
+//	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
 //	  go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 360s
 //
 // The harness is opencode-specific here: `run --auto --agent build` is opencode's
@@ -43,19 +44,12 @@ import (
 // Handing the model one exact shell command keeps the small local model reliable
 // while still exercising the full run → local-LLM → tool-call → side-effect loop.
 func TestPromptfulE2E(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the local-model agent E2E")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed (brew install tmux)")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	requireTmux(t)
+	requireDocker(t)
 	target := env("PROVEO_TEST_TARGET", "opencode")
-	image := env("PROVEO_TEST_IMAGE", "proveo/"+target+":latest")
+	image := env("PROVEO_TEST_IMAGE", harnessImageName(target))
 	if !dockerImagePresent(t, image) {
-		t.Skipf("harness image %s not built", image)
+		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}
 	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
 	if !ollamaHasModel(model) {

@@ -22,6 +22,6 @@ assert_success "git is installed" "$IMAGE" "git --version"
 assert_success "gh is installed" "$IMAGE" "gh --version"
 # cursor is FROM proveo/base (no language runtime): the cursor-agent is a
 # self-contained binary, so there is no node/pnpm/python/browser here.
-assert_success "docker client is installed (DinD sidecar)" "$IMAGE" "docker --version"
+assert_success "docker client is installed (docker via the sbx sandbox backend)" "$IMAGE" "docker --version"
 assert_success "shared verification lib is baked" "$IMAGE" \
   'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'

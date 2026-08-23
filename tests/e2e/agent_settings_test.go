@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_plans/harness-choice-cache.puml, _spec/tests/testing-strategy.puml
+// SPEC: _spec/internal/agentsettings/choice-cache.puml, _spec/tests/testing-strategy.puml
 
 package e2e
 
@@ -42,14 +42,9 @@ func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 }
 
 func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the agent-settings E2E")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not available")
-	}
-
 	const target = "opencode"
+	requireHarness(t, target)
+
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".proveo"), 0o755); err != nil {
 		t.Fatal(err)

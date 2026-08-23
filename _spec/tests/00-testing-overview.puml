@@ -20,7 +20,7 @@ package "Layer 2 · Contract — always (no Docker)" as L2 {
 package "Layer 3 · Infra — -tags=integration + PROVEO_EGRESS_INTEGRATION=1" as L3 {
   component "internal/egress BuildPlan\nreal containers · NO model\nwait strategies · t.Cleanup" as Infra <<container>>
 }
-package "Layer 4 · Agent E2E — -tags=e2e + PROVEO_LLM_TEST=1" as L4 {
+package "Layer 4 · Agent E2E — -tags=e2e (self-skipping preconditions)" as L4 {
   component "internal/tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
 }
 package "Coverage merge" as Cov {

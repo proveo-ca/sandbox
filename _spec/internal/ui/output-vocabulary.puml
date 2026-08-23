@@ -1,0 +1,54 @@
+@startuml UiOutputVocabulary
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the fixed status vocabulary proveo prints, and why it degrades rather than decorates
+' covers: internal/ui/**
+title Output vocabulary — one printer, five verbs, two renderings
+
+component "Printer{W, Plain}\nline(icon, tag, format)" as P <<app>>
+component "Okf · Warnf · Failf\nNotef · Iconf" as VERBS <<app>>
+component "isFancy(w)\nTTY probe" as FANCY <<app>>
+component "stripANSI" as STRIP <<app>>
+component "Default → os.Stderr" as DEF <<app>>
+component "TeeTo(w)\nrun log" as TEE <<app>>
+database "terminal\n✓ · ⚠️ · ❌ · 📦" as TERM <<db>>
+database "log file / pipe\nok: · warn: · error:" as LOG <<db>>
+
+VERBS ARROW_MAIN P
+P ARROW_MAIN FANCY : which rendering
+FANCY ARROW_MAIN TERM : fancy
+FANCY ARROW_QUEUE LOG : plain
+DEF ARROW_MAIN P
+TEE ARROW_MAIN STRIP
+STRIP ARROW_MAIN LOG
+
+note right of VERBS
+  **A fixed vocabulary, not free-form printing.** Every status line proveo
+  emits goes through one of five verbs, so the shape of output is a property of
+  the package rather than of each call site. ""Notef"" carries no prefix in
+  either rendering — it is the continuation line under a preceding verb, which
+  is how a warning attaches its detail without repeating the marker.
+end note
+
+note bottom of FANCY
+  **Plain is a degradation, never a second design.** The same call renders
+  ""✓ added /bin to PATH"" on a terminal and ""ok: added /bin to PATH"" elsewhere:
+  the icon is replaced by a word, never dropped, so a grep over a log finds the
+  same events a human read on screen. ""Iconf"" is the one exception — its icon
+  is decoration attached to an already-complete sentence, so plain mode drops
+  it rather than inventing a tag for it.
+end note
+
+note bottom of STRIP
+  **The tee strips ANSI on the way to the log, not at the source.** Colour is
+  chosen once for the terminal; the log copy is sanitised as it is written, so
+  a run transcript stays greppable without the print sites having to know a
+  file is listening. See ""_spec/internal/runlog/run-transcript\.puml"".
+end note
+
+note bottom of DEF
+  **Status goes to stderr so stdout stays machine-clean.** A caller piping
+  ""proveo run --print"" gets argv and nothing else; the narration lands beside
+  it on the other stream.
+end note
+
+@enduml

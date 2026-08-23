@@ -1,5 +1,5 @@
 // Package choiceui renders the one-shot harness choice prompt.
-// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/_plans/harness-choice-cache.puml
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/agentsettings/choice-cache.puml
 package choiceui
 
 import (

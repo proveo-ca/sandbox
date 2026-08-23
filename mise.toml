@@ -143,7 +143,7 @@ dir = "{{config_root}}"
 run = "scripts/go-test-coverage.sh integration"
 
 [tasks.test-go-e2e]
-description = "Layer 4 agent E2E (-tags=e2e; needs PROVEO_LLM_TEST=1)"
+description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential)"
 dir = "{{config_root}}"
 run = "scripts/go-test-coverage.sh e2e"
 

@@ -28,6 +28,20 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
+# Static docker client — the CLI the agent needs to reach the daemon the sandbox
+# backend gives it (harness.manifest: docker: sbx). Same layer as cursor,
+# opencode and cecli; keep the version in step with them.
+RUN DOCKER_VERSION=26.1.4 \
+    && case "$(uname -m)" in \
+         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
+         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
+         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker /tmp/docker.tgz
+
 # Install basic Python tools
 RUN pip3 install --no-cache-dir --break-system-packages \
     requests \

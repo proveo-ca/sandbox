@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,19 +17,7 @@ import (
 )
 
 func TestClaudeCodeAuth(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the claudecode auth matrix")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed (brew install tmux)")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
-	image := env("PROVEO_TEST_IMAGE_CLAUDECODE", "proveo/claudecode:latest")
-	if !dockerImagePresent(t, image) {
-		t.Skipf("harness image %s not built (mise run build claudecode)", image)
-	}
+	requireHarness(t, "claudecode")
 
 	proveoBin := buildProveo(t)
 	mode := env("PROVEO_TEST_EGRESS_MODE", "firewall")

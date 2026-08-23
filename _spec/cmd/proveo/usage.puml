@@ -39,7 +39,7 @@ package "Registration" as Reg {
 package "Orchestration packages\ninternal/" as Orch {
  component "workspace mounts\napp | input-output" as Mounts <<logic>>
  component "egress BuildPlan\nopen|allowlist|review\n+ --credentials broker|forward" as Egress <<logic>>
- component "dind (if dind: true)" as Dind <<logic>>
+ component "dind (if docker: dind)" as Dind <<logic>>
  component "runner hardened argv" as Runner <<logic>>
 }
 
