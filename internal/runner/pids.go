@@ -28,6 +28,15 @@ const pidsOverrideFloor = 256
 // kernel.pid_max (matches the historic Linux default).
 const pidMaxFallback = 32768
 
+// Darwin hosts have no /proc and may have no cached image to probe; their
+// Docker VMs (OrbStack, Docker Desktop) run modern Linux kernels whose default
+// pid_max is far above the historic fallback. Without this, HostCeiling's
+// pidMax/64 term would failfast the browser tier (512 < 1024) on a clean mac.
+const pidMaxDarwinFallback = 4194304
+
+// goos is overridable in tests.
+var goos = runtime.GOOS
+
 // Max local images to try when probing Docker for pid_max (never pulls).
 const dockerPidMaxImageTries = 8
 
@@ -187,7 +196,13 @@ func readPidMax(preferImages ...string) int {
 	if n := parseIntFile("/proc/sys/kernel/pid_max"); n > 0 {
 		return n
 	}
-	return readPidMaxDocker(preferImages...)
+	if n := readPidMaxDocker(preferImages...); n > 0 {
+		return n
+	}
+	if goos == "darwin" {
+		return pidMaxDarwinFallback
+	}
+	return 0
 }
 
 // readPidMaxDocker is the non-/proc path; overridden in tests.

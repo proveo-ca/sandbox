@@ -276,6 +276,40 @@ func TestDindCapableHarnessesIncludeCursorAndOpenCode(t *testing.T) {
 	}
 }
 
+func TestSubscriptionHarnessesRunOnSandboxDocker(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Subscription harnesses migrate to the sbx backend (auto w/ fallback to
+	// docker+egress); open-source harnesses keep the egress layer and must not
+	// set the flag. See _spec/_experiments/docker-sandbox.puml.
+	want := map[string]bool{"claudecode": true, "cursor": true}
+	for _, m := range ms {
+		if m.Subscription {
+			if !m.SandboxDocker {
+				t.Errorf("%s must set sandbox_docker (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
+			}
+			continue
+		}
+		if m.SandboxDocker {
+			t.Errorf("%s must not set sandbox_docker (egress layer reserved for non-subscription harnesses)", m.Name)
+		}
+	}
+	for name := range want {
+		found := false
+		for _, m := range ms {
+			if m.Name == name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected subscription harness %q in embedded manifests", name)
+		}
+	}
+}
+
 func TestCursorSandboxDockerLocksSidecar(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -284,11 +318,10 @@ func TestCursorSandboxDockerLocksSidecar(t *testing.T) {
 	}
 	for _, m := range ms {
 		if m.Name != "cursor" {
-			if m.SandboxDocker {
-				t.Errorf("%s must not set sandbox_docker (cursor-only experiment)", m.Name)
-			}
 			continue
 		}
+		// cursor keeps dind:true so the picker shows the locked add-on; the
+		// sidecar itself never starts under sandbox_docker.
 		if !m.Dind || !m.SandboxDocker {
 			t.Errorf("cursor must keep dind:true with sandbox_docker:true (got dind=%v sandbox_docker=%v)", m.Dind, m.SandboxDocker)
 		}

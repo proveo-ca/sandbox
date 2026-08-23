@@ -38,6 +38,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -585,6 +586,40 @@ func doRun(p runParams) error {
 		}
 	}
 
+	// Backend selection (see _spec/_experiments/docker-sandbox.puml): harnesses
+	// with sandbox_docker run on Docker Sandboxes when the host supports them;
+	// the docker+egress orchestration below remains the fallback path.
+	sbxBackend := false
+	if man.SandboxDocker && p.mode != "review" {
+		ok, why := sbx.Available()
+		sbxBackend = ok
+		if !ok {
+			ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
+		} else {
+			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
+		}
+	}
+	if sbxBackend {
+		in := runSandboxInput{
+			params: p, man: man, sid: sid, egDir: egDir,
+			mounts: mounts, workdir: workdir,
+			lookup:           lookup,
+			detected:         detected,
+			gitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
+			homeEnv:          homePlan.Env,
+			scopeRel:         wsSpec.ScopeRel(),
+			worktreeFallback: wsSpec.WorktreeLinkDir == "",
+			worktreeEnv:      wsSpec.WorktreeEnv(),
+			dataDir:          p.dataDir,
+		}
+		if p.printOnly {
+			cfg, _, _ := sandboxSpec(in)
+			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+			return nil
+		}
+		return runSandbox(in)
+	}
+
 	var dindSidecar *dind.Sidecar
 
 	if !p.printOnly {
@@ -716,12 +751,18 @@ func filterProviders(detected []string, c manifest.Capabilities) []string {
 }
 
 func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
+	// The review tier's consent gate has no sbx transport yet: when this run
+	// will take the sandbox backend, grey review out regardless of host.
+	sbxBackend := false
+	if man.SandboxDocker {
+		sbxBackend, _ = sbx.Available()
+	}
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
 		Header: buildHeader(man, lookup, p.roles, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
-			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode)),
+			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode), sbxBackend),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
@@ -894,8 +935,12 @@ func reviewSupported(getenv func(string) string) (ok bool, why string) {
 }
 
 // reviewAvailability greys the review option out on hosts whose transport
-// cannot carry the gate.
-func reviewAvailability(r choiceui.Row) choiceui.Row {
+// cannot carry the gate, or when the run takes the sbx backend (no consent-gate
+// transport there yet).
+func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
+	if sandboxBackend {
+		return comingSoon(r, "review", "review: not supported on the docker sandbox backend")
+	}
 	if ok, why := reviewSupported(os.Getenv); !ok {
 		return comingSoon(r, "review", "review: "+why)
 	}
@@ -1289,6 +1334,157 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		agent.Entrypoint = "bash" // open a shell instead of launching the agent
 	}
 	return plan, agent, nil
+}
+
+// runSandboxInput is the fully-resolved, side-effect-free input to the sbx
+// backend; everything is derived in doRun so sandboxSpec stays pure.
+type runSandboxInput struct {
+	params           runParams
+	man              manifest.Manifest
+	sid, egDir       string
+	mounts           []runner.Mount
+	workdir          string
+	lookup           func(string) string
+	detected         []string
+	gitEnv           []string
+	homeEnv          []string
+	scopeRel         string
+	worktreeFallback bool
+	worktreeEnv      []string
+	dataDir          string
+}
+
+// sandboxSpec resolves the sbx invocation without side effects: the Kit
+// posture (deny-by-default allowlist), the non-secret env pairs, and the
+// credentials to inject host-side via sbx secret.
+func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
+	p := in.params
+
+	hosts := map[string]bool{}
+	for _, d := range strings.Fields(joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.man.Capabilities.Hosts)) {
+		hosts[d] = true
+	}
+	for _, h := range reachableHosts(in.detected) {
+		hosts[h] = true
+	}
+	allow := make([]string, 0, len(hosts))
+	for h := range hosts {
+		allow = append(allow, h)
+	}
+	sort.Strings(allow)
+
+	var secrets [][2]string
+	addSecret := func(name string) {
+		v := in.lookup(name)
+		if v == "" {
+			return
+		}
+		for _, kv := range secrets {
+			if kv[0] == name {
+				return
+			}
+		}
+		secrets = append(secrets, [2]string{name, v})
+	}
+	for _, e := range in.man.Env {
+		if e.Secret {
+			addSecret(e.Name)
+		}
+	}
+	for _, k := range provider.KeyVars() {
+		addSecret(k)
+	}
+
+	var env []string
+	for _, e := range in.man.Env {
+		if e.Secret {
+			continue // injected host-side via sbx secret, never via env
+		}
+		if v := strings.TrimSpace(in.lookup(e.Name)); v != "" {
+			env = append(env, e.Name+"="+v)
+		}
+	}
+	for _, k := range configVarsFor(in.man) {
+		if v := strings.TrimSpace(in.lookup(k)); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	env = append(env, evidenceVar+"="+p.evidenceOrDefault())
+	env = append(env, in.gitEnv...)
+	env = append(env, in.homeEnv...)
+	if in.scopeRel != "" {
+		env = append(env, "PROVEO_SCOPE_REL="+in.scopeRel)
+	}
+	if in.worktreeFallback {
+		env = append(env, in.worktreeEnv...)
+	}
+
+	var mounts []sbx.Mount
+	for _, m := range in.mounts {
+		mounts = append(mounts, sbx.Mount{Host: m.Host, Container: m.Container, ReadOnly: m.ReadOnly})
+	}
+	if in.dataDir != "" {
+		mounts = append(mounts, sbx.Mount{Host: in.dataDir, Container: "/workspace/data", ReadOnly: true})
+	}
+
+	command := p.extra
+	if p.shell {
+		command = []string{"bash"} // open a shell instead of launching the agent
+	}
+	cfg := sbx.RunConfig{
+		Name:    in.sid,
+		Image:   p.image,
+		Mounts:  mounts,
+		Env:     env,
+		Workdir: in.workdir,
+		Command: command,
+	}
+	kit := sbx.Kit{
+		Name:           p.target,
+		Image:          p.image,
+		Network:        sbx.KitNet{AllowedDomains: allow},
+		CredentialsEnv: secretNames(secrets),
+	}
+	return cfg, kit, secrets
+}
+
+func secretNames(secrets [][2]string) []string {
+	out := make([]string, 0, len(secrets))
+	for _, kv := range secrets {
+		out = append(out, kv[0])
+	}
+	return out
+}
+
+// runSandbox renders the Kit, injects credentials host-side (values never enter
+// the VM's filesystem or argv), runs the agent, and tears the sandbox down.
+func runSandbox(in runSandboxInput) error {
+	cfg, kit, secrets := sandboxSpec(in)
+	kitPath, err := sbx.WriteKit(filepath.Join(in.egDir, "sbx", "kit"), kit)
+	if err != nil {
+		return err
+	}
+	cfg.KitDir = kitPath
+	for _, kv := range secrets {
+		ui.Iconf("🔐", "sandbox secret: %s (host-side injection)", kv[0])
+		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
+			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+		}
+	}
+	args := sbx.RunArgs(cfg)
+	c := exec.Command(sbx.Binary, args...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	runErr := c.Run()
+	defer func() {
+		if rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput(); rmErr != nil {
+			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
+		}
+	}()
+	var ee *exec.ExitError
+	if errors.As(runErr, &ee) {
+		return agentExitError{code: ee.ExitCode()}
+	}
+	return runErr
 }
 
 func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {

@@ -1,7 +1,8 @@
 @startuml DockerSandboxExperiment
-' EXPERIMENT — Cursor egress hole is the owning question (free-tier local
-' sbx policy only; no AI Governance). Also sketches what sbx would subsume
-' in proveo's bespoke isolation stack. Exploratory; not a decision to adopt.
+' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
+' sbx backend when available (internal/sbx; auto with docker+egress fallback);
+' the egress layer is reserved for open-source harnesses (opencode, cecli).
+' Cursor's egress hole remains the owning question for full adoption.
 '
 ' Docker Sandboxes research (2026-07, sbx v0.35.0 — "generally stable", pre-GA):
 '   https://docs.docker.com/ai/sandboxes/                     — landing (microVM per workspace)

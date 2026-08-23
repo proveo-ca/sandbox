@@ -1,0 +1,51 @@
+@startuml SandboxBackend
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Sandbox backend — auto-selected for subscription harnesses;\ndocker+egress stays as the fallback path
+
+component "doRun backend selection\n""man.SandboxDocker && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
+component "sbx CLI (v0.35 pre-GA)\nrun --kit … / secret set / rm" as CLI <<host>>
+component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
+component "host-side credential injection\nvalues via stdin — never argv,\nnever env, never the VM fs" as SEC <<error>>
+
+component "docker+egress orchestration\nnets · Squid · MITM inspector" as FB <<host>>
+
+SEL ARROW_MAIN SBX : available
+SEL ARROW_QUEUE FB : unavailable → one actionable warn
+SBX ARROW_MAIN CLI
+SBX ..> KIT : rendered under state egDir/sbx/kit
+SBX ..> SEC
+
+note right of SEL
+  **Auto w/ fallback.** Harnesses with ""sandbox_docker: true""
+  (""claudecode"", ""cursor"") take the sandbox backend whenever the host
+  supports it; there is no flag to force either way. Unsupported hosts
+  (no sbx on PATH, or no Apple Silicon / KVM) fall back to docker+egress
+  with a single warn naming the reason. ""--print"" renders whichever
+  backend was selected (""sbx run …"" vs ""docker run ..."").
+end note
+
+note right of SBX
+  **Availability gate** (all must hold):
+  | sbx CLI on PATH
+  | darwin/arm64, **or** linux with ""/dev/kvm""
+  Win11/Hyper-V and Intel macs are not gated in yet.
+  The review tier is greyed out in the picker when this backend is
+  selected — the consent-gate socket has no sbx transport yet.
+end note
+
+note bottom of SEC
+  **Credential parity with the broker, different mechanism.** Declared secret
+  env vars plus every detected provider key var are injected via ""sbx secret
+  set"" before the run; the sentinel/broker-file machinery of the egress path
+  is deliberately not involved — deny-by-default egress replaces interception.
+  Accepted gap: no DLP content scan on payloads to *allowed* hosts.
+end note
+
+note left of FB
+  **Fallback contract:** open-source harnesses (""opencode"", ""cecli"") never set
+  ""sandbox_docker"" and always run here. Subscription harnesses land here only
+  when the gate above fails. Def-local shell suites keep covering the fallback
+  images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
+end note
+@enduml

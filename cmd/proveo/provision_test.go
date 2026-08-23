@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,61 @@ func TestBuildScriptResolution(t *testing.T) {
 		man := manifest.Manifest{Name: "cecli"}
 		if got := harnessBuildScript(defs, man, "ghcr.io/acme/custom:1"); got != "" {
 			t.Errorf("harnessBuildScript(custom image) = %q, want empty", got)
+		}
+	})
+}
+
+func TestEnsureDockerUsable(t *testing.T) {
+	origLook, origGoos, origInfo := preflightLookPath, preflightGOOS, preflightInfo
+	t.Cleanup(func() { preflightLookPath, preflightGOOS, preflightInfo = origLook, origGoos, origInfo })
+
+	set := func(path string, goos string, infoErr error) {
+		preflightLookPath = func(string) (string, error) {
+			if path == "" {
+				return "", os.ErrNotExist
+			}
+			return path, nil
+		}
+		preflightGOOS = goos
+		preflightInfo = func() error { return infoErr }
+	}
+
+	t.Run("healthy host passes", func(t *testing.T) {
+		set("/usr/bin/docker", "linux", nil)
+		if err := ensureDockerUsable(); err != nil {
+			t.Errorf("ensureDockerUsable() = %v, want nil", err)
+		}
+	})
+
+	t.Run("missing CLI names the fix on darwin", func(t *testing.T) {
+		set("", "darwin", nil)
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want OrbStack hint", err)
+		}
+	})
+
+	t.Run("missing CLI on linux stays generic", func(t *testing.T) {
+		set("", "linux", nil)
+		err := ensureDockerUsable()
+		if err == nil || strings.Contains(err.Error(), "OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want generic PATH hint", err)
+		}
+	})
+
+	t.Run("unreachable daemon points at the VM on darwin", func(t *testing.T) {
+		set("/usr/local/bin/docker", "darwin", errors.New("cannot connect"))
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "open -a OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want start-the-VM hint", err)
+		}
+	})
+
+	t.Run("unreachable daemon wraps the cause elsewhere", func(t *testing.T) {
+		set("/usr/bin/docker", "linux", errors.New("cannot connect"))
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "docker info") {
+			t.Errorf("ensureDockerUsable() = %v, want docker-info failure", err)
 		}
 	})
 }

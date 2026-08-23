@@ -4,6 +4,9 @@
 name: claudecode
 description: ML-loop harness (Claude Code, --dangerously-skip-permissions)
 egress: true
+# Runs on Docker Sandboxes when the host supports it; docker+egress is the fallback.
+# See _spec/_experiments/docker-sandbox.puml.
+sandbox_docker: true
 subscription: true
 stability: candidate
 images:

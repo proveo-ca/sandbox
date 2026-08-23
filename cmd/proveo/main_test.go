@@ -805,3 +805,162 @@ func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
 		})
 	}
 }
+
+func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{
+			"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+			"ANTHROPIC_API_KEY":       "sk-value",
+			"ANTHROPIC_BASE_URL":      "https://api.anthropic.com",
+		}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "claudecode", image: "proveo/claudecode:latest",
+			mode: "broker", credentials: "",
+			evidence: evidenceDefault,
+			extra:    []string{"--verbose"},
+		},
+		man: manifest.Manifest{
+			Name: "claudecode",
+			Capabilities: manifest.Capabilities{
+				Hosts: []string{"api.anthropic.com", "statsig.anthropic.com"},
+			},
+			Env: []manifest.EnvVar{
+				{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+				{Name: "ANTHROPIC_BASE_URL"},
+			},
+		},
+		sid:    "proveo-1-2",
+		lookup: lookup,
+		detected: func() []string {
+			if _, ok := provider.Lookup("anthropic"); ok {
+				return []string{"anthropic"}
+			}
+			return nil
+		}(),
+		gitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
+		homeEnv: []string{"PROVEO_HOME=/proveo-home"},
+	}
+
+	cfg, kit, secrets := sandboxSpec(in)
+
+	// Secrets are injected host-side; they must not ride the env passthrough.
+	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false, "ANTHROPIC_API_KEY": false}
+	if len(secrets) != len(wantSecrets) {
+		t.Fatalf("secrets = %v, want exactly the declared+provider keys %v", secrets, wantSecrets)
+	}
+	for _, kv := range secrets {
+		if _, tracked := wantSecrets[kv[0]]; !tracked {
+			t.Errorf("unexpected secret %q", kv[0])
+		}
+		if kv[1] == "" {
+			t.Errorf("secret %q lost its value", kv[0])
+		}
+	}
+	for _, e := range cfg.Env {
+		name := strings.SplitN(e, "=", 2)[0]
+		if name == "CLAUDE_CODE_OAUTH_TOKEN" || name == "ANTHROPIC_API_KEY" {
+			t.Errorf("secret %q must travel via sbx secret, not env (%q)", name, e)
+		}
+	}
+
+	// Non-secret declared vars resolve by value.
+	var sawBaseURL bool
+	for _, e := range cfg.Env {
+		if e == "ANTHROPIC_BASE_URL=https://api.anthropic.com" {
+			sawBaseURL = true
+		}
+	}
+	if !sawBaseURL {
+		t.Errorf("non-secret env missing resolved ANTHROPIC_BASE_URL in %v", cfg.Env)
+	}
+	for _, want := range []string{"PROVEO_AGENT_EVIDENCE=default", "GIT_AUTHOR_NAME=Executor", "PROVEO_HOME=/proveo-home"} {
+		found := false
+		for _, e := range cfg.Env {
+			if e == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("env missing %q in %v", want, cfg.Env)
+		}
+	}
+
+	// Allowlist = manifest hosts + detected provider endpoints, deny-by-default.
+	if len(kit.Network.AllowedDomains) == 0 {
+		t.Error("allowlist must include at least the manifest hosts")
+	}
+	sawManifestHost := false
+	for _, d := range kit.Network.AllowedDomains {
+		if d == "api.anthropic.com" || d == "statsig.anthropic.com" {
+			sawManifestHost = true
+		}
+	}
+	if !sawManifestHost {
+		t.Errorf("allowlist missing manifest hosts: %v", kit.Network.AllowedDomains)
+	}
+	if got := kit.CredentialsEnv; len(got) != len(wantSecrets) {
+		t.Errorf("kit credentialsEnv = %v, want %d names", got, len(wantSecrets))
+	}
+
+	// Invocation shape.
+	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
+		t.Errorf("run config name/image = %q/%q", cfg.Name, cfg.Image)
+	}
+	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
+		t.Errorf("command = %v, want agent args passed through", cfg.Command)
+	}
+}
+
+func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
+	in := runSandboxInput{
+		params:  runParams{target: "claudecode", image: "proveo/claudecode:latest", shell: true},
+		man:     manifest.Manifest{Name: "claudecode"},
+		lookup:  func(string) string { return "" },
+		workdir: "/workspace/input",
+		dataDir: "/tmp/data",
+	}
+	cfg, _, secrets := sandboxSpec(in)
+	if len(cfg.Command) != 1 || cfg.Command[0] != "bash" {
+		t.Errorf("shell mode command = %v, want [bash]", cfg.Command)
+	}
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none without credentials", secrets)
+	}
+	found := false
+	for _, m := range cfg.Mounts {
+		if m.Host == "/tmp/data" && m.Container == "/workspace/data" && !m.ReadOnly {
+			t.Errorf("data dir mount must be read-only: %+v", m)
+		}
+		if m.Host == "/tmp/data" && m.Container == "/workspace/data" && m.ReadOnly {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("data dir mount missing from %+v", cfg.Mounts)
+	}
+	if cfg.Workdir != "/workspace/input" {
+		t.Errorf("workdir = %q", cfg.Workdir)
+	}
+}
+
+func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
+	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
+	greyed := reviewAvailability(row, true)
+	if !greyed.Off[1] {
+		t.Error("sbx backend must grey out review")
+	}
+	if greyed.Selected == 1 {
+		t.Errorf("selection must move off review, got %d", greyed.Selected)
+	}
+	if !strings.Contains(greyed.Reason, "sandbox") {
+		t.Errorf("reason = %q, want it to name the sandbox backend", greyed.Reason)
+	}
+	// Without the backend, host gating applies (linux-only transport).
+	keep := reviewAvailability(choiceui.Row{Label: "egress", Options: []string{"open", "review"}}, false)
+	if runtime.GOOS == "linux" && len(keep.Off) != 0 {
+		t.Errorf("linux host without sbx must leave review enabled, got Off=%v", keep.Off)
+	}
+}
