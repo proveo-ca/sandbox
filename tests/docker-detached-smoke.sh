@@ -123,11 +123,8 @@ run_target_smoke() {
   docker rm -f "$container" >/dev/null 2>&1 || true
 
   case "$target" in
-    cecli|opencode)
+    cecli|opencode|claudecode)
       docker_args+=(-v "$workspace:/app" -w /app)
-      ;;
-    claudecode)
-      docker_args+=(-v "$workspace:/workspace/input")
       ;;
   esac
 

@@ -1,0 +1,125 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' The brand theme sets defaultTextAlignment center, which centres note bodies too —
+' fine for a one-line aside, wrong for a list, where ragged-left destroys the column
+' the eye reads down. Scoped to notes: the legend and labels keep the theme's choice.
+skinparam noteTextAlignment left
+' purpose: the sbx Kit contract proveo writes against — schema, handoff, session, exit
+' covers: internal/sbx/**
+' covers: cmd/proveo/main.go
+' Backend selection and the fallback path: sandbox-backend.puml (same directory).
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES — read these before changing any field below ───────
+'   kit spec v2 : https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md
+'   kit examples: https://docs.docker.com/ai/sandboxes/customize/kit-examples/
+'   spec package: https://pkg.go.dev/github.com/docker/sbx-kits-contrib/spec
+'   contrib kits: https://github.com/docker/sbx-kits-contrib
+'
+' ── kind: sandbox, schemaVersion "2" — the fields and their exact forms ──────
+' Verified against `sbx kit validate` on v0.39.0. Forms differ between siblings,
+' so each is recorded as accepted rather than as remembered.
+'
+'   schemaVersion   STRING "2".  An int is accepted and normalised; the spec says
+'                   string, so proveo writes the string.
+'   kind            "sandbox" or "mixin". No other value: `agent` is rejected.
+'   name            ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ and must not shadow a
+'                   built-in agent, hence the proveo- prefix (sbx.AgentName).
+'   extends         a parent agent to inherit from. Inherits setup, NOT agent
+'                   registration, and its setup.install runs against the PARENT's
+'                   assumptions (the built-in claude kit chowns agent:agent, which
+'                   fails on any image whose runtime user is not `agent`).
+'   sandbox.image   REQUIRED. Resolved as a registry reference at run time, so a
+'                   mutable tag lets a published image shadow a local build —
+'                   see _spec/_devops/image-lineage-and-publish.puml.
+'   sandbox.entrypoint   flat string array, the fixed process prefix.
+'   sandbox.command      {default: [...], interactive: [...]} — the mode-specific
+'                        tail appended to entrypoint. Shorthand list also accepted.
+'   sandbox.resources    {cpu: float, memory: "8g", gpu: "..."} — the declarative
+'                        alternative to `sbx run -m`.
+'   permissions.network  {allow: [...], deny: [...]}
+'   credentials[]        {service, required, apiKey:{name, inject:[{domain, ...}]}}
+'                        Names and headers only; no value ever enters the Kit.
+'   environment.variables  map of KEY: "value"
+'   agentInstructions    {filename, content} — seeds a CLAUDE.md-style file.
+'   setup.install[]      {command: STRING, user: "0"} — runs once at build.
+'   setup.startup[]      {command: LIST,   user: "1000"} — runs every start.
+'   setup.files[]        {path, content, mode}
+'   volumes[]            {path, size, type, mode}
+'   ports[]              {container, protocol, name}
+'
+'   files/home/**      → /home/<user>/**      (sibling directory of spec.yaml)
+'   files/workspace/** → <workspace>/**
+'
+' ── KNOWN CONSTRAINT (sbx v0.39.0) ──────────────────────────────────────────
+' A Kit that DEFINES its own agent gets no agent artifact registered, so sbx skips
+' the binding gate and the interactive session closes within seconds. `extends`
+' does not close this. Until upstream registers Kit-defined agents, a run on this
+' backend cannot hold an interactive agent session; the docker+egress path can.
+' ────────────────────────────────────────────────────────────────────────────
+
+title sbx Kit contract — schema source, validate handoff, session, exit code
+
+component "SPEC-v2.md\nthe only source for field names" as SPEC <<cloud>>
+
+node "proveo" as P <<host>> {
+  component "sbx.Kit → WriteKit\nrenders spec.yaml per run" as KIT <<app>>
+  component "tailWriter\nkeeps the agent's last output" as TAIL <<app>>
+}
+
+node "deterministic handoff" as HAND <<host>> {
+  component "sbx kit validate\nparses into the v2 struct" as VAL <<app>>
+  component "sbx kit inspect\nprints what sbx resolved" as INS <<app>>
+}
+
+component "agent/session\nconnect · disconnect · 30s grace" as SESS <<app>>
+component "exit 137 surfaced raw\nread as a kill that never happened" as EXIT <<error>>
+
+SPEC ARROW_MAIN KIT : field names and forms
+KIT ARROW_MAIN VAL : every render, in CI
+VAL ARROW_MAIN INS : shape passed — now read intent
+INS ARROW_MAIN SESS : entrypoint + command tail
+SESS ARROW_ERROR EXIT : socket closes → runtime stopped
+TAIL ARROW_QUEUE EXIT : what the agent actually said
+
+note top of KIT
+ Sources:
+  - [[https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md]]
+  - [[https://docs.docker.com/ai/sandboxes/customize/kit-examples/]]
+  - [[https://pkg.go.dev/github.com/docker/sbx-kits-contrib/spec]]
+  - [[https://github.com/docker/sbx-kits-contrib]]
+end note
+
+note bottom of VAL
+  **Validate is necessary and not sufficient.** It
+  checks that the document parses into the v2
+  struct, so it accepts a Kit missing every field
+  that governs the run — pair it with inspect,
+  which prints what sbx actually resolved.
+end note
+
+note bottom of SESS
+  **A Kit-defined agent holds no session.** sbx
+  seeks an agent artifact registered under that
+  name, finds none, skips its binding gate and
+  abandons the socket seconds later; ""extends""
+  inherits setup but never the registration.
+end note
+
+note bottom of EXIT
+  **137 is the auto-stop, not the agent.** The
+  runtime is terminated thirty seconds after the
+  socket closes, so the code describes teardown
+  rather than the process — surfacing it unchanged
+  sends every reader after a kill that never was.
+end note
+
+note bottom of TAIL
+  **Keep the sandbox and its output on failure.**
+  sbx exposes no logs command and teardown
+  destroys the only copy, so proveo tees the agent
+  stream and skips its forced removal whenever the
+  run failed, leaving both available afterwards.
+end note
+
+@enduml

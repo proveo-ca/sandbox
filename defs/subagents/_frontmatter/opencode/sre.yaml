@@ -1,0 +1,6 @@
+description: SRE / reliability reviewer. Focuses on prod operability of the change.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

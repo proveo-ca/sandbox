@@ -29,7 +29,7 @@ type Workspace struct {
 	// Output mounts the output dir at /app/output:rw (cecli). app layout only.
 	Output bool `yaml:"output"`
 	// Mode is how the working tree itself is mounted: "rw" (default) or "ro".
-	// Applies to app (/app) and input-output (/workspace/input).
+	// Applies to the workspace root (/app).
 	Mode string `yaml:"mode"`
 }
 
@@ -162,7 +162,7 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("manifest %q: invalid stability %q", m.Name, m.Stability)
 	}
 	switch m.Workspace.Layout {
-	case "", "app", "input-output":
+	case "", "app":
 	default:
 		return fmt.Errorf("manifest %q: invalid workspace.layout %q", m.Name, m.Workspace.Layout)
 	}

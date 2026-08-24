@@ -100,11 +100,11 @@ var helloHarnesses = []helloHarness{
 		// repliesOnStdout stays false — see the field comment.
 	},
 	{
-		// input-output layout: /workspace itself is not a mount, so the prompt
-		// names the writable one explicitly.
+		// claudecode writes its deliverables to the output mount, so the prompt
+		// names it explicitly rather than relying on the cwd.
 		target:          "claudecode",
 		agentArgs:       func(p string) []string { return []string{"-p", p} },
-		promptPath:      "/workspace/output/HELLO_WORLD.txt",
+		promptPath:      "/app/output/HELLO_WORLD.txt",
 		hostPaths:       []string{"reports/HELLO_WORLD.txt", "HELLO_WORLD.txt"},
 		repliesOnStdout: true,
 	},
@@ -254,7 +254,7 @@ func shellQuote(args []string) string {
 // model was told to create, and the tolerance is not laziness: a small local model
 // reliably reproduces a long random token when COPYING it into a tool call (the
 // marker lands in the file byte-exact) yet answers the human in its own words —
-// gemma4 replies "File /workspace/output/HELLO_WORLD.txt created successfully."
+// gemma4 replies "File /app/output/HELLO_WORLD.txt created successfully."
 // rather than echoing the token. Demanding the echo would test instruction-format
 // compliance, which is the model's business, instead of whether the loop closed,
 // which is proveo's.

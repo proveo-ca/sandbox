@@ -13,37 +13,22 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
 else
   ensure_runtime_user
-  set_working_directory "/workspace/input"
+  set_working_directory "/app"
   load_env
-  bridge_git_identity /workspace/input
-  report_git_context /workspace/input
+  bridge_git_identity /app
+  report_git_context /app
   attach_rtk
   run_smoke_test "claudecode"
   ensure_project_tools
 fi
 
-# ── Model aliases → Claude Code env (CODING_HARNESSES.md) ──
-set_working_directory "/workspace/input"
+# Model bridges are declared in defs/bridges/claudecode.tsv.
+set_working_directory "/app"
 load_env quiet
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
-bare_model() { printf '%s' "${1##*/}"; }
-
-if [[ -z "${ANTHROPIC_MODEL:-}" ]]; then
-  for candidate in "${ARCHITECT_MODEL:-}" "${EDITOR_MODEL:-}"; do
-    if [[ -n "$candidate" ]]; then
-      ANTHROPIC_MODEL="$(bare_model "$candidate")"
-      export ANTHROPIC_MODEL
-      break
-    fi
-  done
-fi
-
-if [[ -z "${ANTHROPIC_SMALL_FAST_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
-  ANTHROPIC_SMALL_FAST_MODEL="$(bare_model "$SMALL_MODEL")"
-  export ANTHROPIC_SMALL_FAST_MODEL
-fi
+apply_model_bridges claudecode
 
 printf 'PROVEO_MODELS main=%s small=%s\n' \
   "${ANTHROPIC_MODEL:-unset}" "${ANTHROPIC_SMALL_FAST_MODEL:-unset}"
@@ -76,7 +61,7 @@ if [[ -f AGENTS.md && ! -f CLAUDE.md ]]; then
   fi
 fi
 
-# Seed CLAUDE.md when missing (input is a RW bind by default for input-output).
+# Seed CLAUDE.md when missing (the workspace root is a RW bind by default).
 if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
   if cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md 2>/dev/null; then
     echo "🌱 Seeded CLAUDE.md into workspace"
@@ -100,29 +85,9 @@ seed_claude_proveo_home() {
 }
 seed_claude_proveo_home
 
-# ── Seed user-level subagents (~/.claude/agents) ────────────
-seed_claude_subagents() {
-  local src="/opt/claudecode/defaults/agents"
-  local dst="${HOME}/.claude/agents"
-  [[ -d "$src" ]] || return 0
-  # set -e is on: a read-only home must degrade to "no subagents", not kill the run.
-  mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not seed subagents into $dst; continuing" >&2; return 0; }
-
-  local seeded=()
-  for f in "$src"/*.md; do
-    [[ -e "$f" ]] || continue
-    local name; name="$(basename "$f")"
-    if [[ "${CLAUDECODE_RESEED:-0}" == "1" || ! -f "$dst/$name" ]]; then
-      if cp -f "$f" "$dst/$name" 2>/dev/null; then
-        seeded+=("agents/$name")
-      fi
-    fi
-  done
-  if (( ${#seeded[@]} > 0 )); then
-    echo "🌱 Seeded Claude Code subagents into $dst: ${seeded[*]}"
-  fi
-}
-seed_claude_subagents
+# ── Compose user-level subagents (~/.claude/agents) ─────────
+# Bodies are shared across harnesses; only the frontmatter is Claude Code's.
+render_subagents claudecode "${HOME}/.claude/agents" "${CLAUDECODE_RESEED:-0}"
 
 # Surface available subagents (user + project)
 agent_files=()
@@ -171,5 +136,6 @@ else
   report_agent_evidence
 fi
 
+accept_workspace_trust "$PWD"
 echo "🚀 Launching Claude Code..."
 exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"

@@ -135,6 +135,43 @@ func (s *Sidecar) AgentArgs() []string {
 	return append(s.LinkArgs(), s.EnvArgs()...)
 }
 
+// WaitReady blocks until the sidecar's daemon answers, or timeout elapses.
+//
+// `docker run -d` returns as soon as the CONTAINER is up; the daemon inside it
+// listens seconds later. Without this wait proveo hands the agent a shell whose
+// very first `docker` call fails with "Cannot connect to the Docker daemon at
+// tcp://docker:2375" — a race that reads exactly like a broken posture, and the
+// one an e2e probe caught by failing in under six seconds.
+//
+// The readiness question is asked THROUGH the sidecar (`docker exec … docker
+// version`) rather than from the agent: the daemon's own socket is what has to be
+// live, and asking from the host keeps the check independent of whether the agent
+// container has started yet.
+func (s *Sidecar) WaitReady(r Runner, timeout time.Duration, now func() time.Time, sleep func(time.Duration)) error {
+	if s == nil || s.Name == "" {
+		return nil
+	}
+	if r == nil {
+		r = ExecRunner{}
+	}
+	if now == nil {
+		now = time.Now
+	}
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	deadline := now().Add(timeout)
+	for {
+		if err := r.Run("exec", s.Name, "docker", "version"); err == nil {
+			return nil
+		}
+		if !now().Before(deadline) {
+			return fmt.Errorf("dind: %s did not accept docker commands within %s", s.Name, timeout)
+		}
+		sleep(time.Second)
+	}
+}
+
 func (s *Sidecar) ConnectNetwork(r Runner, network string) error {
 	if s == nil || s.Name == "" || network == "" {
 		return nil

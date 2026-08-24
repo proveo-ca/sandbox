@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -474,7 +477,7 @@ func TestHydrateProcessEnvFromLookup(t *testing.T) {
 	}
 }
 
-func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
+func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for _, f := range []string{"go.mod", "package.json", "nx.json", "main.go", "Dockerfile"} {
@@ -496,24 +499,29 @@ func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
 	}
 
 	man := manifest.Manifest{Workspace: manifest.Workspace{ConfigDir: ".opencode"}}
-	got := strings.Join(workspaceHeader(man, dir, dir, t.TempDir()), "\n")
+	got := strings.Join(workspaceHeader(man, dir, dir, t.TempDir(), glyphsOff), "\n")
 
 	for _, want := range []string{"tooling:", "go", "nx", "node", "docker", "subagents: 2 definition(s)", ".opencode/settings.json"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "lsp:      will start") {
-		t.Errorf("LSP servers must be phrased as a prediction, got:\n%s", got)
+	if !strings.Contains(got, "lsp:      gopls") {
+		t.Errorf("LSP row must list the servers plainly, got:\n%s", got)
 	}
-	if strings.Contains(got, "lsp:      detected") {
-		t.Error("LSP presence depends on the image; the host must not claim detection")
+	// The "will start" prefix was dropped deliberately (_spec/internal/choiceui/wireframe.puml).
+	// The harder rule survives it: LSP presence depends on the image, so the host may
+	// neither claim detection nor re-add a prediction phrase it cannot honour.
+	for _, banned := range []string{"lsp:      detected", "will start"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("LSP row must state servers plainly; found %q in:\n%s", banned, got)
+		}
 	}
 }
 
 func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	t.Parallel()
-	if got := workspaceHeader(manifest.Manifest{}, "", "", ""); got != nil {
+	if got := workspaceHeader(manifest.Manifest{}, "", "", "", glyphsOff); got != nil {
 		t.Errorf("no input dir must yield no header, got %v", got)
 	}
 }
@@ -895,20 +903,30 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	if len(kit.Network.AllowedDomains) == 0 {
+	if len(kit.Permissions.Network.Allow) == 0 {
 		t.Error("allowlist must include at least the manifest hosts")
 	}
 	sawManifestHost := false
-	for _, d := range kit.Network.AllowedDomains {
+	for _, d := range kit.Permissions.Network.Allow {
 		if d == "api.anthropic.com" || d == "statsig.anthropic.com" {
 			sawManifestHost = true
 		}
 	}
 	if !sawManifestHost {
-		t.Errorf("allowlist missing manifest hosts: %v", kit.Network.AllowedDomains)
+		t.Errorf("allowlist missing manifest hosts: %v", kit.Permissions.Network.Allow)
 	}
-	if got := kit.CredentialsEnv; len(got) != len(wantSecrets) {
-		t.Errorf("kit credentialsEnv = %v, want %d names", got, len(wantSecrets))
+	// The Kit declares the broker: one credential per provider, proxy-managed so
+	// the value never enters the VM, and an inject rule naming the header.
+	if len(kit.Credentials) == 0 {
+		t.Error("kit declares no credentials, so nothing would be brokered")
+	}
+	for _, c := range kit.Credentials {
+		if !c.APIKey.ProxyManaged {
+			t.Errorf("credential %q is not proxy-managed — the value would enter the VM", c.Service)
+		}
+		if len(c.APIKey.Inject) == 0 {
+			t.Errorf("credential %q names no inject destination", c.Service)
+		}
 	}
 
 	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
@@ -920,12 +938,15 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 }
 
 func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
+	// A real directory: an sbx workspace must BE one, so the spec drops binds
+	// that are not (the project .env arrives as a file bind and sbx refuses it).
+	dataDir := t.TempDir()
 	in := runSandboxInput{
 		params:  runParams{target: "claudecode", image: "proveo/claudecode:latest", shell: true},
 		man:     manifest.Manifest{Name: "claudecode"},
 		lookup:  func(string) string { return "" },
-		workdir: "/workspace/input",
-		dataDir: "/tmp/data",
+		workdir: "/app",
+		dataDir: dataDir,
 	}
 	cfg, _, secrets := sandboxSpec(in)
 	if len(cfg.Command) != 1 || cfg.Command[0] != "bash" {
@@ -936,18 +957,27 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	}
 	found := false
 	for _, m := range cfg.Mounts {
-		if m.Host == "/tmp/data" && m.Container == "/workspace/data" && !m.ReadOnly {
+		if m.Host == dataDir && m.Container == "/workspace/data" && !m.ReadOnly {
 			t.Errorf("data dir mount must be read-only: %+v", m)
 		}
-		if m.Host == "/tmp/data" && m.Container == "/workspace/data" && m.ReadOnly {
+		if m.Host == dataDir && m.Container == "/workspace/data" && m.ReadOnly {
 			found = true
 		}
 	}
 	if !found {
 		t.Errorf("data dir mount missing from %+v", cfg.Mounts)
 	}
-	if cfg.Workdir != "/workspace/input" {
-		t.Errorf("workdir = %q", cfg.Workdir)
+	// There is no Workdir on an sbx run — the CLI has no -w and mounts each
+	// workspace at its own HOST path, so where the harness landed is conveyed in
+	// the environment instead.
+	var sawWorkdir bool
+	for _, e := range cfg.Env {
+		if strings.HasPrefix(e, "PROVEO_WORKDIR=") {
+			sawWorkdir = true
+		}
+	}
+	if !sawWorkdir {
+		t.Errorf("PROVEO_WORKDIR missing from %+v", cfg.Env)
 	}
 }
 
@@ -997,8 +1027,10 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 	if len(secrets) != 0 {
 		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
 	}
-	if len(kit.CredentialsEnv) != 0 {
-		t.Errorf("kit.CredentialsEnv = %v, want empty in forward mode", kit.CredentialsEnv)
+	// Nothing to declare under forward: the agent holds its own credential, so a
+	// Kit credential block would describe brokering that is not happening.
+	if len(kit.Credentials) != 0 {
+		t.Errorf("kit.Credentials = %v, want empty in forward mode", kit.Credentials)
 	}
 	var bare bool
 	for _, e := range cfg.Env {
@@ -1037,14 +1069,16 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	if len(secrets) == 0 {
 		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
 	}
+	// The Kit names the credential the broker will inject, by env var, under the
+	// provider it belongs to.
 	found := false
-	for _, n := range kit.CredentialsEnv {
-		if n == "CLAUDE_CODE_OAUTH_TOKEN" {
+	for _, c := range kit.Credentials {
+		if c.APIKey.Name == "CLAUDE_CODE_OAUTH_TOKEN" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("kit.CredentialsEnv = %v, want CLAUDE_CODE_OAUTH_TOKEN", kit.CredentialsEnv)
+		t.Errorf("kit.Credentials = %+v, want one naming CLAUDE_CODE_OAUTH_TOKEN", kit.Credentials)
 	}
 }
 
@@ -1225,5 +1259,329 @@ func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
 	}
 	if !hasAddon(unstated.addons, "browser") {
 		t.Errorf("remembered add-ons were not seeded: %v", unstated.addons)
+	}
+}
+
+// anthropic takes either an API key or a subscription token, and an operator may
+// hold both. A service is one identity in a Kit, so declaring it twice would
+// leave the effective credential up to map order inside sbx.
+func TestKitCredentialsDeclareOneEntryPerService(t *testing.T) {
+	t.Parallel()
+	secrets := [][2]string{
+		{"CLAUDE_CODE_OAUTH_TOKEN", "oauth"}, // manifest-declared: comes first
+		{"ANTHROPIC_API_KEY", "sk-x"},        // same service, also present
+		{"OPENAI_API_KEY", "sk-y"},
+	}
+	got := kitCredentials(secrets, false)
+
+	byService := map[string]int{}
+	for _, c := range got {
+		byService[c.Service]++
+	}
+	for svc, n := range byService {
+		if n != 1 {
+			t.Errorf("service %q declared %d times, want exactly 1", svc, n)
+		}
+	}
+	// First wins, so the manifest-declared credential is the one that stands.
+	for _, c := range got {
+		if c.Service == "anthropic" && c.APIKey.Name != "CLAUDE_CODE_OAUTH_TOKEN" {
+			t.Errorf("anthropic resolved to %q, want the first-listed CLAUDE_CODE_OAUTH_TOKEN", c.APIKey.Name)
+		}
+	}
+	if len(byService) != 2 {
+		t.Errorf("services = %v, want anthropic and openai", byService)
+	}
+}
+
+// Nerd is the default and ASCII is the fallback an operator selects when their font
+// stops at the Powerline range. Off must leave the row byte-identical, and a server
+// with no devicon must degrade to its category marker rather than to a ragged column.
+func TestLSPGlyphModes(t *testing.T) {
+	t.Parallel()
+	labels := []string{"typescript-language-server", "bash-language-server", "gopls"}
+
+	if got := withGlyphs(labels, glyphsOff); !reflect.DeepEqual(got, labels) {
+		t.Errorf("glyphs off must not touch the labels, got %v", got)
+	}
+
+	for _, mode := range []glyphMode{glyphsNerd, glyphsASCII} {
+		got := withGlyphs(labels, mode)
+		for i, l := range labels {
+			if !strings.HasSuffix(got[i], l) {
+				t.Errorf("mode %d: %q must keep its server name, got %q", mode, l, got[i])
+			}
+			if got[i] == l {
+				t.Errorf("mode %d: %q should have gained a glyph", mode, l)
+			}
+		}
+	}
+
+	// Nerd falls back to the ASCII category marker rather than leaving a hole.
+	delete(lspNerd, "gopls")
+	defer func() { lspNerd["gopls"] = "\ue627" }()
+	if got := withGlyphs([]string{"gopls"}, glyphsNerd); got[0] != lspASCII["gopls"]+" gopls" {
+		t.Errorf("a server with no devicon must fall back to ASCII, got %q", got[0])
+	}
+
+	// A server in neither table stays bare.
+	if got := withGlyphs([]string{"unknown-langserver"}, glyphsNerd); got[0] != "unknown-langserver" {
+		t.Errorf("unmapped server must stay bare, got %q", got[0])
+	}
+}
+
+// Every language the scanner can detect needs a category marker, or enabling ASCII
+// silently produces a column where some rows are indented and others are not.
+func TestEveryLSPMarkerHasAnASCIIGlyph(t *testing.T) {
+	t.Parallel()
+	for _, m := range lspMarkers {
+		if _, ok := lspASCII[m.Label]; !ok {
+			t.Errorf("%s has no ASCII category marker", m.Label)
+		}
+	}
+	// ASCII markers pad to two columns so names stay aligned across categories.
+	for label, g := range lspASCII {
+		if len([]rune(g)) != 2 {
+			t.Errorf("%s marker %q is %d cols; must be 2", label, g, len([]rune(g)))
+		}
+	}
+}
+
+func TestGlyphModeFromLookup(t *testing.T) {
+	t.Parallel()
+	cases := map[string]glyphMode{
+		"": glyphsNerd, "nerd": glyphsNerd, "1": glyphsNerd, "typo": glyphsNerd,
+		"ascii": glyphsASCII, "ASCII": glyphsASCII,
+		"off": glyphsOff, "0": glyphsOff, "false": glyphsOff, "none": glyphsOff,
+	}
+	for in, want := range cases {
+		if got := glyphModeFrom(func(string) string { return in }); got != want {
+			t.Errorf("PROVEO_GLYPHS=%q: got mode %d, want %d", in, got, want)
+		}
+	}
+}
+
+// Print mode now writes the Kit so the command it prints is runnable, which puts a
+// file on disk that a dry run never used to create. That is only acceptable because
+// the Kit declares credential NAMES and never values — this is the property the
+// write depends on, so it is asserted rather than assumed.
+func TestKitCredentialsNeverEmbedSecretValues(t *testing.T) {
+	t.Parallel()
+	secrets := [][2]string{
+		{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-SUPERSECRET"},
+		{"ANTHROPIC_API_KEY", "sk-ant-api-ALSOSECRET"},
+	}
+	creds := kitCredentials(secrets, false)
+	if len(creds) == 0 {
+		t.Fatal("brokered credentials must be declared")
+	}
+	blob, err := yaml.Marshal(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(blob)
+	// One entry per service, so two anthropic secrets collapse to one declaration:
+	// assert a name is carried, not that every name is.
+	var named bool
+	for _, kv := range secrets {
+		if strings.Contains(rendered, kv[0]) {
+			named = true
+		}
+		if strings.Contains(rendered, kv[1]) {
+			t.Errorf("Kit leaked the VALUE of %s; print mode writes this file to disk", kv[0])
+		}
+	}
+	if !named {
+		t.Errorf("no credential name reached the Kit:\n%s", rendered)
+	}
+
+	// --credentials forward declares nothing: the agent holds its own key and there
+	// is no brokering to describe, so print mode writes an empty credentials block.
+	if got := kitCredentials(secrets, true); got != nil {
+		t.Errorf("forward mode must declare no credentials, got %v", got)
+	}
+}
+
+// sandboxSpec never reads p.mode, so open and allowlist build an identical Kit. The
+// row must say so rather than offering a risk axis on which nothing moves.
+func TestSbxEgressRealityGreysOpen(t *testing.T) {
+	t.Parallel()
+	row := axisRow("egress", []string{"open", "allowlist", "review"}, nil, "open")
+
+	if got := sbxEgressReality(row, false); got.Off != nil {
+		t.Errorf("docker backend must leave every tier selectable, got Off=%v", got.Off)
+	}
+
+	got := sbxEgressReality(row, true)
+	var greyed bool
+	for i, o := range got.Options {
+		if o == "open" && len(got.Off) > i && got.Off[i] {
+			greyed = true
+		}
+		if o == "allowlist" && len(got.Off) > i && got.Off[i] {
+			t.Error("allowlist is what sbx actually enforces; it must stay selectable")
+		}
+	}
+	if !greyed {
+		t.Errorf("open must be greyed on the sbx backend, got Off=%v", got.Off)
+	}
+	// Greyed, never hidden: removing it would misrepresent an unenforced tier as an
+	// unavailable one.
+	if len(got.Options) != len(row.Options) {
+		t.Errorf("no tier may be removed, got %v", got.Options)
+	}
+}
+
+func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
+	t.Parallel()
+	if got := enforcedBy(true); !strings.Contains(got, "sbx") || !strings.Contains(got, "no Squid") {
+		t.Errorf("sbx runs must name sbx and disclaim proveo's sidecars, got %q", got)
+	}
+	if got := enforcedBy(false); !strings.Contains(got, "squid") {
+		t.Errorf("docker runs must name proveo's sidecars, got %q", got)
+	}
+}
+
+// "agent exited with code 137" is sbx's auto-stop code, arriving 30s after the agent
+// exited. The retained tail is what actually explains the run — in the case this was
+// written for, "Credit balance is too low" instead of four rounds of guessing.
+func TestTailWriterKeepsTheExplanation(t *testing.T) {
+	t.Parallel()
+	w := newTailWriter(3)
+	// A TUI writes escapes, redraws the same status line, and may not end with \n.
+	fmt.Fprint(w, "\x1b[2J\x1b[H🚀 Launching Claude Code…\n")
+	fmt.Fprint(w, "\x1b[Kthinking\r\x1b[Kthinking\r")
+	fmt.Fprint(w, "Ignoring 10 permissions.allow entries\n")
+	fmt.Fprint(w, "\x1b[31mCredit balance is too low\x1b[0m")
+
+	got := w.Lines()
+	if len(got) != 3 {
+		t.Fatalf("want the last 3 lines, got %d: %q", len(got), got)
+	}
+	if last := got[len(got)-1]; last != "Credit balance is too low" {
+		t.Errorf("the unterminated final line must survive and be de-escaped, got %q", last)
+	}
+	for _, l := range got {
+		if strings.Contains(l, "\x1b") {
+			t.Errorf("escape sequences must be stripped, got %q", l)
+		}
+	}
+	// A redrawn status line is one line, not many.
+	var thinking int
+	for _, l := range got {
+		if l == "thinking" {
+			thinking++
+		}
+	}
+	if thinking > 1 {
+		t.Errorf("consecutive duplicates must collapse, got %q", got)
+	}
+}
+
+// MissingEnv reads env vars only, so a completed login sitting in the proveo home
+// read as "no auth" — and the refusal built on it would have blocked working runs.
+func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if hasPersistedLogin("claudecode", home) {
+		t.Error("an empty home has no login")
+	}
+	if hasPersistedLogin("claudecode", "") {
+		t.Error("no home root means no login")
+	}
+
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dir, ".credentials.json")
+	if err := os.WriteFile(cred, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hasPersistedLogin("claudecode", home) {
+		t.Error("an empty credential file is not a login")
+	}
+	if err := os.WriteFile(cred, []byte(`{"x":{"accessToken":"y"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hasPersistedLogin("claudecode", home) {
+		t.Error("a populated credential file is a login")
+	}
+	if hasPersistedLogin("opencode", home) {
+		t.Error("a target with no known login file must not borrow another's")
+	}
+}
+
+// os/exec copies stdout and stderr on separate goroutines and both are teed into one
+// tailWriter, so Write is genuinely concurrent. Without a lock the two interleave on
+// the shared buffer and reslicing panics with bounds out of range — which is exactly
+// how this crashed a real run. Run under -race to catch the regression properly.
+func TestTailWriterIsConcurrencySafe(t *testing.T) {
+	t.Parallel()
+	w := newTailWriter(8)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				// Mixed shapes: with newlines, without, and with escapes — the
+				// unterminated fragments are what made the indices disagree.
+				fmt.Fprintf(w, "g%d line %d\n\x1b[Kpartial %d", g, i, i)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	got := w.Lines()
+	if len(got) == 0 || len(got) > 8 {
+		t.Fatalf("want 1..8 retained lines, got %d", len(got))
+	}
+	for _, l := range got {
+		if strings.Contains(l, "\x1b") {
+			t.Errorf("escapes must be stripped even under concurrency, got %q", l)
+		}
+	}
+}
+
+// The picker and the backend selection must agree about PROVEO_SBX. They did not:
+// sbx.Available() only reports whether the host CAN run sbx, so with the backend
+// switched off the add-on stayed selectable and default-ticked while the run took
+// docker — the prompt described a posture the run did not have.
+func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
+	t.Parallel()
+	row := choiceui.Row{
+		Label: "add-ons", Multi: true,
+		Options: []string{"browser", addonSandbox},
+		On:      []bool{true, true}, // as addonDefaults leaves it: sandbox pre-ticked
+	}
+	f := &choiceui.Form{Rows: []choiceui.Row{row}}
+
+	gateAddons(f, "open", "forward", "PROVEO_SBX is off")
+
+	got := f.Rows[0]
+	var i int
+	for j, o := range got.Options {
+		if o == addonSandbox {
+			i = j
+		}
+	}
+	if !got.Off[i] {
+		t.Error("an unavailable sandbox add-on must be greyed")
+	}
+	if got.On[i] {
+		t.Error("a greyed add-on must also be unticked: a ticked box reads as the run's posture")
+	}
+	if !strings.Contains(got.Reason, "PROVEO_SBX is off") {
+		t.Errorf("the row must name why, got %q", got.Reason)
+	}
+	// An available backend leaves the operator's choice alone.
+	f2 := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Multi: true,
+		Options: []string{addonSandbox}, On: []bool{true},
+	}}}
+	gateAddons(f2, "open", "forward", "")
+	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
+		t.Error("an available sandbox add-on must stay selectable and ticked")
 	}
 }

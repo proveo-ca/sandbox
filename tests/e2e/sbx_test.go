@@ -222,26 +222,28 @@ func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
 	}
 }
 
-// TestHarnessesWithADockerDaemonShipADockerClient guards the half of the
-// contract the manifest cannot state on its own. Any docker mode — sbx (daemon
-// from the sandbox VM) or dind (daemon from the sidecar) — promises the AGENT a
-// Docker daemon, and a daemon it has no client for is a promise the image
-// breaks. claudecode declared its mode with no `docker` binary in the image,
-// which is precisely how that gap presents: not a failure, just
-// `docker: command not found` at the moment the agent tries to use it.
-func TestHarnessesWithADockerDaemonShipADockerClient(t *testing.T) {
+// TestDindHarnessesShipADockerClient guards the half of the contract the
+// manifest cannot state on its own: `docker: dind` promises the AGENT a daemon,
+// and a daemon it has no client for is a promise the image breaks — not a
+// failure, just `docker: command not found` at the moment the agent tries to use
+// it.
+//
+// Only the dind branch is held to this. `docker: sbx` promises the opposite (see
+// sandboxBoundaryProbe), and sbx strips the client from the image anyway, so
+// requiring one there would demand a binary the sandbox deletes.
+func TestDindHarnessesShipADockerClient(t *testing.T) {
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
 	if err != nil {
 		t.Fatalf("load manifests: %v", err)
 	}
 	var targets []string
 	for _, m := range ms {
-		if m.WantsDocker() {
+		if m.IsDind() {
 			targets = append(targets, m.Name)
 		}
 	}
 	if len(targets) == 0 {
-		t.Fatal("no harness declares a docker mode — the invariant has nothing to guard")
+		t.Fatal("no harness declares docker: dind — the invariant has nothing to guard")
 	}
 	for _, target := range targets {
 		t.Run(target, func(t *testing.T) {
@@ -269,7 +271,7 @@ func TestHarnessesWithADockerDaemonShipADockerClient(t *testing.T) {
 //
 //  1. the run took the sandbox backend (not the docker+egress fallback)
 //  2. the workspace mount carries writes back to the host
-//  3. `docker` inside the sandbox reaches a DAEMON — the promise itself
+//  3. the sandbox REPLACES docker — no client, no socket (the promise itself)
 //  4. the sandbox is gone afterwards, VM and all
 //
 // It drives `--shell`, not the agent: the claim under test is the backend's,
@@ -281,6 +283,182 @@ func TestHarnessesWithADockerDaemonShipADockerClient(t *testing.T) {
 // both are derived. An empty or overlapping matrix would report success by
 // testing nothing, so the partition itself is asserted: every def that promises a
 // daemon lands in exactly one branch.
+// Every sbx defect this suite exists to catch was found by hand first: `-w` and
+// `-v` rejected, an image in the agent positional, a Kit schema sbx would not
+// parse, an agent name that had to match the Kit's, a stale template silently
+// served. The run probe below catches them only by TIMING OUT, which names none of
+// them — so these three assertions cover the same ground cheaply and say what
+// broke.
+//
+// Renders the Kit proveo would write and hands it to sbx's own validator. This is
+// the assertion that would have caught the shipped Kit outright: `image` and
+// `credentialsEnv` are not fields of spec.SpecFile, and every sandbox run died at
+// "resolve kits" until they moved.
+func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available on this host: %s", why)
+	}
+	for _, target := range sandboxHarnesses {
+		t.Run(target, func(t *testing.T) {
+			kitDir := renderKit(t, target)
+			out, err := exec.Command(sbx.Binary, "kit", "validate", kitDir).CombinedOutput()
+			spec, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+			if err != nil {
+				t.Fatalf("%s: sbx rejected the Kit proveo writes: %v\n--- sbx ---\n%s\n--- spec.yaml ---\n%s",
+					target, err, out, spec)
+			}
+			// A deprecation warning is sbx telling us the schema moved under us,
+			// which is the drift this whole file is guarding against.
+			if strings.Contains(string(out), "deprecated") {
+				t.Errorf("%s: Kit uses a deprecated field — the schema has moved:\n%s\n--- spec.yaml ---\n%s",
+					target, out, spec)
+			}
+		})
+	}
+}
+
+// sbx shows the operator every credential a Kit asks for and waits for approval,
+// so an over-declared Kit asks consent for reach the harness cannot use. A
+// claudecode Kit requested cursor, google, openai and xai keys until the provider
+// set was filtered by the manifest's capabilities.
+func TestSandboxKitDeclaresOnlyPermittedProviders(t *testing.T) {
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available on this host: %s", why)
+	}
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	for _, target := range sandboxHarnesses {
+		t.Run(target, func(t *testing.T) {
+			var caps manifest.Capabilities
+			for _, m := range ms {
+				if m.Name == target {
+					caps = m.Capabilities
+				}
+			}
+			if len(caps.Providers) == 0 {
+				t.Skipf("%s declares no provider capability to constrain", target)
+			}
+			spec, err := os.ReadFile(filepath.Join(renderKit(t, target), "spec.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range strings.Split(string(spec), "\n") {
+				svc, ok := cutPrefix(strings.TrimSpace(line), "- service: ")
+				if !ok {
+					continue
+				}
+				if !caps.AllowsProvider(svc) {
+					t.Errorf("%s Kit declares credential for %q, which its manifest does not permit "+
+						"(providers: %v) — sbx will ask the operator to approve reach the harness cannot use\n%s",
+						target, svc, caps.Providers, spec)
+				}
+			}
+		})
+	}
+}
+
+func cutPrefix(s, prefix string) (string, bool) {
+	if !strings.HasPrefix(s, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(s, prefix), true
+}
+
+// sbxError returns sbx's own error line from the pane, if it printed one. It is
+// how a red test names its cause instead of reporting a timeout.
+// retryable marks the sbx errors proveo answers with one reload-and-retry, so the
+// probe waits for that second attempt instead of failing on the first.
+func retryable(line string) bool {
+	return strings.Contains(line, "failed to run sandbox container") ||
+		strings.Contains(line, "failed to create sandbox")
+}
+
+func sbxError(screen string) string {
+	for _, line := range strings.Split(screen, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ERROR:") {
+			return line
+		}
+	}
+	return ""
+}
+
+// brokenPrompt spots the interactive questions that mean something is WRONG, as
+// opposed to the ones that are simply sbx asking the operator a question.
+//
+// The distinction matters and it was got wrong once. A `proveo run` is interactive
+// by design — there is a whole choice form in front of it — so sbx asking which
+// credentials a Kit may use is a normal gate that a PTY-driven run answers, and
+// answerSbxPrompt below does. What is NOT normal is a confirmation that eats
+// input meant for something else: `sbx secret set` reads the value from stdin,
+// and on a re-run its "Overwrite?" question consumes that piped value and cancels
+// the write, leaving the agent on a stale credential with no error. That one is
+// answered by --force, so seeing it again means the flag regressed.
+func brokenPrompt(screen string) string {
+	for _, want := range []string{
+		"Overwrite? (y/N)",
+		"Delete selected secret? (y/N)",
+		// sbx will not invent a missing workspace path, it asks. proveo creates the
+		// output dir up front so this never appears; seeing it means something is
+		// handing sbx a path that does not exist, and the run stops dead.
+		"does not exist. Would you like to create it?",
+	} {
+		if strings.Contains(screen, want) {
+			return want
+		}
+	}
+	return ""
+}
+
+// answerSbxPrompt takes the default on sbx's own operator questions, which a run
+// on a PTY is expected to answer rather than trip over.
+func answerSbxPrompt(sess *tmux.Session, screen string) bool {
+	if !strings.Contains(screen, "[A]pprove all") {
+		return false
+	}
+	_ = sess.SendText("A")
+	_ = sess.Enter()
+	return true
+}
+
+// renderKit performs a real run far enough to write the Kit, then returns its
+// directory. --print does NOT write one (only runSandbox does), which is why this
+// drives the run and kills it once the file exists.
+func renderKit(t *testing.T, target string) string {
+	t.Helper()
+	proveoBin := buildProveo(t)
+	work := t.TempDir()
+	mustRun(t, work, "git", "init", "-q", ".")
+	state := t.TempDir()
+
+	sess := tmux.New(fmt.Sprintf("proveo-kit-%s-%d", target, os.Getpid()), nil)
+	t.Cleanup(sess.Kill)
+	cmd := []string{"env"}
+	cmd = append(cmd, childEnvArgs(t)...)
+	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_EGRESS_ROOT="+state,
+		proveoBin, "run", target, "--shell", "--input", work)
+	if err := sess.Start(200, 50, cmd...); err != nil {
+		t.Fatalf("start %s: %v", target, err)
+	}
+
+	w := newWatcher(t, sess)
+	var kitDir string
+	w.until("the Kit to be rendered", 3*time.Minute, func() bool {
+		// <state>/egress/<session>/sbx/kit — the "egress" segment is stateDir()'s own
+		// layout, not the session dir.
+		matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", "kit", "spec.yaml"))
+		if len(matches) == 0 {
+			return false
+		}
+		kitDir = filepath.Dir(matches[0])
+		return true
+	})
+	sess.Kill()
+	return kitDir
+}
+
 func TestDockerAccessMatrixPartitionsEveryPromise(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -296,7 +474,7 @@ func TestDockerAccessMatrixPartitionsEveryPromise(t *testing.T) {
 		}
 		inSbx, inDind := contains(sandboxHarnesses, m.Name), contains(dindHarnesses, m.Name)
 		if inSbx == inDind {
-			t.Errorf("%s promises a daemon (docker: %s) but is in %d branches, want exactly 1 "+
+			t.Errorf("%s declares docker: %s but is in %d branches, want exactly 1 "+
 				"(sbx=%v dind=%v)", m.Name, m.Docker, map[bool]int{true: 2, false: 0}[inSbx],
 				inSbx, inDind)
 		}
@@ -321,7 +499,7 @@ func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 				if !sbxOK {
 					t.Skipf("sbx not available on this host: %s", sbxWhy)
 				}
-				sandboxDockerProbe(t, target)
+				sandboxBoundaryProbe(t, target)
 			default:
 				requireDocker(t)
 				dindDockerProbe(t, target)
@@ -384,14 +562,29 @@ func dindDockerProbe(t *testing.T, target string) {
 	// The sidecar announces itself, so the test never infers the posture: a run
 	// that silently declined to start it would satisfy the daemon probe from some
 	// OTHER socket and prove nothing about `docker: dind`.
+	//
+	// Two phrasings, because there are two legitimate ways in and they print
+	// different lines: an explicitly CHECKED add-on says "sidecar: DinD (same
+	// image)" from cmd/proveo, while PROVEO_DIND=1 goes through dind.ShouldStart
+	// and says "Starting sibling Docker-in-Docker". Keying on only the first is
+	// what made this wait time out against a sidecar that was already running.
 	w.until("the dind sidecar line", 3*time.Minute, func() bool {
-		return strings.Contains(w.Screen(), "sidecar: DinD")
+		scr := w.Screen()
+		return strings.Contains(scr, "sidecar: DinD") ||
+			strings.Contains(scr, "Starting sibling Docker-in-Docker")
 	})
 	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
 
 	const mark = "DIND-MOUNT-OK"
-	probe := "{ docker version --format '{{.Server.Version}}'; } > " + probeDocker + " 2>&1; " +
-		"printf %s " + mark + " > " + probeMount
+	// The probe RETRIES, because `docker:dind` starts its daemon asynchronously —
+	// several seconds after the container is up — while proveo hands the agent its
+	// shell immediately. A one-shot probe therefore raced the daemon and recorded
+	// "Cannot connect" as if the posture were broken. Each attempt overwrites the
+	// file, so the last write is either a version or the error worth reporting.
+	probe := "printf %s " + mark + " > " + probeMount + "; " +
+		"for i in $(seq 1 45); do " +
+		"if docker version --format '{{.Server.Version}}' > " + probeDocker + " 2>&1; then break; fi; " +
+		"sleep 2; done"
 	if err := sess.SendText(probe); err != nil {
 		t.Fatalf("send probe: %v", err)
 	}
@@ -399,11 +592,24 @@ func dindDockerProbe(t *testing.T, target string) {
 		t.Fatalf("send probe newline: %v", err)
 	}
 	w.until("the agent to write through the workspace mount", 3*time.Minute, func() bool {
-		return strings.Contains(readIn(work, probeMount), mark) &&
-			strings.TrimSpace(readIn(work, probeDocker)) != ""
+		return strings.Contains(readIn(work, probeMount), mark)
 	})
 
-	assertDockerServerReachable(t, target, "dind", strings.TrimSpace(readIn(work, probeDocker)))
+	// Poll rather than assert once: the loop above is still retrying, so the first
+	// content the file holds may be a connection error that a later attempt fixes.
+	deadline := time.Now().Add(2 * time.Minute)
+	var got string
+	for {
+		got = strings.TrimSpace(readIn(work, probeDocker))
+		if dockerVersionish(got) || time.Now().After(deadline) {
+			break
+		}
+		if !w.tick() {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+	assertDockerServerReachable(t, target, "dind", got)
 
 	_ = sess.SendText("exit")
 	_ = sess.Enter()
@@ -412,10 +618,10 @@ func dindDockerProbe(t *testing.T, target string) {
 	}
 }
 
-// assertDockerServerReachable is the shared verdict on the promise itself. Both
-// postures fail the same three ways, and each one names a different repair — a
-// missing client is an image problem, a refused connection is a topology problem,
-// and prose where a version belongs is neither.
+// assertDockerServerReachable is the verdict on what `docker: dind` promises.
+// It fails three ways, and each names a different repair — a missing client is an
+// image problem, a refused connection is a topology problem, and prose where a
+// version belongs is neither.
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Helper()
 	low := strings.ToLower(got)
@@ -433,7 +639,43 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Logf("%s: docker server reached via %s = %s", target, how, got)
 }
 
-func sandboxDockerProbe(t *testing.T, target string) {
+// assertSandboxReplacesDocker is the verdict on what `docker: sbx` promises, and
+// it is the inverse of the dind one. sbx hands the workload no daemon: the
+// microVM IS the isolation a daemon would otherwise be asked for, so it binds no
+// socket and sets no DOCKER_HOST, and `docker version` inside it answers
+// "Cannot connect to the Docker daemon" on both defs.
+//
+// The CLIENT is deliberately not asserted on, in either direction. Whether the
+// binary survives into the sandbox is not proveo's to promise and not stable:
+// cursor's sandbox has it and claudecode's does not, from images that both
+// install it, because `sbx create` re-bakes the template (see
+// _spec/_experiments/docker-sandbox.puml) and the claude-flavoured bake drops it.
+// Asserting either way would encode an sbx implementation detail as a proveo
+// contract and break on the next sbx release.
+//
+// What IS the contract is that nothing reaches a daemon. A socket appearing
+// inside the sandbox would punch through the boundary the backend was chosen for.
+func assertSandboxReplacesDocker(t *testing.T, target, got string) {
+	t.Helper()
+	if !strings.Contains(got, "NO-SOCKET") {
+		t.Errorf("%s declares docker: sbx but a docker socket is exposed inside the sandbox: %q\n"+
+			"that punches through the isolation boundary the sandbox backend was chosen for", target, got)
+	}
+	if _, server, ok := strings.Cut(got, "SERVER:"); ok {
+		if v := strings.TrimSpace(strings.SplitN(server, "\n", 2)[0]); dockerVersionish(v) {
+			t.Errorf("%s declares docker: sbx, which promises the sandbox REPLACES docker, "+
+				"but a daemon answered inside it with server version %q\n"+
+				"the sandbox is meant to BE the isolation — reaching a daemon from inside it "+
+				"means the def belongs on docker: dind, or a socket leaked in", target, v)
+		}
+	} else {
+		t.Errorf("%s: the docker probe wrote no SERVER: line, so nothing was actually tested: %q", target, got)
+	}
+	t.Logf("%s: the sandbox replaces docker (no socket, no daemon): %s", target,
+		strings.Join(strings.Fields(got), " · "))
+}
+
+func sandboxBoundaryProbe(t *testing.T, target string) {
 	t.Helper()
 	proveoBin := buildProveo(t)
 
@@ -484,15 +726,39 @@ func sandboxDockerProbe(t *testing.T, target string) {
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
 
-	w.until("the sandbox shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	// Fail on sbx's OWN error rather than waiting out the clock. Every adapter
+	// defect so far — a rejected flag, an unparseable Kit, an agent name that did
+	// not match the Kit's — printed a one-line ERROR here and then went quiet, so
+	// the only signal was a timeout six minutes later that named none of them.
+	//
+	// A start failure is the exception: proveo retries it ONCE on a freshly loaded
+	// template, because sbx's stored template can go bad on its own (see
+	// _spec/_experiments/docker-sandbox.puml). Failing on sight would call that
+	// run broken while the repair was still in flight, so the retry is allowed to
+	// finish and the error is only fatal if the session dies with it on screen.
+	w.until("the sandbox shell prompt", timeout, func() bool {
+		if line := sbxError(w.Screen()); line != "" && !retryable(line) {
+			w.Fatalf("%s: sbx refused the run — %s", target, line)
+		}
+		if line := brokenPrompt(w.Screen()); line != "" {
+			w.Fatalf("%s: a confirmation is eating input meant for something else — %s\n"+
+				"`sbx secret set` reads the secret from stdin, so this prompt consumes it and "+
+				"cancels the write; --force is what keeps that from happening", target, line)
+		}
+		// sbx asks the operator which credentials the Kit may use. That is a normal
+		// gate, not a fault — answer it the way an operator would.
+		answerSbxPrompt(sess, w.Screen())
+		return promptReady(w.Screen())
+	})
 
 	// One command covers claims 2 and 3: ask the daemon for its version, then
 	// write a marker — both through the mounted workspace, read back host-side.
 	// stderr is captured too, because the INTERESTING failures ("command not
 	// found", "cannot connect to the Docker daemon") only ever appear there.
 	const mark = "SBX-MOUNT-OK"
-	probe := "{ docker version --format '{{.Server.Version}}'; } > " + probeDocker + " 2>&1; " +
-		"printf %s " + mark + " > " + probeMount
+	probe := "{ ls /var/run/docker.sock >/dev/null 2>&1 && echo HAS-SOCKET || echo NO-SOCKET; " +
+		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; } > " +
+		probeDocker + " 2>&1; printf %s " + mark + " > " + probeMount
 	if err := sess.SendText(probe); err != nil {
 		t.Fatalf("send probe: %v", err)
 	}
@@ -507,9 +773,8 @@ func sandboxDockerProbe(t *testing.T, target string) {
 			strings.TrimSpace(readIn(work, probeDocker)) != ""
 	})
 
-	// Claim 3 — the daemon. This is the whole point of `docker: sbx`: a client
-	// with nothing behind it is the exact failure this suite existed to miss.
-	assertDockerServerReachable(t, target, "sbx", strings.TrimSpace(readIn(work, probeDocker)))
+	// Claim 3 — the boundary. This is the whole point of `docker: sbx`.
+	assertSandboxReplacesDocker(t, target, strings.TrimSpace(readIn(work, probeDocker)))
 
 	// Claim 4 — teardown. Exit the shell rather than killing the pane, so the
 	// run's own `sbx rm` (VM + images + volumes) is what gets exercised.

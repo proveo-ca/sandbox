@@ -45,7 +45,7 @@ assert_output_contains \
 
 TESTS_RUN=$((TESTS_RUN + 1))
 BAD_RULES=$(run_timeout 30s docker run --rm --entrypoint bash "$IMAGE" -c \
-  'cat /home/claude/.claude.json /home/claude/.claude/settings.local.json /workspace/.claude/settings.local.json 2>/dev/null' | grep -c 'mcp__\*' || true)
+  'cat /home/claude/.claude.json /home/claude/.claude/settings.local.json /app/.claude/settings.local.json 2>/dev/null' | grep -c 'mcp__\*' || true)
 if [[ "$BAD_RULES" == "0" ]]; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
   printf "${GREEN}PASS${NC} [%d] [claudecode] no wildcard-only MCP allow rule in any seeded settings\n" "$TESTS_RUN"
@@ -75,9 +75,9 @@ assert_success \
   "test -f /home/claude/.claude/settings.local.json"
 
 assert_success \
-  "[standalone] /workspace/.claude/settings.local.json exists" \
+  "[standalone] /app/.claude/settings.local.json exists" \
   "$IMAGE" \
-  "test -f /workspace/.claude/settings.local.json"
+  "test -f /app/.claude/settings.local.json"
 
 assert_success \
   "[standalone] settings.local.json is valid JSON" \

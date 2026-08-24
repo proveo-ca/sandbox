@@ -84,8 +84,6 @@ func runPrep() {
 		_ = os.Chdir(wd)
 	} else if st, err := os.Stat("/app"); err == nil && st.IsDir() {
 		_ = os.Chdir("/app")
-	} else if st, err := os.Stat("/workspace/input"); err == nil && st.IsDir() {
-		_ = os.Chdir("/workspace/input")
 	}
 
 	mode := os.Getenv("PROVEO_EGRESS_MODE")
@@ -109,12 +107,10 @@ func runPrep() {
 		}
 	}
 
-	gitDir := ""
-	if st, err := os.Stat("/workspace/input"); err == nil && st.IsDir() {
-		gitDir = "/workspace/input"
-	}
-	entrypoint.BridgeGitIdentity(gitDir)
-	reportGitContext(gitDir)
+	// Both fall back to the cwd, which the chdir above already put at the
+	// workspace root — so there is nothing layout-specific left to pass.
+	entrypoint.BridgeGitIdentity("")
+	reportGitContext("")
 	entrypoint.ApplyEnvBridges()
 }
 

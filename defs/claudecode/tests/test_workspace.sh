@@ -6,7 +6,7 @@ for image in $(images_to_test); do
   tag=$(image_tag "$image")
 
   # Directory existence
-  for dir in /workspace /workspace/input /workspace/output \
+  for dir in /app /app/output /workspace \
              /workspace/data /workspace/temp /workspace/mcp-servers; do
     assert_success "[$tag] $dir exists" "$image" "test -d $dir"
   done
@@ -26,9 +26,9 @@ for image in $(images_to_test); do
     "^755$"
 
   assert_output_matches \
-    "[$tag] /workspace/input is 750" \
+    "[$tag] /app is 750" \
     "$image" \
-    "stat -c '%a' /workspace/input" \
+    "stat -c '%a' /app" \
     "^750$"
 
   assert_output_matches \
@@ -38,9 +38,9 @@ for image in $(images_to_test); do
     "^750$"
 
   assert_output_matches \
-    "[$tag] /workspace/output is 755" \
+    "[$tag] /app/output is 755" \
     "$image" \
-    "stat -c '%a' /workspace/output" \
+    "stat -c '%a' /app/output" \
     "^755$"
 
   assert_output_matches \
@@ -55,12 +55,12 @@ for image in $(images_to_test); do
     "stat -c '%a' /workspace/mcp-servers" \
     "^755$"
 
-  # WORKDIR
+  # WORKDIR — /app, the same workspace root every def uses
   assert_inspect \
-    "[$tag] WORKDIR is /workspace" \
+    "[$tag] WORKDIR is /app" \
     "$image" \
     '{{.Config.WorkingDir}}' \
-    "/workspace"
+    "/app"
 
   # Home directory
   assert_output_contains \

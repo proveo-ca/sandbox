@@ -8,11 +8,7 @@ title Where .git comes from, and how gitMode is honoured in each scope
 
 component "MountSpec.Plan()" as PLAN <<app>>
 
-node "layout: input-output — claudecode" as IO <<host>> {
-  component "/workspace/input\n.git rides INSIDE + ro override" as IOM <<app>>
-}
-
-node "layout: app — opencode · cursor · cecli" as APP <<host>> {
+node "layout: app — every def" as APP <<host>> {
   component "**A. scope == repo root**\n/app  ← whole root\n.git rides INSIDE + ro override" as A <<app>>
   component "**B. scope UNDER repo root**\n/app/<rel> + /app/.git\nits own bind" as B <<app>>
   component "**C. not a repo**\n/app  ← input dir\nNO .git" as C <<app>>
@@ -21,14 +17,12 @@ node "layout: app — opencode · cursor · cecli" as APP <<host>> {
 component """gitMode: ro|rw""\nmanifest field" as GM <<app>>
 component "nested bind over .git\nlayered on the parent mount" as OVER <<app>>
 
-PLAN ARROW_MAIN IOM : Layout == "input-output"
 PLAN ARROW_MAIN A : RepoRoot != "" && InputDir == RepoRoot
 PLAN ARROW_MAIN B : RepoRoot != "" && InputDir under RepoRoot
 PLAN ARROW_MAIN C : RepoRoot == ""
 GM ARROW_MAIN B : its own bind carries the flag
-GM ARROW_MAIN OVER : A · input-output
+GM ARROW_MAIN OVER : A
 OVER ARROW_MAIN A
-OVER ARROW_MAIN IOM
 
 note right of B
   **Only branch B gives "".git"" a mount of its own**, because only there is the
@@ -40,7 +34,7 @@ note right of B
 end note
 
 note bottom of A
-  In A and in input-output, ""/app"" (or ""/workspace/input"") IS the mount, so
+  In A and in app, ""/app"" (or ""/app"") IS the mount, so
   "".git"" arrives as ordinary content within it and inherits that mount's
   read-only flag (""workspace.mode""), never ""gitMode"".
 

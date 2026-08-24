@@ -36,8 +36,8 @@ note over TEST
 
   Per-target paths differ by workspace layout: ""app""
   targets write ""HELLO_WORLD.txt"" at the mount root;
-  ""input-output"" (claudecode) is told to write to
-  ""/workspace/output"" and is checked under ""reports/"".
+  ""app"" (claudecode) is told to write to
+  ""/app/output"" and is checked under ""reports/"".
 end note
 
 note over TEST
@@ -63,7 +63,7 @@ note over TEST
   random token byte-exact when //copying it into a tool call//
   — the marker lands in the file perfectly — yet answers the
   human in its own words: gemma4 says "File
-  /workspace/output/HELLO_WORLD\.txt created successfully."
+  /app/output/HELLO_WORLD\.txt created successfully."
   rather than echoing the token. Demanding the echo would test
   instruction-format compliance, which is the model's business,
   instead of whether the loop closed, which is proveo's.

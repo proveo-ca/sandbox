@@ -13,7 +13,12 @@ images:
   # mcp + Solidity/security toolchain (Foundry, solc, solhint, semgrep)
   claudecode-solidity: proveo/claudecode-solidity:latest
 workspace:
-  layout: input-output
+  layout: app
+  configDir: .claude
+  gitMode: rw
+  # claudecode writes its deliverables to the output mount, which the app layout
+  # makes explicit (the retired input-output layout bound it unconditionally).
+  output: true
 home:
   enabled: true
   mounts:

@@ -12,7 +12,7 @@ node "Scope resolution" as SCOPE <<host>> {
 }
 
 node "MountSpec.Plan() — manifest workspace model" as PLAN <<host>> {
-  component "layout: input-output\n/workspace/input + /workspace/output" as IO <<app>>
+  component "layout: app\n/app + /app/output" as IO <<app>>
   component "layout: app\nagent edits in place at /app" as APP <<app>>
   component "monorepo subdir scope\n/app/<rel> + /app/.git + rootFiles" as SUB <<app>>
   component "envMounts · maskEnvMounts\nescapingEnvFile" as ENV <<app>>
@@ -41,7 +41,7 @@ note left of RES
   looking; the root is what carries full git and workspace context, so once
   ""workspace\.Resolve"" reports a repo everything downstream hangs off the
   root instead of the entry point — the default ""reports/"" output dir,
-  project discovery for the picker, and the tree the input-output layout
+  project discovery for the picker, and the tree the app layout
   mounts read-only.
 end note
 
@@ -81,7 +81,7 @@ note bottom of ENV
 
   They //must// arrive as env because the file they would otherwise be read
   from is not there to read: ""\.env"" is masked on the proxy and firewall
-  tiers, and the input-output layout does not mount it at all.
+  tiers, and the app layout does not mount it at all.
 
   **""--local-model"" overrides them by construction, not by a conditional.**
   Its ""-e"" pairs land in ""plan\.AgentArgs"", which docker applies //after//

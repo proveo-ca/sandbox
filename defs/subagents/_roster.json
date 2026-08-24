@@ -1,0 +1,37 @@
+{
+  "claudecode": [
+    "adversarial-reviewer",
+    "architect",
+    "monorepo-coordinator",
+    "security-reviewer",
+    "spec-keeper"
+  ],
+  "cecli": [
+    "adversarial-reviewer",
+    "architect",
+    "backend",
+    "devops",
+    "frontend",
+    "monorepo-coordinator",
+    "security-reviewer",
+    "spec-keeper",
+    "sre",
+    "systems-design"
+  ],
+  "opencode": [
+    "adversarial-reviewer",
+    "architect",
+    "backend",
+    "devops",
+    "frontend",
+    "monorepo-coordinator",
+    "security-reviewer",
+    "spec-keeper",
+    "sre",
+    "systems-design"
+  ],
+  "cursor": [
+    "adversarial-reviewer",
+    "security-reviewer"
+  ]
+}

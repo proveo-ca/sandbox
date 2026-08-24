@@ -1,0 +1,7 @@
+name: frontend
+description: Frontend specialist (React/Next/Vite/TS). Advisory; does not edit.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

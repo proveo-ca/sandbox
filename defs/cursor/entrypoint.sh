@@ -22,14 +22,8 @@ else
   attach_rtk
 fi
 
-# ARCHITECT_MODEL / EDITOR_MODEL → CURSOR_MODEL (cursor-specific)
-if [[ -z "${CURSOR_MODEL:-}" ]]; then
-  if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
-    export CURSOR_MODEL="$ARCHITECT_MODEL"
-  elif [[ -n "${EDITOR_MODEL:-}" ]]; then
-    export CURSOR_MODEL="$EDITOR_MODEL"
-  fi
-fi
+# Model bridges are declared in defs/bridges/cursor.tsv.
+apply_model_bridges cursor
 
 # ── Seed user-level defaults (~/.cursor) ────────────────────
 # Only seed files that are missing, unless CURSOR_RESEED=1 forces a full
@@ -44,24 +38,13 @@ seed_defaults() {
   if [[ "${CURSOR_RESEED:-0}" == "1" ]]; then
     echo "🔁 CURSOR_RESEED=1 — re-seeding $dst from baked-in defaults"
     cp -f "$src/cli-config.json" "$dst/cli-config.json"
-    if [[ -d "$src/agents" ]]; then
-      for f in "$src/agents/"*.md; do
-        [[ -e "$f" ]] || continue
-        cp -f "$f" "$dst/agents/"
-      done
-    fi
+    render_subagents cursor "$dst/agents" 1
     return 0
   fi
 
   local seeded=()
   [[ -f "$dst/cli-config.json" ]] || { cp "$src/cli-config.json" "$dst/cli-config.json"; seeded+=("cli-config.json"); }
-  if [[ -d "$src/agents" ]]; then
-    for f in "$src/agents/"*.md; do
-      [[ -e "$f" ]] || continue
-      local name; name="$(basename "$f")"
-      [[ -f "$dst/agents/$name" ]] || { cp "$f" "$dst/agents/$name"; seeded+=("agents/$name"); }
-    done
-  fi
+  render_subagents cursor "$dst/agents" 0
   if (( ${#seeded[@]} > 0 )); then
     echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
   fi

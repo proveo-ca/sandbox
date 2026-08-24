@@ -125,7 +125,7 @@ func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	args = append(args, worktreeEnvArgs(t, target, wt)...)
 	args = append(args,
 		"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-		"-w", "/workspace/input", "--user", hostUIDGID(t),
+		"-w", "/app", "--user", hostUIDGID(t),
 		"--entrypoint", "bash", img, "-c", `
 source /entrypoint-lib.sh 2>/dev/null || true
 ensure_git_safe_directory "$PWD" >/dev/null 2>&1 || true
@@ -152,7 +152,12 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	// credential policy masks that path with /dev/null instead, so the escaping-.env
 	// mount these probes assert would not exist at all.
 	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", input, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
+	// PROVEO_SBX=off is load-bearing: these probes SCRAPE -v specs out of the
+	// printed plan and then run `docker run` themselves. On a host with sbx
+	// installed the printed plan is the SANDBOX argv, which carries no -v at all —
+	// so without this the scrape yields nothing and the probe runs against an
+	// unmounted container while still looking like a pass.
+	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)

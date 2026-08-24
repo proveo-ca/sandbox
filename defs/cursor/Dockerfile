@@ -58,6 +58,8 @@ RUN mkdir -p /app \
     && chown -R ${USER_NAME}:${USER_NAME} /app /home/${USER_NAME}
 
 COPY defs/cursor/defaults/ /opt/cursor/defaults/
+COPY defs/subagents/ /opt/proveo/subagents/
+COPY defs/bridges/ /opt/proveo/bridges/
 RUN chmod +x /opt/cursor/defaults/hooks/*.sh
 
 # Enterprise hook layer: root-owned, highest precedence (enterprise > team >

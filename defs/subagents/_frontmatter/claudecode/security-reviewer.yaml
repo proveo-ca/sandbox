@@ -1,0 +1,4 @@
+name: security-reviewer
+description: Threat-model and OWASP-style security review of the current diff, with CWE-tagged findings. Use proactively when auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched.
+tools: Read, Grep, Glob
+model: inherit

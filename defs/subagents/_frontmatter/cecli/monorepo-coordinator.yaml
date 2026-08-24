@@ -1,0 +1,7 @@
+name: monorepo-coordinator
+description: Owns cross-project concerns in a monorepo. Workspace structure, shared deps, build graph.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

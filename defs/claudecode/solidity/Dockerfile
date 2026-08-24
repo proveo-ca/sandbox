@@ -20,4 +20,4 @@ RUN curl -L https://foundry.paradigm.xyz | bash \
     && /home/${USER_NAME}/.foundry/bin/foundryup
 
 ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"
-WORKDIR /workspace
+WORKDIR /app

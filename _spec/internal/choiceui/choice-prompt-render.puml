@@ -3,6 +3,10 @@
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
 ' row-gating helpers (applicableRows, comingSoon, gateAddons, gateEvidence) lands here (batches 3 and 6).
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
+' Resolved geometry — column alignment, the divider, how a gated element is drawn:
+' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
+' Why review needs a pty: _spec/internal/reviewgate/pty-review-proxy.puml.
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Choice prompt render — radio axes above the divider, checkboxes below
 
 node "internal/choiceui" as PKG <<host>> {
@@ -39,90 +43,94 @@ RUN ARROW_MAIN READ
 READ ARROW_ERROR MISREAD : fall back to the resolved value instead
 
 note bottom of DRAW
-  **The divider separates two kinds of question.** Above it the radio axes,
-  ordered riskier → safer by the legend the draw pass prints; below it the
-  checkbox toggles, which that ordering does not describe.
-
-  **""agent evidence"" is a toggle, not a tier.** It sits with the add-ons rather
-  than under the legend because narrating more of the run costs tokens and
-  screen, not safety — nothing about it is riskier or safer. ""evidenceRow"" draws
-  the two levels as checkboxes with ""verbose"" ticked, and the pair is kept
-  exclusive by ""gateEvidence"".
+  **""agent evidence"" is a toggle, not a tier.**
+  Narrating more of the run costs tokens and
+  screen rather than safety, so it belongs with
+  the add-ons instead of under the legend, and
+  ""gateEvidence"" enforces their exclusivity.
 end note
 
-note right of GATE
-  **One gate per toggle row, run unconditionally.** ""gateAddons"" no-ops when its
-  row was filtered out, so both gates can fire on every keystroke instead of the
-  caller tracking which rows made it onto the form.
+note bottom of DRAW
+  **Ordering is a property of the row, not of
+  the prompt.** The radio axes run riskier →
+  safer while a checkbox set carries no such
+  direction, so a single legend cannot describe
+  both and the divider ends its authority.
+end note
 
-  ""gateEvidence"" keeps the two evidence boxes exclusive: a level is one answer,
-  so ticking one clears the other. Clearing BOTH is allowed and reads as
-  ""default"" — ""evidenceFrom"" asks only whether verbose was chosen.
+note top of GATE
+  **One gate per toggle row, run
+  unconditionally.** ""gateAddons"" degrades to a
+  no-op when its row was filtered out, so both
+  gates fire on every keystroke and the caller
+  never tracks which rows survived onto the form.
+end note
+
+note top of GATE
+  **A level is one answer.** ""gateEvidence""
+  clears the opposite box whenever either is
+  ticked, and clearing both is allowed because
+  ""evidenceFrom"" only asks whether verbose was
+  selected.
+end note
+
+note top of SOON
+  **Greyed, never hidden.** ""comingSoon""
+  disables the option and moves the selection
+  away, yet the row still displays it with the
+  reason attached, because removing it
+  misrepresents an unfinished tier as absent.
 end note
 
 note bottom of SOON
-  **Greyed, never hidden.** ""comingSoon"" marks the option off and moves the
-  selection away from it, but the row still shows it with the reason attached:
-  removing it would misrepresent the tier as nonexistent rather than unfinished.
-
-  ""--egress-mode"" still accepts the value, so development can drive an
-  unfinished tier while an operator cannot pick it by accident.
-
-  ""review"" is greyed by its platform rather than its state, and the row names
-  which constraint failed — 'linux only' or 'needs a local docker daemon'. The
-  transport reason is in ""_spec/internal/reviewgate/pty-review-proxy\.puml"".
+  **""--egress-mode"" still accepts the value.**
+  Development can therefore drive an unfinished
+  tier that an operator cannot select by
+  accident, and ""review"" is greyed by its
+  platform with the failed constraint named.
 end note
 
-note bottom of MISREAD
-  **A filtered-out axis has no row to read, and empty is not an answer.** The
-  gate falls back to the value already resolved from the manifest. Without that
-  fallback, hiding cursor's single-option rows made the gate see empty strings
-  and wrongly disable ""dind"" — on the one harness whose fixed tier can host it.
+note top of TTY
+  **""isStdinTTY"" gates every interactive
+  prompt.** It performs a genuine ioctl check
+  rather than a character-device stat, because
+  ""/dev/null"" is itself a character device and
+  would block a run that can never reply.
 end note
 
-note left of TTY
-  **The add-ons picker runs BEFORE the missing-env wizard, and the order is
-  load-bearing.** The wizard may attach a ""bufio\.Reader"" to stdin, and a
-  buffered reader starves an interactive picker of the keystrokes it is waiting
-  for. So the multiselect is answered first, while stdin is still raw.
+note bottom of TTY
+  **The add-ons picker runs BEFORE the
+  missing-env wizard.** The wizard may attach a
+  ""bufio\.Reader"" to stdin, and a buffered
+  reader starves the picker of the keystrokes it
+  is waiting for, hanging the prompt entirely.
 end note
 
-note right of TTY
-  **""isStdinTTY"" is the one gate in front of every interactive prompt** — the
-  monorepo scope picker and the missing-env wizard both ask it — so no prompt
-  can decide on its own that a run is interactive.
-
-  It is a real ioctl check (""term\.IsTerminal"" on an ""*os\.File"" descriptor),
-  **not** a char-device stat. ""/dev/null"" is a character device too, so a stat
-  would read a stdin redirected to null as an operator waiting to answer and
-  block a run that can never reply. A reader that is not an ""*os\.File"" at all
-  — a test's ""strings\.Reader"" — is likewise not a terminal, which is what
-  lets the scope picker fall back to its numbered form under test.
+note top of HDR
+  **Models are shown, not chosen.** The grid
+  holds closed choices while a model id is an
+  unbounded value, so the roles are printed in
+  the header beside the repository instead of
+  becoming a selectable row of their own.
 end note
 
-note right of HDR
-  **Models are shown, not chosen.** The grid holds closed choices and a model id
-  is an open value, so the roles are printed in the header — beside the git repo,
-  the loaded ""\.env"" and the workspace layout — and never become a row.
-
-  Each role carries the provider it resolved to. That is what makes a keyless
-  role visible BEFORE launch rather than after a failed call.
+note bottom of HDR
+  **Each role carries the provider it resolved
+  to.** That is what exposes a credential-less
+  role BEFORE launch, rather than after an
+  authentication failure on its first outbound
+  call.
 end note
+
 note bottom of ROW
-  **The legend describes only the radio rows, which is why it is drawn
-  once, above them.** Both policy axes are ordered riskier → safer, so a
-  single label explains every one of them and the operator does not have to
-  infer direction from option names. A row that is a checkbox set carries no
-  such order, so the centred divider closes the axis rather than letting the
-  legend appear to govern the whole prompt — and only the row the divider is
-  named after drops its own label, or a second checkbox section would render
-  as an anonymous pair of boxes.
+  Checkboxes render under
+  an add-ons divider.
+end note
 
-  **The consent modal takes the whole screen rather than composing with
-  this form.** It answers one connection at a time, mid-run, over a
-  suspended agent TUI — a different question from the one-shot posture
-  prompt, and sharing layout would couple two lifecycles that have nothing
-  else in common.
+note bottom of ROW
+  **The consent modal takes the whole screen.**
+  ""review"" mode answers one connection at a time
+  over a suspended agent TUI.
 end note
 
 

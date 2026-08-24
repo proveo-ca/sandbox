@@ -9,7 +9,7 @@ node "claudecode container" as CTR <<host>> {
   component "claude --dangerously-skip-permissions" as CLI <<error>>
   artifact "CLAUDE.md\nloop pattern + acceptance criteria" as MD <<db>>
   component "verification commands\n(internal/verify preamble)" as VER <<app>>
-  database "/workspace/input (repo)\n/workspace/output (artifacts)" as WS <<db>>
+  database "/app (repo)\n/app/output (artifacts)" as WS <<db>>
   component "~/.claude/agents\narchitect · monorepo-coordinator\nadversarial-reviewer · security-reviewer\nspec-keeper" as SUB <<app>>
 }
 
@@ -55,7 +55,7 @@ note left of SUB
 end note
 
 note bottom of WS
-  ""layout: input-output"" — the only harness that does not
+  ""layout: app"" — the only harness that does not
   use ""/app"". ""/workspace"" itself is **not** a mount, so a
   path outside ""input""/""output"" is written into the
   container's ephemeral layer and lost on exit.

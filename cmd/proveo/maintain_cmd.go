@@ -173,7 +173,8 @@ func buildCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&tag, "tag", "latest", "image tag to build/verify")
+	cmd.Flags().StringVar(&tag, "tag", maintain.LocalTag,
+		"image tag to build/verify (local builds are :local; :latest means published and is refused for --load)")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "pass --no-cache to docker build")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the plan instead of running it")
 	return cmd
@@ -205,7 +206,8 @@ func deployCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&tag, "tag", "latest", "image tag to push")
+	cmd.Flags().StringVar(&tag, "tag", maintain.PublishTag,
+		"image tag to publish (promoted from the :local build)")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the plan instead of running it")
 	return cmd
 }

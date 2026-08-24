@@ -58,28 +58,35 @@ RUN npm install -g --no-optional \
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
-# Setup secure workspace with proper permissions
-RUN mkdir -p /workspace/input \
-    && mkdir -p /workspace/output \
+# Setup secure workspace with proper permissions.
+#
+# The workspace root is /app, the same as every other def. /workspace survives
+# only for the parts that were never claudecode's own: --data-dir mounts at
+# /workspace/data for EVERY harness, so that path is a cross-harness convention
+# rather than a leftover of the retired input-output layout.
+RUN mkdir -p /app \
+    && mkdir -p /app/output \
+    && mkdir -p /app/.claude \
     && mkdir -p /workspace/data \
     && mkdir -p /workspace/temp \
     && mkdir -p /workspace/mcp-servers \
-    && mkdir -p /workspace/.claude \
     && mkdir -p /home/${USER_NAME}/.claude \
-    && chown -R ${USER_NAME}:${USER_NAME} /workspace /home/${USER_NAME}/.claude \
+    && chown -R ${USER_NAME}:${USER_NAME} /app /workspace /home/${USER_NAME}/.claude \
     && chmod 755 /workspace \
-    && chmod 750 /workspace/input \
+    && chmod 750 /app \
     && chmod 750 /workspace/data \
-    && chmod 755 /workspace/output \
+    && chmod 755 /app/output \
     && chmod 755 /workspace/temp \
     && chmod 755 /workspace/mcp-servers
 
 # Copy Claude configuration directly into final locations
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/claude-config.json /home/${USER_NAME}/.claude.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
-COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /workspace/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /app/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/proveo-lib/ /opt/proveo/lib/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/defaults/ /opt/claudecode/defaults/
+COPY --chown=${USER_NAME}:${USER_NAME} defs/subagents/ /opt/proveo/subagents/
+COPY --chown=${USER_NAME}:${USER_NAME} defs/bridges/ /opt/proveo/bridges/
 
 # Copy shared entrypoint
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
@@ -89,7 +96,7 @@ RUN chmod +x /entrypoint.sh
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
-WORKDIR /workspace
+WORKDIR /app
 
 # claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base.
 # NODE_ENV is deliberately NOT baked here: it would make every `npm`/`pnpm install`

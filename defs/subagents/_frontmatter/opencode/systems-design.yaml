@@ -1,0 +1,6 @@
+description: Distributed systems and scaling review. Capacity, failure modes, consistency.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

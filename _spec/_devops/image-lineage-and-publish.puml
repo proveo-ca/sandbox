@@ -19,7 +19,14 @@ folder "Lineage" as CHAIN <<host>> {
   component "claudecode-solidity" as H3 <<app>>
 }
 
+node "Tag policy" as TAGS <<host>> {
+  component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
+  component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
+  component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
+}
+
 cloud "Registry" as REG <<cloud>>
+component "A published image shadowing\nthe build under test" as SHADOW <<error>>
 component "Unpublished parent\non a --push build" as FAIL <<error>>
 
 B ARROW_MAIN BN
@@ -35,6 +42,11 @@ ENSURE ARROW_MAIN CHAIN : local — present · floor · pull · build
 ENSURE ARROW_CLOUD REQ : ""--push"" — publication is all that matters
 REQ ARROW_CLOUD REG : ""buildx imagetools inspect""
 REQ ARROW_ERROR FAIL : fail early, at the declaration site
+BUILD ARROW_MAIN RESOLVE : ""<image>:local""
+BUILD ARROW_MAIN DEPLOY : the tested image
+DEPLOY ARROW_CLOUD REG : promoted, multi-arch
+RESOLVE ARROW_ERROR SHADOW : prevented by tag, not by luck
+REG ARROW_ERROR SHADOW : sbx re-pulls at sandbox creation
 
 note right of REF
   **A child never hardcodes ""latest"".** Every parent reference is
@@ -127,5 +139,37 @@ note bottom of ENSURE
   shared ""packages/lib"" copies.
 end note
 
+
+note top of BUILD
+  **A local build never writes ""latest"".** That
+  tag means published, and while one name covered
+  both, anything re-resolving the reference could
+  serve the registry artifact over the build under
+  test, with nothing recording which one ran.
+end note
+
+note bottom of DEPLOY
+  **Deploy promotes; it never builds blind.** It
+  requires ""<image>:local"" and retags that image
+  before pushing, so publishing without a local
+  build refuses rather than shipping something
+  nothing was ever run against.
+end note
+
+note top of RESOLVE
+  **Recency decides, not existence.** A stale
+  local image must not shadow one just pulled, and
+  a build from a minute ago must not lose to the
+  registry, so the runtime compares build times
+  and names which image actually won.
+end note
+
+note bottom of SHADOW
+  **The sandbox backend re-pulls by reference.**
+  sbx resolves the image at creation and takes it
+  from the registry, so a week-old published tag
+  reached the container while every local rebuild
+  appeared to succeed and changed nothing.
+end note
 
 @enduml

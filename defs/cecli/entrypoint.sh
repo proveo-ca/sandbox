@@ -26,28 +26,7 @@ export CECLI_HOME
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
 seed_cecli_subagents() {
-  local src="/opt/cecli/defaults/agents"
-  local dst="$CECLI_HOME/agents"
-  local seeded=()
-
-  mkdir -p "$dst" 2>/dev/null || true
-  if [[ ! -d "$src" || ! -d "$dst" ]]; then
-    return
-  fi
-
-  for f in "$src/"*.md; do
-    [[ -e "$f" ]] || continue
-    local name; name="$(basename "$f")"
-    if [[ "${CECLI_RESEED:-0}" == "1" || ! -f "$dst/$name" ]]; then
-      if cp -f "$f" "$dst/$name" 2>/dev/null; then
-        seeded+=("agents/$name")
-      fi
-    fi
-  done
-
-  if (( ${#seeded[@]} > 0 )); then
-    echo "🌱 Seeded Cecli subagents into $dst: ${seeded[*]}"
-  fi
+  render_subagents cecli "$CECLI_HOME/agents" "${CECLI_RESEED:-0}"
 }
 
 has_cecli_agent_config() {
@@ -67,21 +46,10 @@ if ! command -v proveo-entrypoint >/dev/null 2>&1; then
   report_git_context
 fi
 
-# CECLI is an aider fork: export CECLI_* and AIDER_* aliases.
-if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
-  export CECLI_MODEL="${CECLI_MODEL:-$ARCHITECT_MODEL}"
-  export AIDER_MODEL="${AIDER_MODEL:-$ARCHITECT_MODEL}"
-fi
+# Model bridges are declared in defs/bridges/cecli.tsv.
+apply_model_bridges cecli
 
-if [[ -n "${EDITOR_MODEL:-}" ]]; then
-  export CECLI_EDITOR_MODEL="${CECLI_EDITOR_MODEL:-$EDITOR_MODEL}"
-  export AIDER_EDITOR_MODEL="${AIDER_EDITOR_MODEL:-$EDITOR_MODEL}"
-fi
 
-if [[ -n "${SMALL_MODEL:-}" ]]; then
-  export CECLI_WEAK_MODEL="${CECLI_WEAK_MODEL:-$SMALL_MODEL}"
-  export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
-fi
 
 # A local model reaches litellm through Ollama's OPENAI-COMPATIBLE API, not its
 # native one. Both litellm ollama providers are broken in this image:

@@ -317,3 +317,110 @@ func TestSecondMultiRowKeepsItsLabel(t *testing.T) {
 		t.Errorf("only the first checkbox row gets a divider:\n%s", out)
 	}
 }
+
+// The models row carries a label and several KEY=value pairs at once. Accenting
+// stopped at the label before, so every slot after "llms:" rendered as body text
+// and the row read as one model mattering more than the others.
+func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
+	t.Parallel()
+	var accented, body []string
+	pal := palette{accent: tcell.StyleDefault.Foreground(tcell.ColorTeal), body: tcell.StyleDefault}
+	put := func(_ int, st tcell.Style, s string) {
+		if st == pal.accent {
+			accented = append(accented, s)
+		} else {
+			body = append(body, s)
+		}
+	}
+	putHeader(put, pal, "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
+
+	for _, want := range []string{"llms:", "main", "small"} {
+		var found bool
+		for _, got := range accented {
+			if strings.Contains(got, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q must be accented; accented=%v", want, accented)
+		}
+	}
+	joined := strings.Join(body, "")
+	for _, want := range []string{"claude-opus-5", "claude-haiku-4-5", "(anthropic)"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("%q must render as body text; body=%q", want, joined)
+		}
+	}
+}
+
+// The lsp: row is "lsp:  <glyph> name  <glyph> name". The label and the glyphs are
+// markers and take the accent; the server names are content and stay body-styled.
+func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
+	t.Parallel()
+	var accented, body []string
+	pal := palette{accent: tcell.StyleDefault.Foreground(tcell.ColorTeal), body: tcell.StyleDefault}
+	put := func(_ int, st tcell.Style, s string) {
+		if st == pal.accent {
+			accented = append(accented, s)
+		} else {
+			body = append(body, s)
+		}
+	}
+	putHeader(put, pal, "lsp:       typescript-language-server  {} yaml-language-server")
+
+	acc := strings.Join(accented, "|")
+	for _, want := range []string{"lsp:", "", "{}"} {
+		if !strings.Contains(acc, want) {
+			t.Errorf("%q must be accented; accented=%q", want, acc)
+		}
+	}
+	joined := strings.Join(body, "")
+	for _, want := range []string{"typescript-language-server", "yaml-language-server"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("%q must render as body text; body=%q", want, joined)
+		}
+	}
+	if strings.Contains(acc, "language-server") {
+		t.Errorf("server names must not be accented; accented=%q", acc)
+	}
+}
+
+// The git row is "git: <repo> on <branch> (<state>)". A reader scans it for the
+// branch, and the state is a description of the fact rather than the fact itself.
+func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
+	t.Parallel()
+	var accented, aside, body []string
+	pal := palette{
+		accent: tcell.StyleDefault.Foreground(tcell.ColorTeal),
+		aside:  tcell.StyleDefault.Italic(true),
+		body:   tcell.StyleDefault,
+	}
+	put := func(_ int, st tcell.Style, s string) {
+		switch st {
+		case pal.accent:
+			accented = append(accented, s)
+		case pal.aside:
+			aside = append(aside, s)
+		default:
+			body = append(body, s)
+		}
+	}
+	putHeader(put, pal, "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
+
+	acc, asi, bod := strings.Join(accented, "|"), strings.Join(aside, ""), strings.Join(body, "")
+	if !strings.Contains(acc, "rs-295-integration-discriminator") {
+		t.Errorf("branch must be accented; accented=%q", acc)
+	}
+	if !strings.Contains(acc, "git:") {
+		t.Errorf("label must be accented; accented=%q", acc)
+	}
+	if !strings.Contains(asi, "(uncommitted changes)") {
+		t.Errorf("trailing parenthetical must be italic; aside=%q", asi)
+	}
+	if !strings.Contains(bod, "monorepo") || !strings.Contains(bod, "on") {
+		t.Errorf("repo name and connector stay body; body=%q", bod)
+	}
+	if strings.Contains(acc, "monorepo") {
+		t.Errorf("repo name must not be accented; accented=%q", acc)
+	}
+}

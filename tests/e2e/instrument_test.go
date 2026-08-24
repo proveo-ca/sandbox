@@ -117,9 +117,10 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 // container is running, so anything that fails earlier fails here with the
 // scrollback attached rather than as a confusing timeout further down.
 //
-// tmux trims trailing whitespace, so the prompt reads "…:/workspace/input$" with
-// nothing after it; matching on "$ " never fires. The workdir differs per harness
-// layout (app vs input-output), so every one it can be is accepted.
+// tmux trims trailing whitespace, so the prompt reads "…:/app$" with nothing
+// after it; matching on "$ " never fires. Every def now shares the one workspace
+// layout, so /app is the workdir — /workspace stays accepted only so an older
+// image still matches while the rebuilt ones roll out.
 func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 	t.Helper()
 	w.until("the agent shell", timeout, func() bool {
@@ -127,7 +128,7 @@ func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 		if !strings.Contains(scr, "@") {
 			return false
 		}
-		for _, wd := range []string{"/app", "/workspace", "/workspace/input"} {
+		for _, wd := range []string{"/app", "/workspace"} {
 			if strings.Contains(scr, ":"+wd+"$") || strings.Contains(scr, ":"+wd+"#") {
 				return true
 			}

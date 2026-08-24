@@ -1,0 +1,89 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how one subagent body reaches four harnesses that disagree on frontmatter
+' covers: defs/subagents/**
+' covers: defs/lib/render-subagents.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/agents_shared_test.go
+' covers: defs/*/defaults/agents/**
+' covers: defs/*/*/defaults/agents/**
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+title Subagent definition sharing — composed at container start, never duplicated
+
+node "defs/subagents — the single source" as SRC <<host>> {
+  component "<name>.md\nshared body, {{TOKEN}} placeholders" as BODY <<app>>
+  component "_frontmatter/<harness>/<name>.yaml\nper-harness schema, verbatim" as FM <<app>>
+  component "_vars/<harness>.env\ntoken values" as VARS <<app>>
+}
+
+component "render_subagents()\nin packages/lib/entrypoint-lib.sh" as RENDER <<app>>
+
+node "composed at first run" as OUT <<host>> {
+  component "~/.claude/agents · 5\ntools: · model:" as CC <<app>>
+  component "cecli agents · 10\nmode: · permission:" as CE <<app>>
+  component "opencode agents · 10\nmode: · permission:" as OC <<app>>
+  component "~/.cursor/agents · 2\nreadonly:" as CU <<app>>
+}
+
+component "agents_shared_test.go\ncomposes via the same shell fn" as GUARD <<app>>
+component "An image missing the shared dir" as DRIFT <<error>>
+
+BODY ARROW_MAIN RENDER
+FM ARROW_MAIN RENDER
+VARS ARROW_MAIN RENDER
+RENDER ARROW_MAIN CC
+RENDER ARROW_MAIN CE
+RENDER ARROW_MAIN OC
+RENDER ARROW_MAIN CU
+OUT ARROW_MAIN GUARD : asserted on composed output
+GUARD ARROW_ERROR DRIFT : COPY asserted per Dockerfile
+
+note top of BODY
+  **One body, because the advice is one advice.**
+  The four harnesses had drifted to four copies of
+  the same document, and cecli and opencode were
+  byte-identical for every agent they shared, so
+  the duplication bought nothing at all.
+end note
+
+note bottom of FM
+  **Frontmatter is the real difference.** Claude
+  Code declares a ""tools"" allowlist and a model,
+  opencode and cecli declare ""mode"" with a
+  permission block, and cursor declares
+  ""readonly"", so the schema cannot be shared.
+end note
+
+note bottom of VARS
+  **Tokens carry the only prose that legitimately
+  varies.** The orchestrator is called ""build""
+  in opencode and the main agent in Claude Code,
+  and a monorepo handoff can only name domain
+  agents the receiving roster actually contains.
+end note
+
+note bottom of RENDER
+  **Substitution is literal, never a regex.** The
+  bodies are full of backticks, globs and path
+  separators that a sed expression would mangle,
+  so the renderer replaces tokens through bash
+  parameter expansion instead.
+end note
+
+note top of OUT
+  **Nothing composed is ever committed.** Each
+  entrypoint joins the shared body to its own
+  frontmatter at first run, so the repository
+  holds one copy per agent and the image holds
+  one shared directory rather than four.
+end note
+
+note bottom of GUARD
+  **The guard shells out to the real function.**
+  A Go reimplementation could agree with itself
+  while disagreeing with the image, so the test
+  composes through ""render_subagents"" and
+  validates the definitions a container receives.
+end note
+
+@enduml

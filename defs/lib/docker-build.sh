@@ -116,6 +116,20 @@ proveo_docker_ensure_buildx() {
   printf '%s' "$builder"
 }
 
+# proveo_docker_arg_tag reads the --tag value out of a build argv, defaulting to
+# latest the same way the docker CLI does when none is given.
+proveo_docker_arg_tag() {
+  local prev=""
+  for a in "$@"; do
+    if [[ "$prev" == "--tag" || "$prev" == "-t" ]]; then
+      printf '%s' "${a##*:}"
+      return 0
+    fi
+    prev="$a"
+  done
+  printf 'latest'
+}
+
 proveo_docker_build() {
   local push=0
   local -a docker_args=()
@@ -143,6 +157,21 @@ proveo_docker_build() {
     mode="push"
     out_flags=(--push)
   else
+    # A --load build must never write :latest. That tag means "published", and when a
+    # local build also answered to it, anything that re-resolves the reference — sbx
+    # pulls it at sandbox creation — could serve the registry image over the build
+    # under test, silently. Local builds are :local; `proveo deploy` promotes.
+    local want_tag
+    want_tag="$(proveo_docker_arg_tag "${docker_args[@]}")"
+    if [[ "$want_tag" == "latest" ]]; then
+      {
+        echo "❌ refusing to --load an image tagged :latest."
+        echo "   :latest means published. Build locally as :local, then promote:"
+        echo "   →  proveo build <target>            — writes :local"
+        echo "   →  proveo deploy <target>           — promotes :local to :latest and pushes"
+      } >&2
+      return 1
+    fi
     if [[ "$platforms" == *,* ]]; then
       platforms="$(proveo_docker_host_platform)"
       echo "ℹ️  local image load is single-platform; building ${platforms} (PROVEO_DOCKER_PUSH=1 / --push publishes amd64+arm64)" >&2

@@ -55,7 +55,7 @@ note bottom of REPORT
   gates on ""workspace\.Scope\.IsRepo"" and returns the
   resolved repo root. Reading ""wsSpec\.RepoRoot"" instead
   is the bug it replaced — that field is populated only
-  for the app layout, so an input-output harness reported
+  for the app layout, so an app harness reported
   a real repository as absent.
 end note
 note bottom of GID
