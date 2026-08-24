@@ -4,7 +4,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 
 component "doRun backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
-component "sbx CLI (v0.35 pre-GA)\nrun --kit … / secret set / rm" as CLI <<host>>
+component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
 component "host-side credential injection\nvalues via stdin — never argv,\nnever env, never the VM fs" as SEC <<error>>
 
@@ -60,6 +60,75 @@ note left of FB
   sandbox reaches a daemon, and the sandbox is gone afterwards. It drives
   ""--shell"", so it costs no model call and no credential.
 end note
+note bottom of SEL
+  **proveo owns the install and the version, not the operator.** ""sbx"" is
+  pre-GA and its surface moves, so "installed" is not the same as "drivable":
+  ""sbx\.MinVersion"" is the surface this build targets, ""Available()"" refuses
+  anything older **at selection time**, and the run falls back to docker+egress
+  with the reason named. Every drift the pin exists for fails deep inside a
+  sandbox otherwise, where the operator cannot see it.
+
+  ""ensureSbx"" then offers to close the gap — ""InstallCmd(installed)"" returns
+  the //install// line when the CLI is absent and the //upgrade// line when it is
+  merely old, because handing "brew install" to someone who installed it
+  yesterday is how a version gate becomes advice they follow twice and then
+  ignore. The install is **confirmed, never silent**: it mutates the host outside
+  proveo's own state, so it takes the same gate as a missing sidecar image
+  (""PROVEO_AUTO_PROVISION"", else a TTY prompt, else declined — and declining is
+  a fallback, not an error).
+
+  **""--print"" provisions nothing.** A dry run is how an operator inspects a
+  posture before committing to it; if it could install a package manager's worth
+  of software the flag would stop being safe to reach for. ""sbxReady"" splits on
+  exactly that.
+end note
+
+note bottom of CLI
+  **Measured against v0.39, and the v0.35 shape does not run.** What the adapter
+  was written for and what the CLI now takes differ on every axis that matters:
+
+  | workspaces | ""-v host:container"" → **positional** ""PATH[:ro]"" (""--volume"" is ""--cloud"" only) |
+  | image | positional → ""-t/--template""; the first positional is an **agent name** |
+  | workdir | ""-w"" → **no such flag** on ""run"" or ""create"" |
+  | teardown | ""rm NAME"" → needs ""--force"", or it waits for a confirmation no script gives |
+  | image store | separate: ""sbx template ls"" is empty while the host engine holds every proveo image |
+
+  **The image store is crossed locally, per user.** The runtime keeps its own
+  store, so the harness image is piped over before a Kit can name it:
+  ""docker save <image> | sbx template load"", skipped when ""template ls"" already
+  lists it (these images are multi-GB and it is the slowest step in a sandbox run
+  by a wide margin). Deliberately NOT a registry: every operator has their own
+  docker login and their own ""sbx"" config, so a shared registry would turn a
+  per-user concern into an authenticated remote one and publish proveo's images
+  somewhere they do not need to be.
+
+  **Mounts are path-preserving.** A workspace lands inside the VM at its own HOST
+  path over virtiofs (""host on /private/tmp/… type virtiofs (rw,…)""), the cwd is
+  that path, and ""HOME=/home/agent"" with user ""agent"" uid 1000. There is no flag
+  to choose a container path — so proveo's ""/workspace/input"" ·
+  ""/workspace/output"" · ""HOME=/proveo-home"" contract cannot be expressed by
+  mounting alone, and that is the open question for this backend, not a flag fix.
+end note
+
+note bottom of KIT
+  **The Kit schema is not what this package writes.** Validated against v0.39
+  (""sbx kit validate""), ""image"" and ""credentialsEnv"" are **not fields** of
+  ""spec\.SpecFile"". The real shape:
+
+  | ""schemaVersion"" · ""kind: sandbox|mixin"" · ""name"" | required framing |
+  | ""sandbox: {image, entrypoint}"" | where a custom image and command go (sandbox kits only) |
+  | ""extends: claude"" | inherit a built-in agent instead |
+  | ""permissions.network: {allow, deny}"" | replaces ""network.allowedDomains"" |
+  | ""credentials[]: {service, apiKey: {name, proxyManaged, inject: [{domain, header, format}]}}"" | replaces ""credentialsEnv"" |
+  | ""environment.variables"" | a structured ""EnvironmentPolicy"", not a free map |
+  | ""setup: {install, startup, files}"" · ""agentInstructions"" | provisioning + prompt |
+
+  The credential block is the convergent one: ""proxyManaged"" plus per-domain
+  header injection with a format string is proveo's broker, declared instead of
+  implemented — ""provider\.AuthOption{Header, Bearer}"" over ""Hosts"" maps onto it
+  almost one-to-one.
+end note
+
 note bottom of SBX
   **One pinned CLI surface.** ""sbx"" is pre-GA (v0.35), so every flag it takes
   is encoded in exactly four places — ""RunArgs"", ""RemoveArgs"",

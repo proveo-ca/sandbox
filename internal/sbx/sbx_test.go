@@ -13,6 +13,12 @@ import (
 func withProbes(t *testing.T, path, wantGoos, wantGoarch string, kvmMissing bool) {
 	t.Helper()
 	oldLook, oldGoos, oldGoarch, oldKvm, oldStat := lookPath, goos, goarch, kvmDevice, stat
+	// Available now gates on the CLI's version, so the version probe has to be
+	// stubbed too or these cases would shell out to whatever sbx the host holds —
+	// and "darwin arm64 is supported" would start depending on a real install.
+	oldVer := runVer
+	runVer = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
+	t.Cleanup(func() { runVer = oldVer })
 	lookPath = func(string) (string, error) {
 		if path == "" {
 			return "", errors.New("not found")
@@ -201,5 +207,150 @@ func TestInstallHintIsPlatformSpecific(t *testing.T) {
 				t.Errorf("InstallHint() = %q, must not imply Docker Desktop is required", got)
 			}
 		})
+	}
+}
+
+// proveo owns the sbx version, so the parse has to survive the CLI's own
+// wording: `sbx version` answers "sbx version: v0.39.0 <sha>", not a bare
+// semver, and `--version` is not a flag it accepts at all.
+func TestVersionParsesTheCLIsOwnWording(t *testing.T) {
+	orig := runVer
+	t.Cleanup(func() { runVer = orig })
+
+	for _, tc := range []struct{ out, want string }{
+		{"sbx version: v0.39.0 def8cb0523a77e757bdd6ef52b459fe374f3783e\n", "0.39.0"},
+		{"sbx version: v0.35.0\n", "0.35.0"},
+		{"0.40.1\n", "0.40.1"},
+	} {
+		runVer = func() ([]byte, error) { return []byte(tc.out), nil }
+		got, err := Version()
+		if err != nil || got != tc.want {
+			t.Errorf("Version() from %q = %q, %v; want %q", tc.out, got, err, tc.want)
+		}
+	}
+
+	runVer = func() ([]byte, error) { return []byte("nothing here"), nil }
+	if _, err := Version(); err == nil {
+		t.Error("a version-less answer must be an error, not an empty string treated as old")
+	}
+}
+
+func TestOlderOrdersVersionsAndFailsOpen(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		got, want string
+		older     bool
+	}{
+		{"0.35.0", "0.39.0", true},
+		{"0.39.0", "0.39.0", false},
+		{"0.40.0", "0.39.0", false},
+		{"1.0.0", "0.39.0", false},
+		{"0.39.1", "0.39.0", false},
+		{"0.8.0", "0.39.0", true}, // numeric, not lexical: 8 < 39
+		// A scheme this build has never seen is assumed NEWER. Blocking a host the
+		// operator just upgraded would be the worse failure of the two.
+		{"weird", "0.39.0", false},
+		{"0.39.0", "weird", false},
+	} {
+		if got := Older(tc.got, tc.want); got != tc.older {
+			t.Errorf("Older(%q, %q) = %v, want %v", tc.got, tc.want, got, tc.older)
+		}
+	}
+}
+
+// The install line and the upgrade line are different commands, and handing an
+// operator "brew install" for an sbx they already have is how a version gate
+// turns into a no-op they follow twice.
+func TestInstallCmdDistinguishesInstallFromUpgrade(t *testing.T) {
+	origOS, origArch := goos, goarch
+	t.Cleanup(func() { goos, goarch = origOS, origArch })
+
+	goos, goarch = "darwin", "arm64"
+	fresh, upgrade := InstallCmd(false), InstallCmd(true)
+	if fresh == upgrade {
+		t.Fatalf("install and upgrade must differ, both = %q", fresh)
+	}
+	if !strings.Contains(fresh, "install") || !strings.Contains(upgrade, "upgrade") {
+		t.Errorf("install = %q, upgrade = %q", fresh, upgrade)
+	}
+
+	goos, goarch = "darwin", "amd64"
+	if got := InstallCmd(false); got != "" {
+		t.Errorf("darwin/amd64 has no sbx route, got %q", got)
+	}
+	goos, goarch = "plan9", "arm64"
+	if got := InstallCmd(false); got != "" {
+		t.Errorf("unsupported platform must offer nothing, got %q", got)
+	}
+}
+
+// Available gates on the version, because every drift this pin exists for fails
+// deep inside a run instead of at selection time.
+func TestAvailableRejectsATooOldCLI(t *testing.T) {
+	origOS, origArch, origLook, origVer := goos, goarch, lookPath, runVer
+	t.Cleanup(func() { goos, goarch, lookPath, runVer = origOS, origArch, origLook, origVer })
+
+	goos, goarch = "darwin", "arm64"
+	lookPath = func(string) (string, error) { return "/usr/local/bin/sbx", nil }
+
+	runVer = func() ([]byte, error) { return []byte("sbx version: v0.35.0\n"), nil }
+	ok, why := Available()
+	if ok {
+		t.Error("a CLI older than MinVersion must not be selected")
+	}
+	if !strings.Contains(why, MinVersion) {
+		t.Errorf("the reason must name the version proveo targets, got %q", why)
+	}
+
+	runVer = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
+	if ok, why := Available(); !ok {
+		t.Errorf("MinVersion exactly must be accepted, got %q", why)
+	}
+}
+
+// The sandbox runtime's image store is separate from the host engine's, so a run
+// has to hand the image over. It must also NOT hand it over twice: these images
+// are multi-GB and `docker save | sbx template load` is the slowest step in a
+// sandbox run by a wide margin.
+func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
+	origList, origLoad := templateList, templateLoad
+	t.Cleanup(func() { templateList, templateLoad = origList, origLoad })
+
+	loads := 0
+	templateLoad = func(string) error { loads++; return nil }
+
+	templateList = func() ([]byte, error) {
+		return []byte("REPOSITORY              TAG\nproveo/claudecode       latest\n"), nil
+	}
+	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
+		t.Fatalf("EnsureTemplate: %v", err)
+	}
+	if loads != 0 {
+		t.Errorf("an image already in the store was loaded again (%d times)", loads)
+	}
+
+	templateList = func() ([]byte, error) { return []byte("REPOSITORY  TAG\n"), nil }
+	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
+		t.Fatalf("EnsureTemplate: %v", err)
+	}
+	if loads != 1 {
+		t.Errorf("a missing image was loaded %d times, want exactly 1", loads)
+	}
+
+	// An unreadable store is treated as "not present": loading again is wasteful,
+	// but running against an image that is genuinely absent fails the whole run.
+	templateList = func() ([]byte, error) { return nil, errors.New("daemon down") }
+	if HasTemplate("proveo/claudecode:latest") {
+		t.Error("an unreadable store must not report the image as present")
+	}
+}
+
+// An empty image is not an error to load — it is nothing to load.
+func TestEnsureTemplateIgnoresAnEmptyImage(t *testing.T) {
+	origLoad := templateLoad
+	t.Cleanup(func() { templateLoad = origLoad })
+	templateLoad = func(string) error { t.Fatal("empty image must not reach the loader"); return nil }
+	if err := EnsureTemplate("", nil); err != nil {
+		t.Errorf("EnsureTemplate(\"\") = %v, want nil", err)
 	}
 }

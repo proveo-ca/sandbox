@@ -70,6 +70,26 @@ note right of M
   PARSED, so a stale manifest fails loudly at load instead of
   losing its docker story to the unknown-key rule.
 
+  **The promise is asserted for EVERY def that makes it, and
+  asserted //the way that def makes it//.** One enum with two
+  values is one claim — "the agent reaches a daemon" — reached
+  two ways, so the e2e matrix
+  (""TestEveryHarnessGetsTheDockerAccessItPromises"") is derived
+  from the manifests and dispatches on the mode: ""IsSbx"" defs
+  are probed through the sandbox backend, ""IsDind"" defs through
+  the privileged sidecar on the only posture that offers it
+  (open + forward). Same verdict helper for both, because both
+  fail the same three ways and each names a different repair.
+
+  Splitting it into two tests over two hardcoded lists is what
+  hid the gap this replaced: the sbx half silently SKIPPED on
+  every host without the CLI, so ""docker: sbx"" was an unasserted
+  claim for as long as it took someone to install ""sbx"".
+  ""TestDockerAccessMatrixPartitionsEveryPromise"" now asserts the
+  partition itself — every promising def in exactly one branch,
+  neither branch empty — so an empty matrix cannot report success
+  by testing nothing.
+
   Validated by ""Manifest.Validate"" at load; ""Targets""
   flattens ""images"" across defs and rejects a duplicate
   target name.

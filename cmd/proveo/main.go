@@ -588,7 +588,7 @@ func doRun(p runParams) error {
 
 	sbxBackend := false
 	if man.IsSbx() && p.mode != "review" {
-		switch ok, why := sbx.Available(); {
+		switch ok, why := sbxReady(p.printOnly); {
 		case !p.sandboxAddonOn():
 			ui.Iconf("🐳", "docker sandbox: off (add-on unchecked) — running on docker+egress")
 		case !ok:
@@ -1483,10 +1483,57 @@ func reportSbxUnavailable(why string) {
 	if eng := engine.Detect(); eng.Kind != engine.Unknown {
 		ui.Notef("    engine: %s (%s)", eng.Label(), eng.Isolation())
 	}
-	if hint := sbx.InstallHint(); hint != "" {
-		ui.Notef("    sbx is standalone and does not need Docker Desktop:")
-		ui.Notef("      %s", hint)
+	if cmd := sbx.InstallCmd(sbx.Installed()); cmd != "" {
+		if sbx.Installed() {
+			ui.Notef("    proveo targets sbx %s or newer:", sbx.MinVersion)
+		} else {
+			ui.Notef("    sbx is standalone and does not need Docker Desktop:")
+		}
+		ui.Notef("      %s", cmd)
 	}
+}
+
+// ensureSbx brings the sbx CLI up to the version this build drives, so the
+// operator is not the one tracking a pre-GA tool's releases. It returns whether
+// the backend is usable and, when not, why.
+//
+// The install is CONFIRMED, never silent: it mutates the host outside proveo's
+// own state, so it follows the same gate as a missing sidecar image
+// (PROVEO_AUTO_PROVISION, else a TTY prompt, else declined). Declining is not an
+// error — the run falls back to docker+egress and says so.
+func ensureSbx() (bool, string) {
+	ok, why := sbx.Available()
+	if ok {
+		return true, ""
+	}
+	install := sbx.InstallCmd(sbx.Installed())
+	if install == "" {
+		return false, why // nothing to offer on this platform
+	}
+	verb := "install"
+	if sbx.Installed() {
+		verb = "upgrade"
+	}
+	if !provisionConfirm(fmt.Sprintf("%s the docker sandboxes CLI (%s)?", verb, install)) {
+		return false, why
+	}
+	ui.Iconf("📦", "%sing sbx: %s", verb, install)
+	c := exec.Command("bash", "-lc", install)
+	c.Stdout, c.Stderr = os.Stderr, os.Stderr
+	if err := c.Run(); err != nil {
+		return false, fmt.Sprintf("%s failed: %v", verb, err)
+	}
+	return sbx.Available()
+}
+
+// sbxReady resolves the backend for a real run, provisioning the CLI when the
+// operator allows it. A dry run only ever REPORTS: --print must not install
+// anything, or `--print` stops being a way to inspect a plan safely.
+func sbxReady(printOnly bool) (bool, string) {
+	if printOnly {
+		return sbx.Available()
+	}
+	return ensureSbx()
 }
 
 // runSandboxInput is the resolved input to the sbx backend.
@@ -1605,7 +1652,13 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		command = []string{"bash"} // open a shell instead of launching the agent
 	}
 	cfg := sbx.RunConfig{
-		Name:    in.sid,
+		Name: in.sid,
+		// The Kit path is resolved HERE, not at write time, so --print renders the
+		// same argv the run executes. Deriving it only inside runSandbox left the
+		// dry run silently missing --kit — the posture the Kit carries (allowlist,
+		// brokered credentials) was invisible in exactly the output an operator
+		// inspects to check that posture.
+		KitDir:  filepath.Join(in.egDir, "sbx", "kit"),
 		Image:   p.image,
 		Mounts:  mounts,
 		Env:     env,
@@ -1632,11 +1685,20 @@ func secretNames(secrets [][2]string) []string {
 // runSandbox renders the Kit, injects credentials, runs the agent, tears down.
 func runSandbox(in runSandboxInput) error {
 	cfg, kit, secrets := sandboxSpec(in)
-	kitDir, err := sbx.WriteKit(filepath.Join(in.egDir, "sbx", "kit"), kit)
-	if err != nil {
+	// sandboxSpec already put the Kit path on cfg so --print renders the argv this
+	// run will actually use; here the file behind that path gets written.
+	if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
 		return err
 	}
-	cfg.KitDir = kitDir
+	// The sandbox runtime keeps its OWN image store, so the harness image has to
+	// be handed over before the Kit can name it. Local and per-user on purpose:
+	// each operator has their own docker login and their own sbx config, so this
+	// stays a pipe between the two stores rather than a registry round-trip.
+	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
+		ui.Iconf("📦", f, a...)
+	}); err != nil {
+		return err
+	}
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") {
 			hydrateProcessEnv(e, in.lookup)
