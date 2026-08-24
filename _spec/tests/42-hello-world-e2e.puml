@@ -1,34 +1,38 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Layer 4 — hello-world E2E (cloud model, three targets, firewall)
+title Layer 4 — hello-world E2E (local model, three targets, plain bridge)
 
 participant "go test -tags=e2e\ntests/e2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
 database "workspace copy\nof tests/e2e/samples" as WS <<db>>
-database "filtered .env (0600)\nANTHROPIC_API_KEY + model aliases" as ENVF <<error>>
-participant "cmd/proveo run <target>\n--egress-mode allowlist" as RUN <<app>>
-participant "proveo-egress\nbroker + policy" as MITM <<app>>
+participant "cmd/proveo run <target>\n--egress-mode open --credentials forward\n--local-model <model>" as RUN <<app>>
+participant "host Ollama\nhost.docker.internal:11434" as OLLAMA <<host>>
 participant "agent container" as CTR <<host>>
 
-TEST ARROW_MAIN WS : copy samples, ""git init""\nmaterialize the dangling .env symlink
-TEST ARROW_ERROR ENVF : write single-provider env
-TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n""PROVEO_EGRESS_ENV_FILE=<filtered>"" "
+TEST ARROW_MAIN WS : copy samples, ""git init""\nDELETE the dangling .env symlink
+TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n(no ""PROVEO_EGRESS_ENV_FILE"" — no credential at all)"
 TMUX ARROW_MAIN RUN : PTY — the harness needs ""docker run -it""
-RUN ARROW_ERROR MITM : real key → broker.env
-RUN ARROW_MAIN CTR : sentinel + forwarded model aliases
+RUN ARROW_MAIN CTR : plain bridge + ""ANTHROPIC_BASE_URL"" → Ollama
 CTR ARROW_MAIN CTR : entrypoint prints\n" ""PROVEO_MODELS main=… small=…"" "
-CTR ARROW_CLOUD MITM : model call (key injected at this hop)
+CTR ARROW_CLOUD OLLAMA : model call (no credential leaves the host)
 CTR ARROW_MAIN WS : agent writes ""HELLO_WORLD.txt""\nthrough the bind mount
+CTR ARROW_MAIN TMUX : agent replies with the prompt's reply token
 
 TEST ARROW_MAIN TMUX : " ""CaptureAll()"" — pane + scrollback "
 TEST ARROW_MAIN WS : poll host paths
 
 note over TEST
-  **Two assertions, both prose-independent:**
+  **Three assertions:**
+  # //the model answered// — the reply the PROMPT asked for
+    appears on the pane. The file alone cannot show the
+    inference loop closed, only that //something// wrote it.
   # //bind mount works// — the file exists on the HOST and
     carries this run's unique marker
   # //models bridged// — the ""PROVEO_MODELS"" line names the
-    tier the project .env asked for, not the harness default
+    local model in **both** tiers. ""--local-model"" outranks
+    every alias, so a tier still holding a cloud default
+    means the override only half-applied — and that half
+    would quietly bill a provider.
 
   Per-target paths differ by workspace layout: ""app""
   targets write ""HELLO_WORLD.txt"" at the mount root;
@@ -36,12 +40,70 @@ note over TEST
   ""/workspace/output"" and is checked under ""reports/"".
 end note
 
-note over ENVF
-  **Single provider on purpose.** The broker arms only
-  when exactly one provider is detected, so the suite
-  clears ""provider.DetectVars()"" (a superset of the
-  brokerable keys) and supplies one filtered file.
-  Secrets never reach an argv — only the file path does.
+note over TEST
+  **The pane cannot hold the answer, so the run is teed to a
+  file.** The agent prints its last words and exits inside a
+  single poll interval, and once the session is gone
+  ""CaptureAll"" only returns what was captured //before// it
+  died — so the reply was always lost even when the model had
+  said it. tmux drives ""sh -c '<run> 2>&1 | tee <transcript>'""
+  and every assertion reads the transcript: no race, and no
+  tmux line wrapping either.
+
+  **Separating the reply from its own echo.** Some entrypoints
+  print the prompt on their launch line (""🚀 Launching:
+  opencode …$*""), so the reply token is in the transcript
+  //before// any inference happened. ""modelSaid"" collapses all
+  whitespace, deletes every copy of the instruction, and
+  searches what is left: only the model can have produced it.
+
+  **What counts as an answer is deliberately loose.** Either the
+  exact reply the prompt asked for, or a mention of the file it
+  was told to create. A small local model reproduces a long
+  random token byte-exact when //copying it into a tool call//
+  — the marker lands in the file perfectly — yet answers the
+  human in its own words: gemma4 says "File
+  /workspace/output/HELLO_WORLD\.txt created successfully."
+  rather than echoing the token. Demanding the echo would test
+  instruction-format compliance, which is the model's business,
+  instead of whether the loop closed, which is proveo's.
+
+  **One harness is exempt, by declaration.** ""opencode run""
+  prints its launch line and then nothing at all — not the
+  reply, not even its own logs despite ""--log-level DEBUG
+  --print-logs"". Confirmed from both the pane and the teed
+  transcript, so ""repliesOnStdout"" records it in the table
+  rather than the lane pretending to assert something it
+  cannot read.
+end note
+
+note over RUN
+  **Why a local model, and why this exact posture.** What this
+  suite asserts — mounts, model bridging, a closed inference
+  loop — needs //a// model, not a particular vendor's. Billing
+  it to a cloud provider made the lane hostage to a credit
+  balance, and an empty balance is indistinguishable from a
+  broken mount: both read as "no file on the host". **No
+  provider credential is supplied at all**, so the run is
+  provably credit-free rather than merely cheap.
+
+  ""open"" + ""forward"" is the only posture that reaches the
+  HOST's Ollama. Every other tier puts the agent on an
+  internal network with DNS blackholed, where the sole
+  reachable model server is the sidecar — which on macOS has
+  no GPU and generates at CPU speed, roughly 10x slower.
+
+  The workspace ."".env"" is **deleted**, not rewritten. The
+  entrypoint sources it //after// docker applies ""-e"", so a
+  project ""ARCHITECT_MODEL"" would outrank the ""ollama/*""
+  alias ""--local-model"" just bridged in and send the main
+  agent to the cloud — the one thing this lane exists to
+  avoid.
+
+  Whether a REAL credential still reaches a real provider is a
+  different question, asked by
+  ""_spec/_paradigms/credential-boundary\.puml"" against an
+  endpoint that costs nothing.
 end note
 
 note over TMUX

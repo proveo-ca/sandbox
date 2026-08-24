@@ -144,6 +144,14 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	for _, r := range bc.Routes {
 		providerHosts = append(providerHosts, r.Hosts...)
 	}
+	// Plus the provider endpoints `proveo run` resolved for this run, which is
+	// what keeps the exemption alive when there are no routes at all. Under
+	// --credentials forward the broker is inert by design: the agent holds the
+	// real key and calls the vendor itself. Deriving the exemption from routes
+	// alone left providerHosts empty there, so the DLP scan saw a live
+	// credential-shaped header bound for the provider's own API and answered 403
+	// — the one destination the key is supposed to reach was the only one denied.
+	providerHosts = append(providerHosts, splitCSV(env("PROVEO_EGRESS_PROVIDER_HOSTS", ""))...)
 	custom := splitCSV(strings.ReplaceAll(env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""), " ", ","))
 
 	write := append([]string{}, providerHosts...)

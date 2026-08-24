@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/broker"
+	"github.com/proveo-ca/proveo/internal/egresspolicy"
 )
 
 func TestParseEnvFile(t *testing.T) {
@@ -142,5 +145,39 @@ func TestBuildPolicyStripsBearer(t *testing.T) {
 		if strings.HasPrefix(s, "Bearer ") {
 			t.Errorf("secret retained the Bearer prefix: %q", s)
 		}
+	}
+}
+
+// The e2e regression this file exists to pin: `--credentials forward` makes the
+// broker inert by design (the agent holds the real key and calls the vendor
+// itself), so there are no routes to derive the on-provider DLP exemption from.
+// With the exemption empty, a credential-shaped header bound for the provider's
+// OWN API matched the generic `sk-` pattern and the proxy answered 403
+// "egress policy: blocked (secret)" — the agent read it as an auth failure.
+// PROVEO_EGRESS_PROVIDER_HOSTS states the exemption independently of brokering.
+func TestBuildPolicyForwardModeKeepsProviderExemption(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_HOSTS", ".anthropic.com")
+	t.Setenv("PROVEO_EGRESS_WRITE_HOSTS", ".anthropic.com")
+
+	pol := buildPolicy(broker.Config{}) // forward: inert broker, zero routes
+
+	if !contains(pol.ProviderHosts, ".anthropic.com") {
+		t.Fatalf("ProviderHosts = %v, want the forwarded provider's own host", pol.ProviderHosts)
+	}
+	p := egresspolicy.New(pol)
+
+	onProvider := httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages",
+		strings.NewReader(`{"model":"claude-opus-5"}`))
+	onProvider.Header.Set("x-api-key", "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA")
+	if d := p.Decide(onProvider); !d.Allow {
+		t.Errorf("the forwarded key was blocked on the provider's own host: reason=%q", d.Reason)
+	}
+
+	// The exemption is per-destination, not a DLP off-switch: the same credential
+	// leaving for anywhere else must still be caught.
+	offProvider := httptest.NewRequest(http.MethodGet,
+		"https://example.com/?k=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA", nil)
+	if d := p.Decide(offProvider); d.Allow {
+		t.Error("a credential bound for a non-provider host must still be blocked")
 	}
 }

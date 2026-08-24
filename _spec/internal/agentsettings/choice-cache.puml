@@ -71,6 +71,20 @@ note bottom of HEADLESS
   E2E, CI and cron must never block on a human: with no TTY the resolver takes
   the manifest default and logs the choice it made, so a non-interactive run is
   still auditable after the fact.
+
+  **The code read the cache here anyway, for one release cycle.** ""Lookup"" was
+  applied unconditionally and ""Remember"" wrote on every non-dry run, so the rule
+  above held only for the //prompt//, never for the resolution. The consequence
+  was not cosmetic: a headless run's **security posture** came from whatever the
+  last interactive session happened to pick. An e2e run asking for the default
+  ""--credentials broker"" silently got ""forward"", and with it a ""browser"" image
+  variant it never selected — and then rewrote the operator's remembered posture
+  on its way out.
+
+  Both halves now hang off the same predicate (""cacheApplies""): where there is
+  no prompt to seed, the cache is neither read nor written. Writing mattered as
+  much as reading — a machine default overwriting a human's remembered answer is
+  the cache acting as an authority in the opposite direction.
 end note
 
 @enduml

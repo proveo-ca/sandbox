@@ -111,6 +111,31 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 	}
 }
 
+// waitForContainerShell blocks until the agent shell inside the container is
+// accepting input. The prompt is the signal that the WHOLE topology came up —
+// sidecars, networks, CA trust — because proveo only hands the PTY over once the
+// container is running, so anything that fails earlier fails here with the
+// scrollback attached rather than as a confusing timeout further down.
+//
+// tmux trims trailing whitespace, so the prompt reads "…:/workspace/input$" with
+// nothing after it; matching on "$ " never fires. The workdir differs per harness
+// layout (app vs input-output), so every one it can be is accepted.
+func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
+	t.Helper()
+	w.until("the agent shell", timeout, func() bool {
+		scr := w.Screen()
+		if !strings.Contains(scr, "@") {
+			return false
+		}
+		for _, wd := range []string{"/app", "/workspace", "/workspace/input"} {
+			if strings.Contains(scr, ":"+wd+"$") || strings.Contains(scr, ":"+wd+"#") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // acceptChoicePrompt accepts the pre-selected choice form. Anchored on the key
 // hint rather than the title: the title is copy and has been reworded once, which
 // broke a test that waited on it.

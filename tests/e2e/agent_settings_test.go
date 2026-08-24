@@ -45,7 +45,7 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
 
-	home := t.TempDir()
+	home, work := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".proveo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -63,17 +63,23 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		// falls back to /var/run/docker.sock; pin the endpoint explicitly.
 		cmd := []string{"env"}
 		cmd = append(cmd, childEnvArgs(t)...)
-		cmd = append(cmd, "HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
-		cmd = append(cmd, bin, "run", target, "--shell")
+		cmd = append(cmd,
+			// childEnvArgs disables the wizard for the harness suites; this test is
+			// ABOUT the choice form, so turn it back on. A later NAME=value wins in
+			// env(1). The form is the cache's only door in BOTH directions — it is
+			// where a remembered answer is shown and where the answer to remember is
+			// given — so with the wizard off there is nothing here to assert.
+			"PROVEO_WIZARD=on",
+			"HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
+		// An empty workspace keeps the sub-project picker away (this suite's own cwd is
+		// inside the proveo repo, which has sub-projects), leaving the choice form as
+		// the only prompt on this PTY.
+		cmd = append(cmd, bin, "run", target, "--input", work, "--shell")
 		cmd = append(cmd, extra...)
 		if err := sess.Start(200, 50, cmd...); err != nil {
 			t.Fatalf("[%s] tmux start: %v", label, err)
 		}
-		// The first run for a harness raises the choice prompt; accept the
-		// pre-selected defaults. On a cached run there is no prompt and the Enter is
-		// harmless at the shell.
-		time.Sleep(10 * time.Second)
-		_ = sess.Enter()
+		acceptChoicePrompt(t, sess, target)
 		time.Sleep(4 * time.Second)
 		// Read the tier out of the agent's OWN environment: that is the honest signal
 		// that the choice took effect, rather than anything proveo printed host-side.

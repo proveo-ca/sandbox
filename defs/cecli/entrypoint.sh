@@ -83,10 +83,25 @@ if [[ -n "${SMALL_MODEL:-}" ]]; then
   export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
 fi
 
+# A local model reaches litellm through Ollama's OPENAI-COMPATIBLE API, not its
+# native one. Both litellm ollama providers are broken in this image:
+# "ollama_chat/<model>" loses its api_base and every call dies with "Request URL
+# is missing an 'http://' or 'https://' protocol", while "ollama/<model>" raises
+# FileNotFoundError. Ollama also serves /v1, and that route works — so the model
+# is spelled "openai/<model>" and pointed at it.
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  export CECLI_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
-  export CECLI_EDITOR_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
-  export CECLI_WEAK_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  # OPENAI_API_BASE is litellm's name for the endpoint (OPENAI_BASE_URL is the
+  # SDK's); prefer whatever `proveo run --local-model` already set, and derive it
+  # from the Ollama base otherwise so a hand-run container still works.
+  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
+  case "$OPENAI_API_BASE" in
+    */v1|*/v1/) : ;;
+    *) OPENAI_API_BASE="${OPENAI_API_BASE%/}/v1"; export OPENAI_API_BASE ;;
+  esac
+  export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
+  export CECLI_MODEL="openai/${PROVEO_LOCAL_MODEL}"
+  export CECLI_EDITOR_MODEL="openai/${PROVEO_LOCAL_MODEL}"
+  export CECLI_WEAK_MODEL="openai/${PROVEO_LOCAL_MODEL}"
 fi
 
 case "${DARK_MODE:-}" in

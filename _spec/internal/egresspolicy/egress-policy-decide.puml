@@ -16,9 +16,30 @@ Agent -> Broker : HTTPS request
 Broker -> Broker : inject auth header
 Broker -> Origin : forward (policy no-op)
 note right of Policy
-Policy skips provider hosts so the
-broker-injected credential is never
-flagged by DLP.
+Policy skips provider hosts so a
+credential bound for the vendor is
+never flagged by DLP.
+end note
+
+note over Broker, Policy
+  **The exemption is not the broker's to give.** It reads "broker-injected
+  credential" naturally enough, but the set of provider hosts is a
+  //separate input// to the policy, and it has to be — under
+  ""--credentials forward"" the broker is inert by design: the agent holds
+  the real key and calls the vendor itself, so there is no route to
+  derive the set from.
+
+  Deriving it from ""broker\.Config\.Routes"" alone left it **empty** in
+  exactly that posture, and the scan then matched the live key in
+  ""x-api-key"" against the generic ""sk-"" shape and answered ""403
+  egress policy: blocked (secret)"". The one destination the credential
+  exists to reach was the only one denied, and the agent reported it as
+  an auth failure — so the operator read "bad key", not "policy".
+
+  ""PROVEO_EGRESS_PROVIDER_HOSTS"" states the set independently: routes
+  when there are routes, plus the endpoints ""proveo run"" resolved for
+  the run. It stays **per-destination** rather than becoming a DLP
+  off-switch — the same key leaving for anywhere else is still blocked.
 end note
 
 == Off-provider — allow path ==

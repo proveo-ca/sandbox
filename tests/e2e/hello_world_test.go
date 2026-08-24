@@ -18,43 +18,46 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestHelloWorldE2E drives each harness against a COPY of tests/e2e/samples with
-// a real Anthropic key and asserts two observable facts per target — never the
-// model's prose:
+// TestHelloWorldE2E drives each harness against a COPY of tests/e2e/samples on a
+// LOCAL open-source model and asserts three observable facts per target:
 //
-//	bind mount works → the hello-world file the agent was asked for shows up on
-//	                   the HOST, with the run's marker inside it
-//	models bridged   → the entrypoint's PROVEO_MODELS line names the tiers the
-//	                   project .env suggested (ARCHITECT_MODEL / EDITOR_MODEL /
-//	                   SMALL_MODEL), not the harness's baked-in default
+//	the model answered → the run's transcript carries a model message about the
+//	                     work, which is the only proof the inference loop closed
+//	                     (skipped for a harness that writes none — see
+//	                     repliesOnStdout)
+//	bind mount works   → the hello-world file the agent was asked for shows up on
+//	                     the HOST, with the run's marker inside it
+//	models bridged     → the entrypoint's PROVEO_MODELS line names the local
+//	                     model in BOTH tiers, not the harness's baked-in default
 //
 // Targets run in dependency-of-confidence order: cecli (simplest loop), then
 // opencode, then claudecode.
 //
-//	go test -tags=e2e ./tests/e2e/ -run HelloWorldE2E -v -timeout 40m
+//	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
+//	  go test -tags=e2e ./tests/e2e/ -run HelloWorldE2E -v -timeout 40m
 //
-// Credentials never reach an argv: the run gets a filtered, 0600 .env holding
-// only ANTHROPIC_API_KEY plus the non-secret model aliases, handed over as
-// PROVEO_EGRESS_ENV_FILE. Every other provider key is explicitly UNSET in the
-// child, because firewall-mode brokering requires exactly one detected provider
-// (see brokerProvider in cmd/proveo) — a multi-provider .env would silently
-// disable the broker and hand the agent a sentinel with nothing behind it.
+// It runs on a local model on purpose. What this suite asserts — mounts, model
+// bridging, a closed inference loop — needs A model, not a particular vendor's,
+// and billing it to a cloud provider made the whole lane hostage to a credit
+// balance: an empty one is indistinguishable from a broken mount, since both read
+// as "no file on the host". No provider credential is supplied at all, so the run
+// is provably credit-free rather than merely cheap. Whether a REAL credential
+// still reaches a real provider is a different question, and TestClaudeCodeAuth
+// asks it against an endpoint that costs nothing.
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
 	requireDocker(t)
-	// This suite spends real tokens; no key in the environment or the repo .env
-	// means there is nothing to spend, so it is a skip rather than a failure.
-	if hostEnvValue(t, "ANTHROPIC_API_KEY") == "" {
-		t.Skip("ANTHROPIC_API_KEY not in the environment or the repo .env")
+	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
+	if !ollamaHasModel(model) {
+		t.Skipf("Ollama model %q not available on the host", model)
 	}
 
 	proveoBin := buildProveo(t)
-	mode := env("PROVEO_TEST_EGRESS_MODE", "firewall")
 
 	for _, h := range helloHarnesses {
 		t.Run(h.target, func(t *testing.T) {
 			harnessImage(t, h.target)
-			runHelloWorld(t, h, proveoBin, mode)
+			runHelloWorld(t, h, proveoBin, model)
 		})
 	}
 }
@@ -70,47 +73,53 @@ type helloHarness struct {
 	promptPath string
 	// hostPaths are checked (in order) under the mounted workspace on the host.
 	hostPaths []string
-	// smallFrom is the .env tier this harness bridges into its small/weak slot.
-	// opencode prefers EDITOR_MODEL there and falls back to SMALL_MODEL
-	// (ApplyEnvBridges); cecli and claudecode map SMALL_MODEL directly.
-	smallFrom string
+	// repliesOnStdout says whether this harness puts the model's final message on
+	// stdout in its one-shot form. Where it does not, nothing the test can read
+	// carries the answer, and only the model-authored FILE remains as evidence.
+	//
+	// opencode is the one that does not: `opencode run` prints its launch line and
+	// then NOTHING — not the reply, and not even its own logs despite
+	// "--log-level DEBUG --print-logs". Confirmed twice over, from the tmux pane and
+	// from a teed transcript of the whole run.
+	repliesOnStdout bool
 }
 
 var helloHarnesses = []helloHarness{
 	{
-		target:     "cecli",
-		agentArgs:  func(p string) []string { return []string{"--yes-always", "--message", p} },
-		promptPath: "HELLO_WORLD.txt",
-		hostPaths:  []string{"HELLO_WORLD.txt"},
-		smallFrom:  "SMALL_MODEL",
+		target:          "cecli",
+		agentArgs:       func(p string) []string { return []string{"--yes-always", "--message", p} },
+		promptPath:      "HELLO_WORLD.txt",
+		hostPaths:       []string{"HELLO_WORLD.txt"},
+		repliesOnStdout: true,
 	},
 	{
 		target:     "opencode",
 		agentArgs:  func(p string) []string { return []string{"run", "--auto", "--agent", "build", p} },
 		promptPath: "HELLO_WORLD.txt",
 		hostPaths:  []string{"HELLO_WORLD.txt"},
-		smallFrom:  "EDITOR_MODEL",
+		// repliesOnStdout stays false — see the field comment.
 	},
 	{
 		// input-output layout: /workspace itself is not a mount, so the prompt
 		// names the writable one explicitly.
-		target:     "claudecode",
-		agentArgs:  func(p string) []string { return []string{"-p", p} },
-		promptPath: "/workspace/output/HELLO_WORLD.txt",
-		hostPaths:  []string{"reports/HELLO_WORLD.txt", "HELLO_WORLD.txt"},
-		smallFrom:  "SMALL_MODEL",
+		target:          "claudecode",
+		agentArgs:       func(p string) []string { return []string{"-p", p} },
+		promptPath:      "/workspace/output/HELLO_WORLD.txt",
+		hostPaths:       []string{"reports/HELLO_WORLD.txt", "HELLO_WORLD.txt"},
+		repliesOnStdout: true,
 	},
 }
 
-func runHelloWorld(t *testing.T, h helloHarness, proveoBin, mode string) {
+func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	t.Helper()
 
 	work := copySampleWorkspace(t)
-	// tests/e2e/samples/.env is a symlink to the repo root .env, so `cp -a` lands a
-	// DANGLING link in the copy — a broken bind-mount destination in broker mode and
-	// a broken mask target in firewall. Replace it with this run's filtered env so
-	// the workspace is self-consistent and still single-provider.
-	replaceSampleEnv(t, work)
+	// The workspace must carry no project .env: samples/.env is a symlink into the
+	// repo root, so `cp -a` leaves a DANGLING link that breaks the bind mount this
+	// posture makes of it — and a REAL one would be worse, because the entrypoint
+	// sources it AFTER docker applies `-e` and its ARCHITECT_MODEL would outrank
+	// the local alias, sending the main agent to a cloud provider.
+	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
 	mustRun(t, work, "git", "config", "user.name", "proveo e2e")
@@ -122,66 +131,150 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, mode string) {
 
 	marker := fmt.Sprintf("PROVEO-HELLO-%s-%d", strings.ToUpper(h.target), os.Getpid())
 	line := "hello world " + marker
+	reply := fmt.Sprintf("PROVEO-REPLY-%s-%d", strings.ToUpper(h.target), os.Getpid())
 	prompt := fmt.Sprintf(
 		"Create a new file at %s whose entire contents are this one line: %s\n"+
-			"Do not create, edit or delete any other file. When the file exists, stop.",
-		h.promptPath, line)
+			"Do not create, edit or delete any other file.\n"+
+			"When the file exists, reply with exactly %s and stop.",
+		h.promptPath, line, reply)
 
 	sess := tmux.New(fmt.Sprintf("proveo-hello-%s-%d", h.target, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env"}
-	cmd = append(cmd, childEnvArgs(t)...)
-	cmd = append(cmd, proveoBin, "run", h.target, "--egress-mode", mode, "--input", work, "--")
+	cmd = append(cmd, childEnvArgsNoCredential(t)...)
+	// `open` + `forward` is the plain-bridge posture, and it is what reaches the
+	// HOST's Ollama (host.docker.internal). Every other tier puts the agent on an
+	// internal network with DNS blackholed, where the only model server it can see
+	// is the sidecar — which on macOS has no GPU and generates at CPU speed.
+	cmd = append(cmd, proveoBin, "run", h.target,
+		"--egress-mode", "open", "--credentials", "forward",
+		"--local-model", model, "--input", work, "--")
 	cmd = append(cmd, h.agentArgs(prompt)...)
 
-	if err := sess.Start(220, 50, cmd...); err != nil {
+	// tmux drives a SHELL so the whole run is teed to a file, and every assertion
+	// reads that file rather than the pane. The pane cannot hold the model's last
+	// words: the agent prints them and exits inside a single poll interval, and
+	// once the session is gone CaptureAll can only return what was captured
+	// before it died — so the reply was always lost even when the model had said
+	// it. The transcript has no such race, and no tmux line wrapping either.
+	transcript := filepath.Join(t.TempDir(), "run.log")
+	if err := sess.Start(220, 50, "sh", "-c",
+		shellQuote(cmd)+" 2>&1 | tee "+shellQuote([]string{transcript})); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}
 
 	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute))
-	var lastScreen, models string
-	var found string
-	for {
-		screen, captureErr := sess.CaptureAll()
-		alive := captureErr == nil
-		if alive {
-			lastScreen = screen
-			if models == "" {
-				models = modelsLine.FindString(screen)
-			}
+	var models, found string
+	var answered bool
+	observe := func() {
+		out := readFile(transcript)
+		if models == "" {
+			models = modelsLine.FindString(out)
 		}
-		if found = firstExisting(work, h.hostPaths); found != "" {
+		answered = answered || modelAnswered(out, prompt, reply, h)
+		if found == "" {
+			found = firstExisting(work, h.hostPaths)
+		}
+	}
+	for {
+		observe()
+		// Both halves where both are readable: the agent writes before it answers,
+		// so stopping at the file would cut the turn off mid-reply and report a
+		// silent model that had simply not finished talking yet. Where the harness
+		// writes no message at all there is no second half to wait for, and holding
+		// on would just burn the whole deadline.
+		if found != "" && (answered || !h.repliesOnStdout) {
 			break
 		}
-		if !alive {
-			break // the one-shot agent exited; last file check above was the verdict
+		if _, err := sess.CaptureAll(); err != nil {
+			observe() // the one-shot agent exited; the transcript outlives it
+			break
 		}
 		if time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(3 * time.Second)
 	}
-
-	if s, ok := waitSessionExit(sess, 45*time.Second); ok && s != "" {
-		lastScreen = s
-	}
+	// Let the run end itself where it still can: killing the pane early SIGHUPs
+	// proveo mid-run and strands the egress sidecars and their networks.
+	waitSessionExit(sess, 45*time.Second)
+	observe()
+	out := readFile(transcript)
 
 	// Models first: a wrong tier is a distinct failure from a missing file, and
 	// it is knowable even when the agent never gets around to writing anything.
-	assertModels(t, h, models, lastScreen)
-	assertCleanBoot(t, lastScreen)
+	assertModels(t, model, models, out)
+	assertCleanBoot(t, out)
 
+	if h.repliesOnStdout && !answered {
+		t.Errorf("the agent surfaced no model answer — neither the reply %q the prompt "+
+			"asked for nor any mention of %s. The file alone cannot show the inference "+
+			"loop closed, only that something wrote it\n--- transcript (tail) ---\n%s",
+			reply, filepath.Base(h.promptPath), tail(out, 40))
+	}
 	if found == "" {
 		t.Fatalf("no hello-world file on the host after the run\n"+
-			"  looked for: %v (under %s)\n--- screen (tail) ---\n%s",
-			h.hostPaths, work, tail(lastScreen, 60))
+			"  looked for: %v (under %s)\n--- transcript (tail) ---\n%s",
+			h.hostPaths, work, tail(out, 60))
 	}
 	body := readIn(work, found)
 	if !strings.Contains(body, marker) {
 		t.Fatalf("%s exists but lacks this run's marker %q\n--- file ---\n%s", found, marker, body)
 	}
+	switch {
+	case answered:
+		t.Logf("model answered %q", reply)
+	case !h.repliesOnStdout:
+		t.Logf("%s writes no model message to stdout, so the file is the only evidence "+
+			"of the answer here", h.target)
+	}
 	t.Logf("bind mount verified: %s contains %q", filepath.Join(work, found), marker)
+}
+
+// readFile returns path's contents, or "" if it does not exist yet.
+func readFile(path string) string {
+	b, _ := os.ReadFile(path)
+	return string(b)
+}
+
+// shellQuote renders args as one single-quoted shell word list, so a prompt
+// carrying spaces and newlines survives the `sh -c` hop intact.
+func shellQuote(args []string) string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+	}
+	return strings.Join(out, " ")
+}
+
+// modelAnswered reports whether the model said anything of its own about the work.
+//
+// It accepts the exact reply the prompt asked for OR a mention of the file the
+// model was told to create, and the tolerance is not laziness: a small local model
+// reliably reproduces a long random token when COPYING it into a tool call (the
+// marker lands in the file byte-exact) yet answers the human in its own words —
+// gemma4 replies "File /workspace/output/HELLO_WORLD.txt created successfully."
+// rather than echoing the token. Demanding the echo would test instruction-format
+// compliance, which is the model's business, instead of whether the loop closed,
+// which is proveo's.
+func modelAnswered(out, prompt, reply string, h helloHarness) bool {
+	return modelSaid(out, prompt, reply) ||
+		modelSaid(out, prompt, filepath.Base(h.promptPath))
+}
+
+// modelSaid reports whether token appears on the pane as something the MODEL
+// produced rather than something the harness echoed back.
+//
+// Some entrypoints print the prompt on their launch line (opencode's
+// "🚀 Launching: opencode …$*"), so the token is already on the pane before any
+// inference has happened — and tmux wraps that line, so a line-anchored match
+// cannot separate echo from answer either. Collapsing all whitespace makes
+// wrapping invisible, deleting every copy of the instruction removes the echo
+// whatever its shape, and only the model can have produced what is left.
+func modelSaid(screen, prompt, token string) bool {
+	flat := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	return strings.Contains(strings.ReplaceAll(flat(screen), flat(prompt), ""), flat(token))
 }
 
 // modelsLine matches the entrypoint preamble every harness prints once the
@@ -237,23 +330,31 @@ func linesMatching(screen, sub string, max int) string {
 	return strings.Join(hits, "\n")
 }
 
-func assertModels(t *testing.T, h helloHarness, models, screen string) {
+// assertModels checks the local model reached BOTH tiers. --local-model outranks
+// every alias (_spec/internal/entrypoint/model-alias-bridges.puml), so main and
+// small must both name it — a tier still holding a cloud default would mean the
+// override only half-applied, and that half would quietly bill a provider.
+//
+// The comparison is on the bare id because no two harnesses spell it the same
+// way: claudecode prints "gemma4", opencode "ollama/gemma4", cecli
+// "ollama_chat/gemma4". Asserting the spelling would test the catalog, not the
+// bridge.
+func assertModels(t *testing.T, model, models, screen string) {
 	t.Helper()
 	if models == "" {
 		t.Fatalf("harness never printed its PROVEO_MODELS preamble — cannot confirm the "+
-			"suggested models reached the container\n--- screen (tail) ---\n%s", tail(screen, 60))
+			"local model reached the container\n--- screen (tail) ---\n%s", tail(screen, 60))
 	}
 	m := modelsLine.FindStringSubmatch(models)
 	gotMain, gotSmall := m[1], m[2]
 
-	wantMain := bareModel(hostEnvValue(t, "ARCHITECT_MODEL"))
-	wantSmall := bareModel(hostEnvValue(t, h.smallFrom))
-
-	if wantMain != "" && !strings.Contains(gotMain, wantMain) {
-		t.Errorf("main model in container = %q, want it to carry ARCHITECT_MODEL %q", gotMain, wantMain)
-	}
-	if wantSmall != "" && !strings.Contains(gotSmall, wantSmall) {
-		t.Errorf("small model in container = %q, want it to carry %s %q", gotSmall, h.smallFrom, wantSmall)
+	want := bareModel(model)
+	for _, tier := range []struct{ name, got string }{{"main", gotMain}, {"small", gotSmall}} {
+		if bareModel(tier.got) != want {
+			t.Errorf("%s model in container = %q, want the local model %q — "+
+				"--local-model outranks every alias, so a tier that still holds "+
+				"something else means the override only half-applied", tier.name, tier.got, want)
+		}
 	}
 	t.Logf("models bridged: main=%s small=%s", gotMain, gotSmall)
 }
@@ -263,6 +364,18 @@ func assertModels(t *testing.T, h helloHarness, models, screen string) {
 // truth, then the non-secret switches that keep `proveo run` non-interactive.
 // Secrets stay in the file (0600) and never appear on an argv or in `ps`.
 func childEnvArgs(t *testing.T) []string {
+	t.Helper()
+	return append(childEnvArgsNoCredential(t), "PROVEO_EGRESS_ENV_FILE="+writeAgentEnvFile(t))
+}
+
+// childEnvArgsNoCredential is the same prefix with NO provider credential at all:
+// every key is unset and no PROVEO_EGRESS_ENV_FILE is supplied. A run under it
+// cannot reach a paid provider even by accident, which is what makes a
+// local-model lane provably credit-free instead of merely cheap.
+//
+// env(1) on BSD/macOS requires every -u before the first NAME=value, so the unset
+// flags stay at the front and callers may only append.
+func childEnvArgsNoCredential(t *testing.T) []string {
 	t.Helper()
 	var args []string
 	// DetectVars (superset of KeyVars) matters: a second DETECTED provider — even
@@ -276,7 +389,6 @@ func childEnvArgs(t *testing.T) []string {
 		args = append(args, "-u", k)
 	}
 	return append(args,
-		"PROVEO_EGRESS_ENV_FILE="+writeAgentEnvFile(t),
 		"PROVEO_WIZARD=off",       // no scope / capability pickers on this PTY
 		"PROVEO_AUTO_PROVISION=1", // build a missing sidecar image instead of asking
 		"PROVEO_DIND=0",
@@ -303,22 +415,6 @@ func agentEnvBody(t *testing.T) string {
 		}
 	}
 	return b.String()
-}
-
-// replaceSampleEnv rewrites the sample's .env (a symlink in the tracked tree,
-// dangling once copied) as a real single-provider file inside the workspace.
-func replaceSampleEnv(t *testing.T, work string) {
-	t.Helper()
-	path := filepath.Join(work, ".env")
-	if _, err := os.Lstat(path); err != nil {
-		return // sample has no .env — nothing to fix up
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(agentEnvBody(t)), 0o600); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // hostEnvValue resolves a key from the test's own environment, falling back to

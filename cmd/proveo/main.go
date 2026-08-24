@@ -354,29 +354,27 @@ func doRun(p runParams) error {
 	if err != nil {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
+	promptable := cacheApplies(p.printOnly, isStdinTTY())
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
-	if cached, ok := settings.Lookup(p.target, man.Capabilities); ok {
-		if !p.modeSet && cached.Egress != "" {
-			p.mode = cached.Egress
+	// A remembered answer SEEDS the prompt; it is never an authority of its own
+	// (_spec/internal/agentsettings/choice-cache.puml). With no prompt to seed —
+	// no TTY, wizard off, dry run — the resolver owes the operator the manifest
+	// default, so the cache is neither read nor written here. Letting it apply
+	// headlessly meant a run's security posture came from whatever the last
+	// interactive session happened to pick: an e2e run asking for the default
+	// `--credentials broker` silently got `forward` plus a `browser` image
+	// variant, and then rewrote the operator's remembered posture on its way out.
+	if promptable {
+		if cached, ok := settings.Lookup(p.target, man.Capabilities); ok {
+			p.seedFromCache(cached, lookup, evidenceSet)
 		}
-		if !p.credsSet && cached.Credentials != "" {
-			p.credentials = cached.Credentials
-		}
-		p.addons, p.addonsAnswered = normalizeAddons(cached.Addons), true
-		if p.authVar == "" {
-			p.authVar = cached.AuthVar
-		}
-		if !evidenceSet && cached.Evidence != "" {
-			p.evidence = cached.Evidence
-		}
-		p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
 	}
 	if p.roles == nil {
 		p.roles = provider.RolesFrom(lookup)
 	}
-	if !p.printOnly && wizardEnabled() && isStdinTTY() {
+	if promptable {
 		if err := p.promptChoices(man, lookup, gitRootOrEmpty(ws, repoRoot), settingsRoot); err != nil {
 			return err
 		}
@@ -384,7 +382,7 @@ func doRun(p runParams) error {
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
-	if !p.printOnly {
+	if promptable {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
 			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
 			Evidence: p.evidenceOrDefault(), Models: p.roles.Canonical(),
@@ -648,9 +646,10 @@ func doRun(p runParams) error {
 
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
-		reviewSocket: reviewSocket,
-		writeHosts:   reachableHosts(detected),
-		modelsDir:    modelsDir, providers: brokered, brokerFile: brokerFile,
+		reviewSocket:  reviewSocket,
+		writeHosts:    reachableHosts(detected),
+		providerHosts: policyProviderHosts(detected, man.Capabilities),
+		modelsDir:     modelsDir, providers: brokered, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), man.Capabilities.Hosts),
@@ -739,6 +738,46 @@ func reachableHosts(detected []string) []string {
 		}
 	}
 	return out
+}
+
+// policyProviderHosts names the endpoints the egress DLP must treat as
+// on-provider: where a credential this run legitimately holds is allowed to go.
+// It unions the detected providers' hosts with the ones the manifest declares
+// the harness can use, because the second set is the only one a SUBSCRIPTION
+// harness has — it logs in inside the sandbox, so no key is detectable
+// host-side, yet the token it mints still has to reach the vendor.
+func policyProviderHosts(detected []string, c manifest.Capabilities) []string {
+	seen, out := map[string]bool{}, []string{}
+	for _, h := range append(reachableHosts(detected), reachableHosts(c.Providers)...) {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// cacheApplies reports whether a remembered answer may take part in this run.
+// tty is passed in rather than probed so the rule is testable without a PTY.
+func cacheApplies(printOnly, tty bool) bool { return !printOnly && wizardEnabled() && tty }
+
+// seedFromCache fills the axes the operator did not state explicitly from a
+// remembered answer. Whether the cache applies at all is the caller's decision.
+func (p *runParams) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
+	if !p.modeSet && cached.Egress != "" {
+		p.mode = cached.Egress
+	}
+	if !p.credsSet && cached.Credentials != "" {
+		p.credentials = cached.Credentials
+	}
+	p.addons, p.addonsAnswered = normalizeAddons(cached.Addons), true
+	if p.authVar == "" {
+		p.authVar = cached.AuthVar
+	}
+	if !evidenceSet && cached.Evidence != "" {
+		p.evidence = cached.Evidence
+	}
+	p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
 }
 
 func filterProviders(detected []string, c manifest.Capabilities) []string {
@@ -1398,6 +1437,7 @@ type assembleInput struct {
 	reviewSocket                        string   // review tier: host path of the consent gate socket
 	providers                           []string // every provider the broker holds a route for
 	writeHosts                          []string // endpoints of every provider the allowlist admits
+	providerHosts                       []string // endpoints the DLP treats as on-provider
 }
 
 func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
@@ -1410,6 +1450,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		ReviewSocket:    in.reviewSocket,
 		AuthVar:         in.params.authVar,
 		WriteHosts:      in.writeHosts,
+		ProviderHosts:   in.providerHosts,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),

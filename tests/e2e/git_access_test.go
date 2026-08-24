@@ -168,7 +168,11 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 		in = input[0]
 	}
 	bin := buildProveo(t)
-	cmd := exec.Command(bin, "run", target, "--input", in, "--print")
+	// --credentials forward is load-bearing, not incidental: it is the only posture
+	// that carries the project .env INTO the container. Under the default broker the
+	// credential policy masks that path with /dev/null instead, so the escaping-.env
+	// mount these probes assert would not exist at all.
+	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", in, "--print")
 	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

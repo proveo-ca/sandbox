@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml
 package egress
 
 import (
@@ -41,9 +41,16 @@ type Options struct {
 	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
 	ProviderDomains string
-	ReviewSocket    string
-	AuthVar         string
-	WriteHosts      []string
+	// ProviderHosts are the inference-provider endpoints this run legitimately
+	// reaches, and they carry the policy's on-provider DLP exemption
+	// (PROVEO_EGRESS_PROVIDER_HOSTS). They are stated independently of the broker
+	// because the exemption has to hold when nothing is brokered: under
+	// --credentials forward the agent carries its own key, and the provider's own
+	// host is the one destination that key belongs on.
+	ProviderHosts []string
+	ReviewSocket  string
+	AuthVar       string
+	WriteHosts    []string
 	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
@@ -334,6 +341,9 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	if o.ProviderDomains != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER_DOMAINS="+o.ProviderDomains)
 	}
+	if len(o.ProviderHosts) > 0 {
+		c = append(c, "-e", "PROVEO_EGRESS_PROVIDER_HOSTS="+strings.Join(o.ProviderHosts, ","))
+	}
 	if o.BrokerEnvFile != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env",
 			"-v", dirOf(o.BrokerEnvFile)+":/broker:ro")
@@ -385,7 +395,11 @@ func localModelArgs(model, base string) []string {
 	return []string{
 		"-e", "PROVEO_LOCAL_MODEL=" + model,
 		"-e", "OLLAMA_HOST=" + base, "-e", "OLLAMA_API_BASE=" + base,
-		"-e", "OPENAI_BASE_URL=" + base + "/v1", "-e", "OPENAI_API_KEY=ollama",
+		// Both spellings: the OpenAI SDKs read OPENAI_BASE_URL, litellm (cecli/aider)
+		// reads OPENAI_API_BASE. Setting only the first left every litellm-backed
+		// harness with no endpoint for the local model.
+		"-e", "OPENAI_BASE_URL=" + base + "/v1", "-e", "OPENAI_API_BASE=" + base + "/v1",
+		"-e", "OPENAI_API_KEY=ollama",
 		"-e", "ARCHITECT_MODEL=ollama/" + model, "-e", "EDITOR_MODEL=ollama/" + model,
 		"-e", "SMALL_MODEL=ollama/" + model,
 		"-e", "ANTHROPIC_BASE_URL=" + base, "-e", "ANTHROPIC_AUTH_TOKEN=ollama",

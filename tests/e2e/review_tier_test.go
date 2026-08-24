@@ -28,6 +28,7 @@ import (
 func TestReviewTierConsentGate(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
+	requireReviewTier(t)
 
 	home := t.TempDir()
 	work := t.TempDir()

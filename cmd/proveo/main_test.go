@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
@@ -1142,5 +1143,87 @@ func TestNormalizeAddonsUpgradesTheRememberedDindName(t *testing.T) {
 	got := normalizeAddons([]string{"browser", "dind"})
 	if diff := cmp.Diff([]string{"browser", addonDind}, got); diff != "" {
 		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// The DLP's on-provider exemption cannot be derived from detected keys alone. A
+// subscription harness authenticates INSIDE the sandbox, so nothing is
+// detectable host-side, yet the token it mints there still has to reach the
+// vendor — the manifest's declared providers are the only statement of where
+// that is. Deriving the set from detection alone made the exemption empty for
+// exactly the harness that needs it most.
+func TestPolicyProviderHostsCoversDeclaredAndDetected(t *testing.T) {
+	t.Parallel()
+	subscription := manifest.Capabilities{Providers: []string{"anthropic"}}
+
+	if got := policyProviderHosts(nil, subscription); len(got) == 0 {
+		t.Error("a subscription harness with no host-side key got no provider hosts")
+	}
+	if got := policyProviderHosts([]string{"anthropic"}, manifest.Capabilities{}); len(got) == 0 {
+		t.Error("a detected provider with no declared capability got no provider hosts")
+	}
+	// Declared and detected overlap on the common path; the union must not
+	// double-list a host (the policy would still match, but the plan reads twice).
+	got := policyProviderHosts([]string{"anthropic"}, subscription)
+	seen := map[string]bool{}
+	for _, h := range got {
+		if seen[h] {
+			t.Errorf("duplicate host %q in %v", h, got)
+		}
+		seen[h] = true
+	}
+	if len(got) == 0 {
+		t.Fatal("union of declared and detected must not be empty")
+	}
+}
+
+// The cache seeds a prompt and is never an authority of its own, so a run with
+// no prompt to seed takes the manifest default
+// (_spec/internal/agentsettings/choice-cache.puml). Applying it headlessly let
+// the last interactive session decide a later run's security posture: an e2e run
+// that asked for the default `--credentials broker` silently got `forward`, and
+// with it a `browser` image variant it never selected.
+func TestCacheOnlyAppliesWhereThereIsAPromptToSeed(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		printOnly, tty bool
+		wizard         string
+		want           bool
+	}{
+		{name: "interactive", tty: true, want: true},
+		{name: "no tty", tty: false, want: false},
+		{name: "dry run", printOnly: true, tty: true, want: false},
+		{name: "wizard off", tty: true, wizard: "off", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PROVEO_WIZARD", tc.wizard)
+			if got := cacheApplies(tc.printOnly, tc.tty); got != tc.want {
+				t.Errorf("cacheApplies(printOnly=%v, tty=%v) = %v, want %v",
+					tc.printOnly, tc.tty, got, tc.want)
+			}
+		})
+	}
+}
+
+// The seeding itself must not overwrite an axis the operator stated on the
+// command line — the cache fills gaps, it does not out-rank a flag.
+func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
+	t.Parallel()
+	cached := agentsettings.Choice{Egress: "open", Credentials: "forward", Addons: []string{"browser"}}
+	lookup := func(string) string { return "" }
+
+	stated := runParams{mode: "allowlist", credentials: "broker", modeSet: true, credsSet: true}
+	stated.seedFromCache(cached, lookup, false)
+	if stated.mode != "allowlist" || stated.credentials != "broker" {
+		t.Errorf("explicit flags were overwritten: mode=%q credentials=%q", stated.mode, stated.credentials)
+	}
+
+	unstated := runParams{mode: "allowlist", credentials: "broker"}
+	unstated.seedFromCache(cached, lookup, false)
+	if unstated.mode != "open" || unstated.credentials != "forward" {
+		t.Errorf("unstated axes were not seeded: mode=%q credentials=%q", unstated.mode, unstated.credentials)
+	}
+	if !hasAddon(unstated.addons, "browser") {
+		t.Errorf("remembered add-ons were not seeded: %v", unstated.addons)
 	}
 }

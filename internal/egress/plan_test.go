@@ -415,6 +415,28 @@ func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	}
 }
 
+// The on-provider DLP exemption travels on its own axis, so it survives a
+// posture where nothing is brokered. Under --credentials forward the broker is
+// inert and Providers is empty, yet the agent still calls the vendor with its
+// own key: the inspector has to be told which hosts that key belongs on, or it
+// blocks the one destination the credential is for.
+func TestForwardPostureStillNamesProviderHosts(t *testing.T) {
+	t.Parallel()
+	o := baseOpts("allowlist")
+	o.Credentials = "forward"
+	o.Providers = nil // inert broker: no routes to derive the exemption from
+	o.ProviderHosts = []string{".anthropic.com"}
+	o.WriteHosts = []string{".anthropic.com"}
+	p, err := BuildPlan(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.Render()
+	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDER_HOSTS=.anthropic.com") {
+		t.Errorf("the inspector was not told which hosts the forwarded key belongs on:\n%s", got)
+	}
+}
+
 // noProxyValue extracts the NO_PROXY value from a flattened arg string so the
 // assertion tests the exempt SET rather than the literal the code happens to emit.
 func noProxyValue(joined string) string {

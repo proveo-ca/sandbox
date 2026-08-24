@@ -11,7 +11,9 @@
 package e2e
 
 import (
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -61,4 +63,21 @@ func requireHarness(t *testing.T, target string) string {
 	t.Helper()
 	requireTmux(t)
 	return harnessImage(t, target)
+}
+
+// requireReviewTier skips unless this host can actually carry the review tier's
+// consent gate. It mirrors reviewSupported in cmd/proveo, which is the source of
+// truth — and which `proveo run` already warns about on an unsupported host:
+// "the consent gate cannot be reached from the inspector on this host, so every
+// new connection will be DENIED without a prompt". A test driving that tier
+// there cannot pass, and it fails by TIMING OUT waiting for an overlay that will
+// never render — 90 seconds spent to report a host capability as a defect.
+func requireReviewTier(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skipf("--egress-mode review is linux only (GOOS=%s): the consent gate cannot be reached from the inspector", runtime.GOOS)
+	}
+	if h := strings.TrimSpace(os.Getenv("DOCKER_HOST")); h != "" && !strings.HasPrefix(h, "unix://") {
+		t.Skipf("--egress-mode review needs a local docker daemon (DOCKER_HOST=%s)", h)
+	}
 }
