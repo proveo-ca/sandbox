@@ -1,16 +1,20 @@
 // Command proveo is the harness CLI.
-// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/_plans/multi-provider-broker.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_plans/harness-choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml
+// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml
 package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/maintain"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -29,6 +33,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -38,6 +43,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -177,7 +183,9 @@ func runCmd() *cobra.Command {
 				return fmt.Errorf("unknown target %q (see `proveo ls`)", target)
 			}
 			if imageOverride != "" {
-				image = imageOverride
+				image = imageOverride // an explicit --image is a decision, not a default
+			} else {
+				image = reportImageChoice(image)
 			}
 			modeSet := cmd.Flags().Changed("egress-mode")
 			credsSet := cmd.Flags().Changed("credentials")
@@ -232,7 +240,9 @@ type runParams struct {
 	target, image, mode, credentials, localModel, input, output, scope, dataDir string
 	modeSet, credsSet                                                           bool
 	addons                                                                      []string
+	addonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
 	roles                                                                       provider.Roles
+	bridges                                                                     provider.BridgeTable
 	authVar                                                                     string
 	evidence                                                                    string
 	shell, printOnly                                                            bool
@@ -276,7 +286,6 @@ func doRun(p runParams) error {
 	} else {
 		ui.TeeTo(rl.Writer())
 		defer rl.Close()
-		rl.Artifacts(egDir)
 		ui.Iconf("📝", "run log: %s", rl.Path())
 	}
 
@@ -284,6 +293,9 @@ func doRun(p runParams) error {
 	if err != nil {
 		return err
 	}
+	// Recorded after the manifest resolves, because which artifacts exist depends on
+	// which backend will run and that is a property of the harness.
+	rl.Artifacts(egDir, willSandbox(man))
 
 	if p.target == "cursor" && p.localModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
@@ -297,6 +309,16 @@ func doRun(p runParams) error {
 	}
 	if p.output == "" {
 		p.output = filepath.Join(repoRoot, "reports")
+	}
+	// Create it here rather than leaving it to the backend. `docker run -v` invents
+	// a missing host path, but as ROOT — which is why callers have been creating it
+	// themselves to get a dir the run-as user can write. sbx does not invent it at
+	// all: it stops and asks "The selected workspace does not exist. Would you like
+	// to create it? (y/N)", which is a prompt no unattended run answers.
+	if !p.printOnly && p.output != "" {
+		if err := os.MkdirAll(p.output, 0o755); err != nil {
+			return fmt.Errorf("output dir %s: %w", p.output, err)
+		}
 	}
 
 	subScope := strings.Trim(p.scope, "/")
@@ -314,12 +336,7 @@ func doRun(p runParams) error {
 		MountRootDeps: mountRootDeps(os.Getenv),
 	}
 	var workdir string
-	if wsSpec.Layout == "input-output" {
-		wsSpec.InputDir = repoRoot // whole repo mounted read-only
-		if subScope != "" {
-			workdir = "/workspace/input/" + subScope
-		}
-	} else { // app layout: the scope dir drives the /app mount path
+	{ // one layout: the scope dir drives the /app mount path
 		if subScope != "" {
 			wsSpec.InputDir = filepath.Join(repoRoot, subScope)
 		} else {
@@ -351,29 +368,34 @@ func doRun(p runParams) error {
 	if err != nil {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
+	promptable := cacheApplies(p.printOnly, isStdinTTY())
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
-	if cached, ok := settings.Lookup(p.target, man.Capabilities); ok {
-		if !p.modeSet && cached.Egress != "" {
-			p.mode = cached.Egress
+	// A remembered answer SEEDS the prompt; it is never an authority of its own
+	// (_spec/internal/agentsettings/choice-cache.puml). With no prompt to seed —
+	// no TTY, wizard off, dry run — the resolver owes the operator the manifest
+	// default, so the cache is neither read nor written here. Letting it apply
+	// headlessly meant a run's security posture came from whatever the last
+	// interactive session happened to pick: an e2e run asking for the default
+	// `--credentials broker` silently got `forward` plus a `browser` image
+	// variant, and then rewrote the operator's remembered posture on its way out.
+	if promptable {
+		if cached, ok := settings.Lookup(p.target, man.Capabilities); ok {
+			p.seedFromCache(cached, lookup, evidenceSet)
 		}
-		if !p.credsSet && cached.Credentials != "" {
-			p.credentials = cached.Credentials
+	}
+	if p.bridges == nil {
+		if tab, err := provider.LoadBridges(proveo.ModelBridges); err == nil {
+			p.bridges = tab
+		} else {
+			ui.Warnf("model bridge tables unreadable (%v); the header will list role variables instead of resolved slots", err)
 		}
-		p.addons = cached.Addons
-		if p.authVar == "" {
-			p.authVar = cached.AuthVar
-		}
-		if !evidenceSet && cached.Evidence != "" {
-			p.evidence = cached.Evidence
-		}
-		p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
 	}
 	if p.roles == nil {
 		p.roles = provider.RolesFrom(lookup)
 	}
-	if !p.printOnly && wizardEnabled() && isStdinTTY() {
+	if promptable {
 		if err := p.promptChoices(man, lookup, gitRootOrEmpty(ws, repoRoot), settingsRoot); err != nil {
 			return err
 		}
@@ -381,7 +403,7 @@ func doRun(p runParams) error {
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
-	if !p.printOnly {
+	if promptable {
 		settings.Remember(p.target, man.Capabilities, agentsettings.Choice{
 			Egress: p.mode, Credentials: p.credentialsOrDefault(), Addons: p.addons, AuthVar: p.authVar,
 			Evidence: p.evidenceOrDefault(), Models: p.roles.Canonical(),
@@ -410,25 +432,39 @@ func doRun(p runParams) error {
 	}
 	wantDind := false
 	browserImage := man.Images[p.target+"-browser"] // the -browser variant, if this harness has one
-	dindOfferable := man.Dind && !man.SandboxDocker && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials)
+	dindOfferable := man.IsDind() && dind.ModeSupported(p.mode) && dind.CredentialsSupported(p.credentials)
 	if hasAddon(p.addons, "browser") && browserImage != "" {
-		p.image = browserImage
-		ui.Iconf("🌐", "variant: browser → %s", browserImage)
+		p.image = reportImageChoice(browserImage)
+		ui.Iconf("🌐", "variant: browser → %s", p.image)
 	}
-	if hasAddon(p.addons, "dind") && dindOfferable {
+	if hasAddon(p.addons, addonDind) && dindOfferable {
 		wantDind = true
 		ui.Iconf("🐳", "sidecar: DinD (same image)")
 	}
 	if len(p.addons) == 0 && !p.printOnly {
-		wantDind = dindOfferable && dind.ShouldStart(man.Dind, dindScope, false, nil)
+		wantDind = dindOfferable && dind.ShouldStart(man.IsDind(), dindScope, false, nil)
 	}
-	if man.Dind && !man.SandboxDocker && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
+	if man.IsDind() && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
 	}
 
 	var authMissingAtStart []manifest.EnvVar
+	loggedIn := hasPersistedLogin(p.target, proveohome.Root(os.Getenv))
+	// Say so when a token IS exported and is being left out. The 🔓 line below only
+	// fires when auth is missing, so the case that actually misbills — a token set,
+	// silently overriding the mounted login — was the one nothing reported.
+	if loggedIn && !p.printOnly && strings.TrimSpace(p.authVar) == "" {
+		if av := effectiveAuthVar(man, p.target, p.authVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(lookup(av)) != "" {
+			ui.Iconf("🔓", "%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
+		}
+	}
 	if missing := man.MissingEnv(lookup); len(missing) > 0 && !p.printOnly {
-		if man.Subscription {
+		if man.Subscription && loggedIn {
+			// MissingEnv only reads env vars, so a completed login sitting in the
+			// proveo home read as "no auth" and produced a warning that sent an
+			// operator after a token they did not need.
+			ui.Iconf("🔓", "%s: using the login persisted in the proveo home", man.Name)
+		} else if man.Subscription {
 			authMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", man.Name)
 		} else if isStdinTTY() && wizardEnabled() {
@@ -499,7 +535,9 @@ func doRun(p runParams) error {
 		"auth var":        p.authVar,
 		"local model":     p.localModel,
 		"observability":   observability(p.mode, p.credentialsOrDefault()),
-		"model roles":     rolesLine(p.roles),
+		"enforced by":     enforcedBy(willSandbox(man)),
+		"image":           imagePosture(p.image),
+		"model roles":     rolesLine(p.bridges, p.target, p.roles),
 		"role providers":  strings.Join(p.roles.Providers(), ","),
 	})
 
@@ -524,11 +562,15 @@ func doRun(p runParams) error {
 
 	var env []string
 	var brokerKeyNames []string
+	suppressedAuth := authSuppressor(man, p.target, p.authVar, proveohome.Root(os.Getenv))
 	for _, e := range man.Env {
 		if strings.TrimSpace(lookup(e.Name)) == "" {
 			continue
 		}
 		if e.Secret {
+			if suppressedAuth(e.Name) {
+				continue
+			}
 			if p.forwards() {
 				env = append(env, e.Name)
 				hydrateProcessEnv(e.Name, lookup)
@@ -585,6 +627,77 @@ func doRun(p runParams) error {
 		}
 	}
 
+	sbxBackend := false
+	if man.IsSbx() && p.mode != "review" && sbxEnabled() {
+		switch ok, why := sbxReady(p.printOnly); {
+		case !p.sandboxAddonOn():
+			ui.Iconf("🐳", "docker sandbox: off (add-on unchecked) — running on docker+egress")
+		case !ok:
+			reportSbxUnavailable(why)
+		default:
+			sbxBackend = true
+			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
+		}
+	}
+	if sbxBackend {
+		in := runSandboxInput{
+			params: p, man: man, sid: sid, egDir: egDir,
+			mounts: mounts, workdir: workdir,
+			lookup:           lookup,
+			detected:         detected,
+			gitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
+			homeEnv:          homePlan.Env,
+			scopeRel:         wsSpec.ScopeRel(),
+			worktreeFallback: wsSpec.WorktreeLinkDir == "",
+			worktreeEnv:      wsSpec.WorktreeEnv(),
+			dataDir:          p.dataDir,
+			memory:           sbx.MemoryLimit(),
+			homeRoot:         homePlan.Root,
+		}
+		if p.printOnly {
+			cfg, kit, secrets := sandboxSpec(in)
+			// --kit is not decoration: it carries the whole posture — network
+			// allowlist, brokered credential declarations, entrypoint — and sbx
+			// refuses a run without it. Printing a command whose --kit path was
+			// never written produces a failure that reads as an sbx bug rather
+			// than a print-mode limitation, so print mode renders the spec even
+			// though it executes nothing else. No secret VALUE reaches the file:
+			// kitCredentials declares names and headers only.
+			if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+				return fmt.Errorf("write sandbox kit: %w", err)
+			}
+			ui.Iconf("📄", "sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
+			if len(secrets) > 0 {
+				names := make([]string, 0, len(secrets))
+				for _, kv := range secrets {
+					names = append(names, kv[0])
+				}
+				// Print mode must not mutate the operator's secret store, so the
+				// printed command is runnable only once these exist in it.
+				ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
+			}
+			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+			return nil
+		}
+		if len(authMissingAtStart) > 0 {
+			// On this backend the agent cannot complete a login: it reaches the
+			// prompt, exits, and the sandbox stops with it — which surfaces 30s
+			// later as an unrelated 137. Refusing costs nothing; launching costs a
+			// minute of image load to reach a failure that was knowable up front.
+			// Gated on the persisted login too, because MissingEnv alone would
+			// refuse runs whose credentials are already in the proveo home.
+			if man.Subscription && !loggedIn {
+				printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
+				return fmt.Errorf("%s needs a subscription login and the sbx backend cannot complete one:\n"+
+					"  the agent exits at its login prompt and the sandbox stops with it.\n"+
+					"  Run once on the host:  claude setup-token\n"+
+					"  Or use --egress-mode review, which runs on the docker backend where a login persists", man.Name)
+			}
+			printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
+		}
+		return runSandbox(in)
+	}
+
 	var dindSidecar *dind.Sidecar
 
 	if !p.printOnly {
@@ -609,9 +722,10 @@ func doRun(p runParams) error {
 
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
-		reviewSocket: reviewSocket,
-		writeHosts:   reachableHosts(detected),
-		modelsDir:    modelsDir, providers: brokered, brokerFile: brokerFile,
+		reviewSocket:  reviewSocket,
+		writeHosts:    reachableHosts(detected),
+		providerHosts: policyProviderHosts(detected, man.Capabilities),
+		modelsDir:     modelsDir, providers: brokered, brokerFile: brokerFile,
 		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), man.Capabilities.Hosts),
@@ -702,6 +816,46 @@ func reachableHosts(detected []string) []string {
 	return out
 }
 
+// policyProviderHosts names the endpoints the egress DLP must treat as
+// on-provider: where a credential this run legitimately holds is allowed to go.
+// It unions the detected providers' hosts with the ones the manifest declares
+// the harness can use, because the second set is the only one a SUBSCRIPTION
+// harness has — it logs in inside the sandbox, so no key is detectable
+// host-side, yet the token it mints still has to reach the vendor.
+func policyProviderHosts(detected []string, c manifest.Capabilities) []string {
+	seen, out := map[string]bool{}, []string{}
+	for _, h := range append(reachableHosts(detected), reachableHosts(c.Providers)...) {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// cacheApplies reports whether a remembered answer may take part in this run.
+// tty is passed in rather than probed so the rule is testable without a PTY.
+func cacheApplies(printOnly, tty bool) bool { return !printOnly && wizardEnabled() && tty }
+
+// seedFromCache fills the axes the operator did not state explicitly from a
+// remembered answer. Whether the cache applies at all is the caller's decision.
+func (p *runParams) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
+	if !p.modeSet && cached.Egress != "" {
+		p.mode = cached.Egress
+	}
+	if !p.credsSet && cached.Credentials != "" {
+		p.credentials = cached.Credentials
+	}
+	p.addons, p.addonsAnswered = normalizeAddons(cached.Addons), true
+	if p.authVar == "" {
+		p.authVar = cached.AuthVar
+	}
+	if !evidenceSet && cached.Evidence != "" {
+		p.evidence = cached.Evidence
+	}
+	p.roles = mergeRoles(provider.RolesFrom(lookup), cached.Models)
+}
+
 func filterProviders(detected []string, c manifest.Capabilities) []string {
 	if len(c.Providers) == 0 {
 		return detected
@@ -716,32 +870,43 @@ func filterProviders(detected []string, c manifest.Capabilities) []string {
 }
 
 func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
+	sbxBackend, sbxWhy := false, ""
+	if man.IsSbx() {
+		// PROVEO_SBX is consulted HERE as well as at backend selection, or the two
+		// disagree: the picker offered a ticked "docker (sandbox)" while the run took
+		// the docker backend, so the prompt described a posture the run did not have.
+		if !sbxEnabled() {
+			sbxWhy = "PROVEO_SBX is off"
+		} else {
+			sbxBackend, sbxWhy = sbx.Available()
+		}
+	}
+	sandboxOn := sbxBackend && p.sandboxAddonOn()
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.target),
-		Header: buildHeader(man, lookup, p.roles, repoRoot, p.input, homeRoot),
+		Header: buildHeader(man, lookup, p.roles, p.bridges, repoRoot, p.input, homeRoot),
 		Rows: applicableRows(
-			reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode)),
+			sbxEgressReality(reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.mode), sandboxOn), sandboxOn),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
-	if auth := availableAuthVars(man, lookup); len(auth) > 1 {
+	if auth := availableAuthVarsIn(man, lookup, p.target, homeRoot); len(auth) > 1 {
 		form.Rows = append(form.Rows, applicableRows(
 			axisRow("auth", auth, auth, orElseFirst(p.authVar, auth)),
 		)...)
 	}
 	if addons := addonOptions(man); len(addons) > 0 {
-		on := make([]bool, len(addons))
-		for i, a := range addons {
-			on[i] = hasAddon(p.addons, a) || (a == "dind" && man.SandboxDocker)
-		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
-			Label: "add-ons", Options: addons, Multi: true, On: on,
+			Label: "add-ons", Options: addons, Multi: true, On: p.addonDefaults(addons),
 		})...)
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, p.mode, p.credentialsOrDefault(), man.SandboxDocker)
+		gateAddons(f, p.mode, p.credentialsOrDefault(), sbxWhy)
+		// Toggling the sandbox add-on moves the review tier with it: the consent
+		// gate has no sbx transport, so review is reachable only off that backend.
+		gateReview(f, hasAddon(f.Selections("add-ons"), addonSandbox))
 		gateEvidence(f)
 	}
 	form.OnChange(form)
@@ -759,7 +924,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 	if v := form.Selection("credentials"); v != "" && !p.credsSet {
 		p.credentials = v
 	}
-	p.addons = form.Selections("add-ons")
+	p.addons, p.addonsAnswered = form.Selections("add-ons"), true
 	if v := form.Selection("auth"); v != "" {
 		p.authVar = v
 	}
@@ -807,7 +972,30 @@ func evidenceFrom(selected []string) string {
 
 // availableAuthVars lists the credentials the operator holds for the provider
 // this run will pin.
+// authVarLogin names the credential the operator already established as a FILE in
+// the proveo home. It is offered beside the environment variables because it is a
+// third way to authenticate and, until it was listed, an unnameable one: the row
+// showed only env vars, so a remembered answer naming one of them outranked a login
+// the operator had made later — and proveo forwarded a token the API refused while
+// a working subscription sat mounted and unread.
+const authVarLogin = "login (proveo home)"
+
+// availableAuthVars lists the credentials the operator holds for this harness, the
+// persisted login first when there is one: it is the answer that needs no value
+// exported, so it belongs where a default lands.
 func availableAuthVars(man manifest.Manifest, lookup func(string) string) []string {
+	return availableAuthVarsIn(man, lookup, "", "")
+}
+
+func availableAuthVarsIn(man manifest.Manifest, lookup func(string) string, target, homeRoot string) []string {
+	out := envAuthVars(man, lookup)
+	if hasPersistedLogin(target, homeRoot) {
+		return append([]string{authVarLogin}, out...)
+	}
+	return out
+}
+
+func envAuthVars(man manifest.Manifest, lookup func(string) string) []string {
 	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
 	if len(detected) != 1 {
 		if pin := strings.TrimSpace(man.Provider); pin != "" {
@@ -835,7 +1023,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, tierFallback, credsFallback string, sandboxDocker bool) {
+func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy string) {
 	tier := f.Selection("egress")
 	if tier == "" {
 		tier = tierFallback
@@ -850,22 +1038,81 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback string, sandboxDoc
 			continue
 		}
 		r.Off = make([]bool, len(r.Options))
+		if len(r.On) != len(r.Options) {
+			r.On = make([]bool, len(r.Options))
+		}
 		r.Reason = ""
 		for j, opt := range r.Options {
-			if opt != "dind" {
+			if opt == addonSandbox {
+				// Offered, but only checkable on a host that can actually run it.
+				if sbxWhy != "" {
+					r.Off[j] = true
+					// Greyed AND unticked: a ticked box that cannot be honoured is
+					// worse than an absent one, because the operator reads it as the
+					// posture of the run rather than as a thing they cannot have.
+					r.On[j] = false
+					r.Reason = "docker sandbox: " + sbxWhy
+				}
 				continue
 			}
-			if sandboxDocker {
-				r.Off[j] = true
-				r.Reason = "docker accessible via docker sandbox"
+			if opt != addonDind {
 				continue
 			}
 			if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
 				r.Off[j] = true
-				r.Reason = "dind needs egress open + credentials forward"
+				r.On[j] = false
+				r.Reason = addonDind + " needs egress open + credentials forward"
 			}
 		}
 	}
+}
+
+// gateReview re-greys the review tier whenever the sandbox add-on is toggled,
+// so the egress row keeps telling the truth about what this run can reach.
+func gateReview(f *choiceui.Form, sandboxOn bool) {
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != "egress" {
+			continue
+		}
+		if len(r.Off) != len(r.Options) {
+			r.Off = make([]bool, len(r.Options))
+		}
+		for j, opt := range r.Options {
+			if opt != "review" {
+				continue
+			}
+			reason := ""
+			switch {
+			case sandboxOn:
+				reason = "review: not supported on the docker sandbox backend"
+			default:
+				if ok, why := reviewSupported(os.Getenv); !ok {
+					reason = "review: " + why
+				}
+			}
+			r.Off[j] = reason != ""
+			switch {
+			case reason != "":
+				r.Reason = reason
+			case strings.HasPrefix(r.Reason, "review:"):
+				r.Reason = ""
+			}
+			if r.Off[j] && r.Selected == j {
+				r.Selected = firstSelectableIn(r)
+			}
+		}
+	}
+}
+
+// firstSelectableIn is the fallback selection when the current one is greyed out.
+func firstSelectableIn(r *choiceui.Row) int {
+	for i := range r.Options {
+		if i >= len(r.Off) || !r.Off[i] {
+			return i
+		}
+	}
+	return 0
 }
 
 func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
@@ -895,7 +1142,10 @@ func reviewSupported(getenv func(string) string) (ok bool, why string) {
 
 // reviewAvailability greys the review option out on hosts whose transport
 // cannot carry the gate.
-func reviewAvailability(r choiceui.Row) choiceui.Row {
+func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
+	if sandboxBackend {
+		return comingSoon(r, "review", "review: not supported on the docker sandbox backend")
+	}
 	if ok, why := reviewSupported(os.Getenv); !ok {
 		return comingSoon(r, "review", "review: "+why)
 	}
@@ -928,6 +1178,21 @@ func firstEnabled(r choiceui.Row) int {
 }
 
 // applicableRows drops axes with nothing to decide.
+// sbxEgressReality greys the tiers the sbx backend cannot honour. sandboxSpec derives
+// the Kit allowlist from the harness capabilities and the detected providers and never
+// consults the tier, so "open" and "allowlist" produce an identical sandbox: the row
+// would otherwise present a risk axis on which nothing moves. Only "review" still does
+// something — it selects the docker backend — and gateReview already owns that.
+//
+// The option is greyed rather than removed, for the reason comingSoon exists: hiding it
+// would misrepresent an unenforced tier as an unavailable one.
+func sbxEgressReality(r choiceui.Row, sandboxOn bool) choiceui.Row {
+	if !sandboxOn {
+		return r
+	}
+	return comingSoon(r, "open", "open: sbx always enforces the Kit allowlist")
+}
+
 func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	out := make([]choiceui.Row, 0, len(rows))
 	for _, r := range rows {
@@ -938,6 +1203,17 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	return out
 }
 
+// The docker add-ons: one row entry per way a harness can hand the agent a
+// Docker daemon. Both are CHECKED by default wherever the manifest declares
+// them — the picker shows what the run is about to do, and unchecking is how an
+// operator opts out (sandbox → docker+egress; dind → no sidecar). Each is still
+// subject to its own gate, so an entry can be checked and greyed at once, with
+// the reason on the row.
+const (
+	addonSandbox = "docker (sandbox)"
+	addonDind    = "docker (dind)"
+)
+
 func addonOptions(man manifest.Manifest) []string {
 	var opts []string
 	for target := range man.Images {
@@ -946,10 +1222,64 @@ func addonOptions(man manifest.Manifest) []string {
 			break
 		}
 	}
-	if man.Dind {
-		opts = append(opts, "dind")
+	// One entry, never two: the manifest's docker mode IS the choice, so the
+	// picker cannot offer a harness both daemons.
+	switch man.Docker {
+	case manifest.DockerSbx:
+		opts = append(opts, addonSandbox)
+	case manifest.DockerDind:
+		opts = append(opts, addonDind)
 	}
 	return opts
+}
+
+// sandboxAddonOn reports whether this run takes the sandbox backend. It is
+// default-ON: only a remembered or prompted answer can turn it off, so a first
+// run — and every non-interactive one — still gets the sandbox.
+func (p *runParams) sandboxAddonOn() bool {
+	return hasAddon(p.addons, addonSandbox) || !p.addonsAnswered
+}
+
+// sbxEnabled reports whether the sandbox backend may be selected at all.
+//
+// PROVEO_SBX=off pins the docker+egress path, and it exists because nothing else
+// can say that non-interactively. The add-on is default-ON and only a
+// remembered or prompted answer turns it off — but a headless run no longer
+// reads the choice cache (that cache seeds a prompt, and there is none), so
+// without this knob a host with sbx installed has no way to run on docker: not
+// for a script, not for CI, and not for a test that needs to inspect the docker
+// plan it is asserting against.
+func sbxEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_SBX"))) {
+	case "off", "0", "no", "false", "disable", "disabled":
+		return false
+	}
+	return true
+}
+
+// addonDefaults is the picker's initial checkbox state: a remembered answer
+// wins, and absent one BOTH docker add-ons start checked — the run is going to
+// use them, so the box that says so is ticked before the operator is asked.
+func (p *runParams) addonDefaults(opts []string) []bool {
+	on := make([]bool, len(opts))
+	for i, a := range opts {
+		on[i] = hasAddon(p.addons, a) ||
+			((a == addonSandbox || a == addonDind) && !p.addonsAnswered)
+	}
+	return on
+}
+
+// normalizeAddons upgrades the names a previous version remembered, so a cached
+// choice keeps meaning what the operator picked.
+func normalizeAddons(addons []string) []string {
+	out := make([]string, 0, len(addons))
+	for _, a := range addons {
+		if a == "dind" {
+			a = addonDind
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 func reportLinks(links []workspace.Link) {
@@ -1009,15 +1339,285 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {
+// ansiSeq matches the escape sequences a TUI writes constantly. They are stripped
+// from the retained tail because a replayed cursor-move is noise, and a tail full of
+// escapes is harder to read than no tail at all.
+var ansiSeq = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\\\-_]")
+
+// agentStdio picks the writers handed to the sandbox agent. On a terminal it
+// returns out and err UNCHANGED — os/exec only passes the child the real tty when
+// the field still holds that *os.File, and any wrapper silently becomes a pipe.
+// Off a terminal the stream is already redirected, so teeing costs nothing and the
+// tail becomes the only record of what the agent said.
+func agentStdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *tailWriter) {
+	if tty {
+		return out, err, nil
+	}
+	tail := newTailWriter(24)
+	return io.MultiWriter(out, tail), io.MultiWriter(err, tail), tail
+}
+
+// tailWriter keeps the last n non-empty lines written through it. It is a tee, not
+// a filter: everything still reaches the terminal untouched, and only the retained
+// copy is cleaned up for replay.
+//
+// The mutex is load-bearing. os/exec copies stdout and stderr on separate
+// goroutines, and both are teed into ONE tailWriter, so two Writes interleave on the
+// same buffer: one goroutine computes an index, the other reslices under it, and the
+// next reslice panics with bounds out of range. That is not a rare race — it took
+// out the first real run this shipped in.
+type tailWriter struct {
+	mu    sync.Mutex
+	n     int
+	buf   []byte
+	lines []string
+}
+
+func newTailWriter(n int) *tailWriter { return &tailWriter{n: n} }
+
+func (t *tailWriter) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	for {
+		i := bytes.IndexAny(t.buf, "\n\r")
+		if i < 0 {
+			break
+		}
+		t.push(string(t.buf[:i]))
+		t.buf = t.buf[i+1:]
+	}
+	// A TUI may never emit a newline; do not let the pending fragment grow forever.
+	if len(t.buf) > 8192 {
+		t.push(string(t.buf))
+		t.buf = nil
+	}
+	return len(p), nil
+}
+
+func (t *tailWriter) push(line string) {
+	line = strings.TrimSpace(ansiSeq.ReplaceAllString(line, ""))
+	line = strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' {
+			return -1
+		}
+		return r
+	}, line)
+	if line == "" {
+		return
+	}
+	if n := len(t.lines); n > 0 && t.lines[n-1] == line {
+		return // a redrawn status line is one line, not many
+	}
+	t.lines = append(t.lines, line)
+	if len(t.lines) > t.n {
+		t.lines = t.lines[len(t.lines)-t.n:]
+	}
+}
+
+// Lines returns the retained tail, including any unterminated fragment.
+func (t *tailWriter) Lines() []string {
+	if t == nil {
+		return nil // interactive run: the terminal was handed over instead
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.buf) > 0 {
+		t.push(string(t.buf))
+		t.buf = nil
+	}
+	return t.lines
+}
+
+// agentTranscriptDirs are where a harness writes its session transcripts inside the
+// mounted proveo home, relative to it. Keyed by target: each CLI chooses its own.
+var agentTranscriptDirs = map[string][]string{
+	"claudecode": {".claude/projects"},
+}
+
+// agentTranscript names the session transcript written during this run, if any.
+//
+// It is better evidence than a captured tail. A tail holds what reached the
+// terminal; the transcript holds what the agent received and said — which is where
+// "Credit balance is too low" appeared after a run showed nothing but a stopped
+// sandbox. Interactive runs hand the terminal to the child and take no tail at all,
+// so this is the only record proveo can point at.
+func agentTranscript(target, homeRoot string, since time.Time) string {
+	if homeRoot == "" {
+		return ""
+	}
+	newest, newestAt := "", since
+	for _, rel := range agentTranscriptDirs[target] {
+		root := filepath.Join(homeRoot, rel)
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".jsonl") {
+				return nil //nolint:nilerr // an unreadable home is not a run failure
+			}
+			fi, err := d.Info()
+			if err != nil || !fi.ModTime().After(newestAt) {
+				return nil
+			}
+			newest, newestAt = p, fi.ModTime()
+			return nil
+		})
+	}
+	return newest
+}
+
+// subscriptionLoginFiles are where a completed login persists inside the proveo
+// home the sandbox mounts. Keyed by target because each harness stores its own.
+//
+// An operator may authenticate on the HOST before launching — `claude setup-token`,
+// or a normal interactive login — and that credential reaches the container because
+// HOME points at the proveo home, which is mounted. When it is present it is the
+// operator's answer, and proveo must not hand sbx a competing API key that its
+// proxy would inject instead (which is how a subscription run silently billed per
+// token).
+//
+// cursor is absent deliberately: its manifest declares only CURSOR_API_KEY, and its
+// CLI keeps no credential file we have established — ~/.cursor/cli-config.json is
+// configuration, not auth. Add it here once the location is known rather than
+// guessing, or a missing file will read as "no login" forever.
+var subscriptionLoginFiles = map[string][]string{
+	"claudecode": {".claude/.credentials.json"},
+}
+
+// effectiveAuthVar is the credential the run should authenticate with: the row the
+// operator answered if there was one, otherwise the manifest's own secret when a
+// host login is already sitting in the proveo home.
+func effectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string) string {
+	if v := strings.TrimSpace(chosen); v != "" && v != authVarLogin {
+		return v
+	}
+	if !hasPersistedLogin(target, homeRoot) {
+		return ""
+	}
+	for _, e := range man.Env {
+		if e.Secret {
+			return e.Name // the harness's declared subscription credential
+		}
+	}
+	return ""
+}
+
+// hasPersistedLogin reports whether a login already exists for target under the
+// proveo home. It is the half of the auth picture MissingEnv cannot see: the env
+// var is one way to be authenticated and the credential file is the other.
+func hasPersistedLogin(target, homeRoot string) bool {
+	if homeRoot == "" {
+		return false
+	}
+	for _, rel := range subscriptionLoginFiles[target] {
+		if fi, err := os.Stat(filepath.Join(homeRoot, rel)); err == nil && fi.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// imagePosture records WHICH image a run took, because "proveo/claudecode:latest"
+// alone does not distinguish the build under test from a registry artifact that may
+// be weeks older.
+func imagePosture(ref string) string {
+	if maintain.RefTag(ref) == maintain.LocalTag {
+		return ref + " (local build)"
+	}
+	return ref + " (published)"
+}
+
+// dockerImageCreated reports when the host built or pulled an image.
+var dockerImageCreated = func(ref string) (time.Time, bool) {
+	out, err := exec.Command("docker", "image", "inspect", ref, "--format", "{{.Created}}").Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(out)))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return ts, true
+}
+
+// reportImageChoice resolves :latest against a local build and NAMES the winner.
+// The naming is the point: an image silently resolving to a published artifact
+// instead of the build under test is invisible until something behaves like code
+// nobody wrote, and reading it off one header line is the whole difference.
+func reportImageChoice(ref string) string {
+	chosen, isLocal := maintain.ResolveImage(ref, dockerImageCreated)
+	if isLocal {
+		ui.Iconf("📦", "image: %s (local build — newer than the published tag)", chosen)
+	}
+	return chosen
+}
+
+// authSuppressor reports which auth vars must NOT be injected for this run.
+//
+// Two ways of being authenticated compete, and they do not merge: an env token
+// OVERRIDES a credential file rather than sitting beside it. So when the operator's
+// login already exists as a file under the mounted proveo home, that file IS the
+// credential and every auth var for its provider is suppressed — otherwise a
+// setup-token exported on the host authenticates the run as the API while the
+// mounted subscription login goes unread, which is what "Claude API" on a
+// subscription run was reporting. When the operator answered the auth row instead,
+// their answer stands and only its alternatives are suppressed.
+func authSuppressor(man manifest.Manifest, target, chosen, homeRoot string) func(string) bool {
+	chosen = strings.TrimSpace(chosen)
+	// The login is the credential — either named outright, or the only answer when
+	// the operator gave none and one exists. Then NO variable for its providers may
+	// be injected: an env token supersedes the file rather than joining it.
+	if chosen == authVarLogin || (chosen == "" && hasPersistedLogin(target, homeRoot)) {
+		// Scoped to the providers the login actually authenticates — read off the
+		// harness's own declared secrets. Scoping it to the manifest's capabilities
+		// instead reached too far: a manifest that declares none allows every
+		// provider, so an anthropic login would have suppressed the openai key too
+		// and quietly removed reach the harness legitimately has.
+		owned := map[string]bool{}
+		for _, e := range man.Env {
+			if e.Secret {
+				if prov := providerOfKeyVar(e.Name); prov != "" {
+					owned[prov] = true
+				}
+			}
+		}
+		return func(k string) bool {
+			prov := providerOfKeyVar(k)
+			return prov != "" && owned[prov]
+		}
+	}
+	auth := effectiveAuthVar(man, target, chosen, homeRoot)
+	return func(k string) bool { return losesToChosenAuth(k, auth) }
+}
+
+// losesToChosenAuth reports whether key var k is a rejected alternative to the auth
+// var the operator picked. Only vars of the SAME provider compete: an anthropic
+// choice says nothing about openai, and dropping an unrelated key would silently
+// remove reach the harness legitimately has.
+func losesToChosenAuth(k, chosen string) bool {
+	chosen = strings.TrimSpace(chosen)
+	if chosen == "" || k == chosen {
+		return false
+	}
+	prov := providerOfKeyVar(chosen)
+	if prov == "" || providerOfKeyVar(k) != prov {
+		return false
+	}
+	for _, alt := range provider.AuthVars(prov) {
+		if alt == k {
+			return true // same provider, different auth: the operator chose the other
+		}
+	}
+	return false
+}
+
+func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, bridges provider.BridgeTable, repoRoot, inputDir, homeRoot string) []string {
 	if inputDir == "" {
 		inputDir = repoRoot
 	}
 	h := gitHeader(repoRoot)
 	h = append(h, choiceui.EnvHeader(loadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
-	h = append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot)...)
-	if line := rolesLine(roles); line != "" {
-		h = append(h, "🧠 "+line)
+	h = append(h, workspaceHeader(man, inputDir, repoRoot, homeRoot, glyphModeFrom(lookup))...)
+	if line := rolesLine(bridges, man.Name, roles); line != "" {
+		h = append(h, "llms:     "+line)
 	}
 	return h
 }
@@ -1101,6 +1701,84 @@ var lspMarkers = []wsscan.Marker{
 	{Label: "yaml-language-server", Suffixes: []string{".yml", ".yaml"}},
 }
 
+// glyphMode selects what decorates the lsp: row. Nerd is the default and ASCII is the
+// fallback an operator selects when their font stops at the Powerline range, because a
+// terminal offers no way to ask whether its font carries a codepoint.
+type glyphMode int
+
+const (
+	glyphsNerd glyphMode = iota // default
+	glyphsASCII
+	glyphsOff
+)
+
+// lspNerd maps an LSP server to its Nerd Font devicon — per-language identity, since
+// a logo is recognised before it is read.
+var lspNerd = map[string]string{
+	"gopls":                      "\ue627",
+	"typescript-language-server": "\ue628",
+	"pyright-langserver":         "\ue73c",
+	"bash-language-server":       "\ue795",
+	"docker-langserver":          "\ue7b0",
+	"yaml-language-server":       "\ue60b",
+}
+
+// lspASCII maps an LSP server to a category marker, deliberately coarser than the
+// devicons: an ASCII symbol has to be decoded rather than recognised, so per-language
+// distinctions it cannot carry are not worth inventing. Every marker is padded to two
+// columns so the server names stay aligned whichever category they fall in.
+//
+// The set avoids "[", "(" and ">" on purpose. choiceui.go draws "[x] "/"[ ] " for
+// checkboxes, "(•) "/"( ) " for radios, and "◀ riskier"/"safer ▶" for the legend, so
+// a "[]" before a server name would read as an unchecked add-on rather than a glyph.
+var lspASCII = map[string]string{
+	"gopls":                      "<>",
+	"typescript-language-server": "<>",
+	"pyright-langserver":         "<>",
+	"bash-language-server":       "$ ",
+	"docker-langserver":          "# ",
+	"yaml-language-server":       "{}",
+}
+
+// glyphModeFrom reads PROVEO_GLYPHS through lookup, so a project .env can set it once
+// per repo. Unset means nerd; an unrecognised value also means nerd rather than off,
+// so a typo degrades to the default rather than silently stripping the row.
+func glyphModeFrom(lookup func(string) string) glyphMode {
+	switch strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))) {
+	case "ascii":
+		return glyphsASCII
+	case "off", "0", "false", "no", "none":
+		return glyphsOff
+	}
+	return glyphsNerd
+}
+
+// withGlyphs prefixes each label with its glyph. Nerd mode falls back to the ASCII
+// category marker for a server with no devicon, so adding a language to lspMarkers
+// degrades to a category rather than to a ragged column. A server in neither table is
+// left bare: an invented placeholder would read as a language nobody has.
+func withGlyphs(labels []string, mode glyphMode) []string {
+	if mode == glyphsOff {
+		return labels
+	}
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		g, ok := "", false
+		if mode == glyphsNerd {
+			g, ok = lspNerd[l]
+		}
+		if !ok {
+			g, ok = lspASCII[l]
+		}
+		if !ok {
+			out = append(out, l)
+			continue
+		}
+		out = append(out, g+" "+l)
+	}
+	return out
+}
+
 func ToolingLabels() []string {
 	out := make([]string, 0, len(toolingMarkers))
 	for _, m := range toolingMarkers {
@@ -1109,7 +1787,7 @@ func ToolingLabels() []string {
 	return out
 }
 
-func workspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string) []string {
+func workspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string, mode glyphMode) []string {
 	if inputDir == "" {
 		return nil
 	}
@@ -1120,7 +1798,7 @@ func workspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string)
 	}
 	lsp := wsscan.Scan(inputDir, repoRoot, lspMarkers, 0)
 	if labels := lsp.Labels(lspMarkers); len(labels) > 0 {
-		out = append(out, "lsp:      will start "+strings.Join(labels, "  "))
+		out = append(out, "lsp:      "+strings.Join(withGlyphs(labels, mode), "  "))
 	}
 	if tools.Truncated || lsp.Truncated {
 		ui.Warnf("workspace scan hit its entry budget under %s — tooling/LSP lines may be incomplete", inputDir)
@@ -1253,6 +1931,7 @@ type assembleInput struct {
 	reviewSocket                        string   // review tier: host path of the consent gate socket
 	providers                           []string // every provider the broker holds a route for
 	writeHosts                          []string // endpoints of every provider the allowlist admits
+	providerHosts                       []string // endpoints the DLP treats as on-provider
 }
 
 func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
@@ -1265,6 +1944,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		ReviewSocket:    in.reviewSocket,
 		AuthVar:         in.params.authVar,
 		WriteHosts:      in.writeHosts,
+		ProviderHosts:   in.providerHosts,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
 		SquidConfigDir:  filepath.Join(in.egDir, "squid", "config"),
@@ -1291,6 +1971,556 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	return plan, agent, nil
 }
 
+// reportSbxUnavailable warns that the run fell back, naming the host engine.
+func reportSbxUnavailable(why string) {
+	ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
+	if eng := engine.Detect(); eng.Kind != engine.Unknown {
+		ui.Notef("    engine: %s (%s)", eng.Label(), eng.Isolation())
+	}
+	if cmd := sbx.InstallCmd(sbx.Installed()); cmd != "" {
+		if sbx.Installed() {
+			ui.Notef("    proveo targets sbx %s or newer:", sbx.MinVersion)
+		} else {
+			ui.Notef("    sbx is standalone and does not need Docker Desktop:")
+		}
+		ui.Notef("      %s", cmd)
+	}
+}
+
+// ensureSbx brings the sbx CLI up to the version this build drives, so the
+// operator is not the one tracking a pre-GA tool's releases. It returns whether
+// the backend is usable and, when not, why.
+//
+// The install is CONFIRMED, never silent: it mutates the host outside proveo's
+// own state, so it follows the same gate as a missing sidecar image
+// (PROVEO_AUTO_PROVISION, else a TTY prompt, else declined). Declining is not an
+// error — the run falls back to docker+egress and says so.
+func ensureSbx() (bool, string) {
+	ok, why := sbx.Available()
+	if ok {
+		return true, ""
+	}
+	install := sbx.InstallCmd(sbx.Installed())
+	if install == "" {
+		return false, why // nothing to offer on this platform
+	}
+	verb := "install"
+	if sbx.Installed() {
+		verb = "upgrade"
+	}
+	if !provisionConfirm(fmt.Sprintf("%s the docker sandboxes CLI (%s)?", verb, install)) {
+		return false, why
+	}
+	ui.Iconf("📦", "%sing sbx: %s", verb, install)
+	c := exec.Command("bash", "-lc", install)
+	c.Stdout, c.Stderr = os.Stderr, os.Stderr
+	if err := c.Run(); err != nil {
+		return false, fmt.Sprintf("%s failed: %v", verb, err)
+	}
+	return sbx.Available()
+}
+
+// sbxReady resolves the backend for a real run, provisioning the CLI when the
+// operator allows it. A dry run only ever REPORTS: --print must not install
+// anything, or `--print` stops being a way to inspect a plan safely.
+func sbxReady(printOnly bool) (bool, string) {
+	if printOnly {
+		return sbx.Available()
+	}
+	return ensureSbx()
+}
+
+// workspaceBinds is every bind sbx can take as a positional workspace.
+//
+// sbx accepts several workspaces and mounts each at its own HOST path, so the
+// workspace, the output dir, a --data-dir and proveo home all travel: their
+// container path was never load-bearing on its own. Home comes with a condition —
+// HOME has to be repointed at the host path, which sbxHome does below — because
+// the harness finds its config through HOME rather than through /proveo-home
+// literally.
+//
+// What cannot travel is a bind NESTED under home: the gh config sits at
+// /proveo-home/.config/gh on docker, and as its own positional workspace it would
+// land at its own host path instead, nowhere the harness looks. It is dropped
+// rather than mounted somewhere useless — the same conclusion
+// PROVEO_MOUNT_GH_CONFIG=0 reaches deliberately.
+func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
+	var out []sbx.Mount
+	for _, m := range mounts {
+		if strings.HasPrefix(m.Container, proveohome.ContainerHome+"/") {
+			continue // nested under home; its nesting cannot be reproduced
+		}
+		// A workspace is a DIRECTORY. docker binds a single file happily — the
+		// project .env arrives as one, and the credential policy masks it with a
+		// /dev/null bind — but sbx refuses: "workspace path exists but is not a
+		// directory". Those binds are dropped, which also means a project .env does
+		// not reach an sbx sandbox; on the brokered tiers it was being masked away
+		// anyway, and the credentials it would have carried are declared in the Kit.
+		if fi, err := os.Stat(m.Host); err != nil || !fi.IsDir() {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// sbxHome rewrites HOME from the container path docker used to the HOST path sbx
+// mounts proveo home at, so ~/.claude and the resume state persist across runs
+// instead of landing in a sandbox-local directory that dies with the VM.
+func sbxHome(env []string, mounts []sbx.Mount) []string {
+	host := ""
+	for _, m := range mounts {
+		if m.Container == proveohome.ContainerHome {
+			host = m.Host
+			break
+		}
+	}
+	if host == "" {
+		return env
+	}
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "PROVEO_HOME=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	// PROVEO_HOME carries the same path under a name nothing else rewrites. sbx runs
+	// setup.startup commands under `user: "1000"`, and that resets HOME from
+	// /etc/passwd — so a seed step reading $HOME composed subagents into /home/claude
+	// while the agent ran with this value, putting the files where nothing reads them.
+	return append(out, "HOME="+host, "PROVEO_HOME="+host)
+}
+
+// firstHost is the host path of the first bind, which is where sbx puts the cwd.
+func firstHost(mounts []sbx.Mount) string {
+	if len(mounts) == 0 {
+		return ""
+	}
+	return mounts[0].Host
+}
+
+// runSandboxInput is the resolved input to the sbx backend.
+type runSandboxInput struct {
+	params           runParams
+	man              manifest.Manifest
+	sid, egDir       string
+	mounts           []runner.Mount
+	workdir          string
+	lookup           func(string) string
+	detected         []string
+	gitEnv           []string
+	homeEnv          []string
+	scopeRel         string
+	worktreeFallback bool
+	worktreeEnv      []string
+	dataDir          string
+	// memory is the -m limit for the sandbox, resolved by the caller so that
+	// sandboxSpec stays pure and --print renders the same argv the run executes.
+	memory string
+	// homeRoot is the proveo home, passed in for the same reason: a host login
+	// living there decides which credential the run authenticates with, and
+	// sandboxSpec must not reach for the real filesystem to find that out.
+	homeRoot string
+}
+
+// sandboxSpec resolves the sbx invocation: RunConfig, Kit, and host-side secrets.
+func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
+	p := in.params
+
+	hosts := map[string]bool{}
+	for _, d := range strings.Fields(joinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.man.Capabilities.Hosts)) {
+		hosts[d] = true
+	}
+	for _, h := range reachableHosts(in.detected) {
+		hosts[h] = true
+	}
+	allow := make([]string, 0, len(hosts))
+	for h := range hosts {
+		allow = append(allow, h)
+	}
+	sort.Strings(allow)
+
+	var secrets [][2]string
+	addSecret := func(name string) {
+		v := in.lookup(name)
+		if v == "" {
+			return
+		}
+		for _, kv := range secrets {
+			if kv[0] == name {
+				return
+			}
+		}
+		secrets = append(secrets, [2]string{name, v})
+	}
+	forwards := p.forwards()
+	var forwarded []string
+	addForward := func(name string) {
+		if in.lookup(name) == "" {
+			return
+		}
+		for _, n := range forwarded {
+			if n == name {
+				return
+			}
+		}
+		forwarded = append(forwarded, name)
+	}
+	suppressedAuth := authSuppressor(in.man, p.target, p.authVar, in.homeRoot)
+	var neutralize []string // suppressed credentials, stated as empty rather than omitted
+	note := func(name string) {
+		for _, n := range neutralize {
+			if n == name {
+				return
+			}
+		}
+		neutralize = append(neutralize, name)
+	}
+	for _, e := range in.man.Env {
+		if !e.Secret {
+			continue
+		}
+		if suppressedAuth(e.Name) {
+			note(e.Name)
+			continue
+		}
+		if forwards {
+			addForward(e.Name)
+			continue
+		}
+		addSecret(e.Name)
+	}
+	// Filtered by what the harness declares it can USE, the same way detection is
+	// on the docker path. Unfiltered, a claudecode sandbox asked sbx for cursor,
+	// google, openai and xai credentials too — and sbx shows that list to the
+	// operator for approval, so an over-declared Kit is not merely untidy: it asks
+	// consent for reach the harness has no way to exercise.
+	for _, k := range provider.KeyVars() {
+		if !in.man.Capabilities.AllowsProvider(providerOfKeyVar(k)) {
+			continue
+		}
+		// A provider with two ways to authenticate gets only the one the operator
+		// chose. Handing sbx both put an API key and a subscription token in the
+		// same store, and its proxy injected the key — so a subscription run
+		// silently billed per token and the auth row the operator answered was
+		// decided for them somewhere they could not see.
+		if suppressedAuth(k) {
+			note(k)
+			continue
+		}
+		if forwards {
+			addForward(k)
+			continue
+		}
+		addSecret(k)
+	}
+
+	var env []string
+	// Neutralize, do not merely omit. sbx's secret store is GLOBAL and injects on its
+	// own authority, so leaving a suppressed variable unset leaves whatever an earlier
+	// run stored sitting in front of the mounted login. An explicit empty value is the
+	// only per-run override sbx offers (`sbx run -e VAR=`), so the decision proveo
+	// made host-side is stated in the argv instead of being silently overridden.
+	for _, k := range neutralize {
+		env = append(env, k+"=")
+	}
+	env = append(env, forwarded...)
+	for _, e := range in.man.Env {
+		if e.Secret {
+			continue
+		}
+		if v := strings.TrimSpace(in.lookup(e.Name)); v != "" {
+			env = append(env, e.Name+"="+v)
+		}
+	}
+	for _, k := range configVarsFor(in.man) {
+		if v := strings.TrimSpace(in.lookup(k)); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	env = append(env, evidenceVar+"="+p.evidenceOrDefault())
+	env = append(env, in.gitEnv...)
+	env = append(env, in.homeEnv...)
+	if in.scopeRel != "" {
+		env = append(env, "PROVEO_SCOPE_REL="+in.scopeRel)
+	}
+	if in.worktreeFallback {
+		env = append(env, in.worktreeEnv...)
+	}
+
+	var mounts []sbx.Mount
+	for _, m := range in.mounts {
+		mounts = append(mounts, sbx.Mount{Host: m.Host, Container: m.Container, ReadOnly: m.ReadOnly})
+	}
+	if in.dataDir != "" {
+		mounts = append(mounts, sbx.Mount{Host: in.dataDir, Container: "/workspace/data", ReadOnly: true})
+	}
+
+	// --shell selects sbx's OWN shell agent rather than substituting a command: the
+	// built-in agent owns the launch, so a trailing "bash" reached the harness's
+	// agent as an argument and the shell never opened.
+	command, agent := p.extra, sbx.BuiltinAgent(p.target)
+	if p.shell {
+		command, agent = nil, sbx.ShellAgent
+	}
+	cfg := sbx.RunConfig{
+		Name: in.sid,
+		// The Kit path is resolved HERE, not at write time, so --print renders the
+		// same argv the run executes. Deriving it only inside runSandbox left the
+		// dry run silently missing --kit — the posture the Kit carries (allowlist,
+		// brokered credentials) was invisible in exactly the output an operator
+		// inspects to check that posture.
+		KitDir: filepath.Join(in.egDir, "sbx", "kit"),
+		Image:  p.image,
+		// sbx would otherwise size the sandbox from HOST memory, which on any VM-backed
+		// daemon can exceed the VM itself — see sbx.MemoryLimit.
+		Memory: in.memory,
+		// A kind: sandbox Kit DEFINES an agent, and sbx requires the positional to
+		// match its name — "agent name X does not match agent kit name Y". So the
+		// two are one value, and there is no separate agent to declare: an earlier
+		// attempt to name one in the manifest (sbxAgent: claude) was refused for
+		// exactly this reason. It is namespaced because sbx also refuses to let a
+		// Kit shadow a built-in agent, and `cursor` and `opencode` are both built
+		// in — see sbx.BuiltinAgent.
+		Agent: agent,
+		// Only the WORKSPACE binds survive onto an sbx run: it mounts each
+		// positional path at its own host path, so a bind with a container-side
+		// target — proveo home at /proveo-home, the gh config under it — has no way
+		// to be expressed. They are dropped rather than silently mounted somewhere
+		// else, and PROVEO_WORKDIR below tells the harness where it actually landed.
+		Mounts: workspaceBinds(mounts),
+		// The bridge is applied HERE, not in the container: its output goes into the
+		// Kit's environment block, where it reaches the agent. Left to a setup hook
+		// it would be computed in a process the agent never inherits.
+		Env:     sbxHome(append(append(env, resolvedModelEnv(in)...), "PROVEO_WORKDIR="+firstHost(workspaceBinds(mounts))), mounts),
+		Command: command,
+	}
+	// The Kit is a MIXIN composed onto sbx's own agent: it declares no agent, no
+	// image and no credentials. The image arrives via -t, the agent is sbx's, and
+	// credentials belong to the built-in agent's kit — repeating a service there is
+	// rejected outright ("defined in both"), and its proxy already injects.
+	kit := sbx.Kit{
+		SchemaVersion: sbx.KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          p.target + "-posture",
+		DisplayName:   "proveo posture (" + p.target + ")",
+		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
+		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
+		Environment:   &sbx.KitEnv{Variables: kitEnvVars(cfg.Env)},
+		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(p.target)}},
+	}
+	return cfg, kit, secrets
+}
+
+// resolvedModelEnv is the model bridge, applied host-side, as KEY=VALUE pairs.
+func resolvedModelEnv(in runSandboxInput) []string {
+	var out []string
+	for k, v := range in.params.bridges.ResolvedEnv(in.params.target, in.params.roles) {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out) // a Kit is written to disk and diffed; order must not churn
+	return out
+}
+
+// kitEnvVars turns the resolved KEY=VALUE pairs into the Kit's environment block.
+//
+// Only pairs that already carry a value are declared: a bare NAME in cfg.Env means
+// "forward whatever the host holds", which is a -e concern and cannot be written
+// into a spec file. Resolving here is the point of the design — the agent receives
+// ANTHROPIC_MODEL decided, rather than a table and a bridge to recompute it.
+func kitEnvVars(env []string) map[string]string {
+	out := map[string]string{}
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok || k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// kitCredentials declares proveo's broker as the Kit's credential policy: one
+// entry per secret actually being injected, proxy-managed so the value never
+// enters the VM, and an inject rule per host naming the header it may ride.
+//
+// It is derived from the SECRETS, not from the detected providers, because those
+// are not the same set: a manifest-declared credential (claudecode's
+// CLAUDE_CODE_OAUTH_TOKEN) is injected host-side whether or not provider
+// detection saw it. Keying on detection left the Kit silently empty for exactly
+// that case — declaring no brokering while proveo went on to broker.
+//
+// No value is written into the Kit. The env var names it and the header says
+// where it may go; the secret itself travels only over `sbx secret set` on stdin.
+// Nothing is declared under --credentials forward, where the agent holds its own
+// key and there is no brokering to describe.
+func kitCredentials(secrets [][2]string, forwards bool) []sbx.KitCredential {
+	if forwards {
+		return nil
+	}
+	var out []sbx.KitCredential
+	seen := map[string]bool{}
+	for _, kv := range secrets {
+		svc, opt, ok := providerForAuthVar(kv[0])
+		// No header means nothing to attach a credential to: a signed-request
+		// provider (bedrock, vertex) or one authenticating by query parameter cannot
+		// be expressed as an injected header.
+		if !ok || opt.Header == "" {
+			continue
+		}
+		// One entry per SERVICE. anthropic accepts two credentials
+		// (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY) and both can be present, but
+		// a service is one identity — declaring it twice leaves which one wins up to
+		// sbx's map order. First wins, and the order is meaningful: manifest-declared
+		// secrets come before the detected provider keys, so the credential the
+		// harness actually announces is the one that stands.
+		if seen[svc] {
+			continue
+		}
+		seen[svc] = true
+		format := "%s"
+		if opt.Bearer {
+			format = "Bearer %s"
+		}
+		e, _ := provider.Lookup(svc)
+		var inject []sbx.KitInject
+		for _, h := range e.Hosts {
+			inject = append(inject, sbx.KitInject{Domain: h, Header: opt.Header, Format: format})
+		}
+		out = append(out, sbx.KitCredential{
+			Service: svc,
+			APIKey:  sbx.KitAPIKey{Name: kv[0], ProxyManaged: true, Inject: inject},
+		})
+	}
+	return out
+}
+
+// providerOfKeyVar names the provider a credential env var belongs to, or the var
+// itself when the registry does not claim it — so an unknown key is judged by the
+// capability list rather than silently dropped.
+func providerOfKeyVar(envVar string) string {
+	if name, _, ok := providerForAuthVar(envVar); ok {
+		return name
+	}
+	return envVar
+}
+
+// providerForAuthVar maps a credential env var back to the provider that accepts
+// it and the auth option describing how — the reverse of the registry's usual
+// direction, and what lets a Kit name a service for a secret proveo only knows by
+// variable name.
+func providerForAuthVar(envVar string) (string, provider.AuthOption, bool) {
+	for _, n := range provider.Names() {
+		e, ok := provider.Lookup(n)
+		if !ok {
+			continue
+		}
+		for _, a := range e.Auth {
+			if strings.EqualFold(a.EnvVar, envVar) {
+				return e.Name, a, true
+			}
+		}
+	}
+	return "", provider.AuthOption{}, false
+}
+
+// runSandbox renders the Kit, injects credentials, runs the agent, tears down.
+func runSandbox(in runSandboxInput) error {
+	cfg, kit, secrets := sandboxSpec(in)
+	// sandboxSpec already put the Kit path on cfg so --print renders the argv this
+	// run will actually use; here the file behind that path gets written.
+	if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+		return err
+	}
+	// The sandbox runtime keeps its OWN image store, so the harness image has to
+	// be handed over before the Kit can name it. Local and per-user on purpose:
+	// each operator has their own docker login and their own sbx config, so this
+	// stays a pipe between the two stores rather than a registry round-trip.
+	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
+		ui.Iconf("📦", f, a...)
+	}); err != nil {
+		return err
+	}
+	for _, e := range cfg.Env {
+		if !strings.Contains(e, "=") {
+			hydrateProcessEnv(e, in.lookup)
+		}
+	}
+	for _, kv := range secrets {
+		ui.Iconf("🔐", "sandbox secret: %s (host-side injection)", kv[0])
+		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
+			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+		}
+	}
+	args := sbx.RunArgs(cfg)
+	// sbx has no `logs` command and the sandbox may be gone by the time anyone
+	// asks, so the only reliable copy of what the agent said is the one taken as
+	// it streams past. "agent exited with code 137" is sbx's auto-stop code,
+	// arriving 30s after the agent itself exited; the tail is what actually
+	// explains the run — a credit-balance error, a login prompt, a stack trace.
+	//
+	// The tail can only be taken when stdout is ALREADY redirected. os/exec gives
+	// the child the real terminal only when the field holds an *os.File; wrapping
+	// it in an io.MultiWriter substitutes a pipe, so the agent sees no tty, cannot
+	// read the window size, and draws its TUI one character per line. Interactive
+	// runs keep the terminal and forgo the tail — the operator is watching anyway.
+	stdout, stderr, tail := agentStdio(os.Stdout, os.Stderr, isWriterTTY(os.Stdout))
+	run := func() error {
+		c := exec.Command(sbx.Binary, args...)
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
+		return c.Run()
+	}
+	startedAt := time.Now()
+	runErr := run()
+	if runErr != nil && !sbx.Exists(cfg.Name) {
+		// The template sbx holds has gone bad. Hand the image over again and try
+		// once more; if it fails the same way the second time, it is not the
+		// template and the original error stands.
+		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
+			ui.Iconf("📦", f, a...)
+		}); err == nil {
+			ui.Iconf("↻", "the sandbox did not start — retrying once on a freshly loaded template")
+			runErr = run()
+		}
+	}
+	defer func() {
+		// A sandbox that failed is the only copy of why. sbx has no `logs` command, so
+		// force-removing it here destroyed the evidence for two consecutive 137s before
+		// anyone could read it. Keep it, and say how to look and how to clean up.
+		if runErr != nil {
+			if lines := tail.Lines(); len(lines) > 0 {
+				fmt.Fprintf(os.Stderr, "\n── last output from the agent ──\n")
+				for _, l := range lines {
+					fmt.Fprintf(os.Stderr, "  %s\n", l)
+				}
+				fmt.Fprintf(os.Stderr, "───────────────────────────────\n")
+			}
+			if t := agentTranscript(in.params.target, in.homeRoot, startedAt); t != "" {
+				ui.Iconf("📄", "what the agent actually said is in %s", t)
+			}
+			ui.Warnf("sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
+				cfg.Name, cfg.Name, cfg.Name)
+			return
+		}
+		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
+		// A run that never got as far as creating the sandbox has nothing to tear
+		// down, and reporting that as a teardown failure sends the operator after
+		// the wrong thing — the real error is the one `sbx run` already printed.
+		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
+			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
+		}
+	}()
+	var ee *exec.ExitError
+	if errors.As(runErr, &ee) {
+		return agentExitError{code: ee.ExitCode()}
+	}
+	return runErr
+}
+
 func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 	for name, file := range map[string]string{
 		plan.ProxyContainer:  "inspector.log",
@@ -1309,6 +2539,28 @@ func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 }
 
 // observability describes what evidence a posture can produce.
+// willSandbox reports whether this run will take the sbx backend, using the same
+// conditions as the branch that selects it. It is consulted before that branch so the
+// transcript and the prompt describe the backend that will actually run.
+func willSandbox(man manifest.Manifest) bool {
+	if !man.IsSbx() || !sbxEnabled() {
+		return false
+	}
+	ok, _ := sbx.Available()
+	return ok
+}
+
+// enforcedBy names who holds the boundary. proveo's tiers describe its own Squid and
+// MITM sidecars; under sbx neither runs, and the Kit hands enforcement to the sandbox
+// runtime instead. Printing a tier without naming the enforcer reads as a proveo
+// guarantee that proveo is not, on that backend, in a position to make.
+func enforcedBy(sandboxed bool) string {
+	if sandboxed {
+		return "sbx — Kit network allowlist + credential proxy (proveo runs no Squid or MITM)"
+	}
+	return "proveo — squid + mitmproxy sidecars on the session network"
+}
+
 func observability(mode, credentials string) string {
 	if mode == "open" && credentials == "forward" {
 		return "none — plain bridge, no MITM, no Squid: provider errors are NOT proveo denials"
@@ -1332,17 +2584,20 @@ func mergeRoles(explicit provider.Roles, remembered map[string]string) provider.
 	return out
 }
 
-// rolesLine renders the role assignment for the transcript and the prompt header.
-func rolesLine(r provider.Roles) string {
+// rolesLine renders the role assignment for the transcript and the prompt header,
+// naming the slots the harness will actually fill rather than the role vars the
+// operator happened to set. A harness that reads two of the three must not be shown
+// advertising the third: the header is the only pre-launch view of that resolution.
+func rolesLine(bridges provider.BridgeTable, harness string, r provider.Roles) string {
 	var parts []string
-	for _, kv := range r.Sorted() {
-		if p := provider.ModelProvider(kv[1]); p != "" {
-			parts = append(parts, fmt.Sprintf("%s=%s (%s)", kv[0], kv[1], p))
+	for _, s := range bridges.EffectiveSlots(harness, r) {
+		if p := provider.ModelProvider(s.Model); p != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", s.Name, s.Model, p))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", kv[0], kv[1]))
+		parts = append(parts, fmt.Sprintf("%s=%s", s.Name, s.Model))
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "  ")
 }
 
 func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
@@ -1388,6 +2643,12 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 	if dindSidecar != nil && plan.AgentNetwork != "" {
 		if err := dindSidecar.ConnectNetwork(dind.ExecRunner{}, plan.AgentNetwork); err != nil {
 			return fmt.Errorf("attach dind to agent network: %w", err)
+		}
+		// Attached is not the same as ready: the daemon inside the sidecar starts
+		// seconds after the container does, and the agent must not be handed a shell
+		// whose first `docker` call races it.
+		if err := dindSidecar.WaitReady(dind.ExecRunner{}, 90*time.Second, nil, nil); err != nil {
+			return err
 		}
 	}
 	if plan.SquidContainer != "" {
@@ -1616,6 +2877,14 @@ func onPath(dir string) bool {
 
 // isStdinTTY gates every interactive prompt (scope picker, env wizard).
 func isStdinTTY() bool { return isReaderTTY(os.Stdin) }
+
+// isWriterTTY reports whether w is an *os.File attached to a terminal. A child
+// process only inherits the terminal when the exec field holds that same *os.File,
+// so this also answers "may I wrap this writer?".
+func isWriterTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
 
 // isReaderTTY reports whether r is an *os.File attached to a terminal.
 func isReaderTTY(r io.Reader) bool {

@@ -87,4 +87,20 @@ end note
 R1 -down[hidden]- R3
 R4 -down[hidden]- R6
 ' --- END IGNORE ---
+note top of R2
+  **A note occupies 2 to 5 lines of 50 columns.**
+  Exceeding five lines signals more than a single
+  idea and belongs on another anchor, while text
+  short enough for one line still divides across
+  two, giving every note an identical shape.
+end note
+
+note top of R4
+  **The box is enforced by a ratchet, not a
+  sweep.** ""TestSpecNotesFitTheBox"" checks only
+  the files it lists, so a diagram joins that
+  list when its notes are rewritten and can
+  never silently regress afterwards.
+end note
+
 @enduml

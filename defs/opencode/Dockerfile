@@ -54,6 +54,8 @@ RUN mkdir -p /workspace \
 # Pre-baked defaults (config + subagents). Seeded into ~/.config/opencode on first run
 # by entrypoint.sh, or re-seeded when OPENCODE_RESEED=1.
 COPY defs/opencode/defaults/ /opt/opencode/defaults/
+COPY defs/subagents/ /opt/proveo/subagents/
+COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 COPY defs/lib/ /opt/proveo/lib/
 

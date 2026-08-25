@@ -1,6 +1,10 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Model aliases — one vocabulary, four harness dialects
+title Model aliases — one declared table, four harness dialects
+' purpose: how ARCHITECT/EDITOR/SMALL_MODEL become each harness's own env vars
+' covers: defs/bridges/**
+' covers: internal/provider/slots.go
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 
 folder "Host" as HOST <<host>> {
   component "host env  or  host-side .env\nARCHITECT_MODEL · EDITOR_MODEL · SMALL_MODEL\nDARK_MODE · CODE_THEME" as SRC <<host>>
@@ -9,12 +13,12 @@ folder "Host" as HOST <<host>> {
 
 node "Agent container" as CTR <<host>> {
   component "docker run -e ARCHITECT_MODEL=…" as ENVIN <<app>>
-  component "def entrypoint bridge\n(in-shell, after prep)" as BRIDGE <<app>>
+  component "apply_model_bridges <harness>\ndefs/bridges/<harness>.tsv" as BRIDGE <<app>>
 
-  component "opencode\nOPENCODE_MODEL\nOPENCODE_BUILD_MODEL\nOPENCODE_SMALL_MODEL" as OC <<app>>
-  component "cecli\nCECLI_MODEL · CECLI_EDITOR_MODEL\nCECLI_WEAK_MODEL (+AIDER_* aliases)" as CE <<app>>
-  component "claudecode\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
-  component "cursor\nCURSOR_MODEL" as CU <<app>>
+  component "opencode — models.dev ids,\nprovider-prefixed\nOPENCODE_MODEL · OPENCODE_BUILD_MODEL\nOPENCODE_SMALL_MODEL" as OC <<app>>
+  component "cecli — litellm ids; local is\n""ollama_chat/<model>""; also two-level\n""openrouter/<vendor>/<model>""\nCECLI_MODEL · CECLI_EDITOR_MODEL\nCECLI_WEAK_MODEL (+AIDER_* aliases)" as CE <<app>>
+  component "claudecode — bare vendor ids\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
+  component "cursor — bare vendor ids\nCURSOR_MODEL" as CU <<app>>
 }
 
 cloud "Ollama sidecar\n--local-model" as OLLAMA <<cloud>>
@@ -22,85 +26,96 @@ cloud "Ollama sidecar\n--local-model" as OLLAMA <<cloud>>
 SRC ARROW_MAIN RUN
 RUN ARROW_MAIN ENVIN : " ""-e NAME=value"" "
 ENVIN ARROW_MAIN BRIDGE
-BRIDGE ARROW_MAIN OC : " ""apply_env_bridges"" \n(normalize → ""provider/model"") "
-BRIDGE ARROW_MAIN CE : bare id
+BRIDGE ARROW_MAIN OC : normalize → ""provider/model""
+BRIDGE ARROW_MAIN CE : as written
 BRIDGE ARROW_MAIN CC : bare id\n(strip ""provider/"" prefix)
 BRIDGE ARROW_MAIN CU : bare id
 OLLAMA ARROW_CLOUD ENVIN : overrides all three tiers\n(""-e"" applied after Env)
 
-note right of RUN
-  **Why by value, not via .env.**
-  brokered tiers **mask every dotenv file** under the
-  mounted tree, and the ""input-output"" layout never
-  mounts one — so the documented alias contract silently
-  did nothing in the default egress mode. Forwarding
-  them as non-secret ""-e"" pairs is the only path that
-  survives every mode and layout.
+note top of SRC
+  **No two agents spell a model the same way.**
+  That is the only reason these aliases exist: an
+  operator names a tier once and each harness
+  receives the dialect it parses, rather than
+  learning four vocabularies to switch tools.
+end note
 
-  Secrets are never forwarded this way: they are
-  declared manifest env, brokered, or withheld.
+note bottom of SRC
+  **Versions are spelled inconsistently too.**
+  OpenRouter dots the version where the vendor
+  dashes it, Vertex and Bedrock stamp a date, and
+  Bedrock prefixes ""anthropic."" — so comparison
+  normalizes before it decides anything.
+end note
+
+note right of RUN
+  **Forwarded by value, never through .env.**
+  Brokered tiers mask every dotenv file under the
+  mounted tree and the ""app"" layout never mounts
+  one, so the documented alias contract silently
+  did nothing in the default egress mode.
+end note
+
+note bottom of RUN
+  **Secrets never travel this path.** They are
+  declared manifest env, brokered, or withheld,
+  because a non-secret ""-e"" pair stays visible
+  to anything permitted to inspect the container.
+end note
+
+note top of BRIDGE
+  **One table, two consumers.** Every mapping is
+  declared in ""defs/bridges/<harness>\.tsv"": the
+  shell applies it at container start and the host
+  reads the same rows, embedded, to show resolved
+  slots before a container exists.
 end note
 
 note bottom of BRIDGE
-  **Every bridge runs in the def's own shell**, because
-  ""proveo-entrypoint prep"" cannot export into its parent
-  (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+  **Every bridge runs in the def's own shell,**
+  because ""proveo-entrypoint prep"" cannot export
+  into its parent process. That boundary is what
+  rules out a single Go implementation, however
+  much tidier one would read.
+end note
 
-  Precedence is uniform: an explicit tool-specific value
-  already in the environment always wins, the alias only
-  fills an empty slot, and ""--local-model"" wins over both.
+note left of BRIDGE
+  **Precedence is the same for every harness.**
+  An explicit tool-specific value already set
+  always wins, the alias only fills an empty slot,
+  and ""--local-model"" beats both because it
+  redirects every tier at the sidecar.
+end note
 
-  Tier mapping is **not** uniform — opencode's small slot
-  prefers ""EDITOR_MODEL"" (falling back to ""SMALL_MODEL""),
-  while cecli and claudecode map ""SMALL_MODEL"" directly.
-
-  Each def then prints ""PROVEO_MODELS main=… small=…"" so
-  the resolution is assertable from outside the container.
+note right of BRIDGE
+  **Tier mapping is not uniform, on purpose.**
+  Opencode prefers ""EDITOR_MODEL"" for its small
+  slot while cecli and claudecode map
+  ""SMALL_MODEL"" straight through, so the table
+  keeps each dialect instead of averaging them.
 end note
 
 note bottom of CU
-  Vendor-pinned: no custom base URL, so ""--local-model""
-  is rejected for cursor.
+  **Vendor-pinned.** Cursor takes no custom base
+  url, so ""--local-model"" is refused rather than
+  ignored: an operator expecting a local sidecar
+  would otherwise be billed for remote calls.
 end note
 
-note top of SRC
-  **No two agents spell a model the same way**, which is
-  why the aliases exist at all:
-  * opencode — models.dev ids, provider-prefixed
-    (""anthropic/claude-opus-5"")
-  * cecli — litellm ids; local is ""ollama_chat/<model>"",
-    and litellm also accepts two-level
-    ""openrouter/<vendor>/<model>""
-  * claudecode · cursor — **bare** vendor ids
-  * OpenRouter dots its versions where the vendor dashes
-    them; Vertex/Bedrock stamp a date (""@20251101"",
-    ""-20250929"") and Bedrock prefixes ""anthropic.""
-
-  ""proveo run"" sanity-checks a ""*_MODEL"" value against the
-  ids it knows for the resolved provider and **warns, never
-  rejects** — the list lags the vendors, so an unknown id
-  is usually just newer than the binary. It normalizes the
-  variants above before comparing, so a dated or dotted
-  spelling is not mistaken for a typo. Silent when
-  ""--local-model"" is set (the sidecar serves arbitrary ids)
-  and for providers with no list.
-
-  This catches the real failure it was written for: a
-  mistyped tier propagates all the way into the container
-  and 404s on every call with a vendor error that reads
-  like an outage.
-end note
-note bottom of BRIDGE
-  **One resolver, declared per bridge.** ""_apply_env_bridge"" takes a
-  from→to pair plus three optionals: a fallback variable, a default (a
-  literal, or ""$VAR"" to point at another variable), and a ""normalize""
-  transform. It skips when ""to"" is already set, so an operator's own
-  export always wins over a derived value, and exports the result so the
-  harness process inherits it.
-
-  Declaring bridges as data rather than writing one ""if"" per harness is
-  what keeps four harnesses' model plumbing from drifting apart.
+note top of ENVIN
+  **Validation warns and never rejects.** The list
+  of known ids lags the vendors, so an unknown
+  model is usually newer than the binary rather
+  than mistyped, and refusing it would block
+  legitimate upgrades.
 end note
 
+note bottom of ENVIN
+  **This catches one specific failure.** A
+  mistyped tier otherwise reaches the container
+  and returns 404 on every invocation, with a
+  vendor error that reads like an outage rather
+  than a simple typo.
+end note
 
 @enduml

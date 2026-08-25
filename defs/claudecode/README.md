@@ -19,7 +19,7 @@ Each variant owns its image-local `entrypoint.sh`. The root command surface rema
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
-Build the Docker images and execute `./run.sh` to run an isolated Claude Code variant with access to the current working directory mounted at `/workspace/input` (read-write by default).
+Build the Docker images and execute `./run.sh` to run an isolated Claude Code variant with access to the current working directory mounted at `/app` (read-write by default).
 
 ```
 /workspace/
@@ -92,8 +92,8 @@ Image overrides:
 
 Variant runners mount:
 
-- input workspace at `/workspace/input`
-- output directory at `/workspace/output`
+- workspace at `/app`
+- output directory at `/app/output`
 - optional data directory at `/workspace/data`
 - temporary storage at `/workspace/temp`
 - proveo home (`~/.proveo`) at `/proveo-home` with `HOME` set there — Claude sessions

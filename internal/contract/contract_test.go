@@ -194,11 +194,8 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 	if !found {
 		t.Error("cursor manifest must declare CURSOR_API_KEY as secret")
 	}
-	if !cursor.Dind {
-		t.Error("cursor manifest must enable dind (docker client shown in add-ons)")
-	}
-	if !cursor.SandboxDocker {
-		t.Error("cursor manifest must set sandbox_docker (DinD locked; docker via sbx)")
+	if cursor.Docker != manifest.DockerSbx {
+		t.Errorf("cursor docker = %q, want %q — cursor is incompatible with the sidecar", cursor.Docker, manifest.DockerSbx)
 	}
 	if cursor.Provider != "cursor" {
 		t.Errorf("cursor manifest provider = %q, want cursor", cursor.Provider)
@@ -251,32 +248,73 @@ func TestOpenCodeManifestEnablesDind(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range ms {
-		if m.Name == "opencode" && !m.Dind {
-			t.Error("opencode manifest must enable dind")
+		if m.Name == "opencode" && m.Docker != manifest.DockerDind {
+			t.Errorf("opencode docker = %q, want %q", m.Docker, manifest.DockerDind)
 		}
 	}
 }
 
-func TestDindCapableHarnessesIncludeCursorAndOpenCode(t *testing.T) {
+// TestDockerModeIsOneChoicePerHarness pins the split the enum exists to make
+// unrepresentable: the sidecar is for harnesses with no sandbox backend, the
+// sandbox is for the ones that have it, and no harness ships both.
+func TestDockerModeIsOneChoicePerHarness(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"cursor": false, "opencode": false}
-	for _, m := range ms {
-		if _, ok := want[m.Name]; ok {
-			want[m.Name] = m.Dind
-		}
+	want := map[string]manifest.DockerMode{
+		"cecli":      manifest.DockerDind,
+		"opencode":   manifest.DockerDind,
+		"cursor":     manifest.DockerSbx,
+		"claudecode": manifest.DockerSbx,
 	}
-	for name, ok := range want {
-		if !ok {
-			t.Errorf("%s manifest must enable dind (docker client add-on)", name)
+	for _, m := range ms {
+		w, tracked := want[m.Name]
+		if !tracked {
+			continue
+		}
+		if m.Docker != w {
+			t.Errorf("%s docker = %q, want %q", m.Name, m.Docker, w)
+		}
+		if m.IsSbx() && m.IsDind() {
+			t.Errorf("%s claims both daemons — the enum must make that unrepresentable", m.Name)
 		}
 	}
 }
 
-func TestCursorSandboxDockerLocksSidecar(t *testing.T) {
+func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"claudecode": true, "cursor": true}
+	for _, m := range ms {
+		if m.Subscription {
+			if !m.IsSbx() {
+				t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
+			}
+			continue
+		}
+		if m.IsSbx() {
+			t.Errorf("%s must not set docker: sbx (egress layer reserved for non-subscription harnesses)", m.Name)
+		}
+	}
+	for name := range want {
+		found := false
+		for _, m := range ms {
+			if m.Name == name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected subscription harness %q in embedded manifests", name)
+		}
+	}
+}
+
+func TestCursorTakesDockerFromTheSandboxBackend(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
 	if err != nil {
@@ -284,13 +322,10 @@ func TestCursorSandboxDockerLocksSidecar(t *testing.T) {
 	}
 	for _, m := range ms {
 		if m.Name != "cursor" {
-			if m.SandboxDocker {
-				t.Errorf("%s must not set sandbox_docker (cursor-only experiment)", m.Name)
-			}
 			continue
 		}
-		if !m.Dind || !m.SandboxDocker {
-			t.Errorf("cursor must keep dind:true with sandbox_docker:true (got dind=%v sandbox_docker=%v)", m.Dind, m.SandboxDocker)
+		if !m.IsSbx() {
+			t.Errorf("cursor must run docker through sbx alone, got docker = %q", m.Docker)
 		}
 	}
 }
@@ -309,7 +344,7 @@ func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
 	manifestYAML := `name: x
 description: future-key test
 egress: true
-dind: true
+docker: dind
 provider: cursor
 future_flag: true
 images:

@@ -1,0 +1,6 @@
+description: Backend specialist (APIs, DBs, services). Advisory; does not edit.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

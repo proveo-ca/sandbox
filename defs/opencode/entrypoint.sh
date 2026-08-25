@@ -14,6 +14,7 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   set_working_directory "/app"
   load_env quiet
   apply_env_bridges
+  apply_model_bridges opencode
 else
   ensure_runtime_user
   set_working_directory "/app"
@@ -22,6 +23,7 @@ else
   report_git_context
   attach_rtk
   apply_env_bridges
+  apply_model_bridges opencode
 fi
 
 # ── Seed global defaults (~/.config/opencode) ──────────────
@@ -83,24 +85,13 @@ seed_defaults() {
   if [[ "${OPENCODE_RESEED:-0}" == "1" ]]; then
     echo "🔁 OPENCODE_RESEED=1 — re-seeding $dst from baked-in defaults"
     seed_opencode_config "$dst/opencode.json"
-    if [[ -d "$src/agents" ]]; then
-      for f in "$src/agents/"*.md; do
-        [[ -e "$f" ]] || continue
-        cp -f "$f" "$dst/agents/"
-      done
-    fi
+    proveo_seed opencode
     return 0
   fi
 
   local seeded=()
   [[ -f "$dst/opencode.json" ]] || { seed_opencode_config "$dst/opencode.json"; seeded+=("opencode.json"); }
-  if [[ -d "$src/agents" ]]; then
-    for f in "$src/agents/"*.md; do
-      [[ -e "$f" ]] || continue
-      local name; name="$(basename "$f")"
-      [[ -f "$dst/agents/$name" ]] || { cp "$f" "$dst/agents/$name"; seeded+=("agents/$name"); }
-    done
-  fi
+  proveo_seed opencode
   if (( ${#seeded[@]} > 0 )); then
     echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
   fi

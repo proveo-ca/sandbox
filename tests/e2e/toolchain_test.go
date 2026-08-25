@@ -63,18 +63,6 @@ func entrypointLibPath(t *testing.T) string {
 
 var toolchainHarnesses = []string{"opencode", "claudecode", "cursor", "cecli"}
 
-func harnessImage(t *testing.T, name string) string {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
-	image := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(name), "proveo/"+name+":latest")
-	if !dockerImagePresent(t, image) {
-		t.Skipf("harness image %s not built (proveo build %s)", image, name)
-	}
-	return image
-}
-
 func toolchainImage(t *testing.T) string {
 	t.Helper()
 	return harnessImage(t, "opencode")

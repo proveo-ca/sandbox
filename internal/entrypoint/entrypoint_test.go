@@ -73,14 +73,24 @@ func TestNormalizeModel(t *testing.T) {
 	}
 }
 
+// ApplyEnvBridges now carries provider key aliases only. Model bridges moved to
+// defs/bridges/<harness>.tsv, applied by apply_model_bridges in the def's own shell
+// and asserted end-to-end by internal/contract.TestShellApplierMatchesGoReader.
 func TestApplyEnvBridges(t *testing.T) {
-	for _, k := range []string{"ARCHITECT_MODEL", "OPENCODE_MODEL", "OPENCODE_BUILD_MODEL", "OPENCODE_SMALL_MODEL", "SMALL_MODEL", "EDITOR_MODEL"} {
+	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "ARCHITECT_MODEL", "OPENCODE_MODEL"} {
 		_ = os.Unsetenv(k)
 	}
+	t.Setenv("GEMINI_API_KEY", "k-123")
+	ApplyEnvBridges()
+	if got := os.Getenv("GOOGLE_GENERATIVE_AI_API_KEY"); got != "k-123" {
+		t.Fatalf("GOOGLE_GENERATIVE_AI_API_KEY=%q", got)
+	}
+
+	// A model role must no longer be bridged here, or the table has been forked again.
 	t.Setenv("ARCHITECT_MODEL", "claude-sonnet-4-5")
 	ApplyEnvBridges()
-	if got := os.Getenv("OPENCODE_MODEL"); got != "anthropic/claude-sonnet-4-5" {
-		t.Fatalf("OPENCODE_MODEL=%q", got)
+	if got := os.Getenv("OPENCODE_MODEL"); got != "" {
+		t.Fatalf("model bridges must live in defs/bridges/, but OPENCODE_MODEL=%q", got)
 	}
 }
 

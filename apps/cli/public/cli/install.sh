@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
+# SPEC: _spec/internal/cdn/distribution-update.puml
 # Product installer: download checksum-verified Go proveo into ~/.proveo/bin.
 # Usage: curl -fsSL https://proveo.ca/cli/install.sh | bash
-#
-# Version comes from latest.json on the CDN unless PROVEO_VERSION is set
-# (must match the published channel — the CDN publishes the current latest only).
 set -euo pipefail
 
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"

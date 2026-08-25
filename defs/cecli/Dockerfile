@@ -63,6 +63,8 @@ WORKDIR /app
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
+COPY defs/subagents/ /opt/proveo/subagents/
+COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
 RUN chmod +x /usr/local/bin/cecli-entrypoint \
   && chown "${USER_NAME}:${USER_NAME}" /app

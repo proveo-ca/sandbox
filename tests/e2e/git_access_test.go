@@ -18,7 +18,7 @@ var harnessWorkdir = map[string]string{
 	"opencode":   "/app",
 	"cursor":     "/app",
 	"cecli":      "/app",
-	"claudecode": "/workspace/input",
+	"claudecode": "/app",
 }
 
 func newTempRepo(t *testing.T) string {
@@ -168,8 +168,17 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 		in = input[0]
 	}
 	bin := buildProveo(t)
-	cmd := exec.Command(bin, "run", target, "--input", in, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
+	// --credentials forward is load-bearing, not incidental: it is the only posture
+	// that carries the project .env INTO the container. Under the default broker the
+	// credential policy masks that path with /dev/null instead, so the escaping-.env
+	// mount these probes assert would not exist at all.
+	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", in, "--print")
+	// PROVEO_SBX=off is load-bearing: these probes SCRAPE -v specs out of the
+	// printed plan and then run `docker run` themselves. On a host with sbx
+	// installed the printed plan is the SANDBOX argv, which carries no -v at all —
+	// so without this the scrape yields nothing and the probe runs against an
+	// unmounted container while still looking like a pass.
+	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
@@ -198,8 +207,17 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 			args = append(args, "-v", spec)
 		}
 	}
-	if len(args) == 0 {
-		t.Fatalf("no workspace mounts planned for %s against %s:\n%s", target, repo, out)
+	// Two guards, because a scrape can fail in two different ways. Zero mounts is
+	// the loud one, already covered above. The quiet one is scraping the WRONG
+	// PLAN: on a host with sbx installed the printed plan is the sandbox argv, and
+	// sbx takes workspaces as positional paths rather than -v — so once the adapter
+	// emits the v0.39 shape this helper would read a plan with no mounts in it at
+	// all. PROVEO_SBX=off pins the docker plan; this says so out loud if it stops
+	// working, and it does not depend on the mount SHAPE (a subdir scope mounts
+	// /app/<rel>, not /app, so matching on the root would fail for real plans).
+	if !strings.Contains(string(out), "docker run") {
+		t.Fatalf("scraped a plan that is not the docker backend for %s — the probe would "+
+			"run against mounts it never read\n--- plan ---\n%s", target, out)
 	}
 	return args
 }
@@ -283,7 +301,7 @@ func gitIn(t *testing.T, dir string, args ...string) {
 // and any tool doing its own discovery fails outright. Asserts the container
 // view is coherent, writes land, and the HOST worktree survives intact.
 func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
-	for _, name := range []string{"claudecode", "opencode"} { // input-output and app layouts
+	for _, name := range []string{"claudecode", "opencode"} { // one layout, two workspace shapes
 		t.Run(name, func(t *testing.T) {
 			// Keep the generated pointer files out of the developer's ~/.proveo.
 			t.Setenv("PROVEO_HOME", t.TempDir())

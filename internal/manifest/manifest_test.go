@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -243,5 +244,49 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	leak.Config = []string{"SOME_TOKEN"}
 	if err := leak.Validate(); err == nil {
 		t.Error("a declared secret must not be forwardable as a config passthrough")
+	}
+}
+
+func TestDockerModeAcceptsOnlyTheTwoDaemons(t *testing.T) {
+	t.Parallel()
+	base := func(mode DockerMode) Manifest {
+		return Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
+	}
+	for _, mode := range []DockerMode{DockerNone, DockerSbx, DockerDind} {
+		if err := base(mode).Validate(); err != nil {
+			t.Errorf("docker %q must validate: %v", mode, err)
+		}
+	}
+	err := base("podman").Validate()
+	if err == nil || !strings.Contains(err.Error(), "invalid docker") {
+		t.Errorf("an unknown docker mode must be rejected, got %v", err)
+	}
+}
+
+func TestDockerModePredicatesAreMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+	sbx := Manifest{Docker: DockerSbx}
+	dind := Manifest{Docker: DockerDind}
+	none := Manifest{}
+	switch {
+	case !sbx.IsSbx() || sbx.IsDind() || !sbx.WantsDocker():
+		t.Errorf("docker: sbx predicates wrong: sbx=%v dind=%v wants=%v", sbx.IsSbx(), sbx.IsDind(), sbx.WantsDocker())
+	case !dind.IsDind() || dind.IsSbx() || !dind.WantsDocker():
+		t.Errorf("docker: dind predicates wrong: sbx=%v dind=%v wants=%v", dind.IsSbx(), dind.IsDind(), dind.WantsDocker())
+	case none.IsSbx() || none.IsDind() || none.WantsDocker():
+		t.Error("a harness with no docker mode must promise no daemon")
+	}
+}
+
+func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
+	t.Parallel()
+	for _, m := range []Manifest{
+		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredDind: true},
+		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredSandboxDocker: true},
+	} {
+		err := m.Validate()
+		if err == nil || !strings.Contains(err.Error(), "retired") {
+			t.Errorf("a stale manifest must be rejected, not silently ignored; got %v", err)
+		}
 	}
 }

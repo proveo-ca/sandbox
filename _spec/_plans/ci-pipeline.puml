@@ -15,7 +15,7 @@ node "CI runner — Docker" as DKR <<host>> {
 }
 
 node "CI runner — GPU (or pinned small model)" as GPU <<host>> {
-  component "L4 agent E2E\nPROVEO_LLM_TEST=1 -tags=e2e" as L4 <<async>>
+  component "L4 agent E2E\n-tags=e2e (skips per missing prereq)" as L4 <<async>>
 }
 
 PUSH ARROW_MAIN SA

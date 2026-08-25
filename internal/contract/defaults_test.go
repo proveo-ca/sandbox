@@ -35,21 +35,6 @@ func TestCursorDenyBaseline(t *testing.T) {
 	}
 }
 
-func TestCursorSubagentsReadonly(t *testing.T) {
-	t.Parallel()
-	root := filepath.Join(repoRoot(t), "defs/cursor/defaults/agents")
-	for _, name := range []string{"adversarial-reviewer.md", "security-reviewer.md"} {
-		b, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			t.Errorf("read %s: %v", name, err)
-			continue
-		}
-		if !strings.Contains(string(b), "readonly: true") {
-			t.Errorf("%s must declare readonly: true", name)
-		}
-	}
-}
-
 func TestCursorAuditHookFailOpen(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(repoRoot(t), "defs/cursor/defaults/hooks/audit-shell.sh")
@@ -97,56 +82,9 @@ func TestOpenCodeDefaultsExist(t *testing.T) {
 	for _, rel := range []string{
 		"AGENTS.md",
 		"opencode.json",
-		"agents/spec-keeper.md",
-		"agents/adversarial-reviewer.md",
-		"agents/security-reviewer.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Errorf("missing opencode default %s: %v", rel, err)
-		}
-	}
-}
-
-// claudecode runs --dangerously-skip-permissions, so the subagent read-only split
-// is the only thing standing between a reviewer and the working tree: it must come
-// from the tools: allowlist, never from prose. spec-keeper is the one writer, and
-// even it gets no Bash.
-func TestClaudeCodeSubagentTools(t *testing.T) {
-	t.Parallel()
-	root := filepath.Join(repoRoot(t), "defs/claudecode/mcp/defaults/agents")
-	readOnly := []string{
-		"adversarial-reviewer.md",
-		"security-reviewer.md",
-		"architect.md",
-		"monorepo-coordinator.md",
-	}
-	for _, name := range append(readOnly, "spec-keeper.md") {
-		b, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			t.Errorf("read %s: %v", name, err)
-			continue
-		}
-		src := string(b)
-		tools, ok := frontmatterField(src, "tools")
-		if !ok {
-			t.Errorf("%s must declare a tools: allowlist", name)
-			continue
-		}
-		if strings.Contains(tools, "Bash") {
-			t.Errorf("%s must not grant Bash; got tools: %s", name, tools)
-		}
-		if name == "spec-keeper.md" {
-			for _, need := range []string{"Read", "Edit", "Write"} {
-				if !strings.Contains(tools, need) {
-					t.Errorf("spec-keeper must grant %s; got tools: %s", need, tools)
-				}
-			}
-			continue
-		}
-		for _, banned := range []string{"Edit", "Write", "NotebookEdit"} {
-			if strings.Contains(tools, banned) {
-				t.Errorf("%s is a read-only advisor but grants %s; got tools: %s", name, banned, tools)
-			}
 		}
 	}
 }

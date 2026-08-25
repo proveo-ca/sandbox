@@ -4,22 +4,31 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -472,7 +481,7 @@ func TestHydrateProcessEnvFromLookup(t *testing.T) {
 	}
 }
 
-func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
+func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for _, f := range []string{"go.mod", "package.json", "nx.json", "main.go", "Dockerfile"} {
@@ -494,24 +503,29 @@ func TestWorkspaceHeaderStatesFactsAndPredictsLSP(t *testing.T) {
 	}
 
 	man := manifest.Manifest{Workspace: manifest.Workspace{ConfigDir: ".opencode"}}
-	got := strings.Join(workspaceHeader(man, dir, dir, t.TempDir()), "\n")
+	got := strings.Join(workspaceHeader(man, dir, dir, t.TempDir(), glyphsOff), "\n")
 
 	for _, want := range []string{"tooling:", "go", "nx", "node", "docker", "subagents: 2 definition(s)", ".opencode/settings.json"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "lsp:      will start") {
-		t.Errorf("LSP servers must be phrased as a prediction, got:\n%s", got)
+	if !strings.Contains(got, "lsp:      gopls") {
+		t.Errorf("LSP row must list the servers plainly, got:\n%s", got)
 	}
-	if strings.Contains(got, "lsp:      detected") {
-		t.Error("LSP presence depends on the image; the host must not claim detection")
+	// The "will start" prefix was dropped deliberately (_spec/internal/choiceui/wireframe.puml).
+	// The harder rule survives it: LSP presence depends on the image, so the host may
+	// neither claim detection nor re-add a prediction phrase it cannot honour.
+	for _, banned := range []string{"lsp:      detected", "will start"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("LSP row must state servers plainly; found %q in:\n%s", banned, got)
+		}
 	}
 }
 
 func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	t.Parallel()
-	if got := workspaceHeader(manifest.Manifest{}, "", "", ""); got != nil {
+	if got := workspaceHeader(manifest.Manifest{}, "", "", "", glyphsOff); got != nil {
 		t.Errorf("no input dir must yield no header, got %v", got)
 	}
 }
@@ -652,43 +666,50 @@ func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	}
 }
 
-func TestGateAddonsSandboxDockerLocksDind(t *testing.T) {
+// TestAddonOptionsNeverOffersBothDaemons is the overlap this enum retired: a
+// harness declares ONE docker mode, so the picker can never show both
+// "docker (sandbox)" and "docker (dind)" — there is no locked-but-visible state
+// left to explain, because the second option does not exist.
+func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
 	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true,
-		On: []bool{false, true},
-	}}}
-	gateAddons(f, "open", "forward", true)
-	r := f.Rows[0]
-	if !r.Off[1] {
-		t.Fatal("sandbox_docker must disable dind")
-	}
-	if r.Off[0] {
-		t.Error("browser must stay enabled")
-	}
-	if r.Reason != "docker accessible via docker sandbox" {
-		t.Errorf("reason = %q, want sandbox explanation", r.Reason)
-	}
-	if got := f.Selections("add-ons"); len(got) != 0 {
-		t.Errorf("Selections must omit locked dind even when On, got %v", got)
+	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx, manifest.DockerDind} {
+		man := manifest.Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
+		opts := addonOptions(man)
+		if slices.Contains(opts, addonSandbox) && slices.Contains(opts, addonDind) {
+			t.Errorf("docker %q offered both daemons: %v", mode, opts)
+		}
+		switch mode {
+		case manifest.DockerSbx:
+			if !slices.Contains(opts, addonSandbox) {
+				t.Errorf("docker: sbx must offer %q, got %v", addonSandbox, opts)
+			}
+		case manifest.DockerDind:
+			if !slices.Contains(opts, addonDind) {
+				t.Errorf("docker: dind must offer %q, got %v", addonDind, opts)
+			}
+		default:
+			if len(opts) != 0 {
+				t.Errorf("a harness with no docker mode must be offered none, got %v", opts)
+			}
+		}
 	}
 }
 
 func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{"dind"}, Multi: true, On: []bool{false},
+		Label: "add-ons", Options: []string{addonDind}, Multi: true, On: []bool{false},
 	}}}
-	gateAddons(f, "firewall", "inject", false)
+	gateAddons(f, "firewall", "inject", "")
 	if !f.Rows[0].Off[0] {
 		t.Fatal("firewall+inject must still disable dind")
 	}
-	if f.Rows[0].Reason != "dind needs egress open + credentials forward" {
+	if f.Rows[0].Reason != addonDind+" needs egress open + credentials forward" {
 		t.Errorf("reason = %q", f.Rows[0].Reason)
 	}
-	gateAddons(f, "open", "forward", false)
+	gateAddons(f, "open", "forward", "")
 	if f.Rows[0].Off[0] {
-		t.Error("open+forward without sandbox_docker must leave dind enabled")
+		t.Error("open+forward on a docker: dind harness must leave the add-on enabled")
 	}
 }
 
@@ -803,5 +824,1173 @@ func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
 					tc.dir, tc.mode, got, tc.wantWarning, buf.String())
 			}
 		})
+	}
+}
+
+func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{
+			"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+			"ANTHROPIC_API_KEY":       "sk-value",
+			"ANTHROPIC_BASE_URL":      "https://api.anthropic.com",
+		}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "claudecode", image: "proveo/claudecode:latest",
+			mode: "broker", credentials: "",
+			evidence: evidenceDefault,
+			extra:    []string{"--verbose"},
+		},
+		man: manifest.Manifest{
+			Name: "claudecode",
+			Capabilities: manifest.Capabilities{
+				Hosts: []string{"api.anthropic.com", "statsig.anthropic.com"},
+			},
+			Env: []manifest.EnvVar{
+				{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+				{Name: "ANTHROPIC_BASE_URL"},
+			},
+		},
+		sid:    "proveo-1-2",
+		lookup: lookup,
+		detected: func() []string {
+			if _, ok := provider.Lookup("anthropic"); ok {
+				return []string{"anthropic"}
+			}
+			return nil
+		}(),
+		gitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
+		homeEnv: []string{"PROVEO_HOME=/proveo-home"},
+	}
+
+	cfg, kit, secrets := sandboxSpec(in)
+
+	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false, "ANTHROPIC_API_KEY": false}
+	if len(secrets) != len(wantSecrets) {
+		t.Fatalf("secrets = %v, want exactly the declared+provider keys %v", secrets, wantSecrets)
+	}
+	for _, kv := range secrets {
+		if _, tracked := wantSecrets[kv[0]]; !tracked {
+			t.Errorf("unexpected secret %q", kv[0])
+		}
+		if kv[1] == "" {
+			t.Errorf("secret %q lost its value", kv[0])
+		}
+	}
+	for _, e := range cfg.Env {
+		name := strings.SplitN(e, "=", 2)[0]
+		if name == "CLAUDE_CODE_OAUTH_TOKEN" || name == "ANTHROPIC_API_KEY" {
+			t.Errorf("secret %q must travel via sbx secret, not env (%q)", name, e)
+		}
+	}
+
+	var sawBaseURL bool
+	for _, e := range cfg.Env {
+		if e == "ANTHROPIC_BASE_URL=https://api.anthropic.com" {
+			sawBaseURL = true
+		}
+	}
+	if !sawBaseURL {
+		t.Errorf("non-secret env missing resolved ANTHROPIC_BASE_URL in %v", cfg.Env)
+	}
+	for _, want := range []string{"PROVEO_AGENT_EVIDENCE=default", "GIT_AUTHOR_NAME=Executor", "PROVEO_HOME=/proveo-home"} {
+		found := false
+		for _, e := range cfg.Env {
+			if e == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("env missing %q in %v", want, cfg.Env)
+		}
+	}
+
+	if len(kit.Permissions.Network.Allow) == 0 {
+		t.Error("allowlist must include at least the manifest hosts")
+	}
+	sawManifestHost := false
+	for _, d := range kit.Permissions.Network.Allow {
+		if d == "api.anthropic.com" || d == "statsig.anthropic.com" {
+			sawManifestHost = true
+		}
+	}
+	if !sawManifestHost {
+		t.Errorf("allowlist missing manifest hosts: %v", kit.Permissions.Network.Allow)
+	}
+	// Credentials are NOT declared here any more. The built-in agent's own kit
+	// declares service "anthropic", and a mixin repeating it is rejected outright
+	// ("defined in both") — sbx's proxy does the injection either way.
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
+	}
+	if kit.Setup == nil || len(kit.Setup.Startup) == 0 {
+		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
+	}
+
+	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
+		t.Errorf("run config name/image = %q/%q", cfg.Name, cfg.Image)
+	}
+	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
+		t.Errorf("command = %v, want agent args passed through", cfg.Command)
+	}
+}
+
+func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
+	// A real directory: an sbx workspace must BE one, so the spec drops binds
+	// that are not (the project .env arrives as a file bind and sbx refuses it).
+	dataDir := t.TempDir()
+	in := runSandboxInput{
+		params:  runParams{target: "claudecode", image: "proveo/claudecode:latest", shell: true},
+		man:     manifest.Manifest{Name: "claudecode"},
+		lookup:  func(string) string { return "" },
+		workdir: "/app",
+		dataDir: dataDir,
+	}
+	cfg, _, secrets := sandboxSpec(in)
+	// --shell selects sbx's OWN shell agent; it does not pass a command. Launch-shaped
+	// work belongs to the built-in agent, so the earlier expectation here — Command
+	// == [bash] — described something sbx never honoured: it started the harness's
+	// agent and handed "bash" to it as an argument, and the shell never opened.
+	if cfg.Agent != sbx.ShellAgent {
+		t.Errorf("shell mode agent = %q, want %q", cfg.Agent, sbx.ShellAgent)
+	}
+	if len(cfg.Command) != 0 {
+		t.Errorf("shell mode command = %v, want none — the agent IS the shell", cfg.Command)
+	}
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none without credentials", secrets)
+	}
+	found := false
+	for _, m := range cfg.Mounts {
+		if m.Host == dataDir && m.Container == "/workspace/data" && !m.ReadOnly {
+			t.Errorf("data dir mount must be read-only: %+v", m)
+		}
+		if m.Host == dataDir && m.Container == "/workspace/data" && m.ReadOnly {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("data dir mount missing from %+v", cfg.Mounts)
+	}
+	// There is no Workdir on an sbx run — the CLI has no -w and mounts each
+	// workspace at its own HOST path, so where the harness landed is conveyed in
+	// the environment instead.
+	var sawWorkdir bool
+	for _, e := range cfg.Env {
+		if strings.HasPrefix(e, "PROVEO_WORKDIR=") {
+			sawWorkdir = true
+		}
+	}
+	if !sawWorkdir {
+		t.Errorf("PROVEO_WORKDIR missing from %+v", cfg.Env)
+	}
+}
+
+func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
+	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
+	greyed := reviewAvailability(row, true)
+	if !greyed.Off[1] {
+		t.Error("sbx backend must grey out review")
+	}
+	if greyed.Selected == 1 {
+		t.Errorf("selection must move off review, got %d", greyed.Selected)
+	}
+	if !strings.Contains(greyed.Reason, "sandbox") {
+		t.Errorf("reason = %q, want it to name the sandbox backend", greyed.Reason)
+	}
+	keep := reviewAvailability(choiceui.Row{Label: "egress", Options: []string{"open", "review"}}, false)
+	if runtime.GOOS == "linux" && len(keep.Off) != 0 {
+		t.Errorf("linux host without sbx must leave review enabled, got Off=%v", keep.Off)
+	}
+}
+
+func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "cursor", image: "proveo/cursor:latest",
+			mode: "open", credentials: "forward", evidence: evidenceDefault,
+		},
+		man: manifest.Manifest{
+			Name: "cursor",
+			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
+			Capabilities: manifest.Capabilities{
+				Hosts:       []string{"api2.cursor.sh"},
+				Egress:      []string{"open"},
+				Credentials: []string{"forward"},
+			},
+		},
+		sid:    "proveo-cursor-1",
+		lookup: lookup,
+	}
+
+	cfg, kit, secrets := sandboxSpec(in)
+
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
+	}
+	// The Kit never declares credentials at all now — brokered or forwarded, the
+	// built-in agent owns that service and a mixin repeating it is rejected.
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
+	}
+	var bare bool
+	for _, e := range cfg.Env {
+		if e == "CURSOR_API_KEY" {
+			bare = true
+		}
+		if strings.HasPrefix(e, "CURSOR_API_KEY=") {
+			t.Errorf("forwarded key must stay a bare -e name, got %q (value would ride argv)", e)
+		}
+	}
+	if !bare {
+		t.Errorf("cfg.Env = %v, want a bare CURSOR_API_KEY forwarded from the host", cfg.Env)
+	}
+}
+
+func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value"}[k]
+	}
+	in := runSandboxInput{
+		params: runParams{
+			target: "claudecode", image: "proveo/claudecode:latest",
+			mode: "broker", credentials: "", evidence: evidenceDefault,
+		},
+		man: manifest.Manifest{
+			Name: "claudecode",
+			Env:  []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		},
+		sid:    "proveo-cc-1",
+		lookup: lookup,
+	}
+
+	_, kit, secrets := sandboxSpec(in)
+
+	if len(secrets) == 0 {
+		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
+	}
+	// The secret still goes to sbx's store host-side, but the Kit no longer NAMES
+	// it: the built-in agent declares service "anthropic" itself, and a mixin
+	// repeating it is rejected ("defined in both").
+	var named bool
+	for _, kv := range secrets {
+		if kv[0] == "CLAUDE_CODE_OAUTH_TOKEN" {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("secrets = %v, want the declared credential injected host-side", secrets)
+	}
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
+	}
+}
+
+func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name:   "claudecode",
+		Docker: manifest.DockerSbx,
+		Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
+	}
+	got := addonOptions(man)
+	want := []string{"browser", addonSandbox}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("addonOptions() mismatch (-want +got):\n%s", diff)
+	}
+	if opts := addonOptions(manifest.Manifest{Name: "opencode", Docker: manifest.DockerDind}); !slices.Contains(opts, addonDind) || slices.Contains(opts, addonSandbox) {
+		t.Errorf("a docker: dind harness must not be offered the sandbox: %v", opts)
+	}
+}
+
+func TestSandboxAddonIsOnUntilAnAnswerSaysOtherwise(t *testing.T) {
+	t.Parallel()
+	if !(&runParams{}).sandboxAddonOn() {
+		t.Error("a first run must take the sandbox backend without being asked")
+	}
+	if !(&runParams{addons: []string{addonSandbox}, addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("a remembered yes must keep the sandbox on")
+	}
+	if (&runParams{addons: []string{"browser"}, addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("a remembered answer WITHOUT the add-on means the operator turned it off")
+	}
+	if (&runParams{addonsAnswered: true}).sandboxAddonOn() {
+		t.Error("an empty remembered answer is still an answer — the sandbox stays off")
+	}
+}
+
+func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Options: []string{"browser", addonSandbox}, Multi: true, On: []bool{false, true},
+	}}}
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH")
+	r := f.Rows[0]
+	if !r.Off[1] {
+		t.Fatal("the sandbox add-on must be greyed out when sbx is unavailable")
+	}
+	if !strings.Contains(r.Reason, "sbx CLI not found on PATH") {
+		t.Errorf("reason = %q, want the availability reason", r.Reason)
+	}
+	if got := f.Selections("add-ons"); len(got) != 0 {
+		t.Errorf("a greyed add-on must not count as selected, got %v", got)
+	}
+	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
+	gateAddons(f, "open", "forward", "")
+	if f.Rows[0].Off[1] {
+		t.Error("an available sbx must leave the add-on checkable")
+	}
+}
+
+func TestGateReviewFollowsTheSandboxAddon(t *testing.T) {
+	t.Parallel()
+	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
+	f := &choiceui.Form{Rows: []choiceui.Row{row}}
+	gateReview(f, true)
+	if !f.Rows[0].Off[1] {
+		t.Fatal("review must be greyed out while the sandbox add-on is on")
+	}
+	if f.Rows[0].Selected == 1 {
+		t.Error("selection must move off a greyed option")
+	}
+	if !strings.Contains(f.Rows[0].Reason, "docker sandbox backend") {
+		t.Errorf("reason = %q", f.Rows[0].Reason)
+	}
+	gateReview(f, false)
+	if ok, _ := reviewSupported(func(string) string { return "" }); ok && f.Rows[0].Off[1] {
+		t.Error("turning the add-on off must hand the review tier back")
+	}
+}
+
+func TestBothDockerAddonsStartChecked(t *testing.T) {
+	t.Parallel()
+	opts := []string{"browser", addonSandbox, addonDind}
+	got := (&runParams{}).addonDefaults(opts)
+	if diff := cmp.Diff([]bool{false, true, true}, got); diff != "" {
+		t.Errorf("first-run defaults mismatch (-want +got):\n%s", diff)
+	}
+	// A remembered answer is authoritative in both directions.
+	remembered := &runParams{addons: []string{"browser"}, addonsAnswered: true}
+	if diff := cmp.Diff([]bool{true, false, false}, remembered.addonDefaults(opts)); diff != "" {
+		t.Errorf("remembered choice mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestNormalizeAddonsUpgradesTheRememberedDindName(t *testing.T) {
+	t.Parallel()
+	got := normalizeAddons([]string{"browser", "dind"})
+	if diff := cmp.Diff([]string{"browser", addonDind}, got); diff != "" {
+		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// The DLP's on-provider exemption cannot be derived from detected keys alone. A
+// subscription harness authenticates INSIDE the sandbox, so nothing is
+// detectable host-side, yet the token it mints there still has to reach the
+// vendor — the manifest's declared providers are the only statement of where
+// that is. Deriving the set from detection alone made the exemption empty for
+// exactly the harness that needs it most.
+func TestPolicyProviderHostsCoversDeclaredAndDetected(t *testing.T) {
+	t.Parallel()
+	subscription := manifest.Capabilities{Providers: []string{"anthropic"}}
+
+	if got := policyProviderHosts(nil, subscription); len(got) == 0 {
+		t.Error("a subscription harness with no host-side key got no provider hosts")
+	}
+	if got := policyProviderHosts([]string{"anthropic"}, manifest.Capabilities{}); len(got) == 0 {
+		t.Error("a detected provider with no declared capability got no provider hosts")
+	}
+	// Declared and detected overlap on the common path; the union must not
+	// double-list a host (the policy would still match, but the plan reads twice).
+	got := policyProviderHosts([]string{"anthropic"}, subscription)
+	seen := map[string]bool{}
+	for _, h := range got {
+		if seen[h] {
+			t.Errorf("duplicate host %q in %v", h, got)
+		}
+		seen[h] = true
+	}
+	if len(got) == 0 {
+		t.Fatal("union of declared and detected must not be empty")
+	}
+}
+
+// The cache seeds a prompt and is never an authority of its own, so a run with
+// no prompt to seed takes the manifest default
+// (_spec/internal/agentsettings/choice-cache.puml). Applying it headlessly let
+// the last interactive session decide a later run's security posture: an e2e run
+// that asked for the default `--credentials broker` silently got `forward`, and
+// with it a `browser` image variant it never selected.
+func TestCacheOnlyAppliesWhereThereIsAPromptToSeed(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		printOnly, tty bool
+		wizard         string
+		want           bool
+	}{
+		{name: "interactive", tty: true, want: true},
+		{name: "no tty", tty: false, want: false},
+		{name: "dry run", printOnly: true, tty: true, want: false},
+		{name: "wizard off", tty: true, wizard: "off", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PROVEO_WIZARD", tc.wizard)
+			if got := cacheApplies(tc.printOnly, tc.tty); got != tc.want {
+				t.Errorf("cacheApplies(printOnly=%v, tty=%v) = %v, want %v",
+					tc.printOnly, tc.tty, got, tc.want)
+			}
+		})
+	}
+}
+
+// The seeding itself must not overwrite an axis the operator stated on the
+// command line — the cache fills gaps, it does not out-rank a flag.
+func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
+	t.Parallel()
+	cached := agentsettings.Choice{Egress: "open", Credentials: "forward", Addons: []string{"browser"}}
+	lookup := func(string) string { return "" }
+
+	stated := runParams{mode: "allowlist", credentials: "broker", modeSet: true, credsSet: true}
+	stated.seedFromCache(cached, lookup, false)
+	if stated.mode != "allowlist" || stated.credentials != "broker" {
+		t.Errorf("explicit flags were overwritten: mode=%q credentials=%q", stated.mode, stated.credentials)
+	}
+
+	unstated := runParams{mode: "allowlist", credentials: "broker"}
+	unstated.seedFromCache(cached, lookup, false)
+	if unstated.mode != "open" || unstated.credentials != "forward" {
+		t.Errorf("unstated axes were not seeded: mode=%q credentials=%q", unstated.mode, unstated.credentials)
+	}
+	if !hasAddon(unstated.addons, "browser") {
+		t.Errorf("remembered add-ons were not seeded: %v", unstated.addons)
+	}
+}
+
+// anthropic takes either an API key or a subscription token, and an operator may
+// hold both. A service is one identity in a Kit, so declaring it twice would
+// leave the effective credential up to map order inside sbx.
+func TestKitCredentialsDeclareOneEntryPerService(t *testing.T) {
+	t.Parallel()
+	secrets := [][2]string{
+		{"CLAUDE_CODE_OAUTH_TOKEN", "oauth"}, // manifest-declared: comes first
+		{"ANTHROPIC_API_KEY", "sk-x"},        // same service, also present
+		{"OPENAI_API_KEY", "sk-y"},
+	}
+	got := kitCredentials(secrets, false)
+
+	byService := map[string]int{}
+	for _, c := range got {
+		byService[c.Service]++
+	}
+	for svc, n := range byService {
+		if n != 1 {
+			t.Errorf("service %q declared %d times, want exactly 1", svc, n)
+		}
+	}
+	// First wins, so the manifest-declared credential is the one that stands.
+	for _, c := range got {
+		if c.Service == "anthropic" && c.APIKey.Name != "CLAUDE_CODE_OAUTH_TOKEN" {
+			t.Errorf("anthropic resolved to %q, want the first-listed CLAUDE_CODE_OAUTH_TOKEN", c.APIKey.Name)
+		}
+	}
+	if len(byService) != 2 {
+		t.Errorf("services = %v, want anthropic and openai", byService)
+	}
+}
+
+// Nerd is the default and ASCII is the fallback an operator selects when their font
+// stops at the Powerline range. Off must leave the row byte-identical, and a server
+// with no devicon must degrade to its category marker rather than to a ragged column.
+func TestLSPGlyphModes(t *testing.T) {
+	t.Parallel()
+	labels := []string{"typescript-language-server", "bash-language-server", "gopls"}
+
+	if got := withGlyphs(labels, glyphsOff); !reflect.DeepEqual(got, labels) {
+		t.Errorf("glyphs off must not touch the labels, got %v", got)
+	}
+
+	for _, mode := range []glyphMode{glyphsNerd, glyphsASCII} {
+		got := withGlyphs(labels, mode)
+		for i, l := range labels {
+			if !strings.HasSuffix(got[i], l) {
+				t.Errorf("mode %d: %q must keep its server name, got %q", mode, l, got[i])
+			}
+			if got[i] == l {
+				t.Errorf("mode %d: %q should have gained a glyph", mode, l)
+			}
+		}
+	}
+
+	// Nerd falls back to the ASCII category marker rather than leaving a hole.
+	delete(lspNerd, "gopls")
+	defer func() { lspNerd["gopls"] = "\ue627" }()
+	if got := withGlyphs([]string{"gopls"}, glyphsNerd); got[0] != lspASCII["gopls"]+" gopls" {
+		t.Errorf("a server with no devicon must fall back to ASCII, got %q", got[0])
+	}
+
+	// A server in neither table stays bare.
+	if got := withGlyphs([]string{"unknown-langserver"}, glyphsNerd); got[0] != "unknown-langserver" {
+		t.Errorf("unmapped server must stay bare, got %q", got[0])
+	}
+}
+
+// Every language the scanner can detect needs a category marker, or enabling ASCII
+// silently produces a column where some rows are indented and others are not.
+func TestEveryLSPMarkerHasAnASCIIGlyph(t *testing.T) {
+	t.Parallel()
+	for _, m := range lspMarkers {
+		if _, ok := lspASCII[m.Label]; !ok {
+			t.Errorf("%s has no ASCII category marker", m.Label)
+		}
+	}
+	// ASCII markers pad to two columns so names stay aligned across categories.
+	for label, g := range lspASCII {
+		if len([]rune(g)) != 2 {
+			t.Errorf("%s marker %q is %d cols; must be 2", label, g, len([]rune(g)))
+		}
+	}
+}
+
+func TestGlyphModeFromLookup(t *testing.T) {
+	t.Parallel()
+	cases := map[string]glyphMode{
+		"": glyphsNerd, "nerd": glyphsNerd, "1": glyphsNerd, "typo": glyphsNerd,
+		"ascii": glyphsASCII, "ASCII": glyphsASCII,
+		"off": glyphsOff, "0": glyphsOff, "false": glyphsOff, "none": glyphsOff,
+	}
+	for in, want := range cases {
+		if got := glyphModeFrom(func(string) string { return in }); got != want {
+			t.Errorf("PROVEO_GLYPHS=%q: got mode %d, want %d", in, got, want)
+		}
+	}
+}
+
+// Print mode now writes the Kit so the command it prints is runnable, which puts a
+// file on disk that a dry run never used to create. That is only acceptable because
+// the Kit declares credential NAMES and never values — this is the property the
+// write depends on, so it is asserted rather than assumed.
+func TestKitCredentialsNeverEmbedSecretValues(t *testing.T) {
+	t.Parallel()
+	secrets := [][2]string{
+		{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-SUPERSECRET"},
+		{"ANTHROPIC_API_KEY", "sk-ant-api-ALSOSECRET"},
+	}
+	creds := kitCredentials(secrets, false)
+	if len(creds) == 0 {
+		t.Fatal("brokered credentials must be declared")
+	}
+	blob, err := yaml.Marshal(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(blob)
+	// One entry per service, so two anthropic secrets collapse to one declaration:
+	// assert a name is carried, not that every name is.
+	var named bool
+	for _, kv := range secrets {
+		if strings.Contains(rendered, kv[0]) {
+			named = true
+		}
+		if strings.Contains(rendered, kv[1]) {
+			t.Errorf("Kit leaked the VALUE of %s; print mode writes this file to disk", kv[0])
+		}
+	}
+	if !named {
+		t.Errorf("no credential name reached the Kit:\n%s", rendered)
+	}
+
+	// --credentials forward declares nothing: the agent holds its own key and there
+	// is no brokering to describe, so print mode writes an empty credentials block.
+	if got := kitCredentials(secrets, true); got != nil {
+		t.Errorf("forward mode must declare no credentials, got %v", got)
+	}
+}
+
+// sandboxSpec never reads p.mode, so open and allowlist build an identical Kit. The
+// row must say so rather than offering a risk axis on which nothing moves.
+func TestSbxEgressRealityGreysOpen(t *testing.T) {
+	t.Parallel()
+	row := axisRow("egress", []string{"open", "allowlist", "review"}, nil, "open")
+
+	if got := sbxEgressReality(row, false); got.Off != nil {
+		t.Errorf("docker backend must leave every tier selectable, got Off=%v", got.Off)
+	}
+
+	got := sbxEgressReality(row, true)
+	var greyed bool
+	for i, o := range got.Options {
+		if o == "open" && len(got.Off) > i && got.Off[i] {
+			greyed = true
+		}
+		if o == "allowlist" && len(got.Off) > i && got.Off[i] {
+			t.Error("allowlist is what sbx actually enforces; it must stay selectable")
+		}
+	}
+	if !greyed {
+		t.Errorf("open must be greyed on the sbx backend, got Off=%v", got.Off)
+	}
+	// Greyed, never hidden: removing it would misrepresent an unenforced tier as an
+	// unavailable one.
+	if len(got.Options) != len(row.Options) {
+		t.Errorf("no tier may be removed, got %v", got.Options)
+	}
+}
+
+func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
+	t.Parallel()
+	if got := enforcedBy(true); !strings.Contains(got, "sbx") || !strings.Contains(got, "no Squid") {
+		t.Errorf("sbx runs must name sbx and disclaim proveo's sidecars, got %q", got)
+	}
+	if got := enforcedBy(false); !strings.Contains(got, "squid") {
+		t.Errorf("docker runs must name proveo's sidecars, got %q", got)
+	}
+}
+
+// "agent exited with code 137" and "sandbox was stopped" are both sbx's auto-stop,
+// arriving 30s after the agent exited; neither says why. The tail is what explains a
+// REDIRECTED run — "Credit balance is too low", which is what it turned out to be.
+//
+// An interactive run takes no tail (see TestAgentStdioHandsTheTerminalOverUnwrapped:
+// wrapping stdout costs the agent its tty) and is explained by the session transcript
+// instead, which agentTranscript names on failure.
+func TestTailWriterKeepsTheExplanation(t *testing.T) {
+	t.Parallel()
+	w := newTailWriter(3)
+	// A TUI writes escapes, redraws the same status line, and may not end with \n.
+	fmt.Fprint(w, "\x1b[2J\x1b[H🚀 Launching Claude Code…\n")
+	fmt.Fprint(w, "\x1b[Kthinking\r\x1b[Kthinking\r")
+	fmt.Fprint(w, "Ignoring 10 permissions.allow entries\n")
+	fmt.Fprint(w, "\x1b[31mCredit balance is too low\x1b[0m")
+
+	got := w.Lines()
+	if len(got) != 3 {
+		t.Fatalf("want the last 3 lines, got %d: %q", len(got), got)
+	}
+	if last := got[len(got)-1]; last != "Credit balance is too low" {
+		t.Errorf("the unterminated final line must survive and be de-escaped, got %q", last)
+	}
+	for _, l := range got {
+		if strings.Contains(l, "\x1b") {
+			t.Errorf("escape sequences must be stripped, got %q", l)
+		}
+	}
+	// A redrawn status line is one line, not many.
+	var thinking int
+	for _, l := range got {
+		if l == "thinking" {
+			thinking++
+		}
+	}
+	if thinking > 1 {
+		t.Errorf("consecutive duplicates must collapse, got %q", got)
+	}
+}
+
+// MissingEnv reads env vars only, so a completed login sitting in the proveo home
+// read as "no auth" — and the refusal built on it would have blocked working runs.
+func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if hasPersistedLogin("claudecode", home) {
+		t.Error("an empty home has no login")
+	}
+	if hasPersistedLogin("claudecode", "") {
+		t.Error("no home root means no login")
+	}
+
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dir, ".credentials.json")
+	if err := os.WriteFile(cred, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hasPersistedLogin("claudecode", home) {
+		t.Error("an empty credential file is not a login")
+	}
+	if err := os.WriteFile(cred, []byte(`{"x":{"accessToken":"y"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hasPersistedLogin("claudecode", home) {
+		t.Error("a populated credential file is a login")
+	}
+	if hasPersistedLogin("opencode", home) {
+		t.Error("a target with no known login file must not borrow another's")
+	}
+}
+
+// os/exec copies stdout and stderr on separate goroutines and both are teed into one
+// tailWriter, so Write is genuinely concurrent. Without a lock the two interleave on
+// the shared buffer and reslicing panics with bounds out of range — which is exactly
+// how this crashed a real run. Run under -race to catch the regression properly.
+func TestTailWriterIsConcurrencySafe(t *testing.T) {
+	t.Parallel()
+	w := newTailWriter(8)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				// Mixed shapes: with newlines, without, and with escapes — the
+				// unterminated fragments are what made the indices disagree.
+				fmt.Fprintf(w, "g%d line %d\n\x1b[Kpartial %d", g, i, i)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	got := w.Lines()
+	if len(got) == 0 || len(got) > 8 {
+		t.Fatalf("want 1..8 retained lines, got %d", len(got))
+	}
+	for _, l := range got {
+		if strings.Contains(l, "\x1b") {
+			t.Errorf("escapes must be stripped even under concurrency, got %q", l)
+		}
+	}
+}
+
+// The picker and the backend selection must agree about PROVEO_SBX. They did not:
+// sbx.Available() only reports whether the host CAN run sbx, so with the backend
+// switched off the add-on stayed selectable and default-ticked while the run took
+// docker — the prompt described a posture the run did not have.
+func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
+	t.Parallel()
+	row := choiceui.Row{
+		Label: "add-ons", Multi: true,
+		Options: []string{"browser", addonSandbox},
+		On:      []bool{true, true}, // as addonDefaults leaves it: sandbox pre-ticked
+	}
+	f := &choiceui.Form{Rows: []choiceui.Row{row}}
+
+	gateAddons(f, "open", "forward", "PROVEO_SBX is off")
+
+	got := f.Rows[0]
+	var i int
+	for j, o := range got.Options {
+		if o == addonSandbox {
+			i = j
+		}
+	}
+	if !got.Off[i] {
+		t.Error("an unavailable sandbox add-on must be greyed")
+	}
+	if got.On[i] {
+		t.Error("a greyed add-on must also be unticked: a ticked box reads as the run's posture")
+	}
+	if !strings.Contains(got.Reason, "PROVEO_SBX is off") {
+		t.Errorf("the row must name why, got %q", got.Reason)
+	}
+	// An available backend leaves the operator's choice alone.
+	f2 := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "add-ons", Multi: true,
+		Options: []string{addonSandbox}, On: []bool{true},
+	}}}
+	gateAddons(f2, "open", "forward", "")
+	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
+		t.Error("an available sandbox add-on must stay selectable and ticked")
+	}
+}
+
+// Anthropic can authenticate two ways. Handing sbx both put an API key and a
+// subscription token in the same store, its proxy injected the key, and a
+// subscription run billed per token — the auth row the operator answered was
+// overridden somewhere they could not see.
+func TestOnlyTheChosenAuthVarIsStored(t *testing.T) {
+	t.Parallel()
+	const oauth, apikey = "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"
+
+	if !losesToChosenAuth(apikey, oauth) {
+		t.Error("the API key must lose when the operator chose the subscription token")
+	}
+	if !losesToChosenAuth(oauth, apikey) {
+		t.Error("and the reverse: the token must lose when the operator chose the key")
+	}
+	if losesToChosenAuth(oauth, oauth) {
+		t.Error("the chosen var must never be dropped")
+	}
+	// Only same-provider vars compete: an anthropic choice says nothing about
+	// openai, and dropping an unrelated key removes reach the harness has.
+	if losesToChosenAuth("OPENAI_API_KEY", oauth) {
+		t.Error("a different provider's key must survive an anthropic choice")
+	}
+	// No choice made: change nothing.
+	if losesToChosenAuth(apikey, "") {
+		t.Error("without a chosen auth var nothing may be dropped")
+	}
+}
+
+// An operator may log in on the HOST before launching; that credential reaches the
+// container because HOME points at the mounted proveo home. When it is there it IS
+// the answer, and proveo must not also hand sbx an API key whose proxy injection
+// would override it — which is how a subscription run silently billed per token.
+func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
+		{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+	}}
+	home := t.TempDir()
+
+	// No explicit choice and no host login: nothing is implied, nothing is dropped.
+	if got := effectiveAuthVar(man, "claudecode", "", home); got != "" {
+		t.Errorf("without a login or a choice the auth var is unknown, got %q", got)
+	}
+
+	// A host login stands in for the answer the operator never had to give.
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{"x":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := effectiveAuthVar(man, "claudecode", "", home); got != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Errorf("a persisted host login must select the harness credential, got %q", got)
+	}
+	if !losesToChosenAuth("ANTHROPIC_API_KEY", effectiveAuthVar(man, "claudecode", "", home)) {
+		t.Error("with a host login present the competing API key must not be stored")
+	}
+
+	// An explicit answer always wins over the inferred one.
+	if got := effectiveAuthVar(man, "claudecode", "ANTHROPIC_API_KEY", home); got != "ANTHROPIC_API_KEY" {
+		t.Errorf("the operator's own choice must win, got %q", got)
+	}
+}
+
+// sandboxSpec must stay pure: a host login decides which credential the run uses,
+// but that fact arrives through the input, never by reaching for the real
+// filesystem. It read proveohome.Root() briefly and every result then depended on
+// whether the developer happened to be logged in.
+func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
+	t.Parallel()
+	lookup := func(k string) string {
+		return map[string]string{
+			"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+			"ANTHROPIC_API_KEY":       "key-value",
+		}[k]
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	base := runSandboxInput{params: runParams{target: "claudecode"}, man: man, sid: "s", lookup: lookup}
+
+	names := func(in runSandboxInput) map[string]bool {
+		_, _, secrets := sandboxSpec(in)
+		out := map[string]bool{}
+		for _, kv := range secrets {
+			out[kv[0]] = true
+		}
+		return out
+	}
+
+	// No home, so no login can be found: both credentials are stored, as before.
+	noHome := names(base)
+	if !noHome["ANTHROPIC_API_KEY"] {
+		t.Errorf("without a host login the API key must still be stored, got %v", noHome)
+	}
+
+	// A home carrying a login makes THE FILE the credential, so nothing is stored for
+	// that provider. This assertion used to read the other way — a login meant the
+	// harness's own token was stored — and that is what put an env token in front of
+	// the mounted login and authenticated a subscription run as the API.
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude/.credentials.json"), []byte(`{"x":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withHome := base
+	withHome.homeRoot = home
+	got := names(withHome)
+	if got["ANTHROPIC_API_KEY"] {
+		t.Errorf("a host login must suppress the competing API key, got %v", got)
+	}
+	if got["CLAUDE_CODE_OAUTH_TOKEN"] {
+		t.Errorf("an env token was stored over a mounted login; it overrides it rather than joining it, got %v", got)
+	}
+	if len(got) != 0 {
+		t.Errorf("the mounted login needs no brokered secret at all, got %v", got)
+	}
+}
+
+// A wrapped writer is not an *os.File, so os/exec substitutes a pipe and the agent
+// loses its tty: no window size, and a TUI that draws one character per line. The
+// terminal must be handed over by identity, which is what this pins down.
+func TestAgentStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
+	out, errw := os.Stdout, os.Stderr
+	gotOut, gotErr, tail := agentStdio(out, errw, true)
+	if gotOut != io.Writer(out) || gotErr != io.Writer(errw) {
+		t.Fatalf("interactive run wrapped the terminal: stdout=%T stderr=%T", gotOut, gotErr)
+	}
+	if tail != nil {
+		t.Fatal("interactive run took a tail; that is what forces the pipe")
+	}
+	if lines := tail.Lines(); lines != nil {
+		t.Fatalf("a nil tail must replay as no lines, got %v", lines)
+	}
+}
+
+// Off a terminal the stream is already redirected, so the tail is free.
+func TestAgentStdioTeesWhenStdoutIsRedirected(t *testing.T) {
+	var out, errw bytes.Buffer
+	gotOut, gotErr, tail := agentStdio(&out, &errw, false)
+	if tail == nil {
+		t.Fatal("a redirected run must keep the agent's last output")
+	}
+	fmt.Fprintln(gotOut, "credit balance is too low")
+	fmt.Fprintln(gotErr, "agent exited with code 137")
+	if !strings.Contains(out.String(), "credit balance") {
+		t.Fatalf("the tee stopped reaching stdout: %q", out.String())
+	}
+	if got := tail.Lines(); len(got) != 2 || got[0] != "credit balance is too low" {
+		t.Fatalf("tail did not retain both streams: %v", got)
+	}
+}
+
+// A credential file under the mounted proveo home IS the login. Injecting the
+// harness's own auth var alongside it does not add a second credential — it
+// overrides the first, which is how a subscription run authenticated as the API.
+func TestFileBackedLoginSuppressesEveryAuthVarForItsProvider(t *testing.T) {
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	suppressed := authSuppressor(man, "claudecode", "", home)
+
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppressed(k) {
+			t.Errorf("%s injected over a mounted login; it would override the subscription", k)
+		}
+	}
+	if suppressed("OPENAI_API_KEY") {
+		t.Error("an anthropic login must say nothing about another provider's reach")
+	}
+}
+
+// An answered auth row is the operator's decision and still wins.
+func TestChosenAuthVarSurvivesAPersistedLogin(t *testing.T) {
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	os.MkdirAll(filepath.Dir(cred), 0o755)
+	os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600)
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	suppressed := authSuppressor(man, "claudecode", "ANTHROPIC_API_KEY", home)
+
+	if suppressed("ANTHROPIC_API_KEY") {
+		t.Error("the operator's answer was dropped")
+	}
+	if !suppressed("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("the alternative to the answer must not be injected too")
+	}
+}
+
+// With no login on disk nothing is suppressed: the env vars are the only auth.
+func TestNoPersistedLoginInjectsTheManifestSecret(t *testing.T) {
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	if authSuppressor(man, "claudecode", "", t.TempDir())("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Fatal("dropped the only credential the run had")
+	}
+}
+
+// sbx runs setup.startup under `user: "1000"`, which resets HOME from /etc/passwd.
+// A seed reading $HOME therefore targets the image's home, not the run's — it
+// composed subagents into /home/claude while the agent ran elsewhere. PROVEO_HOME
+// is the name no launcher rewrites, so it must travel with every rewritten HOME.
+func TestRewrittenHomeAlsoCarriesProveoHome(t *testing.T) {
+	mounts := []sbx.Mount{{Host: "/Users/p/.proveo", Container: proveohome.ContainerHome}}
+	got := sbxHome([]string{"HOME=/stale", "PROVEO_HOME=/stale", "KEEP=1"}, mounts)
+
+	var home, seed int
+	for _, e := range got {
+		switch {
+		case e == "HOME=/Users/p/.proveo":
+			home++
+		case e == "PROVEO_HOME=/Users/p/.proveo":
+			seed++
+		}
+	}
+	if home != 1 || seed != 1 {
+		t.Fatalf("want exactly one rewritten HOME and PROVEO_HOME, got %v", got)
+	}
+	for _, e := range got {
+		if e == "HOME=/stale" || e == "PROVEO_HOME=/stale" {
+			t.Fatalf("a stale home survived the rewrite: %v", got)
+		}
+	}
+}
+
+// Interactive runs take no tail, so the transcript is the only record proveo can
+// name. It must name THIS run's — an older one sends the reader to stale evidence.
+func TestAgentTranscriptNamesOnlyThisRunsFile(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".claude", "projects", "-w-repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "old.jsonl")
+	fresh := filepath.Join(dir, "new.jsonl")
+	for _, f := range []string{stale, fresh} {
+		if err := os.WriteFile(f, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	old := started.Add(-time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	later := started.Add(time.Second)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := agentTranscript("claudecode", home, started); got != fresh {
+		t.Fatalf("want this run's transcript %q, got %q", fresh, got)
+	}
+	// Nothing written this run, and nothing to point at.
+	if got := agentTranscript("claudecode", home, later.Add(time.Minute)); got != "" {
+		t.Fatalf("named a transcript no run wrote: %q", got)
+	}
+	// A harness whose transcript location we have not established stays silent
+	// rather than guessing a path that will read as "no evidence" forever.
+	if got := agentTranscript("cursor", home, old); got != "" {
+		t.Fatalf("guessed a location for an unmapped harness: %q", got)
+	}
+}
+
+// Without --shell the harness's own sbx agent runs; the two must not be confused,
+// because naming the wrong one is what skips the binding gate and drops the session.
+func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
+	t.Parallel()
+	base := runSandboxInput{
+		man:    manifest.Manifest{Name: "claudecode"},
+		lookup: func(string) string { return "" },
+	}
+	for _, c := range []struct {
+		target, want string
+		shell        bool
+	}{
+		{target: "claudecode", want: "claude"},
+		{target: "cursor", want: "cursor"},
+		{target: "claudecode", want: sbx.ShellAgent, shell: true},
+		{target: "cursor", want: sbx.ShellAgent, shell: true},
+	} {
+		in := base
+		in.params = runParams{target: c.target, image: "proveo/x:local", shell: c.shell}
+		if cfg, _, _ := sandboxSpec(in); cfg.Agent != c.want {
+			t.Errorf("target %q shell=%v: agent = %q, want %q", c.target, c.shell, cfg.Agent, c.want)
+		}
+	}
+}
+
+// Omitting a suppressed credential is not enough on the sandbox backend: sbx's
+// secret store is global and injects on its own authority, so an absent variable
+// leaves whatever an earlier run stored sitting in front of the mounted login —
+// which is how a subscription run kept authenticating as an API account. proveo
+// states the decision instead, as the empty value `sbx run -e VAR=` accepts.
+func TestSandboxSpecNeutralizesSuppressedCredentials(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := runSandboxInput{
+		params: runParams{target: "claudecode", image: "proveo/claudecode:local"},
+		man: manifest.Manifest{
+			Name: "claudecode", Subscription: true,
+			Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+			Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+		},
+		lookup: func(k string) string {
+			return map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+				"ANTHROPIC_API_KEY":       "key-value",
+			}[k]
+		},
+		homeRoot: home,
+	}
+	cfg, _, secrets := sandboxSpec(in)
+
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !slices.Contains(cfg.Env, k+"=") {
+			t.Errorf("%s must be stated empty so the global store cannot inject it; env = %v", k, cfg.Env)
+		}
+		for _, e := range cfg.Env {
+			if strings.HasPrefix(e, k+"=") && e != k+"=" {
+				t.Errorf("%s carries a value over a mounted login: %q", k, e)
+			}
+		}
+	}
+	if len(secrets) != 0 {
+		t.Errorf("nothing may be written to the store for a file-backed login, got %v", secrets)
+	}
+}
+
+// The persisted login must be NAMEABLE in the auth row. Until it was, the row listed
+// only environment variables, so a remembered answer naming one of them outranked a
+// login the operator established later — proveo forwarded a token the API refused
+// while a working subscription sat mounted and unread.
+func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Provider: "anthropic",
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	lookup := func(k string) string {
+		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "key"}[k]
+	}
+
+	got := availableAuthVarsIn(man, lookup, "claudecode", home)
+	if len(got) == 0 || got[0] != authVarLogin {
+		t.Fatalf("the login must be offered first, got %v", got)
+	}
+	// Without one on disk the row is unchanged: nothing to name.
+	if bare := availableAuthVarsIn(man, lookup, "claudecode", t.TempDir()); slices.Contains(bare, authVarLogin) {
+		t.Errorf("offered a login that does not exist: %v", bare)
+	}
+
+	// Naming it suppresses that provider's variables, and only that provider's.
+	suppressed := authSuppressor(man, "claudecode", authVarLogin, home)
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppressed(k) {
+			t.Errorf("%s injected over the login the operator named", k)
+		}
+	}
+	if suppressed("OPENAI_API_KEY") {
+		t.Error("an anthropic login must not remove reach to another provider")
+	}
+	// It is a sentinel, never an env var name.
+	if v := effectiveAuthVar(man, "claudecode", authVarLogin, home); v == authVarLogin {
+		t.Errorf("the login sentinel leaked into an env var name: %q", v)
 	}
 }

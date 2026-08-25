@@ -75,7 +75,9 @@ func TestPrepareMountsAndScrub(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".cursor")); err != nil {
 		t.Errorf(".cursor subdir should exist: %v", err)
 	}
-	if len(p.Env) != 1 || p.Env[0] != "HOME="+ContainerHome {
+	// PROVEO_HOME travels beside HOME: sbx's startup dispatcher resets HOME from
+	// /etc/passwd, so the seed needs a name no launcher rewrites.
+	if len(p.Env) != 2 || p.Env[0] != "HOME="+ContainerHome || p.Env[1] != "PROVEO_HOME="+ContainerHome {
 		t.Errorf("Env = %v", p.Env)
 	}
 	if _, err := os.Stat(filepath.Join(share, "auth.json")); !os.IsNotExist(err) {

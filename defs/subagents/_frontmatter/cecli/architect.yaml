@@ -1,0 +1,7 @@
+name: architect
+description: Designs structure before code. Produces layered specs, contracts, file plans.
+mode: subagent
+temperature: 0.2
+permission:
+  edit: deny
+  bash: deny

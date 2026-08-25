@@ -23,7 +23,7 @@ end
 
 == run ==
 PH ARROW_MAIN RUN : Plan{Root, Mounts, Env}
-RUN ARROW_MAIN ARGV : append mounts + ""HOME=/proveo-home""
+RUN ARROW_MAIN ARGV : append mounts + ""HOME"" + ""PROVEO_HOME""
 ARGV ARROW_MAIN CTR : " ""docker run --rm -v …:/proveo-home"" "
 CTR ARROW_MAIN ROOT : agent writes sessions/config
 CTR ARROW_ERROR CTR : container exits (""--rm"")
@@ -48,6 +48,14 @@ note over RUN
   project state in ""/app/.cecli"", home conf only).
   Passing two of the three is an error, not a precedence rule.
 end note
+note over RUN
+  **PROVEO_HOME is HOME under an unedited name.**
+  sbx executes startup commands as user 1000,
+  reinstating HOME from /etc/passwd, so a seed
+  consulting it deposits files in the image's home
+  while the agent resolves a different directory.
+end note
+
 note over PH
   Host subdirectories are created 0700 and the whole of ""PROVEO_HOME"" is
   bind-mounted, rather than mounting each declared path — one mount keeps

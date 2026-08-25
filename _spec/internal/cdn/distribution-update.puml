@@ -59,4 +59,12 @@ note bottom of CDN
   Publishing: an exact git tag builds semver artifacts
   (no GitHub Release); otherwise ""--snapshot"".
 end note
+note bottom of MANIFEST
+  **One published channel, so a pinned version is not a time machine.** The
+  installers read the version from ""latest\.json"" unless ""PROVEO_VERSION"" is
+  set, and an explicit value must match what the CDN currently publishes — the
+  bucket carries the current release only, so pinning an older tag resolves to
+  nothing rather than to that older build.
+end note
+
 @enduml

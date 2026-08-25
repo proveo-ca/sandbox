@@ -72,5 +72,19 @@ note bottom of RESOLVE
   the limit exists to contain, so it is honoured but bounded.
 end note
 
+note bottom of DETECT
+  **Darwin has no ""/proc"", and may have no image to probe.** ""PidMax"" is read
+  from the Linux kernel the containers actually run on: ""/proc"" directly on
+  Linux, otherwise probed inside the engine's VM via an //already local// image
+  (never pulled). On a clean mac both can fail — no ""/proc"", no cached image —
+  and the historic ""32768"" fallback is far below what OrbStack, Docker Desktop
+  and the other engine VMs really run.
+
+  That mattered as a bug, not a nicety: with ""pid_max = 32768"" the
+  ""HostCeiling"" term ""pidMax/64"" evaluates to ""512"", below the browser tier's
+  floor of ""1024"", so ""EnsurePidsCapability"" failfasted every
+  ""*-browser"" run on an otherwise healthy mac. Darwin therefore falls back to a
+  VM-scale default instead of the Linux-historic one.
+end note
 
 @enduml

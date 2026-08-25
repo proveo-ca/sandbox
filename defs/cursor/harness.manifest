@@ -2,8 +2,7 @@
 name: cursor
 description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rules)
 egress: true
-dind: true
-sandbox_docker: true
+docker: sbx
 provider: cursor
 subscription: true
 stability: candidate

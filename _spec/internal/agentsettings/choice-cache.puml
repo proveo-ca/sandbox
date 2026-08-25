@@ -1,0 +1,90 @@
+@startuml AgentSettingsChoiceCache
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how a harness run's capability choices are prompted, remembered and invalidated
+' covers: internal/agentsettings/**
+' covers: internal/choiceui/**
+' covers: internal/wsscan/**
+title Choice cache — the prompt always appears; the cache only seeds it
+
+component "manifest ""capabilities""\negress · credentials · providers" as CAP <<app>>
+component "choiceui form\none prompt, N rows" as TUI <<app>>
+component "resolver\nflag > remembered > manifest default" as RES <<app>>
+component "Fingerprint(capabilities)\nsha256, normalised, first 8 bytes" as FP <<app>>
+component "Store.Lookup / Remember" as STORE <<app>>
+database "``agent-settings.yml``\n""targets.<t>"" → egress · credentials ·\naddons · authVar · evidence · models · fingerprint" as FILE <<db>>
+component "headless run\nno TTY" as HEADLESS <<host>>
+
+CAP ARROW_MAIN TUI : the choice space
+CAP ARROW_MAIN FP
+FP ARROW_MAIN STORE
+STORE ARROW_MAIN FILE
+STORE ARROW_OPTIONAL RES : remembered answer
+RES ARROW_MAIN TUI : seeds the selection
+TUI ARROW_MAIN STORE : Remember
+HEADLESS ARROW_QUEUE RES : manifest default, logged
+
+note right of TUI
+  **The matrix is data, not code.** A harness's constraint is declared in its
+  manifest, not special-cased in ""cmd/proveo"" — which is what makes the choice
+  space inspectable per def instead of hidden behind ""if target == …"".
+
+  **A single-option axis is not a choice, so its row is dropped.** Rows appear
+  only where something is actually decidable; the header shows ""\.env"" as
+  loaded, **names only** for secrets (manifest ""env[]\.secret"" ∪
+  ""provider\.KeyVars()"") and ""key=value"" for the rest.
+end note
+
+note right of RES
+  **The prompt always appears; a remembered answer seeds it, never replaces
+  it.** Silently entering a cached tier hid the security posture of the run.
+  The operator must see — and be able to change — what they are launching, so
+  the cache is an ergonomic shortcut and never an authority.
+end note
+
+note bottom of FP
+  **Cached choices do not survive a manifest change.** The entry stores a
+  fingerprint of the def's ""capabilities"" block, normalised (lower-cased,
+  trimmed, sorted) so cosmetic reordering does not invalidate it. Any real
+  change discards the entry and re-prompts, rather than silently keeping a tier
+  the def no longer allows or dropping an add-on that no longer exists.
+end note
+
+note bottom of FILE
+  **Models are remembered too, and are not a form row.** ""targets.<t>.models""
+  records the last used ""main"" / ""editor"" / ""small"" as **canonical** ids, so a
+  session mixing providers is reproducible without retyping three env vars.
+  Canonical rather than harness-specific: a translated spelling would pin the
+  entry to whatever the catalog said the day it was written, and a synced
+  correction would never reach it.
+end note
+
+note bottom of CAP
+  **""providers"" also closes a live failure.** In a brokered tier
+  ""provider\.KeyVars()"" sentinel-injects every detected key, so the broker sees
+  two or more, refuses to pin, and the agent receives the ""proveo-brokered""
+  sentinel — which the provider answers with 403. Filtering detection through
+  the def's declared providers keeps a stray key for a harness that cannot use
+  it out of the set entirely.
+end note
+
+note bottom of HEADLESS
+  E2E, CI and cron must never block on a human: with no TTY the resolver takes
+  the manifest default and logs the choice it made, so a non-interactive run is
+  still auditable after the fact.
+
+  **The code read the cache here anyway, for one release cycle.** ""Lookup"" was
+  applied unconditionally and ""Remember"" wrote on every non-dry run, so the rule
+  above held only for the //prompt//, never for the resolution. The consequence
+  was not cosmetic: a headless run's **security posture** came from whatever the
+  last interactive session happened to pick. An e2e run asking for the default
+  ""--credentials broker"" silently got ""forward"", and with it a ""browser"" image
+  variant it never selected — and then rewrote the operator's remembered posture
+  on its way out.
+
+  Both halves now hang off the same predicate (""cacheApplies""): where there is
+  no prompt to seed, the cache is neither read nor written. Writing mattered as
+  much as reading — a machine default overwriting a human's remembered answer is
+  the cache acting as an authority in the opposite direction.
+end note
+
+@enduml

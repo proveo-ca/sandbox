@@ -6,11 +6,12 @@
 // (2) attaches a LOCAL model (Ollama), (3) drives the agent NON-INTERACTIVELY
 // (`opencode run --auto`, task from argv), and (4) asserts observable SIDE
 // EFFECTS on the host — the mounted sample workspace was seen, files were
-// changed, and a page was scraped over egress — never the model's prose. Gated
-// on PROVEO_LLM_TEST=1 and the local stack, so it never fails CI for missing
+// changed, and a page was scraped over egress — never the model's prose. The
+// e2e build tag is the only gate; each test then skips on its own missing
+// prerequisites (see preconditions_test.go), so it never fails CI for missing
 // infra.
 //
-//	PROVEO_LLM_TEST=1 [PROVEO_TEST_LOCAL_MODEL=gemma4] \
+//	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
 //	  go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 360s
 //
 // The harness is opencode-specific here: `run --auto --agent build` is opencode's
@@ -43,19 +44,12 @@ import (
 // Handing the model one exact shell command keeps the small local model reliable
 // while still exercising the full run → local-LLM → tool-call → side-effect loop.
 func TestPromptfulE2E(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the local-model agent E2E")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed (brew install tmux)")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	requireTmux(t)
+	requireDocker(t)
 	target := env("PROVEO_TEST_TARGET", "opencode")
-	image := env("PROVEO_TEST_IMAGE", "proveo/"+target+":latest")
+	image := env("PROVEO_TEST_IMAGE", harnessImageName(target))
 	if !dockerImagePresent(t, image) {
-		t.Skipf("harness image %s not built", image)
+		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}
 	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
 	if !ollamaHasModel(model) {
@@ -67,6 +61,19 @@ func TestPromptfulE2E(t *testing.T) {
 	// Mount a COPY of the sample monorepo so the tracked sample stays pristine;
 	// the agent edits the copy and we assert the host-side side effects.
 	work := copySampleWorkspace(t)
+	// This suite runs entirely on the LOCAL model, so the workspace must carry no
+	// project .env at all. Two separate reasons, both fatal:
+	//
+	//	samples/.env is a symlink into the repo root, so `cp -a` leaves a DANGLING
+	//	link here — and this posture bind-mounts the workspace .env rather than
+	//	masking it, which makes a dangling link a broken mount source.
+	//
+	//	A REAL .env is worse than a dangling one. The entrypoint sources the mounted
+	//	file after docker has applied `-e`, so the repo's ARCHITECT_MODEL wins over
+	//	the ollama/* alias --local-model just bridged in, and the main agent goes to
+	//	the cloud provider — which is exactly the credential this suite is built to
+	//	not need.
+	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
 	sampleAnchor := firstLine(t, filepath.Join(work, "README.md"))
 
@@ -83,21 +90,31 @@ func TestPromptfulE2E(t *testing.T) {
 	// agent, so `opencode run --auto --agent build <task>` executes the task from
 	// argv (--auto approves the sandboxed local model's tool calls) and exits. No
 	// keystrokes, so no TUI readiness race. tmux only supplies the PTY the harness's
-	// `docker run -it` requires. Broker mode + --local-model gives an
-	// internet-capable bridge (Ollama sidecar via NO_PROXY), so curl reaches
-	// example.com.
+	// `docker run -it` requires.
 	//
-	// --scope . selects the repo root non-interactively: the sample is a polyglot
-	// monorepo, so without it `proveo run` would pop its interactive sub-project
-	// picker (TTY + git repo + sub-projects) and block, since we send no keys.
-	if err := sess.Start(200, 50, proveoBin, "run", target,
-		"--egress-mode", "broker", "--local-model", model, "--input", work, "--scope", ".",
+	// `open` + `forward` is the plain-bridge posture, and this suite needs BOTH
+	// halves of it. It is the only shape that reaches the HOST's Ollama
+	// (host.docker.internal): every other tier puts the agent on an internal
+	// network with DNS blackholed, so the only reachable model server is the
+	// sidecar — which on macOS has no GPU and generates at CPU speed. It is also
+	// what gives curl an internet-capable bridge to example.com.
+	//
+	// Naming both axes is the post-rename spelling of what this test always asked
+	// for. It said `--egress-mode broker` back when one flag carried network tier
+	// AND credential handling; `broker` now aliases to the `open` TIER alone and
+	// credentials default to brokering, which lands in the intercepting branch and
+	// silently demotes the model to the CPU sidecar.
+	//
+	// --scope . selects the repo root non-interactively, and PROVEO_WIZARD=off
+	// keeps the sub-project picker and the choice form off this PTY — the run then
+	// takes the manifest defaults for every axis these flags do not name, instead
+	// of whatever the operator's remembered posture happens to hold.
+	if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
+		"--egress-mode", "open", "--credentials", "forward",
+		"--local-model", model, "--input", work, "--scope", ".",
 		"--", "run", "--auto", "--agent", "build", task); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	// --scope . avoids the sub-project picker, but the run still shows the choice
-	// form on a TTY. Accept the pre-selected defaults.
-	acceptChoicePrompt(t, sess, target)
 
 	// Poll host-side for ALL THREE side effects (prose-independent). Generous
 	// enough for a small local model on GPU to churn through the full harness
@@ -140,7 +157,7 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 
 func dockerImagePresent(t *testing.T, image string) bool {
 	t.Helper()
-	return exec.Command("docker", "image", "inspect", image).Run() == nil
+	return imageExists(image)
 }
 
 func ollamaHasModel(model string) bool {
@@ -153,6 +170,19 @@ func ollamaHasModel(model string) bool {
 	n, _ := resp.Body.Read(buf)
 	// Match "gemma4" against "gemma4:latest" etc.
 	return strings.Contains(string(buf[:n]), strings.SplitN(model, ":", 2)[0])
+}
+
+// removeWorkspaceEnv drops the sample's .env from the copy, leaving the run with
+// no project env file to mount or source.
+func removeWorkspaceEnv(t *testing.T, work string) {
+	t.Helper()
+	path := filepath.Join(work, ".env")
+	if _, err := os.Lstat(path); err != nil {
+		return // no .env in the sample — nothing to drop
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // copySampleWorkspace copies tests/e2e/samples/ into a fresh temp dir so the

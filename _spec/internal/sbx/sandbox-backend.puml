@@ -1,0 +1,285 @@
+@startuml SandboxBackend
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
+' ── Authoritative sbx references. The Kit spec is the source of truth for every
+' field below. Deriving the shape from sbx's rejection messages instead produced a
+' Kit that validated while omitting what actually makes an agent session work.
+'   kit spec v2 : https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md
+'   kit examples: https://docs.docker.com/ai/sandboxes/customize/kit-examples/
+'   spec package: https://pkg.go.dev/github.com/docker/sbx-kits-contrib/spec
+'   contrib kits: https://github.com/docker/sbx-kits-contrib
+' Kit schema, the validate handoff, session lifecycle and exit-code handling:
+'   sbx-kit-contract.puml (same directory)
+
+component "doRun backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
+component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
+component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
+component "host-side credential injection\nvalues via stdin — never argv,\nnever env, never the VM fs" as SEC <<error>>
+
+component "docker+egress orchestration\nnets · Squid · MITM inspector" as FB <<host>>
+
+SEL ARROW_MAIN SBX : available
+SEL ARROW_QUEUE FB : unavailable → one actionable warn
+SBX ARROW_MAIN CLI
+SBX ..> KIT : rendered under state egDir/sbx/kit
+SBX ..> SEC
+
+note right of SEL
+  **Auto w/ fallback, one operator override.** Harnesses with
+  ""docker: sbx"" (""claudecode"", ""cursor"") take the sandbox backend
+  whenever the host supports it. The choice prompt carries it as the
+  CHECKED add-on ""docker (sandbox)"" — unchecking is the one way to send
+  such a run down docker+egress instead, and the answer is remembered
+  per harness like every other axis. Unsupported hosts
+  (no sbx on PATH, or no Apple Silicon / KVM) fall back to docker+egress
+  with a single warn naming the reason. ""--print"" renders whichever
+  backend was selected (""sbx run …"" vs ""docker run ..."").
+end note
+
+note right of SBX
+  **Availability gate** (all must hold):
+  | sbx CLI on PATH
+  | darwin/arm64, **or** linux with ""/dev/kvm""
+  Win11/Hyper-V and Intel macs are not gated in yet.
+  The review tier is greyed out in the picker when this backend is
+  selected — the consent-gate socket has no sbx transport yet.
+end note
+
+note bottom of SEC
+  **Credential parity with the broker, different mechanism.** Declared secret
+  env vars plus every detected provider key var are injected via ""sbx secret
+  set"" before the run; the sentinel/broker-file machinery of the egress path
+  is deliberately not involved — deny-by-default egress replaces interception.
+  Accepted gap: no DLP content scan on payloads to *allowed* hosts.
+end note
+
+note bottom of SEL
+  **A Kit's credentials are approved by the operator, and that is a gate rather
+  than a fault.** sbx lists every credential a Kit requests — service,
+  destination, whether it is stored — and waits on //"[A]pprove all · [R]eview
+  each · [N]o"//. A ""proveo run"" is interactive by construction (the choice form
+  precedes it, ""isStdinTTY"" gates the prompts, the agent needs a PTY), so this
+  sits naturally in front of it and the e2e probe answers it the way an operator
+  would.
+
+  //An earlier note here called it a blocker.// That conflated two different
+  things. ""secret set"" asking "Overwrite? (y/N)" IS a fault, because the value is
+  piped on stdin and the question consumes it — the write cancels and the agent
+  keeps a stale credential, silently. That is what ""--force"" fixes, and the probe
+  still fails on it. Being asked a question is not the same as having an answer
+  stolen.
+
+  It does raise the cost of over-declaring, though. Provider collection is
+  filtered by the manifest's ""capabilities.providers"": unfiltered, a claudecode
+  sandbox asked for cursor, google, openai and xai keys, so the operator was being
+  asked to approve reach that harness has no way to exercise.
+end note
+
+note left of FB
+  **Fallback contract:** open-source harnesses (""opencode"", ""cecli"") never set
+  ""docker: sbx"" (they take ""docker: dind"") and always run here. Subscription
+  harnesses land here only
+  when the gate above fails. Def-local shell suites keep covering the fallback
+  images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
+
+  **Plan vs proof, and the proof had to be made cheap.** The print-only tests
+  assert the ARGV from pure ""sandboxSpec"" with no VM.
+  ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
+  this backend and asserts what ""docker: sbx"" claims: the sbx line was printed
+  (not the fallback), the workspace mount carries writes back to the host, and the
+  sandbox is gone afterwards. It drives ""--shell"", so it costs no model call and
+  no credential.
+
+  **That test alone was not enough, and the gap is instructive.** Every adapter
+  defect — a rejected ""-w"", a ""-v"" that is ""--cloud"" only, an image in the agent
+  positional, an agent name that must match the Kit's, an unparseable Kit, a stale
+  template served silently — was found by running ""proveo run"" BY HAND. The real
+  run failed at each of them but reported only //"session exited before the
+  sandbox shell"// six minutes later, naming none. Three assertions close that:
+
+  | ""TestSandboxKitValidatesAgainstTheRealCLI"" | renders the Kit and hands it to ""sbx kit validate"" — catches schema drift in ~2s with no VM, and treats a DEPRECATION warning as failure because that is sbx announcing the schema moved |
+  | ""TestSandboxKitDeclaresOnlyPermittedProviders"" | the Kit may only request credentials the manifest permits |
+  | the run probe | fails on sbx's own ""ERROR:"" line, and on an interactive prompt, instead of waiting out the clock |
+
+  A fast pass is where a vacuous assertion hides, so the validator was checked
+  against a deliberately broken Kit: at ""schemaVersion: 1"" it fails in 1.7s naming
+  //"field permissions not found in type spec\.SpecFile"//. Its own first version
+  had a wrong glob — watching ""<state>/<sid>/"" while the Kit lands at
+  ""<state>/egress/<sid>/"" — and spent three minutes timing out on a file already
+  written one directory over. It failed loudly rather than passing, which is the
+  only reason that was cheap.
+end note
+note bottom of SEL
+  **proveo owns the install and the version, not the operator.** ""sbx"" is
+  pre-GA and its surface moves, so "installed" is not the same as "drivable":
+  ""sbx\.MinVersion"" is the surface this build targets, ""Available()"" refuses
+  anything older **at selection time**, and the run falls back to docker+egress
+  with the reason named. Every drift the pin exists for fails deep inside a
+  sandbox otherwise, where the operator cannot see it.
+
+  ""ensureSbx"" then offers to close the gap — ""InstallCmd(installed)"" returns
+  the //install// line when the CLI is absent and the //upgrade// line when it is
+  merely old, because handing "brew install" to someone who installed it
+  yesterday is how a version gate becomes advice they follow twice and then
+  ignore. The install is **confirmed, never silent**: it mutates the host outside
+  proveo's own state, so it takes the same gate as a missing sidecar image
+  (""PROVEO_AUTO_PROVISION"", else a TTY prompt, else declined — and declining is
+  a fallback, not an error).
+
+  **""--print"" provisions nothing.** A dry run is how an operator inspects a
+  posture before committing to it; if it could install a package manager's worth
+  of software the flag would stop being safe to reach for. ""sbxReady"" splits on
+  exactly that.
+end note
+
+note bottom of CLI
+  **Measured against v0.39, flag by flag, by running it.** What the adapter was
+  written for (v0.35) and what the CLI takes differ on every axis that matters,
+  and each one failed a real run in turn:
+
+  | workspaces | ""-v host:container"" → **positional** ""PATH[:ro]"" (""--volume"" is ""--cloud"" only) |
+  | image | positional → ""-t/--template""; the first positional is the AGENT |
+  | agent | **must equal the Kit's ""name""** — "agent name X does not match agent kit name Y" |
+  | agent | and must NOT be a built-in — "agent "cursor" is already registered" ⇒ ""proveo-<target>"" |
+  | workdir | ""-w"" → **no such flag**; ""PROVEO_WORKDIR"" carries it instead |
+  | teardown | ""rm NAME"" → ""rm --force NAME"", or it waits for a confirmation |
+  | secrets | ""secret set NAME"" → ""--force"", or a re-run's piped value answers the overwrite prompt and CANCELS the write |
+
+  **The agent is not a separate thing to declare.** A ""kind: sandbox"" Kit defines
+  one, and its name is the agent name — an ""sbxAgent:"" manifest field was added
+  for this and then refused by sbx, so it is derived from the target instead.
+
+  **It is NAMESPACED, because sbx also refuses to let a Kit shadow a built-in**
+  (claude · codex · copilot · cursor · docker-agent · droid · gemini · kiro ·
+  opencode · shell). Two defs are named after built-ins, and the refusal is
+  silent from the operator's seat: cursor's runs died ~12s in with the session
+  gone before the shell. ""sbx\.AgentName"" prefixes rather than checking the list,
+  since the list grows and a collision test would pass until it did.
+
+  **Mounts are path-preserving.** A workspace lands inside the VM at its own HOST
+  path over virtiofs, the cwd is that path, and the user is the image's own. There
+  is no flag to choose a container path, so proveo home travels as a workspace
+  with ""HOME"" repointed at its host path (which keeps ~/.claude and resume state
+  across runs) — and a bind NESTED under home, the gh config at
+  ""/proveo-home/.config/gh"", cannot be reproduced at all and is dropped.
+
+  **The image store is crossed locally, per user, and identity is what matters.**
+  ""docker save -o <tar>"" then ""template load <tar>"" — it takes a FILE, not stdin,
+  so the obvious pipe fails before a byte moves. Presence alone is not enough: a
+  REBUILT "":latest"" matches by reference and would never reload, which is exactly
+  how a sandbox came up with no ""/app"" after the workspace layout was
+  standardised and the images rebuilt.
+
+  **Identity comes from a RECEIPT proveo writes, not from the store's IMAGE ID
+  column**, because ""sbx create"" re-bakes the template and rewrites that column:
+  one create turns ""2ca281d785dc"" into ""5fcb2266417f"" under the same reference.
+  Comparing against it mismatches forever after the first run and re-loads a
+  multi-GB tar every launch. Full measurements, and the repair that the removed
+  reload used to provide by accident, are in
+  ""_spec/_experiments/docker-sandbox\.puml"".
+
+  **A workspace must be a DIRECTORY** — "workspace path exists but is not a
+  directory". File binds are dropped, so the project ""\.env"" and the
+  ""/dev/null"" masks over it do not reach an sbx sandbox.
+end note
+note bottom of KIT
+  **The Kit has TWO schema versions, and ""schemaVersion"" selects the SHAPE of two
+  blocks — not just a compatibility marker.**
+
+  | | v1 | v2 (what this package writes) |
+  | allowlist | ""network.allowedDomains"" | ""permissions.network.allow"" |
+  | entrypoint | a mapping (""{run: […]}"") | a plain list |
+
+  Mixing them fails validation rather than degrading: ""permissions"" under v1 is
+  "field not found", and a mapping entrypoint under v2 is "cannot unmarshal !!map
+  into []string". v1 still validates with a deprecation warning naming v2.
+
+  //Two earlier claims here were wrong and are corrected by this.// The first said
+  ""permissions.network"" //replaces// ""network.allowedDomains"" — taken from the
+  published docs, which describe v2 while the binary rejects ""permissions"" at v1.
+  The second said ""network.allowedDomains"" was right all along. Both are real;
+  the version chooses. ""sbx kit validate"" settled it, and is the only thing that
+  could have.
+
+  What v0.39 actually rejected in the shipped Kit was narrower than either claim:
+  ""image"" (belongs under ""sandbox"") and ""credentialsEnv"" (replaced by
+  ""credentials[]"") are not fields of ""spec\.SpecFile"" at all.
+
+  **""sandbox.entrypoint"" is read from the IMAGE**, not restated per def
+  (""docker image inspect … .Config.Entrypoint""): the two would drift the moment a
+  def changed its entrypoint, and nothing would notice until a sandbox ran the
+  wrong command. It has to be declared because sbx's own agent command would
+  otherwise replace it — and that entrypoint is where the seeded guide file, the
+  model-alias bridging, the LSP wiring and the subagent set come from.
+end note
+
+note bottom of SEC
+  **The Kit's credential block IS proveo's broker, declared instead of
+  implemented.** ""credentials[].apiKey"" carries ""proxyManaged: true"" so the value
+  never enters the VM, and ""inject: [{domain, header, format}]"" names the
+  destination and header it may ride — the same on-route rule
+  ""internal/broker"" enforces for the docker path, and the convergence the
+  experiment note predicted.
+
+  **Derived from the SECRETS being injected, not from the detected providers.**
+  Those are different sets: claudecode's ""CLAUDE_CODE_OAUTH_TOKEN"" is
+  manifest-declared and injected whether or not detection saw it, so keying on
+  detection left the Kit silently empty — declaring no brokering while proveo went
+  on to broker. A unit test pins it.
+
+  **One entry per service.** anthropic accepts either credential and an operator
+  may hold both; declaring the service twice leaves the effective one to map order
+  inside sbx. First wins, and the order is meaningful — manifest-declared secrets
+  precede detected keys, so the credential the harness announces is the one that
+  stands.
+
+  No value is written into the spec: the env var names it, the header says where
+  it may go, and the secret travels only over ""sbx secret set"" on stdin.
+  ""--token"" would put it on an argv, which the credential boundary forbids.
+end note
+note bottom of SBX
+  **One pinned CLI surface.** ""sbx"" is pre-GA (v0.35), so every flag it takes
+  is encoded in exactly four places — ""RunArgs"", ""RemoveArgs"",
+  ""SecretSetArgs"", ""WriteKit"" — and callers stay declarative. Drift against
+  the tool then costs one edit in one package rather than a sweep through
+  ""cmd/proveo"".
+
+  Reference docs:
+  | ""https://docs.docker.com/ai/sandboxes/install/""        | platform gate + standalone install
+  | ""https://docs.docker.com/ai/sandboxes/usage/""          | run / exec / cp / ports / policy / secret
+  | ""https://docs.docker.com/ai/sandboxes/customize/kits/"" | Kit spec.yaml
+end note
+
+note bottom of KIT
+  **""WriteKit"" returns the directory, not the file.** ""--kit"" takes a
+  directory (or a ZIP), while the rendered document is ""«dir»/spec\.yaml"".
+  Returning the path to the file invited exactly one bug — handing ""--kit"" a
+  ""spec\.yaml"" — so the function returns the value the flag wants and the
+  caller has nothing left to get wrong. The rendered file is ""0600"": it holds
+  no secret values, but the posture it declares is private.
+end note
+
+note bottom of SEL
+  **Purity split.** ""sandboxSpec"" is a pure function of ""runSandboxInput"":
+  same input, same Kit + argv + secret list, no side effects — which is what
+  makes ""--print"" and the unit tests able to assert the whole invocation
+  without a sandbox. Every effect lives in ""runSandbox"": render the Kit,
+  hydrate the forwarded host env, ""sbx secret set"", exec, then ""sbx rm"" the
+  VM, its images and its volumes on the way out.
+end note
+
+note right of SEC
+  **Credential posture follows the harness, not the backend.**
+
+  | ""--credentials broker"" (claudecode's default) | ""sbx secret set"" host-side; the name is listed in the Kit's ""credentialsEnv"" and the value never enters argv, the env, or the VM filesystem |
+  | ""--credentials forward"" (cursor's only mode)  | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
+
+  cursor cannot use the brokered path at all: it pins TLS to "".cursor\.sh"" /
+  "".cursor\.com"", so header injection has nothing to inject into. Forwarding
+  on the sandbox backend therefore has to match what the docker path already
+  does for it, or cursor would reach the agent with no usable key — the
+  parity break that kept the harness second-class here.
+end note
+
+@enduml

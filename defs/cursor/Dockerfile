@@ -28,6 +28,18 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
+
+# sbx's built-in agent kits are authored against their own template, whose runtime
+# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent and
+# writes /home/agent/.claude/settings.json. proveo's images use uid 1000 under a
+# harness-specific name, so both of those fail on a stock image and the sandbox
+# never starts. An alias for the SAME uid, plus a home symlink, lets the inherited
+# setup run exactly as authored without proveo's own paths moving.
+RUN if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
+ && if ! getent passwd agent >/dev/null; then \
+      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d "/home/${USER_NAME}" -s /bin/bash agent; \
+    fi \
+ && { [ -e /home/agent ] || ln -s "/home/${USER_NAME}" /home/agent; }
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     unzip \
@@ -58,6 +70,8 @@ RUN mkdir -p /app \
     && chown -R ${USER_NAME}:${USER_NAME} /app /home/${USER_NAME}
 
 COPY defs/cursor/defaults/ /opt/cursor/defaults/
+COPY defs/subagents/ /opt/proveo/subagents/
+COPY defs/bridges/ /opt/proveo/bridges/
 RUN chmod +x /opt/cursor/defaults/hooks/*.sh
 
 # Enterprise hook layer: root-owned, highest precedence (enterprise > team >
@@ -69,6 +83,7 @@ RUN mkdir -p /etc/cursor \
 COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY defs/cursor/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

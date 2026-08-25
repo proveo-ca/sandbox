@@ -10,7 +10,7 @@ node "Host checkout" as HOST <<host>> {
 
 node "Container" as CONT <<host>> {
   component "/proveo-git\nbind of the shared .git (rw unless gitMode ro)" as CCOMMON <<app>>
-  component "/workspace/input | /app\nthe worktree tree" as CTREE <<app>>
+  component "/app | /app\nthe worktree tree" as CTREE <<app>>
   component "overlay: dotgit\n'gitdir: /proveo-git/worktrees/<name>'" as CDOT <<app>>
   component "overlay: gitdir\n'<containerRoot>/.git'" as CGIT <<app>>
 }

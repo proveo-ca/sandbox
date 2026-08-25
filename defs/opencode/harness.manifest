@@ -2,7 +2,7 @@
 name: opencode
 description: Subagent-crew workflow (OpenCode, HITL oversight)
 egress: true
-dind: true
+docker: dind
 stability: candidate
 images:
   opencode: proveo/opencode:latest

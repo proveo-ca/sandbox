@@ -226,16 +226,14 @@ func NormalizeModel(model string) string {
 	return model
 }
 
-// ApplyEnvBridges applies the shared model/key bridge map.
+// ApplyEnvBridges applies provider key aliases. Model bridges are declared once in
+// defs/bridges/<harness>.tsv and applied by apply_model_bridges in the def's shell;
+// duplicating them here is what let this map drift from packages/lib/entrypoint-lib.sh.
 func ApplyEnvBridges() {
 	type bridge struct {
 		from, to, fallback, def, transform string
 	}
 	bridges := []bridge{
-		{from: "ARCHITECT_MODEL", to: "OPENCODE_MODEL", fallback: "EDITOR_MODEL", def: "anthropic/claude-sonnet-4-5", transform: "normalize"},
-		{from: "EDITOR_MODEL", to: "OPENCODE_BUILD_MODEL", def: "$OPENCODE_MODEL", transform: "normalize"},
-		{from: "EDITOR_MODEL", to: "OPENCODE_SMALL_MODEL", fallback: "SMALL_MODEL", def: "anthropic/claude-haiku-4-5", transform: "normalize"},
-		{from: "OPENCODE_SMALL_MODEL", to: "SMALL_MODEL", transform: "normalize"},
 		{from: "GEMINI_API_KEY", to: "GOOGLE_GENERATIVE_AI_API_KEY"},
 		{from: "GOOGLE_API_KEY", to: "GOOGLE_GENERATIVE_AI_API_KEY"},
 	}
@@ -261,9 +259,6 @@ func ApplyEnvBridges() {
 			src = NormalizeModel(src)
 		}
 		_ = os.Setenv(b.to, src)
-	}
-	if os.Getenv("OPENCODE_SMALL_MODEL") == "" && os.Getenv("SMALL_MODEL") != "" {
-		_ = os.Setenv("OPENCODE_SMALL_MODEL", os.Getenv("SMALL_MODEL"))
 	}
 }
 

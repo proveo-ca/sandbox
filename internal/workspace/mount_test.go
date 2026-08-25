@@ -31,33 +31,6 @@ func touch(t *testing.T, path string) {
 	}
 }
 
-func TestMountPlanInputOutput(t *testing.T) {
-	t.Parallel()
-	got, wd, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: "/repo", OutputDir: "/repo/reports"}.Plan()
-	want := []runner.Mount{
-		{Host: "/repo", Container: "/workspace/input"},
-		{Host: "/repo/reports", Container: "/workspace/output"},
-	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("input-output mounts mismatch (-want +got):\n%s", diff)
-	}
-	if wd != "" {
-		t.Errorf("input-output workdir = %q, want empty", wd)
-	}
-}
-
-func TestMountPlanInputOutputRO(t *testing.T) {
-	t.Parallel()
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output", Mode: "ro"}, InputDir: "/repo", OutputDir: "/out"}.Plan()
-	want := []runner.Mount{
-		{Host: "/repo", Container: "/workspace/input", ReadOnly: true},
-		{Host: "/out", Container: "/workspace/output"},
-	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("input-output mode=ro mounts mismatch (-want +got):\n%s", diff)
-	}
-}
-
 func TestMountPlanAppWholeRepo(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
@@ -99,30 +72,6 @@ func maskedEnvSet(mounts []runner.Mount) map[string]bool {
 		}
 	}
 	return out
-}
-
-func TestMountPlanInputOutputFirewallMasksNestedEnv(t *testing.T) {
-	t.Parallel()
-	root := tempDir(t)
-	touch(t, filepath.Join(root, ".env"))
-	touch(t, filepath.Join(root, "svc", "api", ".env")) // nested
-	touch(t, filepath.Join(root, ".env.local"))
-	touch(t, filepath.Join(root, ".env.example"))              // template: must stay readable
-	touch(t, filepath.Join(root, "node_modules", "p", ".env")) // pruned
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: root, OutputDir: filepath.Join(root, "reports"), EgressMode: "allowlist"}.Plan()
-
-	masked := maskedEnvSet(got)
-	for _, want := range []string{"/workspace/input/.env", "/workspace/input/svc/api/.env", "/workspace/input/.env.local"} {
-		if !masked[want] {
-			t.Errorf("expected %s masked, got masks=%v", want, masked)
-		}
-	}
-	if masked["/workspace/input/.env.example"] {
-		t.Error(".env.example is a template and must stay readable (not masked)")
-	}
-	if masked["/workspace/input/node_modules/p/.env"] {
-		t.Error("node_modules must be pruned from env masking")
-	}
 }
 
 func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
@@ -479,30 +428,6 @@ func TestPlanRootScopeAddsNoGitMountWhenModesAgree(t *testing.T) {
 	}
 }
 
-func TestPlanInputOutputHonorsGitModeRO(t *testing.T) {
-	t.Parallel()
-	in := t.TempDir()
-	touch(t, filepath.Join(in, ".git", "HEAD"))
-
-	got, _, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output", GitMode: "ro"},
-		InputDir:  in, OutputDir: t.TempDir(),
-	}.Plan()
-
-	var found *runner.Mount
-	for i := range got {
-		if got[i].Container == "/workspace/input/.git" {
-			found = &got[i]
-		}
-	}
-	if found == nil {
-		t.Fatalf("gitMode=ro must pin .git under the input mount; mounts=%+v", got)
-	}
-	if !found.ReadOnly {
-		t.Errorf("/workspace/input/.git = %+v, want read-only", *found)
-	}
-}
-
 func TestPlanGitModeIgnoredWithoutAGitDir(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -540,15 +465,16 @@ func TestMountPlanMountsEscapingSymlink(t *testing.T) {
 	symlink(t, outside, filepath.Join(root, "_spec"))
 
 	got, _, links := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
 
+	// Order follows Plan(): scope → worktree → envOverlay → output → LINK mounts.
 	want := []runner.Mount{
-		{Host: root, Container: "/workspace/input"},
-		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
-		{Host: outside, Container: "/workspace/input/_spec"},
+		{Host: root, Container: "/app"},
+		{Host: filepath.Join(base, "out"), Container: "/app/output"},
+		{Host: outside, Container: "/app/_spec"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Plan() with _spec -> %s mounts mismatch (-want +got):\n%s", outside, diff)
@@ -568,12 +494,12 @@ func TestMountPlanEscapingSymlinkFollowsWorkspaceMode(t *testing.T) {
 	symlink(t, outside, filepath.Join(root, "_spec"))
 
 	got, _, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output", Mode: "ro"},
+		Workspace: manifest.Workspace{Mode: "ro"},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
 
-	want := runner.Mount{Host: outside, Container: "/workspace/input/_spec", ReadOnly: true}
+	want := runner.Mount{Host: outside, Container: "/app/_spec", ReadOnly: true}
 	if diff := cmp.Diff(want, got[len(got)-1]); diff != "" {
 		t.Errorf("Plan() mode=ro link mount mismatch (-want +got):\n%s", diff)
 	}
@@ -588,7 +514,7 @@ func TestMountPlanIgnoresSymlinkResolvingInsideTree(t *testing.T) {
 	symlink(t, filepath.Join(root, "real"), filepath.Join(root, "abs_alias"))
 
 	got, _, links := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
@@ -610,7 +536,7 @@ func TestMountPlanRefusesUnsafeOrBrokenLinks(t *testing.T) {
 	symlink(t, base, filepath.Join(root, "up"))
 
 	_, _, links := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
@@ -654,16 +580,23 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 	touch(t, filepath.Join(root, "go.mod"))
 	symlink(t, hostEnv, filepath.Join(root, ".env"))
 	spec := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 	}
 
 	spec.EgressMode, spec.Credentials = "open", "forward"
 	got, _, links := spec.Plan()
+	// The .env target appears TWICE, and that is pre-existing rather than new:
+	// envMounts resolves the symlink for the scope mount and envOverlay carries the
+	// escaping target in, and both fire for a .env that points outside the
+	// workspace. Docker accepts two identical binds, so it is a redundancy and not
+	// a fault — encoded here so the next reader does not take it for one. (It is
+	// also the shape of this repo's own .env, which is a symlink to ~/base.env.)
 	wantForward := []runner.Mount{
-		{Host: root, Container: "/workspace/input"},
-		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
-		{Host: hostEnv, Container: "/workspace/input/.env", ReadOnly: true},
+		{Host: root, Container: "/app"},
+		{Host: hostEnv, Container: "/app/.env", ReadOnly: true},
+		{Host: hostEnv, Container: "/app/.env", ReadOnly: true},
+		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 	}
 	if diff := cmp.Diff(wantForward, got); diff != "" {
 		t.Errorf("Plan() credentials=forward with symlinked .env mismatch (-want +got):\n%s", diff)
@@ -676,9 +609,9 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 	spec.EgressMode, spec.Credentials = "firewall", "broker"
 	got, _, _ = spec.Plan()
 	wantIsolated := []runner.Mount{
-		{Host: root, Container: "/workspace/input"},
-		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
-		{Host: "/dev/null", Container: "/workspace/input/.env", ReadOnly: true},
+		{Host: root, Container: "/app"},
+		{Host: "/dev/null", Container: "/app/.env", ReadOnly: true},
+		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 	}
 	if diff := cmp.Diff(wantIsolated, got); diff != "" {
 		t.Errorf("Plan() isolating egress with symlinked .env mismatch (-want +got):\n%s", diff)
@@ -696,7 +629,7 @@ func TestMountPlanSkipsLinksInPrunedAndDeepDirs(t *testing.T) {
 	symlink(t, outside, filepath.Join(root, "a", "b", "shallow_link"))
 
 	_, _, links := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
@@ -739,7 +672,7 @@ func TestPrepareWorktreeLinksWritesContainerPointers(t *testing.T) {
 	tree, _ := linkedWorktree(t, base, "wt")
 	root := filepath.Join(base, "proveo-home")
 
-	spec := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: tree}
+	spec := MountSpec{Workspace: manifest.Workspace{}, InputDir: tree}
 	dir, err := spec.PrepareWorktreeLinks(root)
 	if err != nil {
 		t.Fatalf("PrepareWorktreeLinks: %v", err)
@@ -751,7 +684,7 @@ func TestPrepareWorktreeLinksWritesContainerPointers(t *testing.T) {
 	// The chain must be coherent in CONTAINER terms: .git → admin dir → back.
 	for name, want := range map[string]string{
 		"dotgit": "gitdir: " + ContainerGitCommonDir + "/worktrees/wt\n",
-		"gitdir": "/workspace/input/.git\n",
+		"gitdir": "/app/.git\n",
 	} {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -844,18 +777,18 @@ func TestMountPlanWorktreeOverlaysBothPointerFiles(t *testing.T) {
 	links := filepath.Join(base, "links")
 
 	got, _, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 		WorktreeLinkDir: links,
 	}.Plan()
 
 	want := []runner.Mount{
-		{Host: tree, Container: "/workspace/input"},
-		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
+		{Host: tree, Container: "/app"},
 		{Host: common, Container: ContainerGitCommonDir},
-		{Host: filepath.Join(links, "dotgit"), Container: "/workspace/input/.git", ReadOnly: true},
+		{Host: filepath.Join(links, "dotgit"), Container: "/app/.git", ReadOnly: true},
 		{Host: filepath.Join(links, "gitdir"), Container: ContainerGitCommonDir + "/worktrees/wt/gitdir", ReadOnly: true},
+		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("worktree mounts mismatch (-want +got):\n%s", diff)
@@ -868,22 +801,22 @@ func TestMountPlanWorktreeWithoutLinkDirBindsCommonDirOnly(t *testing.T) {
 	tree, common := linkedWorktree(t, base, "wt")
 
 	got, _, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output"},
+		Workspace: manifest.Workspace{Output: true},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 	}.Plan()
 
 	want := []runner.Mount{
-		{Host: tree, Container: "/workspace/input"},
-		{Host: filepath.Join(base, "out"), Container: "/workspace/output"},
+		{Host: tree, Container: "/app"},
 		{Host: common, Container: ContainerGitCommonDir},
+		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("fallback worktree mounts mismatch (-want +got):\n%s", diff)
 	}
 	// WorktreeEnv is the fallback that this shape depends on.
-	wantEnv := []string{"GIT_DIR=" + ContainerGitCommonDir + "/worktrees/wt", "GIT_WORK_TREE=/workspace/input"}
-	gotEnv := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: tree}.WorktreeEnv()
+	wantEnv := []string{"GIT_DIR=" + ContainerGitCommonDir + "/worktrees/wt", "GIT_WORK_TREE=/app"}
+	gotEnv := MountSpec{Workspace: manifest.Workspace{}, InputDir: tree}.WorktreeEnv()
 	if diff := cmp.Diff(wantEnv, gotEnv); diff != "" {
 		t.Errorf("WorktreeEnv mismatch (-want +got):\n%s", diff)
 	}
@@ -895,7 +828,7 @@ func TestMountPlanWorktreeHonorsGitModeRO(t *testing.T) {
 	tree, common := linkedWorktree(t, base, "wt")
 
 	got, _, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "input-output", GitMode: "ro"},
+		Workspace: manifest.Workspace{GitMode: "ro"},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		EgressMode: "open", Credentials: "forward",
 		WorktreeLinkDir: filepath.Join(base, "links"),

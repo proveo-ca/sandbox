@@ -1,10 +1,12 @@
 package dind
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEnvEnabled(t *testing.T) {
@@ -213,5 +215,86 @@ func TestConnectNetwork(t *testing.T) {
 	var nilSc *Sidecar
 	if err := nilSc.ConnectNetwork(empty, "net"); err != nil || len(empty.calls) != 0 {
 		t.Fatalf("nil sidecar must be a no-op: err=%v calls=%v", err, empty.calls)
+	}
+}
+
+// slowDaemonRunner answers the first n docker commands with an error, then succeeds —
+// the shape of a daemon that is still starting inside a container that is already
+// up.
+type slowDaemonRunner struct {
+	failFirst int
+	calls     [][]string
+}
+
+func (f *slowDaemonRunner) Run(args ...string) error {
+	f.calls = append(f.calls, args)
+	if len(f.calls) <= f.failFirst {
+		return errors.New("Cannot connect to the Docker daemon")
+	}
+	return nil
+}
+
+// `docker run -d` returns when the CONTAINER is up, not when its daemon is
+// listening. Handing the agent a shell in that gap is what made a working posture
+// report "Cannot connect to the Docker daemon at tcp://docker:2375" — so the wait
+// has to outlast a slow start rather than probe once.
+func TestWaitReadyOutlastsASlowDaemonStart(t *testing.T) {
+	t.Parallel()
+	var slept time.Duration
+	clock := time.Now()
+	r := &slowDaemonRunner{failFirst: 8}
+	sc := &Sidecar{Name: "proveo-dind-cecli"}
+
+	err := sc.WaitReady(r, 90*time.Second,
+		func() time.Time { return clock },
+		func(d time.Duration) { slept += d; clock = clock.Add(d) })
+	if err != nil {
+		t.Fatalf("WaitReady over a slow start = %v, want nil", err)
+	}
+	if len(r.calls) != 9 {
+		t.Errorf("probed %d times, want 9 (8 refusals then success)", len(r.calls))
+	}
+	if slept == 0 {
+		t.Error("WaitReady spun without sleeping — that is a busy loop, not a wait")
+	}
+	// The readiness question must be asked THROUGH the sidecar, so it tests the
+	// daemon's own socket rather than whatever the host's DOCKER_HOST points at.
+	want := []string{"exec", "proveo-dind-cecli", "docker", "version"}
+	if got := r.calls[0]; len(got) != len(want) {
+		t.Errorf("probe argv = %v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("probe argv = %v, want %v", got, want)
+				break
+			}
+		}
+	}
+}
+
+// A daemon that never answers must fail with a named cause, not hang forever.
+func TestWaitReadyGivesUpWithADiagnosis(t *testing.T) {
+	t.Parallel()
+	clock := time.Now()
+	r := &slowDaemonRunner{failFirst: 1 << 30}
+	sc := &Sidecar{Name: "proveo-dind-opencode"}
+
+	err := sc.WaitReady(r, 5*time.Second,
+		func() time.Time { return clock },
+		func(d time.Duration) { clock = clock.Add(d) })
+	if err == nil {
+		t.Fatal("a daemon that never answers must be an error")
+	}
+	if !strings.Contains(err.Error(), "proveo-dind-opencode") {
+		t.Errorf("the error must name the sidecar, got %q", err)
+	}
+}
+
+// A nil sidecar is nothing to wait for, not a failure.
+func TestWaitReadyIgnoresANilSidecar(t *testing.T) {
+	t.Parallel()
+	var sc *Sidecar
+	if err := sc.WaitReady(&slowDaemonRunner{}, time.Second, nil, nil); err != nil {
+		t.Errorf("nil sidecar = %v, want nil", err)
 	}
 }

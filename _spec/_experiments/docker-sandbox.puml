@@ -1,7 +1,10 @@
 @startuml DockerSandboxExperiment
-' EXPERIMENT — Cursor egress hole is the owning question (free-tier local
-' sbx policy only; no AI Governance). Also sketches what sbx would subsume
-' in proveo's bespoke isolation stack. Exploratory; not a decision to adopt.
+'  covers: internal/sbx/sbx.go, cmd/proveo/main.go (runSandbox/sandboxSpec),
+'          tests/e2e/sbx_test.go
+' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
+' sbx backend when available (internal/sbx; auto with docker+egress fallback);
+' the egress layer is reserved for open-source harnesses (opencode, cecli).
+' Cursor's egress hole remains the owning question for full adoption.
 '
 ' Docker Sandboxes research (2026-07, sbx v0.35.0 — "generally stable", pre-GA):
 '   https://docs.docker.com/ai/sandboxes/                     — landing (microVM per workspace)
@@ -95,6 +98,14 @@ note left of sbx #FFF3F0
   claudecode still cares most about the DLP content-scan gap below.
 end note
 
+note bottom of sbx #F3F0FB
+  **No docker engine substitutes for this.** proveo names the engine behind the
+  docker CLI (OrbStack, Docker Desktop, Colima, Rancher Desktop, Podman, Lima),
+  but every one of them shares a single Linux kernel — the engine is a naming
+  concern, not an alternative backend. See
+  ""_spec/internal/engine/container-engine\.puml"".
+end note
+
 note bottom of today #FFF6E5
   **Caveats — why this stays an experiment**
   • platform-gated: macOS Apple-Silicon · Linux + KVM · Win11 Hyper-V
@@ -112,5 +123,130 @@ note bottom of today #FFF6E5
     **Kits/templates on sbx** (re-expressing the harness images, the run capability
     picker, the LSP/browser layers), not a ""docker run"" wrapper
 end note
+
+' ── MEASURED, sbx v0.39.0 ────────────────────────────────────────────────────
+' Everything below this line was measured on this host against v0.39.0, not read
+' from the docs. It is recorded because each item cost a wrong diagnosis first.
+
+package "MEASURED — what sbx v0.39.0 actually does\nrun on macOS Apple Silicon, images built locally" as m #FFF6E5 {
+  component "**template load ≠ what runs**\n""sbx create"" re-BAKES the loaded template\nand rewrites the store's IMAGE ID column" as m_bake
+  component "**a baked template can go bad**\nevery create fails until the image is\nloaded again; ""sbx diagnose"" stays 12/12" as m_rot
+  component "**no docker daemon inside**\nno socket · no DOCKER_HOST\n""Cannot connect to the Docker daemon""" as m_nodocker
+  component "**built-in agents cannot be shadowed**\nclaude · codex · copilot · cursor · docker-agent\ndroid · gemini · kiro · opencode · shell" as m_agents
+  component "**a workspace must be a DIRECTORY**\n""workspace path exists but is not a directory""" as m_ws
+  component "**pullPolicy is not a Kit field**\nrejected under ""sandbox:"" and at top level" as m_pull
+}
+
+m_bake   ARROW_MAIN  m_rot      : the bake is what rots
+m_bake   ARROW_ERROR m_nodocker : and what drops the client
+
+note bottom of m_bake #E7F0FF
+  **Identity must be recorded, not read back.** Loading puts the host image's ID
+  under the reference; ONE ""sbx create"" later the same row names a different
+  image — measured, ""2ca281d785dc"" → ""5fcb2266417f"" for proveo/claudecode:latest.
+
+  So ""HasTemplate"" cannot compare against that column: after the first run it
+  mismatches forever and re-loads a multi-GB tar on EVERY launch. It compares a
+  **receipt** proveo writes at load time instead, which still reloads a genuine
+  rebuild and ignores a bake. The staleness the ID check was added for is real —
+  a repo-tag-only match once served a pre-rebuild image with no ""/app"" at all —
+  so presence alone is not enough either.
+end note
+
+note bottom of m_rot #FFF3F0
+  **The reload that was removed was also a repair.** While proveo re-loaded the
+  template on every run, a bad bake was overwritten before anything could run on
+  it. Making the load conditional is right — it is the slowest step in a sandbox
+  run by a wide margin — but it exposed the rot: cursor reached a state where
+  EVERY ""sbx create"" failed with "failed to run sandbox container", including
+  argv that had succeeded minutes earlier, with ""sbx diagnose"" reporting 12/12
+  healthy. A single ""sbx template load"" repaired it.
+
+  So the repair is now explicit and narrow: one retry on a freshly loaded
+  template, taken ONLY when ""sbx.Exists"" says no sandbox by that name was
+  created. That is the line between a sandbox that never started and an agent
+  that ran and exited non-zero — retrying the latter would run the agent twice.
+  It cannot be read off sbx's output: sbx prints that ERROR on **stdout**, and
+  stdout is the agent's terminal, so wrapping it to sniff for the text would
+  leave sbx writing to something that is not an ""*os\.File"" — exactly what its
+  own PTY checks look for.
+end note
+
+note right of m_nodocker #FFF3F0
+  **""docker: sbx"" means the microVM REPLACES docker.** Neither def reaches a
+  daemon from inside the sandbox: no ""/var/run/docker.sock"", no ""DOCKER_HOST"",
+  and ""docker version"" answers "Cannot connect to the Docker daemon". There is no
+  nested-docker feature in the CLI and no socket flag on ""create"" — sbx IS the
+  isolation a daemon would otherwise be asked for, so the promise is the boundary,
+  not a daemon. ""docker: dind"" remains the posture for a harness that needs one.
+
+  **The docker CLIENT is deliberately NOT asserted on, in either direction.**
+  Its survival is an sbx implementation detail and it is not uniform: from images
+  that both install ""/usr/local/bin/docker"", cursor's sandbox keeps it and
+  claudecode's does not — the claude-flavoured bake replaces it with
+  ""sbx-clipboard"", ""wl-paste"", ""xclip"" and ""xdg-open"". Asserting either way
+  would encode that detail as a proveo contract and break on the next release.
+
+  This was diagnosed WRONG first: the missing binary read as "sbx strips the
+  docker client", and the inverse assertion written from it would have failed
+  cursor, whose sandbox has one. What is stable is that nothing reaches a daemon.
+end note
+
+note right of m_agents #E7F0FF
+  A ""kind: sandbox"" Kit DECLARES an agent, and sbx refuses to let a declaration
+  shadow a built-in — ""agent "cursor" is already registered (built-in agents
+  cannot be overridden by a kit)"". Two of proveo's four defs are named after
+  built-ins, so the Kit's agent is namespaced ""proveo-<target>"".
+
+  The name is one value, not two: sbx also refuses ""agent name X does not match
+  agent kit name Y"", so ""Kit.Name"" and the positional move together.
+
+  Namespacing beats checking against today's list, because the list grows: a
+  collision test would pass until sbx shipped an agent named like one of ours.
+  The failure it avoids is silent — cursor's runs died ~12s in, session gone
+  before the shell, nothing captured, which read as a timeout for as long as the
+  error stayed unread.
+end note
+
+note right of m_ws #E7F0FF
+  sbx mounts each positional at its own HOST path and refuses anything that is
+  not a directory. Two kinds of proveo bind are therefore dropped on this backend:
+  a bind with a container-side target (proveo home at ""/proveo-home"", the gh
+  config under it), and a bind of a FILE — the project ""\.env"", and the
+  ""/dev/null"" masks the credential policy layers over it.
+
+  Consequence worth stating plainly: **a project ""\.env"" does not reach an sbx
+  sandbox.** On the brokered tiers it was being masked away regardless, and the
+  credentials it would have carried are declared in the Kit instead.
+
+  Home is passed as a workspace with ""HOME"" pointed at its host path, since
+  ""/proveo-home"" cannot be expressed; ""PROVEO_WORKDIR"" tells the harness where
+  the workspace actually landed, there being no ""-w"" on an sbx run.
+end note
+
+note bottom of m_pull #FFF6E5
+  ""pull_policy"" (always · missing · never) exists inside sbx, but it is not a
+  Kit field: the validator rejects ""pullPolicy"" both under ""sandbox:"" and at the
+  document root. So a Kit cannot pin "never pull" — ""sbx create"" always runs its
+  own PREPARE IMAGE step over the reference it was handed.
+
+  Left as a finding rather than a workaround. The local-per-user hand-off is
+  still the right shape (each operator has their own docker login and their own
+  sbx config), and the receipt above is what keeps proveo honest about which
+  image it handed over.
+end note
+
+note as m_open #FBECEC
+  **OPEN — cursor stops right after its shell appears.** With the workspace,
+  agent-name and template fixes in, cursor creates a sandbox, prints
+  ""cursor@<sandbox>:<workspace>$"" and is then stopped —
+  ""ERROR: sandbox "<name>" was stopped"", proveo exits 1. claudecode completes the
+  same flow. Not yet diagnosed; ""sbx"" has an "auto-stopped runtime after last
+  session disconnected" path that is the first place to look.
+
+  ""TestEveryHarnessGetsTheDockerAccessItPromises"" reports it by name rather than
+  as a timeout, which is the point of that probe.
+end note
+
 
 @enduml

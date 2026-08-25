@@ -1,0 +1,113 @@
+@startsalt
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
+' This file owns only the resolved layout: what the operator confronts once
+' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
+' Source: internal/choiceui/choiceui.go draw(); cmd/proveo/main.go row builders.
+'
+' Salt possesses no conditional construct. Optionality is consequently encoded,
+' never branched — the five encodings are demonstrated below and named in the
+' legend. The variant that eliminates the form entirely (no TTY) has no frame.
+'
+' The models row shows the BRIDGE OUTPUT, not the role vars the operator set.
+' defs/claudecode/mcp/entrypoint.sh maps ARCHITECT_MODEL (falling back to
+' EDITOR_MODEL) into ANTHROPIC_MODEL, and SMALL_MODEL into
+' ANTHROPIC_SMALL_FAST_MODEL — two slots, so a third role var is never read.
+' Bridge dialects for the other harnesses: _spec/internal/entrypoint/model-alias-bridges.puml.
+
+title Choice prompt wireframe — resolved layout, and how a gated element is drawn
+
+{
+{+
+  {
+    <&terminal> proveo SOLUTIONS | proveo/sandbox: portable, safe AI coding agents
+  }
+  ==run claudecode — confirm or change this run
+  {
+    git: | monorepo on <color:#00BAC6>rs-295-integration-discriminator</color> <i>(uncommitted changes)</i>
+    keys: | ANTHROPIC_API_KEY
+    tooling: | node  nx  python  docker
+    lsp: | <color:#00BAC6><&code></color> typescript-language-server  <color:#00BAC6><&code></color> pyright-langserver  <color:#00BAC6><&terminal></color> bash-language-server  <color:#00BAC6><&box></color> docker-langserver  <color:#00BAC6><&document></color> yaml-language-server
+    subagents: | 7 definition(s)
+    hooks: | .claude/settings.json
+    llms: | <color:#00BAC6>main=claude-opus-5 (anthropic)</color>   <color:#00BAC6>small=claude-haiku-4-5 (anthropic)</color>
+  }
+  ~~
+  {
+    . | ◀ riskier | . | safer ▶ | .
+    ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
+    credentials | (X) forward | ( ) broker | . | .
+    . | . | ———— add-ons ———— | . | .
+    . | [X] browser | [X] docker (sandbox) | . | .
+    agent evidence | [ ] default | [X] verbose | . | .
+  }
+  --
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+}
+{
+{^"1 · greyed — comingSoon"
+  egress | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— needs a local docker daemon
+  .
+  Rendered, never selectable. The cursor
+  vacates it and the violated constraint
+  is named in place, so an unimplemented
+  tier is not misread as nonexistent.
+}
+{^"2 · empty cell — option withdrawn"
+  egress | (X) open | ( ) allowlist | .
+  .
+  The slot persists, so surviving options
+  retain the column they occupied while
+  the full complement was offered.
+}
+{^"3 · absent region — applicableRows"
+  . | ◀ riskier | . | safer ▶
+  egress | (X) open | ( ) allowlist | .
+  .
+  An axis with nothing to determine is
+  eliminated wholesale. The legend
+  survives while one ordered row remains.
+}
+{^"4 · struck — cleared by a gate"
+  before | [ ] default | [X] verbose
+  after | [X] default | [ ] <s><color:#9a9a9a>verbose</color></s>
+  .
+  Activation deactivates the counterpart.
+  Simultaneous deactivation is permissible
+  and signifies "default".
+}
+{^"5 · filtered — the bridge never reads it"
+  set by operator | <color:#00BAC6>ARCHITECT_MODEL</color> | <color:#9a9a9a><s>EDITOR_MODEL</s></color> | <color:#00BAC6>SMALL_MODEL</color>
+  claudecode reads | <color:#00BAC6>ANTHROPIC_MODEL</color> | . | <color:#00BAC6>ANTHROPIC_SMALL_FAST_MODEL</color>
+  prompt shows | <color:#00BAC6>main=</color> | . | <color:#00BAC6>small=</color>
+  .
+  Claude Code routes internally and exposes two slots, so ""EDITOR_MODEL"" is a
+  fallback that never fires once ""ARCHITECT_MODEL"" is set. Printing all three
+  role vars advertises an assignment the harness cannot honour, so the header
+  shows the resolved slots instead — and every slot it shows is highlighted,
+  because a half-highlighted row reads as one model mattering more than another.
+}
+{^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
+  default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server
+  ""=ascii"" | <> typescript-language-server | $ bash-language-server
+  ""=off"" | typescript-language-server | bash-language-server
+  .
+  Devicons live in a range a Powerline-patched font does not carry, and a terminal
+  cannot be asked whether its font holds a codepoint — so nerd is the default and
+  ""ascii"" is the fallback an operator selects, never one autodetection guesses.
+  ASCII markers are category-level (""<>"" code, ""$"" shell, ""#"" container,
+  ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
+  avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
+}
+}
+}
+
+legend bottom
+  <color:#9a9a9a>grey text</color> — offered, never selectable; the violated constraint is drawn on the row
+  a "." cell — element absent, column position preserved for the survivors
+  a titled group box — region rendered only while its title predicate holds
+  <s>struck</s> — cleared by a cross-row gate, or never read by this harness
+  no frame whatsoever — no TTY, so the form is never drawn and resolved values stand
+  a glyph before a label — accented marker; devicon by default, ASCII via PROVEO_GLYPHS=ascii
+end legend
+@endsalt

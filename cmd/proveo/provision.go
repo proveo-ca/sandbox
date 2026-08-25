@@ -2,13 +2,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -61,9 +64,44 @@ func (pv provisioner) Ensure(deps []imageDep) error {
 	return nil
 }
 
+var (
+	preflightLookPath = exec.LookPath
+	preflightGOOS     = runtime.GOOS
+	preflightInfo     = func() error {
+		_, err := exec.Command("docker", "info", "--format", "{{.ServerVersion}}").Output()
+		return err
+	}
+	preflightEngine = engine.DetectOffline
+)
+
+// ensureDockerUsable failfasts with an engine-specific hint before any image
+// operation.
+func ensureDockerUsable() error {
+	if _, err := preflightLookPath("docker"); err != nil {
+		if preflightGOOS == "darwin" {
+			return errors.New("docker CLI not found on PATH — OrbStack users: run 'orb' once to link the docker CLI (or check ~/.orbstack/bin); Colima/Podman/Rancher Desktop users: check that engine's shell setup; Docker Desktop users: install via the app, then retry")
+		}
+		return errors.New("docker CLI not found on PATH — install docker or add its bin dir to PATH")
+	}
+	if err := preflightInfo(); err != nil {
+		eng := preflightEngine()
+		if start := eng.StartHint(); start != "" {
+			return fmt.Errorf("docker daemon unreachable — start %s (`%s`), wait for it to come up, then retry", eng.Name(), start)
+		}
+		if preflightGOOS == "darwin" {
+			return errors.New("docker daemon unreachable — start your container engine (OrbStack: `open -a OrbStack`, Colima: `colima start`, Podman: `podman machine start`, or Docker Desktop), wait for it to come up, then retry")
+		}
+		return fmt.Errorf("docker daemon unreachable (`docker info` failed): %w", err)
+	}
+	return nil
+}
+
 // preflightImages readies every image the run needs: the plan's sidecars plus
 // the agent image itself.
 func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string) error {
+	if err := ensureDockerUsable(); err != nil {
+		return err
+	}
 	defs := sourceDefsDir()
 	var deps []imageDep
 	for _, img := range plan.Images {

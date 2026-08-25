@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -143,6 +145,90 @@ func TestBuildScriptResolution(t *testing.T) {
 			t.Errorf("harnessBuildScript(custom image) = %q, want empty", got)
 		}
 	})
+}
+
+func TestEnsureDockerUsable(t *testing.T) {
+	origLook, origGoos, origInfo, origEngine := preflightLookPath, preflightGOOS, preflightInfo, preflightEngine
+	t.Cleanup(func() {
+		preflightLookPath, preflightGOOS, preflightInfo, preflightEngine = origLook, origGoos, origInfo, origEngine
+	})
+
+	set := func(path string, goos string, infoErr error) {
+		preflightLookPath = func(string) (string, error) {
+			if path == "" {
+				return "", os.ErrNotExist
+			}
+			return path, nil
+		}
+		preflightGOOS = goos
+		preflightInfo = func() error { return infoErr }
+		preflightEngine = func() engine.Info { return engine.Info{Kind: engine.Unknown} }
+	}
+
+	t.Run("healthy host passes", func(t *testing.T) {
+		set("/usr/bin/docker", "linux", nil)
+		if err := ensureDockerUsable(); err != nil {
+			t.Errorf("ensureDockerUsable() = %v, want nil", err)
+		}
+	})
+
+	t.Run("missing CLI names the fix on darwin", func(t *testing.T) {
+		set("", "darwin", nil)
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want OrbStack hint", err)
+		}
+	})
+
+	t.Run("missing CLI on linux stays generic", func(t *testing.T) {
+		set("", "linux", nil)
+		err := ensureDockerUsable()
+		if err == nil || strings.Contains(err.Error(), "OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want generic PATH hint", err)
+		}
+	})
+
+	t.Run("unreachable daemon points at the VM on darwin", func(t *testing.T) {
+		set("/usr/local/bin/docker", "darwin", errors.New("cannot connect"))
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "open -a OrbStack") {
+			t.Errorf("ensureDockerUsable() = %v, want start-the-VM hint", err)
+		}
+	})
+
+	t.Run("unreachable daemon wraps the cause elsewhere", func(t *testing.T) {
+		set("/usr/bin/docker", "linux", errors.New("cannot connect"))
+		err := ensureDockerUsable()
+		if err == nil || !strings.Contains(err.Error(), "docker info") {
+			t.Errorf("ensureDockerUsable() = %v, want docker-info failure", err)
+		}
+	})
+
+	for _, tc := range []struct {
+		kind      engine.Kind
+		wantName  string
+		wantStart string
+	}{
+		{engine.OrbStack, "OrbStack", "open -a OrbStack"},
+		{engine.Colima, "Colima", "colima start"},
+		{engine.Podman, "Podman", "podman machine start"},
+		{engine.RancherDesktop, "Rancher Desktop", "open -a 'Rancher Desktop'"},
+	} {
+		t.Run("unreachable daemon names "+string(tc.kind), func(t *testing.T) {
+			set("/usr/local/bin/docker", "darwin", errors.New("cannot connect"))
+			preflightEngine = func() engine.Info { return engine.Info{Kind: tc.kind} }
+			err := ensureDockerUsable()
+			if err == nil {
+				t.Fatal("ensureDockerUsable() = nil, want an unreachable-daemon error")
+			}
+			if !strings.Contains(err.Error(), tc.wantName) || !strings.Contains(err.Error(), tc.wantStart) {
+				t.Errorf("ensureDockerUsable() = %v, want it to name %q and %q", err, tc.wantName, tc.wantStart)
+			}
+			if tc.kind != engine.DockerDesktop && strings.Contains(err.Error(), "Docker Desktop") {
+				t.Errorf("ensureDockerUsable() = %v, must not send a %s user to Docker Desktop", err, tc.wantName)
+			}
+		})
+	}
 }
 
 func TestPromptYesNo(t *testing.T) {

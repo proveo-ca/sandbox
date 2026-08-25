@@ -1,0 +1,71 @@
+@startuml ContainerEngineDetection
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' Destination diagram — prose from internal/engine/engine.go and the docker
+' preflight in cmd/proveo/provision.go lands here.
+title Container engine detection — name the engine, never assume Docker Desktop
+
+node "internal/engine" as ENG <<host>> {
+  component "DetectOffline()\ncontext endpoint · engine CLI version" as OFF <<app>>
+  component "Detect()\nDetectOffline + daemon confirmation" as DET <<app>>
+  component "classify(context, endpoint)\nsocket path first, context name second" as CLS <<app>>
+  component "classifyInfo(OperatingSystem, Name)\ndaemon self-description" as CINF <<app>>
+  component "profiles table\nname · start · versionCLI\nsockets · contexts · infoOS" as PROF <<app>>
+}
+
+database "active docker context\nDOCKER_HOST, else\ndocker context inspect" as CTX <<db>>
+database "docker info\nOperatingSystem · Name · ServerVersion" as INFO <<db>>
+
+component "sbx-unavailable warn\ncmd/proveo doRun" as WARN <<app>>
+component "docker preflight\nensureDockerUsable" as PRE <<app>>
+
+OFF ARROW_MAIN CTX
+OFF ARROW_MAIN CLS
+CLS ARROW_OPTIONAL PROF
+DET ARROW_MAIN OFF
+DET ARROW_MAIN INFO
+DET ARROW_OPTIONAL CINF
+WARN ARROW_MAIN DET
+PRE ARROW_MAIN OFF
+
+note right of CLS
+  **Socket before context, and both before the daemon.** The endpoint socket
+  is matched first because that answer survives a //stopped// daemon — which is
+  exactly the moment a "start it" hint is worth printing. The context name is
+  the second-best signal; ""docker info"" only refines a guess the socket could
+  not settle, such as a hand-rolled ""DOCKER_HOST"".
+
+  The generic ""/var/run/docker\.sock"" is claimed only on Linux: on macOS that
+  path is almost always a symlink some engine installed, so matching it there
+  would mislabel every host.
+end note
+
+note bottom of PROF
+  **Why detection exists at all.** macOS is a field of alternatives — OrbStack,
+  Colima, Rancher Desktop, Podman, Lima — and Docker Desktop is one option among
+  them, not the default. A hint that says "start Docker Desktop" to an OrbStack
+  user is worse than no hint: it names software they deliberately removed.
+
+  Version comes from the engine's own CLI where one exists, so a host reads
+  ""OrbStack 2.2.3"" — the thing the user installed — rather than ""29.4.0"", the
+  docker server it happens to bundle.
+end note
+
+note left of PRE
+  ""ensureDockerUsable"" runs ""DetectOffline"" on purpose: it is called only
+  //after// ""docker info"" has already failed, so re-running it would be both
+  redundant and the one call that can block on a dead socket.
+end note
+
+note bottom of DET
+  **No detectable engine is a microVM boundary.** Every one of these runs
+  containers on a single shared Linux kernel; OrbStack's "isolated machines"
+  cut off host and file access but are explicitly //not// a VM boundary. So the
+  engine is a **naming** concern, never a backend choice — nothing here can
+  stand in for ""sbx"" (own kernel per sandbox, see
+  ""_spec/internal/sbx/sandbox-backend\.puml""), and ""sbx"" in turn needs no
+  docker engine at all. That is why the sbx-unavailable warning names the
+  engine //and// says the install is standalone: read without it, "sbx CLI not
+  found" is taken as "reinstall Docker Desktop".
+end note
+
+@enduml

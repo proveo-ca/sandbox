@@ -38,8 +38,14 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 
 1. **Build tags.** Layer 3 files: `//go:build integration`. Layer 4 files: `//go:build e2e`.
    Default `go test ./...` must not compile them.
-2. **Env gate + skip.** Still require `PROVEO_EGRESS_INTEGRATION=1` / `PROVEO_LLM_TEST=1`, and
-   `t.Skip` when `docker` (or `tmux` / Ollama) is missing — never fail CI for absent infra.
+2. **Skip on missing prerequisites.** Layer 3 still requires `PROVEO_EGRESS_INTEGRATION=1`.
+   Layer 4 has NO env gate — the `e2e` build tag is the opt-in — so every test `t.Skip`s
+   itself when `docker`, `tmux`, the harness image, Ollama or the credential it spends is
+   missing (`tests/e2e/preconditions_test.go`) — never fail CI for absent infra. "Missing"
+   includes a credential that is *present but unspendable* — refused, or out of balance:
+   the agent exits at once and the boundary under test never runs, so the watcher
+   (`instrument_test.go`) classifies that pane as a skip. Keep that pattern narrow enough
+   to name the credential; widened to any early exit, it would let real defects pass.
 3. **Wait strategies.** Poll for a condition (CA file size > 0, HTTP 200, log substring) with a
    deadline. Do not use sleep-only synchronization; bounded retry-with-check is fine.
 4. **`t.Cleanup` teardown.** Register `plan.Teardown`, inject-dir wipe, and tmux kill on every
@@ -47,13 +53,29 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 5. **No testify.** Same assertion rules as unit tests; prefer `go-cmp` for structured diffs.
 6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test; no shared Docker
    network names across parallel packages.
+7. **Pin the backend you assert against.** One launch is resolved host-side and rendered
+   twice. A test that inspects a *container* — its ancestor image, its mount table — or
+   proveo's own egress topology is asserting the docker rendering, and `claudecode` and
+   `cursor` take the sandbox backend wherever `sbx` is installed. Set `PROVEO_SBX=off` and
+   say why. Unpinned, such a test does not fail fast: it waits out its full timeout, or
+   passes having inspected nothing. The sandbox rendering has its own suite in
+   `sbx_test.go`.
+8. **Derive image references; never restate a tag.** `mise run build` tags a local build
+   `:local` and only a publish moves `:latest`, so a hardcoded `proveo/x:latest` skips the
+   suite on a machine that just built `x` — and on one that has also pulled, silently tests
+   the *published* image. Read it from proveo's own plan (`harnessImageRef`) or resolve
+   through `maintain.LocalTag` / `maintain.PublishTag`.
+9. **Give credential tests their own `PROVEO_HOME`.** A login *file* under the proveo home
+   is itself a credential, and proveo declines to inject any auth variable for that
+   provider over it. Against a developer's real `~/.proveo` the credential under test
+   therefore reaches the agent as nothing at all — and the run writes into their home.
 
 ```bash
 # Layer 3
 PROVEO_EGRESS_INTEGRATION=1 go test -tags=integration -race ./internal/egress/ -v -timeout 120s
 
 # Layer 4
-PROVEO_LLM_TEST=1 go test -tags=e2e ./internal/tmux/ -run PromptfulE2E -v -timeout 300s
+go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 300s
 ```
 
 ## Coverage

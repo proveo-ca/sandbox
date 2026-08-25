@@ -3,6 +3,7 @@ package maintain
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
@@ -107,10 +108,17 @@ func TestBuildPlan(t *testing.T) {
 		t.Errorf("BuildPlan(v2,no-cache) = %v, want %v", got, want)
 	}
 
-	// A no-variant target (cursor): build.sh with no extra args.
+	// An untagged build is :local, never :latest — :latest means published, and a
+	// local build answering to it is what let a registry image shadow the build
+	// under test.
 	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", BuildScript: "/d/cursor/build.sh"}
-	if got := argvs(cur.BuildPlan("", false)); got[0] != "bash /d/cursor/build.sh" {
-		t.Errorf("cursor build = %q, want bare build.sh", got[0])
+	got = argvs(cur.BuildPlan("", false))
+	want = []string{
+		"bash /d/cursor/build.sh --tag local",
+		"docker image inspect proveo/cursor:local",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("BuildPlan(default) = %v, want %v", got, want)
 	}
 
 	// The verify step discards stdout.
@@ -125,16 +133,30 @@ func TestDeployAndTestPlan(t *testing.T) {
 	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor",
 		BuildScript: "/d/cursor/build.sh", TestScript: "/d/cursor/test.sh"}
 
-	if got := argvs(cur.DeployPlan("v3")); strings.Join(got, "|") !=
-		"bash /d/cursor/build.sh --tag v3 --push" {
-		t.Errorf("DeployPlan = %v", got)
+	// Deploy promotes the tested build: it REQUIRES :local, retags it, then pushes.
+	// Publishing without that inspect would ship an image nothing ran against.
+	if got, want := argvs(cur.DeployPlan("v3")), []string{
+		"docker image inspect proveo/cursor:local",
+		"docker tag proveo/cursor:local proveo/cursor:v3",
+		"bash /d/cursor/build.sh --tag v3 --push",
+	}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("DeployPlan = %v, want %v", got, want)
 	}
 
 	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
 		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
-	if got := argvs(cc.DeployPlan("latest")); strings.Join(got, "|") !=
-		"bash /d/claudecode/build.sh --variant mcp --tag latest --push" {
-		t.Errorf("DeployPlan(claudecode) = %v", got)
+	if got, want := argvs(cc.DeployPlan("")), []string{
+		"docker image inspect proveo/claudecode:local",
+		"docker tag proveo/claudecode:local proveo/claudecode:latest",
+		"bash /d/claudecode/build.sh --variant mcp --tag latest --push",
+	}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("DeployPlan(claudecode) = %v, want %v", got, want)
+	}
+	// The require-and-promote steps are plumbing, not output.
+	for i, c := range cc.DeployPlan("")[:2] {
+		if !c.Quiet {
+			t.Errorf("DeployPlan step %d (%v) should be Quiet", i, c.Argv)
+		}
 	}
 
 	// TestPlan runs test.sh when it exists, else skips (nil).
@@ -143,5 +165,60 @@ func TestDeployAndTestPlan(t *testing.T) {
 	}
 	if got := cur.TestPlan(func(string) bool { return false }); got != nil {
 		t.Errorf("TestPlan(missing) = %v, want nil (skip)", got)
+	}
+}
+
+// :latest and :local both existing is the normal state on a maintainer's machine.
+// Existence alone cannot decide: a stale :local from last week must not shadow an
+// image just pulled, and a build from a minute ago must not lose to the registry.
+func TestResolveImagePrefersTheNewerBuild(t *testing.T) {
+	t.Parallel()
+	old := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+
+	stamps := func(m map[string]time.Time) func(string) (time.Time, bool) {
+		return func(ref string) (time.Time, bool) { ts, ok := m[ref]; return ts, ok }
+	}
+
+	cases := []struct {
+		name      string
+		ref       string
+		have      map[string]time.Time
+		want      string
+		wantLocal bool
+	}{
+		{"local is newer", "proveo/cc:latest",
+			map[string]time.Time{"proveo/cc:latest": old, "proveo/cc:local": recent},
+			"proveo/cc:local", true},
+		{"published is newer", "proveo/cc:latest",
+			map[string]time.Time{"proveo/cc:latest": recent, "proveo/cc:local": old},
+			"proveo/cc:latest", false},
+		{"no local build", "proveo/cc:latest",
+			map[string]time.Time{"proveo/cc:latest": old},
+			"proveo/cc:latest", false},
+		{"never built or pulled the published tag", "proveo/cc:latest",
+			map[string]time.Time{"proveo/cc:local": old},
+			"proveo/cc:local", true},
+		{"untagged means latest", "proveo/cc",
+			map[string]time.Time{"proveo/cc:local": recent},
+			"proveo/cc:local", true},
+		// An explicit tag or digest is a decision, not a default.
+		{"explicit tag untouched", "proveo/cc:v2",
+			map[string]time.Time{"proveo/cc:local": recent},
+			"proveo/cc:v2", false},
+		{"digest untouched", "proveo/cc@sha256:abc",
+			map[string]time.Time{"proveo/cc:local": recent},
+			"proveo/cc@sha256:abc", false},
+		{"already local", "proveo/cc:local",
+			map[string]time.Time{"proveo/cc:local": recent},
+			"proveo/cc:local", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, isLocal := ResolveImage(c.ref, stamps(c.have))
+			if got != c.want || isLocal != c.wantLocal {
+				t.Errorf("ResolveImage(%q) = (%q,%v), want (%q,%v)", c.ref, got, isLocal, c.want, c.wantLocal)
+			}
+		})
 	}
 }

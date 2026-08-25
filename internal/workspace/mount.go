@@ -51,7 +51,7 @@ type MountSpec struct {
 // whole-repo index against a directory that holds only the mounted paths and
 // reports every unmounted file as deleted — see scope_git_worktree.
 func (w MountSpec) ScopeRel() string {
-	if w.Layout == "input-output" || w.RepoRoot == "" {
+	if w.RepoRoot == "" {
 		return ""
 	}
 	if sameDir(w.InputDir, w.RepoRoot) || !underDir(w.InputDir, w.RepoRoot) {
@@ -65,23 +65,6 @@ func (w MountSpec) ScopeRel() string {
 // models. It inspects the filesystem (existence of root files / config dir /
 // .env) exactly as the Bash did.
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
-	if w.Layout == "input-output" {
-		ro := w.Mode == "ro"
-		mounts := []runner.Mount{
-			{Host: w.InputDir, Container: "/workspace/input", ReadOnly: ro},
-			{Host: w.OutputDir, Container: "/workspace/output"},
-		}
-		mounts = append(mounts, w.gitOverride(w.InputDir, "/workspace/input", ro)...)
-		mounts = append(mounts, w.worktreeMounts()...)
-		mounts = append(mounts, w.envOverlay()...)
-		// Mask .env under input when egress isolates secrets (proxy/firewall).
-		if w.isolateEnv() {
-			mounts = append(mounts, maskEnvMounts(w.InputDir, "/workspace/input")...)
-		}
-		linkMounts, links := w.linkMounts(w.InputDir, "/workspace/input", ro)
-		return append(mounts, linkMounts...), "", links
-	}
-
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
 	scopeHost, scopeContainer := w.InputDir, "/app"
@@ -240,12 +223,7 @@ func (w MountSpec) WorktreeEnv() []string {
 	}
 }
 
-func (w MountSpec) containerRoot() string {
-	if w.Layout == "input-output" {
-		return "/workspace/input"
-	}
-	return "/app"
-}
+func (w MountSpec) containerRoot() string { return "/app" }
 
 // worktreeMounts carries the shared .git of a linked worktree into the container.
 //

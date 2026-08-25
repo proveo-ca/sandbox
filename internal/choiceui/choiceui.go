@@ -1,5 +1,5 @@
 // Package choiceui renders the one-shot harness choice prompt.
-// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/_plans/harness-choice-cache.puml
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/agentsettings/choice-cache.puml
 package choiceui
 
 import (
@@ -208,6 +208,7 @@ type palette struct {
 	body   tcell.Style // light — readable supporting / value text
 	title  tcell.Style // bold default fg — section titles
 	idle   tcell.Style // unchecked / unfocused options
+	aside  tcell.Style // italic — parenthetical descriptions
 }
 
 func styles() palette {
@@ -221,6 +222,7 @@ func styles() palette {
 		body:   fg(ui.ColorSecondary),
 		title:  tcell.StyleDefault.Bold(true),
 		idle:   fg(ui.ColorSecondary),
+		aside:  fg(ui.ColorSecondary).Italic(true),
 	}
 }
 
@@ -325,7 +327,9 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	s.Show()
 }
 
-// putHeader styles "label: value" and indented "KEY=value" lines with accent labels.
+// putHeader styles "label: value" and "KEY=value" lines with accent labels. Both
+// forms can appear on one line — the models row is "models:   main=… small=…" — so
+// the leading label and every KEY= pair after it are accented by the same pass.
 func putHeader(put func(int, tcell.Style, string), p palette, line string) {
 	const x0 = 2
 	runes := []rune(line)
@@ -338,15 +342,101 @@ func putHeader(put func(int, tcell.Style, string), p palette, line string) {
 
 	if colon := strings.IndexByte(rest, ':'); colon > 0 && !strings.ContainsRune(rest[:colon], ' ') {
 		put(x0, p.accent, string(runes[:indent])+rest[:colon+1])
-		put(x0+indent+colon+1, p.body, rest[colon+1:])
+		putPairs(put, p, x0+indent+colon+1, rest[colon+1:])
 		return
 	}
-	if eq := strings.IndexByte(rest, '='); eq > 0 {
-		put(x0, p.accent, string(runes[:indent])+rest[:eq])
-		put(x0+indent+eq, p.body, rest[eq:])
-		return
+	put(x0, p.body, string(runes[:indent]))
+	putPairs(put, p, x0+indent, rest)
+}
+
+// putPairs writes s from column col, styling each whitespace-delimited token by what
+// it is rather than by which line it came from:
+//
+//	symbolic token      accent — the lsp: row's devicons and ASCII category markers
+//	KEY of "KEY=value"  accent — the llms: row carries several pairs on one line
+//	token after "on"    accent — the branch in "git: <repo> on <branch>"
+//	a "(…)" run         italic — a description trailing the fact it describes
+//
+// Accenting only the first pair reads as that value mattering more than the rest
+// rather than as one uniform kind of value, which is how the models row lost the
+// highlight on every slot after the leading one.
+func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) {
+	rs := []rune(s)
+	aside, afterOn := false, false
+	for i := 0; i < len(rs); {
+		j := i
+		if unicode.IsSpace(rs[i]) {
+			for j < len(rs) && unicode.IsSpace(rs[j]) {
+				j++
+			}
+			st := p.body
+			if aside {
+				st = p.aside
+			}
+			put(col, st, string(rs[i:j]))
+			col += j - i
+			i = j
+			continue
+		}
+		for j < len(rs) && !unicode.IsSpace(rs[j]) {
+			j++
+		}
+		tok := rs[i:j]
+		word := string(tok)
+		if strings.HasPrefix(word, "(") {
+			aside = true
+		}
+		switch {
+		case aside:
+			put(col, p.aside, word)
+		case isGlyph(tok):
+			put(col, p.accent, word)
+		case afterOn:
+			put(col, p.accent, word)
+		case keyEnd(tok) > 0:
+			k := keyEnd(tok)
+			put(col, p.accent, string(tok[:k]))
+			put(col+k, p.body, string(tok[k:]))
+		default:
+			put(col, p.body, word)
+		}
+		if aside && strings.HasSuffix(word, ")") {
+			aside = false
+		}
+		afterOn = word == "on"
+		col += j - i
+		i = j
 	}
-	put(x0, p.body, line)
+}
+
+// isGlyph reports whether a token is purely symbolic — a Nerd Font devicon lives in
+// the private-use area, which is neither letter nor digit, and so do "<>", "$", "#"
+// and "{}". Anything carrying a letter or digit is content and stays body-styled.
+func isGlyph(tok []rune) bool {
+	if len(tok) == 0 {
+		return false
+	}
+	for _, r := range tok {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// keyEnd reports the length of the leading KEY in a "KEY=value" token, or 0 when the
+// token is not one. Values may themselves contain '=', so the key must look like an
+// identifier for the token to count.
+func keyEnd(tok []rune) int {
+	for i, r := range tok {
+		if r == '=' {
+			return i
+		}
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return 0
+		}
+	}
+	return 0
 }
 
 func EnvHeader(secretNames []string, settings map[string]string) []string {

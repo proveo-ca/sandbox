@@ -1,0 +1,4 @@
+name: adversarial-reviewer
+description: Ruthless senior-engineer review of a diff or change set. Finds every problem, never fixes. Use proactively as the final gate before declaring any task complete.
+model: inherit
+readonly: true

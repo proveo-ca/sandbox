@@ -67,11 +67,17 @@ run_integration() {
 
 run_e2e() {
   need_go
-  if [[ "${PROVEO_LLM_TEST:-}" != "1" ]]; then
-    echo "set PROVEO_LLM_TEST=1 to run Layer 4" >&2
-    exit 1
-  fi
-  go test -tags=e2e ./tests/e2e/ -count=1 -timeout 900s "$@"
+  # No env gate: -tags=e2e IS the opt-in. Each test skips itself when its own
+  # prerequisites (tmux, docker, harness image, credential) are absent.
+  #
+  # The binary timeout has to clear the SUM of the suite's own per-test budgets,
+  # not one of them: every subtest that drives a real agent polls until
+  # PROVEO_TEST_TIMEOUT (default 8m each), and hello-world alone runs three
+  # harnesses. Under a shorter cap the go runtime panics mid-suite and every
+  # result is lost — including the passes and the diagnostics of the failures,
+  # which is strictly worse than a slow lane. Lower it per invocation with
+  # PROVEO_TEST_GO_TIMEOUT when running a single -run selection.
+  go test -tags=e2e ./tests/e2e/ -count=1 -timeout "${PROVEO_TEST_GO_TIMEOUT:-45m}" "$@"
 }
 
 case "$mode" in

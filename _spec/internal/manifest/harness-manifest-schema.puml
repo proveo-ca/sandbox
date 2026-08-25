@@ -7,8 +7,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   description : string
   --
   egress : bool
-  dind : bool
-  sandbox_docker : bool
+  docker : sbx|dind|(absent)
   provider : string
   subscription : bool
   stability : experimental|candidate|stable
@@ -19,7 +18,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
 }
 
 class "Workspace\nworkspace:" as W <<app>> {
-  layout : app | input-output
+  layout : app
   configDir : string
   gitMode : rw | ro
   output : bool
@@ -59,9 +58,48 @@ note right of M
   Everything else enumerates from it: runnable targets,
   image refs, mount model, egress lifecycle, DinD
   offer, auth prompts, build/test/deploy registry.
-  ""sandbox_docker: true"" (cursor) keeps the DinD add-on
-  visible but locked — docker comes from the sbx engine,
-  so the privileged sidecar never starts.
+  **""docker:"" is an ENUM, not two booleans.** It names how a
+  harness's containerisation need is met, and the two answers
+  are opposite stories: ""dind"" links a privileged sibling
+  daemon, while ""sbx"" hands over NO daemon — the microVM IS the
+  isolation one would have been asked for. So a harness declares ONE
+  (""IsSbx"" / ""IsDind"" / ""WantsDocker""). The overlap that let a
+  manifest claim both is unrepresentable rather than merely
+  discouraged, and the picker shows the single checked add-on
+  it implies: ""docker (sandbox)"" or ""docker (dind)"".
+  The retired ""dind:"" / ""sandbox_docker:"" keys are still
+  PARSED, so a stale manifest fails loudly at load instead of
+  losing its docker story to the unknown-key rule.
+
+  **The promise is asserted for EVERY def that makes it, and
+  asserted //the way that def makes it//.** The e2e matrix
+  (""TestEveryHarnessGetsTheDockerAccessItPromises"") is derived
+  from the manifests and dispatches on the mode, with an
+  INVERSE verdict on each side: ""IsDind"" defs must reach a
+  daemon through the privileged sidecar, on the only posture
+  that offers it (open + forward); ""IsSbx"" defs must reach
+  NONE — no socket, no ""DOCKER_HOST"", no server version — because
+  a daemon answering inside the sandbox means either the def
+  belongs on ""dind"" or a socket leaked through the boundary the
+  backend was chosen for.
+
+  Measured, not assumed: neither sbx def reaches a daemon, and
+  ""docker version"" answers "Cannot connect to the Docker daemon"
+  in both. The docker CLIENT is asserted on only for ""dind""
+  (""TestDindHarnessesShipADockerClient""); under ""sbx"" its
+  survival is an sbx implementation detail that differs between
+  our own two images, so pinning it either way would encode that
+  detail as a proveo contract
+  (""_spec/_experiments/docker-sandbox\.puml"").
+
+  Splitting it into two tests over two hardcoded lists is what
+  hid the gap this replaced: the sbx half silently SKIPPED on
+  every host without the CLI, so ""docker: sbx"" was an unasserted
+  claim for as long as it took someone to install ""sbx"".
+  ""TestDockerAccessMatrixPartitionsEveryPromise"" now asserts the
+  partition itself — every promising def in exactly one branch,
+  neither branch empty — so an empty matrix cannot report success
+  by testing nothing.
 
   Validated by ""Manifest.Validate"" at load; ""Targets""
   flattens ""images"" across defs and rejects a duplicate
@@ -84,8 +122,8 @@ note bottom of W
   * **app** — repo (or scope subdir) at ""/app"", ""-w /app"";
     monorepo case also binds root ""/app/.git"", the
     ""rootFiles"" allowlist and ""configDir""
-  * **input-output** — ""/workspace/input"" +
-    ""/workspace/output"", no ""-w""
+  * **app** — ""/app"" +
+    ""/app/output"", no ""-w""
   ""mode:ro"" makes the tree read-only; ""output:true"" adds
   ""/app/output"".
 end note
@@ -152,9 +190,13 @@ note bottom of M
   directory in, not editing the CLI.** Everything the host needs to run a
   target is declared here rather than discovered by target name.
 
-  ""layout"" picks the mount model — ""app"" (repo at ""/app"", the monorepo
-  shape cursor/opencode/cecli use) or ""input-output"" (claudecode's
-  ""/workspace/input"" plus a writable output dir).
+  ""layout"" is now a single value, ""app"": the repo at ""/app"", the monorepo
+  shape every def shares. It once also took ""input-output"" — claudecode's
+  ""/workspace/input"" plus ""/workspace/output"" — which was the only reason
+  ""ScopeRel"" returned early and left that harness without sub-project scope.
+  Retiring it standardised the mount model AND handed claudecode the scoping
+  the others already had; a writable output dir is now declared by
+  ""output: true"" instead of implied by the layout.
 
   ""env"" declares variables the harness reads at run time, which is what
   lets the CLI both forward them and prompt for a missing one. ""config"" is

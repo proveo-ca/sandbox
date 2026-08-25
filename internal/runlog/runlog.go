@@ -103,9 +103,20 @@ func (l *Log) Fields(section string, kv map[string]string) {
 }
 
 // Artifacts records where the evidence for this run lives. These paths outlive the
-// run, and finding them is most of the work when diagnosing an egress denial.
-func (l *Log) Artifacts(egDir string) {
+// run, and finding them is most of the work when diagnosing an egress denial — which
+// is exactly why they must not be invented. proveo's Squid and MITM sidecars only run
+// on the docker backend; naming their logs after an sbx run sends an operator to four
+// files that will never exist, at the moment they most need one that does.
+func (l *Log) Artifacts(egDir string, sandboxed bool) {
 	if l == nil || l.f == nil || egDir == "" {
+		return
+	}
+	if sandboxed {
+		l.Fields("artifacts", map[string]string{
+			"session state": egDir,
+			"sandbox kit":   filepath.Join(egDir, "sbx", "kit", "spec.yaml"),
+			"enforcement":   "sbx — see `sbx diagnose` and the sandboxd daemon.log; proveo runs no Squid or MITM here",
+		})
 		return
 	}
 	l.Fields("artifacts", map[string]string{

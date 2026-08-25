@@ -318,8 +318,42 @@ func TestReadPidMaxDockerFallback(t *testing.T) {
 	}
 
 	readPidMaxDocker = func(...string) int { return 0 }
+	// No /proc and a failed probe leaves the platform default, which readPidMax
+	// documents as the darwin constant on darwin and 0 everywhere else. Asserting
+	// 0 unconditionally made this case pass only on Linux.
+	want := 0
+	if goos == "darwin" {
+		want = pidMaxDarwinFallback
+	}
+	if got := readPidMax(); got != want {
+		t.Errorf("readPidMax() with failed probe = %d, want %d", got, want)
+	}
+}
+
+func TestReadPidMaxDarwinFallback(t *testing.T) {
+	origProbe, origGoos := readPidMaxDocker, goos
+	t.Cleanup(func() { readPidMaxDocker, goos = origProbe, origGoos })
+
+	readPidMaxDocker = func(...string) int { return 0 }
+	if proc := parseIntFile("/proc/sys/kernel/pid_max"); proc > 0 {
+		t.Skip("/proc readable here; darwin fallback only reachable without it")
+	}
+
+	goos = "linux"
 	if got := readPidMax(); got != 0 {
-		t.Errorf("readPidMax() with failed probe = %d, want 0", got)
+		t.Errorf("readPidMax() failed-probe linux = %d, want 0", got)
+	}
+	goos = "darwin"
+	if got := readPidMax(); got != pidMaxDarwinFallback {
+		t.Errorf("readPidMax() failed-probe darwin = %d, want %d", got, pidMaxDarwinFallback)
+	}
+}
+
+func TestDarwinFallbackUnlocksBrowserTier(t *testing.T) {
+	t.Parallel()
+	h := HostInfo{CPUs: 2, PidMax: pidMaxDarwinFallback} // clean OrbStack/Docker Desktop mac shape
+	if err := EnsurePidsCapability(h, true, 0, false); err != nil {
+		t.Errorf("clean-mac browser tier must pass with darwin fallback: %v", err)
 	}
 }
 

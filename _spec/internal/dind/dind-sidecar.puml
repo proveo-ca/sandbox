@@ -10,7 +10,7 @@ component "docker:dind sibling\nprivileged" as DIND <<error>>
 component "internal/dind\nModeSupported · CredentialsSupported\nScopeHasDockerfiles · EnvEnabled · ShouldStart" as GATE <<app>>
 
 folder "Gates — all five must pass" as G <<host>> {
-  component "1. manifest ""dind: true""\ncecli · opencode · cursor" as G1 <<app>>
+  component "1. manifest ""docker: dind""\ncecli · opencode" as G1 <<app>>
   component "2. ""--egress-mode open""\nthe only non-intercepting tier" as G2 <<app>>
   component "2b. ""--credentials forward""\nleaves an internet-capable bridge" as G2B <<app>>
   component "3. a Dockerfile/compose in scope" as G3 <<app>>
@@ -86,6 +86,24 @@ note bottom of GATE
 
   The offer itself is scope-gated — Dockerfiles present in the scope — and
   the interactive answer is consulted only when there is a TTY to ask.
+
+  **Attached is not ready, and the gap is ~16 seconds.** ""docker run -d""
+  returns when the CONTAINER is up; the daemon inside it starts listening
+  well after. ""execWithEgress"" waited for Squid and for the CA file but
+  never for this, so the agent got its shell inside the gap and its first
+  ""docker"" call answered //"Cannot connect to the Docker daemon at
+  tcp://docker:2375"// — indistinguishable from a broken posture.
+  ""Sidecar\.WaitReady"" now polls ""docker exec <sidecar> docker version""
+  until it answers, asking THROUGH the sidecar so the check is about the
+  daemon's own socket rather than whatever the host's ""DOCKER_HOST"" points
+  at.
+
+  **This race also faked a diagnosis.** Measured at 6s the ""--link"" route
+  failed and the alias route — tried ~10s later, on the same daemon —
+  succeeded, which reads as a routing difference and is not one. With the
+  daemon confirmed up both return the same server version. The lesson is
+  in the ordering: two reachability shapes compared at different points in
+  a dependency's startup are not being compared at all.
 end note
 
 

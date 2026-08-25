@@ -26,14 +26,10 @@ import (
 //   - "n" denies and the agent sees a blocked connection (not a hang)
 //   - "y" allows, and the answer is cached so the same host is not asked twice
 func TestReviewTierConsentGate(t *testing.T) {
-	if os.Getenv("PROVEO_LLM_TEST") != "1" {
-		t.Skip("set PROVEO_LLM_TEST=1 to run the review-tier E2E")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not available")
-	}
-
 	const target = "opencode"
+	requireHarness(t, target)
+	requireReviewTier(t)
+
 	home := t.TempDir()
 	work := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".proveo"), 0o755); err != nil {

@@ -1,0 +1,4 @@
+name: security-reviewer
+description: Security-focused review with CWE-tagged findings. Use proactively when auth, secrets, network, dependencies, permissions, payments, user data, or serialization are touched.
+model: inherit
+readonly: true

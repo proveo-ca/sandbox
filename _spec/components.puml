@@ -7,9 +7,13 @@ skinparam linetype ortho
 skinparam nodesep 100
 skinparam ranksep 80
 
-left to right direction
+' Top-down, deliberately. Left-to-right laid this out as a 4000px column once the
+' cross-group edges became package-level: the groups stack instead of spreading,
+' and every long edge runs the full height. Top-down is 44% smaller and wide.
 
 title Proveo Project Component Map
+' A one-screen view of the same system: overview.puml (same directory). This map is
+' the inventory — every package and edge; that one is the shape a newcomer needs first.
 
 actor "Consumer" as Consumer
 actor "Maintainer" as Maintainer
@@ -23,7 +27,7 @@ package "Repository Root" as RepoRoot {
 }
 
 package "Specifications\n_spec/" as Specs {
- component "components.puml" as ComponentsSpec <<spec>>
+ component "overview.puml · components.puml" as ComponentsSpec <<spec>>
  component "usage.puml" as UsageSpec <<spec>>
  component "_paradigms/*.puml" as Paradigms <<spec>>
  component "tests/*.puml" as TestingSpec <<spec>>
@@ -90,6 +94,13 @@ package "Artifacts" as Artifacts {
  component "ubuntu/squid · ollama\n(upstream)" as UpstreamImgs <<image>>
 }
 
+package "Launch" as Launch {
+ component "LaunchSpec\nenv · seed steps · agent argv\nresolved ONCE, host-side" as LaunchSpec <<app>>
+ component "Kit emitter (sbx)\nkind: mixin beside a built-in agent" as KitEmit <<app>>
+ component "docker emitter\n-e pairs + wrapper launcher" as DockEmit <<app>>
+ component "proveo_seed\nfile-shaped setup, both backends" as Seed <<app>>
+}
+
 package "Runtime" as Runtime {
  component "Docker" as Docker <<runtime>>
  component "host workspace" as HostWS <<workspace>>
@@ -97,55 +108,59 @@ package "Runtime" as Runtime {
  component "provider APIs" as Providers <<external>>
 }
 
-Consumer --> ProveoCLI : installed binary
-Consumer --> Installer : curl install + checksum
-Maintainer --> Mise : repo workflows
-Maintainer --> ProveoCLI : proveo run / --print
-Maintainer --> DefBuild : build images
-Agent --> RootDocs : collaboration rules
-Agent --> Specs : architecture context
+' ── Actors reach a GROUP, never a component inside one ──────────────────────
+Consumer ..> GoSurface : installed binary
+Consumer ..> Dist : curl install + checksum
+Maintainer ..> Maint : repo workflows
+Maintainer ..> GoSurface : proveo run / --print
+Maintainer ..> Defs : build images
+Agent ..> RepoRoot : collaboration rules
+Agent ..> Specs : architecture context
 
+' ── Between groups: ONE labelled relationship each ──────────────────────────
+GoSurface --> Launch : resolve the launch, host-side
+GoSurface --> Defs : read manifests · stage sidecar config
+GoSurface --> Artifacts : pull / run images
+GoSurface --> Runtime : docker · workspace · state dir
+GoSurface ..> RepoRoot : embedded manifests + squid
+Launch --> Runtime : renders the run for one backend
+Defs --> Artifacts : build · deploy
+Defs ..> GoSurface : shims exec proveo run · entrypoint baked in
+Maint ..> Defs : build / test targets
+Maint ..> GoSurface : run · list
+Dist ..> RepoRoot : release config
+Artifacts ..> Runtime : inference (brokered)
+Specs ..> RepoRoot : reasoning behind the rules
+Specs ..> GoSurface : one file per concern
+
+' ── Inside a group: how its own parts fit together ──────────────────────────
 ProveoCLI --> Manifest : load targets
 ProveoCLI --> Workspace : scope + mounts
 ProveoCLI --> Runner : docker run argv
 ProveoCLI --> EgressPkg : plan + apply
-ProveoCLI --> DindPkg : optional sidecar
-ProveoCLI --> GitId : forward identity
 ProveoCLI --> CredPkg : detect provider
+ProveoCLI --> GitId : forward identity
+ProveoCLI --> DindPkg : optional sidecar
 ProveoCLI --> ProveoEgress : inspector binary
-ProveoCLI --> Embed : standalone embeds
+ProveoEgress ..> CredPkg : inject / strip
 ProveoEP --> EPPkg : prep / exec
-DefBuild ..> ProveoEP : bake into images
 
-Manifest ..> HarnessManifest : reads / embeds
+LaunchSpec --> KitEmit
+LaunchSpec --> DockEmit
+KitEmit ..> Seed : setup.startup
+DockEmit ..> Seed : before exec
+
 CodingDefs *-- HarnessManifest
 CodingDefs *-- RunShims
 CodingDefs *-- DefBuild
 CodingDefs *-- DefAssets
-RunShims ..> ProveoCLI : exec proveo run
-
-EgressPkg ..> DefSquid : stage config
-EgressPkg ..> DefEgressImg : start MITM
-EgressPkg ..> UpstreamImgs : squid / ollama
-DindPkg ..> DefDind : docker:dind
-ProveoEgress ..> CredPkg : inject / strip
+DefBuild ..> Sidecars : sidecar images
 
 Mise ..> MaintLib
-Mise ..> DefBuild
-Mise ..> ProveoCLI : run / list
 
 Installer ..> Goreleaser : downloads release
 CliCDN ..> Goreleaser : hosts assets
 
-DefBuild --> HarnessImgs
-DefBuild --> EgressImg
-ProveoCLI ..> HarnessImgs : pull / run
-ProveoCLI ..> Docker
-ProveoCLI ..> HostWS
-ProveoCLI ..> State
-HarnessImgs ..> Providers : inference (brokered)
-
-Specs ..> RootDocs
 UsageSpec ..> ComponentsSpec
 Paradigms ..> HarnessSpecs
 TestingSpec ..> Internals
@@ -170,6 +185,22 @@ firewall (default): agent → proveo-egress
 (MITM + credential broker) → Squid → net.
 proxy: Squid only. broker: container boundary.
 Policy + flow log at the MITM hop.
+end note
+
+note bottom of LaunchSpec
+  **One resolved launch, two renderings.** Every
+  decision is made host-side and handed over as
+  values, so a backend renders the same struct
+  rather than repeating the reasoning — the sbx
+  Kit and the docker argv carry identical intent.
+end note
+
+note bottom of GoSurface
+  **Every boundary is crossed exactly once.**
+  Between groups the map records one labelled
+  relationship rather than the dozen component
+  pairs implementing it, so a reader following a
+  package edge always knows where to look next.
 end note
 
 @enduml

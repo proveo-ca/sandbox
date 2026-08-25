@@ -26,28 +26,7 @@ export CECLI_HOME
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
 seed_cecli_subagents() {
-  local src="/opt/cecli/defaults/agents"
-  local dst="$CECLI_HOME/agents"
-  local seeded=()
-
-  mkdir -p "$dst" 2>/dev/null || true
-  if [[ ! -d "$src" || ! -d "$dst" ]]; then
-    return
-  fi
-
-  for f in "$src/"*.md; do
-    [[ -e "$f" ]] || continue
-    local name; name="$(basename "$f")"
-    if [[ "${CECLI_RESEED:-0}" == "1" || ! -f "$dst/$name" ]]; then
-      if cp -f "$f" "$dst/$name" 2>/dev/null; then
-        seeded+=("agents/$name")
-      fi
-    fi
-  done
-
-  if (( ${#seeded[@]} > 0 )); then
-    echo "🌱 Seeded Cecli subagents into $dst: ${seeded[*]}"
-  fi
+  proveo_seed cecli
 }
 
 has_cecli_agent_config() {
@@ -67,26 +46,30 @@ if ! command -v proveo-entrypoint >/dev/null 2>&1; then
   report_git_context
 fi
 
-# CECLI is an aider fork: export CECLI_* and AIDER_* aliases.
-if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
-  export CECLI_MODEL="${CECLI_MODEL:-$ARCHITECT_MODEL}"
-  export AIDER_MODEL="${AIDER_MODEL:-$ARCHITECT_MODEL}"
-fi
+# Model bridges are declared in defs/bridges/cecli.tsv.
+apply_model_bridges cecli
 
-if [[ -n "${EDITOR_MODEL:-}" ]]; then
-  export CECLI_EDITOR_MODEL="${CECLI_EDITOR_MODEL:-$EDITOR_MODEL}"
-  export AIDER_EDITOR_MODEL="${AIDER_EDITOR_MODEL:-$EDITOR_MODEL}"
-fi
 
-if [[ -n "${SMALL_MODEL:-}" ]]; then
-  export CECLI_WEAK_MODEL="${CECLI_WEAK_MODEL:-$SMALL_MODEL}"
-  export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
-fi
 
+# A local model reaches litellm through Ollama's OPENAI-COMPATIBLE API, not its
+# native one. Both litellm ollama providers are broken in this image:
+# "ollama_chat/<model>" loses its api_base and every call dies with "Request URL
+# is missing an 'http://' or 'https://' protocol", while "ollama/<model>" raises
+# FileNotFoundError. Ollama also serves /v1, and that route works — so the model
+# is spelled "openai/<model>" and pointed at it.
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  export CECLI_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
-  export CECLI_EDITOR_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
-  export CECLI_WEAK_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  # OPENAI_API_BASE is litellm's name for the endpoint (OPENAI_BASE_URL is the
+  # SDK's); prefer whatever `proveo run --local-model` already set, and derive it
+  # from the Ollama base otherwise so a hand-run container still works.
+  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
+  case "$OPENAI_API_BASE" in
+    */v1|*/v1/) : ;;
+    *) OPENAI_API_BASE="${OPENAI_API_BASE%/}/v1"; export OPENAI_API_BASE ;;
+  esac
+  export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
+  export CECLI_MODEL="openai/${PROVEO_LOCAL_MODEL}"
+  export CECLI_EDITOR_MODEL="openai/${PROVEO_LOCAL_MODEL}"
+  export CECLI_WEAK_MODEL="openai/${PROVEO_LOCAL_MODEL}"
 fi
 
 case "${DARK_MODE:-}" in

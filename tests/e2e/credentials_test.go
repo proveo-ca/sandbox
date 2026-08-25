@@ -18,6 +18,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/tmux"
@@ -212,19 +213,40 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 	}
 
 	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
+	// The two backends keep a secret out of the plan by different means, so the
+	// assertion has to know which one it is reading. docker declares the sentinel in
+	// argv; sbx puts nothing there at all and hands values to `sbx secret set` on
+	// stdin. Read blind, an sbx plan satisfied the sentinel loop by containing no
+	// keys to check — zero of N, reported as "all forwarded".
+	sandbox := isSbxArgv(agentCmd)
 	declared := 0
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
 			t.Errorf("%s: RAW %s value appears in the agent launch command — must be brokered to a sentinel", agent, k)
 		}
-		if v, ok := envValInCmd(agentCmd, k); ok {
-			declared++
-			if v != entrypoint.DefaultSentinel {
-				t.Errorf("%s: agent env %s=%q, expected the sentinel %q", agent, k, v, entrypoint.DefaultSentinel)
-			}
+		v, ok := envValInCmd(agentCmd, k)
+		if !ok {
+			continue
+		}
+		declared++
+		if sandbox {
+			t.Errorf("%s: sandbox plan carries %s=%q in argv; a sandbox secret travels "+
+				"over the store, and argv is visible to anyone listing processes", agent, k, v)
+			continue
+		}
+		if v != entrypoint.DefaultSentinel {
+			t.Errorf("%s: agent env %s=%q, expected the sentinel %q", agent, k, v, entrypoint.DefaultSentinel)
 		}
 	}
-	t.Logf("%s: %d/%d provider keys declared, all forwarded as the sentinel (no raw key in the plan)", agent, declared, len(keys))
+	if !sandbox && declared == 0 {
+		t.Errorf("%s: the docker plan declared no provider key at all, so the sentinel "+
+			"assertion verified nothing while reporting success:\n%s", agent, agentCmd)
+	}
+	backend := "docker: every declared key is the sentinel"
+	if sandbox {
+		backend = "sandbox: argv carries no provider key, values go to the store"
+	}
+	t.Logf("%s: %d/%d provider keys in argv — %s", agent, declared, len(keys), backend)
 }
 
 // assertBrokerReceivesAllKeys runs the vendor-pinned cursor in firewall mode and
@@ -236,7 +258,12 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	// run of a harness prompts and caches the answer, so a shared HOME would leak
 	// into the developer's real settings AND skip the prompt on every later run.
 	home := t.TempDir()
-	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t)}
+	// PROVEO_SBX=off, because this half inspects proveo's OWN egress topology — the
+	// "-egress" container and the broker.env bind-mounted into it. claudecode takes
+	// the sandbox backend wherever sbx is installed, and sbx brings its own
+	// credential proxy instead, so unpinned there is no egress container to find and
+	// the probe burns its 120s timeout before failing for an unrelated reason.
+	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t), "PROVEO_SBX=off"}
 	for _, k := range keys {
 		v := randToken()
 		want[k] = v
@@ -251,7 +278,9 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Cleanup(func() {
 		sess.Kill()
 		forceCleanIfCrowded(proveoBin)
-		rmByAncestor("proveo/claudecode:latest")
+		if ref, ok := anyImagePresent(t, "proveo/claudecode"); ok {
+			rmByAncestor(ref)
+		}
 	})
 
 	// claudecode, not cursor: cursor now declares capabilities egress:[open]
@@ -412,9 +441,25 @@ func requireLiveStack(t *testing.T) {
 	if !tmux.Available() {
 		t.Skip("tmux not installed (brew install tmux)")
 	}
-	if !dockerImagePresent(t, "proveo/egress-proxy:latest") || !dockerImagePresent(t, "proveo/cursor:latest") {
-		t.Skip("proveo/egress-proxy or proveo/cursor image not built")
+	for _, repo := range []string{"proveo/egress-proxy", "proveo/cursor"} {
+		if _, ok := anyImagePresent(t, repo); !ok {
+			t.Skipf("%s image not built (neither :%s nor :%s)", repo, maintain.LocalTag, maintain.PublishTag)
+		}
 	}
+}
+
+// anyImagePresent returns whichever tag of repo exists locally. The tag policy
+// resolves a local build to :local and reserves :latest for a published artifact,
+// so a guard naming one tag skipped the entire suite whenever the developer had
+// built the other — and a cleanup naming one removed nothing.
+func anyImagePresent(t *testing.T, repo string) (string, bool) {
+	t.Helper()
+	for _, tag := range []string{maintain.LocalTag, maintain.PublishTag} {
+		if ref := repo + ":" + tag; dockerImagePresent(t, ref) {
+			return ref, true
+		}
+	}
+	return "", false
 }
 
 // printEnforcedPlan runs `proveo run <agent> --egress-mode allowlist --print` with

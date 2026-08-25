@@ -1,0 +1,4 @@
+name: monorepo-coordinator
+description: Owns cross-project concerns in a monorepo — workspace structure, shared deps, build graph, cross-language contracts. Use proactively when a change spans more than one project or touches shared packages. Advisory; does not edit.
+tools: Read, Grep, Glob
+model: inherit

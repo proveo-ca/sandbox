@@ -20,7 +20,7 @@ database "Escape target\noutside the mounted tree" as OUT <<db>>
 
 node "Container runtime" as RT <<host>> {
   component "runc — resolves a mount\ndestination THROUGH the symlink" as RUNC <<app>>
-  component "/workspace/input/_spec\nstill a symlink, now resolvable" as SEEN <<app>>
+  component "/app/_spec\nstill a symlink, now resolvable" as SEEN <<app>>
 }
 
 component "Dangling link inside the container\nempty directory · no error · feature absent" as DEAD <<error>>
@@ -46,7 +46,7 @@ note right of DEAD
 
   It bit this repo twice. An ad-hoc ""_spec"" symlink made the spec tooling
   unavailable inside the agent, and ""\.env -> ~/base\.env"" printed
-  ""No \.env found"" in the ""input-output"" layout, which had no overlay to
+  ""No \.env found"" in the ""app"" layout, which had no overlay to
   fall back on the way ""app"" does.
 end note
 
@@ -123,7 +123,7 @@ note right of ENV
   error rather than a fallback — so the walk records the link and places
   nothing.
 
-  ""escapingEnvFile"" closes the ""input-output"" gap: it overlays the
+  ""escapingEnvFile"" closes the ""app"" gap: it overlays the
   resolved target only when the path IS a symlink leaving the tree. A real
   file there already works, and mounting it over itself would add a
   redundant ""-v"".

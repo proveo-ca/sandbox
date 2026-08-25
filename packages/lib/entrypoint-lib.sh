@@ -27,11 +27,43 @@ if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
 fi
 
 # ── 1. Set Working Directory ────────────────────────────────
+# PROVEO_WORKDIR wins over the caller's default, because on the sbx backend the
+# workspace is mounted at its OWN host path and /app holds nothing. Launching the
+# agent there made it report "not a git repository" and then block on a trust
+# dialog for a folder that is not the project — a prompt no automation answers, and
+# the run died with the sandbox 30s later. proveo-entrypoint chdirs correctly but
+# cannot move its parent shell (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml),
+# so the shell has to make the same choice for itself.
 set_working_directory() {
  local default_dir="${1:-/app}"
- if [[ -d "$default_dir" ]]; then
- cd "$default_dir"
+ local wd="${PROVEO_WORKDIR:-}"
+ if [[ -n "$wd" && -d "$wd" ]]; then
+  cd "$wd" || return 0
+  return 0
  fi
+ if [[ -d "$default_dir" ]]; then
+  cd "$default_dir" || return 0
+ fi
+}
+
+# Claude Code asks the operator to confirm a folder it has not seen before. That
+# prompt cannot be answered by a run that is not being watched, so the workspace is
+# marked trusted up front — the same thing sbx's own claude kit does from
+# setup.install. The file is MERGED, never rewritten: it is the operator's real
+# ~/.claude.json, mounted in from the proveo home.
+accept_workspace_trust() {
+ local dir="${1:-$PWD}" home="${HOME:-}"
+ [[ -n "$home" && -d "$home" ]] || return 0
+ command -v node >/dev/null 2>&1 || return 0
+ PROVEO_TRUST_DIR="$dir" node -e '
+   const fs = require("fs"), path = process.env.HOME + "/.claude.json";
+   let j = {};
+   try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+   j.projects = j.projects || {};
+   const d = process.env.PROVEO_TRUST_DIR;
+   j.projects[d] = Object.assign({}, j.projects[d], { hasTrustDialogAccepted: true });
+   fs.writeFileSync(path, JSON.stringify(j, null, 2));
+ ' 2>/dev/null || true
 }
 
 # ── 2. Find and Load .env ───────────────────────────────────
@@ -341,19 +373,56 @@ _apply_env_bridge() {
 }
 
 apply_env_bridges() {
- # Order matters: a bridge whose default references "$VAR" must run AFTER the
- # bridge that produces VAR (each result is exported as we go).
- _apply_env_bridge ARCHITECT_MODEL      OPENCODE_MODEL               EDITOR_MODEL "anthropic/claude-sonnet-4-5" normalize
- _apply_env_bridge EDITOR_MODEL         OPENCODE_BUILD_MODEL         ""           '$OPENCODE_MODEL'            normalize
- _apply_env_bridge EDITOR_MODEL         OPENCODE_SMALL_MODEL         SMALL_MODEL  "anthropic/claude-haiku-4-5" normalize
- _apply_env_bridge OPENCODE_SMALL_MODEL SMALL_MODEL                  ""           ""                           normalize
- _apply_env_bridge GEMINI_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
- _apply_env_bridge GOOGLE_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
+ # Provider key aliases only. Model bridges are declared in defs/bridges/<harness>.tsv
+ # and applied by apply_model_bridges; keeping them here too is what let the opencode
+ # mapping drift between this file and internal/entrypoint.
+ _apply_env_bridge GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
+ _apply_env_bridge GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
+}
 
- # Ensure OPENCODE_SMALL_MODEL matches SMALL_MODEL for consistency
- if [[ -z "${OPENCODE_SMALL_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
-  export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
+# ── Model bridges — declared once in defs/bridges/<harness>.tsv ──────────────
+# The same table drives the prompt header on the host (internal/provider reads it
+# embedded), so what an operator is shown before launch is what the container sets.
+# Shell has to be the executor: proveo-entrypoint prep cannot export into its parent
+# (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+_apply_model_bridge() {
+ local targets="$1" roles="$2" default="$3" transform="$4"
+ local val="" r t
+ local -a role_list target_list
+ IFS=',' read -ra role_list <<< "$roles"
+ for r in "${role_list[@]}"; do
+  val="$(printenv "$r" 2>/dev/null || true)"
+  [[ -n "$val" ]] && break
+ done
+ if [[ -z "$val" && -n "$default" && "$default" != "-" ]]; then
+  case "$default" in
+  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
+  *) val="$default" ;;
+  esac
  fi
+ [[ -n "$val" ]] || return 0
+ case "$transform" in
+ normalize) val="$(_normalize_model "$val")" ;;
+ bare) val="${val##*/}" ;;
+ esac
+ IFS=',' read -ra target_list <<< "$targets"
+ for t in "${target_list[@]}"; do
+  # An explicit tool-specific value already in the environment always wins.
+  printenv "$t" >/dev/null 2>&1 && continue
+  export "$t=$val"
+ done
+}
+
+apply_model_bridges() {
+ local harness="$1"
+ local file="${PROVEO_BRIDGES_DIR:-/opt/proveo/bridges}/$harness.tsv"
+ [[ -f "$file" ]] || return 0
+ local slot targets roles default transform
+ # Row order is load-bearing: a "$VAR" default must run after the row that sets VAR.
+ while IFS=$'\t' read -r slot targets roles default transform; do
+  [[ -n "$slot" && "$slot" != \#* ]] || continue
+  _apply_model_bridge "$targets" "$roles" "$default" "$transform"
+ done < "$file"
 }
 
 # ── 7. Automatic Project-Level Tools Installer ──────────────
@@ -958,4 +1027,82 @@ report_agent_evidence() {
  else
  echo "🔎 agent evidence: default (harness defaults, no extra narration)"
  fi
+}
+
+# ── Subagent definitions — composed at runtime, never duplicated on disk ──
+# One body per agent lives in /opt/proveo/subagents/<name>.md with {{TOKEN}}
+# placeholders; the frontmatter schema is per-harness because Claude Code declares
+# a tools allowlist, opencode and cecli declare mode+permission, and cursor
+# declares readonly. A symlink cannot express that split (it is all-or-nothing,
+# and Docker COPY preserves the link so it dangles in the image), so the two
+# halves are joined here, on first run, into the harness's own agents directory.
+#
+#   render_subagents <harness> <dest-dir> [reseed]
+render_subagents() {
+ local harness="$1" dst="$2" reseed="${3:-0}"
+ local src="${PROVEO_SUBAGENTS_DIR:-/opt/proveo/subagents}"
+ local fmdir="$src/_frontmatter/$harness" varfile="$src/_vars/$harness.env"
+
+ [[ -d "$fmdir" ]] || return 0
+ # set -e is on: a read-only home must degrade to "no subagents", not kill the run.
+ mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not seed subagents into $dst; continuing" >&2; return 0; }
+
+ local keys=() vals=() k v
+ if [[ -f "$varfile" ]]; then
+  while IFS='=' read -r k v; do
+   [[ -n "$k" && "$k" != \#* ]] || continue
+   keys+=("$k"); vals+=("$v")
+  done < "$varfile"
+ fi
+
+ local seeded=() yaml name body line out i
+ for yaml in "$fmdir"/*.yaml; do
+  [[ -e "$yaml" ]] || continue
+  name="$(basename "$yaml" .yaml)"
+  body="$src/$name.md"
+  [[ -f "$body" ]] || { echo "⚠️  subagent body missing for $name; skipping" >&2; continue; }
+  [[ "$reseed" == "1" || ! -f "$dst/$name.md" ]] || continue
+
+  out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
+  out+="$(cat "$yaml")"$'\n'"---"$'\n'$'\n'
+  while IFS= read -r line || [[ -n "$line" ]]; do
+   for i in "${!keys[@]}"; do
+    line="${line//\{\{${keys[$i]}\}\}/${vals[$i]}}"
+   done
+   out+="$line"$'\n'
+  done < "$body"
+
+  if printf '%s' "$out" > "$dst/$name.md" 2>/dev/null; then
+   seeded+=("$name.md")
+  fi
+ done
+
+ if (( ${#seeded[@]} > 0 )); then
+  echo "🌱 Composed $harness subagents into $dst: ${seeded[*]}"
+ fi
+}
+
+# ── The FILE-SHAPED half of harness setup, invoked identically by both backends ──
+# Under sbx this runs from the Kit's setup.startup hook; on docker the entrypoint
+# calls it before exec. It may ONLY do work that outlives its own process: a setup
+# command runs in its own shell, so anything it exported would never reach the
+# agent. Env-shaped work is resolved host-side and arrives as values.
+#
+# Idempotent by construction — every step is "create if absent" or a merge — because
+# a re-attached sandbox runs the startup hook again.
+proveo_seed() {
+ local target="${1:-${PROVEO_TARGET:-}}"
+ # PROVEO_HOME first: sbx runs this under `user: "1000"`, which resets HOME from
+ # /etc/passwd, so $HOME here is NOT the home the agent will run with.
+ local home="${PROVEO_HOME:-${HOME:-}}"
+ [[ -n "$target" && -n "$home" ]] || return 0
+
+ case "$target" in
+ claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
+ cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
+ cecli) render_subagents cecli "$home/agents" "${CECLI_RESEED:-0}" ;;
+ opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
+ esac
+
+ accept_workspace_trust "${PROVEO_WORKDIR:-$PWD}"
 }

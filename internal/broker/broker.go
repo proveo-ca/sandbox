@@ -1,5 +1,5 @@
 // Package broker is the credential broker for the enforced egress modes.
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/_plans/multi-provider-broker.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml
 package broker
 
 import (

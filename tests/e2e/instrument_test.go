@@ -6,10 +6,13 @@ package e2e
 
 import (
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -86,10 +89,72 @@ func (w *watcher) tick() (alive bool) {
 // Screen is the freshest scrollback seen while the session was alive.
 func (w *watcher) Screen() string { return w.lastScreen }
 
-// Fatalf fails the test with the message plus full diagnostics.
+// credentialUnavailable matches a pane where the run reached the agent and the
+// AGENT then had nothing usable to authenticate with — a key the provider refuses,
+// or one with no balance left to spend.
+//
+// Deliberately narrow. It must name the credential and nothing else: broadening it
+// to any early exit would let a real adapter defect leave as a skip.
+var credentialUnavailable = regexp.MustCompile(`(?i)` +
+	`credit balance is too low|` +
+	`insufficient (credits?|quota|balance)|` +
+	`authentication_error|invalid x-api-key|invalid api key`)
+
+// Fatalf fails the test with the message plus full diagnostics — unless the pane
+// says the credential was the problem, which Layer 4 treats as a missing
+// prerequisite rather than a defect. A sandbox whose agent exits for want of a
+// spendable credential never exercised the boundary under test, so failing on it
+// buries the next real regression under a condition of the host.
 func (w *watcher) Fatalf(format string, args ...any) {
 	w.t.Helper()
+	if m := credentialUnavailable.FindString(w.lastScreen); m != "" {
+		w.t.Skipf("the agent could not spend its credential (%q) — supply a funded one to "+
+			"exercise this path%s", m, diagnostics(w.lastScreen))
+	}
 	w.t.Fatalf(format+"%s", append(args, diagnostics(w.lastScreen))...)
+}
+
+// harnessSecrets are the credential variables target's own manifest declares, in
+// declaration order. Read from the def rather than restated, so a harness that
+// changes what it authenticates with cannot drift out of the callers below.
+func harnessSecrets(t *testing.T, target string) []string {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	var out []string
+	for _, m := range ms {
+		if m.Name != target {
+			continue
+		}
+		for _, e := range m.Env {
+			if e.Secret {
+				out = append(out, e.Name)
+			}
+		}
+	}
+	return out
+}
+
+// requireHarnessCredential skips unless the credential target actually spends is
+// present on the host. Read from the def's own manifest rather than restated, so a
+// harness that changes what it authenticates with cannot drift out of this guard.
+func requireHarnessCredential(t *testing.T, target string) {
+	t.Helper()
+	declared := harnessSecrets(t, target)
+	if len(declared) == 0 {
+		return // nothing to spend; the harness authenticates some other way
+	}
+	// hostEnvValue, not os.Getenv: this suite resolves a credential from the process
+	// environment OR the repo .env, and checking only the first would skip a run the
+	// developer had in fact provisioned.
+	for _, k := range declared {
+		if strings.TrimSpace(hostEnvValue(t, k)) != "" {
+			return
+		}
+	}
+	t.Skipf("%s authenticates with one of %v and none is set on this host", target, declared)
 }
 
 // until polls cond every second until it returns true, the session dies, or the
@@ -109,6 +174,35 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// waitForContainerShell blocks until the agent shell inside the container is
+// accepting input. The prompt is the signal that the WHOLE topology came up —
+// sidecars, networks, CA trust — because proveo only hands the PTY over once the
+// container is running, so anything that fails earlier fails here with the
+// scrollback attached rather than as a confusing timeout further down.
+//
+// tmux trims trailing whitespace, so the prompt reads "…:/app$" with nothing
+// after it; matching on "$ " never fires. Every def now shares the one workspace
+// layout, so /app is the workdir — /workspace stays accepted only so an older
+// image does not fail the wait. Both are DOCKER mount points: a sandbox run mounts
+// a workspace at its own host path, so a caller that has not pinned PROVEO_SBX=off
+// will wait here until its deadline for a prompt that cannot appear.
+// image still matches while the rebuilt ones roll out.
+func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
+	t.Helper()
+	w.until("the agent shell", timeout, func() bool {
+		scr := w.Screen()
+		if !strings.Contains(scr, "@") {
+			return false
+		}
+		for _, wd := range []string{"/app", "/workspace"} {
+			if strings.Contains(scr, ":"+wd+"$") || strings.Contains(scr, ":"+wd+"#") {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 // acceptChoicePrompt accepts the pre-selected choice form. Anchored on the key
