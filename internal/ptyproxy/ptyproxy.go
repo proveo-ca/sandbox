@@ -27,6 +27,24 @@ type Proxy struct {
 	master  *os.File
 	restore *term.State
 
+	// Tap, when set, is handed every batch of bytes read from the operator's
+	// terminal, together with whether the filter let it through. It exists so a
+	// run can answer "what actually arrived on stdin" without the usual cost of
+	// finding out: wrapping os.Stdin in a plain io.Reader makes os/exec substitute
+	// a pipe, and the child then has no tty at all. Here the child keeps the pty
+	// either way, and the tap still sees what was DROPPED — which is the half a
+	// child-side log can never show.
+	//
+	// It is called on the input pump's goroutine, so an implementation that blocks
+	// stalls the operator's keystrokes. Buffer, do not block.
+	Tap func(b []byte, forwarded bool)
+
+	// filter removes terminal reports that are neither keystrokes nor an answer
+	// anyone is waiting for. New installs the default; set DisableFilter to opt
+	// out and forward the operator's terminal byte-for-byte.
+	filter        *inputFilter
+	DisableFilter bool
+
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
@@ -36,7 +54,9 @@ type Proxy struct {
 
 // New returns a Proxy over the given terminal files. Passing os.Stdin/os.Stdout
 // is the normal case.
-func New(in, out *os.File) *Proxy { return &Proxy{In: in, Out: out} }
+func New(in, out *os.File) *Proxy {
+	return &Proxy{In: in, Out: out, filter: newInputFilter()}
+}
 
 // Usable reports whether a PTY overlay is possible at all: both ends must be a
 // real terminal. A headless run has no overlay and must not get one.
@@ -116,6 +136,15 @@ func (p *Proxy) pumpIn() {
 	for {
 		n, err := p.In.Read(buf)
 		if n > 0 {
+			forward := p.DisableFilter || p.filter == nil || p.filter.keep(buf[:n])
+			if p.Tap != nil {
+				// Before any routing: the tap records what ARRIVED, and whether it
+				// survived the filter.
+				p.Tap(buf[:n], forward)
+			}
+			if !forward {
+				continue
+			}
 			p.mu.Lock()
 			ch := p.overlayIn
 			p.mu.Unlock()

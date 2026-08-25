@@ -20,9 +20,9 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "valid multi-image",
-			yaml: "name: claudecode\ndescription: d\negress: true\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solo: proveo/claudecode-solo:latest\n",
+			yaml: "name: claudecode\ndescription: d\negress: true\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n",
 			want: Manifest{Name: "claudecode", Description: "d", Egress: true, Stability: "candidate",
-				Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-solo": "proveo/claudecode-solo:latest"}, Dir: "dir"},
+				Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-solidity": "proveo/claudecode-solidity:latest"}, Dir: "dir"},
 		},
 		{name: "missing name", yaml: "images:\n  x: y\n", wantErr: true},
 		{name: "no images", yaml: "name: x\n", wantErr: true},
@@ -91,7 +91,7 @@ func TestLoadAndTargets(t *testing.T) {
 		}
 	}
 	write("cursor", "name: cursor\nimages:\n  cursor: proveo/cursor:latest\n")
-	write("claudecode", "name: claudecode\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solo: proveo/claudecode-solo:latest\n")
+	write("claudecode", "name: claudecode\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n")
 
 	ms, err := Load(defs)
 	if err != nil {
@@ -107,9 +107,9 @@ func TestLoadAndTargets(t *testing.T) {
 		t.Fatalf("Targets: %v", err)
 	}
 	want := map[string]string{
-		"cursor":          "proveo/cursor:latest",
-		"claudecode":      "proveo/claudecode:latest",
-		"claudecode-solo": "proveo/claudecode-solo:latest",
+		"cursor":              "proveo/cursor:latest",
+		"claudecode":          "proveo/claudecode:latest",
+		"claudecode-solidity": "proveo/claudecode-solidity:latest",
 	}
 	if diff := cmp.Diff(want, targets); diff != "" {
 		t.Errorf("Targets mismatch (-want +got):\n%s", diff)

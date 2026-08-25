@@ -9,7 +9,12 @@ node "proveo/base — the universal floor" as FLOOR <<host>> {
   component "mise" as MISE <<app>>
 }
 
-node "Container startup — ensure_project_tools" as BOOT <<host>> {
+' Provisioning is invoked from proveo_seed (proveo_provision_toolchain), which
+' BOTH backends reach: docker from the entrypoint, sbx also from setup.startup.
+' A setup command's exports die with it, so the resolved PATH/VIRTUAL_ENV are
+' written to the agent home's .bashrc — the agent is not a shell, but every
+' command it runs is.
+node "Container startup — proveo_provision_toolchain" as BOOT <<host>> {
   component "1. nx — nx.json" as T1 <<app>>
   component "2. turbo — turbo.json" as T2 <<app>>
   component "3. mise — mise.toml · .tool-versions" as T3 <<app>>

@@ -299,3 +299,174 @@ echo "SKIP_OK"`).CombinedOutput()
 		t.Fatalf("non-Python workspace triggered provisioning: %v\n%s", err, s)
 	}
 }
+
+// A monorepo root is whatever its PRIMARY language made it, so the Python
+// project is nested under apps/. Provisioning that stat-ed only the root found
+// nothing at all — while ensure_language_servers, which walks the tree, still
+// installed pyright. That asymmetry left the agent with code intelligence for a
+// project it had no interpreter to run.
+func TestPythonEnvironmentIsProvisionedForNestedProject(t *testing.T) {
+	img := harnessImage(t, "opencode")
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"package.json":        `{"name":"monorepo"}`,
+		"pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := filepath.Join(dir, "apps", "svc")
+	if err := os.MkdirAll(svc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"requirements.txt": "requests\n",
+		".python-version":  "3.12\n",
+		"app.py":           "import requests\nprint(requests.__version__)\n",
+	} {
+		if err := os.WriteFile(filepath.Join(svc, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Deeper than the default scan depth: named, never built.
+	deep := filepath.Join(dir, "a", "b", "c", "d", "e")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "pyproject.toml"), []byte("[project]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
+		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
+		"--entrypoint", "bash", img, "-c", `
+export HOME=/tmp/h; mkdir -p $HOME
+source /lib.sh 2>/dev/null
+roots="$(_py_project_roots /w)"
+[ "$roots" = "/w/apps/svc" ] || { echo "BAD_ROOTS[$roots]"; exit 1; }
+ensure_python_env /w
+[ -n "$VIRTUAL_ENV" ] || { echo "NO_VIRTUAL_ENV"; exit 1; }
+case "$VIRTUAL_ENV" in /w/*) echo "ENV_INSIDE_WORKSPACE"; exit 1 ;; esac
+python -c 'import requests' 2>/dev/null || { echo "DEP_UNIMPORTABLE"; exit 1; }
+echo "NESTED_OK"`).CombinedOutput()
+
+	if s := string(out); err != nil || !strings.Contains(s, "NESTED_OK") {
+		t.Fatalf("nested Python project not provisioned: %v\n%s", err, s)
+	}
+}
+
+// Every language's dependency tree is bind-mounted from the host, so this is
+// never a TypeScript-only hazard — node_modules is just the loudest instance.
+// The portable majority of each tree loads, so the failure arrives late and
+// names the TOOL rather than the platform. One probe, one table, every language.
+func TestHostBuiltDependencyTreesAreReported(t *testing.T) {
+	img := harnessImage(t, "opencode")
+
+	// Mach-O 64-bit LE: built on the macOS host, unloadable in a Linux container.
+	machO := []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01}
+	elf := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+
+	write := func(t *testing.T, path string, body []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run := func(t *testing.T, dir, script string) string {
+		t.Helper()
+		out, err := exec.Command("docker", "run", "--rm", "--user", "root",
+			"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
+			"--entrypoint", "bash", img, "-c",
+			"export HOME=/tmp/h; mkdir -p $HOME\nsource /lib.sh 2>/dev/null\n"+script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("probe failed: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	// One workspace, one pass: each language's tree must be found where its own
+	// ecosystem puts it, and each package named the way that ecosystem names it.
+	t.Run("every language is probed and named", func(t *testing.T) {
+		dir := t.TempDir()
+		// typescript — pnpm's content-addressed store, plus a scoped package.
+		write(t, filepath.Join(dir, "package.json"), []byte(`{"name":"m"}`))
+		write(t, filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"))
+		write(t, filepath.Join(dir, "node_modules/.pnpm/nx@22.7.8/node_modules/nx/src/native/nx.darwin-arm64.node"), machO)
+		write(t, filepath.Join(dir, "node_modules/@scope/thing/build/thing.node"), machO)
+		write(t, filepath.Join(dir, "node_modules/native-ok/ok.node"), elf)
+		// ruby — nested, and a .bundle extension macOS uses and Linux does not.
+		write(t, filepath.Join(dir, "svc/api/Gemfile"), []byte("source 'https://rubygems.org'\n"))
+		write(t, filepath.Join(dir, "svc/api/vendor/bundle/ruby/3.3.0/gems/nokogiri-1.16.0/lib/nokogiri/nokogiri.bundle"), machO)
+		// terraform — provider binaries, keyed by namespace/name.
+		write(t, filepath.Join(dir, "infra/.terraform.lock.hcl"), []byte("# lock\n"))
+		write(t, filepath.Join(dir, "infra/.terraform/providers/registry.terraform.io/hashicorp/aws/5.0.0/darwin_arm64/terraform-provider-aws"), machO)
+		// lua — luarocks keys by module, and the first path segment is "lib".
+		write(t, filepath.Join(dir, "lua/app.rockspec"), []byte("package='app'\n"))
+		write(t, filepath.Join(dir, "lua/lua_modules/lib/lua/5.4/cjson.so"), machO)
+		// rust — build output, so the remedy is removal, not a reinstall.
+		write(t, filepath.Join(dir, "rs/Cargo.toml"), []byte("[package]\nname=\"x\"\n"))
+		write(t, filepath.Join(dir, "rs/target/debug/deps/x.o"), machO)
+
+		got := run(t, dir, `ensure_dependency_trees /w`)
+		for _, want := range []string{
+			"nx@22.7.8", "@scope/thing", // typescript
+			"nokogiri-1.16.0",   // ruby
+			"hashicorp/aws",     // terraform
+			"cjson",             // lua
+			"rust build output", // rust takes the artifacts path, not addons
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("report is missing %q:\n%s", want, got)
+			}
+		}
+		// Build output needs no registry, so offering a reinstall for it would
+		// send the operator down a path that cannot help.
+		if strings.Contains(got, "target was built on the host") {
+			t.Errorf("rust build output was reported as a reinstallable tree:\n%s", got)
+		}
+		// The ELF addon runs here; naming it would send the operator after a
+		// package that is not the problem.
+		if strings.Contains(got, "native-ok") {
+			t.Errorf("a container-native addon was reported as foreign:\n%s", got)
+		}
+	})
+
+	t.Run("native addons stay silent", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "package.json"), []byte(`{"name":"m"}`))
+		write(t, filepath.Join(dir, "package-lock.json"), []byte("{}"))
+		write(t, filepath.Join(dir, "node_modules/native-ok/ok.node"), elf)
+
+		if got := run(t, dir, `ensure_dependency_trees /w; echo DONE`); strings.Contains(got, "built on the host") {
+			t.Errorf("an all-ELF tree was reported as foreign:\n%s", got)
+		}
+	})
+
+	t.Run("off disables the probe", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "package.json"), []byte(`{"name":"m"}`))
+		write(t, filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"))
+		write(t, filepath.Join(dir, "node_modules/x/x.node"), machO)
+
+		if got := run(t, dir, `PROVEO_DEPS=off ensure_dependency_trees /w; echo DONE`); strings.Contains(got, "built on the host") {
+			t.Errorf("PROVEO_DEPS=off still probed:\n%s", got)
+		}
+	})
+
+	// A JS workspace with nothing installed is a distinct, louder failure: it is
+	// not "some bindings will not load", it is "nothing resolves".
+	t.Run("absent node_modules is called out", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "package.json"), []byte(`{"name":"m"}`))
+		write(t, filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"))
+
+		if got := run(t, dir, `ensure_dependency_trees /w`); !strings.Contains(got, "no node_modules") {
+			t.Errorf("missing node_modules went unreported:\n%s", got)
+		}
+	})
+}

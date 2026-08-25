@@ -622,25 +622,59 @@ _py_env_dir() {
   printf '%s' "${HOME}/.cache/proveo/venv/${h}"
 }
 
-ensure_python_env() {
-  _proveo_tool_path
-  local scan="${1:-$(pwd)}" kind ver env_dir spec
-  kind="$(_py_project_kind "$scan")"
-  [[ -n "$kind" ]] || return 0
-  _proveo_auto_install_enabled || return 0
-  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
-  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
+# _py_project_roots prints the directories under scan that ARE Python projects,
+# shallowest first, deduped.
+#
+# A monorepo root is whatever its primary language made it — here, package.json
+# and pnpm-workspace.yaml — while the Python service sits under apps/. Stat-ing
+# one directory therefore finds a standalone project and misses every nested
+# one, which is how a workspace ends up with pyright (whose scan walks the tree)
+# and no interpreter (whose scan did not).
+# _proveo_project_roots prints the directories under scan that hold any of the
+# given marker filenames, shallowest first, deduped, no deeper than depth.
+# Shared by every language: which markers matter is the only thing that differs,
+# and a per-language copy of this walk is how the scans drift apart.
+_proveo_project_roots() {
+  local scan="$1" depth="$2"; shift 2
+  local f d rel seps n tab m first=1
+  local pat=()
+  for m in "$@"; do
+    if [[ $first -eq 1 ]]; then pat+=( -name "$m" ); first=0
+    else pat+=( -o -name "$m" ); fi
+  done
+  [[ ${#pat[@]} -gt 0 ]] || return 0
+  tab="$(printf '\t')"
+  _proveo_walk "$scan" -type f "(" "${pat[@]}" ")" -print \
+    | while IFS= read -r f; do
+        d="${f%/*}"
+        rel="${d#"$scan"}"; rel="${rel#/}"
+        if [[ -z "$rel" ]]; then
+          n=0
+        else
+          seps="${rel//[!\/]/}"; n=$(( ${#seps} + 1 ))
+        fi
+        [[ "$n" -le "$depth" ]] && printf '%s%s%s\n' "$n" "$tab" "$d"
+      done \
+    | sort -t"$tab" -k1,1n -k2,2 | cut -f2- | awk '!seen[$0]++'
+}
 
-  _proveo_lock_installs || return 0
-  ver="$(_py_requested_version "$scan")"
-  env_dir="$(_py_env_dir "$scan")"
+_py_project_roots() {
+  _proveo_project_roots "${1:-$(pwd)}" "${PROVEO_PYTHON_SCAN_DEPTH:-${PROVEO_DEP_SCAN_DEPTH:-4}}" \
+    pyproject.toml poetry.lock uv.lock Pipfile environment.yml environment.yaml 'requirements*.txt'
+}
+
+# _py_provision_one provisions the interpreter and the project's own installer,
+# then builds the environment. Returns non-zero only when the interpreter itself
+# could not be had — a missing installer falls back to pip.
+_py_provision_one() {
+  local kind="$1" root="$2" ver env_dir spec
+  ver="$(_py_requested_version "$root")"
+  env_dir="$(_py_env_dir "$root")"
 
   if ! _py_venv_capable; then
     echo "🐍 Provisioning Python ${ver} (the image's python3 cannot create a venv)..."
     _mise_install "python@${ver}" "$(_proveo_github_token)" >/dev/null 2>&1 \
-      || { echo "⚠️  Could not provision Python ${ver}; skipping environment setup"; _proveo_unlock_installs; return 0; }
+      || { echo "⚠️  Could not provision Python ${ver}; skipping environment setup"; return 1; }
     _proveo_tool_path
   fi
 
@@ -656,9 +690,52 @@ ensure_python_env() {
     _proveo_tool_path
   fi
 
-  _py_build_env "$kind" "$scan" "$env_dir"
+  _py_build_env "$kind" "$root" "$env_dir"
+}
+
+ensure_python_env() {
+  _proveo_tool_path
+  local scan="${1:-$(pwd)}" roots root kind primary="" deferred="" others="" max n=0
+  _proveo_auto_install_enabled || return 0
+  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  roots="$(_py_project_roots "$scan")"
+  [[ -n "$roots" ]] || return 0
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
+
+  # Each project gets its own env (`_py_env_dir` keys by path), so the cap is
+  # about STARTUP COST, not correctness: every root past it is named rather than
+  # built, and a later run with the cap raised picks it up warm.
+  max="${PROVEO_PYTHON_MAX_PROJECTS:-4}"
+  _proveo_lock_installs || return 0
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    kind="$(_py_project_kind "$root")"
+    [[ -n "$kind" ]] || continue
+    n=$(( n + 1 ))
+    if [[ "$n" -gt "$max" ]]; then
+      deferred="${deferred} ${root#"$scan"/}"
+      continue
+    fi
+    _py_provision_one "$kind" "$root" || break
+    if [[ -z "$primary" ]]; then
+      primary="$root"
+    else
+      others="${others} ${root#"$scan"/}"
+    fi
+  done <<< "$roots"
   _proveo_unlock_installs
-  _py_activate "$env_dir" "$scan"
+
+  [[ -n "$primary" ]] || return 0
+  _py_activate "$(_py_env_dir "$primary")" "$primary"
+  # The shell has ONE VIRTUAL_ENV, so the rest are built but not activated. Say
+  # where they are: an agent that cd-s into one needs the path, and silence here
+  # reads as "not provisioned".
+  [[ -n "$others" ]] && echo "🐍 Also provisioned (not activated):${others}"
+  [[ -n "$deferred" ]] && \
+    echo "ℹ️  Python projects past PROVEO_PYTHON_MAX_PROJECTS=${max}, not provisioned:${deferred}"
+  return 0
 }
 
 _py_build_env() {
@@ -704,7 +781,344 @@ _py_activate() {
   if [[ -e "$scan/.venv" && ! -x "$scan/.venv/bin/python" ]]; then
     echo "⚠️  ${scan}/.venv is a host-built environment and cannot run here; using ${env_dir} instead"
   fi
-  echo "🐍 Python: $("$env_dir/bin/python" --version 2>&1) · env ${env_dir}"
+  echo "🐍 Python: $("$env_dir/bin/python" --version 2>&1) · ${scan} · env ${env_dir}"
+}
+
+# ── 7d. Workspace dependency trees (one rule for every language) ──
+# SPEC: _spec/packages/lib/dependency-trees.puml
+# Knobs: PROVEO_DEPS=auto|off|reinstall · PROVEO_DEPS_TIMEOUT ·
+#        PROVEO_DEPS_PROBE_LIMIT · PROVEO_DEP_SCAN_DEPTH.
+#
+# Every language a harness supports materialises SOMETHING inside the workspace,
+# and the workspace is bind-mounted from the host. So the hazard is not a
+# TypeScript hazard — node_modules is only the loudest instance of it. What
+# differs per language is not whether the tree crosses the boundary but what it
+# COSTS when it does, and that is what the table below encodes.
+#
+# Python is the extreme: a venv ALWAYS holds a platform interpreter, so it can
+# never be inherited and ensure_python_env provisions unconditionally, outside
+# the workspace. Everything else is a mixture, and the mixture is the trap —
+# the portable majority loads fine and the failure surfaces later, at the first
+# call into a platform binary, in a message that names the tool rather than the
+# platform.
+
+# _dep_lang_class decides the remedy, so every supported language gets an
+# explicit entry — including the ones with nothing to do, because an absent row
+# is indistinguishable from an oversight.
+#
+#   addons      mostly-portable tree punctuated by platform binaries; the
+#               package manager can rebuild it, given a reachable registry
+#   artifacts   entirely host build output; no registry needed, the toolchain
+#               regenerates it once the stale tree is out of the way
+#   provisioned never inherited at all — ensure_python_env owns it
+#   portable    nothing host-specific lands in-tree: Go modules and vendor/ are
+#               source; Java/Kotlin resolve to bytecode JARs; Nix keeps its
+#               closure in /nix/store, which is never mounted
+_dep_lang_class() { case "$1" in
+  typescript|ruby|lua|terraform) REPLY=addons ;;
+  rust|cpp|zig)                  REPLY=artifacts ;;
+  python)                        REPLY=provisioned ;;
+  go|java|kotlin|nix)            REPLY=portable ;;
+  *)                             REPLY="" ;;
+esac; }
+
+# Markers that say "a project of this language is rooted here".
+_dep_lang_markers() { case "$1" in
+  typescript) echo "package.json" ;;
+  ruby)       echo "Gemfile" ;;
+  lua)        echo "*.rockspec" ;;
+  terraform)  echo ".terraform.lock.hcl" ;;
+  rust)       echo "Cargo.toml" ;;
+  cpp)        echo "CMakeLists.txt meson.build" ;;
+  zig)        echo "build.zig" ;;
+esac; }
+
+# The directories that language's tooling materialises inside the project.
+_dep_lang_dirs() { case "$1" in
+  typescript) echo "node_modules" ;;
+  ruby)       echo "vendor/bundle" ;;
+  lua)        echo "lua_modules" ;;
+  terraform)  echo ".terraform" ;;
+  rust)       echo "target" ;;
+  cpp)        echo "build" ;;
+  zig)        echo "zig-cache .zig-cache zig-out" ;;
+esac; }
+
+# Filenames worth probing. Deliberately NOT ".a"/".rlib": both are ar archives
+# on every platform, so their magic bytes cannot tell host from container — a
+# format that cannot answer the question does not belong in the probe.
+_dep_lang_binaries() { case "$1" in
+  typescript) echo "*.node" ;;
+  ruby)       echo "*.so *.bundle" ;;
+  lua)        echo "*.so *.dylib" ;;
+  terraform)  echo "terraform-provider-*" ;;
+  rust|cpp|zig) echo "*.o *.so *.dylib" ;;
+esac; }
+
+# The command that rebuilds an `addons` tree, chosen by the project's own lockfile.
+_dep_install_cmd() { local lang="$1" d="$2"; case "$lang" in
+  typescript)
+    [[ -f "$d/pnpm-lock.yaml" ]] && { echo "pnpm install --frozen-lockfile"; return 0; }
+    [[ -f "$d/bun.lockb" || -f "$d/bun.lock" ]] && { echo "bun install --frozen-lockfile"; return 0; }
+    [[ -f "$d/yarn.lock" ]] && { echo "yarn install --immutable"; return 0; }
+    [[ -f "$d/package-lock.json" ]] && { echo "npm ci"; return 0; }
+    echo "npm install" ;;
+  ruby)      echo "bundle install" ;;
+  lua)       echo "luarocks install --only-deps" ;;
+  terraform) echo "terraform init -upgrade" ;;
+esac; }
+
+# ELF is the only object format this container can execute, so anything else —
+# Mach-O from macOS, PE from Windows — came from the host. Four bytes settle it:
+# no uname, no package metadata, no per-ecosystem special cases.
+_proveo_foreign_object() {
+  local magic
+  magic="$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+  [[ "$magic" == "7f454c46" ]] && return 1
+  return 0
+}
+
+# _dep_owner names the thing an operator can act on, collapsing each ecosystem's
+# storage layout back to a package identity. Falls back to the first path
+# segment, which is already the package name in most layouts.
+_dep_owner() {
+  local lang="$1" path="$2" dir="$3" rel="${2#"$3"/}" head rest
+  case "$lang" in
+    typescript)
+      # pnpm's store keys by "<name>@<version>", which is the identity worth
+      # reporting: a platform mismatch is always about a specific build.
+      case "$rel" in .pnpm/*) rel="${rel#.pnpm/}"; printf '%s' "${rel%%/*}"; return 0 ;; esac
+      head="${rel%%/*}"
+      if [[ "$head" == @* ]]; then rest="${rel#*/}"; printf '%s/%s' "$head" "${rest%%/*}"; return 0; fi
+      printf '%s' "$head"; return 0 ;;
+    ruby)
+      # …/ruby/<abi>/gems/<gem>-<version>/…
+      case "$rel" in *gems/*) rel="${rel#*gems/}"; printf '%s' "${rel%%/*}"; return 0 ;; esac ;;
+    lua)
+      # luarocks stores by module, not by package: lib/lua/<ver>/<module>.so.
+      # The first path segment is only ever "lib", which names nothing.
+      head="${path##*/}"; printf '%s' "${head%.*}"; return 0 ;;
+    terraform)
+      # providers/<registry>/<namespace>/<name>/<version>/<os>_<arch>/…
+      case "$rel" in
+        providers/*/*/*)
+          rel="${rel#providers/}"; rel="${rel#*/}"
+          head="${rel%%/*}"; rest="${rel#*/}"
+          printf '%s/%s' "$head" "${rest%%/*}"; return 0 ;;
+      esac ;;
+  esac
+  printf '%s' "${rel%%/*}"
+}
+
+# A workspace can hold thousands of binaries and the answer never changes after
+# the first foreign one, so the probe is capped: this is a diagnosis, not an audit.
+_dep_probe() {
+  local dir="$1" lang="$2" cap="${PROVEO_DEPS_PROBE_LIMIT:-60}" f n=0 p first=1
+  local pat=()
+  for p in $(_dep_lang_binaries "$lang"); do
+    if [[ $first -eq 1 ]]; then pat+=( -name "$p" ); first=0
+    else pat+=( -o -name "$p" ); fi
+  done
+  [[ ${#pat[@]} -gt 0 ]] || return 0
+  while IFS= read -r f; do
+    n=$(( n + 1 ))
+    [[ "$n" -gt "$cap" ]] && break
+    _proveo_foreign_object "$f" || continue
+    _dep_owner "$lang" "$f" "$dir"; printf '\n'
+  done < <(find "$dir" -type f "(" "${pat[@]}" ")" 2>/dev/null)
+  return 0
+}
+
+# Why the repair is opt-in, on two counts. It writes into the mounted tree,
+# which IS the operator's checkout — a sandbox that silently rewrites the host's
+# dependencies has defeated its own purpose. And under any egress tier but open
+# the registry is off the allowlist, so the install fails partway and leaves the
+# tree PARTIAL: strictly worse than the host-built one it replaced, which at
+# least carried everything portable.
+_dep_reinstall() {
+  local lang="$1" root="$2" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
+  cmd="$(_dep_install_cmd "$lang" "$root")"
+  [[ -n "$cmd" ]] || return 0
+  if ! command -v "${cmd%% *}" >/dev/null 2>&1; then
+    echo "    ⚠️  ${cmd%% *} is not on PATH; cannot reinstall"
+    return 0
+  fi
+  echo "    ♻️  ${cmd} (PROVEO_DEPS=reinstall) — this rewrites the mounted tree..."
+  ( cd "$root" && _proveo_bounded "$bounded" $cmd ) || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "    ✅ ${lang} dependencies rebuilt for this platform"
+  else
+    echo "    ⚠️  Reinstall failed (rc=${rc}). Under any egress tier but open the registry is"
+    echo "        off the allowlist, so the fetch cannot complete; the tree is now PARTIAL."
+    echo "        Rerun with --egress-mode open, or restore it on the host."
+  fi
+  return 0
+}
+
+_dep_report_addons() {
+  local lang="$1" root="$2" dir="$3" mode="$4" foreign names count
+  foreign="$(_dep_probe "$dir" "$lang" | sort -u)"
+  [[ -n "$foreign" ]] || return 0
+  count="$(printf '%s\n' "$foreign" | grep -c .)"
+  names="$(printf '%s\n' "$foreign" | head -n 5 | paste -sd' ' -)"
+  echo "⚠️  ${dir#"$root"/} was built on the host: ${count} ${lang} package(s) carry binaries"
+  echo "    this platform cannot load (${names})."
+  echo "    The portable majority still loads, so the failure arrives later, at the first"
+  echo "    call into one of them, naming the TOOL rather than the platform."
+  if [[ "$mode" == reinstall ]]; then
+    _dep_reinstall "$lang" "$root"
+  else
+    echo "    Set PROVEO_DEPS=reinstall to rebuild them (needs --egress-mode open, and it"
+    echo "    writes to the mounted tree), or avoid the tasks that need them."
+  fi
+}
+
+# Build output needs no registry — the toolchain regenerates it. The only advice
+# that helps is to get the stale tree out of the way, so this never offers an
+# install and never touches the operator's files.
+_dep_report_artifacts() {
+  local lang="$1" root="$2" dir="$3"
+  [[ -n "$(_dep_probe "$dir" "$lang" | head -n1)" ]] || return 0
+  echo "ℹ️  ${dir#"$root"/} holds ${lang} build output from the host and cannot be reused here."
+  echo "    The toolchain rebuilds it; remove that directory if a build reads the stale one."
+}
+
+ensure_dependency_trees() {
+  local scan="${1:-$(pwd)}" mode lang class roots root dir dirs markers primary
+  _proveo_auto_install_enabled || return 0
+  mode="$(printf '%s' "${PROVEO_DEPS:-auto}" | tr '[:upper:]' '[:lower:]')"
+  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+
+  for lang in typescript ruby lua terraform rust cpp zig; do
+    _dep_lang_class "$lang"; class="$REPLY"
+    markers="$(_dep_lang_markers "$lang")"; dirs="$(_dep_lang_dirs "$lang")"
+    [[ -n "$markers" && -n "$dirs" ]] || continue
+    # The first listed directory is the one whose absence means "nothing is
+    # installed"; the rest are secondary caches whose absence says nothing.
+    primary="${dirs%% *}"
+    roots="$(_proveo_project_roots "$scan" "${PROVEO_DEP_SCAN_DEPTH:-4}" $markers)"
+    [[ -n "$roots" ]] || continue
+    while IFS= read -r root; do
+      [[ -n "$root" ]] || continue
+      for dir in $dirs; do
+        if [[ ! -d "$root/$dir" ]]; then
+          # Only an `addons` tree is REQUIRED to exist: absent build output is
+          # the normal state of a clean checkout, absent dependencies are not.
+          if [[ "$class" == addons && "$dir" == "$primary" ]]; then
+            echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${dir} — nothing is installed here"
+            [[ "$mode" == reinstall ]] && _dep_reinstall "$lang" "$root"
+          fi
+          continue
+        fi
+        case "$class" in
+          addons)    _dep_report_addons "$lang" "$root" "$root/$dir" "$mode" ;;
+          artifacts) _dep_report_artifacts "$lang" "$root" "$root/$dir" ;;
+        esac
+      done
+    done <<< "$roots"
+  done
+  return 0
+}
+
+# ── Launcher handoff ───────────────────────────────────────
+# proveo_exec_agent decides whether "$@" is the agent's ARGUMENTS or a COMMAND to
+# run instead of the agent, and it exists because the two backends disagree.
+#
+# docker: proveo passes the harness's own flags (`-p "prompt"`, `--continue`), so
+#   they belong AFTER the agent binary.
+# sbx:    the built-in agent kit supplies the whole command in the CMD position —
+#   `claude --dangerously-skip-permissions`, or a `sh -c …` wrapper. The stock
+#   template's ENTRYPOINT is a bare init (`tini --`) so that command simply runs.
+#   proveo's ENTRYPOINT is this script, so the same words arrive here as "$@" and
+#   appending them to our own launch line hands the AGENT NAME to the agent as a
+#   positional — which every harness reads as a PROMPT. The agent then answers
+#   "claude --dangerously-skip-permissions", or just "sh", and exits; the sandbox
+#   stops with it, and the operator sees `ERROR: sandbox … was stopped` with no
+#   cause. That is the whole "auto-close", and the phantom `sh` prompts with it.
+#
+# The test is whether the first word RESOLVES as an executable. A harness flag
+# never does (`-p`, `--continue`); a launcher-supplied command always does
+# (`claude`, `sh`, `bash`). No backend detection, no env sniffing, and it stays
+# correct if either side changes its wording.
+proveo_exec_agent() {
+  local agent="$1"; shift
+  local launch=()
+  while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
+  [[ "${1:-}" == "--" ]] && shift
+  # "$1" != -* comes FIRST and is not redundant: `command -v -p` parses -p as
+  # command's OWN flag and reports success, so a bare probe declares the harness
+  # flag `-p` an executable and execs it. `--` then stops option parsing for the
+  # rest. Both guards are load-bearing.
+  if [[ $# -gt 0 && "$1" != -* ]] && command -v -- "$1" >/dev/null 2>&1; then
+    echo "🔁 launcher supplied its own command; running it instead of ${agent}: $1 …"
+    exec "$@"
+  fi
+  exec "$agent" "${launch[@]}" "$@"
+}
+
+# ── 7e. House rules (proveo's own conventions, in every workspace) ──
+# SPEC: _spec/packages/lib/house-rules.puml
+# Knobs: PROVEO_HOUSE_RULES=off.
+
+# ProveoHouseRulesFile is where the image bakes THIS repo's AGENTS.md.
+readonly PROVEO_HOUSE_RULES_FILE=/opt/proveo/AGENTS.md
+readonly PROVEO_RULES_START="<!-- >>> proveo house rules (generated — edits are overwritten) >>> -->"
+readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
+
+# _house_rules_target maps a harness to its USER-level instruction file, relative
+# to the agent's home. Empty means the harness has no such file and proveo writes
+# nothing — a decision, not an oversight, so every supported target gets a row.
+#
+# USER level, never the workspace. The workspace is the operator's repository:
+# seeding a file there mutates their checkout, competes with an AGENTS.md they
+# already wrote, and cannot apply at all when one exists. The user layer has none
+# of those problems — both harnesses below merge it with the project's rather than
+# choosing between them, and both rank the project's HIGHER, so a repo can still
+# overrule the house.
+#
+#   claudecode  NONE here — /etc/claude-code/CLAUDE.md, baked by the Dockerfile.
+#               That is the MANAGED POLICY tier: it loads before the user and
+#               project files and cannot be excluded by claudeMdExcludes at any
+#               settings layer, which is what "always processed" requires. The
+#               home file this function would write is the LOWEST tier and a
+#               project CLAUDE.md outranks it.
+#   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
+#               instructions render global first, then project on top.
+#   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
+#               AGENTS.md/CLAUDE.md; its global "User Rules" live in the IDE
+#               settings UI, not a file the CLI reads. Nothing to write.
+#   cecli       NONE established. It seeds a PROJECT CONVENTIONS.md from its own
+#               defaults; no user-level equivalent is documented, and guessing a
+#               path writes a file nothing reads.
+_house_rules_target() { case "$1" in
+  # claudecode is deliberately EMPTY: its rules ship at the managed policy path
+  # (/etc/claude-code/CLAUDE.md, baked by the Dockerfile), which outranks the home
+  # file this function writes and cannot be excluded. Writing both would put the
+  # same text in context twice.
+  claudecode) echo "" ;;
+  opencode)   echo ".config/opencode/AGENTS.md" ;;
+  cursor|cecli) echo "" ;;
+esac; }
+
+# proveo_compose_house_rules installs this repo's conventions as the harness's
+# user-level instructions, leaving the operator's own content in that file intact.
+proveo_compose_house_rules() {
+  local target="${1:-}" home rel dest
+  case "$(printf '%s' "${PROVEO_HOUSE_RULES:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ -n "$target" && -s "$PROVEO_HOUSE_RULES_FILE" ]] || return 0
+  rel="$(_house_rules_target "$target")"
+  [[ -n "$rel" ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  dest="$home/$rel"
+  {
+    printf '<!-- proveo house rules · source: %s -->\n\n' "$PROVEO_HOUSE_RULES_FILE"
+    cat "$PROVEO_HOUSE_RULES_FILE"
+    printf '\n'
+  } | _proveo_write_block "$dest" "$PROVEO_RULES_START" "$PROVEO_RULES_END"
+  echo "📐 house rules → ${dest} (project instructions still take precedence)"
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
@@ -848,6 +1262,24 @@ PROVEO_JDTLS
   chmod +x "${HOME}/.local/bin/jdtls"
 }
 
+# _proveo_walk runs find under scan_root with the build-output, cache and
+# vendored-dependency trees pruned, then applies the caller's own expression.
+# Shared so the language-server walk and the Python project scan can never drift
+# into pruning different things — the drift that let pyright be provisioned for
+# files whose interpreter was not.
+_proveo_walk() {
+  local root="$1"; shift
+  find "$root" \
+    \( -name .git -o -name node_modules -o -name vendor -o -name target \
+       -o -name dist -o -name build -o -name .next -o -name .nx \
+       -o -name .turbo -o -name .cache -o -name .gradle -o -name .tox \
+       -o -name .venv -o -name venv -o -name __pycache__ \
+       -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache \
+       -o -name .terraform -o -name Pods \
+       -o -name .pnpm-store -o -name .npm -o -name .yarn \) -prune \
+    -o "$@" 2>/dev/null
+}
+
 _lsp_walk() {
   local scan_root="$1" f base ext lang marker ftype mext ml
   while IFS= read -r -d '' f; do
@@ -875,15 +1307,7 @@ _lsp_walk() {
       _lsp_ext_lang "$mext"; ml="$REPLY"
       [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
     fi
-  done < <(find "$scan_root" \
-             \( -name .git -o -name node_modules -o -name vendor -o -name target \
-                -o -name dist -o -name build -o -name .next -o -name .nx \
-                -o -name .turbo -o -name .cache -o -name .gradle -o -name .tox \
-                -o -name .venv -o -name venv -o -name __pycache__ \
-                -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache \
-                -o -name .terraform -o -name Pods \
-                -o -name .pnpm-store -o -name .npm -o -name .yarn \) -prune \
-             -o -type f -print0 2>/dev/null)
+  done < <(_proveo_walk "$scan_root" -type f -print0)
 }
 
 # SPEC: _spec/packages/lib/language-server-provisioning.puml
@@ -993,7 +1417,8 @@ detect_workspace_lsps() {
 
 configure_claude_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
-  local scan="${1:-$(pwd)}" lsp_json plugdir="${HOME}/.claude/skills/proveo-lsp"
+  local scan="${1:-$(pwd)}" lsp_json plugdir
+  plugdir="$(_proveo_agent_home)/.claude/skills/proveo-lsp"
   lsp_json="$(detect_workspace_lsps "$scan" | jq -R -s '
     split("\n") | map(select(length > 0) | split("|")) | map(. as $f | {
       key: $f[0],
@@ -1090,11 +1515,96 @@ render_subagents() {
 #
 # Idempotent by construction — every step is "create if absent" or a merge — because
 # a re-attached sandbox runs the startup hook again.
+# _proveo_agent_home is the home the AGENT will run with, which is not always the
+# one this process has: sbx runs setup commands under `user: "1000"`, and that
+# resets HOME from /etc/passwd. Anything written for the agent to find later must
+# go here, or it lands in the image's home while the agent reads somewhere else.
+_proveo_agent_home() { printf '%s' "${PROVEO_HOME:-${HOME:-}}"; }
+
+# _proveo_scan_root is the workspace to provision against. On the docker backend
+# that is the container path; sbx mounts each workspace at its own HOST path, so
+# the launcher passes it explicitly and $PWD is not it.
+_proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
+
+# proveo_provision_toolchain is the INSTALL-shaped half of setup: everything that
+# leaves files behind and therefore outlives the process that made it.
+#
+# It lives here, in the seed, because the seed is the one step BOTH backends reach
+# by a route neither can skip: docker calls it from the entrypoint, sbx ALSO calls
+# it from setup.startup. Keeping the work in one function is what stops the two
+# paths drifting apart.
+#
+# Correction, recorded because it cost real time: the entrypoint is NOT skipped on
+# sbx. `-t` overrides the image, not the ENTRYPOINT, so defs/*/entrypoint.sh runs
+# on both backends — proven by the ladder, where rung 1 stayed broken after the
+# home fix and went green only once proveo_exec_agent stopped that entrypoint from
+# handing sbx's command to the agent as a prompt. The sbx run that had no poetry
+# was the ROOT-ONLY Python scan (see _py_project_roots), not a skipped entrypoint.
+proveo_provision_toolchain() {
+ local scan; scan="$(_proveo_scan_root "${1:-}")"
+ [[ -d "$scan" ]] || return 0
+ # ensure_project_tools reads the CWD (nx.json, go.mod, mise.toml), so it has to
+ # be standing in the workspace rather than wherever the launcher left us. NOT a
+ # subshell: it exports GOROOT/GOPATH/PATH, and on the docker backend this runs
+ # in the very process that goes on to exec the agent — a subshell would drop
+ # exactly what the agent needs to inherit.
+ local prev="$PWD"
+ cd "$scan" 2>/dev/null && ensure_project_tools
+ cd "$prev" 2>/dev/null || true
+ ensure_python_env "$scan"
+ ensure_dependency_trees "$scan"
+ ensure_language_servers "$scan"
+ _proveo_persist_tool_env
+}
+
+# Markers delimit the block so it can be rewritten rather than appended to.
+readonly PROVEO_RC_START="# >>> proveo toolchain (generated — edits are overwritten) >>>"
+readonly PROVEO_RC_END="# <<< proveo toolchain <<<"
+
+# _proveo_write_block replaces the marked region of a file, leaving everything
+# else exactly as the operator left it. Body arrives on stdin.
+#
+# Every one of these files may already hold hand-written content — a shell rc, a
+# CLAUDE.md of personal preferences — so appending would grow it without bound and
+# overwriting would destroy work that is not ours. The markers make the region
+# proveo owns explicit, and everything outside them untouchable.
+_proveo_write_block() {
+  local path="$1" start="$2" end="$3" tmp
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+  tmp="$(mktemp)" || return 0
+  if [[ -f "$path" ]]; then
+    awk -v s="$start" -v e="$end" '
+      $0 == s { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$path" > "$tmp" 2>/dev/null || cp "$path" "$tmp"
+  fi
+  { printf '%s\n' "$start"; cat; printf '%s\n' "$end"; } >> "$tmp"
+  mv "$tmp" "$path" 2>/dev/null || rm -f "$tmp"
+}
+
+# _proveo_persist_tool_env writes the resolved PATH and VIRTUAL_ENV into the
+# agent's shell rc.
+#
+# A setup command runs in its OWN process, so its exports die with it — that is
+# the whole reason env-shaped work is resolved host-side into the Kit instead.
+# But an interpreter provisioned HERE cannot be known host-side, and the agent is
+# not a shell, so neither route reaches it. What does: every command the agent
+# runs is a bash invocation, and bash reads this file. Writing it down is the only
+# way a venv provisioned in one process is on PATH for a `pytest` run in another.
+_proveo_persist_tool_env() {
+ local home; home="$(_proveo_agent_home)"
+ [[ -n "$home" ]] || return 0
+ {
+   printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$home" "$home"
+   [[ -n "${GOROOT:-}" ]] && printf 'export GOROOT="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOROOT" "$GOROOT"
+   [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
+   if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
+     printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
+   fi
+ } | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
- # PROVEO_HOME first: sbx runs this under `user: "1000"`, which resets HOME from
- # /etc/passwd, so $HOME here is NOT the home the agent will run with.
- local home="${PROVEO_HOME:-${HOME:-}}"
+ local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
 
  case "$target" in
@@ -1104,5 +1614,15 @@ proveo_seed() {
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
- accept_workspace_trust "${PROVEO_WORKDIR:-$PWD}"
+ accept_workspace_trust "$(_proveo_scan_root)"
+
+ proveo_provision_toolchain
+
+ # Written after provisioning, so it records the servers that now exist rather
+ # than the ones that did before.
+ case "$target" in
+ claudecode) configure_claude_lsp "$(_proveo_scan_root)" ;;
+ esac
+
+ proveo_compose_house_rules "$target"
 }

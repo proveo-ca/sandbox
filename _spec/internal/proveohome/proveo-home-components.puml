@@ -43,10 +43,19 @@ note right of PH
   ""."" / "".."" are ignored, so a manifest cannot escape
   its own subdir.
 
-  **Fixed container path**
-  ""ContainerHome = /proveo-home"" — the agent runs as an
-  arbitrary host uid, so HOME must not depend on the
-  image's baked passwd entry.
+  **Fixed container path — DOCKER ONLY**
+  ""ContainerHome = /proveo-home"" — that backend runs the
+  agent as an arbitrary HOST uid (""--user 501:20""), so HOME
+  must not depend on the image's baked passwd entry.
+
+  **sbx sets no HOME at all.** It runs its own agent user
+  (uid 1000), mounts the session volumes under that user's
+  home and has its credential proxy write ""\.credentials\.json""
+  there. Redirecting HOME orphaned all three: the agent read
+  the stale MOUNTED credential instead of the live
+  proxy-managed one and reported "Not logged in". The proveo
+  home is still MOUNTED on that backend — only the env
+  redirect is gone. See sbxHome and ladder_test.go rung 3.
 end note
 
 note bottom of STATE

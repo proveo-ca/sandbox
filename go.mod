@@ -9,6 +9,8 @@ go 1.26
 toolchain go1.26.5
 
 require (
+	github.com/creack/pty v1.1.24
+	github.com/gdamore/tcell/v2 v2.6.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/martian/v3 v3.3.3
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
@@ -18,9 +20,7 @@ require (
 )
 
 require (
-	github.com/creack/pty v1.1.24 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
-	github.com/gdamore/tcell/v2 v2.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ktr0731/go-ansisgr v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

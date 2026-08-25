@@ -187,9 +187,7 @@ fi
 # ── Smoke test mode ────────────────────────────────────────
 run_smoke_test "cursor"
 
-ensure_project_tools
-ensure_python_env "$(pwd)"
-ensure_language_servers "$(pwd)"
+# Toolchain provisioning moved into proveo_seed (runs on both backends).
 configure_cursor_lsp_mcp
 
 # ── Auth check ─────────────────────────────────────────────
@@ -252,4 +250,4 @@ else
 fi
 
 echo "🚀 Launching Cursor CLI: agent ${LAUNCH_ARGS[*]}"
-exec agent "${LAUNCH_ARGS[@]}" "$@"
+proveo_exec_agent agent "${LAUNCH_ARGS[@]}" -- "$@"

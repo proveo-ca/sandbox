@@ -1809,30 +1809,36 @@ func TestNoPersistedLoginInjectsTheManifestSecret(t *testing.T) {
 	}
 }
 
-// sbx runs setup.startup under `user: "1000"`, which resets HOME from /etc/passwd.
-// A seed reading $HOME therefore targets the image's home, not the run's — it
-// composed subagents into /home/claude while the agent ran elsewhere. PROVEO_HOME
-// is the name no launcher rewrites, so it must travel with every rewritten HOME.
-func TestRewrittenHomeAlsoCarriesProveoHome(t *testing.T) {
+// The sbx backend sets NEITHER home variable, and that is the fix rather than an
+// omission: sbx runs its own agent user, mounts the session volumes under that
+// user's home, and has its credential proxy write .credentials.json there.
+// Redirecting HOME to the mounted host path orphaned all three — the agent read a
+// stale mounted credential instead of the live proxy-managed one and reported
+// "Not logged in".
+//
+// A stale value inherited from the environment must still be stripped: leaving one
+// in place is the same orphaning by a different route.
+func TestSbxBackendSetsNeitherHome(t *testing.T) {
 	mounts := []sbx.Mount{{Host: "/Users/p/.proveo", Container: proveohome.ContainerHome}}
 	got := sbxHome([]string{"HOME=/stale", "PROVEO_HOME=/stale", "KEEP=1"}, mounts)
 
-	var home, seed int
 	for _, e := range got {
-		switch {
-		case e == "HOME=/Users/p/.proveo":
-			home++
-		case e == "PROVEO_HOME=/Users/p/.proveo":
-			seed++
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "PROVEO_HOME=") {
+			t.Errorf("the sbx kit must carry no home redirect, got %q in %v", e, got)
 		}
 	}
-	if home != 1 || seed != 1 {
-		t.Fatalf("want exactly one rewritten HOME and PROVEO_HOME, got %v", got)
+	// Everything unrelated survives untouched.
+	if len(got) != 1 || got[0] != "KEEP=1" {
+		t.Errorf("unrelated environment must pass through, got %v", got)
 	}
-	for _, e := range got {
-		if e == "HOME=/stale" || e == "PROVEO_HOME=/stale" {
-			t.Fatalf("a stale home survived the rewrite: %v", got)
-		}
+}
+
+// With no proveo home among the mounts there is nothing to strip against, and the
+// environment must pass through exactly as given.
+func TestSbxHomeLeavesUnrelatedRunsAlone(t *testing.T) {
+	got := sbxHome([]string{"HOME=/keep", "KEEP=1"}, []sbx.Mount{{Host: "/w", Container: "/w"}})
+	if len(got) != 2 {
+		t.Errorf("want the environment untouched when no proveo home is mounted, got %v", got)
 	}
 }
 
@@ -1993,4 +1999,247 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 	if v := effectiveAuthVar(man, "claudecode", authVarLogin, home); v == authVarLogin {
 		t.Errorf("the login sentinel leaked into an env var name: %q", v)
 	}
+}
+
+// Existence is not validity. A dead credential is a file of exactly the same
+// size as a live one, so stat-ing it let an expired login satisfy the guard that
+// exists to stop a run the agent cannot complete — it reaches the login prompt,
+// exits, and the sandbox stops with it, which the operator sees as an
+// infrastructure failure rather than as "your login ran out".
+func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 25, 16, 0, 0, 0, time.UTC)
+	ms := func(d time.Duration) int64 { return now.Add(d).UnixMilli() }
+
+	for _, tc := range []struct {
+		name             string
+		body             string
+		usable, needsRef bool
+	}{
+		{
+			name:   "live access token",
+			body:   fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(8*time.Hour), ms(700*time.Hour)),
+			usable: true,
+		},
+		{
+			// The agent renews this itself, with no prompt — refusing it would
+			// block a run that works.
+			name:     "stale access token, live refresh token",
+			body:     fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour), ms(600*time.Hour)),
+			usable:   true,
+			needsRef: true,
+		},
+		{
+			name: "both expired",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-700*time.Hour), ms(-time.Hour)),
+		},
+		{
+			// A shape we cannot parse must NOT be guessed at: a false refusal is
+			// worse than the failure it was meant to prevent.
+			name:   "unrecognised shape",
+			body:   `{"someOtherHarness":{"token":"x"}}`,
+			usable: true,
+		},
+		{
+			name:   "no expiry recorded",
+			body:   `{"claudeAiOauth":{"accessToken":"x"}}`,
+			usable: true,
+		},
+		{
+			// A CLEARED stamp is not an absent one. A failed refresh writes
+			// expiresAt:0, and reading that as "no expiry recorded" reported a
+			// dead credential as healthy — the exact case that produced
+			// "OAuth session expired and could not be refreshed".
+			name:     "cleared access stamp, live refresh token",
+			body:     fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(600*time.Hour)),
+			usable:   true,
+			needsRef: true,
+		},
+		{
+			name: "cleared access stamp, dead refresh token",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour)),
+		},
+		{name: "empty file", body: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), ".credentials.json")
+			if err := os.WriteFile(p, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			usable, needsRef := loginUsable(p, now)
+			if usable != tc.usable || needsRef != tc.needsRef {
+				t.Errorf("loginUsable = (%v, %v), want (%v, %v)", usable, needsRef, tc.usable, tc.needsRef)
+			}
+		})
+	}
+
+	if usable, _ := loginUsable(filepath.Join(t.TempDir(), "absent.json"), now); usable {
+		t.Error("a missing credential file must not read as a login")
+	}
+}
+
+// The tap exists so a run can answer "what actually arrived on stdin". Control
+// bytes are the whole point: a terminal answering a device-attributes query
+// looks like ordinary text in a transcript and like an escape sequence here.
+func TestStdinTracerRecordsControlBytes(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "stdin.trace")
+	tap, stop := stdinTracer(path)
+	if tap == nil {
+		t.Fatal("a named trace file must produce a tap")
+	}
+	tap([]byte("sh\r"), true)
+	// A terminal's reply, not a keystroke — and one the filter refused. The trace
+	// must show BOTH halves: a child-side log can never show what was dropped.
+	tap([]byte{0x1b, '[', '?', '6', 'c'}, false)
+	stop()
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	for _, want := range []string{"sh<CR>", "<ESC>[?6c", "1b 5b 3f 36 63", "n=3", "n=5", "sent", "DROPPED"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("trace is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// An unset variable must leave the default path byte-for-byte untraced, because
+// the traced path swaps a plain pipe for a pty and that is not a change to make
+// behind the operator's back.
+func TestStdinTracerIsOffByDefault(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"", "   "} {
+		if tap, stop := stdinTracer(v); tap != nil {
+			stop()
+			t.Errorf("PROVEO_TRACE_STDIN=%q must not install a tap", v)
+		} else {
+			stop() // the no-op closer must be safe to call
+		}
+	}
+}
+
+// sbx registers its MCP gateway from its OWN agent kit, with `claude mcp add
+// --scope user`, inside a HOME that proveo mounts read-write. So an entry meant
+// to live and die with a disposable sandbox lands in the operator's real home.
+// Declining goes through sbx's own gate rather than by patching the file it
+// writes — editing the config loses a race with a step that runs every start.
+func TestMCPGatewayIsDeclinedByDefault(t *testing.T) {
+	t.Setenv("PROVEO_SBX_MCP", "")
+	got := withMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"})
+	v, ok := got[MCPGatewayVar]
+	if !ok || v != "" {
+		t.Errorf("%s = %q (present=%v), want an explicit empty value — that is what makes sbx's `[ -n ... ] || exit 0` no-op", MCPGatewayVar, v, ok)
+	}
+	if got["HOME"] != "/proveo-home" {
+		t.Error("declining the gateway must not disturb the rest of the environment")
+	}
+	// A nil map is the ordinary case for a run that resolved no variables.
+	if got := withMCPGatewayPolicy(nil); got[MCPGatewayVar] != "" {
+		t.Error("a nil environment must still carry the decline")
+	}
+}
+
+func TestMCPGatewayCanBeAllowed(t *testing.T) {
+	t.Setenv("PROVEO_SBX_MCP", "on")
+	if got := withMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"}); len(got) != 1 {
+		t.Errorf("PROVEO_SBX_MCP=on must leave the environment untouched, got %v", got)
+	}
+}
+
+// The row exists because the gateway is a capability decided OUTSIDE the Kit. A
+// posture that lists reachable hosts and credentials but not an MCP server the
+// agent is told to call is not describing the run.
+func TestMCPGatewayPostureNamesTheDecision(t *testing.T) {
+	if got := mcpGatewayPosture(false); !strings.Contains(got, "n/a") {
+		t.Errorf("the docker backend has no sbx gateway, got %q", got)
+	}
+	t.Setenv("PROVEO_SBX_MCP", "")
+	if got := mcpGatewayPosture(true); !strings.Contains(got, "declined") {
+		t.Errorf("want the decline reported, got %q", got)
+	}
+	t.Setenv("PROVEO_SBX_MCP", "on")
+	got := mcpGatewayPosture(true)
+	if !strings.Contains(got, "allowed") || !strings.Contains(got, "scope user") {
+		t.Errorf("allowing it must say so AND name where it lands, got %q", got)
+	}
+}
+
+// A remediation line the operator cannot paste is worse than none: it reads as a
+// second broken thing. The POSIX `VAR=… cmd` prefix is a bash/zsh/sh construct
+// that fish does not parse — it tries to EXECUTE the assignment and reports
+// "exists but is not an executable file" — so every hint proveo prints has to be
+// either shell-agnostic (`env VAR=… cmd`) or shell-aware (shell.ExportLine).
+func TestRemediationHintsRunInEveryShell(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A quoted hint that assigns an env var immediately before a command word,
+	// with no `env` in front of it.
+	bad := regexp.MustCompile(`[^a-zA-Z_](HOME|PATH|ANTHROPIC_[A-Z_]+|CLAUDE_[A-Z_]+)=%?[^ "]* +(claude|cursor|opencode|proveo|sbx)\b`)
+	for _, line := range strings.Split(string(src), "\n") {
+		if !strings.Contains(line, `"`) {
+			continue // only user-facing string literals matter
+		}
+		if strings.Contains(line, "env "+"HOME=") || strings.Contains(line, "`env ") {
+			continue // already the portable form
+		}
+		if m := bad.FindString(line); m != "" {
+			t.Errorf("hint uses the POSIX prefix form, which fish cannot run: %q\n  in: %s",
+				strings.TrimSpace(m), strings.TrimSpace(line))
+		}
+	}
+}
+
+// A login only outranks an env token while it can still AUTHENTICATE. Suppressing
+// a working token in favour of a dead file leaves the run with NO credential — and
+// on macOS that is the normal way to end up stale, because the host's login lives
+// in the keychain and the file under the proveo home is written only by the
+// container, which is the one place that cannot be reached to refresh it.
+func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env: []manifest.EnvVar{{Name: "ANTHROPIC_API_KEY", Secret: true}},
+	}
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		home := t.TempDir()
+		dir := filepath.Join(home, ".claude")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return home
+	}
+	live := time.Now().Add(8 * time.Hour).UnixMilli()
+	future := time.Now().Add(700 * time.Hour).UnixMilli()
+
+	t.Run("a live login still outranks the token", func(t *testing.T) {
+		home := write(t, fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, live, future))
+		if !authSuppressor(man, "claudecode", "", home)("ANTHROPIC_API_KEY") {
+			t.Error("a usable login must still suppress an env token, or a subscription run silently bills per token")
+		}
+	})
+
+	t.Run("a login needing renewal does not", func(t *testing.T) {
+		// expiresAt:0 is what a failed refresh leaves behind.
+		home := write(t, fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, future))
+		if authSuppressor(man, "claudecode", "", home)("ANTHROPIC_API_KEY") {
+			t.Error("a login that cannot authenticate must not suppress the only working credential")
+		}
+	})
+
+	t.Run("an explicit login answer still wins", func(t *testing.T) {
+		home := write(t, `{"claudeAiOauth":{"expiresAt":0}}`)
+		if !authSuppressor(man, "claudecode", authVarLogin, home)("ANTHROPIC_API_KEY") {
+			t.Error("the operator naming the login outranks its freshness — their answer stands")
+		}
+	})
 }

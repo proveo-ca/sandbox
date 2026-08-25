@@ -59,6 +59,10 @@ COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 COPY defs/lib/ /opt/proveo/lib/
 
+# proveo's own conventions, installed as the harness's USER-level instructions
+# by proveo_compose_house_rules. Baked in rather than mounted so it is present
+# on both backends and cannot be edited from inside the sandbox.
+COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/opencode/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

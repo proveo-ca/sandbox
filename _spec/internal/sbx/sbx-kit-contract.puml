@@ -83,7 +83,17 @@ skinparam noteTextAlignment left
 '                  → resolved HOST-side into environment.variables. A setup
 '                    command runs in its own process; its exports never reach
 '                    the agent, so this cannot be done inside.
-'   file-shaped    subagents, settings, LSP config, the workspace trust flag
+'   file-shaped    subagents, settings, LSP config, the workspace trust flag,
+'                  AND the whole toolchain: project tools, the Python env, the
+'                  dependency-tree probe, language servers. The toolchain lives
+'                  here because the seed is the one step BOTH backends reach by a
+'                  route neither skips: docker calls it from the entrypoint, sbx
+'                  ALSO from setup.startup. NOTE: `-t` overrides the IMAGE, not
+'                  its ENTRYPOINT — defs/*/entrypoint.sh runs on both backends,
+'                  which is why proveo_exec_agent matters (below). And because a setup
+'                  command's exports die with it, the resolved PATH and
+'                  VIRTUAL_ENV are WRITTEN to the agent home's .bashrc: the
+'                  agent is not a shell, but every command it runs is.
 '                  → `proveo_seed`, invoked from setup.startup under sbx and by
 '                    the entrypoint on docker. Files outlive the process.
 '                    $HOME is NOT the run's home here: sbx runs startup commands

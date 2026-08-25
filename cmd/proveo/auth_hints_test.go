@@ -43,7 +43,7 @@ func TestPrintSubscriptionAuthHintsCursorAndVariants(t *testing.T) {
 		want    []string
 	}{
 		{"cursor", "CURSOR_API_KEY", []string{"CURSOR_API_KEY", "agent login", "cursor.com/dashboard", "export CURSOR_API_KEY="}},
-		{"claudecode-solo", "CLAUDE_CODE_OAUTH_TOKEN", []string{"CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token"}},
+		{"claudecode-solidity", "CLAUDE_CODE_OAUTH_TOKEN", []string{"CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.harness, func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestHarnessFamily(t *testing.T) {
 		in, want string
 	}{
 		{"claudecode", "claudecode"},
-		{"claudecode-solo", "claudecode"},
+		{"claudecode-solidity", "claudecode"},
 		{"claudecode-browser", "claudecode"},
 		{"cursor-browser", "cursor"},
 		{"opencode", "opencode"},

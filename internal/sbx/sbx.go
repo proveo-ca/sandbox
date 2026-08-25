@@ -3,6 +3,7 @@ package sbx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -41,9 +43,23 @@ var (
 	// Linux that is host memory; on macOS and Windows it is the VM's share of it,
 	// which is the number that matters and the one sbx cannot see.
 	dockerMemTotal = func() ([]byte, error) {
-		return exec.Command("docker", "info", "--format", "{{.MemTotal}}").Output()
+		// BOUNDED, because a degraded daemon does not fail — it waits. Measured on
+		// a host after heavy sandbox churn: `docker info` and `docker ps` each took
+		// well over two minutes to return. MemoryLimit runs on EVERY sbx launch,
+		// including `--print`, so an unbounded call turns a slow daemon into a
+		// proveo that hangs with nothing on screen: the operator sees a run that
+		// never starts and no reason for it. A timeout costs one memory limit —
+		// MemoryLimit already treats an error as "leave sbx's default in place".
+		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
+		defer cancel()
+		return exec.CommandContext(ctx, "docker", "info", "--format", "{{.MemTotal}}").Output()
 	}
 )
+
+// dockerInfoTimeout bounds the one daemon call MemoryLimit makes. Generous enough
+// for a healthy daemon under load, far below the point where an operator concludes
+// the tool is broken.
+const dockerInfoTimeout = 10 * time.Second
 
 // Sandbox memory bounds, in bytes. The ceiling matches sbx's own cap; the floor is
 // the point below which a limit says more about a broken daemon than about policy,

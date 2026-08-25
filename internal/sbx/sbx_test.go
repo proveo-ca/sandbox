@@ -1,13 +1,16 @@
 package sbx
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withProbes pins the availability seams for one test.
@@ -745,5 +748,42 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 	// A target with no sbx counterpart returns "", which callers read as "docker only".
 	if got := BuiltinAgent("cecli"); got != "" {
 		t.Errorf("cecli has no sbx agent; got %q", got)
+	}
+}
+
+// A degraded daemon does not fail — it WAITS. Measured after heavy sandbox churn:
+// `docker info` and `docker ps` each took over two minutes to return. MemoryLimit
+// runs on every sbx launch including `--print`, so an unbounded call turns a slow
+// daemon into a proveo that hangs with nothing on screen.
+func TestMemoryLimitSurvivesAHangingDaemon(t *testing.T) {
+	orig := dockerMemTotal
+	t.Cleanup(func() { dockerMemTotal = orig })
+
+	dockerMemTotal = func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		// `sleep 60` stands in for the wedged daemon; the context is what must end it.
+		return exec.CommandContext(ctx, "sh", "-c", "sleep 60").Output()
+	}
+	done := make(chan string, 1)
+	go func() { done <- MemoryLimit() }()
+	select {
+	case got := <-done:
+		// An unreadable daemon means no -m flag, which leaves sbx's own default in
+		// place. That is the documented fallback, not a failure.
+		if got != "" {
+			t.Errorf("a daemon that never answers must yield no limit, got %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("MemoryLimit did not return: the daemon call is unbounded, and every launch hangs with it")
+	}
+}
+
+// The bound must be long enough that a healthy-but-loaded daemon still gets its
+// answer — a limit that times out in practice silently loses the OOM protection
+// MemoryLimit exists to provide.
+func TestDockerInfoTimeoutIsGenerous(t *testing.T) {
+	if dockerInfoTimeout < 5*time.Second {
+		t.Errorf("dockerInfoTimeout = %s, too tight for a loaded daemon", dockerInfoTimeout)
 	}
 }

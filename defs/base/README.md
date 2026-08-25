@@ -41,7 +41,7 @@ debian:bookworm-slim
      └── proveo/base-node          + Node 22 LTS + pnpm
           └── proveo/base-node-lsp        + workspace language servers
                ├── opencode
-               ├── claudecode (mcp)  ├── claudecode-solo   └── claudecode-solidity
+               ├── claudecode (mcp)   └── claudecode-solidity
                └── proveo/base-node-browser   + Playwright + Chromium  (opt-in)
                     ├── opencode-browser
                     ├── claudecode-browser

@@ -113,7 +113,7 @@ func TestResumeArgs(t *testing.T) {
 		{target: "cursor", id: "abc", want: []string{"--resume", "abc"}},
 		{target: "cursor-browser", cont: true, want: []string{"--continue"}},
 		{target: "cursor", list: true, want: []string{"ls"}},
-		{target: "claudecode-solo", id: "s1", want: []string{"--resume", "s1"}},
+		{target: "claudecode-solidity", id: "s1", want: []string{"--resume", "s1"}},
 		{target: "claudecode", cont: true, want: []string{"--continue"}},
 		{target: "opencode", id: "sess", want: []string{"--session", "sess"}},
 		{target: "opencode", cont: true, wantErr: true},

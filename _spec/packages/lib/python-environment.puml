@@ -12,6 +12,7 @@ node "Host" as HOST <<host>> {
 }
 
 node "Container — ensure_python_env" as C <<host>> {
+  component "**discover** — ""_py_project_roots""\npruned walk, shallowest first" as SCAN <<app>>
   component "**detect** — ""_py_project_kind""\nconda · uv · poetry · pip" as KIND <<app>>
   component "**capability** — ""_py_venv_capable""\nnot ""command -v python3""" as CAP <<app>>
   component "**provision** — mise\npython@X · uv · poetry · micromamba" as PROV <<app>>
@@ -22,6 +23,7 @@ node "Container — ensure_python_env" as C <<host>> {
 database "PROVEO_HOME\n""~/.cache/proveo/venv/<hash>""" as ENV <<db>>
 component "pyright\nresolves real packages" as PYRIGHT <<app>>
 
+SCAN ARROW_MAIN KIND : one root at a time
 KIND ARROW_MAIN CAP
 CAP ARROW_MAIN PROV : only when the image cannot
 PROV ARROW_MAIN BUILD
@@ -39,8 +41,29 @@ note bottom of HOSTENV
   A macOS arm64 ""\.so"" cannot execute on Linux at any path, so even mounting the
   whole conda prefix at an identical path fails.
 
-  This is the ""node_modules"" native-binary hazard, but stricter: node_modules is
-  often pure JavaScript, whereas a venv ALWAYS contains a platform interpreter.
+  This is the same native-binary hazard every language's dependency tree carries
+  (dependency-trees\.puml), but stricter — and it is why Python is the one class
+  that is PROVISIONED rather than probed. Those trees are mostly portable and
+  only punctuated by platform binaries; a venv is platform all the way down.
+end note
+
+note left of SCAN
+  **The workspace root is not the Python project.** A monorepo root is whatever
+  its primary language made it — here ""package\.json"" and ""pnpm-workspace\.yaml"" —
+  while the Python service sits under ""apps/"". Stat-ing ONE directory finds a
+  standalone project and misses every nested one.
+
+  That asymmetry was the bug: ""ensure_language_servers"" walks the tree, so
+  pyright was provisioned for files whose interpreter was not, and the agent got
+  code intelligence for a project it could not run. Discovery is now shared —
+  ""_proveo_project_roots"" over ""_proveo_walk"" — with every other language
+  (see dependency-trees\.puml), so only the MARKERS differ and the scans cannot
+  prune different things again.
+
+  Each root gets its own env (""_py_env_dir"" keys by path), so the
+  ""PROVEO_PYTHON_MAX_PROJECTS"" cap is about STARTUP COST, not correctness:
+  roots past it are named rather than built. The shell has one ""VIRTUAL_ENV"",
+  so the shallowest root is activated and the rest are reported by path.
 end note
 
 note right of CAP
