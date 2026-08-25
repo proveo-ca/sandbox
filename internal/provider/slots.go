@@ -158,3 +158,39 @@ func applyTransform(kind, v string) string {
 	}
 	return v
 }
+
+// ResolvedEnv applies the whole bridge table for a harness and returns the env vars
+// it produces, already transformed.
+//
+// This is the same walk apply_model_bridges does in shell, run on the host instead.
+// Under sbx it has to be: a setup command cannot export into the agent, so the Kit
+// carries ANTHROPIC_MODEL decided rather than shipping the tables and a bridge to
+// recompute it inside. Defaults are deliberately not applied — the header states
+// what the operator chose, and a default that fires in-container is not a choice.
+func (t BridgeTable) ResolvedEnv(harness string, r Roles) map[string]string {
+	rows, ok := t[harness]
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	for _, row := range rows {
+		var val string
+		for _, role := range row.Roles {
+			if v := r[role]; v != "" {
+				val = v
+				break
+			}
+		}
+		if val == "" {
+			continue
+		}
+		val = applyTransform(row.Transform, val)
+		for _, target := range row.Targets {
+			out[target] = val
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

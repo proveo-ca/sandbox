@@ -26,7 +26,7 @@ export CECLI_HOME
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
 seed_cecli_subagents() {
-  render_subagents cecli "$CECLI_HOME/agents" "${CECLI_RESEED:-0}"
+  proveo_seed cecli
 }
 
 has_cecli_agent_config() {

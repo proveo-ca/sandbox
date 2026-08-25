@@ -19,6 +19,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
+// isSbxArgv reports whether a rendered agent command is the sandbox rendering
+// rather than the docker one. The two carry the proveo home differently, so an
+// assertion about mounts or HOME has to know which it is looking at.
+func isSbxArgv(agentCmd string) bool {
+	return strings.HasPrefix(strings.TrimSpace(agentCmd), "sbx run")
+}
+
 // TestProveoHomePersistence asserts durable session/config mounts under
 // PROVEO_HOME: plan wiring for every harness, auth scrubbing, resume argv
 // forwarding, clean --homes, and (when images exist) live --shell + resume
@@ -27,6 +34,10 @@ import (
 //	go test -tags=e2e ./tests/e2e/ -run ProveoHomePersistence -v
 func TestProveoHomePersistence(t *testing.T) {
 	proveoBin := buildProveo(t)
+	// Read once, from proveo's own plan. Restating "proveo/cursor:latest" stopped
+	// matching the container under test the day the tag policy shipped: a local
+	// build resolves to :local, and :latest now names a published artifact only.
+	cursorImage := harnessImageRef(t, proveoBin, "cursor")
 
 	t.Run("print_plan_mounts_all_agents", func(t *testing.T) {
 		t.Parallel()
@@ -51,12 +62,36 @@ func TestProveoHomePersistence(t *testing.T) {
 				if !strings.Contains(out, "proveo home: "+home) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
 				}
-				if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
+				// One decision, two renderings — and the assertions differ because the
+				// renderings do. sbx mounts the proveo home at its HOST path and
+				// passes it positionally, so `-v host:/proveo-home` and
+				// HOME=/proveo-home describe a shape claudecode and cursor stopped
+				// taking when the sandbox backend became first-class. Asserting the
+				// docker form for every harness left this subtest red for both of
+				// them, which is the drift a backend-blind expectation invites.
+				containerHome := proveohome.ContainerHome
+				if isSbxArgv(agentCmd) {
+					containerHome = home
+					if !strings.Contains(agentCmd, " "+home) {
+						t.Errorf("sbx argv does not carry the proveo home as a workspace:\n%s", agentCmd)
+					}
+				} else if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
 					t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
 						home, proveohome.ContainerHome, agentCmd)
 				}
-				if !strings.Contains(agentCmd, "HOME="+proveohome.ContainerHome) {
-					t.Errorf("agent cmd missing HOME=%s:\n%s", proveohome.ContainerHome, agentCmd)
+				// Matched with the flag attached: "HOME=x" is a substring of
+				// "PROVEO_HOME=x", so the looser form passed whenever the other
+				// variable was present and the assertion proved nothing.
+				if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
+					t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
+				}
+				// PROVEO_HOME travels with it. A launcher may reset HOME — sbx runs
+				// startup commands as user 1000, which reloads it from /etc/passwd —
+				// so the seed reads this name instead. Absent, it composes subagents
+				// into the image's home while the agent, running with the other
+				// value, reads none of them.
+				if !strings.Contains(agentCmd, "-e PROVEO_HOME="+containerHome) {
+					t.Errorf("agent cmd missing -e PROVEO_HOME=%s:\n%s", containerHome, agentCmd)
 				}
 				if host := os.Getenv("HOME"); host != "" {
 					for _, ide := range []string{
@@ -73,6 +108,32 @@ func TestProveoHomePersistence(t *testing.T) {
 					t.Errorf("expected host subdir %s after --print: %v", subdir, err)
 				}
 			})
+		}
+	})
+
+	// A login already sitting in the proveo home IS the credential. Injecting an
+	// auth variable for the same provider does not add a second one — it overrides
+	// the file, and a subscription run then authenticates as the API. The variable
+	// is exported here precisely because that is the case which used to slip
+	// through: nothing was missing, so nothing warned.
+	t.Run("login_file_suppresses_that_providers_auth_vars", func(t *testing.T) {
+		t.Parallel()
+		home := t.TempDir()
+		cred := filepath.Join(home, ".claude", ".credentials.json")
+		if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out := runPrintWithHome(t, proveoBin, home, "claudecode",
+			"--input", t.TempDir())
+		agentCmd := agentCommandLine(t, out)
+
+		for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+			if strings.Contains(agentCmd, v) {
+				t.Errorf("%s injected over a mounted login; it overrides the file:\n%s", v, agentCmd)
+			}
 		}
 	})
 
@@ -119,8 +180,12 @@ func TestProveoHomePersistence(t *testing.T) {
 
 		ls := agentCommandLine(t, runPrintWithHome(t, proveoBin, home, "cursor",
 			"--ls", "--input", work))
-		if !strings.Contains(ls, "proveo/cursor:latest ls") {
-			t.Errorf("cursor --ls should forward as agent ls:\n%s", ls)
+		// Asserted as the trailing agent command, not as "<image> ls". That older
+		// form was stale twice over: the tag policy resolves a local build to
+		// :local, and only the docker rendering puts the command straight after the
+		// image — sbx passes it after the workspaces and a "--".
+		if !strings.HasSuffix(strings.TrimSpace(ls), " ls") {
+			t.Errorf("cursor --ls should forward as the agent command ls:\n%s", ls)
 		}
 
 		oc := agentCommandLine(t, runPrintWithHome(t, proveoBin, home, "opencode",
@@ -168,7 +233,7 @@ func TestProveoHomePersistence(t *testing.T) {
 	})
 
 	t.Run("live_shell_roundtrip", func(t *testing.T) {
-		requireLiveCursorHome(t)
+		requireLiveCursorHome(t, cursorImage)
 		home, work := dockerVisibleHomeWork(t)
 		mustRun(t, work, "git", "init", "-q", ".")
 		const mark = "PROVEO-HOME-E2E-OK"
@@ -177,10 +242,10 @@ func TestProveoHomePersistence(t *testing.T) {
 		forceClean(proveoBin)
 		t.Cleanup(func() {
 			forceClean(proveoBin)
-			rmByAncestor("proveo/cursor:latest")
+			rmByAncestor(cursorImage)
 		})
 
-		before := dockerIDsByAncestor("proveo/cursor:latest")
+		before := dockerIDsByAncestor(cursorImage)
 		sess := tmux.New(fmt.Sprintf("proveo-home-%d", os.Getpid()), nil)
 		t.Cleanup(sess.Kill)
 
@@ -189,7 +254,7 @@ func TestProveoHomePersistence(t *testing.T) {
 		startCursorLive(t, sess, proveoBin, home, work, "--shell")
 		dismissCapabilityPicker(t, sess)
 
-		agentID := waitForNewAncestor(t, "proveo/cursor:latest", before, 120*time.Second, sess)
+		agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
 		src, ok := mountSource(agentID, proveohome.ContainerHome)
 		if !ok {
 			t.Fatalf("agent %s has no %s mount", agentID, proveohome.ContainerHome)
@@ -219,12 +284,12 @@ func TestProveoHomePersistence(t *testing.T) {
 		}
 
 		// Second run: marker must be visible inside the remounted proveo home.
-		before2 := dockerIDsByAncestor("proveo/cursor:latest")
+		before2 := dockerIDsByAncestor(cursorImage)
 		sess2 := tmux.New(fmt.Sprintf("proveo-home2-%d", os.Getpid()), nil)
 		t.Cleanup(sess2.Kill)
 		startCursorLive(t, sess2, proveoBin, home, work, "--shell")
 		dismissCapabilityPicker(t, sess2)
-		agent2 := waitForNewAncestor(t, "proveo/cursor:latest", before2, 120*time.Second, sess2)
+		agent2 := waitForNewAncestor(t, cursorImage, before2, 120*time.Second, sess2)
 		read := exec.Command("docker", "exec", agent2, "bash", "-lc",
 			"cat \"$HOME/.cursor/E2E_HOME_MARK\"")
 		out, err := read.CombinedOutput()
@@ -234,7 +299,7 @@ func TestProveoHomePersistence(t *testing.T) {
 	})
 
 	t.Run("live_resume_roundtrip", func(t *testing.T) {
-		requireLiveCursorHome(t)
+		requireLiveCursorHome(t, cursorImage)
 		home, work := dockerVisibleHomeWork(t)
 		mustRun(t, work, "git", "init", "-q", ".")
 
@@ -247,52 +312,52 @@ func TestProveoHomePersistence(t *testing.T) {
 		forceClean(proveoBin)
 		t.Cleanup(func() {
 			forceClean(proveoBin)
-			rmByAncestor("proveo/cursor:latest")
+			rmByAncestor(cursorImage)
 		})
 
 		// --ls: agent session picker must list the seeded chat from proveo home.
 		func() {
-			before := dockerIDsByAncestor("proveo/cursor:latest")
+			before := dockerIDsByAncestor(cursorImage)
 			sess := tmux.New(fmt.Sprintf("proveo-home-ls-%d", os.Getpid()), nil)
 			t.Cleanup(sess.Kill)
 			startCursorLive(t, sess, proveoBin, home, work, "--ls")
 			dismissCapabilityPicker(t, sess)
-			_ = waitForNewAncestor(t, "proveo/cursor:latest", before, 120*time.Second, sess)
+			_ = waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
 			if _, err := sess.WaitFor(title, 60*time.Second); err != nil {
 				screen, _ := sess.CaptureAll()
 				t.Fatalf("--ls should show seeded chat %q: %v\n--- screen ---\n%s", title, err, screen+diagnostics(screen))
 			}
 			sess.Kill()
-			rmByAncestor("proveo/cursor:latest")
+			rmByAncestor(cursorImage)
 		}()
 
 		// --resume <id>: live launch must hand cursor-agent the resume flags.
 		func() {
-			before := dockerIDsByAncestor("proveo/cursor:latest")
+			before := dockerIDsByAncestor(cursorImage)
 			sess := tmux.New(fmt.Sprintf("proveo-home-resume-%d", os.Getpid()), nil)
 			t.Cleanup(sess.Kill)
 			startCursorLive(t, sess, proveoBin, home, work, "--resume", chatID)
 			dismissCapabilityPicker(t, sess)
-			agentID := waitForNewAncestor(t, "proveo/cursor:latest", before, 120*time.Second, sess)
+			agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
 			waitForAgentArgv(t, agentID, 60*time.Second, "--resume", chatID)
 			sess.Kill()
-			rmByAncestor("proveo/cursor:latest")
+			rmByAncestor(cursorImage)
 		}()
 
 		// --continue: same path for the most-recent session flag.
 		func() {
-			before := dockerIDsByAncestor("proveo/cursor:latest")
+			before := dockerIDsByAncestor(cursorImage)
 			sess := tmux.New(fmt.Sprintf("proveo-home-cont-%d", os.Getpid()), nil)
 			t.Cleanup(sess.Kill)
 			startCursorLive(t, sess, proveoBin, home, work, "--continue")
 			dismissCapabilityPicker(t, sess)
-			agentID := waitForNewAncestor(t, "proveo/cursor:latest", before, 120*time.Second, sess)
+			agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
 			waitForAgentArgv(t, agentID, 60*time.Second, "--continue")
 		}()
 	})
 }
 
-func requireLiveCursorHome(t *testing.T) {
+func requireLiveCursorHome(t *testing.T, cursorImage string) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
@@ -300,8 +365,8 @@ func requireLiveCursorHome(t *testing.T) {
 	if !tmux.Available() {
 		t.Skip("tmux not installed")
 	}
-	if !dockerImagePresent(t, "proveo/cursor:latest") {
-		t.Skip("proveo/cursor:latest not built")
+	if !dockerImagePresent(t, cursorImage) {
+		t.Skipf("%s not built", cursorImage)
 	}
 }
 
@@ -320,10 +385,16 @@ func dockerVisibleHomeWork(t *testing.T) (home, work string) {
 
 func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work string, extra ...string) {
 	t.Helper()
+	// PROVEO_SBX=off is load-bearing, the same way it is in git_access_test and
+	// scope_mounts_test: these subtests inspect a DOCKER container — its ancestor
+	// image and its mount table — and cursor takes the sandbox backend wherever sbx
+	// is installed. Unpinned, no container with that ancestor ever appears and the
+	// probe spends its full 120s timeout before failing for the wrong reason.
 	cmd := append([]string{
 		"env",
 		"PROVEO_HOME=" + home,
 		"CURSOR_API_KEY=crsr_test_probe",
+		"PROVEO_SBX=off",
 		proveoBin, "run", "cursor",
 		"--egress-mode", "broker",
 	}, extra...)
@@ -400,6 +471,25 @@ func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...str
 		t.Fatalf("proveo %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+// harnessImageRef returns the image reference proveo would actually run for target,
+// read out of its own rendered plan rather than restated here. Both renderings are
+// handled: sbx names it after -t, docker positions it before the agent command.
+func harnessImageRef(t *testing.T, proveoBin, target string) string {
+	t.Helper()
+	argv := agentCommandLine(t, runPrintWithHome(t, proveoBin, t.TempDir(), target, "--input", t.TempDir()))
+	fields := strings.Fields(argv)
+	for i, f := range fields {
+		if f == "-t" && i+1 < len(fields) && strings.HasPrefix(fields[i+1], "proveo/") {
+			return fields[i+1]
+		}
+		if strings.HasPrefix(f, "proveo/") && strings.Contains(f, ":") {
+			return f
+		}
+	}
+	t.Fatalf("no proveo image in the rendered plan for %s:\n%s", target, argv)
+	return ""
 }
 
 func hasVolume(cmd, host, container string) bool {

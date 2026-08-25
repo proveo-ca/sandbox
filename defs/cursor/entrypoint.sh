@@ -38,13 +38,13 @@ seed_defaults() {
   if [[ "${CURSOR_RESEED:-0}" == "1" ]]; then
     echo "🔁 CURSOR_RESEED=1 — re-seeding $dst from baked-in defaults"
     cp -f "$src/cli-config.json" "$dst/cli-config.json"
-    render_subagents cursor "$dst/agents" 1
+    proveo_seed cursor
     return 0
   fi
 
   local seeded=()
   [[ -f "$dst/cli-config.json" ]] || { cp "$src/cli-config.json" "$dst/cli-config.json"; seeded+=("cli-config.json"); }
-  render_subagents cursor "$dst/agents" 0
+  proveo_seed cursor
   if (( ${#seeded[@]} > 0 )); then
     echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
   fi

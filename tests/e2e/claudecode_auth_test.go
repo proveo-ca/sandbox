@@ -147,6 +147,19 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 	// whichever the registry lists first.
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsFor(t, c.envVar)...)
+	cmd = append(cmd,
+		// This probe asks whether PROVEO's boundary delivered the credential — the
+		// MITM broker injecting on-route and stripping off it. claudecode takes the
+		// sandbox backend wherever sbx is installed, and sbx supplies a credential
+		// proxy of its own, so unpinned the run has no proveo egress layer at all
+		// and the session ends before the shell the probe waits for.
+		"PROVEO_SBX=off",
+		// An isolated home, because a login FILE is itself a credential: with the
+		// developer's real ~/.proveo mounted, proveo correctly declines to inject
+		// any anthropic variable over it — including the one under test, which then
+		// reaches the provider as nothing at all.
+		"PROVEO_HOME="+t.TempDir(),
+	)
 	cmd = append(cmd, proveoBin, "run", "claudecode",
 		"--egress-mode", mode, "--credentials", creds, "--input", work, "--shell")
 

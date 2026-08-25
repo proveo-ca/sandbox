@@ -85,13 +85,13 @@ seed_defaults() {
   if [[ "${OPENCODE_RESEED:-0}" == "1" ]]; then
     echo "🔁 OPENCODE_RESEED=1 — re-seeding $dst from baked-in defaults"
     seed_opencode_config "$dst/opencode.json"
-    render_subagents opencode "$dst/agents" 1
+    proveo_seed opencode
     return 0
   fi
 
   local seeded=()
   [[ -f "$dst/opencode.json" ]] || { seed_opencode_config "$dst/opencode.json"; seeded+=("opencode.json"); }
-  render_subagents opencode "$dst/agents" 0
+  proveo_seed opencode
   if (( ${#seeded[@]} > 0 )); then
     echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
   fi

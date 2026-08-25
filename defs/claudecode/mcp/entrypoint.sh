@@ -87,7 +87,7 @@ seed_claude_proveo_home
 
 # ── Compose user-level subagents (~/.claude/agents) ─────────
 # Bodies are shared across harnesses; only the frontmatter is Claude Code's.
-render_subagents claudecode "${HOME}/.claude/agents" "${CLAUDECODE_RESEED:-0}"
+proveo_seed claudecode
 
 # Surface available subagents (user + project)
 agent_files=()
@@ -136,6 +136,5 @@ else
   report_agent_evidence
 fi
 
-accept_workspace_trust "$PWD"
 echo "🚀 Launching Claude Code..."
 exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"

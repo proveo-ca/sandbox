@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -449,6 +450,14 @@ func doRun(p runParams) error {
 
 	var authMissingAtStart []manifest.EnvVar
 	loggedIn := hasPersistedLogin(p.target, proveohome.Root(os.Getenv))
+	// Say so when a token IS exported and is being left out. The 🔓 line below only
+	// fires when auth is missing, so the case that actually misbills — a token set,
+	// silently overriding the mounted login — was the one nothing reported.
+	if loggedIn && !p.printOnly && strings.TrimSpace(p.authVar) == "" {
+		if av := effectiveAuthVar(man, p.target, p.authVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(lookup(av)) != "" {
+			ui.Iconf("🔓", "%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
+		}
+	}
 	if missing := man.MissingEnv(lookup); len(missing) > 0 && !p.printOnly {
 		if man.Subscription && loggedIn {
 			// MissingEnv only reads env vars, so a completed login sitting in the
@@ -553,11 +562,15 @@ func doRun(p runParams) error {
 
 	var env []string
 	var brokerKeyNames []string
+	suppressedAuth := authSuppressor(man, p.target, p.authVar, proveohome.Root(os.Getenv))
 	for _, e := range man.Env {
 		if strings.TrimSpace(lookup(e.Name)) == "" {
 			continue
 		}
 		if e.Secret {
+			if suppressedAuth(e.Name) {
+				continue
+			}
 			if p.forwards() {
 				env = append(env, e.Name)
 				hydrateProcessEnv(e.Name, lookup)
@@ -639,6 +652,7 @@ func doRun(p runParams) error {
 			worktreeEnv:      wsSpec.WorktreeEnv(),
 			dataDir:          p.dataDir,
 			memory:           sbx.MemoryLimit(),
+			homeRoot:         homePlan.Root,
 		}
 		if p.printOnly {
 			cfg, kit, secrets := sandboxSpec(in)
@@ -877,7 +891,7 @@ func (p *runParams) promptChoices(man manifest.Manifest, lookup func(string) str
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
-	if auth := availableAuthVars(man, lookup); len(auth) > 1 {
+	if auth := availableAuthVarsIn(man, lookup, p.target, homeRoot); len(auth) > 1 {
 		form.Rows = append(form.Rows, applicableRows(
 			axisRow("auth", auth, auth, orElseFirst(p.authVar, auth)),
 		)...)
@@ -958,7 +972,30 @@ func evidenceFrom(selected []string) string {
 
 // availableAuthVars lists the credentials the operator holds for the provider
 // this run will pin.
+// authVarLogin names the credential the operator already established as a FILE in
+// the proveo home. It is offered beside the environment variables because it is a
+// third way to authenticate and, until it was listed, an unnameable one: the row
+// showed only env vars, so a remembered answer naming one of them outranked a login
+// the operator had made later — and proveo forwarded a token the API refused while
+// a working subscription sat mounted and unread.
+const authVarLogin = "login (proveo home)"
+
+// availableAuthVars lists the credentials the operator holds for this harness, the
+// persisted login first when there is one: it is the answer that needs no value
+// exported, so it belongs where a default lands.
 func availableAuthVars(man manifest.Manifest, lookup func(string) string) []string {
+	return availableAuthVarsIn(man, lookup, "", "")
+}
+
+func availableAuthVarsIn(man manifest.Manifest, lookup func(string) string, target, homeRoot string) []string {
+	out := envAuthVars(man, lookup)
+	if hasPersistedLogin(target, homeRoot) {
+		return append([]string{authVarLogin}, out...)
+	}
+	return out
+}
+
+func envAuthVars(man manifest.Manifest, lookup func(string) string) []string {
 	detected := filterProviders(provider.Detect(lookup), man.Capabilities)
 	if len(detected) != 1 {
 		if pin := strings.TrimSpace(man.Provider); pin != "" {
@@ -1307,6 +1344,19 @@ func hasAddon(addons []string, name string) bool {
 // escapes is harder to read than no tail at all.
 var ansiSeq = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\\\-_]")
 
+// agentStdio picks the writers handed to the sandbox agent. On a terminal it
+// returns out and err UNCHANGED — os/exec only passes the child the real tty when
+// the field still holds that *os.File, and any wrapper silently becomes a pipe.
+// Off a terminal the stream is already redirected, so teeing costs nothing and the
+// tail becomes the only record of what the agent said.
+func agentStdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *tailWriter) {
+	if tty {
+		return out, err, nil
+	}
+	tail := newTailWriter(24)
+	return io.MultiWriter(out, tail), io.MultiWriter(err, tail), tail
+}
+
 // tailWriter keeps the last n non-empty lines written through it. It is a tee, not
 // a filter: everything still reaches the terminal untouched, and only the retained
 // copy is cleaned up for replay.
@@ -1367,6 +1417,9 @@ func (t *tailWriter) push(line string) {
 
 // Lines returns the retained tail, including any unterminated fragment.
 func (t *tailWriter) Lines() []string {
+	if t == nil {
+		return nil // interactive run: the terminal was handed over instead
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.buf) > 0 {
@@ -1376,10 +1429,75 @@ func (t *tailWriter) Lines() []string {
 	return t.lines
 }
 
+// agentTranscriptDirs are where a harness writes its session transcripts inside the
+// mounted proveo home, relative to it. Keyed by target: each CLI chooses its own.
+var agentTranscriptDirs = map[string][]string{
+	"claudecode": {".claude/projects"},
+}
+
+// agentTranscript names the session transcript written during this run, if any.
+//
+// It is better evidence than a captured tail. A tail holds what reached the
+// terminal; the transcript holds what the agent received and said — which is where
+// "Credit balance is too low" appeared after a run showed nothing but a stopped
+// sandbox. Interactive runs hand the terminal to the child and take no tail at all,
+// so this is the only record proveo can point at.
+func agentTranscript(target, homeRoot string, since time.Time) string {
+	if homeRoot == "" {
+		return ""
+	}
+	newest, newestAt := "", since
+	for _, rel := range agentTranscriptDirs[target] {
+		root := filepath.Join(homeRoot, rel)
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".jsonl") {
+				return nil //nolint:nilerr // an unreadable home is not a run failure
+			}
+			fi, err := d.Info()
+			if err != nil || !fi.ModTime().After(newestAt) {
+				return nil
+			}
+			newest, newestAt = p, fi.ModTime()
+			return nil
+		})
+	}
+	return newest
+}
+
 // subscriptionLoginFiles are where a completed login persists inside the proveo
 // home the sandbox mounts. Keyed by target because each harness stores its own.
+//
+// An operator may authenticate on the HOST before launching — `claude setup-token`,
+// or a normal interactive login — and that credential reaches the container because
+// HOME points at the proveo home, which is mounted. When it is present it is the
+// operator's answer, and proveo must not hand sbx a competing API key that its
+// proxy would inject instead (which is how a subscription run silently billed per
+// token).
+//
+// cursor is absent deliberately: its manifest declares only CURSOR_API_KEY, and its
+// CLI keeps no credential file we have established — ~/.cursor/cli-config.json is
+// configuration, not auth. Add it here once the location is known rather than
+// guessing, or a missing file will read as "no login" forever.
 var subscriptionLoginFiles = map[string][]string{
 	"claudecode": {".claude/.credentials.json"},
+}
+
+// effectiveAuthVar is the credential the run should authenticate with: the row the
+// operator answered if there was one, otherwise the manifest's own secret when a
+// host login is already sitting in the proveo home.
+func effectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string) string {
+	if v := strings.TrimSpace(chosen); v != "" && v != authVarLogin {
+		return v
+	}
+	if !hasPersistedLogin(target, homeRoot) {
+		return ""
+	}
+	for _, e := range man.Env {
+		if e.Secret {
+			return e.Name // the harness's declared subscription credential
+		}
+	}
+	return ""
 }
 
 // hasPersistedLogin reports whether a login already exists for target under the
@@ -1430,6 +1548,65 @@ func reportImageChoice(ref string) string {
 		ui.Iconf("📦", "image: %s (local build — newer than the published tag)", chosen)
 	}
 	return chosen
+}
+
+// authSuppressor reports which auth vars must NOT be injected for this run.
+//
+// Two ways of being authenticated compete, and they do not merge: an env token
+// OVERRIDES a credential file rather than sitting beside it. So when the operator's
+// login already exists as a file under the mounted proveo home, that file IS the
+// credential and every auth var for its provider is suppressed — otherwise a
+// setup-token exported on the host authenticates the run as the API while the
+// mounted subscription login goes unread, which is what "Claude API" on a
+// subscription run was reporting. When the operator answered the auth row instead,
+// their answer stands and only its alternatives are suppressed.
+func authSuppressor(man manifest.Manifest, target, chosen, homeRoot string) func(string) bool {
+	chosen = strings.TrimSpace(chosen)
+	// The login is the credential — either named outright, or the only answer when
+	// the operator gave none and one exists. Then NO variable for its providers may
+	// be injected: an env token supersedes the file rather than joining it.
+	if chosen == authVarLogin || (chosen == "" && hasPersistedLogin(target, homeRoot)) {
+		// Scoped to the providers the login actually authenticates — read off the
+		// harness's own declared secrets. Scoping it to the manifest's capabilities
+		// instead reached too far: a manifest that declares none allows every
+		// provider, so an anthropic login would have suppressed the openai key too
+		// and quietly removed reach the harness legitimately has.
+		owned := map[string]bool{}
+		for _, e := range man.Env {
+			if e.Secret {
+				if prov := providerOfKeyVar(e.Name); prov != "" {
+					owned[prov] = true
+				}
+			}
+		}
+		return func(k string) bool {
+			prov := providerOfKeyVar(k)
+			return prov != "" && owned[prov]
+		}
+	}
+	auth := effectiveAuthVar(man, target, chosen, homeRoot)
+	return func(k string) bool { return losesToChosenAuth(k, auth) }
+}
+
+// losesToChosenAuth reports whether key var k is a rejected alternative to the auth
+// var the operator picked. Only vars of the SAME provider compete: an anthropic
+// choice says nothing about openai, and dropping an unrelated key would silently
+// remove reach the harness legitimately has.
+func losesToChosenAuth(k, chosen string) bool {
+	chosen = strings.TrimSpace(chosen)
+	if chosen == "" || k == chosen {
+		return false
+	}
+	prov := providerOfKeyVar(chosen)
+	if prov == "" || providerOfKeyVar(k) != prov {
+		return false
+	}
+	for _, alt := range provider.AuthVars(prov) {
+		if alt == k {
+			return true // same provider, different auth: the operator chose the other
+		}
+	}
+	return false
 }
 
 func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, bridges provider.BridgeTable, repoRoot, inputDir, homeRoot string) []string {
@@ -1903,12 +2080,16 @@ func sbxHome(env []string, mounts []sbx.Mount) []string {
 	}
 	out := make([]string, 0, len(env))
 	for _, e := range env {
-		if strings.HasPrefix(e, "HOME=") {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "PROVEO_HOME=") {
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, "HOME="+host)
+	// PROVEO_HOME carries the same path under a name nothing else rewrites. sbx runs
+	// setup.startup commands under `user: "1000"`, and that resets HOME from
+	// /etc/passwd — so a seed step reading $HOME composed subagents into /home/claude
+	// while the agent ran with this value, putting the files where nothing reads them.
+	return append(out, "HOME="+host, "PROVEO_HOME="+host)
 }
 
 // firstHost is the host path of the first bind, which is where sbx puts the cwd.
@@ -1937,6 +2118,10 @@ type runSandboxInput struct {
 	// memory is the -m limit for the sandbox, resolved by the caller so that
 	// sandboxSpec stays pure and --print renders the same argv the run executes.
 	memory string
+	// homeRoot is the proveo home, passed in for the same reason: a host login
+	// living there decides which credential the run authenticates with, and
+	// sandboxSpec must not reach for the real filesystem to find that out.
+	homeRoot string
 }
 
 // sandboxSpec resolves the sbx invocation: RunConfig, Kit, and host-side secrets.
@@ -1982,8 +2167,22 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 		forwarded = append(forwarded, name)
 	}
+	suppressedAuth := authSuppressor(in.man, p.target, p.authVar, in.homeRoot)
+	var neutralize []string // suppressed credentials, stated as empty rather than omitted
+	note := func(name string) {
+		for _, n := range neutralize {
+			if n == name {
+				return
+			}
+		}
+		neutralize = append(neutralize, name)
+	}
 	for _, e := range in.man.Env {
 		if !e.Secret {
+			continue
+		}
+		if suppressedAuth(e.Name) {
+			note(e.Name)
 			continue
 		}
 		if forwards {
@@ -2001,6 +2200,15 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		if !in.man.Capabilities.AllowsProvider(providerOfKeyVar(k)) {
 			continue
 		}
+		// A provider with two ways to authenticate gets only the one the operator
+		// chose. Handing sbx both put an API key and a subscription token in the
+		// same store, and its proxy injected the key — so a subscription run
+		// silently billed per token and the auth row the operator answered was
+		// decided for them somewhere they could not see.
+		if suppressedAuth(k) {
+			note(k)
+			continue
+		}
 		if forwards {
 			addForward(k)
 			continue
@@ -2009,6 +2217,14 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 
 	var env []string
+	// Neutralize, do not merely omit. sbx's secret store is GLOBAL and injects on its
+	// own authority, so leaving a suppressed variable unset leaves whatever an earlier
+	// run stored sitting in front of the mounted login. An explicit empty value is the
+	// only per-run override sbx offers (`sbx run -e VAR=`), so the decision proveo
+	// made host-side is stated in the argv instead of being silently overridden.
+	for _, k := range neutralize {
+		env = append(env, k+"=")
+	}
 	env = append(env, forwarded...)
 	for _, e := range in.man.Env {
 		if e.Secret {
@@ -2041,9 +2257,12 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		mounts = append(mounts, sbx.Mount{Host: in.dataDir, Container: "/workspace/data", ReadOnly: true})
 	}
 
-	command := p.extra
+	// --shell selects sbx's OWN shell agent rather than substituting a command: the
+	// built-in agent owns the launch, so a trailing "bash" reached the harness's
+	// agent as an argument and the shell never opened.
+	command, agent := p.extra, sbx.BuiltinAgent(p.target)
 	if p.shell {
-		command = []string{"bash"} // open a shell instead of launching the agent
+		command, agent = nil, sbx.ShellAgent
 	}
 	cfg := sbx.RunConfig{
 		Name: in.sid,
@@ -2063,29 +2282,66 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// attempt to name one in the manifest (sbxAgent: claude) was refused for
 		// exactly this reason. It is namespaced because sbx also refuses to let a
 		// Kit shadow a built-in agent, and `cursor` and `opencode` are both built
-		// in (sbx.AgentName).
-		Agent: sbx.AgentName(p.target),
+		// in — see sbx.BuiltinAgent.
+		Agent: agent,
 		// Only the WORKSPACE binds survive onto an sbx run: it mounts each
 		// positional path at its own host path, so a bind with a container-side
 		// target — proveo home at /proveo-home, the gh config under it — has no way
 		// to be expressed. They are dropped rather than silently mounted somewhere
 		// else, and PROVEO_WORKDIR below tells the harness where it actually landed.
-		Mounts:  workspaceBinds(mounts),
-		Env:     sbxHome(append(env, "PROVEO_WORKDIR="+firstHost(workspaceBinds(mounts))), mounts),
+		Mounts: workspaceBinds(mounts),
+		// The bridge is applied HERE, not in the container: its output goes into the
+		// Kit's environment block, where it reaches the agent. Left to a setup hook
+		// it would be computed in a process the agent never inherits.
+		Env:     sbxHome(append(append(env, resolvedModelEnv(in)...), "PROVEO_WORKDIR="+firstHost(workspaceBinds(mounts))), mounts),
 		Command: command,
 	}
+	// The Kit is a MIXIN composed onto sbx's own agent: it declares no agent, no
+	// image and no credentials. The image arrives via -t, the agent is sbx's, and
+	// credentials belong to the built-in agent's kit — repeating a service there is
+	// rejected outright ("defined in both"), and its proxy already injects.
 	kit := sbx.Kit{
-		SchemaVersion: sbx.KitSchemaVersion,
-		Kind:          "sandbox",
-		Name:          sbx.AgentName(p.target),
-		Sandbox: sbx.KitSandbox{
-			Image:      p.image,
-			Entrypoint: sbx.ImageEntrypoint(p.image),
-		},
-		Permissions: sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
-		Credentials: kitCredentials(secrets, forwards),
+		SchemaVersion: sbx.KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          p.target + "-posture",
+		DisplayName:   "proveo posture (" + p.target + ")",
+		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
+		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
+		Environment:   &sbx.KitEnv{Variables: kitEnvVars(cfg.Env)},
+		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(p.target)}},
 	}
 	return cfg, kit, secrets
+}
+
+// resolvedModelEnv is the model bridge, applied host-side, as KEY=VALUE pairs.
+func resolvedModelEnv(in runSandboxInput) []string {
+	var out []string
+	for k, v := range in.params.bridges.ResolvedEnv(in.params.target, in.params.roles) {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out) // a Kit is written to disk and diffed; order must not churn
+	return out
+}
+
+// kitEnvVars turns the resolved KEY=VALUE pairs into the Kit's environment block.
+//
+// Only pairs that already carry a value are declared: a bare NAME in cfg.Env means
+// "forward whatever the host holds", which is a -e concern and cannot be written
+// into a spec file. Resolving here is the point of the design — the agent receives
+// ANTHROPIC_MODEL decided, rather than a table and a bridge to recompute it.
+func kitEnvVars(env []string) map[string]string {
+	out := map[string]string{}
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok || k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // kitCredentials declares proveo's broker as the Kit's credential policy: one
@@ -2206,14 +2462,19 @@ func runSandbox(in runSandboxInput) error {
 	// it streams past. "agent exited with code 137" is sbx's auto-stop code,
 	// arriving 30s after the agent itself exited; the tail is what actually
 	// explains the run — a credit-balance error, a login prompt, a stack trace.
-	tail := newTailWriter(24)
+	//
+	// The tail can only be taken when stdout is ALREADY redirected. os/exec gives
+	// the child the real terminal only when the field holds an *os.File; wrapping
+	// it in an io.MultiWriter substitutes a pipe, so the agent sees no tty, cannot
+	// read the window size, and draws its TUI one character per line. Interactive
+	// runs keep the terminal and forgo the tail — the operator is watching anyway.
+	stdout, stderr, tail := agentStdio(os.Stdout, os.Stderr, isWriterTTY(os.Stdout))
 	run := func() error {
 		c := exec.Command(sbx.Binary, args...)
-		c.Stdin = os.Stdin
-		c.Stdout = io.MultiWriter(os.Stdout, tail)
-		c.Stderr = io.MultiWriter(os.Stderr, tail)
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
 		return c.Run()
 	}
+	startedAt := time.Now()
 	runErr := run()
 	if runErr != nil && !sbx.Exists(cfg.Name) {
 		// The template sbx holds has gone bad. Hand the image over again and try
@@ -2237,6 +2498,9 @@ func runSandbox(in runSandboxInput) error {
 					fmt.Fprintf(os.Stderr, "  %s\n", l)
 				}
 				fmt.Fprintf(os.Stderr, "───────────────────────────────\n")
+			}
+			if t := agentTranscript(in.params.target, in.homeRoot, startedAt); t != "" {
+				ui.Iconf("📄", "what the agent actually said is in %s", t)
 			}
 			ui.Warnf("sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
 				cfg.Name, cfg.Name, cfg.Name)
@@ -2613,6 +2877,14 @@ func onPath(dir string) bool {
 
 // isStdinTTY gates every interactive prompt (scope picker, env wizard).
 func isStdinTTY() bool { return isReaderTTY(os.Stdin) }
+
+// isWriterTTY reports whether w is an *os.File attached to a terminal. A child
+// process only inherits the terminal when the exec field holds that same *os.File,
+// so this also answers "may I wrap this writer?".
+func isWriterTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
 
 // isReaderTTY reports whether r is an *os.File attached to a terminal.
 func isReaderTTY(r io.Reader) bool {

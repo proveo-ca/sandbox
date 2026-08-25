@@ -19,6 +19,7 @@ var specNotesEnforced = []string{
 	"_spec/defs/agent-definition-sharing.puml",
 	"_spec/internal/choiceui/choice-prompt-render.puml",
 	"_spec/internal/entrypoint/model-alias-bridges.puml",
+	"_spec/internal/sbx/sbx-kit-contract.puml",
 }
 
 const (
@@ -28,9 +29,13 @@ const (
 )
 
 var (
-	noteOpen   = regexp.MustCompile(`^note\s+(?:top|bottom|left|right)\s+of\s+\S+\s*$`)
-	noteAs     = regexp.MustCompile(`^note\s+as\s+\S+\s*$`)
-	noteInline = regexp.MustCompile(`^\s*note\s+(?:top|bottom|left|right)\s+of\s+\S+\s*:`)
+	noteOpen = regexp.MustCompile(`^note\s+(?:top|bottom|left|right)\s+of\s+\S+\s*$`)
+	noteAs   = regexp.MustCompile(`^note\s+as\s+\S+\s*$`)
+	// `note over X` and `note over X, Y` are the same box under a different keyword.
+	// Omitting them exempted a whole note form from the rule: credential-boundary
+	// carries 21 of them and the checker reported it as having no notes at all.
+	noteOver   = regexp.MustCompile(`^note\s+over\s+[^:]+$`)
+	noteInline = regexp.MustCompile(`^\s*note\s+(?:(?:top|bottom|left|right)\s+of|over)\s+[^:]*:`)
 )
 
 type specNote struct {
@@ -45,7 +50,7 @@ func parseSpecNotes(src string) []specNote {
 	for i, line := range strings.Split(src, "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case noteOpen.MatchString(trimmed) || noteAs.MatchString(trimmed):
+		case noteOpen.MatchString(trimmed) || noteAs.MatchString(trimmed) || noteOver.MatchString(trimmed):
 			out = append(out, specNote{anchor: trimmed, line: i + 1})
 			cur = &out[len(out)-1]
 		case trimmed == "end note":
@@ -58,6 +63,17 @@ func parseSpecNotes(src string) []specNote {
 		}
 	}
 	return out
+}
+
+// unwrappable reports a line holding one unbroken token — a bare URL is the case
+// that matters. The column cap exists to force prose density, and a link has none
+// to force: no rewrite makes it shorter, so capping it would only push sources out
+// of the notes and back into comments nobody renders.
+func unwrappable(line string) bool {
+	t := strings.TrimSpace(line)
+	t = strings.TrimPrefix(t, "- ")
+	t = strings.Trim(t, "[]")
+	return t != "" && !strings.ContainsAny(t, " \t")
 }
 
 func TestSpecNotesFitTheBox(t *testing.T) {
@@ -85,11 +101,35 @@ func TestSpecNotesFitTheBox(t *testing.T) {
 			for k, line := range n.body {
 				// Columns are a display property, so count runes: an em dash is one
 				// column and three bytes, and byte length would reject a legal note.
-				if w := utf8.RuneCountInString(line); w > specNoteMaxCols {
+				if w := utf8.RuneCountInString(line); w > specNoteMaxCols && !unwrappable(line) {
 					t.Errorf("%s:%d %q line %d is %d cols; max %d",
 						rel, n.line, n.anchor, k+1, w, specNoteMaxCols)
 				}
 			}
+		}
+	}
+}
+
+// The column cap is exempted only for text no rewrite can shorten. Widening that to
+// "any long line" would retire the rule quietly, so the boundary is pinned here.
+func TestUnwrappableExemptsLinksAndNothingElse(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		line string
+		want bool
+		why  string
+	}{
+		{"  - [[https://example.com/a/very/long/path/to/a/spec.md]]", true,
+			"a bare link in a list is one token; wrapping it breaks the link"},
+		{"  https://example.com/a/very/long/path", true, "same without the list marker"},
+		{"  **A sentence that simply runs on and on past fifty columns.**", false,
+			"prose is exactly what the cap exists to compress"},
+		{"  - see https://example.com and also the note below", false,
+			"a link inside a sentence can still be rewritten around"},
+		{"", false, "an empty line is not a token"},
+	} {
+		if got := unwrappable(c.line); got != c.want {
+			t.Errorf("unwrappable(%q) = %v, want %v — %s", c.line, got, c.want, c.why)
 		}
 	}
 }

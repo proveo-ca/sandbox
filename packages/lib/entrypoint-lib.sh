@@ -1081,3 +1081,28 @@ render_subagents() {
   echo "🌱 Composed $harness subagents into $dst: ${seeded[*]}"
  fi
 }
+
+# ── The FILE-SHAPED half of harness setup, invoked identically by both backends ──
+# Under sbx this runs from the Kit's setup.startup hook; on docker the entrypoint
+# calls it before exec. It may ONLY do work that outlives its own process: a setup
+# command runs in its own shell, so anything it exported would never reach the
+# agent. Env-shaped work is resolved host-side and arrives as values.
+#
+# Idempotent by construction — every step is "create if absent" or a merge — because
+# a re-attached sandbox runs the startup hook again.
+proveo_seed() {
+ local target="${1:-${PROVEO_TARGET:-}}"
+ # PROVEO_HOME first: sbx runs this under `user: "1000"`, which resets HOME from
+ # /etc/passwd, so $HOME here is NOT the home the agent will run with.
+ local home="${PROVEO_HOME:-${HOME:-}}"
+ [[ -n "$target" && -n "$home" ]] || return 0
+
+ case "$target" in
+ claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
+ cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
+ cecli) render_subagents cecli "$home/agents" "${CECLI_RESEED:-0}" ;;
+ opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
+ esac
+
+ accept_workspace_trust "${PROVEO_WORKDIR:-$PWD}"
+}

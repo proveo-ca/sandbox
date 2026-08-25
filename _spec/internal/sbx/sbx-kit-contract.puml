@@ -51,11 +51,56 @@ skinparam noteTextAlignment left
 '   files/home/**      → /home/<user>/**      (sibling directory of spec.yaml)
 '   files/workspace/** → <workspace>/**
 '
-' ── KNOWN CONSTRAINT (sbx v0.39.0) ──────────────────────────────────────────
-' A Kit that DEFINES its own agent gets no agent artifact registered, so sbx skips
-' the binding gate and the interactive session closes within seconds. `extends`
-' does not close this. Until upstream registers Kit-defined agents, a run on this
-' backend cannot hold an interactive agent session; the docker+egress path can.
+' ── AGENT IDENTITY: proveo names none ───────────────────────────────────────
+' `sbx run --help` prints a CLOSED list — claude, codex, copilot, cursor,
+' docker-agent, droid, gemini, kiro, opencode, shell. A Kit cannot add to it,
+' naming one after a built-in is refused ("built-in agents cannot be overridden
+' by a kit"), and publishing registers nothing: kiro is on that list because the
+' CLI ships it. An invented agent therefore never resolves agents/<name>/spec.yml,
+' its binding gate is skipped, and the interactive session drops within seconds.
+'
+' So a proveo run uses sbx's OWN agent (internal/sbx.BuiltinAgent) and contributes
+' a `kind: mixin` Kit beside it. The division that follows is not a preference:
+'   built-in agent : identity, launch, credentials
+'   proveo mixin   : reachability, host-resolved env, the seed step
+' Credentials in particular must NOT be declared twice — a mixin repeating a
+' service the agent already declares is rejected outright ("defined in both").
+'
+' ── CREDENTIALS: THREE SOURCES, AND ONLY TWO ARE PROVEO'S ───────────────────
+'   the Kit          declares names and headers; proveo decides what to inject
+'                    and writes values only over `sbx secret set` on stdin.
+'   the mounted home a credential FILE is a login. An auth env var for the same
+'                    provider OVERRIDES it rather than joining it, so proveo
+'                    injects none when one is present (cmd/proveo.authSuppressor).
+'   sbx's store      GLOBAL and persistent. `sbx secret ls` outlives every run and
+'                    the built-in agent reads it directly, so a run can
+'                    authenticate as a credential `proveo run --print` never named.
+'                    proveo does not delete from it: the store is shared with
+'                    sandboxes it never created. `sbx secret rm` is the operator's.
+'
+' ── THE THREE KINDS OF SETUP WORK ───────────────────────────────────────────
+'   env-shaped     model slots, git identity, PROVEO_WORKDIR
+'                  → resolved HOST-side into environment.variables. A setup
+'                    command runs in its own process; its exports never reach
+'                    the agent, so this cannot be done inside.
+'   file-shaped    subagents, settings, LSP config, the workspace trust flag
+'                  → `proveo_seed`, invoked from setup.startup under sbx and by
+'                    the entrypoint on docker. Files outlive the process.
+'                    $HOME is NOT the run's home here: sbx runs startup commands
+'                    under `user: "1000"`, and that resets HOME from /etc/passwd.
+'                    The seed reads PROVEO_HOME — the same path under a name no
+'                    launcher rewrites — or it composes into the image's home
+'                    while the agent runs somewhere else and reads none of it.
+'   launch-shaped  the agent command itself
+'                  → the built-in agent's, not ours. So `--shell` cannot be a
+'                    trailing command here: sbx starts the harness's agent and
+'                    hands the word to it as an argument. It selects sbx's OWN
+'                    `shell` agent instead (internal/sbx.ShellAgent), which is on
+'                    the closed list precisely for this. That agent does NOT survive
+'                    a detached tmux pane — `sbx run -t <image> shell <ws>` exits
+'                    within seconds there with proveo uninvolved — so an e2e probe
+'                    cannot drive an sbx session to a prompt the way the docker
+'                    ones are driven (tests/e2e/sbx_test.go checks for it and skips).
 ' ────────────────────────────────────────────────────────────────────────────
 
 title sbx Kit contract — schema source, validate handoff, session, exit code
@@ -64,23 +109,31 @@ component "SPEC-v2.md\nthe only source for field names" as SPEC <<cloud>>
 
 node "proveo" as P <<host>> {
   component "sbx.Kit → WriteKit\nrenders spec.yaml per run" as KIT <<app>>
-  component "tailWriter\nkeeps the agent's last output" as TAIL <<app>>
+  component "agentStdio\nhands the terminal over, or tails it" as TAIL <<app>>
 }
+
+component "sbx secret store\nglobal — outlives every run" as STORE <<error>>
+component "session transcript\nwritten into the mounted home" as TRANS <<db>>
 
 node "deterministic handoff" as HAND <<host>> {
   component "sbx kit validate\nparses into the v2 struct" as VAL <<app>>
   component "sbx kit inspect\nprints what sbx resolved" as INS <<app>>
 }
 
-component "agent/session\nconnect · disconnect · 30s grace" as SESS <<app>>
+component "agent/session\nheld by sbx's OWN agent" as SESS <<app>>
+component "setup work\nenv-shaped · file-shaped · launch-shaped" as SPLIT <<app>>
 component "exit 137 surfaced raw\nread as a kill that never happened" as EXIT <<error>>
 
 SPEC ARROW_MAIN KIT : field names and forms
 KIT ARROW_MAIN VAL : every render, in CI
 VAL ARROW_MAIN INS : shape passed — now read intent
-INS ARROW_MAIN SESS : entrypoint + command tail
+INS ARROW_MAIN SESS : built-in agent + mixin
+KIT ARROW_MAIN SPLIT : what the mixin may carry
 SESS ARROW_ERROR EXIT : socket closes → runtime stopped
-TAIL ARROW_QUEUE EXIT : what the agent actually said
+SESS ARROW_MAIN TRANS : every turn, as it happens
+TRANS ARROW_QUEUE EXIT : why the session ended
+TAIL ARROW_MAIN SESS : stdio, unwrapped when interactive
+STORE ARROW_ERROR SESS : injects what no Kit declared
 
 note top of KIT
  Sources:
@@ -99,27 +152,51 @@ note bottom of VAL
 end note
 
 note bottom of SESS
-  **A Kit-defined agent holds no session.** sbx
-  seeks an agent artifact registered under that
-  name, finds none, skips its binding gate and
-  abandons the socket seconds later; ""extends""
-  inherits setup but never the registration.
+  **The agent must be one sbx already ships.** Its
+  registry is closed and a Kit cannot extend it,
+  so an identity of our own receives no artifact,
+  skips the binding gate and abandons the session
+  — proveo contributes a mixin instead.
 end note
 
 note bottom of EXIT
-  **137 is the auto-stop, not the agent.** The
+  **137 and "was stopped" are one event.** The
   runtime is terminated thirty seconds after the
-  socket closes, so the code describes teardown
-  rather than the process — surfacing it unchanged
-  sends every reader after a kill that never was.
+  socket closes, so both describe teardown and
+  neither describes the agent — surfacing either
+  alone sends readers after a kill that never was.
 end note
 
 note bottom of TAIL
-  **Keep the sandbox and its output on failure.**
-  sbx exposes no logs command and teardown
-  destroys the only copy, so proveo tees the agent
-  stream and skips its forced removal whenever the
-  run failed, leaving both available afterwards.
+  **The terminal is handed over, not wrapped.**
+  os/exec grants a genuine tty only while that
+  field holds the file itself, so an interposed
+  writer degrades it into a pipe and the agent
+  forfeits the window geometry a TUI depends on.
+end note
+
+note bottom of TRANS
+  **The transcript outlasts the terminal.** A full
+  screen TUI restores the display as it exits, so
+  a failed run can leave nothing on screen, while
+  every turn was recorded in the mounted home —
+  proveo names that file whenever a run fails.
+end note
+
+note bottom of STORE
+  **A third source, and proveo does not own it.**
+  Credentials an earlier launch deposited remain
+  injectable, so a session may authenticate as an
+  identity this Kit never declared, and removing
+  them belongs to the operator rather than here.
+end note
+
+note bottom of SPLIT
+  **Three kinds of work, and they do not migrate
+  alike.** Env-shaped cannot survive a setup hook,
+  because that command exports into a process the
+  agent never inherits; file-shaped survives; and
+  launch-shaped becomes the entrypoint itself.
 end note
 
 @enduml

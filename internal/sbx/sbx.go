@@ -739,13 +739,59 @@ func SecretSet(name, value string) error {
 const KitSchemaVersion = 2
 
 // Kit is the posture rendered as a Kit spec.yaml (kit-spec v2).
+//
+// It is a MIXIN, not a sandbox. A `kind: sandbox` Kit declares an agent, and sbx's
+// agent list is closed: an agent it does not already ship gets no artifact, so its
+// binding gate is skipped and the interactive session is dropped seconds in. A
+// mixin declares no agent, composes onto one sbx already knows, and contributes
+// only what proveo actually owns — reachability, resolved env, and the seed step.
+//
+// SchemaVersion is a STRING because the spec says so (SPEC-v2.md). Credentials are
+// deliberately absent: the built-in agent declares its own, and a mixin repeating a
+// service is rejected outright ("defined in both").
 type Kit struct {
-	SchemaVersion int             `yaml:"schemaVersion"`
-	Kind          string          `yaml:"kind"`
-	Name          string          `yaml:"name"`
-	Sandbox       KitSandbox      `yaml:"sandbox"`
-	Permissions   KitPermissions  `yaml:"permissions,omitempty"`
-	Credentials   []KitCredential `yaml:"credentials,omitempty"`
+	SchemaVersion string         `yaml:"schemaVersion"`
+	Kind          string         `yaml:"kind"`
+	Name          string         `yaml:"name"`
+	DisplayName   string         `yaml:"displayName,omitempty"`
+	Description   string         `yaml:"description,omitempty"`
+	Permissions   KitPermissions `yaml:"permissions,omitempty"`
+	Environment   *KitEnv        `yaml:"environment,omitempty"`
+	Setup         *KitSetup      `yaml:"setup,omitempty"`
+}
+
+// KitEnv carries values RESOLVED ON THE HOST. A setup command runs in its own
+// process and cannot export into the agent, so anything env-shaped has to arrive
+// already decided rather than as work for a script to redo inside.
+type KitEnv struct {
+	Variables map[string]string `yaml:"variables,omitempty"`
+}
+
+// KitSetup holds the container-side steps. Only file-shaped work belongs here:
+// files outlive the process that wrote them, exports do not.
+type KitSetup struct {
+	Startup []KitCommand `yaml:"startup,omitempty"`
+}
+
+// KitCommand is one setup step. `startup` takes a LIST command (install takes a
+// string) — the two spellings differ and the loader is strict about it.
+type KitCommand struct {
+	Command     []string `yaml:"command"`
+	User        string   `yaml:"user,omitempty"`
+	Description string   `yaml:"description,omitempty"`
+}
+
+// KitSchemaVersionV2 is the schemaVersion every rendered Kit declares.
+const KitSchemaVersionV2 = "2"
+
+// SeedCommand is the seed step as a Kit setup.startup entry. Both backends reach
+// the same function; only the invocation differs.
+func SeedCommand(target string) KitCommand {
+	return KitCommand{
+		Command:     []string{"/usr/local/bin/proveo-seed", target},
+		User:        "1000",
+		Description: "proveo: compose subagents, settings and workspace trust",
+	}
 }
 
 // KitSandbox names the image and what runs in it. Entrypoint is what keeps

@@ -157,7 +157,7 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 
 func dockerImagePresent(t *testing.T, image string) bool {
 	t.Helper()
-	return exec.Command("docker", "image", "inspect", image).Run() == nil
+	return imageExists(image)
 }
 
 func ollamaHasModel(model string) bool {

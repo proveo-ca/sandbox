@@ -1,0 +1,82 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the shape of proveo in one screen — who drives it, what it decides, where it runs
+' covers: cmd/proveo/**
+' covers: internal/**
+' Detail lives in components.puml (same directory): every package, every edge.
+' This file exists because that map answers "what is there" and a newcomer first
+' needs "what is this" — so it stays small on purpose. Resist adding boxes; add
+' them there instead.
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+
+title Proveo — one orchestrator, one resolved launch, two backends
+
+actor "Consumer\nruns an agent on their repo" as Consumer
+actor "Maintainer\nbuilds and publishes images" as Maintainer
+
+component "proveo CLI\nthe single host orchestrator" as CLI <<host>>
+
+node "Definitions — defs/" as DEFS <<host>> {
+  component "harness.manifest\nregistration + capabilities" as MANIFEST <<app>>
+  component "Dockerfile · entrypoint\nsubagents · bridges" as BUILD <<app>>
+}
+component "proveo/* images" as IMAGES <<app>>
+
+component "LaunchSpec\nenv · seed steps · agent argv" as LAUNCH <<app>>
+
+node "Backends" as BACKENDS <<host>> {
+  component "docker + egress\nSquid · MITM · broker" as DOCKER <<app>>
+  component "docker sandboxes (sbx)\nbuilt-in agent + proveo mixin" as SBX <<app>>
+}
+
+component "the agent, on your workspace" as AGENT <<app>>
+cloud "provider APIs" as PROVIDERS <<cloud>>
+component "_spec/**\nwhy each shape is what it is" as SPECS <<db>>
+
+Consumer ARROW_MAIN CLI : proveo run <target>
+Maintainer ARROW_MAIN BUILD : build · deploy
+BUILD ARROW_MAIN IMAGES
+MANIFEST ARROW_MAIN CLI : what this harness can do
+IMAGES ARROW_MAIN BACKENDS : the image a run boots
+
+CLI ARROW_MAIN LAUNCH : resolve once, host-side
+LAUNCH ARROW_MAIN DOCKER
+LAUNCH ARROW_MAIN SBX
+BACKENDS ARROW_MAIN AGENT
+AGENT ARROW_CLOUD PROVIDERS : brokered, never bare
+SPECS ARROW_OPTIONAL CLI : the reasoning, not the code
+
+note right of CLI
+  **One orchestrator, and it stays on the host.**
+  Mounts, egress topology, credential handling and
+  every prompt are decided here, so the container
+  receives a posture rather than the authority to
+  choose one.
+end note
+
+note bottom of LAUNCH
+  **Resolved once, rendered twice.** A backend is
+  a rendering of identical decisions, never a
+  second place to originate them, which keeps a
+  run comparable across both and lets a defect
+  show up on either.
+end note
+
+note bottom of BACKENDS
+  **The enforcer differs, the posture does not.**
+  Docker runs proveo's own Squid and MITM, whereas
+  the sandbox delegates to sbx's network policy
+  and credential proxy, so the prompt must name
+  whichever holds the boundary for this run.
+end note
+
+note bottom of IMAGES
+  **Definitions are data, images are artifacts.**
+  A harness brings a manifest, a Dockerfile and an
+  entrypoint, while the choices about how a run is
+  assembled stay in the CLI — so adding one never
+  means adding orchestration.
+end note
+
+@enduml

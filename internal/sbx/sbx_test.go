@@ -151,87 +151,69 @@ func TestSecretSetPipesValueViaStdin(t *testing.T) {
 	}
 }
 
-func TestWriteKitRendersDenyByDefaultAllowlist(t *testing.T) {
+func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
 	dir := t.TempDir()
 	kitDir, err := WriteKit(filepath.Join(dir, "kit"), Kit{
-		SchemaVersion: KitSchemaVersion,
-		Kind:          "sandbox",
-		Name:          "claudecode",
-		Sandbox: KitSandbox{
-			Image:      "proveo/claudecode:latest",
-			Entrypoint: []string{"dumb-init", "--", "/entrypoint.sh"},
-		},
+		SchemaVersion: KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          "claudecode-posture",
 		Permissions: KitPermissions{Network: KitNet{
 			Allow: []string{"api.anthropic.com", "statsig.anthropic.com"},
 		}},
-		Credentials: []KitCredential{{
-			Service: "anthropic",
-			APIKey: KitAPIKey{
-				Name:         "CLAUDE_CODE_OAUTH_TOKEN",
-				ProxyManaged: true,
-				Inject: []KitInject{{
-					Domain: ".anthropic.com", Header: "authorization", Format: "Bearer %s",
-				}},
-			},
+		Environment: &KitEnv{Variables: map[string]string{
+			"ANTHROPIC_MODEL": "claude-opus-5",
+			"PROVEO_WORKDIR":  "/w",
 		}},
+		Setup: &KitSetup{Startup: []KitCommand{SeedCommand("claudecode")}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kitDir != filepath.Join(dir, "kit") {
-		t.Fatalf("WriteKit returned %q, want the kit directory (what --kit takes)", kitDir)
-	}
-	path := filepath.Join(kitDir, "spec.yaml")
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	// kit-spec v2: the allowlist lives under permissions.network.allow and the
-	// image under sandbox.image. The v1 spellings (network.allowedDomains, a
-	// top-level image, credentialsEnv) are what sbx v0.39 rejects outright — the
-	// mismatch that made every sandbox run die at "resolve kits".
+
+	// schemaVersion is a STRING per SPEC-v2, and the Kit declares no agent: sbx's
+	// agent list is closed, so a `kind: sandbox` Kit gets no artifact and its
+	// session is dropped seconds in.
 	for _, want := range []string{
-		"schemaVersion: 2",
-		"kind: sandbox",
-		"name: claudecode",
-		"image: proveo/claudecode:latest",
-		"entrypoint:",
-		"- /entrypoint.sh",
-		"permissions:",
-		"allow:",
-		"- api.anthropic.com",
-		"- statsig.anthropic.com",
-		"service: anthropic",
-		"proxyManaged: true",
-		"header: authorization",
-		"format: Bearer %s",
+		`schemaVersion: "2"`, "kind: mixin", "name: claudecode-posture",
+		"allow:", "- api.anthropic.com",
+		"environment:", "ANTHROPIC_MODEL: claude-opus-5",
+		"setup:", "startup:", "/usr/local/bin/proveo-seed",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("spec.yaml missing %q:\n%s", want, s)
 		}
 	}
-	// The posture is recorded, never the secret: the Kit names the env var and the
-	// header, and the value stays with `sbx secret set` on stdin.
-	if strings.Contains(s, "sk-") || strings.Contains(s, "Bearer sk") {
+	// A mixin must declare NO agent, NO image, and NO credentials: the built-in
+	// agent owns all three, and repeating a credential service is rejected
+	// outright ("defined in both").
+	for _, banned := range []string{"sandbox:", "image:", "entrypoint:", "credentials:"} {
+		if strings.Contains(s, banned) {
+			t.Errorf("a mixin must not declare %q:\n%s", banned, s)
+		}
+	}
+	if strings.Contains(s, "sk-") {
 		t.Errorf("spec.yaml carries something secret-shaped:\n%s", s)
 	}
-	fi, err := os.Stat(path)
+	fi, err := os.Stat(filepath.Join(kitDir, "spec.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("spec.yaml perms %v, want 0600 (contains no secrets but posture is private)", fi.Mode().Perm())
+		t.Errorf("spec.yaml mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
 
 func TestWriteKitOmitsEmptyNetwork(t *testing.T) {
 	dir := t.TempDir()
 	kitDir, err := WriteKit(dir, Kit{
-		SchemaVersion: KitSchemaVersion,
-		Kind:          "sandbox",
-		Name:          "cursor",
-		Sandbox:       KitSandbox{Image: "proveo/cursor:latest"},
+		SchemaVersion: KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          "cursor-posture",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -738,5 +720,30 @@ func TestForceReloadDropsFirst(t *testing.T) {
 		if ForceReload(func(string) string { return off }) {
 			t.Errorf("%q must not force a reload", off)
 		}
+	}
+}
+
+// The agent must be one sbx already ships: its list is closed, a Kit cannot extend
+// it, and naming one of our own is what skipped the binding gate on every run.
+func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
+	t.Parallel()
+	// Exactly the names `sbx run --help` prints.
+	sbxKnows := map[string]bool{
+		"claude": true, "codex": true, "copilot": true, "cursor": true,
+		"docker-agent": true, "droid": true, "gemini": true, "kiro": true,
+		"opencode": true, "shell": true,
+	}
+	for _, target := range SbxTargets() {
+		agent := BuiltinAgent(target)
+		if !sbxKnows[agent] {
+			t.Errorf("target %q maps to %q, which sbx does not ship", target, agent)
+		}
+		if strings.HasPrefix(agent, "proveo") {
+			t.Errorf("target %q names an agent of our own (%q); that is the bug this replaces", target, agent)
+		}
+	}
+	// A target with no sbx counterpart returns "", which callers read as "docker only".
+	if got := BuiltinAgent("cecli"); got != "" {
+		t.Errorf("cecli has no sbx agent; got %q", got)
 	}
 }

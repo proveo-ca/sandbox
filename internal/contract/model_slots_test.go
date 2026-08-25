@@ -250,21 +250,33 @@ func TestEntrypointLibHonoursProveoWorkdir(t *testing.T) {
 	}
 }
 
-// A blocking prompt is fatal to an unattended run, so the harness must clear it
-// before the agent launches.
-func TestClaudecodeEntrypointAcceptsTrustBeforeLaunch(t *testing.T) {
+// A blocking prompt is fatal to an unattended run, so the trust dialog must be
+// cleared before the agent launches. It now happens inside proveo_seed, which both
+// backends call — the sbx Kit from setup.startup, docker from the entrypoint.
+func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/claudecode/mcp/entrypoint.sh"))
+	root := repoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "defs/claudecode/mcp/entrypoint.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
-	trust := strings.Index(src, "accept_workspace_trust")
-	launch := strings.Index(src, "exec claude")
-	if trust < 0 {
-		t.Fatal("entrypoint must accept the workspace trust dialog")
+	seed, launch := strings.Index(src, "proveo_seed"), strings.Index(src, "exec claude")
+	if seed < 0 {
+		t.Fatal("the entrypoint must call proveo_seed")
 	}
-	if launch < 0 || trust > launch {
-		t.Error("trust must be accepted BEFORE claude is exec'd, or the dialog still blocks")
+	if launch < 0 || seed > launch {
+		t.Error("proveo_seed must run BEFORE the agent is exec'd, or its files arrive too late")
+	}
+
+	lib, err := os.ReadFile(filepath.Join(root, "packages/lib/entrypoint-lib.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := string(lib)[strings.Index(string(lib), "proveo_seed() {"):]
+	for _, want := range []string{"render_subagents", "accept_workspace_trust"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("proveo_seed must perform %s", want)
+		}
 	}
 }

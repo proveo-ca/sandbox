@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -23,8 +25,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -915,18 +919,14 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	if !sawManifestHost {
 		t.Errorf("allowlist missing manifest hosts: %v", kit.Permissions.Network.Allow)
 	}
-	// The Kit declares the broker: one credential per provider, proxy-managed so
-	// the value never enters the VM, and an inject rule naming the header.
-	if len(kit.Credentials) == 0 {
-		t.Error("kit declares no credentials, so nothing would be brokered")
+	// Credentials are NOT declared here any more. The built-in agent's own kit
+	// declares service "anthropic", and a mixin repeating it is rejected outright
+	// ("defined in both") — sbx's proxy does the injection either way.
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
 	}
-	for _, c := range kit.Credentials {
-		if !c.APIKey.ProxyManaged {
-			t.Errorf("credential %q is not proxy-managed — the value would enter the VM", c.Service)
-		}
-		if len(c.APIKey.Inject) == 0 {
-			t.Errorf("credential %q names no inject destination", c.Service)
-		}
+	if kit.Setup == nil || len(kit.Setup.Startup) == 0 {
+		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
 	}
 
 	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
@@ -949,8 +949,15 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 		dataDir: dataDir,
 	}
 	cfg, _, secrets := sandboxSpec(in)
-	if len(cfg.Command) != 1 || cfg.Command[0] != "bash" {
-		t.Errorf("shell mode command = %v, want [bash]", cfg.Command)
+	// --shell selects sbx's OWN shell agent; it does not pass a command. Launch-shaped
+	// work belongs to the built-in agent, so the earlier expectation here — Command
+	// == [bash] — described something sbx never honoured: it started the harness's
+	// agent and handed "bash" to it as an argument, and the shell never opened.
+	if cfg.Agent != sbx.ShellAgent {
+		t.Errorf("shell mode agent = %q, want %q", cfg.Agent, sbx.ShellAgent)
+	}
+	if len(cfg.Command) != 0 {
+		t.Errorf("shell mode command = %v, want none — the agent IS the shell", cfg.Command)
 	}
 	if len(secrets) != 0 {
 		t.Errorf("secrets = %v, want none without credentials", secrets)
@@ -1027,10 +1034,10 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 	if len(secrets) != 0 {
 		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
 	}
-	// Nothing to declare under forward: the agent holds its own credential, so a
-	// Kit credential block would describe brokering that is not happening.
-	if len(kit.Credentials) != 0 {
-		t.Errorf("kit.Credentials = %v, want empty in forward mode", kit.Credentials)
+	// The Kit never declares credentials at all now — brokered or forwarded, the
+	// built-in agent owns that service and a mixin repeating it is rejected.
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
 	var bare bool
 	for _, e := range cfg.Env {
@@ -1069,16 +1076,20 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	if len(secrets) == 0 {
 		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
 	}
-	// The Kit names the credential the broker will inject, by env var, under the
-	// provider it belongs to.
-	found := false
-	for _, c := range kit.Credentials {
-		if c.APIKey.Name == "CLAUDE_CODE_OAUTH_TOKEN" {
-			found = true
+	// The secret still goes to sbx's store host-side, but the Kit no longer NAMES
+	// it: the built-in agent declares service "anthropic" itself, and a mixin
+	// repeating it is rejected ("defined in both").
+	var named bool
+	for _, kv := range secrets {
+		if kv[0] == "CLAUDE_CODE_OAUTH_TOKEN" {
+			named = true
 		}
 	}
-	if !found {
-		t.Errorf("kit.Credentials = %+v, want one naming CLAUDE_CODE_OAUTH_TOKEN", kit.Credentials)
+	if !named {
+		t.Errorf("secrets = %v, want the declared credential injected host-side", secrets)
+	}
+	if kit.Kind != "mixin" {
+		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
 }
 
@@ -1442,9 +1453,13 @@ func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
 	}
 }
 
-// "agent exited with code 137" is sbx's auto-stop code, arriving 30s after the agent
-// exited. The retained tail is what actually explains the run — in the case this was
-// written for, "Credit balance is too low" instead of four rounds of guessing.
+// "agent exited with code 137" and "sandbox was stopped" are both sbx's auto-stop,
+// arriving 30s after the agent exited; neither says why. The tail is what explains a
+// REDIRECTED run — "Credit balance is too low", which is what it turned out to be.
+//
+// An interactive run takes no tail (see TestAgentStdioHandsTheTerminalOverUnwrapped:
+// wrapping stdout costs the agent its tty) and is explained by the session transcript
+// instead, which agentTranscript names on failure.
 func TestTailWriterKeepsTheExplanation(t *testing.T) {
 	t.Parallel()
 	w := newTailWriter(3)
@@ -1583,5 +1598,399 @@ func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 	gateAddons(f2, "open", "forward", "")
 	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
 		t.Error("an available sandbox add-on must stay selectable and ticked")
+	}
+}
+
+// Anthropic can authenticate two ways. Handing sbx both put an API key and a
+// subscription token in the same store, its proxy injected the key, and a
+// subscription run billed per token — the auth row the operator answered was
+// overridden somewhere they could not see.
+func TestOnlyTheChosenAuthVarIsStored(t *testing.T) {
+	t.Parallel()
+	const oauth, apikey = "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"
+
+	if !losesToChosenAuth(apikey, oauth) {
+		t.Error("the API key must lose when the operator chose the subscription token")
+	}
+	if !losesToChosenAuth(oauth, apikey) {
+		t.Error("and the reverse: the token must lose when the operator chose the key")
+	}
+	if losesToChosenAuth(oauth, oauth) {
+		t.Error("the chosen var must never be dropped")
+	}
+	// Only same-provider vars compete: an anthropic choice says nothing about
+	// openai, and dropping an unrelated key removes reach the harness has.
+	if losesToChosenAuth("OPENAI_API_KEY", oauth) {
+		t.Error("a different provider's key must survive an anthropic choice")
+	}
+	// No choice made: change nothing.
+	if losesToChosenAuth(apikey, "") {
+		t.Error("without a chosen auth var nothing may be dropped")
+	}
+}
+
+// An operator may log in on the HOST before launching; that credential reaches the
+// container because HOME points at the mounted proveo home. When it is there it IS
+// the answer, and proveo must not also hand sbx an API key whose proxy injection
+// would override it — which is how a subscription run silently billed per token.
+func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
+		{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+	}}
+	home := t.TempDir()
+
+	// No explicit choice and no host login: nothing is implied, nothing is dropped.
+	if got := effectiveAuthVar(man, "claudecode", "", home); got != "" {
+		t.Errorf("without a login or a choice the auth var is unknown, got %q", got)
+	}
+
+	// A host login stands in for the answer the operator never had to give.
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{"x":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := effectiveAuthVar(man, "claudecode", "", home); got != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Errorf("a persisted host login must select the harness credential, got %q", got)
+	}
+	if !losesToChosenAuth("ANTHROPIC_API_KEY", effectiveAuthVar(man, "claudecode", "", home)) {
+		t.Error("with a host login present the competing API key must not be stored")
+	}
+
+	// An explicit answer always wins over the inferred one.
+	if got := effectiveAuthVar(man, "claudecode", "ANTHROPIC_API_KEY", home); got != "ANTHROPIC_API_KEY" {
+		t.Errorf("the operator's own choice must win, got %q", got)
+	}
+}
+
+// sandboxSpec must stay pure: a host login decides which credential the run uses,
+// but that fact arrives through the input, never by reaching for the real
+// filesystem. It read proveohome.Root() briefly and every result then depended on
+// whether the developer happened to be logged in.
+func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
+	t.Parallel()
+	lookup := func(k string) string {
+		return map[string]string{
+			"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+			"ANTHROPIC_API_KEY":       "key-value",
+		}[k]
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	base := runSandboxInput{params: runParams{target: "claudecode"}, man: man, sid: "s", lookup: lookup}
+
+	names := func(in runSandboxInput) map[string]bool {
+		_, _, secrets := sandboxSpec(in)
+		out := map[string]bool{}
+		for _, kv := range secrets {
+			out[kv[0]] = true
+		}
+		return out
+	}
+
+	// No home, so no login can be found: both credentials are stored, as before.
+	noHome := names(base)
+	if !noHome["ANTHROPIC_API_KEY"] {
+		t.Errorf("without a host login the API key must still be stored, got %v", noHome)
+	}
+
+	// A home carrying a login makes THE FILE the credential, so nothing is stored for
+	// that provider. This assertion used to read the other way — a login meant the
+	// harness's own token was stored — and that is what put an env token in front of
+	// the mounted login and authenticated a subscription run as the API.
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude/.credentials.json"), []byte(`{"x":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withHome := base
+	withHome.homeRoot = home
+	got := names(withHome)
+	if got["ANTHROPIC_API_KEY"] {
+		t.Errorf("a host login must suppress the competing API key, got %v", got)
+	}
+	if got["CLAUDE_CODE_OAUTH_TOKEN"] {
+		t.Errorf("an env token was stored over a mounted login; it overrides it rather than joining it, got %v", got)
+	}
+	if len(got) != 0 {
+		t.Errorf("the mounted login needs no brokered secret at all, got %v", got)
+	}
+}
+
+// A wrapped writer is not an *os.File, so os/exec substitutes a pipe and the agent
+// loses its tty: no window size, and a TUI that draws one character per line. The
+// terminal must be handed over by identity, which is what this pins down.
+func TestAgentStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
+	out, errw := os.Stdout, os.Stderr
+	gotOut, gotErr, tail := agentStdio(out, errw, true)
+	if gotOut != io.Writer(out) || gotErr != io.Writer(errw) {
+		t.Fatalf("interactive run wrapped the terminal: stdout=%T stderr=%T", gotOut, gotErr)
+	}
+	if tail != nil {
+		t.Fatal("interactive run took a tail; that is what forces the pipe")
+	}
+	if lines := tail.Lines(); lines != nil {
+		t.Fatalf("a nil tail must replay as no lines, got %v", lines)
+	}
+}
+
+// Off a terminal the stream is already redirected, so the tail is free.
+func TestAgentStdioTeesWhenStdoutIsRedirected(t *testing.T) {
+	var out, errw bytes.Buffer
+	gotOut, gotErr, tail := agentStdio(&out, &errw, false)
+	if tail == nil {
+		t.Fatal("a redirected run must keep the agent's last output")
+	}
+	fmt.Fprintln(gotOut, "credit balance is too low")
+	fmt.Fprintln(gotErr, "agent exited with code 137")
+	if !strings.Contains(out.String(), "credit balance") {
+		t.Fatalf("the tee stopped reaching stdout: %q", out.String())
+	}
+	if got := tail.Lines(); len(got) != 2 || got[0] != "credit balance is too low" {
+		t.Fatalf("tail did not retain both streams: %v", got)
+	}
+}
+
+// A credential file under the mounted proveo home IS the login. Injecting the
+// harness's own auth var alongside it does not add a second credential — it
+// overrides the first, which is how a subscription run authenticated as the API.
+func TestFileBackedLoginSuppressesEveryAuthVarForItsProvider(t *testing.T) {
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	suppressed := authSuppressor(man, "claudecode", "", home)
+
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppressed(k) {
+			t.Errorf("%s injected over a mounted login; it would override the subscription", k)
+		}
+	}
+	if suppressed("OPENAI_API_KEY") {
+		t.Error("an anthropic login must say nothing about another provider's reach")
+	}
+}
+
+// An answered auth row is the operator's decision and still wins.
+func TestChosenAuthVarSurvivesAPersistedLogin(t *testing.T) {
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	os.MkdirAll(filepath.Dir(cred), 0o755)
+	os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600)
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	suppressed := authSuppressor(man, "claudecode", "ANTHROPIC_API_KEY", home)
+
+	if suppressed("ANTHROPIC_API_KEY") {
+		t.Error("the operator's answer was dropped")
+	}
+	if !suppressed("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("the alternative to the answer must not be injected too")
+	}
+}
+
+// With no login on disk nothing is suppressed: the env vars are the only auth.
+func TestNoPersistedLoginInjectsTheManifestSecret(t *testing.T) {
+	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	if authSuppressor(man, "claudecode", "", t.TempDir())("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Fatal("dropped the only credential the run had")
+	}
+}
+
+// sbx runs setup.startup under `user: "1000"`, which resets HOME from /etc/passwd.
+// A seed reading $HOME therefore targets the image's home, not the run's — it
+// composed subagents into /home/claude while the agent ran elsewhere. PROVEO_HOME
+// is the name no launcher rewrites, so it must travel with every rewritten HOME.
+func TestRewrittenHomeAlsoCarriesProveoHome(t *testing.T) {
+	mounts := []sbx.Mount{{Host: "/Users/p/.proveo", Container: proveohome.ContainerHome}}
+	got := sbxHome([]string{"HOME=/stale", "PROVEO_HOME=/stale", "KEEP=1"}, mounts)
+
+	var home, seed int
+	for _, e := range got {
+		switch {
+		case e == "HOME=/Users/p/.proveo":
+			home++
+		case e == "PROVEO_HOME=/Users/p/.proveo":
+			seed++
+		}
+	}
+	if home != 1 || seed != 1 {
+		t.Fatalf("want exactly one rewritten HOME and PROVEO_HOME, got %v", got)
+	}
+	for _, e := range got {
+		if e == "HOME=/stale" || e == "PROVEO_HOME=/stale" {
+			t.Fatalf("a stale home survived the rewrite: %v", got)
+		}
+	}
+}
+
+// Interactive runs take no tail, so the transcript is the only record proveo can
+// name. It must name THIS run's — an older one sends the reader to stale evidence.
+func TestAgentTranscriptNamesOnlyThisRunsFile(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".claude", "projects", "-w-repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "old.jsonl")
+	fresh := filepath.Join(dir, "new.jsonl")
+	for _, f := range []string{stale, fresh} {
+		if err := os.WriteFile(f, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	old := started.Add(-time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	later := started.Add(time.Second)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := agentTranscript("claudecode", home, started); got != fresh {
+		t.Fatalf("want this run's transcript %q, got %q", fresh, got)
+	}
+	// Nothing written this run, and nothing to point at.
+	if got := agentTranscript("claudecode", home, later.Add(time.Minute)); got != "" {
+		t.Fatalf("named a transcript no run wrote: %q", got)
+	}
+	// A harness whose transcript location we have not established stays silent
+	// rather than guessing a path that will read as "no evidence" forever.
+	if got := agentTranscript("cursor", home, old); got != "" {
+		t.Fatalf("guessed a location for an unmapped harness: %q", got)
+	}
+}
+
+// Without --shell the harness's own sbx agent runs; the two must not be confused,
+// because naming the wrong one is what skips the binding gate and drops the session.
+func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
+	t.Parallel()
+	base := runSandboxInput{
+		man:    manifest.Manifest{Name: "claudecode"},
+		lookup: func(string) string { return "" },
+	}
+	for _, c := range []struct {
+		target, want string
+		shell        bool
+	}{
+		{target: "claudecode", want: "claude"},
+		{target: "cursor", want: "cursor"},
+		{target: "claudecode", want: sbx.ShellAgent, shell: true},
+		{target: "cursor", want: sbx.ShellAgent, shell: true},
+	} {
+		in := base
+		in.params = runParams{target: c.target, image: "proveo/x:local", shell: c.shell}
+		if cfg, _, _ := sandboxSpec(in); cfg.Agent != c.want {
+			t.Errorf("target %q shell=%v: agent = %q, want %q", c.target, c.shell, cfg.Agent, c.want)
+		}
+	}
+}
+
+// Omitting a suppressed credential is not enough on the sandbox backend: sbx's
+// secret store is global and injects on its own authority, so an absent variable
+// leaves whatever an earlier run stored sitting in front of the mounted login —
+// which is how a subscription run kept authenticating as an API account. proveo
+// states the decision instead, as the empty value `sbx run -e VAR=` accepts.
+func TestSandboxSpecNeutralizesSuppressedCredentials(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := runSandboxInput{
+		params: runParams{target: "claudecode", image: "proveo/claudecode:local"},
+		man: manifest.Manifest{
+			Name: "claudecode", Subscription: true,
+			Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+			Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+		},
+		lookup: func(k string) string {
+			return map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
+				"ANTHROPIC_API_KEY":       "key-value",
+			}[k]
+		},
+		homeRoot: home,
+	}
+	cfg, _, secrets := sandboxSpec(in)
+
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !slices.Contains(cfg.Env, k+"=") {
+			t.Errorf("%s must be stated empty so the global store cannot inject it; env = %v", k, cfg.Env)
+		}
+		for _, e := range cfg.Env {
+			if strings.HasPrefix(e, k+"=") && e != k+"=" {
+				t.Errorf("%s carries a value over a mounted login: %q", k, e)
+			}
+		}
+	}
+	if len(secrets) != 0 {
+		t.Errorf("nothing may be written to the store for a file-backed login, got %v", secrets)
+	}
+}
+
+// The persisted login must be NAMEABLE in the auth row. Until it was, the row listed
+// only environment variables, so a remembered answer naming one of them outranked a
+// login the operator established later — proveo forwarded a token the API refused
+// while a working subscription sat mounted and unread.
+func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Provider: "anthropic",
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	lookup := func(k string) string {
+		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "key"}[k]
+	}
+
+	got := availableAuthVarsIn(man, lookup, "claudecode", home)
+	if len(got) == 0 || got[0] != authVarLogin {
+		t.Fatalf("the login must be offered first, got %v", got)
+	}
+	// Without one on disk the row is unchanged: nothing to name.
+	if bare := availableAuthVarsIn(man, lookup, "claudecode", t.TempDir()); slices.Contains(bare, authVarLogin) {
+		t.Errorf("offered a login that does not exist: %v", bare)
+	}
+
+	// Naming it suppresses that provider's variables, and only that provider's.
+	suppressed := authSuppressor(man, "claudecode", authVarLogin, home)
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppressed(k) {
+			t.Errorf("%s injected over the login the operator named", k)
+		}
+	}
+	if suppressed("OPENAI_API_KEY") {
+		t.Error("an anthropic login must not remove reach to another provider")
+	}
+	// It is a sentinel, never an env var name.
+	if v := effectiveAuthVar(man, "claudecode", authVarLogin, home); v == authVarLogin {
+		t.Errorf("the login sentinel leaked into an env var name: %q", v)
 	}
 }

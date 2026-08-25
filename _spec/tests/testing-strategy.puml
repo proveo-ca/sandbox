@@ -30,6 +30,14 @@ note right of L2
   nothing. Bash remains only for image smoke suites.
 end note
 
+note right of L4
+  **Know which rendering an assertion reads.**
+  Two backends render one launch, so a docker-only
+  expectation applied to both stays red on the
+  sandbox; and a restated image tag stops matching
+  the container the day the tag policy moves.
+end note
+
 note right of L3
   Topology is owned (""BuildPlan"" + ""ExecRunner""), so do
   **not** add testcontainers-go for Squid/proxy. Apply

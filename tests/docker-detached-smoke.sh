@@ -5,12 +5,29 @@ TIMEOUT_SECONDS="${PROVEO_DOCKER_SMOKE_TIMEOUT:-30}"
 TEMP_ROOT=""
 SMOKE_FAILED=0
 
+# Repositories only. The tag is resolved per run: `mise run build` tags a local
+# build :local and only a publish moves :latest, so a hardcoded tag smoke-tested a
+# published artifact while reading as though it covered the build in the tree.
+# mitmproxy is gone from this list with the legacy sidecar it named.
 TARGETS=(
-  "cecli|proveo/cecli:latest"
-  "mitmproxy|proveo/mitmproxy:latest"
-  "claudecode|proveo/claudecode:latest"
-  "opencode|proveo/opencode:latest"
+  "cecli|proveo/cecli"
+  "claudecode|proveo/claudecode"
+  "opencode|proveo/opencode"
+  "cursor|proveo/cursor"
 )
+
+# resolve_image echoes the tag of $1 present locally, preferring the local build.
+# A repository with neither tag echoes nothing, and the caller skips it.
+resolve_image() {
+  local repo="$1" tag
+  for tag in local latest; do
+    if docker image inspect "$repo:$tag" >/dev/null 2>&1; then
+      printf '%s:%s\n' "$repo" "$tag"
+      return 0
+    fi
+  done
+  return 1
+}
 
 
 
@@ -161,7 +178,12 @@ main() {
 
   for item in "${TARGETS[@]}"; do
     target="${item%%|*}"
-    image="${item#*|}"
+    repo="${item#*|}"
+    if ! image="$(resolve_image "$repo")"; then
+      echo "skip $target: neither $repo:local nor $repo:latest is built" >&2
+      continue
+    fi
+    echo "smoke $target using $image" >&2
     run_target_smoke "$target" "$image" "$workspace"
   done
 }

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/maintain"
+
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -40,8 +42,27 @@ func requireDocker(t *testing.T) {
 
 // harnessImageName is target's image reference, overridable per target with
 // PROVEO_TEST_IMAGE_<TARGET>.
+//
+// Unpinned it prefers :local over :latest, which is what the tag policy means:
+// `mise run build` tags a local build :local, and only a publish moves :latest.
+// Defaulting to :latest skipped these suites on a machine that had just built the
+// thing under test — and on one that had also pulled, ran the PUBLISHED image while
+// the report read as though it covered the local build.
 func harnessImageName(target string) string {
-	return env("PROVEO_TEST_IMAGE_"+strings.ToUpper(target), "proveo/"+target+":latest")
+	if pinned := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(target), ""); pinned != "" {
+		return pinned
+	}
+	repo := "proveo/" + target
+	if ref := repo + ":" + maintain.LocalTag; imageExists(ref) {
+		return ref
+	}
+	return repo + ":" + maintain.PublishTag
+}
+
+// imageExists reports whether the local daemon holds ref. Split out of
+// dockerImagePresent so image resolution can happen outside a *testing.T.
+func imageExists(ref string) bool {
+	return exec.Command("docker", "image", "inspect", ref).Run() == nil
 }
 
 // harnessImage skips unless docker is present AND target's image is built

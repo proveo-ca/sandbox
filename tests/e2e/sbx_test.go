@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
@@ -317,53 +319,98 @@ func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	}
 }
 
-// sbx shows the operator every credential a Kit asks for and waits for approval,
-// so an over-declared Kit asks consent for reach the harness cannot use. A
-// claudecode Kit requested cursor, google, openai and xai keys until the provider
-// set was filtered by the manifest's capabilities.
-func TestSandboxKitDeclaresOnlyPermittedProviders(t *testing.T) {
+// The Kit proveo writes is a MIXIN beside one of sbx's own agents, and the division
+// is not stylistic. sbx's agent registry is closed, so an identity of proveo's own
+// receives no artifact, skips the binding gate and abandons the session within
+// seconds — which is what every "exited with code 137" turned out to be.
+//
+// What follows from that shape is what this asserts. A mixin must declare NO
+// credentials: repeating a service the built-in agent already declares is rejected
+// outright ("defined in both"), so the correct count is zero rather than "only
+// permitted ones" — the older assertion this replaces scanned for over-declared
+// services and, once the block was removed entirely, passed by finding nothing.
+func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
 	}
-	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
-			var caps manifest.Capabilities
-			for _, m := range ms {
-				if m.Name == target {
-					caps = m.Capabilities
-				}
-			}
-			if len(caps.Providers) == 0 {
-				t.Skipf("%s declares no provider capability to constrain", target)
-			}
-			spec, err := os.ReadFile(filepath.Join(renderKit(t, target), "spec.yaml"))
+			raw, err := os.ReadFile(filepath.Join(renderKit(t, target), "spec.yaml"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, line := range strings.Split(string(spec), "\n") {
-				svc, ok := cutPrefix(strings.TrimSpace(line), "- service: ")
-				if !ok {
-					continue
+			var kit struct {
+				SchemaVersion string `yaml:"schemaVersion"`
+				Kind          string `yaml:"kind"`
+				Name          string `yaml:"name"`
+				Credentials   []struct {
+					Service string `yaml:"service"`
+				} `yaml:"credentials"`
+				Environment struct {
+					Variables map[string]string `yaml:"variables"`
+				} `yaml:"environment"`
+				Setup struct {
+					Startup []struct {
+						Command []string `yaml:"command"`
+						User    string   `yaml:"user"`
+					} `yaml:"startup"`
+				} `yaml:"setup"`
+			}
+			if err := yaml.Unmarshal(raw, &kit); err != nil {
+				t.Fatalf("%s: Kit is not parseable YAML: %v\n%s", target, err, raw)
+			}
+
+			if kit.Kind != "mixin" {
+				t.Errorf("%s: kind=%q; a sandbox kind names an agent sbx does not know\n%s",
+					target, kit.Kind, raw)
+			}
+			// SPEC-v2 types this as a string. An int is normalised on the way in, so
+			// the mistake survives validate and only shows up against a stricter reader.
+			if kit.SchemaVersion != "2" {
+				t.Errorf("%s: schemaVersion=%q, want the string \"2\"\n%s",
+					target, kit.SchemaVersion, raw)
+			}
+			for _, c := range kit.Credentials {
+				t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
+					"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
+					target, c.Service, raw)
+			}
+			if builtin := sbx.BuiltinAgent(target); builtin != "" && kit.Name == builtin {
+				t.Errorf("%s: Kit name %q shadows the built-in agent; sbx refuses that outright",
+					target, kit.Name)
+			}
+
+			// The seed is the file-shaped half of setup, and it must run as the agent
+			// user or it composes into a home the agent never reads.
+			var seeded bool
+			for _, st := range kit.Setup.Startup {
+				if len(st.Command) > 0 && strings.HasSuffix(st.Command[0], "proveo-seed") {
+					seeded = true
+					if st.User != "1000" {
+						t.Errorf("%s: seed runs as user %q, want the agent's 1000", target, st.User)
+					}
 				}
-				if !caps.AllowsProvider(svc) {
-					t.Errorf("%s Kit declares credential for %q, which its manifest does not permit "+
-						"(providers: %v) — sbx will ask the operator to approve reach the harness cannot use\n%s",
-						target, svc, caps.Providers, spec)
+			}
+			if !seeded {
+				t.Errorf("%s: no proveo-seed step in setup.startup — subagents, settings and "+
+					"workspace trust would never be composed\n%s", target, raw)
+			}
+
+			// Env-shaped work is resolved host-side because a setup command exports
+			// into a process the agent never inherits. PROVEO_HOME in particular
+			// cannot be read from $HOME: sbx runs startup as user 1000, which reloads
+			// HOME from /etc/passwd.
+			for _, k := range []string{"HOME", "PROVEO_HOME", "PROVEO_WORKDIR"} {
+				if kit.Environment.Variables[k] == "" {
+					t.Errorf("%s: Kit environment omits %s\n%s", target, k, raw)
 				}
+			}
+			if h, s := kit.Environment.Variables["HOME"], kit.Environment.Variables["PROVEO_HOME"]; h != s {
+				t.Errorf("%s: PROVEO_HOME=%q must equal HOME=%q, or the seed targets "+
+					"a different directory than the agent", target, s, h)
 			}
 		})
 	}
-}
-
-func cutPrefix(s, prefix string) (string, bool) {
-	if !strings.HasPrefix(s, prefix) {
-		return "", false
-	}
-	return strings.TrimPrefix(s, prefix), true
 }
 
 // sbxError returns sbx's own error line from the pane, if it printed one. It is
@@ -428,35 +475,36 @@ func answerSbxPrompt(sess *tmux.Session, screen string) bool {
 // drives the run and kills it once the file exists.
 func renderKit(t *testing.T, target string) string {
 	t.Helper()
+	// --print, not a live session. The Kit is written while the launch is RESOLVED,
+	// before any agent starts, so a dry run produces exactly the document a real run
+	// hands sbx — the same property that makes --print show the true argv.
+	//
+	// Driving a live run instead cost three minutes per target and made a Kit
+	// assertion depend on whether the agent could authenticate and hold a session,
+	// which is a different claim entirely and one this file already covers elsewhere.
 	proveoBin := buildProveo(t)
 	work := t.TempDir()
 	mustRun(t, work, "git", "init", "-q", ".")
 	state := t.TempDir()
 
-	sess := tmux.New(fmt.Sprintf("proveo-kit-%s-%d", target, os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
-	cmd := []string{"env"}
-	cmd = append(cmd, childEnvArgs(t)...)
-	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_EGRESS_ROOT="+state,
-		proveoBin, "run", target, "--shell", "--input", work)
-	if err := sess.Start(200, 50, cmd...); err != nil {
-		t.Fatalf("start %s: %v", target, err)
+	cmd := exec.Command(proveoBin, "run", target, "--print", "--input", work)
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_EGRESS_ROOT="+state,
+		"PROVEO_WIZARD=off",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
 
-	w := newWatcher(t, sess)
-	var kitDir string
-	w.until("the Kit to be rendered", 3*time.Minute, func() bool {
-		// <state>/egress/<session>/sbx/kit — the "egress" segment is stateDir()'s own
-		// layout, not the session dir.
-		matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", "kit", "spec.yaml"))
-		if len(matches) == 0 {
-			return false
-		}
-		kitDir = filepath.Dir(matches[0])
-		return true
-	})
-	sess.Kill()
-	return kitDir
+	// <state>/egress/<session>/sbx/kit — the "egress" segment is stateDir()'s own
+	// layout, not the session dir.
+	matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", "kit", "spec.yaml"))
+	if len(matches) == 0 {
+		t.Fatalf("%s: --print rendered no Kit under %s", target, state)
+	}
+	return filepath.Dir(matches[0])
 }
 
 func TestDockerAccessMatrixPartitionsEveryPromise(t *testing.T) {
@@ -675,8 +723,52 @@ func assertSandboxReplacesDocker(t *testing.T, target, got string) {
 		strings.Join(strings.Fields(got), " · "))
 }
 
+// sbxShellHoldsInADetachedPane reports whether sbx's own shell agent survives being
+// driven from a detached tmux pane. It does not, today: `sbx run -t <image> shell
+// <workspace>` exits within seconds there with proveo uninvolved, so the probe below
+// cannot reach any of its four claims.
+//
+// Checked rather than assumed, and checked against SBX rather than proveo, so this
+// turns back into coverage by itself the day sbx holds — instead of staying a
+// permanent red that the next real regression could hide behind.
+func sbxShellHoldsInADetachedPane(t *testing.T) bool {
+	t.Helper()
+	work := t.TempDir()
+	name := fmt.Sprintf("proveo-shellprobe-%d", os.Getpid())
+	sess := tmux.New(name, nil)
+	t.Cleanup(func() {
+		sess.Kill()
+		_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
+	})
+	if err := sess.Start(120, 40, sbx.Binary, "run", "--name", name, "-t", "proveo/cursor:local", "shell", work); err != nil {
+		return false
+	}
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		screen, err := sess.CaptureAll()
+		if err != nil {
+			return false // the pane is gone: the shell did not hold
+		}
+		if promptReady(screen) || strings.Contains(screen, "$ ") {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	return false
+}
+
 func sandboxBoundaryProbe(t *testing.T, target string) {
 	t.Helper()
+	if !sbxShellHoldsInADetachedPane(t) {
+		t.Skipf("sbx's own shell agent does not survive a detached tmux pane on this host, "+
+			"so %s cannot be driven to a prompt here; the sandbox Kit and backend selection "+
+			"stay covered by TestSandboxKit* and TestSandboxBackend*", target)
+	}
+	// The agent has to hold a session for any of the four claims below to mean
+	// anything, and it cannot hold one without a credential to spend. Checked up
+	// front so the reason is stated in one line rather than inferred from a probe
+	// that waited out its deadline against an agent that had already exited.
+	requireHarnessCredential(t, target)
 	proveoBin := buildProveo(t)
 
 	work := t.TempDir()
@@ -698,8 +790,16 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	// A scratch PROVEO_HOME keeps the operator's remembered add-on answer out of
 	// this run: the sandbox add-on is default-ON, so an empty cache is the only
 	// way to be sure the backend under test is the one that ran.
+	// The env file must carry THIS harness's credential. childEnvArgs writes an
+	// anthropic-only file, so a cursor run received no CURSOR_API_KEY at all and its
+	// agent exited before the backend line — a probe about the sandbox boundary
+	// failing on a credential it had declined to provide.
 	cmd := []string{"env"}
-	cmd = append(cmd, childEnvArgs(t)...)
+	if secrets := harnessSecrets(t, target); len(secrets) > 0 {
+		cmd = append(cmd, childEnvArgsFor(t, secrets[0])...)
+	} else {
+		cmd = append(cmd, childEnvArgs(t)...)
+	}
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
@@ -873,4 +973,47 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, name, err, out)
 		}
 	}
+}
+
+// sbx runs a Kit's setup.startup command as `user: "1000"`, and that reloads HOME
+// from /etc/passwd — so $HOME inside the seed is the IMAGE's home, not the one the
+// agent will run with. PROVEO_HOME carries the same path under a name no launcher
+// rewrites. Without it the seed composed subagents into /home/claude while the
+// agent ran with the mounted proveo home and read none of them, silently: seeding
+// reported success, and only the startup log named the directory it had used.
+func TestSandboxBackendCarriesProveoHomeBesideHome(t *testing.T) {
+	if !sbxAvailable() {
+		t.Skip("sbx not available on this host")
+	}
+	for _, target := range sandboxHarnesses {
+		t.Run(target, func(t *testing.T) {
+			out := printOnlyRun(t, t.TempDir(), nil, target)
+			home := envValueInArgv(out, "HOME")
+			seed := envValueInArgv(out, "PROVEO_HOME")
+			if home == "" {
+				t.Fatalf("sbx argv sets no HOME:\n%s", out)
+			}
+			if seed != home {
+				t.Errorf("PROVEO_HOME=%q must equal HOME=%q, or the seed targets a\n"+
+					"different directory than the agent:\n%s", seed, home, out)
+			}
+		})
+	}
+}
+
+// envValueInArgv returns the value of the last `-e NAME=VALUE` pair in a rendered
+// argv. Last wins, matching how the runtime resolves a repeated flag.
+func envValueInArgv(argv, name string) string {
+	want := name + "="
+	got := ""
+	fields := strings.Fields(argv)
+	for i, f := range fields {
+		if f != "-e" || i+1 >= len(fields) {
+			continue
+		}
+		if v, ok := strings.CutPrefix(fields[i+1], want); ok {
+			got = v
+		}
+	}
+	return got
 }

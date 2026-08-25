@@ -143,6 +143,13 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
+	// PROVEO_SBX=off pins the docker rendering, which is the one this suite is
+	// written against on two counts: the prompt names /app/output, a mount point
+	// only docker creates (sbx mounts a workspace at its own host path), and the
+	// model server is the HOST's Ollama, reached over host.docker.internal from a
+	// container rather than from a VM behind sbx's own network policy. The sandbox
+	// rendering has its own suite in sbx_test.go.
+	cmd = append(cmd, "PROVEO_SBX=off")
 	// `open` + `forward` is the plain-bridge posture, and it is what reaches the
 	// HOST's Ollama (host.docker.internal). Every other tier puts the agent on an
 	// internal network with DNS blackholed, where the only model server it can see

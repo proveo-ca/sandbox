@@ -61,7 +61,9 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 			Container: ContainerHome,
 			ReadOnly:  false,
 		}},
-		Env: []string{"HOME=" + ContainerHome},
+		// PROVEO_HOME is HOME under a name no launcher rewrites; the seed reads it on
+		// both backends so one code path cannot silently target a different home.
+		Env: []string{"HOME=" + ContainerHome, "PROVEO_HOME=" + ContainerHome},
 	}, nil
 }
 
