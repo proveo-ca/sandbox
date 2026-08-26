@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/creack/pty"
 
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -59,7 +61,7 @@ func ladderRungs() []rung {
 		{
 			name: "0-bare-sbx-agent", adds: "nothing — stock sbx agent and stock image",
 			argv: func(t *testing.T, work string) []string {
-				return []string{"run", "--name", ladderName(t, 0), sbxAgentFor(t, target), work}
+				return append([]string{"run", "--name", ladderName(t, 0)}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
 			},
 		},
 		{
@@ -67,7 +69,7 @@ func ladderRungs() []rung {
 			argv: func(t *testing.T, work string) []string {
 				img := harnessImage(t, target)
 				freshTemplate(t, img)
-				return []string{"run", "--name", ladderName(t, 1), "-t", img, sbxAgentFor(t, target), work}
+				return append([]string{"run", "--name", ladderName(t, 1), "-t", img}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
 			},
 		},
 		{
@@ -78,7 +80,7 @@ func ladderRungs() []rung {
 					t.Skipf("browser image %s not built", img)
 				}
 				freshTemplate(t, img)
-				return []string{"run", "--name", ladderName(t, 2), "-t", img, sbxAgentFor(t, target), work}
+				return append([]string{"run", "--name", ladderName(t, 2), "-t", img}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
 			},
 		},
 		{
@@ -93,8 +95,8 @@ func ladderRungs() []rung {
 				// picker — which blocks on a keypress that never comes. That is a
 				// faithful reproduction of nothing, so the rung mounts it too.
 				home := proveohome.Root(os.Getenv)
-				return []string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit,
-					sbxAgentFor(t, target), work, home}
+				return append([]string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit},
+					append(credentialArgs(t, target), sbxAgentFor(t, target), work, home)...)
 			},
 		},
 	}
@@ -113,6 +115,38 @@ func freshTemplate(t *testing.T, image string) {
 	if err := sbx.ReloadTemplate(image, func(f string, a ...any) { t.Logf(f, a...) }); err != nil {
 		t.Skipf("could not load %s into the sandbox store: %v", image, err)
 	}
+}
+
+// credentialArgs forwards the harness's declared secrets the way proveo does.
+//
+// The rungs drive sbx DIRECTLY, so none of proveo's credential work happens: the
+// first cursor climb reported "not logged in" on every rung above 0 while
+// CURSOR_API_KEY sat in both the host env and sbx's store, because nothing was
+// passing it. `-e NAME` with no value is sbx's take-it-from-the-environment form,
+// which is exactly what `proveo run cursor --print` emits for a
+// `credentials: [forward]` harness.
+//
+// Secrets absent from the environment are skipped rather than passed empty: an
+// empty value overrides sbx's own stored secret and turns a working credential
+// into a broken one.
+func credentialArgs(t *testing.T, target string) []string {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range ms {
+		if m.Name != target {
+			continue
+		}
+		for _, e := range m.Env {
+			if e.Secret && strings.TrimSpace(os.Getenv(e.Name)) != "" {
+				out = append(out, "-e", e.Name)
+			}
+		}
+	}
+	return out
 }
 
 func ladderName(t *testing.T, i int) string {

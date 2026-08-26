@@ -638,10 +638,15 @@ type RunConfig struct {
 	// MANDATORY: the first positional is parsed as an agent, so leaving it empty
 	// makes sbx read the first workspace path as an agent name and refuse the run
 	// with "is not a sandbox or known agent".
-	Agent   string
-	KitDir  string   // directory holding the rendered Kit spec.yaml
-	Image   string   // template image, passed as -t
-	Memory  string   // -m limit; empty leaves sbx's host-derived default in place
+	Agent  string
+	KitDir string // directory holding the rendered Kit spec.yaml
+	Image  string // template image, passed as -t
+	Memory string // -m limit; empty leaves sbx's host-derived default in place
+	// Clone runs the agent on a private in-container CLONE of the host repo
+	// (--clone) rather than on the mounted tree itself. Creation-time only: sbx
+	// ignores it when re-attaching, which is why it belongs in the run config
+	// rather than being toggled later.
+	Clone   bool
 	Mounts  []Mount  // workspace binds, passed POSITIONALLY
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	Command []string // trailing agent command (after "--")
@@ -677,6 +682,9 @@ func RunArgs(cfg RunConfig) []string {
 	}
 	if cfg.Memory != "" {
 		args = append(args, "-m", cfg.Memory)
+	}
+	if cfg.Clone {
+		args = append(args, "--clone")
 	}
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)

@@ -787,3 +787,39 @@ func TestDockerInfoTimeoutIsGenerous(t *testing.T) {
 		t.Errorf("dockerInfoTimeout = %s, too tight for a loaded daemon", dockerInfoTimeout)
 	}
 }
+
+// --clone is creation-time only, so it has to reach the argv of the run that
+// CREATES the sandbox — there is no later toggle. It also has to sit among the
+// flags, before the agent positional, or sbx reads it as a workspace path.
+func TestRunArgsCarriesClone(t *testing.T) {
+	t.Parallel()
+	got := RunArgs(RunConfig{Name: "s", Image: "img", Agent: "claude", Clone: true,
+		Mounts: []Mount{{Host: "/w", Container: "/w"}}})
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "--clone") {
+		t.Fatalf("--clone missing from %v", got)
+	}
+	flag, agent := indexOf(got, "--clone"), indexOf(got, "claude")
+	if flag < 0 || agent < 0 || flag > agent {
+		t.Errorf("--clone must precede the agent positional, got %v", got)
+	}
+}
+
+// Absent by default: a run that did not ask for a clone must edit the mounted
+// checkout, which is what every existing caller expects.
+func TestRunArgsOmitsCloneByDefault(t *testing.T) {
+	t.Parallel()
+	got := RunArgs(RunConfig{Name: "s", Image: "img", Agent: "claude"})
+	if strings.Contains(strings.Join(got, " "), "--clone") {
+		t.Errorf("--clone leaked into a non-clone run: %v", got)
+	}
+}
+
+func indexOf(xs []string, want string) int {
+	for i, x := range xs {
+		if x == want {
+			return i
+		}
+	}
+	return -1
+}

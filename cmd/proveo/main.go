@@ -168,7 +168,7 @@ func doList() error {
 
 func runCmd() *cobra.Command {
 	var egressMode, credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
-	var printOnly, shellMode, contSession, listSessions bool
+	var printOnly, shellMode, contSession, listSessions, cloneMode bool
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
 		Short: "Run a harness against the current repo",
@@ -215,7 +215,7 @@ func runCmd() *cobra.Command {
 				target: target, image: image, mode: egressMode, credentials: credentials,
 				modeSet: modeSet, credsSet: credsSet, localModel: localModel,
 				input: input, output: output, scope: scope, dataDir: dataDir,
-				shell: shellMode, printOnly: printOnly, extra: extra,
+				shell: shellMode, printOnly: printOnly, extra: extra, clone: cloneMode,
 			})
 		},
 	}
@@ -229,6 +229,9 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
 	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
+	cmd.Flags().BoolVar(&cloneMode, "clone", false,
+		"run the agent on a private in-container CLONE of the repo (sbx only): the workspace is never written, "+
+			"and changes come back with `git fetch sandbox-<name>`")
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
@@ -248,6 +251,7 @@ type runParams struct {
 	evidence                                                                    string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
+	clone                                                                       bool
 }
 
 func (p runParams) forwards() bool { return p.credentials == "forward" }
@@ -550,6 +554,7 @@ func doRun(p runParams) error {
 		"model roles":     rolesLine(p.bridges, p.target, p.roles),
 		"role providers":  strings.Join(p.roles.Providers(), ","),
 		"sbx mcp gateway": mcpGatewayPosture(p.willSandbox(man)),
+		"workspace":       workspacePosture(p.clone),
 	})
 
 	var brokerFile string
@@ -657,6 +662,26 @@ func doRun(p runParams) error {
 	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
 	// hello-world` succeeds. Nothing to warn about any more; the warning that used
 	// to live here told the operator docker would fail, which is now false.
+	// --clone is creation-time and sbx-only. Accepting it silently on the docker
+	// backend would hand back a run that edited the checkout after promising not
+	// to, which is the one failure mode this flag exists to prevent.
+	if p.clone && !sbxBackend {
+		return fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
+			"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
+			"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
+	}
+	// sbx clones with git, so without a repository there is nothing to clone and
+	// the failure surfaces inside the sandbox rather than here.
+	if p.clone && wsSpec.RepoRoot == "" {
+		return fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
+			"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
+			"  Run it from a checkout, or drop --clone to work on the mounted directory",
+			wsSpec.InputDir)
+	}
+	if sbxBackend && p.clone {
+		ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
+			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", sid)
+	}
 	if sbxBackend {
 		in := runSandboxInput{
 			params: p, man: man, sid: sid, egDir: egDir,
@@ -2482,6 +2507,12 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// sbx would otherwise size the sandbox from HOST memory, which on any VM-backed
 		// daemon can exceed the VM itself — see sbx.MemoryLimit.
 		Memory: in.memory,
+		// Clone mode is why a bind-mounted node_modules stops ping-ponging: the
+		// clone carries only TRACKED files, so a host-built (macOS) tree never
+		// arrives, the seed installs Linux deps into the clone, and the operator's
+		// checkout is never written. Measured: origin points at
+		// /run/sandbox/source and node_modules is absent from the workspace.
+		Clone: p.clone,
 		// A kind: sandbox Kit DEFINES an agent, and sbx requires the positional to
 		// match its name — "agent name X does not match agent kit name Y". So the
 		// two are one value, and there is no separate agent to declare: an earlier
@@ -2522,6 +2553,16 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(p.target)}},
 	}
 	return cfg, kit, secrets
+}
+
+// workspacePosture says whether the agent edits the operator's checkout or a
+// private clone of it. It is a posture row because it changes WHERE the work
+// lands, which is the one thing an operator must not have to guess.
+func workspacePosture(clone bool) string {
+	if clone {
+		return "in-container clone (--clone) — the checkout is never written; changes come back with `git fetch`"
+	}
+	return "mounted checkout — the agent edits it directly"
 }
 
 // mcpGatewayPosture reports what the run does about sbx's MCP gateway.

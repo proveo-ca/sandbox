@@ -408,6 +408,7 @@ func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 		"_proveo_persist_tool_env",   // the resolved PATH, written where bash will read it
 		"proveo_compose_house_rules", // §7e proveo's conventions as user-level instructions
 		"_proveo_write_block",        // marked-region rewrite that spares operator content
+		"proveo_apply_ui_defaults",   // §7g sandbox theme + syntax highlighting
 	}
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {

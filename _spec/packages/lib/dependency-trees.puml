@@ -73,6 +73,19 @@ note left of PROBE
   diagnosis, not an audit.
 end note
 
+note bottom of REG
+  **The reinstall is a trade, and ""--clone"" is the way out of it.** Rebuilding a
+  foreign tree writes Linux binaries into the operator's own checkout, so their
+  host builds break until they reinstall — which makes the tree foreign again and
+  earns another reinstall on the next run. One each way, indefinitely.
+
+  ""proveo run <target> --clone"" ends it: sbx builds the workspace by CLONING the
+  host repo, so only TRACKED files cross. Measured — a Mach-O ""node_modules"" on
+  the host, absent inside the clone, and still Mach-O on the host afterwards. The
+  seed then installs Linux dependencies into the clone, and the checkout is never
+  written at all. Changes come back with ""git fetch sandbox-<name>"".
+end note
+
 note bottom of FIX
   **Why the repair is opt-in, on two counts.** It writes into the mounted tree,
   which IS the operator's checkout — a sandbox that silently rewrites the host's

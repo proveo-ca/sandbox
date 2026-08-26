@@ -2243,3 +2243,18 @@ func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
 		}
 	})
 }
+
+// Where the work lands is not a detail an operator should have to infer, so it
+// gets a posture row either way.
+func TestWorkspacePostureNamesWhereWorkLands(t *testing.T) {
+	t.Parallel()
+	if got := workspacePosture(false); !strings.Contains(got, "mounted checkout") {
+		t.Errorf("a normal run edits the checkout and must say so, got %q", got)
+	}
+	got := workspacePosture(true)
+	for _, want := range []string{"clone", "never written", "git fetch"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("clone posture is missing %q: %s", want, got)
+		}
+	}
+}

@@ -144,6 +144,9 @@ RUN mkdir -p /app \
     && chmod 755 /workspace/mcp-servers
 
 # Copy Claude configuration directly into final locations
+# The sandbox theme, in proveo's own identity palette. Baked here and installed
+# into the agent home by the seed, so it reaches BOTH backends.
+COPY defs/claudecode/mcp/themes/ /opt/proveo/themes/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/claude-config.json /home/${USER_NAME}/.claude.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /app/.claude/settings.local.json

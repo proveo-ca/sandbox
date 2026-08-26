@@ -52,11 +52,12 @@ set_working_directory() {
 # setup.install. The file is MERGED, never rewritten: it is the operator's real
 # ~/.claude.json, mounted in from the proveo home.
 accept_workspace_trust() {
- local dir="${1:-$PWD}" home="${HOME:-}"
+ local dir="${1:-$PWD}" home
+ home="$(_proveo_agent_home)"
  [[ -n "$home" && -d "$home" ]] || return 0
  command -v node >/dev/null 2>&1 || return 0
- PROVEO_TRUST_DIR="$dir" node -e '
-   const fs = require("fs"), path = process.env.HOME + "/.claude.json";
+ PROVEO_TRUST_DIR="$dir" PROVEO_AGENT_HOME="$home" node -e '
+   const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
    let j = {};
    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
    j.projects = j.projects || {};
@@ -1225,6 +1226,55 @@ _node_satisfies() {
   [[ "$have_major" == "$want_major" ]]
 }
 
+# ── 7g. UI defaults (a sandbox should LOOK like a sandbox) ──
+# SPEC: _spec/packages/lib/house-rules.puml
+# Knobs: PROVEO_UI_DEFAULTS=off.
+#
+# Two settings, both about reading the screen correctly.
+#
+# THEME. A sandboxed session and a host session are the same program in the same
+# terminal, and an operator with both open has nothing to tell them apart — which
+# is how a command meant for the sandbox gets typed into the host. Claude Code
+# supports custom themes as JSON under `<home>/.claude/themes/<slug>.json`,
+# selected as `custom:<slug>`, so proveo ships one in its own identity palette:
+# the accent, prompt border and permission dialogs go cyan/teal instead of the
+# default orange. Visible at a glance, no reading required.
+#
+# SYNTAX HIGHLIGHTING is already Claude Code's default; it is written explicitly
+# because the default is the thing an inherited settings file can quietly flip,
+# and a grep result rendered as flat text is materially harder to read.
+proveo_apply_ui_defaults() {
+  local target="${1:-}" home themes src
+  case "$(printf '%s' "${PROVEO_UI_DEFAULTS:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ "$target" == claudecode ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+
+  src=/opt/proveo/themes/proveo-sandbox.json
+  if [[ -s "$src" ]]; then
+    themes="$home/.claude/themes"
+    mkdir -p "$themes" 2>/dev/null && cp -f "$src" "$themes/" 2>/dev/null \
+      && echo "🎨 theme: proveo sandbox (cyan) — a sandboxed session is meant to look unlike a host one"
+  fi
+
+  command -v node >/dev/null 2>&1 || return 0
+  # MERGED, not written: this file is the operator's, and only the two keys
+  # proveo has an opinion about are set.
+  PROVEO_AGENT_HOME="$home" node -e '
+    const fs = require("fs");
+    const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
+    const path = dir + "/settings.json";
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (j.theme === undefined) j.theme = "custom:proveo-sandbox";
+    if (j.syntaxHighlightingDisabled === undefined) j.syntaxHighlightingDisabled = false;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null || true
+}
+
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
@@ -1730,4 +1780,5 @@ proveo_seed() {
  esac
 
  proveo_compose_house_rules "$target"
+ proveo_apply_ui_defaults "$target"
 }
