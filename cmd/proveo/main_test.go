@@ -1828,8 +1828,36 @@ func TestSbxBackendSetsNeitherHome(t *testing.T) {
 		}
 	}
 	// Everything unrelated survives untouched.
-	if len(got) != 1 || got[0] != "KEEP=1" {
+	if !slices.Contains(got, "KEEP=1") {
 		t.Errorf("unrelated environment must pass through, got %v", got)
+	}
+	// The redirect is gone, but the persistence it bought is not: the host path is
+	// published as a POINTER the seed and teardown copy state through. Without it
+	// resume state stays in the volumes sbx destroys with the sandbox.
+	if !slices.Contains(got, sbx.StateHomeVar+"=/Users/p/.proveo") {
+		t.Errorf("the host path for resume state must be published, got %v", got)
+	}
+}
+
+// The pointer is only meaningful when there IS a proveo home to copy into.
+func TestSbxStateHomeAbsentWithoutAProveoHome(t *testing.T) {
+	t.Parallel()
+	got := sbxHome([]string{"KEEP=1"}, []sbx.Mount{{Host: "/w", Container: "/w"}})
+	if sbxStateHome(got) != "" {
+		t.Errorf("no proveo home mount means no state pointer, got %v", got)
+	}
+}
+
+// The save must run while the sandbox still exists, and must name the sandbox it
+// is lifting state out of.
+func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
+	t.Parallel()
+	got := sbx.SaveStateArgs("s1")
+	if got[0] != "exec" || !slices.Contains(got, "s1") {
+		t.Errorf("save must exec inside the named sandbox, got %v", got)
+	}
+	if !strings.Contains(strings.Join(got, " "), "proveo_sync_state save") {
+		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
 }
 

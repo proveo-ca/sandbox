@@ -1694,6 +1694,65 @@ _proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
 # home fix and went green only once proveo_exec_agent stopped that entrypoint from
 # handing sbx's command to the agent as a prompt. The sbx run that had no poetry
 # was the ROOT-ONLY Python scan (see _py_project_roots), not a skipped entrypoint.
+# _proveo_volume_state_dirs lists the directories under the agent's home that sbx
+# mounts as PER-SANDBOX volumes, and that `sbx rm` therefore destroys with the VM.
+#
+# Discovered at runtime rather than tabulated per agent on purpose. sbx chooses
+# these itself, per built-in agent kit — for claude it is .claude/projects,
+# sessions, todos, shell-snapshots and statsig — so a hand-written table is a
+# guess that goes stale the moment sbx adds one, and the truth is already in
+# /proc/mounts: a block device under $HOME is by definition sandbox-local.
+# Host binds (virtiofs, like the shared skills dir) are left alone; they already
+# outlive the run.
+#
+# statsig and shell-snapshots are skipped: telemetry and scratch, not resume
+# state, and copying them back would grow the operator's home without ever being
+# read.
+_proveo_volume_state_dirs() {
+ local home; home="$(_proveo_agent_home)"
+ [[ -n "$home" && -r /proc/mounts ]] || return 0
+ awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts |
+  while read -r d; do
+   case "${d##*/}" in
+   statsig | shell-snapshots) continue ;;
+   esac
+   printf '%s\n' "$d"
+  done
+}
+
+# proveo_sync_state copies resume state between the mounted proveo home and the
+# sandbox-local volumes: "restore" on the way in, "save" on the way out.
+#
+# This is what the HOME redirect used to buy, minus the part that broke sbx.
+# Pointing HOME at the mounted host dir persisted everything, but sbx's credential
+# proxy writes .credentials.json into the IMAGE's home — so moving HOME orphaned
+# the live credential and the agent came up "Not logged in" (ladder rung 3).
+# Copying named directories leaves the credential exactly where the proxy put it
+# and still lets `--resume` find yesterday's transcripts.
+#
+# Silent no-op when PROVEO_STATE_HOME is unset, which is every docker run: there
+# the home IS the mounted host dir and nothing needs copying.
+proveo_sync_state() {
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst
+ [[ -n "$host" && -d "$host" ]] || return 0
+ home="$(_proveo_agent_home)"
+ [[ -n "$home" ]] || return 0
+ while read -r dir; do
+  [[ -n "$dir" ]] || continue
+  rel="${dir#"$home"/}"
+  case "$mode" in
+  restore) src="$host/$rel" dst="$dir" ;;
+  save) src="$dir" dst="$host/$rel" ;;
+  *) return 2 ;;
+  esac
+  [[ -d "$src" ]] || continue
+  # An empty source would still succeed and is not worth the walk.
+  [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
+  mkdir -p "$dst" 2>/dev/null || continue
+  cp -a "$src/." "$dst/" 2>/dev/null || true
+ done < <(_proveo_volume_state_dirs)
+}
+
 proveo_provision_toolchain() {
  local scan; scan="$(_proveo_scan_root "${1:-}")"
  [[ -d "$scan" ]] || return 0
@@ -1761,6 +1820,10 @@ proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
+
+ # First: a resumed session's transcripts must be in place before the agent
+ # starts looking for them.
+ proveo_sync_state restore
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;

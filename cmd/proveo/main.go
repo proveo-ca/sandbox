@@ -2259,6 +2259,17 @@ func sbxReady(printOnly bool) (bool, string) {
 // land at its own host path instead, nowhere the harness looks. It is dropped
 // rather than mounted somewhere useless — the same conclusion
 // PROVEO_MOUNT_GH_CONFIG=0 reaches deliberately.
+// sbxStateHome reports the host path the run publishes for resume state, or ""
+// when this run has no proveo home to persist into.
+func sbxStateHome(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, sbx.StateHomeVar+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 	var out []sbx.Mount
 	seen := map[string]bool{}
@@ -2343,8 +2354,15 @@ func sbxHome(env []string, mounts []sbx.Mount) []string {
 	//
 	// The proveo home stays MOUNTED (it is a workspace bind), so nothing that reads
 	// it by path is lost; only the env redirect goes.
-	_ = host
-	return out
+	//
+	// What the redirect DID buy is resume: with HOME on the mounted host dir, the
+	// agent's transcripts survived the run. Without it they land in the volumes sbx
+	// mounts under the image's home, and teardown removes "VM + images + volumes",
+	// so `--resume` had nothing to offer on the next run. PROVEO_STATE_HOME hands
+	// the seed and the teardown the host path to copy those directories to and
+	// from, which restores persistence WITHOUT moving HOME away from the credential
+	// the sbx proxy writes there.
+	return append(out, sbx.StateHomeVar+"="+host)
 }
 
 // firstHost is the host path of the first bind, which is where sbx puts the cwd.
@@ -2875,6 +2893,15 @@ func runSandbox(in runSandboxInput) error {
 			ui.Warnf("sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
 				cfg.Name, cfg.Name, cfg.Name)
 			return
+		}
+		// Resume state lives in per-sandbox volumes that the next line destroys, so
+		// it has to come out FIRST. Best-effort by design: a sandbox that never
+		// started has nothing to copy, and losing yesterday's transcripts is not a
+		// reason to leave a VM running.
+		if host := sbxStateHome(cfg.Env); host != "" {
+			if out, err := exec.Command(sbx.Binary, sbx.SaveStateArgs(cfg.Name)...).CombinedOutput(); err != nil {
+				ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(string(out)))
+			}
 		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		// A run that never got as far as creating the sandbox has nothing to tear

@@ -706,6 +706,23 @@ func RunArgs(cfg RunConfig) []string {
 	return args
 }
 
+// StateHomeVar names the host directory that resume state is copied to and from.
+//
+// It is deliberately NOT HOME. Redirecting HOME on this backend orphans the
+// credential sbx's proxy writes into the image's home, which is what made the
+// agent report "Not logged in" on ladder rung 3. This variable moves only the
+// state, and only by copy.
+const StateHomeVar = "PROVEO_STATE_HOME"
+
+// SaveStateArgs builds the invocation that lifts resume state out of a sandbox
+// before it is destroyed. It runs INSIDE the sandbox, sourcing the same shell
+// library the seed uses, so the list of directories worth saving is defined once
+// and cannot drift between the way in and the way out.
+func SaveStateArgs(name string) []string {
+	return []string{"exec", name, "--", "bash", "-c",
+		". /entrypoint-lib.sh && proveo_sync_state save"}
+}
+
 // RemoveArgs builds the ephemeral teardown invocation (VM + images + volumes).
 //
 // --force is not optional for a script: `sbx rm` asks for confirmation and would
