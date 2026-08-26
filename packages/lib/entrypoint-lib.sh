@@ -943,7 +943,8 @@ _dep_reinstall() {
     echo "    ⚠️  ${cmd%% *} is not on PATH; cannot reinstall"
     return 0
   fi
-  echo "    ♻️  ${cmd} (PROVEO_DEPS=reinstall) — this rewrites the mounted tree..."
+  echo "    ♻️  ${cmd} — rebuilding for this platform; this rewrites the mounted tree,"
+  echo "        which is the operator's checkout (PROVEO_DEPS=off to skip)..."
   ( cd "$root" && _proveo_bounded "$bounded" $cmd ) || rc=$?
   if [[ $rc -eq 0 ]]; then
     echo "    ✅ ${lang} dependencies rebuilt for this platform"
@@ -965,12 +966,14 @@ _dep_report_addons() {
   echo "    this platform cannot load (${names})."
   echo "    The portable majority still loads, so the failure arrives later, at the first"
   echo "    call into one of them, naming the TOOL rather than the platform."
-  if [[ "$mode" == reinstall ]]; then
-    _dep_reinstall "$lang" "$root"
-  else
-    echo "    Set PROVEO_DEPS=reinstall to rebuild them (needs --egress-mode open, and it"
-    echo "    writes to the mounted tree), or avoid the tasks that need them."
-  fi
+  # A FOREIGN tree is already unusable here, so reinstalling costs the sandbox
+  # nothing and is the only way the agent can run anything. It does rewrite the
+  # mounted tree — which is the operator's checkout — so it is confined to exactly
+  # this case: a tree that is native, or absent, is never silently replaced.
+  case "$mode" in
+    off) ;;
+    reinstall|auto) _dep_reinstall "$lang" "$root" ;;
+  esac
 }
 
 # Build output needs no registry — the toolchain regenerates it. The only advice
@@ -1006,7 +1009,8 @@ ensure_dependency_trees() {
           # the normal state of a clean checkout, absent dependencies are not.
           if [[ "$class" == addons && "$dir" == "$primary" ]]; then
             echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${dir} — nothing is installed here"
-            [[ "$mode" == reinstall ]] && _dep_reinstall "$lang" "$root"
+            # Nothing to replace, so installing destroys nothing.
+            [[ "$mode" != off ]] && _dep_reinstall "$lang" "$root"
           fi
           continue
         fi
@@ -1119,6 +1123,106 @@ proveo_compose_house_rules() {
     printf '\n'
   } | _proveo_write_block "$dest" "$PROVEO_RULES_START" "$PROVEO_RULES_END"
   echo "📐 house rules → ${dest} (project instructions still take precedence)"
+}
+
+# ── 7f. Node toolchain from the project's own pins ──
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml
+# Knobs: PROVEO_NODE_TOOLCHAIN=off.
+#
+# The image ships ONE node and ONE pnpm; a repository pins its own. Measured on
+# the pluvo monorepo: package.json pins "pnpm@9.15.0" and engines.pnpm "9.x",
+# while the image carries pnpm 10.33.0 — a major version out, which is enough to
+# rewrite a lockfile. node was fine (22.23.2 satisfies "22.x"), so the mismatch an
+# operator SEES as "node --version is wrong" is usually the package manager.
+#
+# corepack for the package manager and mise for the runtime, each because it is
+# the purpose-built tool: corepack exists to honour `packageManager` and ships
+# with node, and mise is already the floor's version manager (python-environment
+# .puml — "mise is the mechanism, not a competitor to uv"). Neither writes to the
+# workspace: corepack caches under the agent's home, mise under its own share dir.
+
+# _node_nearest_pkg prints the closest package.json at or above the scan root.
+_node_nearest_pkg() {
+  local d; d="$(cd "${1:-$PWD}" 2>/dev/null && pwd)" || return 0
+  while [[ -n "$d" && "$d" != "/" ]]; do
+    [[ -f "$d/package.json" ]] && { printf '%s' "$d/package.json"; return 0; }
+    d="$(dirname "$d")"
+  done
+  [[ -f /package.json ]] && printf '%s' /package.json
+  return 0
+}
+
+# _node_json_field reads one top-level field. node is always present here — it is
+# the runtime this function exists to manage — and parsing JSON with sed is how a
+# trailing comma or a nested "engines" turns into a silently wrong version.
+_node_json_field() {
+  local file="$1" expr="$2"
+  [[ -f "$file" ]] || return 0
+  node -e '
+    try {
+      const p = require(process.argv[1]);
+      const v = process.argv[2].split(".").reduce((o, k) => (o == null ? o : o[k]), p);
+      if (v != null) process.stdout.write(String(v));
+    } catch (e) {}
+  ' "$file" "$expr" 2>/dev/null
+}
+
+# ensure_node_toolchain aligns the package manager and runtime with the project.
+ensure_node_toolchain() {
+  local scan="${1:-$PWD}" pkg pm want_node have
+  case "$(printf '%s' "${PROVEO_NODE_TOOLCHAIN:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  _proveo_auto_install_enabled || return 0
+  pkg="$(_node_nearest_pkg "$scan")"
+  [[ -n "$pkg" ]] || return 0
+
+  # packageManager is the exact, checksummed pin. corepack activates it globally
+  # for this container; the standalone pnpm the image ships would otherwise win
+  # on PATH and quietly use a different major.
+  pm="$(_node_json_field "$pkg" packageManager)"
+  if [[ -n "$pm" ]] && command -v corepack >/dev/null 2>&1; then
+    if _proveo_bounded "${PROVEO_NODE_TIMEOUT:-180}" corepack prepare "$pm" --activate >/dev/null 2>&1 \
+       && _proveo_bounded 30 corepack enable >/dev/null 2>&1; then
+      echo "📦 package manager: ${pm} (corepack, from $(basename "$(dirname "$pkg")")/package.json)"
+    else
+      echo "⚠️  could not activate ${pm}; continuing with $(pnpm --version 2>/dev/null || echo 'the image default')"
+    fi
+  fi
+
+  # engines.node is a RANGE, not a pin, so it is only acted on when the running
+  # node fails it — reinstalling a satisfying runtime buys nothing and costs a
+  # download on every start.
+  want_node="$(_node_json_field "$pkg" engines.node)"
+  [[ -n "$want_node" ]] || want_node="$(_node_version_file "$scan")"
+  [[ -n "$want_node" ]] || return 0
+  have="$(node --version 2>/dev/null | tr -d 'v')"
+  if _node_satisfies "$have" "$want_node"; then
+    return 0
+  fi
+  echo "🟩 node ${have:-none} does not satisfy ${want_node}; provisioning via mise..."
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — keeping node ${have}"; return 0; }
+  _mise_install "node@${want_node%%.x*}" "$(_proveo_github_token)" >/dev/null 2>&1 \
+    && _proveo_tool_path || echo "⚠️  could not provision node ${want_node}; keeping ${have}"
+}
+
+_node_version_file() {
+  local d="${1:-$PWD}" f
+  for f in .nvmrc .node-version; do
+    [[ -f "$d/$f" ]] && { head -n1 "$d/$f" | tr -d ' v\t'; return 0; }
+  done
+}
+
+# _node_satisfies handles the range forms a package.json actually uses — "22.x",
+# ">=22", "^22.1.0", "22". Anything it cannot parse is treated as SATISFIED, so an
+# exotic range never triggers a pointless download.
+_node_satisfies() {
+  local have="$1" want="$2" have_major want_major
+  [[ -n "$have" ]] || return 1
+  have_major="${have%%.*}"
+  want_major="$(printf '%s' "$want" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')"
+  [[ -n "$want_major" ]] || return 0
+  [[ "$have_major" == "$want_major" ]]
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
@@ -1551,6 +1655,7 @@ proveo_provision_toolchain() {
  local prev="$PWD"
  cd "$scan" 2>/dev/null && ensure_project_tools
  cd "$prev" 2>/dev/null || true
+ ensure_node_toolchain "$scan"
  ensure_python_env "$scan"
  ensure_dependency_trees "$scan"
  ensure_language_servers "$scan"

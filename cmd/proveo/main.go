@@ -651,15 +651,12 @@ func doRun(p runParams) error {
 		}
 	}
 	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
-	// one entry, never two), and the sbx branch below returns before the sidecar
-	// is wired at all — so this backend hands the agent NO Docker daemon. Left
-	// unsaid, that reads to the agent as a broken daemon rather than an absent
-	// one: it sees "Cannot connect to the Docker daemon" in a workspace whose
-	// Compose files it can plainly read, and reports the environment as faulty.
-	if sbxBackend && dind.ScopeHasDockerfiles(dindScope) {
-		ui.Warnf("this scope has Dockerfiles or Compose configs, but the sbx backend exposes no Docker daemon "+
-			"inside the sandbox — `docker` will fail. Uncheck the %q add-on to run on docker+egress instead", addonSandbox)
-	}
+	// one entry, never two) — and it does not need one. sbx gives each sandbox its
+	// OWN daemon, gated on the image label `com.docker.sandboxes.start-docker`,
+	// which proveo's sbx-capable images now carry. Measured inside a sandbox on
+	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
+	// hello-world` succeeds. Nothing to warn about any more; the warning that used
+	// to live here told the operator docker would fail, which is now false.
 	if sbxBackend {
 		in := runSandboxInput{
 			params: p, man: man, sid: sid, egDir: egDir,

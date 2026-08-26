@@ -9,6 +9,25 @@ node "proveo/base — the universal floor" as FLOOR <<host>> {
   component "mise" as MISE <<app>>
 }
 
+' ── What the project PINS, the sandbox honours ───────────────────────────────
+' node/pnpm come from the project, not the image. The image ships one of each; a
+' repo pins its own. Measured on the pluvo monorepo: package.json pins
+' "pnpm@9.15.0" and engines.pnpm "9.x" while the image carries pnpm 10.33.0 — a
+' major out, enough to rewrite a lockfile. node was fine (22.23.2 satisfies
+' "22.x"), so the mismatch an operator SEES as "node --version is wrong" is
+' usually the package manager. corepack activates `packageManager` (it exists for
+' exactly that and ships with node); mise provisions node only when the running
+' one FAILS engines.node, since a range is not a pin and reinstalling a
+' satisfying runtime buys nothing. Python already follows the same rule via
+' _py_requested_version (.python-version, requires-python).
+'
+' ── Installing dependencies ──────────────────────────────────────────────────
+' A FOREIGN dependency tree is already unusable in the sandbox, so reinstalling
+' costs it nothing and is the only way the agent can run anything. It DOES
+' rewrite the mounted tree, which is the operator's checkout — so it is confined
+' to exactly that case plus an absent tree. A tree that is already native is
+' never silently replaced. PROVEO_DEPS=off skips it.
+'
 ' Provisioning is invoked from proveo_seed (proveo_provision_toolchain), which
 ' BOTH backends reach: docker from the entrypoint, sbx also from setup.startup.
 ' A setup command's exports die with it, so the resolved PATH/VIRTUAL_ENV are

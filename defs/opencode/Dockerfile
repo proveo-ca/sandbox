@@ -30,7 +30,7 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-RUN DOCKER_VERSION=26.1.4 \
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \

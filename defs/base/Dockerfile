@@ -2,7 +2,7 @@
 
 # Single builder for proveo-entrypoint; every harness inherits it from here
 # instead of recompiling it in its own stage. Context is the repo root.
-FROM golang:1.26-bookworm AS proveo-entrypoint-builder
+FROM golang:1.26-trixie AS proveo-entrypoint-builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,7 +10,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 COPY defs/base/proveo-harden /usr/local/sbin/proveo-harden
 COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/

@@ -37,38 +37,55 @@ type rung struct {
 // above it is proveo's bug — and Docker's own tracker says as much, with
 // CLAUDE_CODE_OAUTH_TOKEN unsupported (sbx-releases#11) and the forward proxy
 // rewriting the Authorization header on api.anthropic.com (sbx-releases#210).
+// ladderTarget is the def under test. It is a knob because the sbx fixes this
+// suite proved for claudecode were applied to cursor by SYMMETRY, not by
+// measurement — and an image contract that has only ever been checked against one
+// harness is a contract with one data point.
+func ladderTarget() string { return env("PROVEO_LADDER_TARGET", "claudecode") }
+
+// sbxAgentFor maps the def to the sbx agent that runs it, the same mapping
+// internal/sbx uses. Rung 0 needs it to name a STOCK agent with no proveo image.
+func sbxAgentFor(t *testing.T, target string) string {
+	agent := sbx.BuiltinAgent(target)
+	if agent == "" {
+		t.Skipf("%s has no sbx agent — it runs on the docker backend only", target)
+	}
+	return agent
+}
+
 func ladderRungs() []rung {
+	target := ladderTarget()
 	return []rung{
 		{
-			name: "0-bare-sbx-claude", adds: "nothing — stock sbx agent and stock image",
+			name: "0-bare-sbx-agent", adds: "nothing — stock sbx agent and stock image",
 			argv: func(t *testing.T, work string) []string {
-				return []string{"run", "--name", ladderName(t, 0), "claude", work}
+				return []string{"run", "--name", ladderName(t, 0), sbxAgentFor(t, target), work}
 			},
 		},
 		{
-			name: "1-proveo-base-image", adds: "the proveo claudecode image (-t)",
+			name: "1-proveo-base-image", adds: "the proveo harness image (-t)",
 			argv: func(t *testing.T, work string) []string {
-				img := harnessImage(t, "claudecode")
+				img := harnessImage(t, target)
 				freshTemplate(t, img)
-				return []string{"run", "--name", ladderName(t, 1), "-t", img, "claude", work}
+				return []string{"run", "--name", ladderName(t, 1), "-t", img, sbxAgentFor(t, target), work}
 			},
 		},
 		{
 			name: "2-proveo-browser-image", adds: "the browser variant instead of the base image",
 			argv: func(t *testing.T, work string) []string {
-				img := harnessImageName("claudecode-browser")
+				img := harnessImageName(target + "-browser")
 				if !imageExists(img) {
 					t.Skipf("browser image %s not built", img)
 				}
 				freshTemplate(t, img)
-				return []string{"run", "--name", ladderName(t, 2), "-t", img, "claude", work}
+				return []string{"run", "--name", ladderName(t, 2), "-t", img, sbxAgentFor(t, target), work}
 			},
 		},
 		{
 			name: "3-proveo-mixin-and-seed", adds: "proveo's posture Kit — allowlist, env, and the seed (LSPs + toolchain)",
 			argv: func(t *testing.T, work string) []string {
-				kit := renderPostureKit(t, work)
-				img := harnessImage(t, "claudecode")
+				kit := renderPostureKit(t, work, target)
+				img := harnessImage(t, target)
 				freshTemplate(t, img)
 				// The proveo home is a WORKSPACE in a real run, and the mixin points
 				// HOME at it. Without the mount, HOME names a path that does not
@@ -77,7 +94,7 @@ func ladderRungs() []rung {
 				// faithful reproduction of nothing, so the rung mounts it too.
 				home := proveohome.Root(os.Getenv)
 				return []string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit,
-					"claude", work, home}
+					sbxAgentFor(t, target), work, home}
 			},
 		},
 	}
@@ -99,16 +116,16 @@ func freshTemplate(t *testing.T, image string) {
 }
 
 func ladderName(t *testing.T, i int) string {
-	return fmt.Sprintf("proveo-ladder-%d-%d", i, os.Getpid())
+	return fmt.Sprintf("proveo-ladder-%s-%d-%d", ladderTarget(), i, os.Getpid())
 }
 
 // renderPostureKit asks proveo for the Kit it would write, so the rung tests the REAL
 // mixin rather than a hand-copied approximation that can drift from it.
-func renderPostureKit(t *testing.T, work string) string {
+func renderPostureKit(t *testing.T, work, target string) string {
 	t.Helper()
 	bin := buildProveo(t)
 	out, err := exec.Command("env", append(childEnvArgsNoCredential(t),
-		bin, "run", "claudecode", "--input", work, "--print")...).CombinedOutput()
+		bin, "run", target, "--input", work, "--print")...).CombinedOutput()
 	if err != nil {
 		t.Skipf("could not render the posture kit: %v\n%s", err, out)
 	}
@@ -172,6 +189,7 @@ type sessionResult struct {
 // tests/e2e/sbx_test.go already records — reaches a prompt, then holds with zero
 // input and reports what happened.
 func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) sessionResult {
+	target := ladderTarget()
 	t.Helper()
 	cmd := exec.Command("sbx", argv...)
 	ptmx, err := pty.Start(cmd)
@@ -218,7 +236,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) se
 				return res
 			}
 		}
-		if reachedPrompt(seen()) {
+		if reachedPromptFor(seen(), target) {
 			res.reachedPrompt = true
 			break
 		}

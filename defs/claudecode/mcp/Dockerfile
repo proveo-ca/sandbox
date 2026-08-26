@@ -50,13 +50,34 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
+    iptables \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-# Static docker client — the CLI the agent needs to reach the daemon the sandbox
-# backend gives it (harness.manifest: docker: sbx). Same layer as cursor,
-# opencode and cecli; keep the version in step with them.
-RUN DOCKER_VERSION=26.1.4 \
+# Static docker CLI only — the record of three attempts, so this is not re-derived.
+#
+# sbx gives each sandbox its own Docker daemon, but it runs from the IMAGE and
+# starts as root. Shipping dockerd makes sbx ATTEMPT that start; a daemon that
+# fails to start blocks the whole sandbox, which is worse than having none.
+#
+#  1. bookworm, nf_tables  → "failed to create NAT chain DOCKER (exit status 4)"
+#  2. bookworm, legacy     → "can't initialize iptables table `nat'"
+#  3. TRIXIE, nf_tables    → "iptables v1.8.11: Could not fetch rule set
+#                             generation id: Permission denied (you must be root)"
+#
+# The trixie move fixed the version: iptables is now 1.8.11, identical to the
+# stock template's, so the base image is no longer the blocker. What remains is
+# the privilege. Scoped sudo (NOPASSWD for /usr/local/bin/dockerd only) was tried
+# and changed NOTHING — the error is byte-identical — so sbx does not invoke
+# dockerd through sudo, and the stock template's `NOPASSWD:ALL` is not what makes
+# it work either. proveo-harden is not implicated: it only strips setuid/setgid
+# and removes nc/netstat.
+#
+# Next step is sbx-side, not packaging: find how its dind path grants dockerd its
+# privileges. tests/e2e/ladder_test.go is the harness that would prove a fix.
+#
+# Keep the version in step with cursor, opencode and cecli.
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
@@ -64,8 +85,26 @@ RUN DOCKER_VERSION=26.1.4 \
        esac \
     && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
     && tar -xzf /tmp/docker.tgz -C /tmp \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
+    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
     && rm -rf /tmp/docker /tmp/docker.tgz
+
+# ── Docker-in-sandbox ───────────────────────────────────────────────────────
+#
+# sbx gives each sandbox its own private Docker daemon, and it decides whether to
+# start one from an IMAGE LABEL — `com.docker.sandboxes.start-docker`, which its
+# own templates carry. Without the label sbx records `dind: false` at container
+# creation and never starts a daemon, which is why every proveo sbx run reported
+# "Cannot connect to the Docker daemon" beside Compose files it could read.
+#
+# The daemon binaries were already being downloaded and discarded: the static
+# tarball carries dockerd, containerd, runc and friends alongside the client.
+RUN groupadd -f docker \
+ && usermod -aG docker "${USER_NAME}" \
+ && usermod -aG docker agent
+LABEL com.docker.sandboxes.start-docker="true"
+
+
 
 # Install basic Python tools
 RUN pip3 install --no-cache-dir --break-system-packages \

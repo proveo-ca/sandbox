@@ -47,7 +47,7 @@ RUN python3 -m venv /opt/cecli \
 
 ENV PATH="/opt/cecli/bin:${PATH}"
 
-RUN DOCKER_VERSION=26.1.4 \
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \

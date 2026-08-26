@@ -32,6 +32,9 @@ var authFailures = []string{
 	// from a session that was stopped underneath a HEALTHY agent.
 	"Not logged in",
 	"Run /login",
+	// cursor-agent's first-run screen. It IS at a prompt, but the only key it
+	// accepts starts a login — so an unattended session can never proceed.
+	"Press any key to log in",
 }
 
 // ansiSeq matches the escape sequences a TUI writes. Stripping them is not
@@ -55,16 +58,36 @@ var blockedMarkers = []string{
 	"Let's get started",
 }
 
+// promptMarkers are the strings each harness's OWN TUI paints when it is up and
+// waiting. One row per target, because "reached a prompt" is not a shared shape:
+// matching Claude Code's frame against a cursor session reported a healthy agent
+// as a hang for 481 seconds, which is a test failing rather than a def failing.
+func promptMarkers(target string) []string {
+	switch target {
+	case "cursor":
+		return []string{"Cursor Agent", "cursor-agent"}
+	case "opencode":
+		return []string{"opencode"}
+	case "cecli":
+		return []string{"cecli", "aider"}
+	default: // claudecode
+		return []string{"Claude Code", "bypass permissions"}
+	}
+}
+
 // reachedPrompt reports whether the agent is up and waiting.
 //
-// It matches the TUI's OWN frame rather than proveo's entrypoint banner. The
+// It matches the TUI's own frame rather than proveo's entrypoint banner. The
 // banner is not a reliable signal: it is printed before the agent starts, so a
 // session can be fully up without it having been the last thing said — and the
-// stock sbx image never prints it at all, which the ladder's rung 0 needs. The
-// frame is the one thing every backend and every image agree on.
+// stock sbx image never prints it at all, which the ladder's rung 0 needs.
 func reachedPrompt(raw string) bool {
+	return reachedPromptFor(raw, "claudecode")
+}
+
+func reachedPromptFor(raw, target string) bool {
 	out := plain(raw)
-	for _, m := range []string{"Claude Code", "bypass permissions"} {
+	for _, m := range promptMarkers(target) {
 		if strings.Contains(out, m) {
 			return true
 		}
