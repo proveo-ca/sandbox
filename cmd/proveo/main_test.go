@@ -2258,3 +2258,58 @@ func TestWorkspacePostureNamesWhereWorkLands(t *testing.T) {
 		}
 	}
 }
+
+// The stub this prevents is not a permission bug in the operator's tree: their
+// repo root stays uid-owned the whole time. It is a directory the sandbox
+// runtime invents to hang the .git mount on, which then impersonates the repo
+// root while being empty and unwritable.
+func TestWorktreeRepoRootIsMountedNotSynthesized(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := workspaceBinds([]sbx.Mount{
+		{Host: filepath.Join(repo, ".git"), Container: workspace.ContainerGitCommonDir},
+	})
+	if len(got) != 1 {
+		t.Fatalf("want one bind, got %v", got)
+	}
+	if got[0].Host != repo {
+		t.Errorf("sbx must mount the repo ROOT so the parent is a real bind:\n got %s\nwant %s",
+			got[0].Host, repo)
+	}
+}
+
+// The repo root can legitimately be a workspace already — mounting it twice is
+// a duplicate positional path, not a second bind.
+func TestWorkspaceBindsDoNotDuplicateTheRepoRoot(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := workspaceBinds([]sbx.Mount{
+		{Host: repo, Container: "/app"},
+		{Host: filepath.Join(repo, ".git"), Container: workspace.ContainerGitCommonDir},
+	})
+	if len(got) != 1 {
+		t.Errorf("the repo root was mounted twice: %v", got)
+	}
+}
+
+// Read-only stays read-only: rewriting the path must not quietly widen the
+// posture an operator asked for with a git-mode of "ro".
+func TestRepoRootRewriteKeepsReadOnly(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := workspaceBinds([]sbx.Mount{
+		{Host: filepath.Join(repo, ".git"), Container: workspace.ContainerGitCommonDir, ReadOnly: true},
+	})
+	if len(got) != 1 || !got[0].ReadOnly {
+		t.Errorf("read-only git mount lost its posture: %v", got)
+	}
+}

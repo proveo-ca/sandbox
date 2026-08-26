@@ -2261,6 +2261,7 @@ func sbxReady(printOnly bool) (bool, string) {
 // PROVEO_MOUNT_GH_CONFIG=0 reaches deliberately.
 func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 	var out []sbx.Mount
+	seen := map[string]bool{}
 	for _, m := range mounts {
 		if strings.HasPrefix(m.Container, proveohome.ContainerHome+"/") {
 			continue // nested under home; its nesting cannot be reproduced
@@ -2274,6 +2275,29 @@ func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 		if fi, err := os.Stat(m.Host); err != nil || !fi.IsDir() {
 			continue
 		}
+		// A linked worktree contributes only <repo>/.git, and sbx MIRRORS host
+		// paths rather than remapping them — so the <repo> parent has to be
+		// synthesized inside the VM, where the runtime creates it root-owned. It
+		// then looks exactly like the operator's repo root and is not one: it is an
+		// empty stub nobody can write to. Tools that resolve the main repository
+		// directory (nx keeps its shared task DB there) die on a permission error
+		// naming a path the operator knows is theirs, which sends the diagnosis
+		// looking for a phantom root-promotion.
+		//
+		// Mounting the PARENT makes it a real bind, uid-mapped like every other
+		// workspace and writable from the host and the agent alike. Measured on the
+		// same worktree: root:root and writes DENIED before, claude:claude and
+		// writes OK after, with `git rev-parse` still resolving the worktree.
+		//
+		// Docker keeps the narrow mount: it remaps container paths freely, so no
+		// parent is ever synthesized and nothing is shadowed.
+		if m.Container == workspace.ContainerGitCommonDir && filepath.Base(m.Host) == ".git" {
+			m.Host = filepath.Dir(m.Host)
+		}
+		if seen[m.Host] {
+			continue // the repo root may already be a workspace in its own right
+		}
+		seen[m.Host] = true
 		out = append(out, m)
 	}
 	return out
