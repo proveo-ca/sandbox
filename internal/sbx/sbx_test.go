@@ -1,13 +1,16 @@
 package sbx
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withProbes pins the availability seams for one test.
@@ -746,4 +749,77 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 	if got := BuiltinAgent("cecli"); got != "" {
 		t.Errorf("cecli has no sbx agent; got %q", got)
 	}
+}
+
+// A degraded daemon does not fail — it WAITS. Measured after heavy sandbox churn:
+// `docker info` and `docker ps` each took over two minutes to return. MemoryLimit
+// runs on every sbx launch including `--print`, so an unbounded call turns a slow
+// daemon into a proveo that hangs with nothing on screen.
+func TestMemoryLimitSurvivesAHangingDaemon(t *testing.T) {
+	orig := dockerMemTotal
+	t.Cleanup(func() { dockerMemTotal = orig })
+
+	dockerMemTotal = func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		// `sleep 60` stands in for the wedged daemon; the context is what must end it.
+		return exec.CommandContext(ctx, "sh", "-c", "sleep 60").Output()
+	}
+	done := make(chan string, 1)
+	go func() { done <- MemoryLimit() }()
+	select {
+	case got := <-done:
+		// An unreadable daemon means no -m flag, which leaves sbx's own default in
+		// place. That is the documented fallback, not a failure.
+		if got != "" {
+			t.Errorf("a daemon that never answers must yield no limit, got %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("MemoryLimit did not return: the daemon call is unbounded, and every launch hangs with it")
+	}
+}
+
+// The bound must be long enough that a healthy-but-loaded daemon still gets its
+// answer — a limit that times out in practice silently loses the OOM protection
+// MemoryLimit exists to provide.
+func TestDockerInfoTimeoutIsGenerous(t *testing.T) {
+	if dockerInfoTimeout < 5*time.Second {
+		t.Errorf("dockerInfoTimeout = %s, too tight for a loaded daemon", dockerInfoTimeout)
+	}
+}
+
+// --clone is creation-time only, so it has to reach the argv of the run that
+// CREATES the sandbox — there is no later toggle. It also has to sit among the
+// flags, before the agent positional, or sbx reads it as a workspace path.
+func TestRunArgsCarriesClone(t *testing.T) {
+	t.Parallel()
+	got := RunArgs(RunConfig{Name: "s", Image: "img", Agent: "claude", Clone: true,
+		Mounts: []Mount{{Host: "/w", Container: "/w"}}})
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "--clone") {
+		t.Fatalf("--clone missing from %v", got)
+	}
+	flag, agent := indexOf(got, "--clone"), indexOf(got, "claude")
+	if flag < 0 || agent < 0 || flag > agent {
+		t.Errorf("--clone must precede the agent positional, got %v", got)
+	}
+}
+
+// Absent by default: a run that did not ask for a clone must edit the mounted
+// checkout, which is what every existing caller expects.
+func TestRunArgsOmitsCloneByDefault(t *testing.T) {
+	t.Parallel()
+	got := RunArgs(RunConfig{Name: "s", Image: "img", Agent: "claude"})
+	if strings.Contains(strings.Join(got, " "), "--clone") {
+		t.Errorf("--clone leaked into a non-clone run: %v", got)
+	}
+}
+
+func indexOf(xs []string, want string) int {
+	for i, x := range xs {
+		if x == want {
+			return i
+		}
+	}
+	return -1
 }

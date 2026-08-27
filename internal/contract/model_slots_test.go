@@ -261,9 +261,17 @@ func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(b)
-	seed, launch := strings.Index(src, "proveo_seed"), strings.Index(src, "exec claude")
+	// The launch goes through proveo_exec_agent rather than a bare `exec claude`,
+	// because the trailing words may be a COMMAND the launcher supplied (sbx puts
+	// the agent invocation in CMD) rather than flags for our own. Matching the
+	// helper keeps this test on the INTENT — seed first — instead of on a spelling.
+	seed, launch := strings.Index(src, "proveo_seed"), strings.Index(src, "proveo_exec_agent claude")
 	if seed < 0 {
 		t.Fatal("the entrypoint must call proveo_seed")
+	}
+	if launch < 0 {
+		t.Fatal("the entrypoint must launch through proveo_exec_agent, or a launcher-supplied " +
+			"command is handed to the agent as a PROMPT and the session exits answering it")
 	}
 	if launch < 0 || seed > launch {
 		t.Error("proveo_seed must run BEFORE the agent is exec'd, or its files arrive too late")
@@ -277,6 +285,46 @@ func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 	for _, want := range []string{"render_subagents", "accept_workspace_trust"} {
 		if !strings.Contains(fn, want) {
 			t.Errorf("proveo_seed must perform %s", want)
+		}
+	}
+}
+
+// The workspace is the operator's repository. House rules go to the USER layer or
+// nowhere: seeding a file into the checkout mutates their tree, competes with an
+// AGENTS.md they already wrote, and cannot apply at all when one exists.
+func TestHouseRulesNeverWriteIntoTheWorkspace(t *testing.T) {
+	t.Parallel()
+	lib, err := os.ReadFile(filepath.Join(repoRoot(t), "packages/lib/entrypoint-lib.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(lib)
+	start := strings.Index(src, "proveo_compose_house_rules() {")
+	if start < 0 {
+		t.Fatal("proveo_compose_house_rules is missing")
+	}
+	body := src[start : start+strings.Index(src[start:], "\n}\n")]
+
+	// The destination must be built from the AGENT HOME, never the scan root.
+	if !strings.Contains(body, "_proveo_agent_home") {
+		t.Error("the destination must come from _proveo_agent_home")
+	}
+	for _, forbidden := range []string{"_proveo_scan_root", "PROVEO_WORKDIR", "$PWD"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("house rules must not resolve against the workspace, found %q", forbidden)
+		}
+	}
+	// Operator content in the destination survives: the write is a marked region.
+	if !strings.Contains(body, "_proveo_write_block") {
+		t.Error("must write through _proveo_write_block, or hand-written content in the " +
+			"destination is destroyed on every run")
+	}
+	// Every supported target needs a row, so an empty one is a decision.
+	route := src[strings.Index(src, "_house_rules_target() {"):]
+	route = route[:strings.Index(route, "esac; }")]
+	for _, target := range []string{"claudecode", "opencode", "cursor", "cecli"} {
+		if !strings.Contains(route, target) {
+			t.Errorf("_house_rules_target has no row for %q — silence must be a decision, not an omission", target)
 		}
 	}
 }

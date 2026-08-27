@@ -122,4 +122,24 @@ note right of SUB
 end note
 
 
+note as SBX_PARENT
+  **sbx mirrors host paths, so a narrow mount can synthesize a lie.**
+  Docker remaps container paths freely, so mounting a linked worktree's
+  ""<repo>/.git"" alone costs nothing. sbx cannot remap: every workspace lands at
+  its own host path, so the ""<repo>"" PARENT must be conjured inside the VM, and
+  the runtime creates it root-owned and empty.
+
+  That stub then impersonates the operator's repo root. Measured: host ""<repo>""
+  stayed ""pluvo:staff"" throughout while the in-sandbox path read ""root:root 755""
+  and refused every write — so tools resolving the MAIN repository directory
+  (nx keeps its shared task DB there) failed on a path the operator knew was
+  theirs, and the diagnosis went hunting a root-promotion that never happened.
+
+  ""workspaceBinds"" therefore rewrites that one bind to the parent for sbx, and
+  only for sbx. The path becomes a real uid-mapped bind — ""claude:claude"", writable
+  from host and agent alike — with ""git rev-parse"" still resolving the worktree
+  and its common dir. Read-only git keeps its posture: the rewrite moves the
+  path, never the ""ro"" flag.
+end note
+
 @enduml

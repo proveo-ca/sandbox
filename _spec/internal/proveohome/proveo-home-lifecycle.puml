@@ -65,4 +65,30 @@ note over PH
 end note
 
 
+note over RUN
+  **sbx keeps the persistence, not the redirect.**
+  The HOME redirect bought two things: a home the image's passwd entry did not
+  own, and a home that OUTLIVED the run. sbx needs neither redirect — it runs its
+  own uid-1000 agent — but it very much needs the second property, and dropping
+  the redirect silently took it away.
+
+  sbx mounts ""~/.claude/projects"" and its siblings as per-sandbox ext4 volumes,
+  and teardown removes "VM + images + volumes". Every transcript died with the
+  run, so ""--resume"" had nothing to offer. Nothing went red: every resume
+  assertion lived on the docker backend, where HOME still points at the mounted
+  home.
+
+  ""PROVEO_STATE_HOME"" publishes the host path instead of moving HOME to it. The
+  seed copies state IN, teardown copies it OUT through the same shell function,
+  so the two directions cannot disagree about what is worth keeping. The
+  credential the sbx proxy writes at ""$HOME/.claude/.credentials.json"" is left
+  where it was — moving HOME orphaned it and produced "Not logged in" on ladder
+  rung 3.
+
+  The directory list is DISCOVERED, not tabulated: a block device mounted under
+  ""$HOME"" is by definition sandbox-local. A per-agent table would be a guess that
+  rots whenever sbx changes a kit. ""statsig"" and ""shell-snapshots"" are skipped as
+  telemetry and scratch.
+end note
+
 @enduml

@@ -251,9 +251,7 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   exec sleep infinity
 fi
 
-ensure_project_tools
-ensure_python_env "$(pwd)"
-ensure_language_servers "$(pwd)"
+# Toolchain provisioning moved into proveo_seed (runs on both backends).
 configure_workspace_lsps
 
 # ── API key detection ──────────────────────────────────────

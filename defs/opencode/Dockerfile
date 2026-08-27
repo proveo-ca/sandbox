@@ -30,7 +30,7 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-RUN DOCKER_VERSION=26.1.4 \
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
@@ -59,6 +59,10 @@ COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 COPY defs/lib/ /opt/proveo/lib/
 
+# proveo's own conventions, installed as the harness's USER-level instructions
+# by proveo_compose_house_rules. Baked in rather than mounted so it is present
+# on both backends and cannot be edited from inside the sandbox.
+COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/opencode/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

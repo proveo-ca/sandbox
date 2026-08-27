@@ -110,9 +110,8 @@ run_smoke_test "claudecode"
 
 # Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP);
 # the toolchains they need are provisioned first.
-ensure_python_env "$(pwd)"
-ensure_language_servers "$(pwd)"
-configure_claude_lsp
+# Toolchain + LSP config live in proveo_seed above, so BOTH backends get them:
+# sbx replaces this entrypoint entirely and would otherwise provision nothing.
 
 # ── Agent evidence ─────────────────────────────────────────
 claude_wants_stream_json() {
@@ -137,4 +136,4 @@ else
 fi
 
 echo "🚀 Launching Claude Code..."
-exec claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" -- "$@"

@@ -3,6 +3,7 @@ package sbx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -41,9 +43,23 @@ var (
 	// Linux that is host memory; on macOS and Windows it is the VM's share of it,
 	// which is the number that matters and the one sbx cannot see.
 	dockerMemTotal = func() ([]byte, error) {
-		return exec.Command("docker", "info", "--format", "{{.MemTotal}}").Output()
+		// BOUNDED, because a degraded daemon does not fail — it waits. Measured on
+		// a host after heavy sandbox churn: `docker info` and `docker ps` each took
+		// well over two minutes to return. MemoryLimit runs on EVERY sbx launch,
+		// including `--print`, so an unbounded call turns a slow daemon into a
+		// proveo that hangs with nothing on screen: the operator sees a run that
+		// never starts and no reason for it. A timeout costs one memory limit —
+		// MemoryLimit already treats an error as "leave sbx's default in place".
+		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
+		defer cancel()
+		return exec.CommandContext(ctx, "docker", "info", "--format", "{{.MemTotal}}").Output()
 	}
 )
+
+// dockerInfoTimeout bounds the one daemon call MemoryLimit makes. Generous enough
+// for a healthy daemon under load, far below the point where an operator concludes
+// the tool is broken.
+const dockerInfoTimeout = 10 * time.Second
 
 // Sandbox memory bounds, in bytes. The ceiling matches sbx's own cap; the floor is
 // the point below which a limit says more about a broken daemon than about policy,
@@ -622,10 +638,15 @@ type RunConfig struct {
 	// MANDATORY: the first positional is parsed as an agent, so leaving it empty
 	// makes sbx read the first workspace path as an agent name and refuse the run
 	// with "is not a sandbox or known agent".
-	Agent   string
-	KitDir  string   // directory holding the rendered Kit spec.yaml
-	Image   string   // template image, passed as -t
-	Memory  string   // -m limit; empty leaves sbx's host-derived default in place
+	Agent  string
+	KitDir string // directory holding the rendered Kit spec.yaml
+	Image  string // template image, passed as -t
+	Memory string // -m limit; empty leaves sbx's host-derived default in place
+	// Clone runs the agent on a private in-container CLONE of the host repo
+	// (--clone) rather than on the mounted tree itself. Creation-time only: sbx
+	// ignores it when re-attaching, which is why it belongs in the run config
+	// rather than being toggled later.
+	Clone   bool
 	Mounts  []Mount  // workspace binds, passed POSITIONALLY
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	Command []string // trailing agent command (after "--")
@@ -662,6 +683,9 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.Memory != "" {
 		args = append(args, "-m", cfg.Memory)
 	}
+	if cfg.Clone {
+		args = append(args, "--clone")
+	}
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)
 	}
@@ -680,6 +704,23 @@ func RunArgs(cfg RunConfig) []string {
 		args = append(args, cfg.Command...)
 	}
 	return args
+}
+
+// StateHomeVar names the host directory that resume state is copied to and from.
+//
+// It is deliberately NOT HOME. Redirecting HOME on this backend orphans the
+// credential sbx's proxy writes into the image's home, which is what made the
+// agent report "Not logged in" on ladder rung 3. This variable moves only the
+// state, and only by copy.
+const StateHomeVar = "PROVEO_STATE_HOME"
+
+// SaveStateArgs builds the invocation that lifts resume state out of a sandbox
+// before it is destroyed. It runs INSIDE the sandbox, sourcing the same shell
+// library the seed uses, so the list of directories worth saving is defined once
+// and cannot drift between the way in and the way out.
+func SaveStateArgs(name string) []string {
+	return []string{"exec", name, "--", "bash", "-c",
+		". /entrypoint-lib.sh && proveo_sync_state save"}
 }
 
 // RemoveArgs builds the ephemeral teardown invocation (VM + images + volumes).

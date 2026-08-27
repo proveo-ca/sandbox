@@ -23,27 +23,61 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
     fi
 
 # sbx's built-in agent kits are authored against their own template, whose runtime
-# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent and
-# writes /home/agent/.claude/settings.json. proveo's images use uid 1000 under a
-# harness-specific name, so both of those fail on a stock image and the sandbox
-# never starts. An alias for the SAME uid, plus a home symlink, lets the inherited
-# setup run exactly as authored without proveo's own paths moving.
-RUN if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
+# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent,
+# and the kit mounts five block volumes AT /home/agent/.claude/{projects,sessions,
+# todos,shell-snapshots,statsig}.
+#
+# /home/agent must therefore be a REAL directory and the actual home. An alias
+# plus a home SYMLINK is not enough and was the bug: a mount target cannot resolve
+# through a symlink, so containerd materialises /home/agent as a fresh directory,
+# shadowing the link. The volumes then land somewhere the agent never reads while
+# $HOME points elsewhere — including `sessions`, which sbx's own kit calls
+# load-bearing for `claude -c`. Measured: stock image holds a session, the same
+# sbx invocation with this image died in 15s (tests/e2e/ladder_test.go).
+#
+# So the REAL home is /home/agent and the harness-specific name is the alias —
+# the reverse of what this used to do. /home/${USER_NAME} stays as a symlink
+# because image healthchecks and def tests read paths through it, and nothing
+# ever mounts there.
+RUN usermod -d /home/agent -m "${USER_NAME}" \
+ && if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
  && if ! getent passwd agent >/dev/null; then \
-      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d "/home/${USER_NAME}" -s /bin/bash agent; \
+      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d /home/agent -s /bin/bash agent; \
     fi \
- && { [ -e /home/agent ] || ln -s "/home/${USER_NAME}" /home/agent; }
+ && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
+ && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
+    iptables \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-# Static docker client — the CLI the agent needs to reach the daemon the sandbox
-# backend gives it (harness.manifest: docker: sbx). Same layer as cursor,
-# opencode and cecli; keep the version in step with them.
-RUN DOCKER_VERSION=26.1.4 \
+# Static docker CLI only — the record of three attempts, so this is not re-derived.
+#
+# sbx gives each sandbox its own Docker daemon, but it runs from the IMAGE and
+# starts as root. Shipping dockerd makes sbx ATTEMPT that start; a daemon that
+# fails to start blocks the whole sandbox, which is worse than having none.
+#
+#  1. bookworm, nf_tables  → "failed to create NAT chain DOCKER (exit status 4)"
+#  2. bookworm, legacy     → "can't initialize iptables table `nat'"
+#  3. TRIXIE, nf_tables    → "iptables v1.8.11: Could not fetch rule set
+#                             generation id: Permission denied (you must be root)"
+#
+# The trixie move fixed the version: iptables is now 1.8.11, identical to the
+# stock template's, so the base image is no longer the blocker. What remains is
+# the privilege. Scoped sudo (NOPASSWD for /usr/local/bin/dockerd only) was tried
+# and changed NOTHING — the error is byte-identical — so sbx does not invoke
+# dockerd through sudo, and the stock template's `NOPASSWD:ALL` is not what makes
+# it work either. proveo-harden is not implicated: it only strips setuid/setgid
+# and removes nc/netstat.
+#
+# Next step is sbx-side, not packaging: find how its dind path grants dockerd its
+# privileges. tests/e2e/ladder_test.go is the harness that would prove a fix.
+#
+# Keep the version in step with cursor, opencode and cecli.
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
@@ -51,8 +85,26 @@ RUN DOCKER_VERSION=26.1.4 \
        esac \
     && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
     && tar -xzf /tmp/docker.tgz -C /tmp \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
+    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
     && rm -rf /tmp/docker /tmp/docker.tgz
+
+# ── Docker-in-sandbox ───────────────────────────────────────────────────────
+#
+# sbx gives each sandbox its own private Docker daemon, and it decides whether to
+# start one from an IMAGE LABEL — `com.docker.sandboxes.start-docker`, which its
+# own templates carry. Without the label sbx records `dind: false` at container
+# creation and never starts a daemon, which is why every proveo sbx run reported
+# "Cannot connect to the Docker daemon" beside Compose files it could read.
+#
+# The daemon binaries were already being downloaded and discarded: the static
+# tarball carries dockerd, containerd, runc and friends alongside the client.
+RUN groupadd -f docker \
+ && usermod -aG docker "${USER_NAME}" \
+ && usermod -aG docker agent
+LABEL com.docker.sandboxes.start-docker="true"
+
+
 
 # Install basic Python tools
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -92,6 +144,9 @@ RUN mkdir -p /app \
     && chmod 755 /workspace/mcp-servers
 
 # Copy Claude configuration directly into final locations
+# The sandbox theme, in proveo's own identity palette. Baked here and installed
+# into the agent home by the seed, so it reaches BOTH backends.
+COPY defs/claudecode/mcp/themes/ /opt/proveo/themes/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/claude-config.json /home/${USER_NAME}/.claude.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /app/.claude/settings.local.json
@@ -101,6 +156,18 @@ COPY --chown=${USER_NAME}:${USER_NAME} defs/subagents/ /opt/proveo/subagents/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/bridges/ /opt/proveo/bridges/
 
 # Copy shared entrypoint
+# proveo's own conventions, delivered as Claude Code's MANAGED POLICY CLAUDE.md.
+#
+# That path is the highest tier of the memory hierarchy: it loads before the user
+# and project files, and — unlike every other location — it cannot be excluded by
+# `claudeMdExcludes` at any settings layer. A project CLAUDE.md still loads and is
+# still read LATER, so a repository can add to the house rules; it just cannot
+# make them not apply.
+#
+# Written here rather than by the seed because the seed runs as uid 1000 and /etc
+# is root's. Baking also means the agent cannot rewrite the rules it runs under.
+COPY AGENTS.md /opt/proveo/AGENTS.md
+COPY AGENTS.md /etc/claude-code/CLAUDE.md
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh

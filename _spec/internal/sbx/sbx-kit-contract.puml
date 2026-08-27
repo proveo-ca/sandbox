@@ -51,6 +51,26 @@ skinparam noteTextAlignment left
 '   files/home/**      → /home/<user>/**      (sibling directory of spec.yaml)
 '   files/workspace/** → <workspace>/**
 '
+' ── DOCKER IN THE SANDBOX: an image LABEL, not a Kit field ──────────────────
+' sbx gives each sandbox its own private Docker daemon, and decides whether to
+' start one from `com.docker.sandboxes.start-docker` on the IMAGE. It is not a
+' `sbx run` flag and not a Kit field: without the label the daemon records
+' `dind: false` at container creation and never starts one, which is what made
+' every proveo run report "Cannot connect to the Docker daemon" beside Compose
+' files it could plainly read.
+'
+' The image must also SHIP the daemon. The static tarball proveo already
+' downloads for the client carries dockerd, containerd, runc and docker-proxy
+' alongside it; extracting only `docker` left a client with nothing behind it.
+' A `docker` group is needed too — the socket is created root:docker.
+'
+' Three failures were chased before the label was found, all of them real and all
+' of them beside the point: bookworm's iptables 1.8.9 could not create the NAT
+' chain on either backend, and scoped sudo for dockerd changed nothing because
+' sbx never invokes it that way. Measured after the label: `docker version`
+' reports Server 29.7.2 inside a proveo sandbox and `docker run hello-world`
+' succeeds.
+
 ' ── AGENT IDENTITY: proveo names none ───────────────────────────────────────
 ' `sbx run --help` prints a CLOSED list — claude, codex, copilot, cursor,
 ' docker-agent, droid, gemini, kiro, opencode, shell. A Kit cannot add to it,
@@ -83,7 +103,17 @@ skinparam noteTextAlignment left
 '                  → resolved HOST-side into environment.variables. A setup
 '                    command runs in its own process; its exports never reach
 '                    the agent, so this cannot be done inside.
-'   file-shaped    subagents, settings, LSP config, the workspace trust flag
+'   file-shaped    subagents, settings, LSP config, the workspace trust flag,
+'                  AND the whole toolchain: project tools, the Python env, the
+'                  dependency-tree probe, language servers. The toolchain lives
+'                  here because the seed is the one step BOTH backends reach by a
+'                  route neither skips: docker calls it from the entrypoint, sbx
+'                  ALSO from setup.startup. NOTE: `-t` overrides the IMAGE, not
+'                  its ENTRYPOINT — defs/*/entrypoint.sh runs on both backends,
+'                  which is why proveo_exec_agent matters (below). And because a setup
+'                  command's exports die with it, the resolved PATH and
+'                  VIRTUAL_ENV are WRITTEN to the agent home's .bashrc: the
+'                  agent is not a shell, but every command it runs is.
 '                  → `proveo_seed`, invoked from setup.startup under sbx and by
 '                    the entrypoint on docker. Files outlive the process.
 '                    $HOME is NOT the run's home here: sbx runs startup commands

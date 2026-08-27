@@ -1,0 +1,16 @@
+{
+  "name": "proveo sandbox",
+  "base": "dark",
+  "overrides": {
+    "claude": "#00BAC6",
+    "claudeShimmer": "#7FE3E9",
+    "promptBorder": "#005F7F",
+    "promptBorderShimmer": "#00BAC6",
+    "permission": "#005F7F",
+    "permissionShimmer": "#00BAC6",
+    "planMode": "#00BAC6",
+    "success": "#CBDB2A",
+    "error": "#CB2000",
+    "remember": "#00BAC6"
+  }
+}

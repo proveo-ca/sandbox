@@ -1,0 +1,80 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Terminal reports — filtered before they become prompts
+
+' covers: internal/ptyproxy/inputfilter.go, internal/ptyproxy/ptyproxy.go,
+'         cmd/proveo/main.go
+
+node "Operator's terminal stack" as TERM <<host>> {
+  component "terminal emulator" as EMU <<host>>
+  component "multiplexer\nZellij · tmux · screen" as MUX <<error>>
+}
+
+node "proveo — ptyproxy" as PX <<host>> {
+  component "**classify** — ""classifyTerminalReport""\nlone, self-delimiting reports only" as CLASS <<app>>
+  component "**filter** — ""inputFilter.keep""\nwindowed de-duplication" as FILT <<app>>
+  component "**tap** — ""PROVEO_TRACE_STDIN""\nrecords arrived + verdict" as TAP <<async>>
+}
+
+node "sbx" as SBX <<cloud>> {
+  component "agent-session API\ninput read as a PROMPT STREAM" as SESS <<cloud>>
+}
+component "Claude Code" as AGENT <<app>>
+
+EMU ARROW_MAIN MUX : keystrokes · query replies
+MUX ARROW_ERROR CLASS : one query, TWO answers
+CLASS ARROW_MAIN FILT
+FILT ARROW_MAIN SBX : keystrokes + the first of each reply
+FILT ARROW_QUEUE TAP : every read, kept or dropped
+SBX ARROW_MAIN SESS
+SESS ARROW_MAIN AGENT
+SESS ARROW_ERROR AGENT : an unfiltered surplus arrives as ""promptSource: sdk""
+
+note bottom of MUX
+  **Measured, not assumed.** In run ""proveo-1787703005-59852"" the tap recorded
+  Zellij answering ONE Primary Device Attributes query twice — two identical
+  ""\\x1b[?62;4c"" reads 42ms apart — plus focus reports nothing downstream consumes.
+
+  The surplus has no query to belong to. Whatever reads the stream must treat it
+  as input, because input is the only thing it can be.
+end note
+
+note right of SESS
+  **Why an ignorable stray becomes a user message.** A terminal application
+  discards a report it did not ask for. sbx does not run the agent as a terminal
+  application: it drives it over the agent-session API, where input is a PROMPT
+  STREAM. The transcript records the result as
+  ""promptSource: sdk · entrypoint: sdk-cli"" — enqueued, dequeued, answered.
+
+  It never reaches ""history\.jsonl"", because that records what the TUI submitted
+  and the TUI submitted nothing. That absence is how the injection was found.
+end note
+
+note left of FILT
+  **Two rules, both conservative.**
+
+  ""reportReply"" — forward the FIRST, drop copies inside
+  ""DefaultReplyWindow"" (2s). The application asked and is owed one answer;
+  only the surplus goes. De-duplication is windowed rather than
+  adjacent-only, because the captured duplicate had a mode report between
+  it and its twin.
+
+  ""reportFocus"" — dropped outright. A focus notification is neither a
+  keystroke nor an answer, and nothing past this point consumes one.
+
+  A read carrying a report ALONGSIDE anything else is forwarded untouched.
+  Eating a keystroke to win a filtering argument is far worse than passing a
+  stray report through — and terminals emit reports as one atomic write, which
+  is what makes the whole-read rule safe.
+
+  ""PROVEO_STDIN_FILTER=off"" restores byte-for-byte passthrough.
+end note
+
+note bottom of TAP
+  The tap exists because a child-side log cannot show what was DROPPED, and a
+  transcript cannot show what ARRIVED. Wrapping ""os.Stdin"" to find out would
+  make ""os/exec"" substitute a pipe and take the agent's tty away — changing the
+  very behaviour under investigation. Through the pty the child keeps its
+  terminal either way.
+end note
+@enduml

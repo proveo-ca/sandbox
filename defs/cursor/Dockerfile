@@ -2,7 +2,7 @@
 ARG BASE_IMAGE=proveo/base:latest
 
 # ── LSP tooling builder ────────────────────────────────────
-FROM golang:1.26-bookworm AS lsp-builder
+FROM golang:1.26-trixie AS lsp-builder
 ENV CGO_ENABLED=0
 RUN go install github.com/isaacphi/mcp-language-server@latest \
     && go install golang.org/x/tools/gopls@latest
@@ -30,23 +30,37 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
     fi
 
 # sbx's built-in agent kits are authored against their own template, whose runtime
-# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent and
-# writes /home/agent/.claude/settings.json. proveo's images use uid 1000 under a
-# harness-specific name, so both of those fail on a stock image and the sandbox
-# never starts. An alias for the SAME uid, plus a home symlink, lets the inherited
-# setup run exactly as authored without proveo's own paths moving.
-RUN if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
+# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent,
+# and the kit mounts five block volumes AT /home/agent/.claude/{projects,sessions,
+# todos,shell-snapshots,statsig}.
+#
+# /home/agent must therefore be a REAL directory and the actual home. An alias
+# plus a home SYMLINK is not enough and was the bug: a mount target cannot resolve
+# through a symlink, so containerd materialises /home/agent as a fresh directory,
+# shadowing the link. The volumes then land somewhere the agent never reads while
+# $HOME points elsewhere — including `sessions`, which sbx's own kit calls
+# load-bearing for `claude -c`. Measured: stock image holds a session, the same
+# sbx invocation with this image died in 15s (tests/e2e/ladder_test.go).
+#
+# So the REAL home is /home/agent and the harness-specific name is the alias —
+# the reverse of what this used to do. /home/${USER_NAME} stays as a symlink
+# because image healthchecks and def tests read paths through it, and nothing
+# ever mounts there.
+RUN usermod -d /home/agent -m "${USER_NAME}" \
+ && if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
  && if ! getent passwd agent >/dev/null; then \
-      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d "/home/${USER_NAME}" -s /bin/bash agent; \
+      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d /home/agent -s /bin/bash agent; \
     fi \
- && { [ -e /home/agent ] || ln -s "/home/${USER_NAME}" /home/agent; }
+ && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
+ && chown -R "${USER_ID}:${USER_ID}" /home/agent
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
+    iptables \
     unzip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-RUN DOCKER_VERSION=26.1.4 \
+RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
          aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
@@ -54,8 +68,26 @@ RUN DOCKER_VERSION=26.1.4 \
        esac \
     && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
     && tar -xzf /tmp/docker.tgz -C /tmp \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
+    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
     && rm -rf /tmp/docker /tmp/docker.tgz
+
+# ── Docker-in-sandbox ───────────────────────────────────────────────────────
+#
+# sbx gives each sandbox its own private Docker daemon, and it decides whether to
+# start one from an IMAGE LABEL — `com.docker.sandboxes.start-docker`, which its
+# own templates carry. Without the label sbx records `dind: false` at container
+# creation and never starts a daemon, which is why every proveo sbx run reported
+# "Cannot connect to the Docker daemon" beside Compose files it could read.
+#
+# The daemon binaries were already being downloaded and discarded: the static
+# tarball carries dockerd, containerd, runc and friends alongside the client.
+RUN groupadd -f docker \
+ && usermod -aG docker "${USER_NAME}" \
+ && usermod -aG docker agent
+LABEL com.docker.sandboxes.start-docker="true"
+
+
 
 COPY --from=lsp-builder /go/bin/mcp-language-server /go/bin/gopls /usr/local/bin/
 
@@ -64,10 +96,16 @@ RUN HOME=/opt/cursor-dist bash -c "curl -fsS ${CURSOR_INSTALL_URL} | bash" \
     && ln -s /opt/cursor-dist/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
     && agent --version
 
+# /home/agent, not /home/${USER_NAME}: the latter is now a SYMLINK to it, and
+# `chown -R` given a symlink as its ARGUMENT chowns the link and stops — it does
+# not recurse into the target without -L. Left as-is, `.cursor` was created root
+# owned through the link, the seed's `mkdir .cursor/agents` hit Permission denied,
+# and the entrypoint's `set -e` killed the container before the agent ever ran.
+# sbx reported that as "failed to run sandbox container" with no cause.
 RUN mkdir -p /app \
-             /home/${USER_NAME}/.cursor \
+             /home/agent/.cursor \
              /opt/cursor/defaults \
-    && chown -R ${USER_NAME}:${USER_NAME} /app /home/${USER_NAME}
+    && chown -R ${USER_NAME}:${USER_NAME} /app /home/agent
 
 COPY defs/cursor/defaults/ /opt/cursor/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/

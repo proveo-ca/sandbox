@@ -19,7 +19,7 @@ fi
 
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
-ensure_python_env "$(pwd)"
+# Toolchain provisioning moved into proveo_seed (runs on both backends).
 
 : "${CECLI_HOME:=/app/.cecli}"
 export CECLI_HOME

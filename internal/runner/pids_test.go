@@ -207,8 +207,8 @@ func TestIsBrowserImage(t *testing.T) {
 	if IsBrowserImage("proveo/opencode:latest") {
 		t.Error("base image must not match")
 	}
-	if IsBrowserImage("proveo/claudecode-solo:latest") {
-		t.Error("solo is not browser")
+	if IsBrowserImage("proveo/claudecode-solidity:latest") {
+		t.Error("solidity is not browser")
 	}
 }
 

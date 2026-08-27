@@ -1,0 +1,72 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title House rules — proveo's conventions in every session, without touching a repository
+
+' covers: packages/lib/entrypoint-lib.sh, defs/claudecode/mcp/Dockerfile,
+'         defs/opencode/Dockerfile
+
+node "proveo image" as IMG <<host>> {
+  file "/opt/proveo/AGENTS\.md\nthis repo's conventions, baked in" as SRC <<db>>
+}
+
+node "Managed policy path (baked, root-owned)" as MANAGED <<host>> {
+  file "claudecode → ""/etc/claude-code/CLAUDE\.md""\nhighest tier · cannot be excluded" as POLICY <<app>>
+}
+node "Agent home (written by the seed)" as HOME <<host>> {
+  file "opencode → ""\.config/opencode/AGENTS\.md""" as USERFILE <<app>>
+}
+folder "Operator's repository" as REPO <<error>>
+
+component "**route** — ""_house_rules_target""\none row per supported harness" as ROUTE <<app>>
+component "**write** — ""_proveo_write_block""\nmarked region only" as WRITE <<app>>
+component "agent — merges user + project" as AGENT <<app>>
+
+SRC ARROW_MAIN POLICY : baked at BUILD time (uid 0)
+SRC ARROW_MAIN ROUTE
+ROUTE ARROW_MAIN WRITE : only where a user-level file EXISTS
+WRITE ARROW_MAIN USERFILE
+POLICY ARROW_MAIN AGENT : loaded FIRST, every session
+USERFILE ARROW_MAIN AGENT : loaded every session
+REPO ARROW_MAIN AGENT : project rules, ranked HIGHER
+ROUTE ARROW_ERROR REPO : never written to
+
+note bottom of REPO
+  **The workspace is not ours to seed.** Writing an AGENTS\.md there mutates the
+  operator's checkout, competes with one they already wrote, and cannot apply at
+  all when theirs exists. The USER layer has none of those problems: both
+  harnesses below MERGE it with the project's instead of choosing, and both rank
+  the project's higher — so a repo can always overrule the house.
+end note
+
+note right of ROUTE
+  **Every supported harness gets a row, including the empty ones**, so silence is
+  a decision a reader can check rather than an oversight.
+
+  ""claudecode"" NOT here — ""/etc/claude-code/CLAUDE\.md"", baked by the Dockerfile.
+              The MANAGED POLICY tier loads before the user and project files and
+              cannot be excluded by ""claudeMdExcludes"" at any settings layer,
+              which is what "always applies" actually requires. The home file
+              this table writes is the LOWEST tier, and a project CLAUDE\.md
+              outranks it — so it could not have guaranteed anything.
+  ""opencode""   ~/\.config/opencode/AGENTS\.md — the documented global file;
+              instructions render global first, then project on top.
+  ""cursor""     NONE. cursor-agent reads ""\.cursor/rules"" and a project-root
+              AGENTS\.md/CLAUDE\.md; its global "User Rules" live in the IDE
+              settings UI, not a file the CLI reads.
+  ""cecli""      NONE established. It seeds a PROJECT CONVENTIONS\.md from its own
+              defaults; guessing a user-level path writes a file nothing reads.
+end note
+
+note bottom of WRITE
+  The destination may already hold hand-written content, so the region proveo
+  owns is delimited by HTML comment markers and everything outside them is
+  copied through untouched. The block is REPLACED on every start rather than
+  appended, which is what keeps a long-lived proveo home from growing a new copy
+  per run. ""PROVEO_HOUSE_RULES=off"" skips the whole step.
+end note
+
+note top of SRC
+  Baked into the image rather than mounted: it must be present on BOTH backends,
+  and a file the sandbox cannot edit cannot be edited by the agent either.
+end note
+@enduml

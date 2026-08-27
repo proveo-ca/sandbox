@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/proveo-ca/proveo/internal/maintain"
@@ -167,7 +168,7 @@ func doList() error {
 
 func runCmd() *cobra.Command {
 	var egressMode, credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
-	var printOnly, shellMode, contSession, listSessions bool
+	var printOnly, shellMode, contSession, listSessions, cloneMode bool
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
 		Short: "Run a harness against the current repo",
@@ -214,7 +215,7 @@ func runCmd() *cobra.Command {
 				target: target, image: image, mode: egressMode, credentials: credentials,
 				modeSet: modeSet, credsSet: credsSet, localModel: localModel,
 				input: input, output: output, scope: scope, dataDir: dataDir,
-				shell: shellMode, printOnly: printOnly, extra: extra,
+				shell: shellMode, printOnly: printOnly, extra: extra, clone: cloneMode,
 			})
 		},
 	}
@@ -228,6 +229,9 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
 	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
+	cmd.Flags().BoolVar(&cloneMode, "clone", false,
+		"run the agent on a private in-container CLONE of the repo (sbx only): the workspace is never written, "+
+			"and changes come back with `git fetch sandbox-<name>`")
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
@@ -247,6 +251,7 @@ type runParams struct {
 	evidence                                                                    string
 	shell, printOnly                                                            bool
 	extra                                                                       []string
+	clone                                                                       bool
 }
 
 func (p runParams) forwards() bool { return p.credentials == "forward" }
@@ -295,7 +300,7 @@ func doRun(p runParams) error {
 	}
 	// Recorded after the manifest resolves, because which artifacts exist depends on
 	// which backend will run and that is a property of the harness.
-	rl.Artifacts(egDir, willSandbox(man))
+	rl.Artifacts(egDir, p.willSandbox(man))
 
 	if p.target == "cursor" && p.localModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
@@ -449,7 +454,16 @@ func doRun(p runParams) error {
 	}
 
 	var authMissingAtStart []manifest.EnvVar
-	loggedIn := hasPersistedLogin(p.target, proveohome.Root(os.Getenv))
+	loggedIn, loginNeedsRefresh := persistedLogin(p.target, proveohome.Root(os.Getenv))
+	// The agent renews a stale access token itself, but its FIRST turn reports
+	// "Login expired · Please run /login" while it does — which reads as a dead
+	// credential to the operator, who then goes looking for an auth problem that
+	// resolved itself a second later. Saying it up front costs one line.
+	if loginNeedsRefresh && !p.printOnly {
+		ui.Iconf("🔑", "the login in the proveo home needs a refresh — the agent may report "+
+			"\"Login expired\" on its first turn, and can only carry on if the renewal reaches the "+
+			"provider from where it runs")
+	}
 	// Say so when a token IS exported and is being left out. The 🔓 line below only
 	// fires when auth is missing, so the case that actually misbills — a token set,
 	// silently overriding the mounted login — was the one nothing reported.
@@ -535,10 +549,12 @@ func doRun(p runParams) error {
 		"auth var":        p.authVar,
 		"local model":     p.localModel,
 		"observability":   observability(p.mode, p.credentialsOrDefault()),
-		"enforced by":     enforcedBy(willSandbox(man)),
+		"enforced by":     enforcedBy(p.willSandbox(man)),
 		"image":           imagePosture(p.image),
 		"model roles":     rolesLine(p.bridges, p.target, p.roles),
 		"role providers":  strings.Join(p.roles.Providers(), ","),
+		"sbx mcp gateway": mcpGatewayPosture(p.willSandbox(man)),
+		"workspace":       workspacePosture(p.clone),
 	})
 
 	var brokerFile string
@@ -639,6 +655,33 @@ func doRun(p runParams) error {
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
 		}
 	}
+	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
+	// one entry, never two) — and it does not need one. sbx gives each sandbox its
+	// OWN daemon, gated on the image label `com.docker.sandboxes.start-docker`,
+	// which proveo's sbx-capable images now carry. Measured inside a sandbox on
+	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
+	// hello-world` succeeds. Nothing to warn about any more; the warning that used
+	// to live here told the operator docker would fail, which is now false.
+	// --clone is creation-time and sbx-only. Accepting it silently on the docker
+	// backend would hand back a run that edited the checkout after promising not
+	// to, which is the one failure mode this flag exists to prevent.
+	if p.clone && !sbxBackend {
+		return fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
+			"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
+			"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
+	}
+	// sbx clones with git, so without a repository there is nothing to clone and
+	// the failure surfaces inside the sandbox rather than here.
+	if p.clone && wsSpec.RepoRoot == "" {
+		return fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
+			"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
+			"  Run it from a checkout, or drop --clone to work on the mounted directory",
+			wsSpec.InputDir)
+	}
+	if sbxBackend && p.clone {
+		ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
+			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", sid)
+	}
 	if sbxBackend {
 		in := runSandboxInput{
 			params: p, man: man, sid: sid, egDir: egDir,
@@ -679,6 +722,25 @@ func doRun(p runParams) error {
 			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
 			return nil
 		}
+		// A STALE LOGIN FILE is not the same condition as MISSING ENV, and gating
+		// it behind authMissingAtStart hid it completely: an operator with
+		// CLAUDE_CODE_OAUTH_TOKEN exported has nothing "missing", so the check
+		// never ran and the run launched into a credential that could not renew.
+		//
+		// The renewal is precisely what this backend cannot do. Launching anyway
+		// spends a minute of image load to reach "Failed to authenticate: OAuth
+		// session expired and could not be refreshed", and the sandbox stops with
+		// the agent — which reads as an infrastructure failure from outside,
+		// because that is exactly what it looks like.
+		// NOTE: there is deliberately no stale-login refusal here any more.
+		//
+		// It was added when the mounted proveo home WAS this backend's credential, so
+		// a login that could not renew meant a run that could not authenticate. That
+		// stopped being true when the HOME redirect went (see sbxHome): sbx runs its
+		// own agent user and its credential proxy writes the live credential into
+		// that user's home, so the file under the proveo home is not consulted and
+		// its freshness decides nothing. Refusing on it would block runs that work —
+		// verified by tests/e2e/ladder_test.go, whose rung 3 carries this exact Kit.
 		if len(authMissingAtStart) > 0 {
 			// On this backend the agent cannot complete a login: it reaches the
 			// prompt, exits, and the sandbox stops with it — which surfaces 30s
@@ -688,10 +750,14 @@ func doRun(p runParams) error {
 			// refuse runs whose credentials are already in the proveo home.
 			if man.Subscription && !loggedIn {
 				printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
+				sh, _ := shell.Detect(os.Getenv("SHELL"))
 				return fmt.Errorf("%s needs a subscription login and the sbx backend cannot complete one:\n"+
 					"  the agent exits at its login prompt and the sandbox stops with it.\n"+
-					"  Run once on the host:  claude setup-token\n"+
-					"  Or use --egress-mode review, which runs on the docker backend where a login persists", man.Name)
+					"  Mint a token on the host and export it:\n"+
+					"      claude setup-token\n"+
+					"      %s\n"+
+					"  Or use --egress-mode review, which runs on the docker backend where a login persists",
+					man.Name, sh.ExportLine("CLAUDE_CODE_OAUTH_TOKEN", "<token>"))
 			}
 			printSubscriptionAuthHints(man, authMissingAtStart, os.Stderr)
 		}
@@ -1504,15 +1570,156 @@ func effectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string) st
 // proveo home. It is the half of the auth picture MissingEnv cannot see: the env
 // var is one way to be authenticated and the credential file is the other.
 func hasPersistedLogin(target, homeRoot string) bool {
+	ok, _ := persistedLogin(target, homeRoot)
+	return ok
+}
+
+// persistedLogin reports whether the credential can still authenticate, and
+// whether it must be refreshed first.
+//
+// Existence is NOT validity, and the difference is the whole point of the guard
+// this feeds. A dead credential is a file of exactly the same size as a live
+// one, so stat-ing it let an expired login satisfy the check that exists to stop
+// a run the agent cannot complete — it reaches the login prompt, exits, and the
+// sandbox stops with it, which surfaces as an infrastructure failure rather than
+// as "your login ran out".
+func persistedLogin(target, homeRoot string) (ok, needsRefresh bool) {
 	if homeRoot == "" {
-		return false
+		return false, false
 	}
 	for _, rel := range subscriptionLoginFiles[target] {
-		if fi, err := os.Stat(filepath.Join(homeRoot, rel)); err == nil && fi.Size() > 0 {
-			return true
+		if usable, refresh := loginUsable(filepath.Join(homeRoot, rel), time.Now()); usable {
+			return true, refresh
 		}
 	}
-	return false
+	return false, false
+}
+
+// oauthCredential is the shape claudecode persists. Only the two stamps matter
+// here; the tokens themselves are the agent's business and are never read.
+type oauthCredential struct {
+	ClaudeAIOauth struct {
+		// Pointers because ABSENT and ZERO mean opposite things here: a missing
+		// field is a shape we do not understand (assume usable), while an explicit
+		// 0 is a stamp that has been cleared — a token deliberately invalidated,
+		// which is exactly the state a failed refresh leaves behind.
+		ExpiresAt             *int64 `json:"expiresAt"`             // ms since epoch
+		RefreshTokenExpiresAt *int64 `json:"refreshTokenExpiresAt"` // ms since epoch
+	} `json:"claudeAiOauth"`
+}
+
+// loginUsable classifies one credential file.
+//
+// An UNRECOGNISED file is reported usable on purpose. This check exists to catch
+// a credential that is definitely dead; inferring "expired" from a shape we
+// cannot parse would refuse runs that work, and a false refusal is worse than
+// the failure it was meant to prevent — the operator has no way to argue with it.
+func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return false, false
+	}
+	var c oauthCredential
+	if json.Unmarshal(b, &c) != nil || c.ClaudeAIOauth.ExpiresAt == nil {
+		return true, false // presence is all this file lets us honestly assert
+	}
+	if now.Before(time.UnixMilli(*c.ClaudeAIOauth.ExpiresAt)) {
+		return true, false
+	}
+	// A stale access token beside a LIVE refresh token is still a login: the
+	// agent renews it at startup with no prompt, which is exactly what happened
+	// on the run that reported "Login expired" and then carried on working. A
+	// CLEARED stamp (0) lands here too, which is correct — it needs the same
+	// refresh, and saying so is what tells the operator why the agent stalled.
+	if r := c.ClaudeAIOauth.RefreshTokenExpiresAt; r != nil && now.Before(time.UnixMilli(*r)) {
+		return true, true
+	}
+	return false, false
+}
+
+// stdinFilterEnabled reports whether the terminal-report filter is on.
+// PROVEO_STDIN_FILTER=off restores byte-for-byte passthrough, for an operator
+// whose terminal is well-behaved and who wants nothing between it and the agent.
+func stdinFilterEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_STDIN_FILTER"))) {
+	case "off", "0", "no", "false", "disable", "disabled":
+		return false
+	}
+	return true
+}
+
+// stdinTracer opens the file named by PROVEO_TRACE_STDIN and returns a tap for
+// ptyproxy plus its closer. Returns (nil, no-op) when the variable is unset, so
+// the default path is byte-for-byte the untraced one.
+//
+// Each read is one line: when it arrived, how many bytes, whether the filter
+// forwarded it, the printable rendering, and the hex. Control bytes are what
+// matter here — a terminal answering a device-attributes query looks like text
+// in a transcript and like an escape sequence in the hex, and only the second
+// tells the truth.
+func stdinTracer(path string) (func([]byte, bool), func()) {
+	if strings.TrimSpace(path) == "" {
+		return nil, func() {}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		ui.Warnf("stdin trace: cannot open %s (%v); continuing untraced", path, err)
+		return nil, func() {}
+	}
+	ui.Iconf("🔎", "stdin trace → %s (every byte the agent is sent)", path)
+	fmt.Fprintf(f, "=== trace opened %s ===\n", time.Now().Format(time.RFC3339Nano))
+	var mu sync.Mutex
+	tap := func(b []byte, forwarded bool) {
+		// Copy before returning: the pump reuses its buffer on the next read.
+		c := append([]byte(nil), b...)
+		mu.Lock()
+		defer mu.Unlock()
+		verdict := "sent"
+		if !forwarded {
+			verdict = "DROPPED"
+		}
+		fmt.Fprintf(f, "%s  n=%-4d %-7s %-40q %s\n",
+			time.Now().Format("15:04:05.000"), len(c), verdict, renderControl(c), hexBytes(c))
+	}
+	return tap, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(f, "=== trace closed %s ===\n", time.Now().Format(time.RFC3339Nano))
+		_ = f.Close()
+	}
+}
+
+// renderControl makes escape sequences legible without hiding them: ESC becomes
+// a caret form rather than vanishing into %q's \x1b, which is what makes a
+// terminal's reply recognisable at a glance.
+func renderControl(b []byte) string {
+	var sb strings.Builder
+	for _, c := range b {
+		switch {
+		case c == 0x1b:
+			sb.WriteString("<ESC>")
+		case c == '\r':
+			sb.WriteString("<CR>")
+		case c == '\n':
+			sb.WriteString("<LF>")
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&sb, "<%02X>", c)
+		default:
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
+}
+
+func hexBytes(b []byte) string {
+	var sb strings.Builder
+	for i, c := range b {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%02x", c)
+	}
+	return sb.String()
 }
 
 // imagePosture records WHICH image a run took, because "proveo/claudecode:latest"
@@ -1565,7 +1772,15 @@ func authSuppressor(man manifest.Manifest, target, chosen, homeRoot string) func
 	// The login is the credential — either named outright, or the only answer when
 	// the operator gave none and one exists. Then NO variable for its providers may
 	// be injected: an env token supersedes the file rather than joining it.
-	if chosen == authVarLogin || (chosen == "" && hasPersistedLogin(target, homeRoot)) {
+	// A login only outranks an env token while it can still AUTHENTICATE. A file
+	// that needs a renewal this backend cannot perform is not the credential — it
+	// is a dead one, and suppressing a working token in its favour leaves the run
+	// with no credential at all. That is not hypothetical: on macOS the host's
+	// login lives in the KEYCHAIN, so the file under the proveo home is written
+	// only by the container and can go stale with no host-side way to refresh it.
+	usableLogin, staleLogin := persistedLogin(target, homeRoot)
+	usableLogin = usableLogin && !staleLogin
+	if chosen == authVarLogin || (chosen == "" && usableLogin) {
 		// Scoped to the providers the login actually authenticates — read off the
 		// harness's own declared secrets. Scoping it to the manifest's capabilities
 		// instead reached too far: a manifest that declares none allows every
@@ -2044,8 +2259,20 @@ func sbxReady(printOnly bool) (bool, string) {
 // land at its own host path instead, nowhere the harness looks. It is dropped
 // rather than mounted somewhere useless — the same conclusion
 // PROVEO_MOUNT_GH_CONFIG=0 reaches deliberately.
+// sbxStateHome reports the host path the run publishes for resume state, or ""
+// when this run has no proveo home to persist into.
+func sbxStateHome(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, sbx.StateHomeVar+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 	var out []sbx.Mount
+	seen := map[string]bool{}
 	for _, m := range mounts {
 		if strings.HasPrefix(m.Container, proveohome.ContainerHome+"/") {
 			continue // nested under home; its nesting cannot be reproduced
@@ -2059,6 +2286,29 @@ func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 		if fi, err := os.Stat(m.Host); err != nil || !fi.IsDir() {
 			continue
 		}
+		// A linked worktree contributes only <repo>/.git, and sbx MIRRORS host
+		// paths rather than remapping them — so the <repo> parent has to be
+		// synthesized inside the VM, where the runtime creates it root-owned. It
+		// then looks exactly like the operator's repo root and is not one: it is an
+		// empty stub nobody can write to. Tools that resolve the main repository
+		// directory (nx keeps its shared task DB there) die on a permission error
+		// naming a path the operator knows is theirs, which sends the diagnosis
+		// looking for a phantom root-promotion.
+		//
+		// Mounting the PARENT makes it a real bind, uid-mapped like every other
+		// workspace and writable from the host and the agent alike. Measured on the
+		// same worktree: root:root and writes DENIED before, claude:claude and
+		// writes OK after, with `git rev-parse` still resolving the worktree.
+		//
+		// Docker keeps the narrow mount: it remaps container paths freely, so no
+		// parent is ever synthesized and nothing is shadowed.
+		if m.Container == workspace.ContainerGitCommonDir && filepath.Base(m.Host) == ".git" {
+			m.Host = filepath.Dir(m.Host)
+		}
+		if seen[m.Host] {
+			continue // the repo root may already be a workspace in its own right
+		}
+		seen[m.Host] = true
 		out = append(out, m)
 	}
 	return out
@@ -2085,11 +2335,34 @@ func sbxHome(env []string, mounts []sbx.Mount) []string {
 		}
 		out = append(out, e)
 	}
-	// PROVEO_HOME carries the same path under a name nothing else rewrites. sbx runs
-	// setup.startup commands under `user: "1000"`, and that resets HOME from
-	// /etc/passwd — so a seed step reading $HOME composed subagents into /home/claude
-	// while the agent ran with this value, putting the files where nothing reads them.
-	return append(out, "HOME="+host, "PROVEO_HOME="+host)
+	// NEITHER is set on this backend, and the deletion is the fix.
+	//
+	// Redirecting HOME to the mounted host path was written for the docker backend,
+	// where proveo runs the agent as the HOST's uid and the image's passwd entry is
+	// therefore wrong. sbx does not do that: it runs its own agent user, uid 1000,
+	// and its built-in kit both mounts the session volumes under that user's home
+	// and has its credential proxy write `.credentials.json` there. Pointing HOME
+	// somewhere else did not move those — it ORPHANED them, so the agent read a
+	// stale mounted credential instead of the live proxy-managed one and reported
+	// "Not logged in" (tests/e2e/ladder_test.go, rung 3).
+	//
+	// PROVEO_HOME existed only to survive that redirect: sbx resets HOME from
+	// /etc/passwd for setup.startup, so a seed reading $HOME wrote to a different
+	// place than the agent read. With no redirect there is no divergence — the seed
+	// and the agent both resolve the image's home, which the Dockerfiles now pin to
+	// /home/agent to match sbx's kit.
+	//
+	// The proveo home stays MOUNTED (it is a workspace bind), so nothing that reads
+	// it by path is lost; only the env redirect goes.
+	//
+	// What the redirect DID buy is resume: with HOME on the mounted host dir, the
+	// agent's transcripts survived the run. Without it they land in the volumes sbx
+	// mounts under the image's home, and teardown removes "VM + images + volumes",
+	// so `--resume` had nothing to offer on the next run. PROVEO_STATE_HOME hands
+	// the seed and the teardown the host path to copy those directories to and
+	// from, which restores persistence WITHOUT moving HOME away from the credential
+	// the sbx proxy writes there.
+	return append(out, sbx.StateHomeVar+"="+host)
 }
 
 // firstHost is the host path of the first bind, which is where sbx puts the cwd.
@@ -2276,6 +2549,12 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// sbx would otherwise size the sandbox from HOST memory, which on any VM-backed
 		// daemon can exceed the VM itself — see sbx.MemoryLimit.
 		Memory: in.memory,
+		// Clone mode is why a bind-mounted node_modules stops ping-ponging: the
+		// clone carries only TRACKED files, so a host-built (macOS) tree never
+		// arrives, the seed installs Linux deps into the clone, and the operator's
+		// checkout is never written. Measured: origin points at
+		// /run/sandbox/source and node_modules is absent from the workspace.
+		Clone: p.clone,
 		// A kind: sandbox Kit DEFINES an agent, and sbx requires the positional to
 		// match its name — "agent name X does not match agent kit name Y". So the
 		// two are one value, and there is no separate agent to declare: an earlier
@@ -2293,7 +2572,12 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// The bridge is applied HERE, not in the container: its output goes into the
 		// Kit's environment block, where it reaches the agent. Left to a setup hook
 		// it would be computed in a process the agent never inherits.
-		Env:     sbxHome(append(append(env, resolvedModelEnv(in)...), "PROVEO_WORKDIR="+firstHost(workspaceBinds(mounts))), mounts),
+		// The decline is declared twice on purpose. The Kit's environment block is
+		// the posture proveo publishes; the -e flag is what sandboxd applies when
+		// it CREATES the sandbox, which is the moment its own injection happens.
+		// Either alone may lose that race; neither is harmful when the other wins.
+		Env: declineMCPGateway(sbxHome(append(append(env, resolvedModelEnv(in)...),
+			"PROVEO_WORKDIR="+firstHost(workspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
 	// The Kit is a MIXIN composed onto sbx's own agent: it declares no agent, no
@@ -2307,10 +2591,89 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		DisplayName:   "proveo posture (" + p.target + ")",
 		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
-		Environment:   &sbx.KitEnv{Variables: kitEnvVars(cfg.Env)},
+		Environment:   &sbx.KitEnv{Variables: withMCPGatewayPolicy(kitEnvVars(cfg.Env))},
 		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(p.target)}},
 	}
 	return cfg, kit, secrets
+}
+
+// workspacePosture says whether the agent edits the operator's checkout or a
+// private clone of it. It is a posture row because it changes WHERE the work
+// lands, which is the one thing an operator must not have to guess.
+func workspacePosture(clone bool) string {
+	if clone {
+		return "in-container clone (--clone) — the checkout is never written; changes come back with `git fetch`"
+	}
+	return "mounted checkout — the agent edits it directly"
+}
+
+// mcpGatewayPosture reports what the run does about sbx's MCP gateway.
+//
+// It earns a posture row because it is a CAPABILITY the agent gets, decided
+// outside the Kit: sbx registers the gateway from its own agent kit, into a HOME
+// proveo mounts read-write. A posture that lists reachable hosts and credentials
+// but not an MCP server the agent is told to call is not describing the run.
+func mcpGatewayPosture(sandbox bool) string {
+	switch {
+	case !sandbox:
+		return "n/a (docker backend)"
+	case sbxMCPGatewayAllowed():
+		return "allowed (PROVEO_SBX_MCP=on) — sbx registers it into the proveo home, --scope user"
+	}
+	return "declined (" + MCPGatewayVar + " empty; PROVEO_SBX_MCP=on to allow)"
+}
+
+// MCPGatewayVar is the variable sbx's built-in agent kits gate their MCP
+// registration on. Their step is `[ -n "$MCP_GATEWAY_URL" ] || exit 0`, so
+// declaring it EMPTY is the supported way to decline — no patching, no race with
+// a step that runs inside the sandbox.
+const MCPGatewayVar = "MCP_GATEWAY_URL"
+
+// withMCPGatewayPolicy declines sbx's MCP gateway unless the operator asks for it.
+//
+// The registration is `claude mcp add mcp-gateway <url> --scope user`, run inside
+// the sandbox by sbx's own kit. USER scope is the problem: proveo points HOME at
+// the proveo home and mounts it read-write, so an entry meant to live and die with
+// a disposable sandbox lands in the operator's real home and outlives every run
+// that wrote it. Nothing in `proveo run --print` ever named it, which makes it a
+// third source of agent capability beside the Kit and the credential store.
+//
+// Declining costs nothing today: `sbx mcp ls` registers no servers, so the
+// gateway aggregates an empty set. PROVEO_SBX_MCP=on restores it for an operator
+// who has registered servers of their own and wants the agent to reach them.
+func withMCPGatewayPolicy(vars map[string]string) map[string]string {
+	if sbxMCPGatewayAllowed() {
+		return vars
+	}
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	// Written explicitly rather than through kitEnvVars, which drops empty values:
+	// here the empty string IS the instruction.
+	vars[MCPGatewayVar] = ""
+	return vars
+}
+
+// declineMCPGateway adds the empty MCP_GATEWAY_URL to the -e set. kitEnvVars
+// drops empty values, so this pair never duplicates the Kit's own declaration.
+func declineMCPGateway(env []string) []string {
+	if sbxMCPGatewayAllowed() {
+		return env
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, MCPGatewayVar+"=") {
+			return env
+		}
+	}
+	return append(env, MCPGatewayVar+"=")
+}
+
+func sbxMCPGatewayAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_SBX_MCP"))) {
+	case "on", "1", "yes", "true", "enable", "enabled":
+		return true
+	}
+	return false
 }
 
 // resolvedModelEnv is the model bridge, applied host-side, as KEY=VALUE pairs.
@@ -2469,8 +2832,33 @@ func runSandbox(in runSandboxInput) error {
 	// read the window size, and draws its TUI one character per line. Interactive
 	// runs keep the terminal and forgo the tail — the operator is watching anyway.
 	stdout, stderr, tail := agentStdio(os.Stdout, os.Stderr, isWriterTTY(os.Stdout))
+	// PROVEO_TRACE_STDIN answers the one question a transcript cannot: an agent
+	// that exits on its own, having answered prompts the operator never typed,
+	// is being driven by SOMETHING on stdin — a multiplexer replying to a
+	// terminal query, a wrapper feeding a script, a stray paste. The transcript
+	// records what the agent RECEIVED; only a tap records what arrived.
+	traceIn, stopTrace := stdinTracer(os.Getenv("PROVEO_TRACE_STDIN"))
+	defer stopTrace()
+	// An interactive run goes through the pty proxy so the operator's terminal is
+	// FILTERED before it reaches the agent. sbx drives the agent through its
+	// agent-session API, where the far end reads input as a prompt stream rather
+	// than as terminal input — so a report with no query to belong to (a
+	// multiplexer answering Device Attributes twice, an unsolicited focus event)
+	// is not ignored there, it is enqueued and answered as a user message nobody
+	// typed. See ptyproxy.inputFilter.
+	//
+	// The proxy gives the child its own pty, so this costs the agent nothing:
+	// wrapping os.Stdin instead would make os/exec substitute a pipe and take the
+	// terminal away entirely.
+	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && stdinFilterEnabled()
 	run := func() error {
 		c := exec.Command(sbx.Binary, args...)
+		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
+			px := ptyproxy.New(os.Stdin, os.Stdout)
+			px.DisableFilter = !filtered
+			px.Tap = traceIn
+			return px.Run(c)
+		}
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
 		return c.Run()
 	}
@@ -2506,6 +2894,15 @@ func runSandbox(in runSandboxInput) error {
 				cfg.Name, cfg.Name, cfg.Name)
 			return
 		}
+		// Resume state lives in per-sandbox volumes that the next line destroys, so
+		// it has to come out FIRST. Best-effort by design: a sandbox that never
+		// started has nothing to copy, and losing yesterday's transcripts is not a
+		// reason to leave a VM running.
+		if host := sbxStateHome(cfg.Env); host != "" {
+			if out, err := exec.Command(sbx.Binary, sbx.SaveStateArgs(cfg.Name)...).CombinedOutput(); err != nil {
+				ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(string(out)))
+			}
+		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		// A run that never got as far as creating the sandbox has nothing to tear
 		// down, and reporting that as a teardown failure sends the operator after
@@ -2539,6 +2936,15 @@ func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 }
 
 // observability describes what evidence a posture can produce.
+// willSandbox adds the ADD-ON to the free function's host-capability test.
+// Unticking "docker (sandbox)" and PROVEO_SBX=off reach the same backend, but only
+// the env var was visible to willSandbox — so an unticked run reported "enforced by
+// sbx" while actually running on docker+egress, naming a boundary holder that was
+// not there.
+func (p *runParams) willSandbox(man manifest.Manifest) bool {
+	return willSandbox(man) && p.sandboxAddonOn()
+}
+
 // willSandbox reports whether this run will take the sbx backend, using the same
 // conditions as the branch that selects it. It is consulted before that branch so the
 // transcript and the prompt describe the backend that will actually run.
