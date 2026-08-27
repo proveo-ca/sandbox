@@ -282,4 +282,48 @@ note right of SEC
   parity break that kept the harness second-class here.
 end note
 
+note bottom of SBX
+  **A failure with no evidence is itself a diagnosis.**
+
+  The failure handler offers three records of what went wrong, and the first two
+  can be legitimately empty at once. An interactive run hands the terminal to the
+  child — wrapping stdout would cost the agent its tty — so no tail is taken;
+  an agent that dies before its first turn opens no session, so there is no
+  transcript to name. What reached the operator was a stopped sandbox and a
+  ""kept for diagnosis"" line, which reads as an infrastructure fault and sends
+  them into ""sbx exec"" after a cause that was never inside the VM.
+
+  //One of those two emptinesses was a defect rather than a fact.// The transcript
+  is written into sandbox-LOCAL volumes, and the copy-out
+  (""proveo_sync_state save"") ran on the SUCCESS path only — so
+  ""agentTranscript"" searched a host home the failed session had never written
+  to, and could never name a transcript however much the agent had said.
+  ""saveSandboxState"" now runs on BOTH exits, before the lookup. On a failed run
+  it starts a stopped sandbox and so re-runs the seed's ""restore""; that is safe
+  for the evidence, because restore is ""cp -a"" with no deletes and the run's own
+  transcript keeps an mtime that postdates ""startedAt"".
+
+  **The third record is the run's own log, and the failure line names it.**
+  ""PROVEO_HOME/logs"" holds every line the run printed — the resolved posture,
+  the credential warnings — and by the time an agent dies those have scrolled off
+  a terminal nobody redirected. The macOS run whose login file had blanked tokens
+  announced exactly that in its twelfth line, and was diagnosed from scrollback
+  that no longer existed. See ""_spec/internal/runlog/run-transcript\.puml"".
+
+  So the empty case is answered rather than left blank. When neither channel
+  said anything, proveo asks whether **any** credential reached the agent —
+  read off the run's own decision (the rendered env, plus what was written to
+  the store, plus a usable login on disk) rather than re-derived, because two
+  answers that can disagree will. If none did, it names the variable, the
+  command that mints one, and the store step.
+
+  **The trap it exists to name:** ""sbx secret ls"" prints the NAME, so an entry
+  holding an EMPTY value looks exactly like a populated one, and proveo cannot
+  read the value back to tell them apart. An operator who "already set that"
+  had, and it was blank.
+
+  Silent whenever a credential DID arrive — a hint that fires on every failure
+  trains the operator to skip the one time it was right.
+end note
+
 @enduml

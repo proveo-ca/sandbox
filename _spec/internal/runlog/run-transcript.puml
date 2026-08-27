@@ -79,6 +79,17 @@ note bottom of TEE
   plans, lists, generated config.
 end note
 
+note bottom of LOG
+  **A failed run names this file back.** The path travels into ""runSandbox"" on
+  ""runSandboxInput.runLog"" and is printed beside the ""kept for diagnosis"" line,
+  because the lines worth reading are the ones already gone: the resolved posture
+  and the credential warnings print in the first seconds, and an agent can die a
+  minute later. An operator who did not redirect stdout then has no route back to
+  them. Naming the transcript at startup ONLY is naming it to someone who has no
+  reason yet to look — see ""_spec/internal/sbx/sandbox-backend\.puml"" for the
+  three records that failure line now offers.
+end note
+
 note bottom of FIELDS
   Fields are written sorted so two runs of the same command produce
   transcripts that diff to only what actually differed — the property that

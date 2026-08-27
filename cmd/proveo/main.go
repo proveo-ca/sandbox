@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/proveo-ca/proveo/internal/maintain"
 	"io"
 	"io/fs"
 	"os"
@@ -23,6 +22,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/maintain"
 
 	"github.com/gdamore/tcell/v2"
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
@@ -696,6 +697,7 @@ func doRun(p runParams) error {
 			dataDir:          p.dataDir,
 			memory:           sbx.MemoryLimit(),
 			homeRoot:         homePlan.Root,
+			runLog:           rl.Path(),
 		}
 		if p.printOnly {
 			cfg, kit, secrets := sandboxSpec(in)
@@ -1595,8 +1597,9 @@ func persistedLogin(target, homeRoot string) (ok, needsRefresh bool) {
 	return false, false
 }
 
-// oauthCredential is the shape claudecode persists. Only the two stamps matter
-// here; the tokens themselves are the agent's business and are never read.
+// oauthCredential is the shape claudecode persists. The stamps say whether the
+// credential is live; the tokens are read only for EMPTINESS, never for value —
+// a stamp cannot tell you the token beside it was taken away.
 type oauthCredential struct {
 	ClaudeAIOauth struct {
 		// Pointers because ABSENT and ZERO mean opposite things here: a missing
@@ -1605,8 +1608,18 @@ type oauthCredential struct {
 		// which is exactly the state a failed refresh leaves behind.
 		ExpiresAt             *int64 `json:"expiresAt"`             // ms since epoch
 		RefreshTokenExpiresAt *int64 `json:"refreshTokenExpiresAt"` // ms since epoch
+		// Pointers for the same reason, and it is load-bearing: logging in on
+		// macOS moves the credential to the KEYCHAIN and rewrites this file with
+		// its tokens blanked, leaving every stamp in place. An absent field is a
+		// shape we do not judge; an explicit "" is a token that was removed.
+		AccessToken  *string `json:"accessToken"`
+		RefreshToken *string `json:"refreshToken"`
 	} `json:"claudeAiOauth"`
 }
+
+// tokenCleared reports whether a token field is present and blank — removed,
+// rather than belonging to a shape this check does not recognise.
+func tokenCleared(tok *string) bool { return tok != nil && *tok == "" }
 
 // loginUsable classifies one credential file.
 //
@@ -1620,10 +1633,23 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 		return false, false
 	}
 	var c oauthCredential
-	if json.Unmarshal(b, &c) != nil || c.ClaudeAIOauth.ExpiresAt == nil {
+	if json.Unmarshal(b, &c) != nil {
 		return true, false // presence is all this file lets us honestly assert
 	}
-	if now.Before(time.UnixMilli(*c.ClaudeAIOauth.ExpiresAt)) {
+	o := &c.ClaudeAIOauth
+	// A file with its tokens BLANKED is not a login, however live the stamps look.
+	// This is the ordinary state of the proveo home on macOS: `claude` there writes
+	// the credential to the Keychain and leaves the file with "" tokens and every
+	// stamp intact. Reading the stamps alone reported that as a login needing a
+	// refresh, so the run announced itself authenticated, suppressed the env token
+	// that would have worked, and the agent died with nothing to send.
+	if tokenCleared(o.AccessToken) {
+		return false, false
+	}
+	if o.ExpiresAt == nil {
+		return true, false
+	}
+	if now.Before(time.UnixMilli(*o.ExpiresAt)) {
 		return true, false
 	}
 	// A stale access token beside a LIVE refresh token is still a login: the
@@ -1631,7 +1657,10 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	// on the run that reported "Login expired" and then carried on working. A
 	// CLEARED stamp (0) lands here too, which is correct — it needs the same
 	// refresh, and saying so is what tells the operator why the agent stalled.
-	if r := c.ClaudeAIOauth.RefreshTokenExpiresAt; r != nil && now.Before(time.UnixMilli(*r)) {
+	//
+	// A blanked refresh token is the exception: there is nothing to renew WITH, so
+	// the stamp describes a renewal that cannot happen.
+	if r := o.RefreshTokenExpiresAt; r != nil && !tokenCleared(o.RefreshToken) && now.Before(time.UnixMilli(*r)) {
 		return true, true
 	}
 	return false, false
@@ -2270,6 +2299,52 @@ func sbxStateHome(env []string) string {
 	return ""
 }
 
+// sbxRun executes one sbx invocation and returns its combined output. Injectable
+// so the copy-out below is testable without a daemon.
+func sbxRun(args ...string) (string, error) {
+	out, err := exec.Command(sbx.Binary, args...).CombinedOutput()
+	return string(out), err
+}
+
+// saveSandboxState copies the sandbox-local resume state — transcripts included —
+// into the mounted proveo home.
+//
+// Both exits need it, for different reasons. On the way out of a SUCCESSFUL run it
+// has to happen before teardown, because `sbx rm` takes the volumes with it. On a
+// FAILED run it is the only way the transcript reaches the host at all: the copy-out
+// used to live on the success path alone, so `agentTranscript` searched a home the
+// failed session had never written to and reported "no evidence" every time.
+//
+// No-op rather than an error when there is nothing to do: a docker run keeps its
+// home on the host and needs no copy, and a run that died before sbx created
+// anything has no volumes to read.
+func saveSandboxState(name string, env []string, exists bool, run func(...string) (string, error)) (string, error) {
+	if name == "" || !exists || sbxStateHome(env) == "" {
+		return "", nil
+	}
+	return run(sbx.SaveStateArgs(name)...)
+}
+
+// keptSandboxLines is what proveo says about a failed run after the evidence
+// channels have had their turn: how to look inside the sandbox, how to clean it up,
+// and where the run's own transcript is.
+//
+// The run log is named HERE and not only at startup. It holds every line the run
+// printed — the resolved posture, the credential warnings — and by the time an agent
+// dies those have scrolled off a terminal nobody redirected. The macOS run whose
+// login file had blanked tokens said so in its twelfth line and was diagnosed from
+// scrollback that no longer existed.
+func keptSandboxLines(name, runLog string) []string {
+	lines := []string{fmt.Sprintf(
+		"sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
+		name, name, name)}
+	if strings.TrimSpace(runLog) != "" {
+		lines = append(lines,
+			fmt.Sprintf("every line this run printed, posture and warnings included: %s", runLog))
+	}
+	return lines
+}
+
 func workspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 	var out []sbx.Mount
 	seen := map[string]bool{}
@@ -2395,6 +2470,11 @@ type runSandboxInput struct {
 	// living there decides which credential the run authenticates with, and
 	// sandboxSpec must not reach for the real filesystem to find that out.
 	homeRoot string
+	// runLog is where every line this run printed was tee'd. Carried in so the
+	// failure path can name it: by the time an agent dies the posture and the
+	// credential warnings have scrolled off, and the operator has no way back to
+	// them from a terminal they did not redirect.
+	runLog string
 }
 
 // sandboxSpec resolves the sbx invocation: RunConfig, Kit, and host-side secrets.
@@ -2441,21 +2521,27 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		forwarded = append(forwarded, name)
 	}
 	suppressedAuth := authSuppressor(in.man, p.target, p.authVar, in.homeRoot)
-	var neutralize []string // suppressed credentials, stated as empty rather than omitted
-	note := func(name string) {
-		for _, n := range neutralize {
-			if n == name {
-				return
-			}
-		}
-		neutralize = append(neutralize, name)
-	}
+	// A suppressed credential is OMITTED, not stated as empty — the same as the
+	// docker path does.
+	//
+	// This used to render `-e VAR=` on the theory that sbx's global secret store
+	// would otherwise inject a stale value in front of the mounted login. Probed
+	// against sbx v0.39.0 with both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN
+	// sitting in the global store and no -e flag: both arrive UNSET. sbx does not
+	// export service secrets as environment variables — its proxy attaches them as
+	// headers, and it materialises the harness credential as ~/.claude/.credentials.json
+	// instead. So there was nothing in front of the login to override.
+	//
+	// The empty value was not merely useless, it was the failure. An agent reads a
+	// SET variable as a chosen credential regardless of its value: claudecode ranks
+	// ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN above the login it would find on
+	// disk, so a blank one occupied the slot the login needed and asked an unattended
+	// run to approve a key that could authenticate nothing.
 	for _, e := range in.man.Env {
 		if !e.Secret {
 			continue
 		}
 		if suppressedAuth(e.Name) {
-			note(e.Name)
 			continue
 		}
 		if forwards {
@@ -2479,7 +2565,6 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// silently billed per token and the auth row the operator answered was
 		// decided for them somewhere they could not see.
 		if suppressedAuth(k) {
-			note(k)
 			continue
 		}
 		if forwards {
@@ -2490,14 +2575,6 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 
 	var env []string
-	// Neutralize, do not merely omit. sbx's secret store is GLOBAL and injects on its
-	// own authority, so leaving a suppressed variable unset leaves whatever an earlier
-	// run stored sitting in front of the mounted login. An explicit empty value is the
-	// only per-run override sbx offers (`sbx run -e VAR=`), so the decision proveo
-	// made host-side is stated in the argv instead of being silently overridden.
-	for _, k := range neutralize {
-		env = append(env, k+"=")
-	}
 	env = append(env, forwarded...)
 	for _, e := range in.man.Env {
 		if e.Secret {
@@ -2880,28 +2957,54 @@ func runSandbox(in runSandboxInput) error {
 		// force-removing it here destroyed the evidence for two consecutive 137s before
 		// anyone could read it. Keep it, and say how to look and how to clean up.
 		if runErr != nil {
+			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
+				said = true
 				fmt.Fprintf(os.Stderr, "\n── last output from the agent ──\n")
 				for _, l := range lines {
 					fmt.Fprintf(os.Stderr, "  %s\n", l)
 				}
 				fmt.Fprintf(os.Stderr, "───────────────────────────────\n")
 			}
+			// The transcript is written into sandbox-LOCAL volumes and only the
+			// SUCCESS path below copied it out, so the one channel that explains a
+			// failed sbx run was structurally always empty — agentTranscript read a
+			// host home the session had never reached. Copy it out first.
+			//
+			// This starts a stopped sandbox, which re-runs the seed and so re-runs
+			// `proveo_sync_state restore`. That is safe for the evidence: restore is
+			// `cp -a` with no deletes, so the transcript written during the run is
+			// still there to be saved, and its mtime still postdates startedAt.
+			_, _ = saveSandboxState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), sbxRun)
 			if t := agentTranscript(in.params.target, in.homeRoot, startedAt); t != "" {
+				said = true
 				ui.Iconf("📄", "what the agent actually said is in %s", t)
 			}
-			ui.Warnf("sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
-				cfg.Name, cfg.Name, cfg.Name)
+			// Both evidence channels came up empty, which is its own diagnosis: the
+			// agent died before its first turn. Naming the credential here is what
+			// stops the operator spending the next hour inside `sbx exec` looking
+			// for a cause that is on the host.
+			if !said {
+				if hint := noCredentialHint(in.man, in.params.target, in.homeRoot, cfg.Env, secrets, in.lookup); len(hint) > 0 {
+					ui.Iconf("🔑", "%s", hint[0])
+					for _, l := range hint[1:] {
+						fmt.Fprintf(os.Stderr, "%s\n", l)
+					}
+				}
+			}
+			kept := keptSandboxLines(cfg.Name, in.runLog)
+			ui.Warnf("%s", kept[0])
+			for _, l := range kept[1:] {
+				ui.Iconf("📝", "%s", l)
+			}
 			return
 		}
 		// Resume state lives in per-sandbox volumes that the next line destroys, so
 		// it has to come out FIRST. Best-effort by design: a sandbox that never
 		// started has nothing to copy, and losing yesterday's transcripts is not a
 		// reason to leave a VM running.
-		if host := sbxStateHome(cfg.Env); host != "" {
-			if out, err := exec.Command(sbx.Binary, sbx.SaveStateArgs(cfg.Name)...).CombinedOutput(); err != nil {
-				ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(string(out)))
-			}
+		if out, err := saveSandboxState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), sbxRun); err != nil {
+			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		// A run that never got as far as creating the sandbox has nothing to tear

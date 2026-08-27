@@ -413,6 +413,66 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 	}
 }
 
+// proveo OMITS a suppressed credential rather than stating it as "-e VAR=", and
+// that choice rests entirely on a claim about sbx: that a secret sitting in its
+// GLOBAL store does not reach the container as an environment variable. This test
+// is that claim, held against the real CLI.
+//
+// It matters because the empty value is not inert. An agent reads a SET variable as
+// a chosen credential whatever it holds, and claudecode ranks ANTHROPIC_API_KEY and
+// CLAUDE_CODE_OAUTH_TOKEN above the login on disk — so if proveo ever goes back to
+// stating them empty, a blank one takes the slot the mounted login needed and an
+// unattended run stalls asking a human to approve a key that authenticates nothing.
+// If sbx starts exporting stored secrets as env vars, omission stops being safe and
+// this is where that shows up, rather than in a run that dies twenty seconds in.
+//
+// Read-only by design: it asserts against whatever the operator's store already
+// holds and writes nothing to it, so it skips rather than manufacturing a secret.
+func TestSandboxStoreDoesNotExportSecretsAsEnvVars(t *testing.T) {
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available on this host: %s", why)
+	}
+	stored, err := exec.Command(sbx.Binary, "secret", "ls").CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot read the secret store: %v\n%s", err, stored)
+	}
+	var probe []string
+	for _, name := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} {
+		if strings.Contains(string(stored), name) {
+			probe = append(probe, name)
+		}
+	}
+	if len(probe) == 0 {
+		t.Skip("no auth var in the store — nothing to prove about injection")
+	}
+
+	name := fmt.Sprintf("proveo-envprobe-%d", time.Now().UnixNano())
+	ws := t.TempDir()
+	if out, err := exec.Command(sbx.Binary, "create", "--name", name, "claude", ws).CombinedOutput(); err != nil {
+		t.Fatalf("create %s: %v\n%s", name, err, out)
+	}
+	t.Cleanup(func() {
+		if out, err := exec.Command(sbx.Binary, "rm", "--force", name).CombinedOutput(); err != nil {
+			t.Logf("probe sandbox %s not removed: %v\n%s", name, err, out)
+		}
+	})
+
+	// `env` prints only what is SET, so absence from this listing is the assertion.
+	// Keep the command short: an exec that runs for tens of seconds is torn down with
+	// the sandbox underneath it and returns no output at all.
+	out, err := exec.Command(sbx.Binary, "exec", name, "--", "env").CombinedOutput()
+	if err != nil {
+		t.Fatalf("exec env in %s: %v\n%s", name, err, out)
+	}
+	for _, k := range probe {
+		if regexp.MustCompile(`(?m)^` + k + `=`).Match(out) {
+			t.Errorf("%s is in sbx's global store and REACHED the container as an env var — "+
+				"omitting a suppressed credential no longer keeps it out, so sandboxSpec must "+
+				"neutralize again (see _spec/_paradigms/credential-boundary.puml)", k)
+		}
+	}
+}
+
 // sbxError returns sbx's own error line from the pane, if it printed one. It is
 // how a red test names its cause instead of reporting a timeout.
 // retryable marks the sbx errors proveo answers with one reload-and-retry, so the

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
 	"os/exec"
@@ -17,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -1453,6 +1454,95 @@ func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
 	}
 }
 
+// The run log held the answer the whole time. A macOS run whose login file had
+// blanked tokens printed "the login in the proveo home needs a refresh" as its
+// twelfth line and then handed the terminal to an agent that died 77 seconds later
+// — by which point that line was gone from a terminal nobody had redirected. The
+// failure line has to name the transcript, not just the startup line nobody had a
+// reason to read yet.
+func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
+	t.Parallel()
+	const name, log = "proveo-1-2", "/home/u/.proveo/logs/proveo-1-2.log"
+
+	got := keptSandboxLines(name, log)
+	if len(got) != 2 {
+		t.Fatalf("want the kept line plus the transcript, got %d: %q", len(got), got)
+	}
+	// The first line stays the actionable one: it is what an operator reads first.
+	for _, want := range []string{"kept for diagnosis", "sbx exec " + name, "sbx rm --force " + name} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("first line dropped %q: %q", want, got[0])
+		}
+	}
+	if !strings.Contains(got[1], log) {
+		t.Errorf("the transcript path must be named verbatim, got %q", got[1])
+	}
+
+	// No transcript is a real state — runlog.Open failing must not print a line
+	// pointing at the empty string, which reads as a path that got lost.
+	if got := keptSandboxLines(name, "  "); len(got) != 1 {
+		t.Errorf("a run with no transcript gets one line, got %q", got)
+	}
+}
+
+// The transcript is written into sandbox-LOCAL volumes, and the copy-out used to
+// sit on the SUCCESS path only — so agentTranscript searched a host home the failed
+// session had never written to and reported "no evidence" on every failed sbx run,
+// however much the agent had said before it died. Both exits take the same copy-out
+// now, which is what this pins.
+func TestSaveSandboxStateCopiesOutWhenThereAreVolumes(t *testing.T) {
+	t.Parallel()
+	env := []string{"HOME=/home/u", sbx.StateHomeVar + "=/home/u/.proveo"}
+
+	var calls [][]string
+	run := func(args ...string) (string, error) {
+		calls = append(calls, args)
+		return "ok", nil
+	}
+	if _, err := saveSandboxState("proveo-1-2", env, true, run); err != nil {
+		t.Fatalf("copy-out failed: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("want one sbx call, got %d: %v", len(calls), calls)
+	}
+	// The argv is sbx's, not this test's: asserting it here is what catches the
+	// save being reworded into something the entrypoint lib no longer defines.
+	if want := sbx.SaveStateArgs("proveo-1-2"); !slices.Equal(calls[0], want) {
+		t.Errorf("argv drifted\n got %q\nwant %q", calls[0], want)
+	}
+
+	// Every reason there is nothing to copy is a no-op, NOT an error. A docker run
+	// keeps its home on the host, and a run that died before sbx created anything
+	// has no volumes to read — reporting either as "resume state not preserved"
+	// warns about work that was never owed.
+	for _, tc := range []struct {
+		why    string
+		name   string
+		env    []string
+		exists bool
+	}{
+		{"docker backend: no state home", "proveo-1-2", []string{"HOME=/home/u"}, true},
+		{"sandbox never created", "proveo-1-2", env, false},
+		{"no sandbox name", "", env, true},
+	} {
+		calls = nil
+		out, err := saveSandboxState(tc.name, tc.env, tc.exists, run)
+		if err != nil || out != "" {
+			t.Errorf("%s: want a silent no-op, got (%q, %v)", tc.why, out, err)
+		}
+		if len(calls) != 0 {
+			t.Errorf("%s: must not reach sbx, got %v", tc.why, calls)
+		}
+	}
+
+	// A failed copy-out is reported to the caller rather than swallowed: the
+	// success path warns on it, and the failure path deliberately does not.
+	boom := func(...string) (string, error) { return "no such sandbox", errors.New("exit 1") }
+	if out, err := saveSandboxState("proveo-1-2", env, true, boom); err == nil || out == "" {
+		t.Errorf("want the error and its output surfaced, got (%q, %v)", out, err)
+	}
+}
+
 // "agent exited with code 137" and "sandbox was stopped" are both sbx's auto-stop,
 // arriving 30s after the agent exited; neither says why. The tail is what explains a
 // REDIRECTED run — "Credit balance is too low", which is what it turned out to be.
@@ -1524,6 +1614,55 @@ func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
 	}
 	if hasPersistedLogin("opencode", home) {
 		t.Error("a target with no known login file must not borrow another's")
+	}
+	// The macOS shape must not read as a login. It is the ordinary state of the
+	// proveo home on this host, so getting it wrong is not an edge case: the run
+	// announces itself authenticated and then has nothing to send.
+	blanked := `{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,` +
+		`"refreshTokenExpiresAt":4102444800000}}`
+	if err := os.WriteFile(cred, []byte(blanked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hasPersistedLogin("claudecode", home) {
+		t.Error("a credential file with blanked tokens is not a login, however live its stamps")
+	}
+}
+
+// A login that cannot authenticate must not suppress the env token that can. The
+// stamps on the macOS-blanked file are live, so the suppressor used to read it as
+// the run's credential and drop CLAUDE_CODE_OAUTH_TOKEN — which is how a run
+// reached the agent with every credential slot empty.
+func TestAuthSuppressorKeepsTheTokenWhenTheLoginIsBlanked(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name:         "claudecode",
+		Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dir, ".credentials.json")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(cred, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	write(live)
+	if !authSuppressor(man, "claudecode", "", home)("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("a login that CAN authenticate is the credential; the env token must be suppressed")
+	}
+
+	write(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,` +
+		`"refreshTokenExpiresAt":4102444800000}}`)
+	if authSuppressor(man, "claudecode", "", home)("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("a blanked login is not the credential; suppressing the env token leaves the run with none")
 	}
 }
 
@@ -1788,8 +1927,12 @@ func TestFileBackedLoginSuppressesEveryAuthVarForItsProvider(t *testing.T) {
 func TestChosenAuthVarSurvivesAPersistedLogin(t *testing.T) {
 	home := t.TempDir()
 	cred := filepath.Join(home, ".claude", ".credentials.json")
-	os.MkdirAll(filepath.Dir(cred), 0o755)
-	os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600)
+	if err := os.MkdirAll(filepath.Dir(cred), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"oauth":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
 	suppressed := authSuppressor(man, "claudecode", "ANTHROPIC_API_KEY", home)
 
@@ -1934,12 +2077,21 @@ func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
 	}
 }
 
-// Omitting a suppressed credential is not enough on the sandbox backend: sbx's
-// secret store is global and injects on its own authority, so an absent variable
-// leaves whatever an earlier run stored sitting in front of the mounted login —
-// which is how a subscription run kept authenticating as an API account. proveo
-// states the decision instead, as the empty value `sbx run -e VAR=` accepts.
-func TestSandboxSpecNeutralizesSuppressedCredentials(t *testing.T) {
+// A suppressed credential is OMITTED, never stated as empty — the same as the
+// docker path.
+//
+// This test asserted the opposite, on the theory that sbx's global secret store
+// would inject a stale value in front of the mounted login. Probed against sbx
+// v0.39.0 with ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN both in the global
+// store and no -e flag: both arrive UNSET. sbx attaches service secrets as proxy
+// headers and writes the harness credential to ~/.claude/.credentials.json; it
+// never exports them as environment variables, so there was nothing to override.
+//
+// The empty value was the failure, not the guard. An agent reads a SET variable as
+// a chosen credential whatever its value, and claudecode ranks both of these above
+// the login on disk — so a blank one took the slot the login needed and left an
+// unattended run at a prompt asking it to approve a key that authenticates nothing.
+func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	cred := filepath.Join(home, ".claude", ".credentials.json")
@@ -1967,12 +2119,15 @@ func TestSandboxSpecNeutralizesSuppressedCredentials(t *testing.T) {
 	cfg, _, secrets := sandboxSpec(in)
 
 	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
-		if !slices.Contains(cfg.Env, k+"=") {
-			t.Errorf("%s must be stated empty so the global store cannot inject it; env = %v", k, cfg.Env)
+		if slices.Contains(cfg.Env, k+"=") {
+			t.Errorf("%s must be omitted, not stated empty — a blank value outranks the login it "+
+				"was meant to defer to; env = %v", k, cfg.Env)
 		}
+		// Omission is the whole point: the variable must not appear at all, with or
+		// without a value, so the login is the only credential the agent can see.
 		for _, e := range cfg.Env {
-			if strings.HasPrefix(e, k+"=") && e != k+"=" {
-				t.Errorf("%s carries a value over a mounted login: %q", k, e)
+			if strings.HasPrefix(e, k+"=") {
+				t.Errorf("%s reached the sandbox over a mounted login: %q", k, e)
 			}
 		}
 	}
@@ -2086,6 +2241,43 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 		{
 			name: "cleared access stamp, dead refresh token",
 			body: fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour)),
+		},
+		{
+			// The macOS shape, and the one that cost a run: `claude` in the proveo
+			// home moves the credential to the Keychain and rewrites the file with
+			// its tokens BLANKED, leaving every stamp untouched. Judged on stamps
+			// alone this reads as a healthy login needing a refresh, so the run
+			// suppressed the env token that would have worked.
+			name: "blanked tokens, live refresh stamp",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(600*time.Hour)),
+		},
+		{
+			// Blank tokens are dead even while the ACCESS stamp is still in the
+			// future: there is no token to send, so a live window proves nothing.
+			name: "blanked tokens, live access stamp",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(8*time.Hour), ms(700*time.Hour)),
+		},
+		{
+			// Only the RENEWAL is missing: a real access token is present and its
+			// stamp is live, so the run authenticates without needing the refresh.
+			name:   "live access token, blanked refresh token",
+			body:   fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","refreshToken":"","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(8*time.Hour), ms(700*time.Hour)),
+			usable: true,
+		},
+		{
+			// Nothing left to renew with, so the live refresh stamp describes a
+			// renewal that cannot happen — not a login proveo may announce.
+			name: "stale access token, blanked refresh token",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","refreshToken":"","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour), ms(600*time.Hour)),
+		},
+		{
+			// ABSENT is not BLANK. A shape that never carried the field must keep
+			// falling through to the stamps, or the conservative reading that
+			// protects unknown harnesses turns into a refusal.
+			name:     "tokens absent, stale access stamp",
+			body:     fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour), ms(600*time.Hour)),
+			usable:   true,
+			needsRef: true,
 		},
 		{name: "empty file", body: ""},
 	} {
