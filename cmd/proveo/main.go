@@ -453,7 +453,9 @@ func doRun(p runParams) error {
 	}
 
 	var authMissingAtStart []manifest.EnvVar
-	loggedIn, loginNeedsRefresh := persistedLogin(p.target, proveohome.Root(os.Getenv))
+	fileLogin, loginNeedsRefresh := persistedLogin(p.target, proveohome.Root(os.Getenv))
+	storeHeld := sbxStoredAuth(man, &p)
+	loggedIn := fileLogin || len(storeHeld) > 0
 	// The agent renews a stale access token itself, but its FIRST turn reports
 	// "Login expired · Please run /login" while it does — which reads as a dead
 	// credential to the operator, who then goes looking for an auth problem that
@@ -466,21 +468,25 @@ func doRun(p runParams) error {
 	// Say so when a token IS exported and is being left out. The 🔓 line below only
 	// fires when auth is missing, so the case that actually misbills — a token set,
 	// silently overriding the mounted login — was the one nothing reported.
-	if loggedIn && !p.printOnly && strings.TrimSpace(p.authVar) == "" {
+	if fileLogin && !p.printOnly && strings.TrimSpace(p.authVar) == "" {
 		if av := effectiveAuthVar(man, p.target, p.authVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(lookup(av)) != "" {
 			ui.Iconf("🔓", "%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
 	if missing := man.MissingEnv(lookup); len(missing) > 0 && !p.printOnly {
-		if man.Subscription && loggedIn {
+		switch {
+		case man.Subscription && fileLogin:
 			// MissingEnv only reads env vars, so a completed login sitting in the
 			// proveo home read as "no auth" and produced a warning that sent an
 			// operator after a token they did not need.
 			ui.Iconf("🔓", "%s: using the login persisted in the proveo home", man.Name)
-		} else if man.Subscription {
+		case man.Subscription && len(storeHeld) > 0:
+			ui.Iconf("🔓", "%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
+				man.Name, strings.Join(storeHeld, ", "))
+		case man.Subscription:
 			authMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", man.Name)
-		} else if agentio.IsStdinTTY() && wizardEnabled() {
+		case agentio.IsStdinTTY() && wizardEnabled():
 			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
 				_ = os.Setenv(name, v)
 			}
@@ -695,6 +701,7 @@ func doRun(p runParams) error {
 			worktreeEnv:      wsSpec.WorktreeEnv(),
 			dataDir:          p.dataDir,
 			memory:           sbx.MemoryLimit(),
+			cpus:             sbx.CPULimit(),
 			homeRoot:         homePlan.Root,
 			runLog:           rl.Path(),
 		}
@@ -1504,6 +1511,27 @@ func hasPersistedLogin(target, homeRoot string) bool {
 	return ok
 }
 
+// sbxStoredAuth names the harness credentials sbx's own store already holds, and
+// is empty on every run that will not use the sbx backend.
+// See _spec/_paradigms/credential-boundary.puml.
+func sbxStoredAuth(man manifest.Manifest, p *runParams) []string {
+	if !sbxSuppliesCredential(man, p, true) {
+		return nil
+	}
+	ok, _ := sbx.Available()
+	if !sbxSuppliesCredential(man, p, ok) {
+		return nil
+	}
+	return storeHolds(man, sbx.StoredSecretNames())
+}
+
+// sbxSuppliesCredential reports whether this run reaches the backend whose
+// credential lives in sbx's store rather than in the proveo home.
+func sbxSuppliesCredential(man manifest.Manifest, p *runParams, sbxOK bool) bool {
+	return man.Subscription && man.IsSbx() && p.mode != "review" &&
+		sbxEnabled() && p.sandboxAddonOn() && sbxOK
+}
+
 // persistedLogin reports whether the credential can still authenticate, and
 // whether it must be refreshed first.
 //
@@ -2309,6 +2337,7 @@ type runSandboxInput struct {
 	// memory is the -m limit for the sandbox, resolved by the caller so that
 	// sandboxSpec stays pure and --print renders the same argv the run executes.
 	memory string
+	cpus   int
 	// homeRoot is the proveo home, passed in for the same reason: a host login
 	// living there decides which credential the run authenticates with, and
 	// sandboxSpec must not reach for the real filesystem to find that out.
@@ -2469,6 +2498,7 @@ func sandboxSpec(in runSandboxInput) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// sbx would otherwise size the sandbox from HOST memory, which on any VM-backed
 		// daemon can exceed the VM itself — see sbx.MemoryLimit.
 		Memory: in.memory,
+		CPUs:   in.cpus,
 		// Clone mode is why a bind-mounted node_modules stops ping-ponging: the
 		// clone carries only TRACKED files, so a host-built (macOS) tree never
 		// arrives, the seed installs Linux deps into the clone, and the operator's
@@ -2776,6 +2806,15 @@ func runSandbox(in runSandboxInput) error {
 		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered
+			// Every report, not just a surplus copy. The default rule forwards a
+			// report's first copy because the child asked for it — which is true of
+			// an agent on a real tty and FALSE here, where sbx's agent-session API
+			// reads input as a prompt stream and never queried anything. A lone
+			// unsolicited report is indistinguishable from a legitimate answer under
+			// dedup alone, so it was forwarded and enqueued as a user message: one
+			// "\x1b[?6c" five seconds into run proveo-1787852436-14907, then an agent
+			// that answered a prompt nobody typed and exited at 10:41:04.
+			px.DropReports = true
 			px.Tap = traceIn
 			// The child's output reaches the terminal through the pty master either
 			// way, so copying it into the tail costs the agent nothing and gives an

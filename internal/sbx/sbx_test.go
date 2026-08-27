@@ -635,9 +635,73 @@ func TestMemoryLimitDerivesFromDaemonNotHost(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvMemory, "")
+			t.Setenv(EnvInstances, "")
 			dockerMemTotal = func() ([]byte, error) { return []byte(c.out), c.err }
 			if got := MemoryLimit(); got != c.want {
 				t.Errorf("MemoryLimit()=%q, want %q (%s)", got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestMemoryLimitDividesByTheIntendedInstanceCount(t *testing.T) {
+	orig := dockerMemTotal
+	defer func() { dockerMemTotal = orig }()
+	const daemon = "25232719872"
+
+	for _, c := range []struct {
+		name, instances, want, about string
+	}{
+		{"unset keeps the historical half", "", "12031m",
+			"nobody who set nothing gets a behaviour change"},
+		{"one sandbox", "1", "24063m", "the whole daemon when it is the only one"},
+		{"two is the default", "2", "12031m", "explicit 2 and unset must agree"},
+		{"four sandboxes", "4", "6015m", "4 x 6015m = 23.5 GiB, the daemon exactly"},
+		{"zero is not a count", "0", "12031m", "a nonsense divisor falls back, never to infinity"},
+		{"negative", "-4", "12031m", "as above"},
+		{"not a number", "lots", "12031m", "a typo must not starve every sandbox"},
+		{"absurd count yields to sbx", "64", "", "the share is under the floor, so sbx's own default applies"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvMemory, "")
+			t.Setenv(EnvInstances, c.instances)
+			dockerMemTotal = func() ([]byte, error) { return []byte(daemon), nil }
+			if got := MemoryLimit(); got != c.want {
+				t.Errorf("%s=%q: MemoryLimit()=%q, want %q (%s)", EnvInstances, c.instances, got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestMemoryLimitTakesAnExplicitCapOverTheDerivation(t *testing.T) {
+	orig := dockerMemTotal
+	defer func() { dockerMemTotal = orig }()
+
+	for _, c := range []struct {
+		name, mem, want, about string
+		daemonErr              error
+	}{
+		{name: "8g, the four-instance budget", mem: "8g", want: "8192m",
+			about: "4 x 8 GiB = 32 GiB on a 48 GiB host"},
+		{name: "megabytes", mem: "8192m", want: "8192m", about: "same size, sbx's other unit"},
+		{name: "gib spelling", mem: "8GiB", want: "8192m", about: "case and the ib suffix both accepted"},
+		{name: "bare bytes", mem: "8589934592", want: "8192m", about: "a unitless value is bytes"},
+		{name: "above sbx's ceiling", mem: "64g", want: "32768m", about: "clamped to the 32 GiB cap"},
+		{name: "below the floor", mem: "128m", want: "",
+			about: "yields to sbx rather than setting a limit no sandbox starts under"},
+		{name: "malformed falls back to the derivation", mem: "eight gigs", want: "12031m",
+			about: "sbx would reject it mid-run, naming a flag and not the variable behind it"},
+		{name: "negative", mem: "-8g", want: "12031m", about: "as above"},
+		{name: "explicit cap survives an unreachable daemon", mem: "8g", want: "8192m",
+			daemonErr: errNoDaemon, about: "never consults the daemon at all"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvInstances, "")
+			t.Setenv(EnvMemory, c.mem)
+			dockerMemTotal = func() ([]byte, error) { return []byte("25232719872"), c.daemonErr }
+			if got := MemoryLimit(); got != c.want {
+				t.Errorf("%s=%q: MemoryLimit()=%q, want %q (%s)", EnvMemory, c.mem, got, c.want, c.about)
 			}
 		})
 	}
@@ -927,5 +991,69 @@ func TestNetworkAllowedReadsTheDaemonsAnswer(t *testing.T) {
 	policyCheck = func(string) ([]byte, error) { return nil, errors.New("sandboxd unreachable") }
 	if allowed, known := NetworkAllowed("evil.example.invalid"); allowed || known {
 		t.Errorf("unreadable: allowed=%v known=%v, want false/false", allowed, known)
+	}
+}
+
+func TestCPULimitSharesTheHostOnlyWhenAskedTo(t *testing.T) {
+	orig := numCPU
+	defer func() { numCPU = orig }()
+	numCPU = func() int { return 14 }
+
+	for _, c := range []struct {
+		name, cpus, instances string
+		want                  int
+		about                 string
+	}{
+		{"both unset", "", "", 0, "sbx keeps every host CPU; setting nothing changes nothing"},
+		{"one instance", "", "1", 0, "a lone sandbox is not sharing with anyone"},
+		{"four instances", "", "4", 7, "half the machine, not a quarter: an idle vCPU costs nothing"},
+		{"two instances", "", "2", 7, "the burst share does not vary with n"},
+		{"explicit cpus wins", "6", "4", 6, "a measured answer beats the derivation"},
+		{"explicit above the host", "64", "", 14, "clamped to what the host has"},
+		{"more instances than cores", "", "32", 7, "still half: CPU sums past the host on purpose"},
+		{"garbage instances", "", "many", 0, "a typo leaves sbx's default alone"},
+		{"garbage cpus falls back", "lots", "4", 7, "as above, then the derivation applies"},
+		{"zero cpus", "0", "", 0, "not a count; sbx's default stands"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvCPUs, c.cpus)
+			t.Setenv(EnvInstances, c.instances)
+			if got := CPULimit(); got != c.want {
+				t.Errorf("%s=%q %s=%q: CPULimit()=%d, want %d (%s)",
+					EnvCPUs, c.cpus, EnvInstances, c.instances, got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestRunArgsCPUsIsOptional(t *testing.T) {
+	t.Parallel()
+	with := RunArgs(RunConfig{Agent: "a", CPUs: 3})
+	if i := indexOf(with, "--cpus"); i < 0 || with[i+1] != "3" {
+		t.Errorf("--cpus 3 missing from %q", with)
+	}
+	if got := RunArgs(RunConfig{Agent: "a"}); slices.Contains(got, "--cpus") {
+		t.Errorf("an unset limit must leave the argv alone, got %q", got)
+	}
+}
+
+func TestCreateArgsIsRunArgsWithoutAttaching(t *testing.T) {
+	t.Parallel()
+	cfg := RunConfig{
+		Name: "proveo-capacity-1", Agent: "shell", Image: "img",
+		Memory: "8192m", CPUs: 7,
+		Mounts:  []Mount{{Host: "/w"}},
+		Command: []string{"sleep", "600"},
+	}
+	got := CreateArgs(cfg)
+	want := []string{"create", "--name", "proveo-capacity-1", "-t", "img", "-m", "8192m", "--cpus", "7", "shell", "/w"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CreateArgs()=\n%q\nwant\n%q", got, want)
+	}
+	if slices.Contains(got, "--") {
+		t.Error("create takes no trailing agent command; a `--` would be read as a workspace")
+	}
+	if RunArgs(cfg)[0] != "run" {
+		t.Error("CreateArgs mutated the shared config and broke RunArgs")
 	}
 }

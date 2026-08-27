@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml, _spec/minimum_requirements.puml
 package sbx
 
 import (
@@ -38,6 +38,7 @@ var (
 	goarch    = runtime.GOARCH
 	kvmDevice = "/dev/kvm"
 	stat      = os.Stat
+	numCPU    = runtime.NumCPU
 	runVer    = func() ([]byte, error) { return exec.Command(Binary, "version").Output() }
 	// dockerMemTotal reports what the daemon can actually hand a container. On
 	// Linux that is host memory; on macOS and Windows it is the VM's share of it,
@@ -82,6 +83,9 @@ const (
 // Deriving the same 50% from the daemon's own MemTotal is correct on every platform,
 // because on native Linux MemTotal IS host memory and the result is unchanged.
 func MemoryLimit() string {
+	if b, ok := parseMemorySize(os.Getenv(EnvMemory)); ok {
+		return formatMemoryLimit(b)
+	}
 	out, err := dockerMemTotal()
 	if err != nil {
 		return ""
@@ -90,7 +94,60 @@ func MemoryLimit() string {
 	if err != nil || total <= 0 {
 		return ""
 	}
-	limit := total / 2
+	return formatMemoryLimit(total / int64(sandboxShare(os.Getenv(EnvInstances))))
+}
+
+const (
+	EnvMemory    = "PROVEO_SBX_MEMORY"
+	EnvCPUs      = "PROVEO_SBX_CPUS"
+	EnvInstances = "PROVEO_SBX_INSTANCES"
+)
+
+const (
+	defaultMemoryShare  = 2
+	cpuBurstDivisor     = 2
+	maxSandboxInstances = 64
+)
+
+// CPULimit returns the --cpus value for a sandbox run, or 0 to leave sbx's
+// default in place. See _spec/minimum_requirements.puml.
+func CPULimit() int {
+	if n, ok := parseCount(os.Getenv(EnvCPUs)); ok {
+		return clampCPUs(n)
+	}
+	n, ok := parseCount(os.Getenv(EnvInstances))
+	if !ok || n < 2 {
+		return 0
+	}
+	return clampCPUs(numCPU() / cpuBurstDivisor)
+}
+
+func clampCPUs(n int) int {
+	if total := numCPU(); n > total {
+		return total
+	}
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func sandboxShare(v string) int {
+	if n, ok := parseCount(v); ok {
+		return n
+	}
+	return defaultMemoryShare
+}
+
+func parseCount(v string) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 1 || n > maxSandboxInstances {
+		return 0, false
+	}
+	return n, true
+}
+
+func formatMemoryLimit(limit int64) string {
 	if limit > maxSandboxMemory {
 		limit = maxSandboxMemory
 	}
@@ -98,6 +155,30 @@ func MemoryLimit() string {
 		return ""
 	}
 	return strconv.FormatInt(limit/(1<<20), 10) + "m"
+}
+
+func parseMemorySize(v string) (int64, bool) {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return 0, false
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "ib"), "b")
+	mult := int64(1)
+	if n := len(s); n > 0 {
+		switch s[n-1] {
+		case 'k':
+			mult, s = 1<<10, s[:n-1]
+		case 'm':
+			mult, s = 1<<20, s[:n-1]
+		case 'g':
+			mult, s = 1<<30, s[:n-1]
+		}
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil || n <= 0 || n > (1<<62)/mult {
+		return 0, false
+	}
+	return n * mult, true
 }
 
 // Available reports whether the host can run the sbx backend, and if not, why.
@@ -712,6 +793,7 @@ type RunConfig struct {
 	KitDir string // directory holding the rendered Kit spec.yaml
 	Image  string // template image, passed as -t
 	Memory string // -m limit; empty leaves sbx's host-derived default in place
+	CPUs   int    // --cpus; zero leaves sbx's default (every host CPU) in place
 	// Clone runs the agent on a private in-container CLONE of the host repo
 	// (--clone) rather than on the mounted tree itself. Creation-time only: sbx
 	// ignores it when re-attaching, which is why it belongs in the run config
@@ -739,6 +821,14 @@ type RunConfig struct {
 //
 // Flags are emitted before the positionals: the usage line puts them there, and
 // an interspersed parse is not something to rely on from a pre-GA CLI.
+// CreateArgs builds the non-attaching form: `sbx create` makes the sandbox and
+// returns, where `sbx run` stays attached to the agent for the session's life.
+// See _spec/minimum_requirements.puml.
+func CreateArgs(cfg RunConfig) []string {
+	cfg.Command = nil
+	return append([]string{"create"}, RunArgs(cfg)[1:]...)
+}
+
 func RunArgs(cfg RunConfig) []string {
 	args := []string{"run"}
 	if cfg.Name != "" {
@@ -752,6 +842,9 @@ func RunArgs(cfg RunConfig) []string {
 	}
 	if cfg.Memory != "" {
 		args = append(args, "-m", cfg.Memory)
+	}
+	if cfg.CPUs > 0 {
+		args = append(args, "--cpus", strconv.Itoa(cfg.CPUs))
 	}
 	if cfg.Clone {
 		args = append(args, "--clone")

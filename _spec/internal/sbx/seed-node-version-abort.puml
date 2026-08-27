@@ -1,0 +1,124 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: one helper's exit status, under set -e, ends the whole sandbox — and how twelve wrong answers preceded the right one
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/seed_abort_test.go
+'
+' ── THE DEFECT ─────────────────────────────────────────────────────────────
+' _node_version_file looks for .nvmrc then .node-version and, finding neither,
+' falls off the end of its loop carrying the failed test's status:
+'
+'   _node_version_file() {
+'     for f in .nvmrc .node-version; do
+'       [[ -f "$d/$f" ]] && { head -n1 ...; return 0; }
+'     done            <- no `return 0`: rc is the last [[ -f ]], which is 1
+'   }
+'
+' Its caller assigns that into a variable:
+'
+'   want_node="$(_node_json_field "$pkg" engines.node)"
+'   [[ -n "$want_node" ]] || want_node="$(_node_version_file "$scan")"
+'
+' and proveo-seed runs under `set -euo pipefail`. An assignment inherits its
+' command substitution's status, so a workspace with no node version pin ABORTS
+' THE ENTIRE STARTUP COMMAND. "Nothing found" is the ordinary case here, not an
+' error — that is the whole bug, and the fix is one `return 0`.
+'
+' ── WHY IT LOOKED LIKE TWO DIFFERENT BUGS ──────────────────────────────────
+' The abort lands wherever the seed happens to be when it reaches that line, and
+' what precedes it is workspace-dependent:
+'
+'   package.json, NO go.mod   the seed reaches the node block within a second,
+'                             aborts before the agent session opens, and sbx
+'                             reports "failed to run sandbox container" — no
+'                             sandbox at all.
+'   package.json AND go.mod   the Go block runs first (_install_go, then
+'                             `go install gopls@latest`), which takes ~15-20s.
+'                             The container is up and the AGENT IS LIVE by the
+'                             time the abort happens, so it presents as the agent
+'                             dying at ~17s with no message.
+'
+' Same line, same status, two symptoms. The second is the one that cost a night.
+'
+' ── WHY ONE REPO DIED AND ANOTHER RAN FOR HOURS ────────────────────────────
+' `engines.node` short-circuits the `||`, so the broken helper is never called:
+'
+'   pluvo/monorepo    engines.node "22.x"   never reached the bug   9560s · 9806s · 28923s
+'   proveo/sandbox    engines.node absent   reached it every time   16-21s x 14
+'
+' Neither repo has .nvmrc or .node-version. The difference is one field in one
+' package.json, which is why the failure looked like a property of the workspace
+' and resisted every explanation built on timing.
+'
+' ── THE REPRO ──────────────────────────────────────────────────────────────
+' Three lines. No proveo CLI, no kit, no memory limit, one mount:
+'
+'   sbx run --name x -t proveo/claudecode:local \
+'     -e PROVEO_WORKDIR=<repo> \
+'     claude <repo>
+'
+' Dies at ~17s. Drop the one -e and the same sandbox runs for 40+ minutes;
+' PROVEO_WORKDIR is what points _proveo_scan_root at the checkout, and nothing
+' scans it without that. `-e PROVEO_AUTO_INSTALL_TOOLS=false` also fixes it,
+' because that knob gates the function containing the bug.
+'
+' ── WHAT THIS COST, AND THE METHOD THAT ACTUALLY WORKED ────────────────────
+' Twelve mechanisms were proposed and eliminated before the bisect: unsolicited
+' terminal reports, config written under a live agent, the seed's exit killing its
+' process group, the gopls compile, host memory, the CPU share, the browser image,
+' Claude Code's failing auto-updater, MCP_GATEWAY_URL="", the model ids, the git
+' identity vars, and the extra workspace mounts. Every one was argued from
+' timestamps and every one was wrong.
+'
+' What worked was differential runs with the baseline RE-CONFIRMED between splits.
+' Two things that nearly wrecked it, both worth remembering:
+'   * a two-hour stretch of bisecting without re-running the baseline, during
+'     which the reproducer had gone intermittent and several splits were void;
+'   * "lived"/"died" read off the terminal instead of sandboxd's own
+'     agent/session duration_ms — three results were misread that way, in both
+'     directions.
+' The harness that finally settled it refuses to start while another sandbox is
+' running, and reports the verdict from the daemon log rather than the screen.
+title The seed's node-version lookup — one exit status ends the sandbox
+
+participant "sbx\nENTRYPOINT" as SBX <<cloud>>
+participant "proveo-seed\nset -euo pipefail" as SEED <<app>>
+participant "ensure_project_tools\n(go block: ~15-20s)" as GO <<app>>
+participant "ensure_node_toolchain\nwant_node=$(_node_version_file)" as NODE <<error>>
+participant "Claude Code\nagent session" as AGENT <<app>>
+
+SBX ARROW_MAIN SEED : PROVEO_WORKDIR points _proveo_scan_root at the checkout
+SEED ARROW_MAIN GO : go.mod present
+SBX ARROW_QUEUE AGENT : session opens ~2s in, without waiting
+GO ARROW_MAIN NODE : package.json present
+NODE ARROW_ERROR SEED : rc=1 on "no version file"
+SEED ARROW_ERROR AGENT : set -e aborts the startup command;\nthe live session goes with it
+
+note over NODE
+  **"Nothing found" is not a failure.** A workspace with no
+  ""\.nvmrc"", no ""\.node-version"" and no ""engines\.node"" is the
+  ordinary case. Reporting it as non-zero is only harmless
+  until someone assigns it under ""set -e"" — which the caller
+  one line up does.
+
+  ""_lsp_custom_install"" and ""_mise_install"" also return
+  non-zero here, and are LEFT ALONE: theirs are real failures
+  (unsupported language, installer error) and neither is
+  assigned in a command substitution.
+end note
+
+note over SEED
+  **The blast radius is the whole startup command.** Not a
+  warning, not a skipped step — sbx sees the startup command
+  exit non-zero and tears the sandbox down. The operator is
+  told "sandbox was stopped", which reads as infrastructure
+  and sends them into ""sbx exec"" after a cause that was never
+  in there.
+
+  ""internal/contract/seed_abort_test\.go"" pins both halves:
+  the helper returns 0 on absence, and the caller's two lines
+  survive ""set -euo pipefail"" against a package.json with no
+  ""engines\.node"".
+end note
+@enduml

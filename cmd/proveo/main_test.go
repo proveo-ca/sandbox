@@ -2482,3 +2482,86 @@ func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
+	sbxMan := manifest.Manifest{
+		Name:         "claudecode",
+		Subscription: true,
+		Docker:       manifest.DockerSbx,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+	}
+	dockerMan := sbxMan
+	dockerMan.Docker = manifest.DockerDind
+	apiMan := sbxMan
+	apiMan.Subscription = false
+
+	for _, c := range []struct {
+		name    string
+		man     manifest.Manifest
+		p       runParams
+		sbxOK   bool
+		sbxOff  bool
+		want    bool
+		because string
+	}{
+		{name: "the case that was broken", man: sbxMan, sbxOK: true, want: true,
+			because: "an sbx subscription run: the store IS where its credential lives"},
+		{name: "docker backend", man: dockerMan, sbxOK: true, want: false,
+			because: "the proveo home is the credential there; sbx's store is not consulted"},
+		{name: "not a subscription harness", man: apiMan, sbxOK: true, want: false,
+			because: "an API-key harness authenticates from the env, not from a login"},
+		{name: "review mode", man: sbxMan, p: runParams{mode: "review"}, sbxOK: true, want: false,
+			because: "review runs on docker+egress, so it never reaches sbx's store"},
+		{name: "sbx unavailable", man: sbxMan, sbxOK: false, want: false,
+			because: "a store proveo cannot reach cannot be the reason to launch"},
+		{name: "PROVEO_SBX=off", man: sbxMan, sbxOK: true, sbxOff: true, want: false,
+			because: "the knob pins docker+egress; the backend decides the store"},
+		{name: "sandbox add-on unchecked", man: sbxMan,
+			p:     runParams{addons: []string{}, addonsAnswered: true},
+			sbxOK: true, want: false,
+			because: "an answered picker that turned the sandbox off runs on docker"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.sbxOff {
+				t.Setenv("PROVEO_SBX", "off")
+			} else {
+				t.Setenv("PROVEO_SBX", "")
+			}
+			p := c.p
+			if got := sbxSuppliesCredential(c.man, &p, c.sbxOK); got != c.want {
+				t.Errorf("sbxSuppliesCredential = %v, want %v (%s)", got, c.want, c.because)
+			}
+		})
+	}
+}
+
+func TestStoreHoldsMatchesOnlyTheHarnessOwnCredentials(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name:         "claudecode",
+		Subscription: true,
+		Env: []manifest.EnvVar{
+			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+			{Name: "ANTHROPIC_API_KEY", Secret: true},
+			{Name: "PROVEO_AGENT_EVIDENCE"},
+		},
+	}
+	stored := []string{
+		"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY",
+		"GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "github", "anthropic",
+	}
+	got := storeHolds(man, stored)
+	want := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	if !slices.Equal(got, want) {
+		t.Errorf("storeHolds = %v, want %v", got, want)
+	}
+	if len(storeHolds(man, nil)) != 0 {
+		t.Error("an unreadable store must hold nothing, not everything")
+	}
+	if got := storeHolds(man, []string{"CURSOR_API_KEY", "github"}); len(got) != 0 {
+		t.Errorf("another harness's credentials read as this one's login: %v", got)
+	}
+	if got := storeHolds(man, []string{"PROVEO_AGENT_EVIDENCE"}); len(got) != 0 {
+		t.Errorf("a non-secret var counted as a credential: %v", got)
+	}
+}
