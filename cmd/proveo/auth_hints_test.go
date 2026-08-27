@@ -132,7 +132,7 @@ func TestNoCredentialHintNamesTheRemedy(t *testing.T) {
 	// The failing shape: the variable reached the sandbox stated empty, no login on
 	// disk, nothing written to the store.
 	got := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(),
-		[]string{"CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_MODEL=claude-opus-5"}, nil, nil), "\n")
+		[]string{"CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_MODEL=claude-opus-5"}, nil, nil, nil), "\n")
 	if got == "" {
 		t.Fatal("a run with no credential must say so; the stopped sandbox is not a diagnosis")
 	}
@@ -181,7 +181,7 @@ func TestNoCredentialHintStaysSilentWhenOneArrived(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if h := noCredentialHint(man, "claudecode", t.TempDir(), tc.env, tc.secrets, tc.lookup); h != nil {
+			if h := noCredentialHint(man, "claudecode", t.TempDir(), tc.env, tc.secrets, nil, tc.lookup); h != nil {
 				t.Errorf("a credential DID reach the agent; hint must stay silent, got:\n%s",
 					strings.Join(h, "\n"))
 			}
@@ -190,7 +190,7 @@ func TestNoCredentialHintStaysSilentWhenOneArrived(t *testing.T) {
 
 	// A bare name whose lookup is empty carries nothing, so the hint must fire.
 	if h := noCredentialHint(man, "claudecode", t.TempDir(),
-		[]string{"CLAUDE_CODE_OAUTH_TOKEN"}, nil, func(string) string { return "" }); h == nil {
+		[]string{"CLAUDE_CODE_OAUTH_TOKEN"}, nil, nil, func(string) string { return "" }); h == nil {
 		t.Error("a forwarded name with nothing behind it is not a credential")
 	}
 }
@@ -210,7 +210,7 @@ func TestNoCredentialHintDefersToAPersistedLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(live), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil); h != nil {
+	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h != nil {
 		t.Errorf("a live login is a credential; hint must stay silent, got:\n%s", strings.Join(h, "\n"))
 	}
 
@@ -221,7 +221,57 @@ func TestNoCredentialHintDefersToAPersistedLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(blanked), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil); h == nil {
+	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h == nil {
 		t.Error("a blanked login cannot authenticate; the hint must name the remedy")
+	}
+}
+
+// The hint's confident sentence was wrong on the run that most needed it.
+//
+// sbx's credential store is GLOBAL and outlives every run, so a token written last
+// week is injected into a sandbox this run gave nothing to. proveo reads its OWN
+// decision to answer "did a credential reach the agent", which cannot see that
+// entry — so a run whose stored CLAUDE_CODE_OAUTH_TOKEN was live and answering 200
+// from api.anthropic.com would have been told no credential reached the agent, and
+// sent after the one thing that was working.
+//
+// The store cannot resolve it either: `sbx secret ls` prints the name and
+// "(stored)", never the value, so an entry holding an empty string is
+// indistinguishable from a live token. The hint therefore drops the claim and names
+// the suspect.
+func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
+	t.Parallel()
+	man := claudecodeMan()
+	env := []string{"CLAUDE_CODE_OAUTH_TOKEN="}
+
+	// Nothing anywhere: the strong claim is earned.
+	bare := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil, nil, nil), "\n")
+	if !strings.Contains(bare, "no credential reached the agent") {
+		t.Errorf("with nothing anywhere the hint must say so plainly, got:\n%s", bare)
+	}
+
+	// The store already lists it. Still a hint — this run sent nothing, which is
+	// worth saying — but it must not assert what it cannot know.
+	held := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil,
+		[]string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "github"}, nil), "\n")
+	if held == "" {
+		t.Fatal("a run that sent no credential of its own is still worth explaining")
+	}
+	if strings.Contains(held, "no credential reached the agent") {
+		t.Errorf("the store may hold a live token; the hint must not claim none arrived, got:\n%s", held)
+	}
+	for _, want := range []string{
+		"CLAUDE_CODE_OAUTH_TOKEN", // the suspect is named
+		"cannot read",             // and the limit of what proveo knows is stated
+	} {
+		if !strings.Contains(held, want) {
+			t.Errorf("hint missing %q; got:\n%s", want, held)
+		}
+	}
+	// A store entry for a credential this harness does not use says nothing about it.
+	other := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil,
+		[]string{"CURSOR_API_KEY", "github"}, nil), "\n")
+	if !strings.Contains(other, "no credential reached the agent") {
+		t.Errorf("another harness's stored key is not this one's credential, got:\n%s", other)
 	}
 }

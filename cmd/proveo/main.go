@@ -1418,10 +1418,18 @@ var ansiSeq = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0
 // Off a terminal the stream is already redirected, so teeing costs nothing and the
 // tail becomes the only record of what the agent said.
 func agentStdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *tailWriter) {
-	if tty {
-		return out, err, nil
-	}
 	tail := newTailWriter(24)
+	if tty {
+		// The child keeps the real terminal: os/exec hands it a tty only when the
+		// field holds an *os.File, and an io.MultiWriter substitutes a pipe — the
+		// agent then cannot read the window size and draws one character per line.
+		//
+		// The tail is still returned. It stays empty on a bare exec, but the pty
+		// proxy can fill it from the master side at no cost to the child, which is
+		// what finally gives an INTERACTIVE run a record of its last words. See
+		// ptyproxy.Proxy.OutTap.
+		return out, err, tail
+	}
 	return io.MultiWriter(out, tail), io.MultiWriter(err, tail), tail
 }
 
@@ -1508,9 +1516,23 @@ var agentTranscriptDirs = map[string][]string{
 // It is better evidence than a captured tail. A tail holds what reached the
 // terminal; the transcript holds what the agent received and said — which is where
 // "Credit balance is too low" appeared after a run showed nothing but a stopped
-// sandbox. Interactive runs hand the terminal to the child and take no tail at all,
-// so this is the only record proveo can point at.
-func agentTranscript(target, homeRoot string, since time.Time) string {
+// sandbox.
+//
+// The window is closed at BOTH ends, and the upper bound is not defensive tidiness.
+// The copy-out that brings a transcript to the host runs on the failure path, and
+// on a stopped sandbox `sbx exec` restarts the VM to do it — which re-runs the
+// seed. That restart writes files of its own. One run reported
+// "66523790-…jsonl" as what the agent said: zero bytes, created at 15:12:13.694,
+// seventeen seconds AFTER the agent it was supposed to be quoting had already died,
+// belonging to no session that ever ran (the run's own session was 1a972241, and it
+// has no transcript anywhere). Ranking by mtime alone, it was the newest file in
+// the home and therefore won.
+//
+// Empty is not evidence either. A zero-byte file satisfied "a transcript exists",
+// which suppressed the credential hint written for exactly the failure that leaves
+// nothing behind — so the one run that most needed an explanation got a path to an
+// empty file instead.
+func agentTranscript(target, homeRoot string, since, until time.Time) string {
 	if homeRoot == "" {
 		return ""
 	}
@@ -1522,8 +1544,13 @@ func agentTranscript(target, homeRoot string, since time.Time) string {
 				return nil //nolint:nilerr // an unreadable home is not a run failure
 			}
 			fi, err := d.Info()
-			if err != nil || !fi.ModTime().After(newestAt) {
+			switch {
+			case err != nil, fi.Size() == 0:
 				return nil
+			case !fi.ModTime().After(newestAt):
+				return nil
+			case !until.IsZero() && fi.ModTime().After(until):
+				return nil // written after the run ended: the harvest's, not the run's
 			}
 			newest, newestAt = p, fi.ModTime()
 			return nil
@@ -2934,6 +2961,14 @@ func runSandbox(in runSandboxInput) error {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered
 			px.Tap = traceIn
+			// The child's output reaches the terminal through the pty master either
+			// way, so copying it into the tail costs the agent nothing and gives an
+			// interactive run the one channel it never had. Without this, the run
+			// that dies at its prompt has no tail AND no transcript, and "sandbox
+			// was stopped" is the entire report.
+			if tail != nil {
+				px.OutTap = func(b []byte) { _, _ = tail.Write(b) }
+			}
 			return px.Run(c)
 		}
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
@@ -2941,6 +2976,10 @@ func runSandbox(in runSandboxInput) error {
 	}
 	startedAt := time.Now()
 	runErr := run()
+	// Closed the moment the child returned, BEFORE anything proveo does to collect
+	// evidence. Everything written after this instant belongs to the harvest, not
+	// to the run — including a restarted sandbox's own fresh session files.
+	endedAt := time.Now()
 	if runErr != nil && !sbx.Exists(cfg.Name) {
 		// The template sbx holds has gone bad. Hand the image over again and try
 		// once more; if it fails the same way the second time, it is not the
@@ -2950,6 +2989,7 @@ func runSandbox(in runSandboxInput) error {
 		}); err == nil {
 			ui.Iconf("↻", "the sandbox did not start — retrying once on a freshly loaded template")
 			runErr = run()
+			endedAt = time.Now()
 		}
 	}
 	defer func() {
@@ -2971,21 +3011,42 @@ func runSandbox(in runSandboxInput) error {
 			// failed sbx run was structurally always empty — agentTranscript read a
 			// host home the session had never reached. Copy it out first.
 			//
-			// This starts a stopped sandbox, which re-runs the seed and so re-runs
-			// `proveo_sync_state restore`. That is safe for the evidence: restore is
-			// `cp -a` with no deletes, so the transcript written during the run is
-			// still there to be saved, and its mtime still postdates startedAt.
+			// On a STOPPED sandbox this starts the VM to do it, which re-runs the
+			// seed and so re-runs `proveo_sync_state restore`. The claim that used to
+			// stand here — that this is safe because restore is `cp -a` with no
+			// deletes — was wrong twice over, and both halves cost real data:
+			//
+			//   restore then ran CONCURRENTLY with this save, in the opposite
+			//   direction over the same files, and `cp` truncates its destination in
+			//   place. Seven of the operator's transcripts were rewritten short
+			//   inside one second, at exact 256 KiB multiples, cut mid-JSON, with the
+			//   short copy propagated to both sides. `proveo_sync_state` now holds a
+			//   lock and renames into place, so neither direction can leave a partial
+			//   file (packages/lib/entrypoint-lib.sh).
+			//
+			//   and "its mtime postdates startedAt" is satisfied by the restart's OWN
+			//   artifacts. A zero-byte session file the restart created 17s after the
+			//   agent died was reported as what the agent said. agentTranscript is
+			//   now bounded above by endedAt and rejects empty files.
+			//
+			// Whether the harvest had to wake a stopped sandbox is worth saying out
+			// loud: it is why the home holds files newer than the run.
+			restarted := !sbx.Running(cfg.Name)
 			_, _ = saveSandboxState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), sbxRun)
-			if t := agentTranscript(in.params.target, in.homeRoot, startedAt); t != "" {
+			if t := agentTranscript(in.params.target, in.homeRoot, startedAt, endedAt); t != "" {
 				said = true
 				ui.Iconf("📄", "what the agent actually said is in %s", t)
+			} else if restarted && sbx.Exists(cfg.Name) {
+				ui.Iconf("📄", "no transcript from this run — the sandbox had already stopped, "+
+					"so state was copied out after it ended and anything newer than the run is the harvest's own")
 			}
 			// Both evidence channels came up empty, which is its own diagnosis: the
 			// agent died before its first turn. Naming the credential here is what
 			// stops the operator spending the next hour inside `sbx exec` looking
 			// for a cause that is on the host.
 			if !said {
-				if hint := noCredentialHint(in.man, in.params.target, in.homeRoot, cfg.Env, secrets, in.lookup); len(hint) > 0 {
+				if hint := noCredentialHint(in.man, in.params.target, in.homeRoot, cfg.Env, secrets,
+					sbx.StoredSecretNames(), in.lookup); len(hint) > 0 {
 					ui.Iconf("🔑", "%s", hint[0])
 					for _, l := range hint[1:] {
 						fmt.Fprintf(os.Stderr, "%s\n", l)

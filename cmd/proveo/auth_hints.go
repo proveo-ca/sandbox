@@ -71,6 +71,20 @@ func credentialReachedAgent(man manifest.Manifest, target, homeRoot string, env 
 	return false
 }
 
+// storeHolds names the harness's own credentials that sbx's store already carries.
+// Presence is all it can report: `sbx secret ls` prints the name and "(stored)", so
+// a listed name means "something is there, of unknown content" — an entry holding an
+// empty string looks identical to a live token.
+func storeHolds(man manifest.Manifest, stored []string) []string {
+	var held []string
+	for _, n := range stored {
+		if isAuthVarOf(man, n) {
+			held = append(held, n)
+		}
+	}
+	return held
+}
+
 // isAuthVarOf reports whether name is a credential the harness declares it uses.
 func isAuthVarOf(man manifest.Manifest, name string) bool {
 	for _, e := range man.Env {
@@ -94,13 +108,29 @@ func isAuthVarOf(man manifest.Manifest, name string) bool {
 // The credential is both the likeliest reason and the one thing knowable from here.
 // Silent when a credential did reach the agent: a hint that fires on every failure
 // teaches the operator to skip the one time it was right.
-func noCredentialHint(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, lookup func(string) string) []string {
+// stored is the credential names sbx's store already holds (sbx.StoredSecretNames).
+// It cannot be derived from the run: the store is GLOBAL and outlives every run, so
+// an entry written last week is injected into a sandbox this run gave nothing to.
+// Ignoring it is how the hint told an operator no credential had reached the agent
+// while the store's CLAUDE_CODE_OAUTH_TOKEN was live and answering 200 — a
+// confident sentence pointing at the one thing that was working.
+func noCredentialHint(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, stored []string, lookup func(string) string) []string {
 	if credentialReachedAgent(man, target, homeRoot, env, secrets, lookup) {
 		return nil
 	}
 	byHarness := subscriptionAuthHints[harnessFamily(man.Name)]
+	// Two different sentences, because they send the reader to different places. With
+	// nothing anywhere, the credential is the diagnosis. With a store entry proveo
+	// cannot read, the credential is a SUSPECT — and claiming more than that is what
+	// makes an operator distrust the hint the time it is right.
 	lines := []string{
 		"no credential reached the agent — the likeliest reason it exited before saying anything",
+	}
+	if held := storeHolds(man, stored); len(held) > 0 {
+		lines = []string{fmt.Sprintf(
+			"this run sent no credential of its own — the agent had only sbx's stored %s, "+
+				"whose value proveo cannot read", strings.Join(held, ", ")),
+		}
 	}
 	for _, e := range man.Env {
 		if !e.Secret {

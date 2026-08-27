@@ -823,3 +823,75 @@ func indexOf(xs []string, want string) int {
 	}
 	return -1
 }
+
+// `sbx exec` on a STOPPED sandbox starts it, which re-runs the kit's startup seed.
+// A copy-out issued against one is therefore not reading a quiescent home, and
+// everything that lands in the operator's home afterwards postdates the run — so
+// "exists" and "running" cannot be the same question. Reading a stopped sandbox as
+// running is how a restart's own artifacts passed as the run's evidence.
+func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
+	orig := sandboxList
+	t.Cleanup(func() { sandboxList = orig })
+
+	// The real shape, workspace column and all: STATUS is the third field, and the
+	// header's first field is the literal SANDBOX so it can never match a name.
+	sandboxList = func() ([]byte, error) {
+		return []byte("SANDBOX                   AGENT    STATUS    PORTS   WORKSPACE\n" +
+			"proveo-1787-live          claude   running           /w/repo, /w/repo/reports\n" +
+			"proveo-1787-dead          claude   stopped           /w/repo\n"), nil
+	}
+	if !Running("proveo-1787-live") {
+		t.Error("a running sandbox must read as running")
+	}
+	if Running("proveo-1787-dead") {
+		t.Error("a stopped sandbox read as running; a copy-out against it races its own restore")
+	}
+	if Running("proveo-1787-absent") || Running("") {
+		t.Error("a sandbox not in the listing is not running")
+	}
+	if Running("SANDBOX") {
+		t.Error("the header row was matched as a sandbox")
+	}
+
+	// Unreadable listing: the pessimistic answer. Callers use this to decide whether
+	// to trust a copy-out, and guessing "running" is the guess that lets a restart's
+	// leftovers be reported as what the agent said.
+	sandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
+	if Running("proveo-1787-live") {
+		t.Error("an unreadable listing must not be read as a live sandbox")
+	}
+}
+
+// The store is GLOBAL and outlives every run, so proveo cannot tell from its own
+// decision whether the agent got a credential. Names are all that can be read back
+// — the value is never printed — and reading them is the difference between naming
+// the real cause and blaming the credential for a run that was authenticated.
+func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
+	orig := secretList
+	t.Cleanup(func() { secretList = orig })
+
+	secretList = func() ([]byte, error) {
+		return []byte("SCOPE      TYPE      NAME                      SECRET\n" +
+			"(global)   service   ANTHROPIC_API_KEY         (stored)\n" +
+			"(global)   service   CLAUDE_CODE_OAUTH_TOKEN   (stored)\n" +
+			"(global)   service   anthropic                 (oauth configured)\n"), nil
+	}
+	got := StoredSecretNames()
+	want := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "anthropic"}
+	if len(got) != len(want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("row %d: want %q, got %q", i, w, got[i])
+		}
+	}
+
+	// No store, or no sbx: silence. An empty list means "proveo learned nothing",
+	// and a caller must not read that as "the store is empty" — which is why the
+	// hint this feeds never claims a stored value is missing, only unreadable.
+	secretList = func() ([]byte, error) { return nil, errors.New("no daemon") }
+	if got := StoredSecretNames(); got != nil {
+		t.Errorf("an unreadable store must yield no names, got %v", got)
+	}
+}

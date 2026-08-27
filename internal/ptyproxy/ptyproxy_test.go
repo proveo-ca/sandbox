@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -165,5 +166,93 @@ func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
 	w, h, err := tty.WindowSize()
 	if err != nil || w <= 0 || h <= 0 {
 		t.Errorf("WindowSize = (%d,%d,%v), want a usable fallback even off a tty", w, h, err)
+	}
+}
+
+// The tap is what finally gives an INTERACTIVE run a record of the agent's last
+// words. The tail is normally taken by teeing os/exec's Stdout, and os/exec hands
+// the child a real terminal only when that field is an *os.File — so teeing it costs
+// the agent its tty and the tail was simply skipped. A run that died at its prompt
+// then had no tail AND no transcript, and "sandbox was stopped" was the whole report.
+//
+// Both properties are asserted together, because either alone is the bug: the child
+// must still get a TTY, and the tap must still see what it wrote.
+func TestOutTapCopiesChildOutputWithoutCostingTheChildItsTTY(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close() }()
+	inR, _, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inR.Close() }()
+
+	var mu sync.Mutex
+	var tapped []byte
+	p := New(inR, outW)
+	p.OutTap = func(b []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		tapped = append(tapped, b...)
+	}
+
+	cmd := exec.Command("sh", "-c", "test -t 1 && echo Credit balance is too low")
+	done := make(chan error, 1)
+	go func() { done <- p.Run(cmd) }()
+
+	buf := make([]byte, 256)
+	_ = outR.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _ := outR.Read(buf)
+	_ = outW.Close()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+
+	// The operator still sees it: the tap is a copy, never a diversion.
+	if got := string(buf[:n]); !strings.Contains(got, "Credit balance is too low") {
+		t.Errorf("the terminal lost the child's output to the tap: %q", got)
+	}
+	mu.Lock()
+	got := string(tapped)
+	mu.Unlock()
+	if !strings.Contains(got, "Credit balance is too low") {
+		t.Errorf("the tap saw nothing; an interactive death would again have no record: %q", got)
+	}
+	// `test -t 1` only succeeded because the child had the PTY slave — a tap that
+	// forced a pipe would have made the command print nothing at all.
+}
+
+// A nil tap is the normal case and must not be called into.
+func TestOutTapIsOptional(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close() }()
+	inR, _, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inR.Close() }()
+
+	p := New(inR, outW)
+	cmd := exec.Command("sh", "-c", "echo plain")
+	done := make(chan error, 1)
+	go func() { done <- p.Run(cmd) }()
+	buf := make([]byte, 64)
+	_ = outR.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = outR.Read(buf)
+	_ = outW.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return with no tap set")
 	}
 }

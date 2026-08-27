@@ -20,6 +20,14 @@ var ErrNotRunning = errors.New("ptyproxy: no child running")
 type Proxy struct {
 	In  *os.File
 	Out *os.File
+
+	// The Unix Proxy's knobs, declared so a caller that sets them compiles for
+	// this GOOS. Nothing reads them: Usable is false here, so Run is never the
+	// path taken. They were missing, and cmd/proveo stopped cross-compiling for
+	// windows the moment the stdin tap was wired up.
+	Tap           func(b []byte, forwarded bool)
+	OutTap        func(b []byte)
+	DisableFilter bool
 }
 
 // New returns a Proxy stub over the given terminal files.

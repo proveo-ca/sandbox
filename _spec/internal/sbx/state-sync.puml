@@ -1,0 +1,100 @@
+@startuml StateSync
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title State sync — moving resume state between the operator's home and a\nsandbox-local volume without ever leaving a partial file
+
+node "host" as HOST <<host>> {
+  database "PROVEO_HOME/.claude\nprojects · sessions · todos\nthe operator's ONLY copy" as MOUNT <<db>>
+}
+
+node "sandbox" as BOX <<app>> {
+  component "proveo_seed\nkit setup.startup" as SEED <<app>>
+  component "proveo_sync_state restore\nhost → volume" as RESTORE <<app>>
+  component "proveo_sync_state save\nvolume → host" as SAVE <<async>>
+  component "_proveo_sync_lock\nmkdir, pid-checked" as LOCK <<app>>
+  component "_proveo_sync_tree\n1. cp -an  (new files, no clobber)\n2. temp + rename  (differing files)" as TREE <<app>>
+  database "sandbox-local volume\n$HOME/.claude/*\ndies with `sbx rm`" as VOL <<db>>
+}
+
+component "proveo failure path\nsaveSandboxState → sbx exec" as FAIL <<error>>
+
+SEED ARROW_MAIN RESTORE : before the agent looks for transcripts
+FAIL ARROW_ERROR SAVE : on a STOPPED sandbox this STARTS the VM…
+FAIL ARROW_ERROR SEED : …which re-runs the seed
+RESTORE ARROW_MAIN LOCK
+SAVE ARROW_MAIN LOCK
+LOCK ARROW_MAIN TREE : one direction at a time
+TREE ARROW_MAIN VOL : restore
+TREE ARROW_QUEUE MOUNT : save
+MOUNT ARROW_OPTIONAL RESTORE : yesterday's sessions
+
+note right of FAIL
+  **The collision, measured.** The failure handler copies state out before it
+  looks for a transcript, and on a stopped sandbox ""sbx exec"" starts the VM to
+  do it — so the kit's startup seed is still inside ""restore"" when the exec's
+  own ""save"" begins. Two copies, opposite directions, same files.
+
+  Mounts re-evaluated **15:12:13.030**; the colliding writes landed
+  **15:12:13.62–.69**. Seven of the operator's transcripts were rewritten short
+  in that one second — 7340032, 786432, 786432, 524288, 262144, 262144 and
+  262144 bytes, //every size an exact 256 KiB multiple//, each cut mid-JSON —
+  and the short copy was then propagated to the other side, so no intact copy
+  remained. Nothing reported it: the copy sent stderr to ""/dev/null"" and ended
+  in ""|| true"".
+end note
+
+note bottom of TREE
+  **Why two phases and not one ""cp -a"".** ""cp"" opens its destination with
+  ""O_TRUNC"" and streams into it, so an interrupted or concurrent copy leaves the
+  destination cut at a read-buffer boundary. Atomicity is only needed where there
+  is something to destroy, so the work splits:
+
+  * **phase 1** — one ""cp -an"" places every file the destination does NOT have.
+    No existing file is opened for writing, so this phase cannot truncate.
+  * **phase 2** — files present on BOTH sides and differing are copied to a temp
+    name in the destination directory and //renamed// over the target.
+    ""rename(2)"" is atomic: a reader sees the old file or the new one, never a
+    short one, and an interruption leaves debris instead of damage.
+
+  Files only the destination has are left alone. A sync has never deleted, and
+  the operator's home holds sessions this sandbox was never given.
+end note
+
+note bottom of LOCK
+  **""mkdir"", not ""flock"".** Atomic on every filesystem in play and needs no
+  util-linux in the image. Both callers live in one PID namespace, so the pid
+  recorded in the lock settles whether a holder is alive — a seed killed
+  mid-copy leaves debris, and debris that blocked every later run forever would
+  be a worse failure than the one being fixed. Waiting caps at 60s, an order of
+  magnitude over any measured sync.
+end note
+
+note as Stamps #F4F9FB
+  **The skip, and the one case where a stamp lies.**
+
+  Phase 2 must not fork per file for a tree that has not changed: measured in
+  the sandbox image, 5000 shared files cost **4.6s** through a fork-per-file
+  copy against **0.067s** for one bulk ""cp -a"", and ""restore"" is already racing
+  the agent's own start. ""cp -a"" preserves size and mtime, so equal size plus
+  equal mtime is normally the copy having already happened.
+
+  //Normally is not always.// On the sandbox's overlay filesystem two files
+  written in the same clock tick report the SAME nanosecond mtime — measured,
+  both sides ""1787846280.6672317090"", same size, different content. A stamp is
+  therefore trusted as an identity only once it has stopped being "now":
+  anything modified inside a 5s grace window is copied whatever its stamps say.
+
+  That is exactly the set that matters. On a ""save"" those are the transcripts
+  the agent just wrote; on a ""restore"" there are none.
+end note
+
+note right of VOL
+  **Why any of this exists.** sbx mounts ""$HOME/.claude/projects"", ""sessions"",
+  ""todos"" and friends as PER-SANDBOX volumes, and ""sbx rm --force"" removes
+  "VM + images + volumes" — so without a copy-out, ""--resume"" loses every
+  session the moment the run ends. The dirs are discovered from ""/proc/mounts""
+  rather than tabulated per agent: a block device under ""$HOME"" is by
+  definition sandbox-local, and a hand-written table goes stale the moment sbx
+  adds one. ""statsig"" and ""shell-snapshots"" are skipped — telemetry and
+  scratch, never read back.
+end note
+@enduml

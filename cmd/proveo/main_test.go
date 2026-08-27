@@ -1867,17 +1867,29 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 // A wrapped writer is not an *os.File, so os/exec substitutes a pipe and the agent
 // loses its tty: no window size, and a TUI that draws one character per line. The
 // terminal must be handed over by identity, which is what this pins down.
+//
+// Handing it over unwrapped and TAKING no tail used to be the same requirement, and
+// this test asserted the second as a proxy for the first. They are not the same, and
+// conflating them is why an interactive death had no record: the tail's only source
+// was the tee. The proxy fills it from the pty master instead, so the tail exists
+// here and stays empty until something writes to it — what must never happen is the
+// WRITERS being wrapped.
 func TestAgentStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
 	out, errw := os.Stdout, os.Stderr
 	gotOut, gotErr, tail := agentStdio(out, errw, true)
 	if gotOut != io.Writer(out) || gotErr != io.Writer(errw) {
 		t.Fatalf("interactive run wrapped the terminal: stdout=%T stderr=%T", gotOut, gotErr)
 	}
-	if tail != nil {
-		t.Fatal("interactive run took a tail; that is what forces the pipe")
+	if tail == nil {
+		t.Fatal("an interactive run needs somewhere for the pty proxy to put the agent's last words")
 	}
-	if lines := tail.Lines(); lines != nil {
-		t.Fatalf("a nil tail must replay as no lines, got %v", lines)
+	if lines := tail.Lines(); len(lines) != 0 {
+		t.Fatalf("nothing has been written yet, so the tail must replay as empty, got %v", lines)
+	}
+	// It is a real tail, not a placeholder: the proxy's OutTap writes straight into it.
+	fmt.Fprint(tail, "Invalid API key · Please run /login\n")
+	if lines := tail.Lines(); len(lines) != 1 || lines[0] != "Invalid API key · Please run /login" {
+		t.Fatalf("the interactive tail must retain what the proxy feeds it, got %v", lines)
 	}
 }
 
@@ -2038,17 +2050,90 @@ func TestAgentTranscriptNamesOnlyThisRunsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := agentTranscript("claudecode", home, started); got != fresh {
+	if got := agentTranscript("claudecode", home, started, time.Time{}); got != fresh {
 		t.Fatalf("want this run's transcript %q, got %q", fresh, got)
 	}
 	// Nothing written this run, and nothing to point at.
-	if got := agentTranscript("claudecode", home, later.Add(time.Minute)); got != "" {
+	if got := agentTranscript("claudecode", home, later.Add(time.Minute), time.Time{}); got != "" {
 		t.Fatalf("named a transcript no run wrote: %q", got)
 	}
 	// A harness whose transcript location we have not established stays silent
 	// rather than guessing a path that will read as "no evidence" forever.
-	if got := agentTranscript("cursor", home, old); got != "" {
+	if got := agentTranscript("cursor", home, old, time.Time{}); got != "" {
 		t.Fatalf("guessed a location for an unmapped harness: %q", got)
+	}
+}
+
+// The evidence channel manufactured its own evidence, and this is the case that
+// cost a diagnosis.
+//
+// On a failed run proveo copies state out of the sandbox before looking for a
+// transcript, and on a STOPPED sandbox `sbx exec` restarts the VM to do it — which
+// re-runs the seed, which writes files. The run that exposed this was handed
+// "66523790-…jsonl": zero bytes, created 17s AFTER the agent had died, belonging to
+// no session that ever ran. It won because it was the newest .jsonl in the home,
+// and because it existed at all it set `said`, which suppressed the credential hint
+// written for precisely the failure that leaves nothing behind.
+//
+// So the window is closed at both ends and empty files are not evidence.
+func TestAgentTranscriptRejectsTheHarvestsOwnArtifacts(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".claude", "projects", "-w-repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string, at time.Time) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	started := time.Now().Add(-time.Minute)
+	ended := started.Add(30 * time.Second)
+
+	// What the agent said, during the run.
+	real := write("real.jsonl", "{\"type\":\"user\"}\n", started.Add(10*time.Second))
+	// The restart's leftovers: newer than everything, and empty.
+	harvest := write("harvest.jsonl", "", ended.Add(17*time.Second))
+	if got := agentTranscript("claudecode", home, started, ended); got != real {
+		t.Fatalf("want the run's own transcript %q, got %q", real, got)
+	}
+
+	// Non-empty but still after the run ended — a restarted session that opened a
+	// transcript and wrote to it is still not this run's.
+	write("harvest.jsonl", "{\"type\":\"user\"}\n", ended.Add(17*time.Second))
+	if got := agentTranscript("claudecode", home, started, ended); got != real {
+		t.Fatalf("a transcript written after the run ended was named as the run's: %q", got)
+	}
+	_ = harvest
+
+	// The failure this all exists for: the agent died before its first turn, so the
+	// only .jsonl in the home is the harvest's empty one. The answer must be "no
+	// transcript", because that emptiness is what releases the credential hint.
+	if err := os.Remove(real); err != nil {
+		t.Fatal(err)
+	}
+	write("harvest.jsonl", "", ended.Add(17*time.Second))
+	if got := agentTranscript("claudecode", home, started, ended); got != "" {
+		t.Fatalf("an empty file created by the harvest was named as evidence: %q", got)
+	}
+
+	// A zero-byte transcript written DURING the run is equally no evidence: the
+	// agent opened a session and said nothing, which is the case the hint answers.
+	write("opened.jsonl", "", started.Add(5*time.Second))
+	if got := agentTranscript("claudecode", home, started, ended); got != "" {
+		t.Fatalf("an empty transcript is not something the agent said: %q", got)
+	}
+
+	// An unbounded search still works — the success path has no restart to fence off.
+	full := write("late.jsonl", "{\"type\":\"user\"}\n", ended.Add(time.Second))
+	if got := agentTranscript("claudecode", home, started, time.Time{}); got != full {
+		t.Fatalf("a zero upper bound must mean unbounded, got %q", got)
 	}
 }
 

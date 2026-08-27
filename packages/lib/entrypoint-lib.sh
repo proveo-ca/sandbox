@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml
 # Shared entrypoint functions for Proveo coding harnesses
 
 # ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
@@ -1732,25 +1732,146 @@ _proveo_volume_state_dirs() {
 #
 # Silent no-op when PROVEO_STATE_HOME is unset, which is every docker run: there
 # the home IS the mounted host dir and nothing needs copying.
+# _proveo_sync_lock serialises the two directions of a state sync.
+#
+# restore and save move the same files in OPPOSITE directions, and proveo's failure
+# path runs both at once without meaning to: `sbx exec` on a STOPPED sandbox starts
+# it, so the kit's startup seed is still inside `restore` when the exec's own `save`
+# begins. Measured on the run that exposed this — mounts re-evaluated at
+# 15:12:13.030, the colliding writes landing 15:12:13.62-.69.
+#
+# mkdir is the primitive because it is atomic on every filesystem in play and needs
+# no util-linux in the image. A lock whose holder is gone is broken rather than
+# waited on: both callers live in the same PID namespace, so `kill -0` settles it,
+# and a seed killed mid-copy must not block every later run forever.
+_proveo_sync_lock() {
+ local dir="$1" waited=0 pid
+ while ! mkdir "$dir" 2>/dev/null; do
+  pid="$(cat "$dir/pid" 2>/dev/null)"
+  if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+   rm -rf "$dir" 2>/dev/null
+   continue
+  fi
+  waited=$((waited + 1))
+  ((waited > 600)) && return 1 # 60s, an order of magnitude over any measured sync
+  sleep 0.1
+ done
+ printf '%s\n' "$$" >"$dir/pid" 2>/dev/null
+ return 0
+}
+
+# _proveo_changed_files lists the paths that exist on BOTH sides and may differ.
+#
+# Two listings rather than a stat per file, because the skip is the whole point: on a
+# warm sandbox almost nothing has changed and the plugin marketplace alone is
+# thousands of files. Measured in the sandbox image — 5000 shared files cost 4.6s
+# through a fork-per-file copy against 0.067s for one bulk `cp -a`, and the restore
+# is already racing the agent's own start.
+#
+# `cp -a` preserves size and mtime, so equal size and equal mtime is normally the
+# copy having already happened. Normally is not always, and the exception is not
+# theoretical: on the sandbox's overlay filesystem two files written in the same
+# clock tick report the SAME nanosecond mtime, so a changed file can present as
+# identical. Measured — src and dst both `1787846280.6672317090`, different content,
+# same size.
+#
+# A stamp is therefore trusted as an identity only once it has stopped being "now".
+# Anything modified within the grace window is copied regardless of what its stamps
+# say, which is exactly the set that matters: on a save those are the transcripts the
+# agent just wrote, and on a restore there are none.
+#
+# Paths containing a newline are not represented and are skipped rather than
+# mangled; nothing in an agent home has ever held one.
+_proveo_changed_files() {
+ local src="$1" dst="$2" cutoff
+ cutoff=$(($(date +%s) - 5))
+ {
+  (cd "$src" 2>/dev/null && find . -type f -printf 'S %s %T@ %P\n' 2>/dev/null)
+  (cd "$dst" 2>/dev/null && find . -type f -printf 'D %s %T@ %P\n' 2>/dev/null)
+ } | awk -v cutoff="$cutoff" '{
+    key = $4; for (i = 5; i <= NF; i++) key = key " " $i
+    stamp = $2 " " $3
+    if ($1 == "S") { s[key] = stamp; at[key] = $3 + 0 } else d[key] = stamp
+  }
+  END {
+    for (k in s)
+      if ((k in d) && (s[k] != d[k] || at[k] >= cutoff)) print k
+  }'
+}
+
+# _proveo_sync_tree copies src into dst without ever leaving a partially written
+# file at the destination.
+#
+# The plain `cp -a "$src/." "$dst/"` this replaces truncates in place: cp opens the
+# destination with O_TRUNC and streams into it, so anything that interrupts the copy
+# leaves the destination cut at a read-buffer boundary. That is not theoretical.
+# With restore and save running over each other (see _proveo_sync_lock), seven of
+# the operator's transcripts were rewritten short inside one second — 7340032,
+# 786432, 786432, 524288, 262144, 262144 and 262144 bytes, every size an exact
+# 256 KiB multiple, each cut mid-JSON — and the short copy was then propagated to
+# the other side. Nothing reported it: the old call sent stderr to /dev/null and
+# ended in `|| true`.
+#
+# Two phases, because atomicity is only needed where there is something to destroy:
+#   1. `cp -an` places every file the destination does NOT have, in one pass. No
+#      existing file is opened for writing, so this phase cannot truncate anything.
+#   2. Files present on both sides and differing are copied to a temp name in the
+#      destination directory and RENAMED over the target. rename(2) is atomic, so a
+#      reader sees the old file or the new one and never a short one, and an
+#      interruption leaves a stray temp file instead of a damaged transcript.
+#
+# Files only the destination has are left alone: a sync has never deleted, and the
+# operator's home holds sessions this sandbox was never given.
+_proveo_sync_tree() {
+ local src="$1" dst="$2" rel tmp failed=0
+ [[ -d "$src" ]] || return 0
+ mkdir -p "$dst" 2>/dev/null || return 1
+ cp -an "$src/." "$dst/" 2>/dev/null || failed=1
+ while IFS= read -r rel; do
+  [[ -n "$rel" ]] || continue
+  tmp="$dst/$rel.proveo-sync.$$"
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
+   continue
+  fi
+  rm -f "$tmp" 2>/dev/null
+  failed=1
+ done < <(_proveo_changed_files "$src" "$dst")
+ return "$failed"
+}
+
 proveo_sync_state() {
- local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
  [[ -n "$host" && -d "$host" ]] || return 0
+ # Validated before the walk, not inside it: an unknown mode on a sandbox with no
+ # state volumes used to fall out of the loop and report success.
+ case "$mode" in
+ restore | save) ;;
+ *) return 2 ;;
+ esac
  home="$(_proveo_agent_home)"
  [[ -n "$home" ]] || return 0
+ lock="$home/.proveo-sync.lock"
+ if ! _proveo_sync_lock "$lock"; then
+  printf 'proveo: state %s skipped — another sync still holds the lock\n' "$mode" >&2
+  return 1
+ fi
  while read -r dir; do
   [[ -n "$dir" ]] || continue
   rel="${dir#"$home"/}"
   case "$mode" in
   restore) src="$host/$rel" dst="$dir" ;;
   save) src="$dir" dst="$host/$rel" ;;
-  *) return 2 ;;
   esac
   [[ -d "$src" ]] || continue
   # An empty source would still succeed and is not worth the walk.
   [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
-  mkdir -p "$dst" 2>/dev/null || continue
-  cp -a "$src/." "$dst/" 2>/dev/null || true
+  _proveo_sync_tree "$src" "$dst" || rc=1
  done < <(_proveo_volume_state_dirs)
+ rm -rf "$lock" 2>/dev/null
+ # Said out loud, once. The silence of the old `|| true` is why a copy that
+ # destroyed seven files looked like a copy that worked.
+ ((rc == 0)) || printf 'proveo: state %s completed with copy errors\n' "$mode" >&2
+ return "$rc"
 }
 
 proveo_provision_toolchain() {
@@ -1823,7 +1944,15 @@ proveo_seed() {
 
  # First: a resumed session's transcripts must be in place before the agent
  # starts looking for them.
- proveo_sync_state restore
+ #
+ # `|| true` is load-bearing here and is NOT the old silence. proveo-seed runs under
+ # `set -euo pipefail`, and proveo_sync_state now returns non-zero when a copy fails
+ # — which is what makes the failure visible to `save`'s caller and to the tests. Let
+ # that status escape into the seed and a single failed file copy aborts the startup
+ # command, so sbx reports "failed to run sandbox container" and NO sandbox comes up
+ # at all. Losing yesterday's transcripts must never be the reason today's run cannot
+ # start; the function has already said what went wrong on stderr.
+ proveo_sync_state restore || true
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
