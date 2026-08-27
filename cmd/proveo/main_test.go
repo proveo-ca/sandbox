@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,13 +12,11 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/google/go-cmp/cmp"
+	"gopkg.in/yaml.v3"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
@@ -28,6 +25,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -1543,46 +1541,6 @@ func TestSaveSandboxStateCopiesOutWhenThereAreVolumes(t *testing.T) {
 	}
 }
 
-// "agent exited with code 137" and "sandbox was stopped" are both sbx's auto-stop,
-// arriving 30s after the agent exited; neither says why. The tail is what explains a
-// REDIRECTED run — "Credit balance is too low", which is what it turned out to be.
-//
-// An interactive run takes no tail (see TestAgentStdioHandsTheTerminalOverUnwrapped:
-// wrapping stdout costs the agent its tty) and is explained by the session transcript
-// instead, which agentTranscript names on failure.
-func TestTailWriterKeepsTheExplanation(t *testing.T) {
-	t.Parallel()
-	w := newTailWriter(3)
-	// A TUI writes escapes, redraws the same status line, and may not end with \n.
-	fmt.Fprint(w, "\x1b[2J\x1b[H🚀 Launching Claude Code…\n")
-	fmt.Fprint(w, "\x1b[Kthinking\r\x1b[Kthinking\r")
-	fmt.Fprint(w, "Ignoring 10 permissions.allow entries\n")
-	fmt.Fprint(w, "\x1b[31mCredit balance is too low\x1b[0m")
-
-	got := w.Lines()
-	if len(got) != 3 {
-		t.Fatalf("want the last 3 lines, got %d: %q", len(got), got)
-	}
-	if last := got[len(got)-1]; last != "Credit balance is too low" {
-		t.Errorf("the unterminated final line must survive and be de-escaped, got %q", last)
-	}
-	for _, l := range got {
-		if strings.Contains(l, "\x1b") {
-			t.Errorf("escape sequences must be stripped, got %q", l)
-		}
-	}
-	// A redrawn status line is one line, not many.
-	var thinking int
-	for _, l := range got {
-		if l == "thinking" {
-			thinking++
-		}
-	}
-	if thinking > 1 {
-		t.Errorf("consecutive duplicates must collapse, got %q", got)
-	}
-}
-
 // MissingEnv reads env vars only, so a completed login sitting in the proveo home
 // read as "no auth" — and the refusal built on it would have blocked working runs.
 func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
@@ -1663,38 +1621,6 @@ func TestAuthSuppressorKeepsTheTokenWhenTheLoginIsBlanked(t *testing.T) {
 		`"refreshTokenExpiresAt":4102444800000}}`)
 	if authSuppressor(man, "claudecode", "", home)("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("a blanked login is not the credential; suppressing the env token leaves the run with none")
-	}
-}
-
-// os/exec copies stdout and stderr on separate goroutines and both are teed into one
-// tailWriter, so Write is genuinely concurrent. Without a lock the two interleave on
-// the shared buffer and reslicing panics with bounds out of range — which is exactly
-// how this crashed a real run. Run under -race to catch the regression properly.
-func TestTailWriterIsConcurrencySafe(t *testing.T) {
-	t.Parallel()
-	w := newTailWriter(8)
-	var wg sync.WaitGroup
-	for g := 0; g < 8; g++ {
-		wg.Add(1)
-		go func(g int) {
-			defer wg.Done()
-			for i := 0; i < 200; i++ {
-				// Mixed shapes: with newlines, without, and with escapes — the
-				// unterminated fragments are what made the indices disagree.
-				fmt.Fprintf(w, "g%d line %d\n\x1b[Kpartial %d", g, i, i)
-			}
-		}(g)
-	}
-	wg.Wait()
-
-	got := w.Lines()
-	if len(got) == 0 || len(got) > 8 {
-		t.Fatalf("want 1..8 retained lines, got %d", len(got))
-	}
-	for _, l := range got {
-		if strings.Contains(l, "\x1b") {
-			t.Errorf("escapes must be stripped even under concurrency, got %q", l)
-		}
 	}
 }
 
@@ -1861,52 +1787,6 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("the mounted login needs no brokered secret at all, got %v", got)
-	}
-}
-
-// A wrapped writer is not an *os.File, so os/exec substitutes a pipe and the agent
-// loses its tty: no window size, and a TUI that draws one character per line. The
-// terminal must be handed over by identity, which is what this pins down.
-//
-// Handing it over unwrapped and TAKING no tail used to be the same requirement, and
-// this test asserted the second as a proxy for the first. They are not the same, and
-// conflating them is why an interactive death had no record: the tail's only source
-// was the tee. The proxy fills it from the pty master instead, so the tail exists
-// here and stays empty until something writes to it — what must never happen is the
-// WRITERS being wrapped.
-func TestAgentStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
-	out, errw := os.Stdout, os.Stderr
-	gotOut, gotErr, tail := agentStdio(out, errw, true)
-	if gotOut != io.Writer(out) || gotErr != io.Writer(errw) {
-		t.Fatalf("interactive run wrapped the terminal: stdout=%T stderr=%T", gotOut, gotErr)
-	}
-	if tail == nil {
-		t.Fatal("an interactive run needs somewhere for the pty proxy to put the agent's last words")
-	}
-	if lines := tail.Lines(); len(lines) != 0 {
-		t.Fatalf("nothing has been written yet, so the tail must replay as empty, got %v", lines)
-	}
-	// It is a real tail, not a placeholder: the proxy's OutTap writes straight into it.
-	fmt.Fprint(tail, "Invalid API key · Please run /login\n")
-	if lines := tail.Lines(); len(lines) != 1 || lines[0] != "Invalid API key · Please run /login" {
-		t.Fatalf("the interactive tail must retain what the proxy feeds it, got %v", lines)
-	}
-}
-
-// Off a terminal the stream is already redirected, so the tail is free.
-func TestAgentStdioTeesWhenStdoutIsRedirected(t *testing.T) {
-	var out, errw bytes.Buffer
-	gotOut, gotErr, tail := agentStdio(&out, &errw, false)
-	if tail == nil {
-		t.Fatal("a redirected run must keep the agent's last output")
-	}
-	fmt.Fprintln(gotOut, "credit balance is too low")
-	fmt.Fprintln(gotErr, "agent exited with code 137")
-	if !strings.Contains(out.String(), "credit balance") {
-		t.Fatalf("the tee stopped reaching stdout: %q", out.String())
-	}
-	if got := tail.Lines(); len(got) != 2 || got[0] != "credit balance is too low" {
-		t.Fatalf("tail did not retain both streams: %v", got)
 	}
 }
 
@@ -2384,49 +2264,6 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 	}
 }
 
-// The tap exists so a run can answer "what actually arrived on stdin". Control
-// bytes are the whole point: a terminal answering a device-attributes query
-// looks like ordinary text in a transcript and like an escape sequence here.
-func TestStdinTracerRecordsControlBytes(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "stdin.trace")
-	tap, stop := stdinTracer(path)
-	if tap == nil {
-		t.Fatal("a named trace file must produce a tap")
-	}
-	tap([]byte("sh\r"), true)
-	// A terminal's reply, not a keystroke — and one the filter refused. The trace
-	// must show BOTH halves: a child-side log can never show what was dropped.
-	tap([]byte{0x1b, '[', '?', '6', 'c'}, false)
-	stop()
-
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(b)
-	for _, want := range []string{"sh<CR>", "<ESC>[?6c", "1b 5b 3f 36 63", "n=3", "n=5", "sent", "DROPPED"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("trace is missing %q:\n%s", want, got)
-		}
-	}
-}
-
-// An unset variable must leave the default path byte-for-byte untraced, because
-// the traced path swaps a plain pipe for a pty and that is not a change to make
-// behind the operator's back.
-func TestStdinTracerIsOffByDefault(t *testing.T) {
-	t.Parallel()
-	for _, v := range []string{"", "   "} {
-		if tap, stop := stdinTracer(v); tap != nil {
-			stop()
-			t.Errorf("PROVEO_TRACE_STDIN=%q must not install a tap", v)
-		} else {
-			stop() // the no-op closer must be safe to call
-		}
-	}
-}
-
 // sbx registers its MCP gateway from its OWN agent kit, with `claude mcp add
 // --scope user`, inside a HOME that proveo mounts read-write. So an entry meant
 // to live and die with a disposable sandbox lands in the operator's real home.
@@ -2616,5 +2453,32 @@ func TestRepoRootRewriteKeepsReadOnly(t *testing.T) {
 	})
 	if len(got) != 1 || !got[0].ReadOnly {
 		t.Errorf("read-only git mount lost its posture: %v", got)
+	}
+}
+
+func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, mode, creds string
+		sandboxed         bool
+		want, wantNot     string
+	}{
+		{"sbx names its own record", "allowlist", "broker", true, runlog.PolicyLogFile, "squid"},
+		{"sbx says so on every tier", "open", "forward", true, runlog.PolicyLogFile, "flows.ndjson"},
+		{"docker allowlist keeps both logs", "allowlist", "broker", false, "squid access.log", ""},
+		{"docker open keeps the MITM record", "open", "broker", false, "flows.ndjson", "squid"},
+		{"docker open+forward promises nothing", "open", "forward", false, "none", "flows.ndjson"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := observability(tc.mode, tc.creds, tc.sandboxed)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("observability(%q, %q, %v) = %q, want it to name %q",
+					tc.mode, tc.creds, tc.sandboxed, got, tc.want)
+			}
+			if tc.wantNot != "" && strings.Contains(got, tc.wantNot) {
+				t.Errorf("observability(%q, %q, %v) = %q, must not name %q",
+					tc.mode, tc.creds, tc.sandboxed, got, tc.wantNot)
+			}
+		})
 	}
 }

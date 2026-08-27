@@ -98,5 +98,20 @@ note bottom of CLI
   parser, and that contract is the caller's, not ours.
 end note
 
+note bottom of CLI
+  **The classic renderer is part of agent evidence.**
+  Fullscreen draws on the alternate screen and
+  restores it on exit, so a finished — or failed —
+  run leaves nothing in scrollback, nothing for the
+  transcript's tee, and an empty pane for a probe.
+end note
+
+note bottom of CLI
+  ""CLAUDE_CODE_NO_FLICKER=0"" is the documented off
+  switch and out-ranks a saved ""tui"" setting, so a
+  mounted home carrying ""fullscreen"" cannot re-enter
+  it. The entrypoint defaults it; an operator who
+  exports their own value keeps it.
+end note
 
 @enduml

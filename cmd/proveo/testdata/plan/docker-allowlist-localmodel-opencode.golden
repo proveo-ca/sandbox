@@ -1,0 +1,32 @@
+== agent argv ==
+docker run -it --rm --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=4096 -v /work:/app -w /app --network sid-opencode-mitm-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e ENFORCEMENT_PROXY=http://squid:3128 -e PROVEO_EGRESS_SESSION_ID=sid -e PROVEO_EGRESS_MODE=allowlist -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v /st/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem -e PROVEO_LOCAL_MODEL=qwen3 -e OLLAMA_HOST=http://ollama:11434 -e OLLAMA_API_BASE=http://ollama:11434 -e OPENAI_BASE_URL=http://ollama:11434/v1 -e OPENAI_API_BASE=http://ollama:11434/v1 -e OPENAI_API_KEY=ollama -e ARCHITECT_MODEL=ollama/qwen3 -e EDITOR_MODEL=ollama/qwen3 -e SMALL_MODEL=ollama/qwen3 -e ANTHROPIC_BASE_URL=http://ollama:11434 -e ANTHROPIC_AUTH_TOKEN=ollama -e ANTHROPIC_API_KEY= -e ANTHROPIC_MODEL=qwen3 -e ANTHROPIC_SMALL_FAST_MODEL=qwen3 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal proveo/opencode:latest
+== networks ==
+docker network create --label proveo.egress.session=sid --internal sid-opencode-mitm-net
+docker network create --label proveo.egress.session=sid --internal sid-mitm-squid-net
+docker network create --label proveo.egress.session=sid sid-squid-egress-net
+== sidecars ==
+docker run -d --rm --name sid-squid --label proveo.egress.session=sid --security-opt=no-new-privileges:true --pids-limit=256 --network sid-squid-egress-net -v /st/squid/config:/etc/squid:ro -v /st/squid/logs:/var/log/squid ubuntu/squid:latest
+docker run -d --rm --name sid-egress --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=sid --network sid-opencode-mitm-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v /st/mitmproxy/confdir:/confdir -v /st/mitmproxy/flows:/flows -e PROVEO_EGRESS_UPSTREAM=http://squid:3128 proveo/egress-proxy:latest
+docker run -d --rm --name sid-ollama --label proveo.egress.session=sid --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --network sid-opencode-mitm-net --network-alias ollama -e OLLAMA_HOST=0.0.0.0:11434 -e OLLAMA_MODELS=/models -e OLLAMA_CONTEXT_LENGTH=32768 -v /models:/models:ro ollama/ollama:latest
+== connects ==
+docker network connect --alias squid sid-mitm-squid-net sid-squid
+docker network connect sid-mitm-squid-net sid-egress
+== cleanup ==
+docker rm -f sid-squid
+docker rm -f sid-egress
+docker rm -f sid-ollama
+docker network rm sid-opencode-mitm-net
+docker network rm sid-mitm-squid-net
+docker network rm sid-squid-egress-net
+== images ==
+ubuntu/squid:latest
+proveo/egress-proxy:latest
+ollama/ollama:latest
+== flags ==
+usesSquid=true
+agentNetwork=
+proxyContainer=sid-egress
+squidContainer=sid-squid
+ollamaContainer=sid-ollama
+caWaitPath=/st/mitmproxy/confdir/mitmproxy-ca-cert.pem
+needsLifecycle=true

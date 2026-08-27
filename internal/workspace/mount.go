@@ -340,7 +340,7 @@ func (w MountSpec) isolateEnv() bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(w.EgressMode)) {
-	case "open", "allowlist", "review", "broker", "proxy", "firewall":
+	case "open", "allowlist", "review":
 		return true
 	}
 	return false

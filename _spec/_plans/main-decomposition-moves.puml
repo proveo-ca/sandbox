@@ -1,0 +1,149 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: moves 2-6 of the main.go decomposition, each with its symbol inventory, seam, risk and proof
+' covers: cmd/proveo/main.go
+' covers: internal/agentio/**
+' covers: cmd/proveo/golden_test.go
+'
+' Overview and the four patterns: _spec/_plans/main-decomposition.puml
+' Move 0 (goldens) and move 1 (agentio) are DONE and recorded there.
+'
+' ── WHERE THE 3311 LINES SIT TODAY (script over top-level declarations) ─────
+'   move 2  credentials      411 lines / 23 decls
+'   move 3  posture          184 lines / 13 decls
+'   move 4  sandbox backend  756 lines / 24 decls
+'   move 5  docker backend   223 lines /  8 decls
+'   move 6  stages + cli    1092 lines / 24 decls   (doRun alone is 569)
+'   helpers that follow their callers   594 lines / 55 decls
+'
+' Projected size of cmd/proveo/main.go after each move:
+'   after 2 ~2900 · after 3 ~2716 · after 4 ~1960 · after 5 ~1737 · after 6 ~450
+'
+' ── MOVE 2 · internal/credentials ───────────────────────────────────────────
+' WHAT: authSuppressor(40) agentTranscript(36) parseEnvFile(33) loginUsable(26)
+'   loadedSecretNames(25) ghConfigMount(23) writeBrokerEnv(20) brokerProviders(19)
+'   effectiveAuthVar(18) envAuthVars(18) warnMountedSecrets(17) providerForAuthVar(16)
+'   brokerOffReason(16) reachableHosts(16) hasPersistedLogin losesToChosenAuth
+'   oauthCredential hydrateProcessEnv configVarsFor providerOfKeyVar joinDomains
+' SEAM: every one is a pure function of (manifest, lookup func(string) string,
+'   homeRoot) — no run state, no cobra, no docker. That is why it goes first.
+' RISK: writeBrokerEnv writes a real secret file; keep it the only writer and keep
+'   its 0600. warnMountedSecrets prints, so it takes a ui writer rather than
+'   reaching for the package global, or the posture tests cannot capture it.
+' PROOF: existing unit tests move with it; the plan goldens do not change because
+'   the argv these produce is unchanged. Add one test that the package NEVER
+'   returns a value from lookup for a suppressed var.
+'
+' ── MOVE 3 · internal/posture ───────────────────────────────────────────────
+' WHAT: observability(13) enforcedBy(7) imagePosture(8) workspacePosture(13)
+'   mcpGatewayPosture(14) rolesLine(12) workspaceHeader(25) withGlyphs(22)
+'   glyphMode/glyphModeFrom(16) detectHooks(19) reportImageChoice(18) mergeRoles(17)
+' SEAM: one Posture value built once, rendered twice — the prompt header a human
+'   reads before launch, and the runlog.Fields block a human reads after failure.
+'   Today those two are assembled independently, which is how a row could name
+'   Squid logs on a backend that runs none (fixed; the type prevents the class).
+' RISK: the transcript's key order is asserted nowhere. Fix that here: the Fields
+'   map becomes a struct with a stable render, and one golden covers it.
+' PROOF: a posture golden per backend, beside the plan goldens.
+'
+' ── MOVE 4 · internal/backend/sandbox ───────────────────────────────────────
+' WHAT: sandboxSpec(202) runSandbox(127) sbxHome(49) workspaceBinds(47)
+'   kitCredentials(44) kitEnvVars(29) ensureSbx(28) sbxReady(23)
+'   reportSbxUnavailable(23) captureSandboxPolicyLog(19) resolvedModelEnv(15)
+'   withMCPGatewayPolicy(15) warnSandboxBaseline(14) declineMCPGateway
+'   sbxStateHome sbxMCPGatewayAllowed willSandbox runSandboxInput firstHost
+' SEAM: sandboxSpec is ALREADY the pure half and runSandbox already the impure
+'   half — this move only gives that split a package boundary and a name. The
+'   Backend interface is Plan(RunSpec) then Execute(Plan).
+' RISK: runSandboxInput carries 16 fields, several resolved by cmd/proveo (memory,
+'   homeRoot, gitEnv). They become RunSpec fields, resolved by move 6's stages —
+'   until then the struct crosses the boundary unchanged.
+' PROOF: sbx-*.golden must be byte-identical. They render RunArgs + the Kit + the
+'   secret NAMES, which is the entire observable output of this package.
+'
+' ── MOVE 5 · internal/backend/dockeregress ──────────────────────────────────
+' WHAT: execWithEgress(69) startReviewGate(44) assemble(38) captureSidecarLogs(23)
+'   onSignalCleanup(14) reviewSupported(12) needsLifecycle(5) assembleInput(18)
+' SEAM: same interface as move 4. After this, doRun SELECTS a backend instead of
+'   branching on a bool that six other places also read.
+' RISK: execWithEgress owns teardown, signal handling and the review gate. Its
+'   cleanup must stay once-only (sync.Once) and must still run on SIGINT — the
+'   one behaviour no golden can see. Keep its existing test and add a signal one.
+' PROOF: docker-*.golden byte-identical; the egress integration suite green
+'   (PROVEO_EGRESS_INTEGRATION=1 -tags=integration).
+'
+' ── MOVE 6 · internal/run · the stages ──────────────────────────────────────
+' WHAT: doRun(569) splits into named stages over one RunSpec:
+'   resolveWorkspace · resolveCredentials · promptChoices · buildPosture ·
+'   selectBackend · execute · teardown
+'   promptChoices(64) gateAddons(46) gateReview(37) gateEvidence(18)
+'   addonOptions(22) applyCapabilities(18) seedFromCache(17) go to
+'   internal/run/choices.go beside them; runCmd(74) main(48) doSetup(46)
+'   projectsCmd(20) stay in cmd/proveo as wiring.
+' SEAM: each stage takes RunSpec and returns a value or an error; the executor
+'   applies effects. --print stops being a branch and becomes "stop after plan".
+' RISK: the highest of the six. doRun's locals are its hidden contract — sid,
+'   egDir, uid/gid, mounts, workdir, lookup, detected, homePlan. Enumerate them
+'   into RunSpec BEFORE splitting, in one commit that changes nothing else.
+' PROOF: every golden, both integration and the e2e ladder. This is the move that
+'   most needs the e2e baseline green first — see _spec/_plans/restore-green-e2e.
+title PLANNED — moves 2 to 6: what leaves cmd/proveo, and what proves each move inert
+
+component "cmd/proveo/main.go\n3311 lines today · 158 declarations" as MAIN <<error>>
+
+frame "the five remaining moves, in order" as MOVES <<host>> {
+  component "**2 · internal/credentials**\n411 lines — pure over manifest + lookup" as M2 <<app>>
+  component "**3 · internal/posture**\n184 lines — one value, two readers" as M3 <<app>>
+  component "**4 · backend/sandbox**\n756 lines — the pure/impure split, named" as M4 <<app>>
+  component "**5 · backend/dockeregress**\n223 lines — same interface, second impl" as M5 <<app>>
+  component "**6 · internal/run**\n1092 lines — doRun becomes seven stages" as M6 <<async>>
+}
+
+frame "what proves each move inert" as PROOF <<host>> {
+  component "plan goldens\ndocker-*.golden · sbx-*.golden" as G <<db>>
+  component "posture golden\nadded by move 3" as PG <<db>>
+  component "egress integration\nreal Squid + MITM + broker mount" as INT <<app>>
+  component "e2e baseline\nmust be green before move 6" as E2E <<error>>
+}
+
+MAIN ARROW_MAIN M2
+M2 ARROW_MAIN M3
+M3 ARROW_MAIN M4
+M4 ARROW_MAIN M5
+M5 ARROW_MAIN M6
+
+M2 ARROW_QUEUE G
+M3 ARROW_QUEUE PG
+M4 ARROW_QUEUE G
+M5 ARROW_QUEUE INT
+M6 ARROW_ERROR E2E : blocked until green
+
+note bottom of M2
+  First because it depends on nothing else in the
+  run: manifest in, lookup in, a decision out. It
+  is also where the .env and the broker file live,
+  so one package owns every path a secret takes.
+end note
+
+note bottom of M4
+  The cheapest of the four extractions: the pure
+  half and the effect half already exist as two
+  functions. This move gives them a package and an
+  interface, and moves no logic between them.
+end note
+
+note bottom of M6
+  Last and riskiest. doRun's locals ARE its
+  contract, so they get enumerated into RunSpec in
+  a commit that changes nothing else. Only then
+  does the function split.
+end note
+
+note bottom of E2E
+  Six of eight e2e failures are decision-free
+  repairs; two encode open decisions and must stay
+  red until those are made. Moving code against a
+  red baseline hides which red is new.
+end note
+@enduml

@@ -810,6 +810,52 @@ func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
 }
 
+func PolicyLogArgs(sandbox string) []string {
+	return []string{"policy", "log", sandbox, "--json"}
+}
+
+func CheckNetworkArgs(host string) []string {
+	return []string{"policy", "check", "network", "--json", host}
+}
+
+func PolicyLog(sandbox string) ([]byte, error) { return policyLog(sandbox) }
+
+var (
+	policyLog = func(sandbox string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
+		defer cancel()
+		return exec.CommandContext(ctx, Binary, PolicyLogArgs(sandbox)...).Output()
+	}
+	policyCheck = func(host string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
+		defer cancel()
+		return exec.CommandContext(ctx, Binary, CheckNetworkArgs(host)...).Output()
+	}
+)
+
+func NetworkAllowed(host string) (allowed, known bool) {
+	out, err := policyCheck(host)
+	if err != nil {
+		return false, false
+	}
+	var decision struct {
+		Allowed *bool  `json:"allowed"`
+		Result  string `json:"result"`
+		Access  string `json:"access"`
+	}
+	if err := json.Unmarshal(out, &decision); err == nil && decision.Allowed != nil {
+		return *decision.Allowed, true
+	}
+	s := strings.ToLower(string(out))
+	switch {
+	case strings.Contains(s, "\"allowed\""), strings.HasPrefix(s, "allowed:"), strings.Contains(s, "\nallowed:"):
+		return true, true
+	case strings.Contains(s, "denied"), strings.Contains(s, "blocked"):
+		return false, true
+	}
+	return false, false
+}
+
 // SecretSetArgs builds the credential-injection argv.
 //
 // --force is what makes the write non-interactive on a SECOND run. `sbx secret

@@ -362,7 +362,7 @@ func TestPlanSubdirRootDirsAreEnvMasked(t *testing.T) {
 	got, _, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
-		EgressMode: "firewall", // isolates env
+		EgressMode: "allowlist", // isolates env
 	}.Plan()
 
 	byContainer := map[string]runner.Mount{}
@@ -606,7 +606,7 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 		t.Errorf("Plan() credentials=forward with symlinked .env links mismatch (-want +got):\n%s", diff)
 	}
 
-	spec.EgressMode, spec.Credentials = "firewall", "broker"
+	spec.EgressMode, spec.Credentials = "allowlist", "broker"
 	got, _, _ = spec.Plan()
 	wantIsolated := []runner.Mount{
 		{Host: root, Container: "/app"},

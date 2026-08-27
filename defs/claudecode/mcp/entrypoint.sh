@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/_plans/revision-env-egress.puml
 # Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
 set -e
 
@@ -134,6 +134,8 @@ if agent_evidence_verbose; then
 else
   report_agent_evidence
 fi
+
+export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
 
 echo "🚀 Launching Claude Code..."
 proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" -- "$@"

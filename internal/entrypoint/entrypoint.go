@@ -124,13 +124,19 @@ func LoadEnvFile(path string) error {
 	return sc.Err()
 }
 
-func ShouldSkipEnvLoad(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "open", "allowlist", "review", "proxy", "firewall":
-		return true
+var CanonicalTiers = []string{"open", "allowlist", "review"}
+
+func canonicalTier(mode string) bool {
+	m := strings.ToLower(strings.TrimSpace(mode))
+	for _, t := range CanonicalTiers {
+		if m == t {
+			return true
+		}
 	}
 	return false
 }
+
+func ShouldSkipEnvLoad(mode string) bool { return canonicalTier(mode) }
 
 // BridgeGoogleKeys mirrors the GEMINI/GOOGLE key alias bridges from load_env.
 func BridgeGoogleKeys() {
@@ -152,7 +158,7 @@ func BridgeGoogleKeys() {
 }
 
 func ApplyBrokerSentinel(mode, keysCSV, sentinel string) []string {
-	if strings.ToLower(strings.TrimSpace(mode)) != "firewall" {
+	if !canonicalTier(mode) {
 		return nil
 	}
 	if strings.TrimSpace(keysCSV) == "" {

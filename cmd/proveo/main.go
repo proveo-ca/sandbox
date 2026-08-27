@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -23,14 +22,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/maintain"
-
 	"github.com/gdamore/tcell/v2"
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/dind"
@@ -38,6 +35,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -328,7 +326,7 @@ func doRun(p runParams) error {
 	}
 
 	subScope := strings.Trim(p.scope, "/")
-	if subScope == "" && !p.printOnly && isStdinTTY() && wizardEnabled() && ws.IsRepo {
+	if subScope == "" && !p.printOnly && agentio.IsStdinTTY() && wizardEnabled() && ws.IsRepo {
 		if projs := workspace.DiscoverProjects(repoRoot); len(projs) > 0 {
 			subScope = pickProject(projs, os.Stdin, os.Stderr)
 		}
@@ -374,7 +372,7 @@ func doRun(p runParams) error {
 	if err != nil {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
-	promptable := cacheApplies(p.printOnly, isStdinTTY())
+	promptable := cacheApplies(p.printOnly, agentio.IsStdinTTY())
 	if err := p.applyCapabilities(man.Capabilities); err != nil {
 		return err
 	}
@@ -482,7 +480,7 @@ func doRun(p runParams) error {
 		} else if man.Subscription {
 			authMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", man.Name)
-		} else if isStdinTTY() && wizardEnabled() {
+		} else if agentio.IsStdinTTY() && wizardEnabled() {
 			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
 				_ = os.Setenv(name, v)
 			}
@@ -549,7 +547,7 @@ func doRun(p runParams) error {
 		"harness hosts":   strings.Join(man.Capabilities.Hosts, ","),
 		"auth var":        p.authVar,
 		"local model":     p.localModel,
-		"observability":   observability(p.mode, p.credentialsOrDefault()),
+		"observability":   observability(p.mode, p.credentialsOrDefault(), p.willSandbox(man)),
 		"enforced by":     enforcedBy(p.willSandbox(man)),
 		"image":           imagePosture(p.image),
 		"model roles":     rolesLine(p.bridges, p.target, p.roles),
@@ -639,7 +637,7 @@ func doRun(p runParams) error {
 	}
 
 	if !p.printOnly {
-		if k := resolveGitHubTokenEnv(hostGhAuth(), isStdinTTY() && wizardEnabled(), os.Stdin, os.Stderr); k != "" {
+		if k := resolveGitHubTokenEnv(hostGhAuth(), agentio.IsStdinTTY() && wizardEnabled(), os.Stdin, os.Stderr); k != "" {
 			env = append(env, k)
 		}
 	}
@@ -654,6 +652,7 @@ func doRun(p runParams) error {
 		default:
 			sbxBackend = true
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
+			warnSandboxBaseline()
 		}
 	}
 	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
@@ -1407,104 +1406,6 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-// ansiSeq matches the escape sequences a TUI writes constantly. They are stripped
-// from the retained tail because a replayed cursor-move is noise, and a tail full of
-// escapes is harder to read than no tail at all.
-var ansiSeq = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\\\-_]")
-
-// agentStdio picks the writers handed to the sandbox agent. On a terminal it
-// returns out and err UNCHANGED — os/exec only passes the child the real tty when
-// the field still holds that *os.File, and any wrapper silently becomes a pipe.
-// Off a terminal the stream is already redirected, so teeing costs nothing and the
-// tail becomes the only record of what the agent said.
-func agentStdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *tailWriter) {
-	tail := newTailWriter(24)
-	if tty {
-		// The child keeps the real terminal: os/exec hands it a tty only when the
-		// field holds an *os.File, and an io.MultiWriter substitutes a pipe — the
-		// agent then cannot read the window size and draws one character per line.
-		//
-		// The tail is still returned. It stays empty on a bare exec, but the pty
-		// proxy can fill it from the master side at no cost to the child, which is
-		// what finally gives an INTERACTIVE run a record of its last words. See
-		// ptyproxy.Proxy.OutTap.
-		return out, err, tail
-	}
-	return io.MultiWriter(out, tail), io.MultiWriter(err, tail), tail
-}
-
-// tailWriter keeps the last n non-empty lines written through it. It is a tee, not
-// a filter: everything still reaches the terminal untouched, and only the retained
-// copy is cleaned up for replay.
-//
-// The mutex is load-bearing. os/exec copies stdout and stderr on separate
-// goroutines, and both are teed into ONE tailWriter, so two Writes interleave on the
-// same buffer: one goroutine computes an index, the other reslices under it, and the
-// next reslice panics with bounds out of range. That is not a rare race — it took
-// out the first real run this shipped in.
-type tailWriter struct {
-	mu    sync.Mutex
-	n     int
-	buf   []byte
-	lines []string
-}
-
-func newTailWriter(n int) *tailWriter { return &tailWriter{n: n} }
-
-func (t *tailWriter) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.buf = append(t.buf, p...)
-	for {
-		i := bytes.IndexAny(t.buf, "\n\r")
-		if i < 0 {
-			break
-		}
-		t.push(string(t.buf[:i]))
-		t.buf = t.buf[i+1:]
-	}
-	// A TUI may never emit a newline; do not let the pending fragment grow forever.
-	if len(t.buf) > 8192 {
-		t.push(string(t.buf))
-		t.buf = nil
-	}
-	return len(p), nil
-}
-
-func (t *tailWriter) push(line string) {
-	line = strings.TrimSpace(ansiSeq.ReplaceAllString(line, ""))
-	line = strings.Map(func(r rune) rune {
-		if r < 0x20 && r != '\t' {
-			return -1
-		}
-		return r
-	}, line)
-	if line == "" {
-		return
-	}
-	if n := len(t.lines); n > 0 && t.lines[n-1] == line {
-		return // a redrawn status line is one line, not many
-	}
-	t.lines = append(t.lines, line)
-	if len(t.lines) > t.n {
-		t.lines = t.lines[len(t.lines)-t.n:]
-	}
-}
-
-// Lines returns the retained tail, including any unterminated fragment.
-func (t *tailWriter) Lines() []string {
-	if t == nil {
-		return nil // interactive run: the terminal was handed over instead
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if len(t.buf) > 0 {
-		t.push(string(t.buf))
-		t.buf = nil
-	}
-	return t.lines
-}
-
 // agentTranscriptDirs are where a harness writes its session transcripts inside the
 // mounted proveo home, relative to it. Keyed by target: each CLI chooses its own.
 var agentTranscriptDirs = map[string][]string{
@@ -1691,91 +1592,6 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 		return true, true
 	}
 	return false, false
-}
-
-// stdinFilterEnabled reports whether the terminal-report filter is on.
-// PROVEO_STDIN_FILTER=off restores byte-for-byte passthrough, for an operator
-// whose terminal is well-behaved and who wants nothing between it and the agent.
-func stdinFilterEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_STDIN_FILTER"))) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
-
-// stdinTracer opens the file named by PROVEO_TRACE_STDIN and returns a tap for
-// ptyproxy plus its closer. Returns (nil, no-op) when the variable is unset, so
-// the default path is byte-for-byte the untraced one.
-//
-// Each read is one line: when it arrived, how many bytes, whether the filter
-// forwarded it, the printable rendering, and the hex. Control bytes are what
-// matter here — a terminal answering a device-attributes query looks like text
-// in a transcript and like an escape sequence in the hex, and only the second
-// tells the truth.
-func stdinTracer(path string) (func([]byte, bool), func()) {
-	if strings.TrimSpace(path) == "" {
-		return nil, func() {}
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		ui.Warnf("stdin trace: cannot open %s (%v); continuing untraced", path, err)
-		return nil, func() {}
-	}
-	ui.Iconf("🔎", "stdin trace → %s (every byte the agent is sent)", path)
-	fmt.Fprintf(f, "=== trace opened %s ===\n", time.Now().Format(time.RFC3339Nano))
-	var mu sync.Mutex
-	tap := func(b []byte, forwarded bool) {
-		// Copy before returning: the pump reuses its buffer on the next read.
-		c := append([]byte(nil), b...)
-		mu.Lock()
-		defer mu.Unlock()
-		verdict := "sent"
-		if !forwarded {
-			verdict = "DROPPED"
-		}
-		fmt.Fprintf(f, "%s  n=%-4d %-7s %-40q %s\n",
-			time.Now().Format("15:04:05.000"), len(c), verdict, renderControl(c), hexBytes(c))
-	}
-	return tap, func() {
-		mu.Lock()
-		defer mu.Unlock()
-		fmt.Fprintf(f, "=== trace closed %s ===\n", time.Now().Format(time.RFC3339Nano))
-		_ = f.Close()
-	}
-}
-
-// renderControl makes escape sequences legible without hiding them: ESC becomes
-// a caret form rather than vanishing into %q's \x1b, which is what makes a
-// terminal's reply recognisable at a glance.
-func renderControl(b []byte) string {
-	var sb strings.Builder
-	for _, c := range b {
-		switch {
-		case c == 0x1b:
-			sb.WriteString("<ESC>")
-		case c == '\r':
-			sb.WriteString("<CR>")
-		case c == '\n':
-			sb.WriteString("<LF>")
-		case c < 0x20 || c == 0x7f:
-			fmt.Fprintf(&sb, "<%02X>", c)
-		default:
-			sb.WriteByte(c)
-		}
-	}
-	return sb.String()
-}
-
-func hexBytes(b []byte) string {
-	var sb strings.Builder
-	for i, c := range b {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
-		fmt.Fprintf(&sb, "%02x", c)
-	}
-	return sb.String()
 }
 
 // imagePosture records WHICH image a run took, because "proveo/claudecode:latest"
@@ -2935,13 +2751,13 @@ func runSandbox(in runSandboxInput) error {
 	// it in an io.MultiWriter substitutes a pipe, so the agent sees no tty, cannot
 	// read the window size, and draws its TUI one character per line. Interactive
 	// runs keep the terminal and forgo the tail — the operator is watching anyway.
-	stdout, stderr, tail := agentStdio(os.Stdout, os.Stderr, isWriterTTY(os.Stdout))
+	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	// PROVEO_TRACE_STDIN answers the one question a transcript cannot: an agent
 	// that exits on its own, having answered prompts the operator never typed,
 	// is being driven by SOMETHING on stdin — a multiplexer replying to a
 	// terminal query, a wrapper feeding a script, a stray paste. The transcript
 	// records what the agent RECEIVED; only a tap records what arrived.
-	traceIn, stopTrace := stdinTracer(os.Getenv("PROVEO_TRACE_STDIN"))
+	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
 	// An interactive run goes through the pty proxy so the operator's terminal is
 	// FILTERED before it reaches the agent. sbx drives the agent through its
@@ -2954,7 +2770,7 @@ func runSandbox(in runSandboxInput) error {
 	// The proxy gives the child its own pty, so this costs the agent nothing:
 	// wrapping os.Stdin instead would make os/exec substitute a pipe and take the
 	// terminal away entirely.
-	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && stdinFilterEnabled()
+	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
 	run := func() error {
 		c := exec.Command(sbx.Binary, args...)
 		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
@@ -2993,6 +2809,7 @@ func runSandbox(in runSandboxInput) error {
 		}
 	}
 	defer func() {
+		captureSandboxPolicyLog(in.egDir, cfg.Name)
 		// A sandbox that failed is the only copy of why. sbx has no `logs` command, so
 		// force-removing it here destroyed the evidence for two consecutive 137s before
 		// anyone could read it. Keep it, and say how to look and how to clean up.
@@ -3082,6 +2899,41 @@ func runSandbox(in runSandboxInput) error {
 	return runErr
 }
 
+const unallowlistedProbe = "proveo-egress-probe.invalid"
+
+func warnSandboxBaseline() {
+	allowed, known := sbx.NetworkAllowed(unallowlistedProbe)
+	if !known {
+		ui.Notef("    sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
+		return
+	}
+	if !allowed {
+		return
+	}
+	ui.Warnf("sbx's global network policy allows every host, so this run's Kit allowlist adds reach rather than limiting it")
+	ui.Notef("    the tier below describes proveo's intent, not what sandboxd will enforce")
+	ui.Notef("    make it bind once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
+}
+
+func captureSandboxPolicyLog(egDir, name string) {
+	if egDir == "" || name == "" {
+		return
+	}
+	out, err := sbx.PolicyLog(name)
+	if err != nil || len(bytes.TrimSpace(out)) == 0 {
+		return
+	}
+	dir := filepath.Join(egDir, "sbx")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	path := filepath.Join(dir, runlog.PolicyLogFile)
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return
+	}
+	ui.Iconf("📄", "egress record: %s", path)
+}
+
 func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 	for name, file := range map[string]string{
 		plan.ProxyContainer:  "inspector.log",
@@ -3131,7 +2983,10 @@ func enforcedBy(sandboxed bool) string {
 	return "proveo — squid + mitmproxy sidecars on the session network"
 }
 
-func observability(mode, credentials string) string {
+func observability(mode, credentials string, sandboxed bool) string {
+	if sandboxed {
+		return "sbx/" + runlog.PolicyLogFile + " — the daemon's allowed/blocked hosts (no MITM, so no DLP or body scan)"
+	}
 	if mode == "open" && credentials == "forward" {
 		return "none — plain bridge, no MITM, no Squid: provider errors are NOT proveo denials"
 	}
@@ -3445,26 +3300,9 @@ func onPath(dir string) bool {
 	return false
 }
 
-// isStdinTTY gates every interactive prompt (scope picker, env wizard).
-func isStdinTTY() bool { return isReaderTTY(os.Stdin) }
-
-// isWriterTTY reports whether w is an *os.File attached to a terminal. A child
-// process only inherits the terminal when the exec field holds that same *os.File,
-// so this also answers "may I wrap this writer?".
-func isWriterTTY(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
-}
-
-// isReaderTTY reports whether r is an *os.File attached to a terminal.
-func isReaderTTY(r io.Reader) bool {
-	f, ok := r.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
-}
-
 // pickProject returns the chosen monorepo scope ("" = repo root).
 func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string {
-	if isReaderTTY(in) {
+	if agentio.IsReaderTTY(in) {
 		return fuzzyPickProject(projs)
 	}
 	return pickProjectNumbered(projs, in, out)

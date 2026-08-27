@@ -15,6 +15,7 @@ import (
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -53,14 +54,14 @@ func selectTargets(reg []maintain.Target, arg, verb string) ([]maintain.Target, 
 		}
 		return nil, fmt.Errorf("unknown target %q — use 'all' or one of: %s", arg, targetNames(reg))
 	}
-	if isStdinTTY() {
+	if agentio.IsStdinTTY() {
 		return pickTargets(reg, verb, os.Stdin, os.Stderr)
 	}
 	return nil, fmt.Errorf("no target given; pass a target name or 'all' (targets: %s)", targetNames(reg))
 }
 
 func pickTargets(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
-	if isReaderTTY(in) {
+	if agentio.IsReaderTTY(in) {
 		return fuzzyPickTargets(reg, verb)
 	}
 	return pickTargetsNumbered(reg, verb, in, out)

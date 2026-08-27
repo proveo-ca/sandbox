@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -140,7 +141,7 @@ func provisionConfirm(question string) bool {
 	case "0", "false", "no", "off":
 		return false
 	}
-	if !isStdinTTY() || !wizardEnabled() {
+	if !agentio.IsStdinTTY() || !wizardEnabled() {
 		return false
 	}
 	return promptYesNo("🔨 "+question, true, os.Stdin, os.Stderr)

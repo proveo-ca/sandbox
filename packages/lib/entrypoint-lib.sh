@@ -112,7 +112,7 @@ load_env() {
  say() { (( quiet )) || echo "$@"; }
 
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- proxy|firewall)
+ open|allowlist|review)
  say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
  apply_broker_sentinel
  unset -f say
@@ -152,10 +152,10 @@ load_env() {
 }
 
 # Rewrite brokered credential env vars to a sentinel so the agent process never
-# holds the real key (MITM injects the real secret). firewall mode only.
+# holds the real key (the inspector injects it on-route).
 apply_broker_sentinel() {
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- firewall) ;;
+ open|allowlist|review) ;;
  *) return 0 ;;
  esac
  local keys="${PROVEO_CREDENTIAL_BROKER_KEYS:-}"

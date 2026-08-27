@@ -1,0 +1,15 @@
+== agent argv ==
+docker run -it --rm --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=4096 -v /work:/app -w /app --network=bridge --add-host=host.docker.internal:127.0.0.1 proveo/opencode:latest
+== networks ==
+== sidecars ==
+== connects ==
+== cleanup ==
+== images ==
+== flags ==
+usesSquid=false
+agentNetwork=
+proxyContainer=
+squidContainer=
+ollamaContainer=
+caWaitPath=
+needsLifecycle=false

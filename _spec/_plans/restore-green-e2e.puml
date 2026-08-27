@@ -1,0 +1,143 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the eight failing e2e tests, their root causes, and what each one is waiting on
+' covers: tests/e2e/**
+' covers: packages/lib/entrypoint-lib.sh
+' covers: cmd/proveo/main.go
+' covers: defs/claudecode/mcp/entrypoint.sh
+'
+' Measured: `go test -tags=e2e ./tests/e2e/` on this host — 35 pass, 6 skip, 8 fail,
+' 585s. Every failure reproduces on a pristine checkout, so none of them is a
+' regression from the decomposition; they are the baseline that has to be repaired
+' before move 6 (_spec/_plans/main-decomposition-moves.puml) can be judged.
+'
+' ── C1 · THE ENTRYPOINT DIES BEFORE THE AGENT STARTS (root cause proven) ────
+' packages/lib/entrypoint-lib.sh, _proveo_lock_installs:
+'
+'     exec 9>"${dir}/install.lock" 2>/dev/null || return 0
+'
+' A redirection failure on `exec` is FATAL to a non-interactive shell, so the
+' `|| return 0` is dead code: instead of skipping installs, the whole entrypoint
+' exits. Measured on proveo/claudecode with the working-tree entrypoint:
+'   * installs enabled  → exit 1 after 1s, `set -x` ends on `+ exec`, and
+'     PROVEO_SMOKE_READY never prints
+'   * PROVEO_AUTO_INSTALL_TOOLS=false → the same entrypoint reaches
+'     PROVEO_SMOKE_READY and holds, exactly as the probe expects
+' The helper works when called on its own, so the trigger is state the run leaves
+' behind before it — most likely the lock file's owner after the runtime-user step.
+' FIX: probe writability first and never let `exec` decide the run's fate:
+'     if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
+'     exec 9>>"${dir}/install.lock"
+' plus a container test that asserts an unwritable lock path SKIPS installs rather
+' than ending the run. `ensure_project_tools` is shared by every harness, so run
+' the same probe per def rather than assuming claudecode is the only victim.
+' UNBLOCKS: TestClaudecodeEntrypointOperatesOnTheInputDir, and very likely the
+' claudecode leg of TestHelloWorldE2E and TestPromptfulE2E — an agent whose
+' entrypoint exited cannot answer a prompt or write a file.
+'
+' ── C2 · FOUR ASSERTIONS PIN THE RETIRED HOME REDIRECT ──────────────────────
+' sbxHome DELETES HOME and PROVEO_HOME on the sandbox backend and publishes
+' PROVEO_STATE_HOME instead. That deletion IS the fix: redirecting HOME orphaned
+' the credential sbx's own proxy writes under the image's home, and the agent then
+' reported "Not logged in". Three tests still assert the redirect:
+'   TestProveoHomePersistence ("agent cmd missing -e HOME=")
+'   TestSandboxKitIsAMixinCarryingNoCredentials ("Kit environment omits HOME")
+'   TestSandboxBackendCarriesProveoHomeBesideHome (the name is the old contract)
+' FIX: assert the CURRENT contract — no HOME/PROVEO_HOME in the sbx argv or Kit,
+' PROVEO_STATE_HOME present and pointing at the mounted home, and the docker path
+' unchanged. Keep one assertion that the redirect stays gone, so it cannot return
+' by accident. This is a rewrite of what is asserted, not a loosening: each one
+' gains a positive claim it did not have.
+'
+' ── C3 · TWO FAILURES ENCODE OPEN DECISIONS — DO NOT MAKE THEM GREEN ────────
+' These two are the live evidence behind _spec/_plans/revision-env-egress.puml.
+' Flipping either to match today's behaviour would erase the finding.
+'
+'   TestEveryHarnessGetsTheDockerAccessItPromises  (decision D2)
+'     asserts no socket and no daemon inside an sbx sandbox; the probe reports
+'     HAS-SOCKET and SERVER:29.7.2 for claudecode and cursor, because the images
+'     now carry com.docker.sandboxes.start-docker. Code and test assert opposite
+'     things about one decision. It goes green when D2 is decided: either the
+'     label is gated like dind, or this assertion is rewritten to "a daemon is
+'     present AND its containers cannot leave the Kit allowlist".
+'
+'   TestCredentialForwardingIntegrity  (decision D1)
+'     asserts no provider key appears in the sandbox argv; proveo deliberately
+'     emits `-e VAR=` (empty) to override sbx's GLOBAL secret store. The empty
+'     value is also how a workspace .env refills a variable proveo blanked. It
+'     goes green when D1 lands: assert `-e VAR=` carries no VALUE, and add the
+'     sentinel parity the plan proposes.
+'
+' ── C4 · WHAT IS LEFT AFTER C1 ──────────────────────────────────────────────
+' TestHelloWorldE2E (opencode, cecli legs) and TestPromptfulE2E run the local
+' model. Re-measure them once C1 lands; on macOS the local-model posture drops to
+' a CPU-only sidecar outside open+forward, which is slow enough to look like a
+' hang. Only then decide whether they need a posture fix or a longer deadline.
+'
+' ── ACCEPTANCE ─────────────────────────────────────────────────────────────
+' Green does NOT mean zero red. It means: C1 and C2 pass, C4 passes or states a
+' measured environmental reason, and the only red left is C3 — where each failure
+' names the decision it is waiting on. A suite in that state is a baseline a
+' refactor can be judged against, because every red has an owner.
+title PLANNED — restoring a readable e2e baseline: 8 failures, 4 causes, 1 that must stay red
+
+component "go test -tags=e2e ./tests/e2e/\n35 pass · 6 skip · 8 fail · 585s" as SUITE <<error>>
+
+frame "C1 · one shell line ends every run" as C1 <<host>> {
+  component "_proveo_lock_installs\n`exec 9>lock || return 0` — the guard is\ndead code; the redirect kills the shell" as LOCK <<error>>
+  component "probe writability, then exec\n+ a test for the unwritable case" as FIXLOCK <<app>>
+}
+
+frame "C2 · assertions pin a retired contract" as C2 <<host>> {
+  component "3 tests assert -e HOME=\nsbxHome deletes it on purpose" as HOMEA <<error>>
+  component "assert PROVEO_STATE_HOME instead,\nand that the redirect stays gone" as FIXHOME <<app>>
+}
+
+frame "C3 · decision-bearing, keep red" as C3 <<host>> {
+  component "docker access promise (D2)\nHAS-SOCKET · SERVER:29.7.2" as D2 <<error>>
+  component "credential argv (D1)\n`-e VAR=` is deliberate" as D1 <<error>>
+}
+
+frame "C4 · measure again after C1" as C4 <<host>> {
+  component "HelloWorld · Promptful\nlocal model, CPU sidecar on macOS" as MODEL <<async>>
+}
+
+SUITE ARROW_ERROR LOCK
+SUITE ARROW_ERROR HOMEA
+SUITE ARROW_ERROR D2
+SUITE ARROW_ERROR D1
+LOCK ARROW_MAIN FIXLOCK
+HOMEA ARROW_MAIN FIXHOME
+FIXLOCK ARROW_QUEUE MODEL : re-measure
+D2 ARROW_OPTIONAL SUITE : green when D2 lands
+D1 ARROW_OPTIONAL SUITE : green when D1 lands
+
+note bottom of LOCK
+  Proven by measurement, not by reading: installs
+  on gives exit 1 in one second with the trace
+  ending on `+ exec`; installs off reaches
+  PROVEO_SMOKE_READY and holds.
+end note
+
+note bottom of FIXHOME
+  A rewrite, not a loosening. Each of the three
+  gains a positive claim it lacked — that
+  PROVEO_STATE_HOME points at the mounted home and
+  that the old redirect cannot come back.
+end note
+
+note bottom of C3
+  Both reds are findings. Matching them to today's
+  behaviour deletes the only evidence that the
+  sandbox ships a daemon, and that a blanked
+  credential can be refilled from the workspace.
+end note
+
+note bottom of SUITE
+  The bar is not zero red. It is: every red names
+  the decision it waits on. That is a baseline a
+  refactor can be judged against, because a new
+  failure is then unmistakable.
+end note
+@enduml

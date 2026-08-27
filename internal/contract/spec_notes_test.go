@@ -16,6 +16,10 @@ import (
 // joins the list once its notes are rewritten. The point is that a compliant file cannot
 // silently regress while the backlog is worked through.
 var specNotesEnforced = []string{
+	"_spec/_plans/main-decomposition-moves.puml",
+	"_spec/_plans/main-decomposition.puml",
+	"_spec/_plans/restore-green-e2e.puml",
+	"_spec/_plans/revision-env-egress.puml",
 	"_spec/defs/agent-definition-sharing.puml",
 	"_spec/internal/choiceui/choice-prompt-render.puml",
 	"_spec/internal/entrypoint/model-alias-bridges.puml",

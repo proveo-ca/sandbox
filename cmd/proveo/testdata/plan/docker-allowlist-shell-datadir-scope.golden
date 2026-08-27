@@ -1,0 +1,29 @@
+== agent argv ==
+docker run -it --rm --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=2048 -v /work:/app -v /work/reports:/app/output -v /data:/workspace/data:ro -w /app/apps/web --entrypoint bash --network sid-cecli-mitm-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e ENFORCEMENT_PROXY=http://squid:3128 -e PROVEO_EGRESS_SESSION_ID=sid -e PROVEO_EGRESS_MODE=allowlist -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v /st/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem proveo/cecli:latest
+== networks ==
+docker network create --label proveo.egress.session=sid --internal sid-cecli-mitm-net
+docker network create --label proveo.egress.session=sid --internal sid-mitm-squid-net
+docker network create --label proveo.egress.session=sid sid-squid-egress-net
+== sidecars ==
+docker run -d --rm --name sid-squid --label proveo.egress.session=sid --security-opt=no-new-privileges:true --pids-limit=256 --network sid-squid-egress-net -v /st/squid/config:/etc/squid:ro -v /st/squid/logs:/var/log/squid ubuntu/squid:latest
+docker run -d --rm --name sid-egress --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=sid --network sid-cecli-mitm-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v /st/mitmproxy/confdir:/confdir -v /st/mitmproxy/flows:/flows -e PROVEO_EGRESS_UPSTREAM=http://squid:3128 proveo/egress-proxy:latest
+== connects ==
+docker network connect --alias squid sid-mitm-squid-net sid-squid
+docker network connect sid-mitm-squid-net sid-egress
+== cleanup ==
+docker rm -f sid-squid
+docker rm -f sid-egress
+docker network rm sid-cecli-mitm-net
+docker network rm sid-mitm-squid-net
+docker network rm sid-squid-egress-net
+== images ==
+ubuntu/squid:latest
+proveo/egress-proxy:latest
+== flags ==
+usesSquid=true
+agentNetwork=
+proxyContainer=sid-egress
+squidContainer=sid-squid
+ollamaContainer=
+caWaitPath=/st/mitmproxy/confdir/mitmproxy-ca-cert.pem
+needsLifecycle=true

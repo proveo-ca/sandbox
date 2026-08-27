@@ -895,3 +895,37 @@ func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
 		t.Errorf("an unreadable store must yield no names, got %v", got)
 	}
 }
+
+func TestPolicyEvidenceArgsMatchTheCLI(t *testing.T) {
+	t.Parallel()
+	if got, want := strings.Join(PolicyLogArgs("proveo-1"), " "), "policy log proveo-1 --json"; got != want {
+		t.Errorf("PolicyLogArgs = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(CheckNetworkArgs("api.example.com"), " "), "policy check network --json api.example.com"; got != want {
+		t.Errorf("CheckNetworkArgs = %q, want %q", got, want)
+	}
+}
+
+func TestNetworkAllowedReadsTheDaemonsAnswer(t *testing.T) {
+	orig := policyCheck
+	t.Cleanup(func() { policyCheck = orig })
+
+	policyCheck = func(string) ([]byte, error) {
+		return []byte(`{"action":"net:connect:tcp","allowed":true,"context":"global"}`), nil
+	}
+	if allowed, known := NetworkAllowed("evil.example.invalid"); !allowed || !known {
+		t.Errorf("allow-all baseline: allowed=%v known=%v, want true/true", allowed, known)
+	}
+
+	policyCheck = func(string) ([]byte, error) {
+		return []byte(`{"action":"net:connect:tcp","allowed":false,"context":"global"}`), nil
+	}
+	if allowed, known := NetworkAllowed("evil.example.invalid"); allowed || !known {
+		t.Errorf("deny baseline: allowed=%v known=%v, want false/true", allowed, known)
+	}
+
+	policyCheck = func(string) ([]byte, error) { return nil, errors.New("sandboxd unreachable") }
+	if allowed, known := NetworkAllowed("evil.example.invalid"); allowed || known {
+		t.Errorf("unreadable: allowed=%v known=%v, want false/false", allowed, known)
+	}
+}

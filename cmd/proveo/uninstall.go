@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -46,7 +47,7 @@ func doUninstall(yes bool) error {
 		}
 	}
 	root := installRoot()
-	if !yes && isStdinTTY() {
+	if !yes && agentio.IsStdinTTY() {
 		fmt.Fprintf(os.Stderr, "This will remove proveo from %s. Continue? [y/N] ", root)
 		s, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		switch strings.ToLower(strings.TrimSpace(s)) {

@@ -37,7 +37,7 @@ func TestFirewallIntegration(t *testing.T) {
 	state := t.TempDir()
 	sid := fmt.Sprintf("proveo-it-%d", os.Getpid())
 	opts := Options{
-		Mode: "firewall", SessionID: sid, AgentName: "itest",
+		Mode: "allowlist", SessionID: sid, AgentName: "itest",
 		UID: uid, GID: gid,
 		ConfDir: filepath.Join(state, "mitmproxy", "confdir"), FlowsDir: filepath.Join(state, "mitmproxy", "flows"),
 		SquidConfigDir: filepath.Join(state, "squid", "config"), SquidLogDir: filepath.Join(state, "squid", "logs"),
@@ -125,8 +125,8 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(injectDir) })
 
 	opts := Options{
-		Mode: "firewall", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
-		Provider: "anthropic", BrokerEnvFile: brokerEnv,
+		Mode: "allowlist", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
+		Providers: []string{"anthropic"}, BrokerEnvFile: brokerEnv,
 		ConfDir: filepath.Join(state, "mitmproxy", "confdir"), FlowsDir: filepath.Join(state, "mitmproxy", "flows"),
 		SquidConfigDir: filepath.Join(state, "squid", "config"), SquidLogDir: filepath.Join(state, "squid", "logs"),
 	}
@@ -218,8 +218,8 @@ func TestFirewallBrokerEnvMountIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(injectDir) })
 
 	opts := Options{
-		Mode: "firewall", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
-		Provider: "cursor", BrokerEnvFile: brokerEnv,
+		Mode: "allowlist", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
+		Providers: []string{"cursor"}, BrokerEnvFile: brokerEnv,
 		ConfDir: filepath.Join(state, "mitmproxy", "confdir"), FlowsDir: filepath.Join(state, "mitmproxy", "flows"),
 		SquidConfigDir: filepath.Join(state, "squid", "config"), SquidLogDir: filepath.Join(state, "squid", "logs"),
 	}
@@ -238,7 +238,7 @@ func TestFirewallBrokerEnvMountIntegration(t *testing.T) {
 		t.Fatalf("BuildPlan: %v", err)
 	}
 	joined := strings.Join(flattenCmds(plan.Sidecars), " ")
-	if !strings.Contains(joined, "PROVEO_EGRESS_PROVIDER=cursor") {
+	if !strings.Contains(joined, "PROVEO_EGRESS_PROVIDERS=cursor") {
 		t.Errorf("proxy sidecar must pin cursor provider, got: %s", joined)
 	}
 	if !strings.Contains(joined, "PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env") {
