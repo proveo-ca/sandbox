@@ -282,4 +282,78 @@ note right of SEC
   parity break that kept the harness second-class here.
 end note
 
+note bottom of SBX
+  **A failure with no evidence is itself a diagnosis.**
+
+  The failure handler offers three records of what went wrong, and the first two
+  can be legitimately empty at once. An interactive run hands the terminal to the
+  child — wrapping stdout would cost the agent its tty — so no tail is taken;
+  an agent that dies before its first turn opens no session, so there is no
+  transcript to name. What reached the operator was a stopped sandbox and a
+  ""kept for diagnosis"" line, which reads as an infrastructure fault and sends
+  them into ""sbx exec"" after a cause that was never inside the VM.
+
+  //One of those two emptinesses was a defect rather than a fact.// The transcript
+  is written into sandbox-LOCAL volumes, and the copy-out
+  (""proveo_sync_state save"") ran on the SUCCESS path only — so
+  ""agentTranscript"" searched a host home the failed session had never written
+  to, and could never name a transcript however much the agent had said.
+  ""saveSandboxState"" now runs on BOTH exits, before the lookup.
+
+  **The sentence that used to stand here was wrong, and both halves cost data.**
+  It read: //on a failed run it starts a stopped sandbox and so re-runs the seed's//
+  //restore; that is safe for the evidence, because restore is cp -a with no//
+  //deletes and the run's own transcript keeps an mtime that postdates startedAt.//
+
+  * ""cp -a"" //has// no deletes and truncates anyway — it opens its destination
+    with ""O_TRUNC"". The restart's ""restore"" ran concurrently with this ""save"",
+    opposite directions over the same files, and rewrote seven of the operator's
+    transcripts short. See ""_spec/internal/sbx/state-sync\.puml"".
+  * "an mtime that postdates ""startedAt""" is satisfied by the **restart's own
+    artifacts**. One run was handed ""66523790-…jsonl"" as what the agent said:
+    zero bytes, created at ""15:12:13.694"" — seventeen seconds after the agent it
+    was quoting had died — belonging to no session that ever ran. It won because
+    it was the newest ""\.jsonl"" in the home.
+
+  So the window is closed at BOTH ends — ""startedAt"" to ""endedAt"", stamped the
+  instant the child returned and before proveo touches anything — and an empty
+  file is not evidence. That second rule matters more than it looks: a zero-byte
+  transcript satisfied "a transcript exists", which set ""said"" and //suppressed
+  the credential hint below//. The run that most needed an explanation got a path
+  to an empty file instead.
+
+  **The third record is the run's own log, and the failure line names it.**
+  ""PROVEO_HOME/logs"" holds every line the run printed — the resolved posture,
+  the credential warnings — and by the time an agent dies those have scrolled off
+  a terminal nobody redirected. The macOS run whose login file had blanked tokens
+  announced exactly that in its twelfth line, and was diagnosed from scrollback
+  that no longer existed. See ""_spec/internal/runlog/run-transcript\.puml"".
+
+  So the empty case is answered rather than left blank. When neither channel
+  said anything, proveo asks whether **any** credential reached the agent —
+  read off the run's own decision (the rendered env, plus what was written to
+  the store, plus a usable login on disk) rather than re-derived, because two
+  answers that can disagree will. If none did, it names the variable, the
+  command that mints one, and the store step.
+
+  **But the run's own decision cannot see the whole store, and the hint used to
+  claim more than it knew.** The credential store is GLOBAL and outlives every
+  run, so an entry written last week is injected into a sandbox this run gave
+  nothing to. Measured on the failure that exposed it: the stored
+  ""CLAUDE_CODE_OAUTH_TOKEN"" was live — 200 from ""api.anthropic.com/v1/models"" —
+  while proveo's own view said no credential had reached the agent. So
+  ""sbx secret ls"" is consulted, and when it lists one of the harness's own
+  credentials the hint drops the claim and names a suspect instead: //this run
+  sent no credential of its own; the agent had only sbx's stored NAME, whose
+  value proveo cannot read.//
+
+  **The trap it exists to name:** ""sbx secret ls"" prints the NAME, so an entry
+  holding an EMPTY value looks exactly like a populated one, and proveo cannot
+  read the value back to tell them apart. An operator who "already set that"
+  had, and it was blank.
+
+  Silent whenever a credential DID arrive — a hint that fires on every failure
+  trains the operator to skip the one time it was right.
+end note
+
 @enduml

@@ -3,7 +3,7 @@
 // Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be drawn
 // over the agent's full-screen TUI and dismissed without corrupting it.
 //
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
+// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml
 package ptyproxy
 
 import (
@@ -38,6 +38,19 @@ type Proxy struct {
 	// It is called on the input pump's goroutine, so an implementation that blocks
 	// stalls the operator's keystrokes. Buffer, do not block.
 	Tap func(b []byte, forwarded bool)
+
+	// OutTap, when set, is handed every batch of bytes the child wrote, after it
+	// has already gone to the terminal. It is how an INTERACTIVE run keeps a tail
+	// of the agent's last words, which was previously impossible: the tail is
+	// normally taken by teeing os/exec's Stdout, and os/exec gives the child a real
+	// terminal only when that field holds an *os.File — an io.MultiWriter
+	// substitutes a pipe, the agent can no longer read the window size, and its TUI
+	// draws one character per line. Here the child's output already passes through
+	// the pty master on its way to the terminal, so the copy costs it nothing.
+	//
+	// It runs on the output pump's goroutine: an implementation that blocks stalls
+	// the agent's own rendering. Buffer, do not block.
+	OutTap func(b []byte)
 
 	// filter removes terminal reports that are neither keystrokes nor an answer
 	// anyone is waiting for. New installs the default; set DisableFilter to opt
@@ -173,6 +186,9 @@ func (p *Proxy) pumpOut() {
 	for {
 		n, err := m.Read(buf)
 		if n > 0 {
+			if p.OutTap != nil {
+				p.OutTap(buf[:n])
+			}
 			p.mu.Lock()
 			if p.suspended {
 				p.buffered = append(p.buffered, buf[:n]...)

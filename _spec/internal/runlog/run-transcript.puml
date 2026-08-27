@@ -79,6 +79,37 @@ note bottom of TEE
   plans, lists, generated config.
 end note
 
+note as Tail #F4F9FB
+  **The interactive run's missing channel, and why it was missing.**
+
+  A tail of the agent's last output is normally taken by teeing os/exec's
+  ""Stdout"" — and os/exec hands the child a real terminal only when that field
+  holds an ""*os.File"". An ""io.MultiWriter"" substitutes a pipe, the agent can no
+  longer read the window size, and its TUI draws one character per line. So an
+  interactive run took NO tail, and "hands the terminal over unwrapped" and
+  "takes no tail" were treated as one requirement.
+
+  //They are not one requirement.// The interactive path already runs through
+  ""internal/ptyproxy"", which gives the child its own pty and pumps the master
+  back to the terminal — so the bytes are already passing through proveo.
+  ""Proxy.OutTap"" copies them into the tail on the way past, at no cost to the
+  child: the writers stay unwrapped and ""test -t 1"" still succeeds inside.
+
+  Before this, a run that died at its prompt had no tail AND no transcript, and
+  ""sandbox was stopped"" was the entire report.
+end note
+
+note bottom of LOG
+  **A failed run names this file back.** The path travels into ""runSandbox"" on
+  ""runSandboxInput.runLog"" and is printed beside the ""kept for diagnosis"" line,
+  because the lines worth reading are the ones already gone: the resolved posture
+  and the credential warnings print in the first seconds, and an agent can die a
+  minute later. An operator who did not redirect stdout then has no route back to
+  them. Naming the transcript at startup ONLY is naming it to someone who has no
+  reason yet to look — see ""_spec/internal/sbx/sandbox-backend\.puml"" for the
+  three records that failure line now offers.
+end note
+
 note bottom of FIELDS
   Fields are written sorted so two runs of the same command produce
   transcripts that diff to only what actually differed — the property that

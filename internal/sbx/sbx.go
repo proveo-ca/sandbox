@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml
 package sbx
 
 import (
@@ -576,6 +576,76 @@ func Exists(name string) bool {
 // sandboxList reads the sandbox listing. Overridable in tests.
 var sandboxList = func() ([]byte, error) {
 	return exec.Command(Binary, "ls").CombinedOutput()
+}
+
+// Running reports whether the sandbox is up RIGHT NOW, which is a different
+// question from whether it exists.
+//
+// The difference decides how a copy-out should be described. `sbx exec` on a
+// STOPPED sandbox starts it, which re-runs the kit's startup seed — so a save
+// issued against a stopped sandbox is not reading a quiescent home, it is reading
+// one that the restore its own exec just triggered is still writing. Everything
+// that appears in the operator's home afterwards therefore postdates the run, and
+// an evidence channel that ranks by mtime will pick up the restart's own artifacts
+// unless something tells it the sandbox had stopped.
+func Running(name string) bool {
+	if name == "" {
+		return false
+	}
+	out, err := sandboxList()
+	if err != nil {
+		// Unreadable listing: claim NOT running. Callers use this to decide whether
+		// to trust what a copy-out produced, and the optimistic guess is the one
+		// that lets a restart's leftovers pass as the run's own evidence.
+		return false
+	}
+	return statusOf(string(out), name) == "running"
+}
+
+// statusOf reads the STATUS column of `sbx ls` for one sandbox. The header row
+// cannot collide: its first field is the literal "SANDBOX".
+func statusOf(out, name string) string {
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == name {
+			return strings.ToLower(f[2])
+		}
+	}
+	return ""
+}
+
+// secretList reads the credential store listing. Overridable in tests.
+var secretList = func() ([]byte, error) {
+	return exec.Command(Binary, "secret", "ls").CombinedOutput()
+}
+
+// StoredSecretNames lists the credential names sbx already holds.
+//
+// It answers the one question proveo cannot answer from its own decision. The store
+// is GLOBAL and outlives every run, so an entry written last week is injected into
+// a sandbox this run gave nothing to — which is how a run that authenticated
+// perfectly well got diagnosed as having no credential. Measured on the failure
+// that exposed it: the store's CLAUDE_CODE_OAUTH_TOKEN was live (200 from
+// api.anthropic.com/v1/models) while proveo's own view said no credential had
+// reached the agent.
+//
+// Names only. `sbx secret ls` prints the name and "(stored)", never the value, so a
+// listed name means "something is there, of unknown content" — never "this works".
+func StoredSecretNames() []string {
+	out, err := secretList()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// SCOPE TYPE NAME SECRET — the header's NAME column is the literal "NAME".
+		if len(f) < 3 || f[2] == "NAME" {
+			continue
+		}
+		names = append(names, f[2])
+	}
+	return names
 }
 
 // imageEntrypoint reads the image's own ENTRYPOINT. Overridable in tests.
