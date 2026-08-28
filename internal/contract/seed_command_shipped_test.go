@@ -13,12 +13,14 @@ import (
 
 var seedImageSources = map[string]struct{ file, base string }{
 	"cecli":               {"defs/cecli/Dockerfile", "proveo/base:latest"},
+	"codex":               {"defs/codex/Dockerfile", "proveo/base-node-lsp:latest"},
 	"opencode":            {"defs/opencode/Dockerfile", "proveo/base-node-lsp:latest"},
 	"cursor":              {"defs/cursor/Dockerfile", ""},
 	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-lsp:latest"},
 	"claudecode-solidity": {"defs/claudecode/solidity/Dockerfile", "proveo/claudecode:latest"},
 
 	"claudecode-browser": {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-browser:latest"},
+	"codex-browser":      {"defs/codex/Dockerfile", "proveo/base-node-browser:latest"},
 	"opencode-browser":   {"defs/opencode/Dockerfile", "proveo/base-node-browser:latest"},
 	"cursor-browser":     {"defs/cursor/Dockerfile", ""},
 }

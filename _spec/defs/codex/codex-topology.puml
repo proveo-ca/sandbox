@@ -1,0 +1,125 @@
+@startuml CodexTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam linetype ortho
+skinparam ranksep 120
+skinparam nodesep 80
+
+left to right direction
+
+title Codex CLI Topology — ML Blackbox Loop
+
+actor "Human" as Human
+actor "Codex CLI\n(codex)" as Codex
+
+package "Harness Layer" as Harness {
+ component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
+ component ".env loader\nOPENAI_API_KEY / auth.json check" as EnvLoader <<logic>>
+ component "smoke-test mode" as Smoke <<mode>>
+ component "steering detection\nAGENTS.md (native) | CLAUDE.md (fallback)" as Steering <<prompt>>
+ component "verification discovery\nbuild / test / lint" as Verify0 <<logic>>
+}
+
+package "User Layer — $CODEX_HOME" as Home {
+ component "config.toml\napproval_policy = never\nsandbox_mode = danger-full-access" as Config <<config>>
+ component "AGENTS.md\nproveo house rules" as HouseRules <<prompt>>
+ component "agents/*.toml\nread-only advisors\n+ spec-keeper (workspace-write)" as Subagents <<subagent>>
+ component "[mcp_servers.lsp_*]\nmcp-language-server" as LspMcp <<logic>>
+ database "sessions/**.jsonl\nrollouts — what `resume` reads" as Sessions <<db>>
+ component "auth.json\n`codex login`" as Auth <<security>>
+}
+
+package "Execution Loop" as Loop {
+ component "Spec / Goal" as Spec <<step>>
+ component "Plan + Acceptance Criteria" as Plan <<step>>
+ component "Implement (edit)" as Implement <<step>>
+ component "Verify (run tests/lint)" as Verify <<step>>
+ component "Inspect Failure → Adjust" as Inspect <<step>>
+}
+
+package "Container Sandbox" as Sandbox {
+ component "codex --dangerously-bypass-approvals-and-sandbox\n(the container is the sandbox)" as Force <<flag>>
+ component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
+ component "network egress layer\nopen | allowlist | review" as Net <<security>>
+}
+
+cloud "OpenAI backend\napi.openai.com" as Backend
+
+Human --> Entrypoint : starts container
+Entrypoint --> EnvLoader
+Entrypoint --> Smoke
+Entrypoint --> Steering : report, never write
+Entrypoint --> Verify0
+Entrypoint --> Home : proveo_seed codex\n(missing-only)
+Entrypoint --> Codex : " exec ""codex --dangerously-bypass-…"" "
+Codex --> Config
+Codex --> HouseRules
+Codex --> Steering : reads project AGENTS.md
+Codex --> Subagents : in-loop review gates
+Codex --> LspMcp : code intelligence over MCP
+Codex --> Sessions : writes each turn
+Codex --> Loop : executes loop
+Loop --> Verify : runs detected commands
+Verify -> Inspect : on failure
+Inspect -> Plan : next iteration
+Force --> Sandbox : within\ncontainer boundary
+Codex -[#00BAC6,dashed,bold]-> Backend : inference
+Auth ..> Backend : login OR OPENAI_API_KEY
+Net ..> Backend : provider pin = "".openai.com""
+
+note right of Home
+  **$CODEX_HOME is $HOME/.codex, and $HOME is what proveo redirects.**
+  The manifest mounts the durable ""~/.proveo/.codex"" at
+  ""/proveo-home/.codex"" and sets ""HOME=/proveo-home"", so config,
+  house rules, composed subagents, the login and every session
+  transcript outlive ""--rm"".
+
+  This is why ""CODEX_HOME"" is deliberately NOT baked into the image.
+  An absolute path frozen at build time resolves past the mount, back
+  into the image's own home — and everything above is silently
+  discarded with the container. The entrypoint resolves it once, from
+  ""$HOME"", and exports it so the CLI and every helper agree.
+end note
+
+note bottom of Subagents
+  **codex declares agents as TOML documents, not markdown with
+  frontmatter**, so the shared body arrives as a
+  ""developer_instructions"" VALUE — composed at start by
+  ""render_subagents"", from one body per agent plus codex's own
+  frontmatter. Same bodies as every other harness; different container.
+
+  The value is a multi-line LITERAL string, never a basic one: literal
+  strings process no escapes, and the bodies document backslash
+  sequences on purpose. A basic string would eat them with no error,
+  in a file nobody re-reads after composing it.
+end note
+
+note bottom of Sandbox
+  **Codex's own sandbox is off by default, and the reason is NOT
+  cursor's.** Landlock+seccomp needs no unprivileged userns, so it
+  can actually engage in this cap-dropped container. It is off
+  because confining the agent to part of a tree that is already a
+  disposable copy buys little, while its approval prompts are fatal
+  to an unattended run — a stall with nobody to answer.
+
+  ""PROVEO_CODEX_SANDBOX"" turns it back on as
+  ""--sandbox <mode> --ask-for-approval never"".
+
+  The posture is written in BOTH places on purpose: on the argv, and
+  in the seeded ""config.toml"". The config half is what makes
+  ""codex exec"", ""codex resume"" and a bare ""codex"" agree without
+  depending on where a flag lands in the argv.
+end note
+
+note right of LspMcp
+  **LSP arrives over MCP because codex has no external-LSP config** —
+  the same bridge cursor uses. The block is written into
+  ""config.toml"" between ""# >>> proveo lsp"" markers, so an operator's
+  own ""[mcp_servers.*]"" entries survive a re-run and only what proveo
+  generated is replaced.
+
+  It is APPENDED, and TOML requires top-level keys to precede every
+  table: a key added below the marker would be read as belonging to
+  the last generated table. Operators add theirs above it.
+end note
+
+@enduml

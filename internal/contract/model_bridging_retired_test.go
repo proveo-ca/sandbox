@@ -57,6 +57,7 @@ func TestNoEntrypointBridgesAModelByRole(t *testing.T) {
 	for _, rel := range []string{
 		"packages/lib/entrypoint-lib.sh",
 		"defs/cecli/entrypoint.sh",
+		"defs/codex/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/opencode/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",
@@ -97,6 +98,7 @@ func TestNoEntrypointReadsARoleName(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"defs/cecli/entrypoint.sh",
+		"defs/codex/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/opencode/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",

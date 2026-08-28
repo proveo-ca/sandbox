@@ -9,6 +9,7 @@ import (
 
 var builtinAgent = map[string]string{
 	"claudecode": "claude",
+	"codex":      "codex",
 	"cursor":     "cursor",
 	"opencode":   "opencode",
 }

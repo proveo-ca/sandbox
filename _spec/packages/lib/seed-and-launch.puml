@@ -122,8 +122,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' `ERROR: sandbox … was stopped` with no cause. That is the whole "auto-close",
 ' and the phantom `sh` prompts with it.
 '
-' The test is whether the first word RESOLVES as an executable. A harness flag
-' never does (`-p`, `--continue`); a launcher-supplied command always does
+' The test is whether the first word resolves as an executable FILE. A harness
+' flag never does (`-p`, `--continue`); a launcher-supplied command always does
 ' (`claude`, `sh`, `bash`). No backend detection, no env sniffing, and it stays
 ' correct if either side changes its wording.
 '
@@ -132,9 +132,25 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                           as command's OWN flag and reports success, so a bare
 '                           probe declares the harness flag `-p` an executable
 '                           and execs it.
-'   command -v -- "$1"      `--` then stops option parsing for the rest.
+'   type -P -- "$1"         a PATH search for a FILE. `--` then stops option
+'                           parsing for the rest.
 ' `--` also separates the def's own launch flags from the caller's argv, so each
 ' entrypoint reads `proveo_exec_agent <agent> <our flags> -- "$@"`.
+'
+' WHY A FILE AND NOT "ANYTHING THE SHELL CAN RUN". The probe was `command -v`,
+' which also answers yes for shell keywords and builtins. codex names a
+' subcommand `exec`, which is a bash keyword, so `codex exec "prompt"` — the
+' headless form the agent-evidence dial rewrites to — was read as a
+' launcher-supplied command. The branch then ran `exec exec --json …`, which has
+' no file to execve, and the run died before codex was ever reached.
+' A launcher command is always a file: the sbx Kit CMD is execve'd, not parsed by
+' a shell, so a keyword can never legitimately appear in that position. `type -P`
+' asks exactly the question this branch can act on, which is why the collision
+' can only be a false YES — the exec that follows was already doomed.
+' The subcommand namespace belongs to the agent, and it grows without warning:
+' `help` is a builtin too, and `ls` and `test` are files on PATH. So the rule is
+' narrow on purpose — it does not try to know an agent's subcommands, it only
+' declines to mistake a word the shell alone could run for a program.
 
 node "Both backends, one step" as BE <<host>> {
   component "docker — image ENTRYPOINT\n""defs/<h>/entrypoint\.sh"" → seed → exec" as DOCK <<app>>

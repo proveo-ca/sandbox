@@ -1,0 +1,40 @@
+# SPEC: _spec/components.puml, _spec/defs/codex/codex-topology.puml
+# Single registration point for the codex harness (Plan 2). Adding or changing a
+# harness should touch only this file + the def dir it lives in.
+name: codex
+description: ML-loop harness (Codex CLI, --dangerously-bypass-approvals-and-sandbox)
+egress: true
+docker: sbx
+subscription: true
+stability: candidate
+images:
+  codex: proveo/codex:latest
+  # The same image FROM proveo/base-node-browser (Playwright + Chromium). That base
+  # is itself FROM base-node-lsp, so the browser variant is a strict SUPERSET — the
+  # language servers the entrypoint wires into codex as MCP servers are still there.
+  # Selected per run as the `browser` addon, never as a target of its own.
+  codex-browser: proveo/codex-browser:latest
+workspace:
+  layout: app
+  # $CODEX_HOME is ~/.codex; .codex/ in the REPO is the project-scoped half
+  # (project agents + rules), which the monorepo-subdir case must preserve.
+  configDir: .codex
+  gitMode: rw
+home:
+  enabled: true
+  mounts:
+    - host: .codex
+      container: /proveo-home/.codex
+      mode: rw
+      # No deny list, and that is the claudecode posture rather than cursor's:
+      # `codex login` writes ~/.codex/auth.json, and a ChatGPT-plan run IS that
+      # file. Scrubbing it would make every subscription session log in again and
+      # would hide the login from PersistedLogin, which is what stops proveo
+      # injecting a competing API key.
+env:
+  - name: OPENAI_API_KEY
+    description: OpenAI API key — create one at platform.openai.com/api-keys, or run `codex login` for a ChatGPT plan
+    secret: true
+
+capabilities:
+  providers: [openai]
