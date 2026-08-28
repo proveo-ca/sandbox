@@ -14,16 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// wizardEnabled reports whether the wizard may prompt at all
-// (PROVEO_WIZARD=off|0|no|false disables it, mirroring PROVEO_CREDENTIAL_BROKER).
-func wizardEnabled() bool {
-	switch strings.ToLower(os.Getenv("PROVEO_WIZARD")) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
-
 // secretReader reads one secret line with echo off. Injectable so promptEnv is
 // unit-testable without a PTY.
 type secretReader func() (string, error)

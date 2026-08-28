@@ -1,4 +1,4 @@
-package main
+package credentials
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ func TestPrintSubscriptionAuthHints(t *testing.T) {
 		Secret:      true,
 	}}
 	var out strings.Builder
-	printSubscriptionAuthHints(man, missing, &out)
+	PrintSubscriptionAuthHints(man, missing, &out)
 	got := out.String()
 	for _, want := range []string{
 		"CLAUDE_CODE_OAUTH_TOKEN",
@@ -52,7 +52,7 @@ func TestPrintSubscriptionAuthHintsCursorAndVariants(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.harness, func(t *testing.T) {
 			var out strings.Builder
-			printSubscriptionAuthHints(
+			PrintSubscriptionAuthHints(
 				manifest.Manifest{Name: tc.harness, Subscription: true},
 				[]manifest.EnvVar{{Name: tc.env, Secret: true}},
 				&out,
@@ -69,7 +69,7 @@ func TestPrintSubscriptionAuthHintsCursorAndVariants(t *testing.T) {
 
 func TestPrintSubscriptionAuthHintsEmpty(t *testing.T) {
 	var out strings.Builder
-	printSubscriptionAuthHints(manifest.Manifest{Name: "claudecode"}, nil, &out)
+	PrintSubscriptionAuthHints(manifest.Manifest{Name: "claudecode"}, nil, &out)
 	if out.Len() != 0 {
 		t.Errorf("empty missing should print nothing, got %q", out.String())
 	}
@@ -88,8 +88,8 @@ func TestHarnessFamily(t *testing.T) {
 		{"unknown", "unknown"},
 	}
 	for _, tc := range tests {
-		if got := harnessFamily(tc.in); got != tc.want {
-			t.Errorf("harnessFamily(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := HarnessFamily(tc.in); got != tc.want {
+			t.Errorf("HarnessFamily(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -97,7 +97,7 @@ func TestHarnessFamily(t *testing.T) {
 func TestFishExportInHints(t *testing.T) {
 	t.Setenv("SHELL", "/usr/bin/fish")
 	var out strings.Builder
-	printSubscriptionAuthHints(
+	PrintSubscriptionAuthHints(
 		manifest.Manifest{Name: "cursor"},
 		[]manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		&out,
@@ -131,7 +131,7 @@ func TestNoCredentialHintNamesTheRemedy(t *testing.T) {
 	man := claudecodeMan()
 	// The failing shape: the variable reached the sandbox stated empty, no login on
 	// disk, nothing written to the store.
-	got := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(),
+	got := strings.Join(NoCredentialHint(man, "claudecode", t.TempDir(),
 		[]string{"CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_MODEL=claude-opus-5"}, nil, nil, nil), "\n")
 	if got == "" {
 		t.Fatal("a run with no credential must say so; the stopped sandbox is not a diagnosis")
@@ -181,7 +181,7 @@ func TestNoCredentialHintStaysSilentWhenOneArrived(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if h := noCredentialHint(man, "claudecode", t.TempDir(), tc.env, tc.secrets, nil, tc.lookup); h != nil {
+			if h := NoCredentialHint(man, "claudecode", t.TempDir(), tc.env, tc.secrets, nil, tc.lookup); h != nil {
 				t.Errorf("a credential DID reach the agent; hint must stay silent, got:\n%s",
 					strings.Join(h, "\n"))
 			}
@@ -189,7 +189,7 @@ func TestNoCredentialHintStaysSilentWhenOneArrived(t *testing.T) {
 	}
 
 	// A bare name whose lookup is empty carries nothing, so the hint must fire.
-	if h := noCredentialHint(man, "claudecode", t.TempDir(),
+	if h := NoCredentialHint(man, "claudecode", t.TempDir(),
 		[]string{"CLAUDE_CODE_OAUTH_TOKEN"}, nil, nil, func(string) string { return "" }); h == nil {
 		t.Error("a forwarded name with nothing behind it is not a credential")
 	}
@@ -210,7 +210,7 @@ func TestNoCredentialHintDefersToAPersistedLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(live), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h != nil {
+	if h := NoCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h != nil {
 		t.Errorf("a live login is a credential; hint must stay silent, got:\n%s", strings.Join(h, "\n"))
 	}
 
@@ -221,7 +221,7 @@ func TestNoCredentialHintDefersToAPersistedLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(blanked), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h := noCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h == nil {
+	if h := NoCredentialHint(man, "claudecode", home, []string{"CLAUDE_CODE_OAUTH_TOKEN="}, nil, nil, nil); h == nil {
 		t.Error("a blanked login cannot authenticate; the hint must name the remedy")
 	}
 }
@@ -245,14 +245,14 @@ func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
 	env := []string{"CLAUDE_CODE_OAUTH_TOKEN="}
 
 	// Nothing anywhere: the strong claim is earned.
-	bare := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil, nil, nil), "\n")
+	bare := strings.Join(NoCredentialHint(man, "claudecode", t.TempDir(), env, nil, nil, nil), "\n")
 	if !strings.Contains(bare, "no credential reached the agent") {
 		t.Errorf("with nothing anywhere the hint must say so plainly, got:\n%s", bare)
 	}
 
 	// The store already lists it. Still a hint — this run sent nothing, which is
 	// worth saying — but it must not assert what it cannot know.
-	held := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil,
+	held := strings.Join(NoCredentialHint(man, "claudecode", t.TempDir(), env, nil,
 		[]string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "github"}, nil), "\n")
 	if held == "" {
 		t.Fatal("a run that sent no credential of its own is still worth explaining")
@@ -269,7 +269,7 @@ func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
 		}
 	}
 	// A store entry for a credential this harness does not use says nothing about it.
-	other := strings.Join(noCredentialHint(man, "claudecode", t.TempDir(), env, nil,
+	other := strings.Join(NoCredentialHint(man, "claudecode", t.TempDir(), env, nil,
 		[]string{"CURSOR_API_KEY", "github"}, nil), "\n")
 	if !strings.Contains(other, "no credential reached the agent") {
 		t.Errorf("another harness's stored key is not this one's credential, got:\n%s", other)

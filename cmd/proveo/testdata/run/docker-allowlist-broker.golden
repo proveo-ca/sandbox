@@ -1,0 +1,27 @@
+run log: <HOME>/logs/proveo-<SID>.log
+proveo home: <HOME> (mounted at /proveo-home)
+gh session: <USERHOME>/.config/gh mounted read-only
+# networks
+docker network create --label proveo.egress.session=proveo-<SID> --internal proveo-<SID>-claudecode-mitm-net
+docker network create --label proveo.egress.session=proveo-<SID> --internal proveo-<SID>-mitm-squid-net
+docker network create --label proveo.egress.session=proveo-<SID> proveo-<SID>-squid-egress-net
+# sidecars
+docker run -d --rm --name proveo-<SID>-squid --label proveo.egress.session=proveo-<SID> --security-opt=no-new-privileges:true --pids-limit=256 --network proveo-<SID>-squid-egress-net -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/squid/config:/etc/squid:ro -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/squid/logs:<TMP> ubuntu/squid:latest
+docker run -d --rm --name proveo-<SID>-egress --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=proveo-<SID> --network proveo-<SID>-claudecode-mitm-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/mitmproxy/confdir:/confdir -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/mitmproxy/flows:/flows -e PROVEO_EGRESS_UPSTREAM=http://squid:3128 -e PROVEO_EGRESS_PROVIDER_HOSTS=.anthropic.com proveo/egress-proxy:latest
+# connects
+docker network connect --alias squid proveo-<SID>-mitm-squid-net proveo-<SID>-squid
+docker network connect proveo-<SID>-mitm-squid-net proveo-<SID>-egress
+# agent-args
+--network proveo-<SID>-claudecode-mitm-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e ENFORCEMENT_PROXY=http://squid:3128 -e PROVEO_EGRESS_SESSION_ID=proveo-<SID> -e PROVEO_EGRESS_MODE=allowlist -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem
+# ca-wait
+<USERHOME>/.local/state/proveo/egress/proveo-<SID>/mitmproxy/confdir/mitmproxy-ca-cert.pem
+# squid-wait
+proveo-<SID>-squid
+# cleanup
+docker rm -f proveo-<SID>-squid
+docker rm -f proveo-<SID>-egress
+docker network rm proveo-<SID>-claudecode-mitm-net
+docker network rm proveo-<SID>-mitm-squid-net
+docker network rm proveo-<SID>-squid-egress-net
+# agent
+docker run -it --rm --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=3584 -v <WORK>:/app -v <WORK>/reports:/app/output -v <HOME>:/proveo-home -v <USERHOME>/.config/gh:/proveo-home/.config/gh:ro -e PROVEO_AGENT_EVIDENCE=verbose -e GIT_AUTHOR_NAME=Golden -e GIT_COMMITTER_NAME=Golden -e GIT_AUTHOR_EMAIL=g@example.com -e GIT_COMMITTER_EMAIL=g@example.com -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -w /app --network proveo-<SID>-claudecode-mitm-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e ENFORCEMENT_PROXY=http://squid:3128 -e PROVEO_EGRESS_SESSION_ID=proveo-<SID> -e PROVEO_EGRESS_MODE=allowlist -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v <USERHOME>/.local/state/proveo/egress/proveo-<SID>/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem proveo/claudecode:test

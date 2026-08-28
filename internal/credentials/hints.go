@@ -1,5 +1,5 @@
 // SPEC: _spec/_paradigms/credential-boundary.puml
-package main
+package credentials
 
 import (
 	"fmt"
@@ -19,8 +19,8 @@ type subscriptionAuthHint struct {
 	Login string // optional in-sandbox login command
 }
 
-// subscriptionAuthHints maps harness name → env var → obtain/login guidance.
-var subscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
+// SubscriptionAuthHints maps harness name → env var → obtain/login guidance.
+var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 	"claudecode": {
 		"CLAUDE_CODE_OAUTH_TOKEN": {
 			HowTo: "generate a Claude Code OAuth token with `claude setup-token`",
@@ -35,14 +35,14 @@ var subscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 	},
 }
 
-// credentialReachedAgent reports whether this run sent the agent anything it could
+// CredentialReachedAgent reports whether this run sent the agent anything it could
 // authenticate with.
 //
 // It reads the run's OWN decision — the rendered env plus what was written to the
 // store — rather than re-deriving it. Re-deriving is how the two answers drift, and
 // a hint that contradicts the argv is worse than no hint.
-func credentialReachedAgent(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, lookup func(string) string) bool {
-	if hasPersistedLogin(target, homeRoot) {
+func CredentialReachedAgent(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, lookup func(string) string) bool {
+	if HasPersistedLogin(target, homeRoot) {
 		return true
 	}
 	for _, kv := range secrets {
@@ -52,7 +52,7 @@ func credentialReachedAgent(man manifest.Manifest, target, homeRoot string, env 
 	}
 	for _, e := range env {
 		name, value, valued := strings.Cut(e, "=")
-		if !isAuthVarOf(man, name) {
+		if !IsAuthVarOf(man, name) {
 			continue
 		}
 		// A bare name is forward-by-name: the value is copied from proveo's own
@@ -71,22 +71,22 @@ func credentialReachedAgent(man manifest.Manifest, target, homeRoot string, env 
 	return false
 }
 
-// storeHolds names the harness's own credentials that sbx's store already carries.
+// StoreHolds names the harness's own credentials that sbx's store already carries.
 // Presence is all it can report: `sbx secret ls` prints the name and "(stored)", so
 // a listed name means "something is there, of unknown content" — an entry holding an
 // empty string looks identical to a live token.
-func storeHolds(man manifest.Manifest, stored []string) []string {
+func StoreHolds(man manifest.Manifest, stored []string) []string {
 	var held []string
 	for _, n := range stored {
-		if isAuthVarOf(man, n) {
+		if IsAuthVarOf(man, n) {
 			held = append(held, n)
 		}
 	}
 	return held
 }
 
-// isAuthVarOf reports whether name is a credential the harness declares it uses.
-func isAuthVarOf(man manifest.Manifest, name string) bool {
+// IsAuthVarOf reports whether name is a credential the harness declares it uses.
+func IsAuthVarOf(man manifest.Manifest, name string) bool {
 	for _, e := range man.Env {
 		if e.Secret && e.Name == name {
 			return true
@@ -95,7 +95,7 @@ func isAuthVarOf(man manifest.Manifest, name string) bool {
 	return false
 }
 
-// noCredentialHint explains a failed run that had nothing to authenticate with.
+// NoCredentialHint explains a failed run that had nothing to authenticate with.
 //
 // It exists for the failure that leaves NO evidence behind. The handler can point at
 // a captured tail or a session transcript wherever either exists; when the agent
@@ -114,11 +114,11 @@ func isAuthVarOf(man manifest.Manifest, name string) bool {
 // Ignoring it is how the hint told an operator no credential had reached the agent
 // while the store's CLAUDE_CODE_OAUTH_TOKEN was live and answering 200 — a
 // confident sentence pointing at the one thing that was working.
-func noCredentialHint(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, stored []string, lookup func(string) string) []string {
-	if credentialReachedAgent(man, target, homeRoot, env, secrets, lookup) {
+func NoCredentialHint(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, stored []string, lookup func(string) string) []string {
+	if CredentialReachedAgent(man, target, homeRoot, env, secrets, lookup) {
 		return nil
 	}
-	byHarness := subscriptionAuthHints[harnessFamily(man.Name)]
+	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
 	// Two different sentences, because they send the reader to different places. With
 	// nothing anywhere, the credential is the diagnosis. With a store entry proveo
 	// cannot read, the credential is a SUSPECT — and claiming more than that is what
@@ -126,7 +126,7 @@ func noCredentialHint(man manifest.Manifest, target, homeRoot string, env []stri
 	lines := []string{
 		"no credential reached the agent — the likeliest reason it exited before saying anything",
 	}
-	if held := storeHolds(man, stored); len(held) > 0 {
+	if held := StoreHolds(man, stored); len(held) > 0 {
 		lines = []string{fmt.Sprintf(
 			"this run sent no credential of its own — the agent had only sbx's stored %s, "+
 				"whose value proveo cannot read", strings.Join(held, ", ")),
@@ -156,7 +156,7 @@ func noCredentialHint(man manifest.Manifest, target, homeRoot string, env []stri
 	return lines
 }
 
-func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar, out io.Writer) {
+func PrintSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar, out io.Writer) {
 	if len(missing) == 0 {
 		return
 	}
@@ -171,7 +171,7 @@ func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 	home, _ := os.UserHomeDir()
 	rc := sh.RCFile(runtime.GOOS, home)
 
-	byHarness := subscriptionAuthHints[harnessFamily(man.Name)]
+	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
 	for _, e := range missing {
 		hint := byHarness[e.Name]
 		if hint.HowTo == "" && e.Description != "" {
@@ -198,9 +198,9 @@ func printSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 	fmt.Fprintln(out)
 }
 
-// harnessFamily returns the base harness name for resume/auth hint lookups
+// HarnessFamily returns the base harness name for resume/auth hint lookups
 // (e.g. claudecode-solidity → claudecode).
-func harnessFamily(name string) string {
+func HarnessFamily(name string) string {
 	name = strings.TrimSpace(name)
 	for _, base := range []string{"claudecode", "cursor", "opencode", "cecli"} {
 		if name == base || strings.HasPrefix(name, base+"-") {

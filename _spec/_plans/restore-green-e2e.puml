@@ -12,30 +12,37 @@ skinparam noteTextAlignment left
 ' regression from the decomposition; they are the baseline that has to be repaired
 ' before move 6 (_spec/_plans/main-decomposition-moves.puml) can be judged.
 '
-' ── C1 · THE ENTRYPOINT DIES BEFORE THE AGENT STARTS (root cause proven) ────
-' packages/lib/entrypoint-lib.sh, _proveo_lock_installs:
-'
+' ── C1 · RESOLVED, AND THE MECHANISM NAMED HERE WAS WRONG ──────────────────
+' C1 blamed `_proveo_lock_installs`:
 '     exec 9>"${dir}/install.lock" 2>/dev/null || return 0
+' claiming a redirection failure on `exec` is fatal to a non-interactive shell,
+' so the `|| return 0` is dead code. THAT IS NOT TRUE. Measured against an
+' unopenable path (a directory, which even root cannot open for writing), under
+' `set -euo pipefail`, on bash 4.4, 5.0 and 5.2 on Linux: the shell does NOT
+' exit, `|| return 0` fires, and the function returns 0. The guard is live code.
+' Bash only exits there in POSIX mode, which the entrypoint never sets.
 '
-' A redirection failure on `exec` is FATAL to a non-interactive shell, so the
-' `|| return 0` is dead code: instead of skipping installs, the whole entrypoint
-' exits. Measured on proveo/claudecode with the working-tree entrypoint:
-'   * installs enabled  → exit 1 after 1s, `set -x` ends on `+ exec`, and
-'     PROVEO_SMOKE_READY never prints
-'   * PROVEO_AUTO_INSTALL_TOOLS=false → the same entrypoint reaches
-'     PROVEO_SMOKE_READY and holds, exactly as the probe expects
-' The helper works when called on its own, so the trigger is state the run leaves
-' behind before it — most likely the lock file's owner after the runtime-user step.
-' FIX: probe writability first and never let `exec` decide the run's fate:
-'     if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
-'     exec 9>>"${dir}/install.lock"
-' plus a container test that asserts an unwritable lock path SKIPS installs rather
-' than ending the run. `ensure_project_tools` is shared by every harness, so run
-' the same probe per def rather than assuming claudecode is the only victim.
-' UNBLOCKS: TestClaudecodeEntrypointOperatesOnTheInputDir, and very likely the
-' claudecode leg of TestHelloWorldE2E and TestPromptfulE2E — an agent whose
-' entrypoint exited cannot answer a prompt or write a file.
+' The symptom C1 recorded was real, but it belonged to a different line —
+' `_node_version_file`, missing a `return 0` on the "no version file" path, so a
+' workspace with no node pin aborted the whole startup command under `set -e`.
+' See _spec/internal/sbx/seed-node-version-abort.puml. The two match exactly:
+'   * "exit 1 after 1s"                  -> no go.mod, so the seed reaches the
+'                                           node block within a second
+'   * PROVEO_AUTO_INSTALL_TOOLS=false fixes it -> that knob gates the function
+'                                           CONTAINING the bug, not the lock
+'   * "`set -x` ends on `+ exec`"        -> an artifact. stdout and stderr
+'                                           interleave unreliably; the same
+'                                           probe prints its error before OR
+'                                           after later stdout lines run to run.
 '
+' With the `return 0` in place and NO change to the lock helper,
+' TestClaudecodeEntrypointOperatesOnTheInputDir passes. That test mounts the
+' working-tree entrypoint, so it proves current source rather than the image.
+'
+' The lesson is the one this file already teaches twice: a mechanism argued from
+' an artifact is a guess. `+ exec` was the last line of a trace, and a night went
+' into the theory built on it.
+
 ' ── C2 · FOUR ASSERTIONS PIN THE RETIRED HOME REDIRECT ──────────────────────
 ' sbxHome DELETES HOME and PROVEO_HOME on the sandbox backend and publishes
 ' PROVEO_STATE_HOME instead. That deletion IS the fix: redirecting HOME orphaned
@@ -80,13 +87,13 @@ skinparam noteTextAlignment left
 ' measured environmental reason, and the only red left is C3 — where each failure
 ' names the decision it is waiting on. A suite in that state is a baseline a
 ' refactor can be judged against, because every red has an owner.
-title PLANNED — restoring a readable e2e baseline: 8 failures, 4 causes, 1 that must stay red
+title IN PROGRESS — a readable e2e baseline: C1 resolved (and misdiagnosed), 5 failures left
 
-component "go test -tags=e2e ./tests/e2e/\n35 pass · 6 skip · 8 fail · 585s" as SUITE <<error>>
+component "go test -tags=e2e ./tests/e2e/\nWAS 35 pass · 6 skip · 8 fail\nNOW 43 pass · 8 skip · 5 fail" as SUITE <<error>>
 
-frame "C1 · one shell line ends every run" as C1 <<host>> {
-  component "_proveo_lock_installs\n`exec 9>lock || return 0` — the guard is\ndead code; the redirect kills the shell" as LOCK <<error>>
-  component "probe writability, then exec\n+ a test for the unwritable case" as FIXLOCK <<app>>
+frame "C1 · RESOLVED — and the cause named here was wrong" as C1 <<host>> {
+  component "_proveo_lock_installs was NOT it\n`exec 9>` does not exit the shell:\nmeasured on bash 4.4 / 5.0 / 5.2" as LOCK <<app>>
+  component "_node_version_file, missing `return 0`\nfixed; the blocked test now passes" as FIXLOCK <<app>>
 }
 
 frame "C2 · assertions pin a retired contract" as C2 <<host>> {
@@ -103,13 +110,13 @@ frame "C4 · measure again after C1" as C4 <<host>> {
   component "HelloWorld · Promptful\nlocal model, CPU sidecar on macOS" as MODEL <<async>>
 }
 
-SUITE ARROW_ERROR LOCK
+LOCK ARROW_OPTIONAL SUITE : no longer red
 SUITE ARROW_ERROR HOMEA
 SUITE ARROW_ERROR D2
 SUITE ARROW_ERROR D1
-LOCK ARROW_MAIN FIXLOCK
+FIXLOCK ARROW_MAIN LOCK : the real line
 HOMEA ARROW_MAIN FIXHOME
-FIXLOCK ARROW_QUEUE MODEL : re-measure
+FIXLOCK ARROW_QUEUE MODEL : re-measured — HelloWorld still red
 D2 ARROW_OPTIONAL SUITE : green when D2 lands
 D1 ARROW_OPTIONAL SUITE : green when D1 lands
 

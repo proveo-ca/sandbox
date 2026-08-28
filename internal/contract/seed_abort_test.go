@@ -61,3 +61,35 @@ echo SEED_REACHED_THE_END`
 			"the container never starts, or the agent dies mid-session", err, out)
 	}
 }
+
+// TestExecRedirectFailureDoesNotEndTheShell pins the measurement that disproved
+// C1 in _spec/_plans/restore-green-e2e.puml. That plan claimed a failed `exec`
+// redirection is fatal to a non-interactive shell, making the `|| return 0` in
+// _proveo_lock_installs dead code, and blamed it for the entrypoint dying. It is
+// not: bash only exits there in POSIX mode, which the entrypoint never sets.
+//
+// The real cause was _node_version_file, above. This test exists so nobody has
+// to re-derive the disproof from a trace that ends on `+ exec`.
+func TestExecRedirectFailureDoesNotEndTheShell(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	// A DIRECTORY cannot be opened for writing, by root or anyone — unlike a
+	// permission bit, which root ignores and which made the first probe void.
+	blocked := filepath.Join(t.TempDir(), "install.lock")
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	script := `set -euo pipefail
+guard() { exec 9>"$1" 2>/dev/null || return 0; return 0; }
+guard "$1"
+echo SURVIVED`
+	out, err := exec.Command(bash, "-c", script, "bash", blocked).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the shell exited on a failed exec redirect — C1's mechanism would be real "+
+			"after all, and _proveo_lock_installs would need its guard rewritten: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "SURVIVED") {
+		t.Errorf("expected the guard's `|| return 0` to fire and the shell to continue, got:\n%s", out)
+	}
+}

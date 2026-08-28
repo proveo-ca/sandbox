@@ -12,6 +12,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -147,7 +148,7 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 
 	// Egress state dirs (each holds a session's squid config, mitm confdir, and
 	// — critically — the injected broker.env secret).
-	if entries, err := os.ReadDir(filepath.Join(stateDir(), "egress")); err == nil {
+	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
 				inv.StateDirs = append(inv.StateDirs, e.Name())
@@ -194,7 +195,7 @@ func runClean(p clean.Plan, dryRun bool) error {
 		}
 	}
 	for _, sid := range p.StateDirs {
-		dir := filepath.Join(stateDir(), "egress", sid)
+		dir := filepath.Join(run.StateDir(), "egress", sid)
 		ui.Iconf("🗑️", "%s state %s (incl. any injected broker secret)", verb, dir)
 		if !dryRun {
 			_ = os.RemoveAll(dir)

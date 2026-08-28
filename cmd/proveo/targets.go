@@ -10,6 +10,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -41,7 +42,7 @@ func maintainerDefsDir() (string, error) {
 	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
 		return d, nil
 	}
-	root := orWD("")
+	root := run.OrWD("")
 	if ws := workspace.Resolve(root); ws.IsRepo {
 		root = ws.Root
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -141,7 +142,7 @@ func provisionConfirm(question string) bool {
 	case "0", "false", "no", "off":
 		return false
 	}
-	if !agentio.IsStdinTTY() || !wizardEnabled() {
+	if !agentio.IsStdinTTY() || !run.WizardEnabled() {
 		return false
 	}
 	return promptYesNo("🔨 "+question, true, os.Stdin, os.Stderr)
@@ -151,7 +152,7 @@ func sourceDefsDir() string {
 	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
 		return d
 	}
-	root := orWD("")
+	root := run.OrWD("")
 	if ws := workspace.Resolve(root); ws.IsRepo {
 		root = ws.Root
 	}
