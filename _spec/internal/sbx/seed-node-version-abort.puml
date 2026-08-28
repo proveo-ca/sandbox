@@ -5,6 +5,13 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/seed_abort_test.go
 '
+' NOT THE ONLY ONE. _node_json_field had the same defect for a different reason —
+' it runs `node -e`, and the cecli image ships python and no node, so it returned
+' 127 into the same kind of command substitution. All 24 command-substituted
+' helpers were then audited by measurement inside the image; two were non-zero and
+' both are fixed. See _spec/_plans/restore-green-e2e.puml (C1) for that sweep and
+' for the bare-`exec` stderr bug that hid it.
+'
 ' ── THE DEFECT ─────────────────────────────────────────────────────────────
 ' _node_version_file looks for .nvmrc then .node-version and, finding neither,
 ' falls off the end of its loop carrying the failed test's status:

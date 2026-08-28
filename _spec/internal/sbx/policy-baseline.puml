@@ -1,0 +1,88 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the sbx egress row shows sbx's baselines, read-only, instead of proveo's tiers
+' covers: internal/sbx/sbx.go
+' covers: internal/run/choices.go
+' covers: internal/sbx/baseline_test.go
+'
+' ── THE ROW WAS DEAD ───────────────────────────────────────────────────────
+' On the sbx backend the egress axis offered open | allowlist | review and none
+' of the three did anything. sandbox.Spec derives the Kit allowlist from the
+' harness capabilities and the detected providers and NEVER consults the tier, so
+' open and allowlist produce an identical sandbox; review is not supported there
+' at all and falls back to docker. A three-option risk axis on which nothing
+' moves is worse than no axis: it tells the operator they chose a posture.
+'
+' ── WHAT ACTUALLY GOVERNS ──────────────────────────────────────────────────
+' sbx's GLOBAL network baseline — allow-all | balanced | deny-all. It is the only
+' lever, and that is a property of how sbx composes policy, not a proveo choice:
+'   * a Kit ADDS allow rules on top of the baseline; it cannot subtract.
+'   * a per-sandbox deny cannot express "only the allowlist", because deny beats
+'     allow — `sbx policy deny network --sandbox X "**"` blocks the allowlist too.
+' So on an allow-all host the Kit allowlist ADDS REACH rather than limiting it,
+' and proveo's own warning has said exactly that on every run for some time. The
+' row now says it in the place the operator is actually looking.
+'
+' ── DISPLAY ONLY, AND THAT IS THE POINT ────────────────────────────────────
+' The row is LOCKED. proveo reports the baseline and never sets it:
+'   * it is host-wide, shared by every sandbox including ones proveo never
+'     started, so a per-run prompt would rewrite other people's runs;
+'   * changing it needs `sbx policy reset`, which clears EVERY policy on the host;
+'   * and offering it as a per-run choice would teach the wrong intuition — that
+'     this is a property of the container in front of you. It is not.
+' The change hint is one sample, identical for every baseline. It carries the
+' reset because `sbx policy init` alone is REJECTED once a host is initialized —
+' measured: "global network policy is already initialized; use sbx policy reset
+' first to change it". A hint without the reset would print a command that fails.
+'
+' ── READING IT ─────────────────────────────────────────────────────────────
+' From sbx, not by probing. `sbx policy check` can only separate allow-all from
+' "something stricter", because balanced and deny-all both deny an unallowlisted
+' host. `sbx policy inspect local-policy` prints the rules, and the network rows
+' classify structurally:
+'   allow **          -> allow-all
+'   no network allow  -> deny-all
+'   specific allows   -> balanced
+' Unreadable stays UNREADABLE. Naming a baseline proveo could not read would put a
+' boundary in front of the operator that may not exist — the same failure the dead
+' row committed, in the other direction.
+'
+' MEASURED HOW FAR: only allow-all was observable on the development host, because
+' changing the baseline needs the destructive reset. The other two fixtures are
+' built from the same table shape; internal/sbx TestPolicyBaselineLive (tag
+' livesbx) is what catches sbx changing that table.
+'
+' STILL OPEN: posture.EnforcedBy says "sbx — Kit network allowlist + credential
+' proxy" whatever the baseline is, which overstates on an allow-all host. Left
+' unchanged deliberately; it belongs with D2 in _spec/_plans/revision-env-egress.
+title The sbx egress row — showing what governs, not what proveo intends
+
+participant "operator" as OP <<app>>
+participant "proveo\negressRow" as ROW <<app>>
+participant "sbx policy\ninspect local-policy" as SBX <<cloud>>
+participant "the Kit\nallowlist" as KIT <<data>>
+
+OP ARROW_MAIN ROW : run <harness> (sbx backend)
+ROW ARROW_MAIN SBX : read the global baseline
+SBX ARROW_MAIN ROW : allow ** -> allow-all
+ROW ARROW_ERROR OP : locked row, current value shown,\none runnable command to change it
+KIT ARROW_OPTIONAL SBX : adds allow rules ON TOP\n(cannot subtract)
+
+note over ROW
+  **Docker is untouched.** There the tier is real
+  and stays selectable: open | allowlist | review,
+  enforced by the Squid and MITM sidecars.
+  ""--egress-mode"" keeps its canonical values on
+  both backends, so nothing the in-container gate
+  parses changed (D4).
+end note
+
+note over SBX
+  **Deny beats allow.** That single rule is why the
+  baseline is the only lever: no per-sandbox rule
+  can mean "confine to the allowlist", because a
+  deny broad enough to confine also blocks the
+  allowlist it was meant to leave open.
+end note
+@enduml

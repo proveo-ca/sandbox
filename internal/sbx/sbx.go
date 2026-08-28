@@ -919,12 +919,81 @@ var (
 		defer cancel()
 		return exec.CommandContext(ctx, Binary, PolicyLogArgs(sandbox)...).Output()
 	}
+	inspectPolicy = func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
+		defer cancel()
+		return exec.CommandContext(ctx, Binary, InspectPolicyArgs()...).Output()
+	}
 	policyCheck = func(host string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), dockerInfoTimeout)
 		defer cancel()
 		return exec.CommandContext(ctx, Binary, CheckNetworkArgs(host)...).Output()
 	}
 )
+
+// Baseline names sbx's GLOBAL network policy, which is the only lever that can
+// make a Kit allowlist mean anything: a Kit adds allow rules ON TOP of this, and
+// a per-sandbox deny cannot express "only the allowlist" because deny always
+// beats allow. See _spec/internal/sbx/policy-baseline.puml.
+const (
+	BaselineAllowAll = "allow-all"
+	BaselineBalanced = "balanced"
+	BaselineDenyAll  = "deny-all"
+)
+
+// Baselines are sbx's own three, in the order `sbx policy init` documents them.
+func Baselines() []string { return []string{BaselineAllowAll, BaselineBalanced, BaselineDenyAll} }
+
+// InspectPolicyArgs reads the global policy. `local-policy` is the id sbx gives
+// the baseline; it is not a per-sandbox policy.
+func InspectPolicyArgs() []string { return []string{"policy", "inspect", "local-policy"} }
+
+// PolicyBaseline reports which baseline this host is on, read from sbx rather
+// than probed: `sbx policy check` can only tell allow-all from "something
+// stricter", because balanced and deny-all both deny an unallowlisted host.
+//
+// Classification is structural, from the network rules sbx prints:
+//
+//	allow **        -> allow-all   (rule id default-allow-all)
+//	no network allow -> deny-all
+//	specific allows  -> balanced
+//
+// known is false when sbx is absent or its output is unrecognisable, and callers
+// must say "unreadable" rather than assume a posture in either direction.
+func PolicyBaseline() (name string, known bool) {
+	out, err := inspectPolicy()
+	if err != nil {
+		return "", false
+	}
+	var allowAll, sawNetwork bool
+	allows := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// DECISION RESOURCE TYPE ... — network rows only; filesystem rows are a
+		// separate axis and sbx prints them in the same table.
+		if len(f) < 3 || f[2] != "network" {
+			continue
+		}
+		sawNetwork = true
+		if f[0] != "allow" {
+			continue
+		}
+		allows++
+		if f[1] == "**" {
+			allowAll = true
+		}
+	}
+	switch {
+	case allowAll:
+		return BaselineAllowAll, true
+	case !sawNetwork:
+		return "", false
+	case allows == 0:
+		return BaselineDenyAll, true
+	default:
+		return BaselineBalanced, true
+	}
+}
 
 func NetworkAllowed(host string) (allowed, known bool) {
 	out, err := policyCheck(host)
@@ -1061,27 +1130,6 @@ type KitPermissions struct {
 type KitNet struct {
 	Allow []string `yaml:"allow,omitempty"`
 	Deny  []string `yaml:"deny,omitempty"`
-}
-
-// KitCredential is one provider's brokered credential. This is proveo's broker
-// expressed declaratively: proxyManaged keeps the value out of the VM entirely,
-// and inject names the destination and header it may be attached to — the same
-// on-route/off-route rule internal/broker implements for the docker path.
-type KitCredential struct {
-	Service string    `yaml:"service"`
-	APIKey  KitAPIKey `yaml:"apiKey"`
-}
-
-type KitAPIKey struct {
-	Name         string      `yaml:"name"`
-	ProxyManaged bool        `yaml:"proxyManaged"`
-	Inject       []KitInject `yaml:"inject,omitempty"`
-}
-
-type KitInject struct {
-	Domain string `yaml:"domain"`
-	Header string `yaml:"header"`
-	Format string `yaml:"format,omitempty"`
 }
 
 // WriteKit renders k into dir/spec.yaml and returns dir.

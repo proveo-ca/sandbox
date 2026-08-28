@@ -461,7 +461,9 @@ _proveo_github_token() {
   if [ -n "${GITHUB_TOKEN:-}" ]; then printf '%s' "$GITHUB_TOKEN"; return 0; fi
   if [ -n "${GH_TOKEN:-}" ]; then printf '%s' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 || return 0
-  _proveo_bounded 5 gh auth token 2>/dev/null | head -n1
+  # `pipefail` makes an unauthenticated `gh auth token` fail the whole pipeline,
+  # and the caller assigns this under `set -e`. No token is a normal state.
+  _proveo_bounded 5 gh auth token 2>/dev/null | head -n1 || return 0
 }
 
 _mise_install() {
@@ -502,7 +504,15 @@ _proveo_lock_installs() {
   command -v flock >/dev/null 2>&1 || return 0
   local dir="${HOME}/.local/share/proveo"
   mkdir -p "$dir" 2>/dev/null || return 0
-  exec 9>"${dir}/install.lock" 2>/dev/null || return 0
+  # `exec` with no command makes its redirections PERMANENT for this shell, so
+  # `2>/dev/null` here did not scope stderr to the exec — it silenced stderr for
+  # the whole entrypoint AND the agent it goes on to exec. Every diagnostic after
+  # this line was being written to /dev/null, which is why so many failures in
+  # this harness present as a silent death with no message.
+  # Probe writability with the redirect scoped to a single command, then take the
+  # lock without touching fd 2. See _spec/_plans/restore-green-e2e.puml (C1).
+  if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
+  exec 9>>"${dir}/install.lock"
   if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then
     echo "⏳ another proveo run is provisioning tools under ${HOME}; skipping installs this run"
     _proveo_unlock_installs
@@ -511,7 +521,10 @@ _proveo_lock_installs() {
   return 0
 }
 
-_proveo_unlock_installs() { exec 9>&- 2>/dev/null || true; }
+# Closing an fd that was never opened is not an error in bash, so this needs no
+# guard — and it must NOT carry `2>/dev/null`: on a bare `exec` that redirect is
+# permanent, and it silenced the rest of the run (see _proveo_lock_installs).
+_proveo_unlock_installs() { exec 9>&-; }
 
 ensure_project_tools() {
  _proveo_tool_path
@@ -1159,13 +1172,18 @@ _node_nearest_pkg() {
 _node_json_field() {
   local file="$1" expr="$2"
   [[ -f "$file" ]] || return 0
+  # A harness image without node is the ORDINARY case — cecli ships python only —
+  # and both callers assign this in a command substitution, so a 127 from a
+  # missing interpreter aborted the whole seed under `set -euo pipefail`. Same
+  # defect as _node_version_file: absence is not failure.
+  command -v node >/dev/null 2>&1 || return 0
   node -e '
     try {
       const p = require(process.argv[1]);
       const v = process.argv[2].split(".").reduce((o, k) => (o == null ? o : o[k]), p);
       if (v != null) process.stdout.write(String(v));
     } catch (e) {}
-  ' "$file" "$expr" 2>/dev/null
+  ' "$file" "$expr" 2>/dev/null || return 0
 }
 
 # ensure_node_toolchain aligns the package manager and runtime with the project.

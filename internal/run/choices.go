@@ -41,7 +41,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header: buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
 		Rows: applicableRows(
-			sbxEgressReality(reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, p.Mode), sandboxOn), sandboxOn),
+			egressRow(man, p.Mode, sandboxOn),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
@@ -278,19 +278,56 @@ func firstEnabled(r choiceui.Row) int {
 }
 
 // applicableRows drops axes with nothing to decide.
-// sbxEgressReality greys the tiers the sbx backend cannot honour. sandbox.Spec derives
-// the Kit allowlist from the harness capabilities and the detected providers and never
-// consults the tier, so "open" and "allowlist" produce an identical sandbox: the row
-// would otherwise present a risk axis on which nothing moves. Only "review" still does
-// something — it selects the docker backend — and gateReview already owns that.
+// egressRow shows the axis that actually governs THIS backend.
 //
-// The option is greyed rather than removed, for the reason comingSoon exists: hiding it
-// would misrepresent an unenforced tier as an unavailable one.
-func sbxEgressReality(r choiceui.Row, sandboxOn bool) choiceui.Row {
+// On docker that is proveo's own tier: open|allowlist|review, which the egress
+// sidecars enforce and the in-container gate parses.
+//
+// On sbx it is not. sandbox.Spec derives the Kit allowlist from the harness
+// capabilities and the detected providers and never consults the tier, so "open"
+// and "allowlist" produce an identical sandbox and "review" falls back to docker
+// — a three-option risk axis on which nothing moves. What governs there is sbx's
+// GLOBAL baseline, because a Kit only adds allow rules ON TOP of it and a
+// per-sandbox deny cannot express "only the allowlist" (deny beats allow). So the
+// row is replaced by the real thing, LOCKED: proveo reports the baseline and does
+// not set it, since it is host-wide, applies to every sandbox including ones
+// proveo never started, and changing it needs `sbx policy reset` — which clears
+// every policy on the host. See _spec/internal/sbx/policy-baseline.puml.
+// changeBaselineHint is deliberately identical for every baseline. The row is
+// DISPLAY ONLY: the baseline is the host's, shared by every sandbox on it, and
+// offering it as a per-run choice would teach exactly the wrong intuition — that
+// this is a property of the container in front of you. It is not.
+const changeBaselineHint = "host-wide, not per-run — to change, run on the host: " +
+	"`sbx policy reset && sbx policy init allow-all|balanced|deny-all`"
+
+// policyBaseline is a seam: reading it shells out to sbx, which a unit test has no
+// business doing.
+var policyBaseline = sbx.PolicyBaseline
+
+func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
 	if !sandboxOn {
-		return r
+		return reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, mode), false)
 	}
-	return comingSoon(r, "open", "open: sbx always enforces the Kit allowlist")
+	name, known := policyBaseline()
+	if !known {
+		// Naming a baseline we could not read would put a boundary in front of the
+		// operator that may not exist.
+		return choiceui.Row{
+			Label: "egress", Options: []string{"unreadable"}, Locked: true,
+			Reason: "proveo could not read the host baseline (`sbx policy inspect local-policy`). " + changeBaselineHint,
+		}
+	}
+	r := choiceui.Row{Label: "egress", Options: sbx.Baselines(), Locked: true}
+	for i, b := range r.Options {
+		if b == name {
+			r.Selected = i
+		}
+	}
+	// ONE sample, the same whichever baseline is in effect. `init` alone is
+	// rejected once the host is initialized ("use sbx policy reset first"), so a
+	// sample without the reset would be a command that fails.
+	r.Reason = changeBaselineHint
+	return r
 }
 
 func applicableRows(rows ...choiceui.Row) []choiceui.Row {

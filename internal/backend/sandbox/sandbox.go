@@ -616,61 +616,6 @@ func KitEnvVars(env []string) map[string]string {
 	return out
 }
 
-// KitCredentials declares proveo's broker as the Kit's credential policy: one
-// entry per secret actually being injected, proxy-managed so the value never
-// enters the VM, and an inject rule per host naming the header it may ride.
-//
-// It is derived from the SECRETS, not from the detected providers, because those
-// are not the same set: a manifest-declared credential (claudecode's
-// CLAUDE_CODE_OAUTH_TOKEN) is injected host-side whether or not provider
-// detection saw it. Keying on detection left the Kit silently empty for exactly
-// that case — declaring no brokering while proveo went on to broker.
-//
-// No value is written into the Kit. The env var names it and the header says
-// where it may go; the secret itself travels only over `sbx secret set` on stdin.
-// Nothing is declared under --credentials forward, where the agent holds its own
-// key and there is no brokering to describe.
-func KitCredentials(secrets [][2]string, forwards bool) []sbx.KitCredential {
-	if forwards {
-		return nil
-	}
-	var out []sbx.KitCredential
-	seen := map[string]bool{}
-	for _, kv := range secrets {
-		svc, opt, ok := credentials.ProviderForAuthVar(kv[0])
-		// No header means nothing to attach a credential to: a signed-request
-		// provider (bedrock, vertex) or one authenticating by query parameter cannot
-		// be expressed as an injected header.
-		if !ok || opt.Header == "" {
-			continue
-		}
-		// One entry per SERVICE. anthropic accepts two credentials
-		// (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY) and both can be present, but
-		// a service is one identity — declaring it twice leaves which one wins up to
-		// sbx's map order. First wins, and the order is meaningful: manifest-declared
-		// secrets come before the detected provider keys, so the credential the
-		// harness actually announces is the one that stands.
-		if seen[svc] {
-			continue
-		}
-		seen[svc] = true
-		format := "%s"
-		if opt.Bearer {
-			format = "Bearer %s"
-		}
-		e, _ := provider.Lookup(svc)
-		var inject []sbx.KitInject
-		for _, h := range e.Hosts {
-			inject = append(inject, sbx.KitInject{Domain: h, Header: opt.Header, Format: format})
-		}
-		out = append(out, sbx.KitCredential{
-			Service: svc,
-			APIKey:  sbx.KitAPIKey{Name: kv[0], ProxyManaged: true, Inject: inject},
-		})
-	}
-	return out
-}
-
 // Run renders the Kit, injects credentials, runs the agent, tears down.
 func Run(in Input) error {
 	cfg, kit, secrets := Spec(in)
@@ -698,6 +643,14 @@ func Run(in Input) error {
 		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
 			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
 		}
+	}
+	// Said once, not per secret. sbx's secret store is HOST-WIDE and `secret set
+	// --force` overwrites: what this run writes is visible to every sandbox on the
+	// machine and outlives the run. A stale entry from an earlier run is therefore
+	// able to authenticate a later one that never chose it — which reads as proveo
+	// picking a credential the operator did not, somewhere they cannot see.
+	if len(secrets) > 0 {
+		ui.Notef("    sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
 	args := sbx.RunArgs(cfg)
 	// sbx has no `logs` command and the sandbox may be gone by the time anyone

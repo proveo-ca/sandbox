@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/proveohome"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -69,29 +70,47 @@ func TestProveoHomePersistence(t *testing.T) {
 				// taking when the sandbox backend became first-class. Asserting the
 				// docker form for every harness left this subtest red for both of
 				// them, which is the drift a backend-blind expectation invites.
-				containerHome := proveohome.ContainerHome
 				if isSbxArgv(agentCmd) {
-					containerHome = home
+					// sbx mounts the proveo home at its HOST path and passes it
+					// positionally, and it deliberately sets NEITHER HOME nor
+					// PROVEO_HOME — see sandbox.Home. Redirecting HOME orphaned the
+					// credential sbx's own proxy writes under the image's home, and
+					// the agent then reported "Not logged in" (ladder rung 3).
 					if !strings.Contains(agentCmd, " "+home) {
 						t.Errorf("sbx argv does not carry the proveo home as a workspace:\n%s", agentCmd)
 					}
-				} else if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
-					t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
-						home, proveohome.ContainerHome, agentCmd)
-				}
-				// Matched with the flag attached: "HOME=x" is a substring of
-				// "PROVEO_HOME=x", so the looser form passed whenever the other
-				// variable was present and the assertion proved nothing.
-				if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
-					t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
-				}
-				// PROVEO_HOME travels with it. A launcher may reset HOME — sbx runs
-				// startup commands as user 1000, which reloads it from /etc/passwd —
-				// so the seed reads this name instead. Absent, it composes subagents
-				// into the image's home while the agent, running with the other
-				// value, reads none of them.
-				if !strings.Contains(agentCmd, "-e PROVEO_HOME="+containerHome) {
-					t.Errorf("agent cmd missing -e PROVEO_HOME=%s:\n%s", containerHome, agentCmd)
+					// The positive claim: resume state has a host path to travel to.
+					if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
+						t.Errorf("sbx argv missing -e %s=%s — without it the agent's transcripts "+
+							"land in volumes teardown removes, and `--resume` has nothing to offer:\n%s",
+							sbx.StateHomeVar, home, agentCmd)
+					}
+					// And the guard: the redirect must not come back by accident.
+					for _, banned := range []string{"-e HOME=", "-e PROVEO_HOME="} {
+						if strings.Contains(agentCmd, banned) {
+							t.Errorf("sbx argv carries %q — the HOME redirect is retired on this "+
+								"backend because it orphaned the proxy-written credential:\n%s", banned, agentCmd)
+						}
+					}
+				} else {
+					if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
+						t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
+							home, proveohome.ContainerHome, agentCmd)
+					}
+					// Docker is unchanged: it runs the agent as the HOST's uid, so the
+					// image's passwd entry is wrong and HOME must be redirected.
+					// Matched with the flag attached: "HOME=x" is a substring of
+					// "PROVEO_HOME=x", so the looser form passed whenever the other
+					// variable was present and the assertion proved nothing.
+					containerHome := proveohome.ContainerHome
+					if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
+						t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
+					}
+					// PROVEO_HOME travels with it, so a seed that reads $HOME and an
+					// agent that reads this name resolve the same directory.
+					if !strings.Contains(agentCmd, "-e PROVEO_HOME="+containerHome) {
+						t.Errorf("agent cmd missing -e PROVEO_HOME=%s:\n%s", containerHome, agentCmd)
+					}
 				}
 				if host := os.Getenv("HOME"); host != "" {
 					for _, ide := range []string{

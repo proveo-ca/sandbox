@@ -397,17 +397,28 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 			}
 
 			// Env-shaped work is resolved host-side because a setup command exports
-			// into a process the agent never inherits. PROVEO_HOME in particular
-			// cannot be read from $HOME: sbx runs startup as user 1000, which reloads
-			// HOME from /etc/passwd.
-			for _, k := range []string{"HOME", "PROVEO_HOME", "PROVEO_WORKDIR"} {
+			// into a process the agent never inherits.
+			for _, k := range []string{"PROVEO_WORKDIR", sbx.StateHomeVar} {
 				if kit.Environment.Variables[k] == "" {
 					t.Errorf("%s: Kit environment omits %s\n%s", target, k, raw)
 				}
 			}
-			if h, s := kit.Environment.Variables["HOME"], kit.Environment.Variables["PROVEO_HOME"]; h != s {
-				t.Errorf("%s: PROVEO_HOME=%q must equal HOME=%q, or the seed targets "+
-					"a different directory than the agent", target, s, h)
+			// PROVEO_STATE_HOME must name a HOST path, because the seed and teardown
+			// copy resume state to and from it. A container path here would send the
+			// transcripts into a volume that teardown removes.
+			if v := kit.Environment.Variables[sbx.StateHomeVar]; v != "" && !filepath.IsAbs(v) {
+				t.Errorf("%s: %s=%q is not an absolute host path\n%s", target, sbx.StateHomeVar, v, raw)
+			}
+			// The redirect is retired on this backend and must not return: HOME
+			// pointed away from the home sbx's credential proxy writes into, so the
+			// agent read a stale mounted credential and reported "Not logged in"
+			// (tests/e2e/ladder_test.go, rung 3). See sandbox.Home.
+			for _, k := range []string{"HOME", "PROVEO_HOME"} {
+				if v, ok := kit.Environment.Variables[k]; ok {
+					t.Errorf("%s: Kit sets %s=%q — the HOME redirect is deliberately deleted on "+
+						"the sbx backend; reinstating it orphans the proxy-written credential\n%s",
+						target, k, v, raw)
+				}
 			}
 		})
 	}
@@ -1035,27 +1046,40 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 	}
 }
 
-// sbx runs a Kit's setup.startup command as `user: "1000"`, and that reloads HOME
-// from /etc/passwd — so $HOME inside the seed is the IMAGE's home, not the one the
-// agent will run with. PROVEO_HOME carries the same path under a name no launcher
-// rewrites. Without it the seed composed subagents into /home/claude while the
-// agent ran with the mounted proveo home and read none of them, silently: seeding
-// reported success, and only the startup log named the directory it had used.
-func TestSandboxBackendCarriesProveoHomeBesideHome(t *testing.T) {
+// The sbx backend publishes PROVEO_STATE_HOME and sets NEITHER HOME nor
+// PROVEO_HOME. That is the contract, and the deletion is the fix.
+//
+// The pair used to be required here: this test was named
+// ...CarriesProveoHomeBesideHome because sbx reloads HOME from /etc/passwd when it
+// runs a Kit's setup.startup as `user: "1000"`, so a seed reading $HOME wrote
+// somewhere the agent never read. The redirect that made PROVEO_HOME necessary is
+// gone — it pointed HOME away from the home sbx's own credential proxy writes
+// into, so the agent read a stale mounted credential and reported "Not logged in"
+// (tests/e2e/ladder_test.go, rung 3). With no redirect there is no divergence:
+// seed and agent both resolve the image's home. See sandbox.Home.
+//
+// What the redirect did buy was resume, and PROVEO_STATE_HOME buys it back by
+// naming a HOST path for the transcripts to be copied to and from.
+func TestSandboxBackendPublishesStateHomeAndNoRedirect(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sbx not available on this host")
 	}
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
 			out := printOnlyRun(t, t.TempDir(), nil, target)
-			home := envValueInArgv(out, "HOME")
-			seed := envValueInArgv(out, "PROVEO_HOME")
-			if home == "" {
-				t.Fatalf("sbx argv sets no HOME:\n%s", out)
+			state := envValueInArgv(out, sbx.StateHomeVar)
+			if state == "" {
+				t.Errorf("sbx argv sets no %s — the agent's transcripts land in volumes "+
+					"teardown removes, so `--resume` has nothing to offer:\n%s", sbx.StateHomeVar, out)
+			} else if !filepath.IsAbs(state) {
+				t.Errorf("%s=%q is not an absolute host path:\n%s", sbx.StateHomeVar, state, out)
 			}
-			if seed != home {
-				t.Errorf("PROVEO_HOME=%q must equal HOME=%q, or the seed targets a\n"+
-					"different directory than the agent:\n%s", seed, home, out)
+			// The guard: neither name may come back by accident.
+			for _, k := range []string{"HOME", "PROVEO_HOME"} {
+				if v := envValueInArgv(out, k); v != "" {
+					t.Errorf("sbx argv sets %s=%q — the redirect is retired on this backend "+
+						"because it orphaned the proxy-written credential:\n%s", k, v, out)
+				}
 			}
 		})
 	}

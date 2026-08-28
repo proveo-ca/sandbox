@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
@@ -523,35 +524,83 @@ func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
 	}
 }
 
-// anthropic takes either an API key or a subscription token, and an operator may
-// hold both. A service is one identity in a Kit, so declaring it twice would
-// leave the effective credential up to map order inside sbx.
-func TestSbxEgressRealityGreysOpen(t *testing.T) {
-	t.Parallel()
-	row := axisRow("egress", []string{"open", "allowlist", "review"}, nil, "open")
+// The egress axis must name what actually governs the backend in front of the
+// operator. On docker that is proveo's tier; on sbx the tier is inert — the Kit
+// allowlist is derived from capabilities and providers, never from the tier — and
+// the real lever is sbx's host-wide baseline, which proveo reports but never sets.
+func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
+	man := manifest.Manifest{}
 
-	if got := sbxEgressReality(row, false); got.Off != nil {
-		t.Errorf("docker backend must leave every tier selectable, got Off=%v", got.Off)
-	}
+	t.Run("docker keeps proveo's tiers selectable", func(t *testing.T) {
+		got := egressRow(man, "open", false)
+		if got.Locked {
+			t.Error("the docker tier is a real choice and must not be locked")
+		}
+		if len(got.Options) == 0 || got.Options[0] != "open" {
+			t.Errorf("docker must offer proveo's canonical tiers, got %v", got.Options)
+		}
+	})
 
-	got := sbxEgressReality(row, true)
-	var greyed bool
-	for i, o := range got.Options {
-		if o == "open" && len(got.Off) > i && got.Off[i] {
-			greyed = true
+	t.Run("sbx shows the host baseline, read-only", func(t *testing.T) {
+		orig := policyBaseline
+		t.Cleanup(func() { policyBaseline = orig })
+		policyBaseline = func() (string, bool) { return sbx.BaselineBalanced, true }
+
+		got := egressRow(man, "allowlist", true)
+		if !got.Locked {
+			t.Error("the sbx baseline is host-wide and proveo does not set it; the row must be locked")
 		}
-		if o == "allowlist" && len(got.Off) > i && got.Off[i] {
-			t.Error("allowlist is what sbx actually enforces; it must stay selectable")
+		if len(got.Options) != 3 || got.Options[0] != sbx.BaselineAllowAll {
+			t.Errorf("sbx must show sbx's own three baselines, got %v", got.Options)
 		}
-	}
-	if !greyed {
-		t.Errorf("open must be greyed on the sbx backend, got Off=%v", got.Off)
-	}
-	// Greyed, never hidden: removing it would misrepresent an unenforced tier as an
-	// unavailable one.
-	if len(got.Options) != len(row.Options) {
-		t.Errorf("no tier may be removed, got %v", got.Options)
-	}
+		if got.Options[got.Selected] != sbx.BaselineBalanced {
+			t.Errorf("selected %q, want the host's actual baseline %q",
+				got.Options[got.Selected], sbx.BaselineBalanced)
+		}
+	})
+
+	// One sample, identical for every baseline, and it must carry the reset: `sbx
+	// policy init` on its own is rejected once the host is initialized, so a hint
+	// without it would print a command that fails.
+	t.Run("the change hint is uniform and runnable", func(t *testing.T) {
+		orig := policyBaseline
+		t.Cleanup(func() { policyBaseline = orig })
+
+		var seen []string
+		for _, b := range append(sbx.Baselines(), "") {
+			policyBaseline = func() (string, bool) { return b, b != "" }
+			r := egressRow(man, "allowlist", true)
+			if !strings.Contains(r.Reason, "sbx policy reset && sbx policy init") {
+				t.Errorf("baseline %q: hint must include the reset, got %q", b, r.Reason)
+			}
+			if !strings.Contains(r.Reason, "host-wide, not per-run") {
+				t.Errorf("baseline %q: hint must say the baseline is the HOST's — offering it "+
+					"per-run would imply it is a property of this container, got %q", b, r.Reason)
+			}
+			seen = append(seen, r.Reason)
+		}
+		for _, got := range seen[1:] {
+			if !strings.Contains(got, changeBaselineHint) {
+				t.Errorf("the sample must be the same for every baseline, got %q", got)
+			}
+		}
+	})
+
+	t.Run("unreadable is never rendered as a posture", func(t *testing.T) {
+		orig := policyBaseline
+		t.Cleanup(func() { policyBaseline = orig })
+		policyBaseline = func() (string, bool) { return "", false }
+
+		got := egressRow(man, "allowlist", true)
+		for _, b := range sbx.Baselines() {
+			for _, o := range got.Options {
+				if o == b {
+					t.Errorf("an unreadable baseline must not name %q — the operator would "+
+						"trust a boundary that may not exist", b)
+				}
+			}
+		}
+	})
 }
 
 func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {

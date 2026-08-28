@@ -558,7 +558,8 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			// never written produces a failure that reads as an sbx bug rather
 			// than a print-mode limitation, so print mode renders the spec even
 			// though it executes nothing else. No secret VALUE reaches the file:
-			// sandbox.KitCredentials declares names and headers only.
+			// The Kit carries no credential at all: it is a MIXIN, and sbx rejects
+			// a mixin that redeclares a service its built-in agent owns.
 			if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
 				return false, fmt.Errorf("write sandbox kit: %w", err)
 			}

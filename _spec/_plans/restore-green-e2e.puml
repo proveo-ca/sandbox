@@ -12,38 +12,56 @@ skinparam noteTextAlignment left
 ' regression from the decomposition; they are the baseline that has to be repaired
 ' before move 6 (_spec/_plans/main-decomposition-moves.puml) can be judged.
 '
-' ── C1 · RESOLVED, AND THE MECHANISM NAMED HERE WAS WRONG ──────────────────
-' C1 blamed `_proveo_lock_installs`:
+' ── C1 · RESOLVED — TWO BUGS ON ONE LINE, AND TWO WRONG EXPLANATIONS ───────
+' The line C1 accused really is defective. Neither explanation offered for it was
+' right, including the correction that replaced the first one.
+'
 '     exec 9>"${dir}/install.lock" 2>/dev/null || return 0
-' claiming a redirection failure on `exec` is fatal to a non-interactive shell,
-' so the `|| return 0` is dead code. THAT IS NOT TRUE. Measured against an
-' unopenable path (a directory, which even root cannot open for writing), under
-' `set -euo pipefail`, on bash 4.4, 5.0 and 5.2 on Linux: the shell does NOT
-' exit, `|| return 0` fires, and the function returns 0. The guard is live code.
-' Bash only exits there in POSIX mode, which the entrypoint never sets.
 '
-' The symptom C1 recorded was real, but it belonged to a different line —
-' `_node_version_file`, missing a `return 0` on the "no version file" path, so a
-' workspace with no node pin aborted the whole startup command under `set -e`.
-' See _spec/internal/sbx/seed-node-version-abort.puml. The two match exactly:
-'   * "exit 1 after 1s"                  -> no go.mod, so the seed reaches the
-'                                           node block within a second
-'   * PROVEO_AUTO_INSTALL_TOOLS=false fixes it -> that knob gates the function
-'                                           CONTAINING the bug, not the lock
-'   * "`set -x` ends on `+ exec`"        -> an artifact. stdout and stderr
-'                                           interleave unreliably; the same
-'                                           probe prints its error before OR
-'                                           after later stdout lines run to run.
+' WRONG #1 (original C1): "a failed redirect on `exec` is fatal to a
+' non-interactive shell, so `|| return 0` is dead code". Measured against a path
+' even root cannot open for writing, under `set -euo pipefail`, on bash 4.4, 5.0
+' and 5.2: the shell does NOT exit and the guard fires. Bash only exits there in
+' POSIX mode, which the entrypoint never sets.
 '
-' With the `return 0` in place and NO change to the lock helper,
-' TestClaudecodeEntrypointOperatesOnTheInputDir passes. That test mounts the
-' working-tree entrypoint, so it proves current source rather than the image.
+' WRONG #2 (the first correction): "the trace ending on `+ exec` is a stdout /
+' stderr interleaving artifact." It is not an artifact. It is the bug.
 '
-' The lesson is the one this file already teaches twice: a mechanism argued from
-' an artifact is a guess. `+ exec` was the last line of a trace, and a night went
-' into the theory built on it.
+' RIGHT: a bare `exec` — one with no command — applies its redirections to the
+' SHELL, permanently. `2>/dev/null` therefore did not scope stderr to the exec; it
+' discarded stderr for the rest of the entrypoint AND for the agent the entrypoint
+' goes on to exec. `set -x` writes to stderr, which is exactly why every trace
+' ended on `+ exec` and why so many failures in this harness presented as a silent
+' death with no message. The output was never produced late or out of order. It
+' was thrown away.
+' _proveo_unlock_installs carried the identical defect: `exec 9>&- 2>/dev/null`.
+'
+' FIX (this is C1's original proposal, correct for a different reason):
+'     if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
+'     exec 9>>"${dir}/install.lock"
+' and `_proveo_unlock_installs() { exec 9>&-; }`.
+'
+' WHAT IT WAS HIDING · with stderr restored, one trace found the real abort in a
+' second: `_node_json_field` runs `node -e` and the cecli image ships python and
+' NO node, so it returned 127 — assigned in a command substitution under
+' `set -euo pipefail`, which ends the run. The same family as
+' _node_version_file (_spec/internal/sbx/seed-node-version-abort.puml): absence
+' reported as failure.
+'
+' All 24 helpers whose results are command-substituted were then audited by
+' MEASUREMENT inside the image, not by reading. Exactly two were non-zero:
+' _node_json_field (127, no node) and _proveo_github_token (1, `pipefail` plus an
+' unauthenticated `gh auth token`). Both now return 0; the other 22 already did.
+'
+' RESULT · TestHelloWorldE2E goes green, both failing legs. cecli 6.17s-fail ->
+' 21.5s-pass, and claudecode's "the agent surfaced no model answer" was the
+' agent's own stderr going to /dev/null.
+'
+' The lesson this file already taught twice, now three times: a mechanism argued
+' from an artifact is a guess. Two confident explanations were built on `+ exec`
+' before anyone tested what that line does to fd 2.
 
-' ── C2 · FOUR ASSERTIONS PIN THE RETIRED HOME REDIRECT ──────────────────────
+' ── C2 · DONE · ASSERTIONS NOW PIN THE CURRENT CONTRACT ────────────────────
 ' sbxHome DELETES HOME and PROVEO_HOME on the sandbox backend and publishes
 ' PROVEO_STATE_HOME instead. That deletion IS the fix: redirecting HOME orphaned
 ' the credential sbx's own proxy writes under the image's home, and the agent then
@@ -51,11 +69,13 @@ skinparam noteTextAlignment left
 '   TestProveoHomePersistence ("agent cmd missing -e HOME=")
 '   TestSandboxKitIsAMixinCarryingNoCredentials ("Kit environment omits HOME")
 '   TestSandboxBackendCarriesProveoHomeBesideHome (the name is the old contract)
-' FIX: assert the CURRENT contract — no HOME/PROVEO_HOME in the sbx argv or Kit,
-' PROVEO_STATE_HOME present and pointing at the mounted home, and the docker path
-' unchanged. Keep one assertion that the redirect stays gone, so it cannot return
-' by accident. This is a rewrite of what is asserted, not a loosening: each one
-' gains a positive claim it did not have.
+' APPLIED. Each now asserts the CURRENT contract: no HOME/PROVEO_HOME in the sbx
+' argv or Kit, PROVEO_STATE_HOME present and an ABSOLUTE HOST path, and the docker
+' path unchanged — plus a guard that the redirect cannot return by accident. Not a
+' loosening: every one gained a positive claim it did not have. The third was
+' renamed, because its old name WAS the retired contract:
+'   TestSandboxBackendCarriesProveoHomeBesideHome
+'     -> TestSandboxBackendPublishesStateHomeAndNoRedirect
 '
 ' ── C3 · TWO FAILURES ENCODE OPEN DECISIONS — DO NOT MAKE THEM GREEN ────────
 ' These two are the live evidence behind _spec/_plans/revision-env-egress.puml.
@@ -69,27 +89,32 @@ skinparam noteTextAlignment left
 '     label is gated like dind, or this assertion is rewritten to "a daemon is
 '     present AND its containers cannot leave the Kit allowlist".
 '
-'   TestCredentialForwardingIntegrity  (decision D1)
+'   TestCredentialForwardingIntegrity  (decision D1) — NOW GREEN, measured.
+'     It is listed here as red; it passes. Re-measure before acting on this entry.
 '     asserts no provider key appears in the sandbox argv; proveo deliberately
 '     emits `-e VAR=` (empty) to override sbx's GLOBAL secret store. The empty
 '     value is also how a workspace .env refills a variable proveo blanked. It
 '     goes green when D1 lands: assert `-e VAR=` carries no VALUE, and add the
 '     sentinel parity the plan proposes.
 '
-' ── C4 · WHAT IS LEFT AFTER C1 ──────────────────────────────────────────────
-' TestHelloWorldE2E (opencode, cecli legs) and TestPromptfulE2E run the local
-' model. Re-measure them once C1 lands; on macOS the local-model posture drops to
-' a CPU-only sidecar outside open+forward, which is slow enough to look like a
-' hang. Only then decide whether they need a posture fix or a longer deadline.
+' ── C4 · DONE · AND IT WAS NOT ENVIRONMENTAL ────────────────────────────────
+' The suspicion here was macOS: outside open+forward the local-model posture drops
+' to a CPU-only sidecar, slow enough to look like a hang. It was not that. The test
+' already runs `--egress-mode open --credentials forward` with PROVEO_SBX=off, so
+' it always reached the HOST's Ollama and the theory was ruled out by construction.
+' Both failing legs were C1's discarded stderr. The legs named here were also
+' wrong: opencode PASSED throughout; cecli and claudecode were the red ones.
+' TestPromptfulE2E was green before any of this work.
+' Nothing needed a posture fix or a longer deadline.
 '
 ' ── ACCEPTANCE ─────────────────────────────────────────────────────────────
 ' Green does NOT mean zero red. It means: C1 and C2 pass, C4 passes or states a
 ' measured environmental reason, and the only red left is C3 — where each failure
 ' names the decision it is waiting on. A suite in that state is a baseline a
 ' refactor can be judged against, because every red has an owner.
-title IN PROGRESS — a readable e2e baseline: C1 resolved (and misdiagnosed), 5 failures left
+title DONE — a readable e2e baseline: C1 + C2 + C4 fixed, only C3 red by design
 
-component "go test -tags=e2e ./tests/e2e/\nWAS 35 pass · 6 skip · 8 fail\nNOW 43 pass · 8 skip · 5 fail" as SUITE <<error>>
+component "go test -tags=e2e ./tests/e2e/\nWAS 35 pass · 6 skip · 8 fail\nNOW 47 pass · 8 skip · 1 fail (C3, by design)" as SUITE <<app>>
 
 frame "C1 · RESOLVED — and the cause named here was wrong" as C1 <<host>> {
   component "_proveo_lock_installs was NOT it\n`exec 9>` does not exit the shell:\nmeasured on bash 4.4 / 5.0 / 5.2" as LOCK <<app>>

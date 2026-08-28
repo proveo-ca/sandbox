@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
@@ -380,72 +378,6 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	}
 	if !sawWorkdir {
 		t.Errorf("PROVEO_WORKDIR missing from %+v", cfg.Env)
-	}
-}
-
-func TestKitCredentialsDeclareOneEntryPerService(t *testing.T) {
-	t.Parallel()
-	secrets := [][2]string{
-		{"CLAUDE_CODE_OAUTH_TOKEN", "oauth"}, // manifest-declared: comes first
-		{"ANTHROPIC_API_KEY", "sk-x"},        // same service, also present
-		{"OPENAI_API_KEY", "sk-y"},
-	}
-	got := sandbox.KitCredentials(secrets, false)
-
-	byService := map[string]int{}
-	for _, c := range got {
-		byService[c.Service]++
-	}
-	for svc, n := range byService {
-		if n != 1 {
-			t.Errorf("service %q declared %d times, want exactly 1", svc, n)
-		}
-	}
-	// First wins, so the manifest-declared credential is the one that stands.
-	for _, c := range got {
-		if c.Service == "anthropic" && c.APIKey.Name != "CLAUDE_CODE_OAUTH_TOKEN" {
-			t.Errorf("anthropic resolved to %q, want the first-listed CLAUDE_CODE_OAUTH_TOKEN", c.APIKey.Name)
-		}
-	}
-	if len(byService) != 2 {
-		t.Errorf("services = %v, want anthropic and openai", byService)
-	}
-}
-
-func TestKitCredentialsNeverEmbedSecretValues(t *testing.T) {
-	t.Parallel()
-	secrets := [][2]string{
-		{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-SUPERSECRET"},
-		{"ANTHROPIC_API_KEY", "sk-ant-api-ALSOSECRET"},
-	}
-	creds := sandbox.KitCredentials(secrets, false)
-	if len(creds) == 0 {
-		t.Fatal("brokered credentials must be declared")
-	}
-	blob, err := yaml.Marshal(creds)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rendered := string(blob)
-	// One entry per service, so two anthropic secrets collapse to one declaration:
-	// assert a name is carried, not that every name is.
-	var named bool
-	for _, kv := range secrets {
-		if strings.Contains(rendered, kv[0]) {
-			named = true
-		}
-		if strings.Contains(rendered, kv[1]) {
-			t.Errorf("Kit leaked the VALUE of %s; print mode writes this file to disk", kv[0])
-		}
-	}
-	if !named {
-		t.Errorf("no credential name reached the Kit:\n%s", rendered)
-	}
-
-	// --credentials forward declares nothing: the agent holds its own key and there
-	// is no brokering to describe, so print mode writes an empty credentials block.
-	if got := sandbox.KitCredentials(secrets, true); got != nil {
-		t.Errorf("forward mode must declare no credentials, got %v", got)
 	}
 }
 
