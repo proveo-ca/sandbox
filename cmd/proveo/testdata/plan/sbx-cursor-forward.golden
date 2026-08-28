@@ -1,0 +1,30 @@
+== sbx argv ==
+sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e MCP_GATEWAY_URL= cursor <WORK>
+== secret names ==
+== kit spec.yaml ==
+schemaVersion: "2"
+kind: mixin
+name: cursor-posture
+displayName: proveo posture (cursor)
+description: Reachability, host-resolved environment and the seed step for a proveo run.
+permissions:
+    network:
+        allow:
+            - .cursor.com
+            - .cursor.sh
+            - api2.cursor.sh
+environment:
+    variables:
+        GIT_AUTHOR_NAME: Executor
+        HOME: /proveo-home
+        MCP_GATEWAY_URL: ""
+        PROVEO_AGENT_EVIDENCE: default
+        PROVEO_HOME: /proveo-home
+        PROVEO_WORKDIR: <WORK>
+setup:
+    startup:
+        - command:
+            - /usr/local/bin/proveo-seed
+            - cursor
+          user: "1000"
+          description: 'proveo: compose subagents, settings and workspace trust'

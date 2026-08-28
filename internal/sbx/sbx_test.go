@@ -20,9 +20,9 @@ func withProbes(t *testing.T, path, wantGoos, wantGoarch string, kvmMissing bool
 	// Available now gates on the CLI's version, so the version probe has to be
 	// stubbed too or these cases would shell out to whatever sbx the host holds —
 	// and "darwin arm64 is supported" would start depending on a real install.
-	oldVer := runVer
-	runVer = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
-	t.Cleanup(func() { runVer = oldVer })
+	oldVer := sh.Version
+	sh.Version = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
+	t.Cleanup(func() { sh.Version = oldVer })
 	lookPath = func(string) (string, error) {
 		if path == "" {
 			return "", errors.New("not found")
@@ -140,12 +140,12 @@ func TestSecretSetArgs(t *testing.T) {
 
 func TestSecretSetPipesValueViaStdin(t *testing.T) {
 	var gotName, gotValue string
-	old := secretSet
-	secretSet = func(name, value string) error {
+	old := sh.SecretSet
+	sh.SecretSet = func(name, value string) error {
 		gotName, gotValue = name, value
 		return nil
 	}
-	t.Cleanup(func() { secretSet = old })
+	t.Cleanup(func() { sh.SecretSet = old })
 	if err := SecretSet("TOK", "sekret"); err != nil {
 		t.Fatal(err)
 	}
@@ -270,22 +270,22 @@ func TestInstallHintIsPlatformSpecific(t *testing.T) {
 // wording: `sbx version` answers "sbx version: v0.39.0 <sha>", not a bare
 // semver, and `--version` is not a flag it accepts at all.
 func TestVersionParsesTheCLIsOwnWording(t *testing.T) {
-	orig := runVer
-	t.Cleanup(func() { runVer = orig })
+	orig := sh.Version
+	t.Cleanup(func() { sh.Version = orig })
 
 	for _, tc := range []struct{ out, want string }{
 		{"sbx version: v0.39.0 def8cb0523a77e757bdd6ef52b459fe374f3783e\n", "0.39.0"},
 		{"sbx version: v0.35.0\n", "0.35.0"},
 		{"0.40.1\n", "0.40.1"},
 	} {
-		runVer = func() ([]byte, error) { return []byte(tc.out), nil }
+		sh.Version = func() ([]byte, error) { return []byte(tc.out), nil }
 		got, err := Version()
 		if err != nil || got != tc.want {
 			t.Errorf("Version() from %q = %q, %v; want %q", tc.out, got, err, tc.want)
 		}
 	}
 
-	runVer = func() ([]byte, error) { return []byte("nothing here"), nil }
+	sh.Version = func() ([]byte, error) { return []byte("nothing here"), nil }
 	if _, err := Version(); err == nil {
 		t.Error("a version-less answer must be an error, not an empty string treated as old")
 	}
@@ -343,13 +343,13 @@ func TestInstallCmdDistinguishesInstallFromUpgrade(t *testing.T) {
 // Available gates on the version, because every drift this pin exists for fails
 // deep inside a run instead of at selection time.
 func TestAvailableRejectsATooOldCLI(t *testing.T) {
-	origOS, origArch, origLook, origVer := goos, goarch, lookPath, runVer
-	t.Cleanup(func() { goos, goarch, lookPath, runVer = origOS, origArch, origLook, origVer })
+	origOS, origArch, origLook, origVer := goos, goarch, lookPath, sh.Version
+	t.Cleanup(func() { goos, goarch, lookPath, sh.Version = origOS, origArch, origLook, origVer })
 
 	goos, goarch = "darwin", "arm64"
 	lookPath = func(string) (string, error) { return "/usr/local/bin/sbx", nil }
 
-	runVer = func() ([]byte, error) { return []byte("sbx version: v0.35.0\n"), nil }
+	sh.Version = func() ([]byte, error) { return []byte("sbx version: v0.35.0\n"), nil }
 	ok, why := Available()
 	if ok {
 		t.Error("a CLI older than MinVersion must not be selected")
@@ -358,7 +358,7 @@ func TestAvailableRejectsATooOldCLI(t *testing.T) {
 		t.Errorf("the reason must name the version proveo targets, got %q", why)
 	}
 
-	runVer = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
+	sh.Version = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
 	if ok, why := Available(); !ok {
 		t.Errorf("MinVersion exactly must be accepted, got %q", why)
 	}
@@ -369,15 +369,15 @@ func TestAvailableRejectsATooOldCLI(t *testing.T) {
 // are multi-GB and `docker save | sbx template load` is the slowest step in a
 // sandbox run by a wide margin.
 func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
-	origList, origLoad := templateList, templateLoad
-	t.Cleanup(func() { templateList, templateLoad = origList, origLoad })
+	origList, origLoad := sh.TemplateList, sh.TemplateLoad
+	t.Cleanup(func() { sh.TemplateList, sh.TemplateLoad = origList, origLoad })
 
 	loads := 0
-	templateLoad = func(string) error { loads++; return nil }
+	sh.TemplateLoad = func(string) error { loads++; return nil }
 	stubIDs(t, map[string]string{"proveo/claudecode:latest": "aaaaaaaaaaaa"})
 	stubReceipts(t, map[string]string{"proveo/claudecode:latest": "aaaaaaaaaaaa"})
 
-	templateList = func() ([]byte, error) {
+	sh.TemplateList = func() ([]byte, error) {
 		return []byte("REPOSITORY              TAG\nproveo/claudecode       latest\n"), nil
 	}
 	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
@@ -387,7 +387,7 @@ func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
 		t.Errorf("an image already in the store was loaded again (%d times)", loads)
 	}
 
-	templateList = func() ([]byte, error) { return []byte("REPOSITORY  TAG\n"), nil }
+	sh.TemplateList = func() ([]byte, error) { return []byte("REPOSITORY  TAG\n"), nil }
 	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
 		t.Fatalf("EnsureTemplate: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
 
 	// An unreadable store is treated as "not present": loading again is wasteful,
 	// but running against an image that is genuinely absent fails the whole run.
-	templateList = func() ([]byte, error) { return nil, errors.New("daemon down") }
+	sh.TemplateList = func() ([]byte, error) { return nil, errors.New("daemon down") }
 	if HasTemplate("proveo/claudecode:latest") {
 		t.Error("an unreadable store must not report the image as present")
 	}
@@ -405,9 +405,9 @@ func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
 
 // An empty image is not an error to load — it is nothing to load.
 func TestEnsureTemplateIgnoresAnEmptyImage(t *testing.T) {
-	origLoad := templateLoad
-	t.Cleanup(func() { templateLoad = origLoad })
-	templateLoad = func(string) error { t.Fatal("empty image must not reach the loader"); return nil }
+	origLoad := sh.TemplateLoad
+	t.Cleanup(func() { sh.TemplateLoad = origLoad })
+	sh.TemplateLoad = func(string) error { t.Fatal("empty image must not reach the loader"); return nil }
 	if err := EnsureTemplate("", nil); err != nil {
 		t.Errorf("EnsureTemplate(\"\") = %v, want nil", err)
 	}
@@ -425,9 +425,9 @@ docker.io/proveo/egress-proxy        latest         4ee370d17e72                
 // a host engine.
 func stubIDs(t *testing.T, ids map[string]string) {
 	t.Helper()
-	orig := localImageID
-	t.Cleanup(func() { localImageID = orig })
-	localImageID = func(image string) string { return ids[image] }
+	orig := sh.LocalImageID
+	t.Cleanup(func() { sh.LocalImageID = orig })
+	sh.LocalImageID = func(image string) string { return ids[image] }
 }
 
 // stubReceipts points the receipt dir at a temp dir and pre-records the given
@@ -453,9 +453,9 @@ func stubReceipts(t *testing.T, loaded map[string]string) string {
 // received first — which is how a sandbox came up with no /app after the
 // workspace layout was standardised and the images rebuilt.
 func TestHasTemplateReloadsARebuiltImage(t *testing.T) {
-	orig := templateList
-	t.Cleanup(func() { templateList = orig })
-	templateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
+	orig := sh.TemplateList
+	t.Cleanup(func() { sh.TemplateList = orig })
+	sh.TemplateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
 
 	// What proveo last handed to the store, recorded at load time.
 	stubReceipts(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
@@ -484,16 +484,16 @@ func TestHasTemplateReloadsARebuiltImage(t *testing.T) {
 	baked := `REPOSITORY                       TAG      IMAGE ID       FLAVOR   CREATED
 docker.io/proveo/egress-proxy    latest   5fcb2266417f            1 minute ago
 `
-	templateList = func() ([]byte, error) { return []byte(baked), nil }
+	sh.TemplateList = func() ([]byte, error) { return []byte(baked), nil }
 	if !HasTemplate("proveo/egress-proxy:latest") {
 		t.Error("a template sbx re-baked after loading must still count as loaded")
 	}
 }
 
 func TestHasTemplateReadsTheStoresRealColumns(t *testing.T) {
-	orig := templateList
-	t.Cleanup(func() { templateList = orig })
-	templateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
+	orig := sh.TemplateList
+	t.Cleanup(func() { sh.TemplateList = orig })
+	sh.TemplateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
 	// Identity is a separate axis (TestHasTemplateReloadsARebuiltImage); here the
 	// ids are made to agree so the columns are what is under test.
 	ids := map[string]string{
@@ -553,10 +553,10 @@ func TestAgentNameNeverCollidesWithAnSbxBuiltin(t *testing.T) {
 // A sandbox that never started is worth retrying on a fresh template; an agent
 // that ran and exited non-zero is not, because the retry would run it twice.
 func TestExistsSeparatesAColdSandboxFromAFailedAgent(t *testing.T) {
-	orig := sandboxList
-	t.Cleanup(func() { sandboxList = orig })
+	orig := sh.SandboxList
+	t.Cleanup(func() { sh.SandboxList = orig })
 
-	sandboxList = func() ([]byte, error) {
+	sh.SandboxList = func() ([]byte, error) {
 		return []byte("NAME                     AGENT          STATUS\nproveo-1787-1  proveo-cursor  running\n"), nil
 	}
 	if !Exists("proveo-1787-1") {
@@ -571,7 +571,7 @@ func TestExistsSeparatesAColdSandboxFromAFailedAgent(t *testing.T) {
 
 	// No listing at all: the safe answer is "it exists", because the alternative
 	// is retrying a run whose agent may already have done its work.
-	sandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
+	sh.SandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
 	if !Exists("proveo-1787-1") {
 		t.Error("an unreadable listing must not license a retry")
 	}
@@ -580,15 +580,15 @@ func TestExistsSeparatesAColdSandboxFromAFailedAgent(t *testing.T) {
 // The repair path must load unconditionally: it runs precisely when a receipt
 // already says the image is current and the template is nonetheless unusable.
 func TestReloadTemplateLoadsEvenWithAMatchingReceipt(t *testing.T) {
-	origLoad, origList := templateLoad, templateList
-	t.Cleanup(func() { templateLoad, templateList = origLoad, origList })
+	origLoad, origList := sh.TemplateLoad, sh.TemplateList
+	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
 	loads := 0
 	// A store that TAKES the image: after the load it prints the id it was handed.
 	// The previous fixture never updated, which is exactly the pathology
 	// confirmLoaded now catches, so it would fail the post-load verification.
 	loaded := false
-	templateLoad = func(string) error { loads++; loaded = true; return nil }
-	templateList = func() ([]byte, error) {
+	sh.TemplateLoad = func(string) error { loads++; loaded = true; return nil }
+	sh.TemplateList = func() ([]byte, error) {
 		id := "000000000000"
 		if loaded {
 			id = "abcabcabcabc"
@@ -613,8 +613,8 @@ func TestReloadTemplateLoadsEvenWithAMatchingReceipt(t *testing.T) {
 var errNoDaemon = errors.New("cannot connect to the docker daemon")
 
 func TestMemoryLimitDerivesFromDaemonNotHost(t *testing.T) {
-	orig := dockerMemTotal
-	defer func() { dockerMemTotal = orig }()
+	orig := sh.DockerMemTotal
+	defer func() { sh.DockerMemTotal = orig }()
 
 	cases := []struct {
 		name  string
@@ -635,9 +635,73 @@ func TestMemoryLimitDerivesFromDaemonNotHost(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			dockerMemTotal = func() ([]byte, error) { return []byte(c.out), c.err }
+			t.Setenv(EnvMemory, "")
+			t.Setenv(EnvInstances, "")
+			sh.DockerMemTotal = func() ([]byte, error) { return []byte(c.out), c.err }
 			if got := MemoryLimit(); got != c.want {
 				t.Errorf("MemoryLimit()=%q, want %q (%s)", got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestMemoryLimitDividesByTheIntendedInstanceCount(t *testing.T) {
+	orig := sh.DockerMemTotal
+	defer func() { sh.DockerMemTotal = orig }()
+	const daemon = "25232719872"
+
+	for _, c := range []struct {
+		name, instances, want, about string
+	}{
+		{"unset keeps the historical half", "", "12031m",
+			"nobody who set nothing gets a behaviour change"},
+		{"one sandbox", "1", "24063m", "the whole daemon when it is the only one"},
+		{"two is the default", "2", "12031m", "explicit 2 and unset must agree"},
+		{"four sandboxes", "4", "6015m", "4 x 6015m = 23.5 GiB, the daemon exactly"},
+		{"zero is not a count", "0", "12031m", "a nonsense divisor falls back, never to infinity"},
+		{"negative", "-4", "12031m", "as above"},
+		{"not a number", "lots", "12031m", "a typo must not starve every sandbox"},
+		{"absurd count yields to sbx", "64", "", "the share is under the floor, so sbx's own default applies"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvMemory, "")
+			t.Setenv(EnvInstances, c.instances)
+			sh.DockerMemTotal = func() ([]byte, error) { return []byte(daemon), nil }
+			if got := MemoryLimit(); got != c.want {
+				t.Errorf("%s=%q: MemoryLimit()=%q, want %q (%s)", EnvInstances, c.instances, got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestMemoryLimitTakesAnExplicitCapOverTheDerivation(t *testing.T) {
+	orig := sh.DockerMemTotal
+	defer func() { sh.DockerMemTotal = orig }()
+
+	for _, c := range []struct {
+		name, mem, want, about string
+		daemonErr              error
+	}{
+		{name: "8g, the four-instance budget", mem: "8g", want: "8192m",
+			about: "4 x 8 GiB = 32 GiB on a 48 GiB host"},
+		{name: "megabytes", mem: "8192m", want: "8192m", about: "same size, sbx's other unit"},
+		{name: "gib spelling", mem: "8GiB", want: "8192m", about: "case and the ib suffix both accepted"},
+		{name: "bare bytes", mem: "8589934592", want: "8192m", about: "a unitless value is bytes"},
+		{name: "above sbx's ceiling", mem: "64g", want: "32768m", about: "clamped to the 32 GiB cap"},
+		{name: "below the floor", mem: "128m", want: "",
+			about: "yields to sbx rather than setting a limit no sandbox starts under"},
+		{name: "malformed falls back to the derivation", mem: "eight gigs", want: "12031m",
+			about: "sbx would reject it mid-run, naming a flag and not the variable behind it"},
+		{name: "negative", mem: "-8g", want: "12031m", about: "as above"},
+		{name: "explicit cap survives an unreachable daemon", mem: "8g", want: "8192m",
+			daemonErr: errNoDaemon, about: "never consults the daemon at all"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvInstances, "")
+			t.Setenv(EnvMemory, c.mem)
+			sh.DockerMemTotal = func() ([]byte, error) { return []byte("25232719872"), c.daemonErr }
+			if got := MemoryLimit(); got != c.want {
+				t.Errorf("%s=%q: MemoryLimit()=%q, want %q (%s)", EnvMemory, c.mem, got, c.want, c.about)
 			}
 		})
 	}
@@ -660,15 +724,15 @@ func TestRunArgsMemoryIsOptional(t *testing.T) {
 // is what makes staleness permanent, because HasTemplate then skips the reload
 // forever while the store serves the old image.
 func TestLoadThatDoesNotLandLeavesNoReceipt(t *testing.T) {
-	origLoad, origList := templateLoad, templateList
-	t.Cleanup(func() { templateLoad, templateList = origLoad, origList })
+	origLoad, origList := sh.TemplateLoad, sh.TemplateList
+	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
 
 	// The store keeps the OLD image no matter what it is handed.
-	templateList = func() ([]byte, error) {
+	sh.TemplateList = func() ([]byte, error) {
 		return []byte("REPOSITORY                  TAG      IMAGE ID       FLAVOR   CREATED\n" +
 			"docker.io/proveo/cursor     latest   5fcb2266417f            10 hours ago\n"), nil
 	}
-	templateLoad = func(string) error { return nil } // exits 0, changes nothing
+	sh.TemplateLoad = func(string) error { return nil } // exits 0, changes nothing
 	stubIDs(t, map[string]string{"proveo/cursor:latest": "06f0e0810f10"})
 	dir := stubReceipts(t, map[string]string{})
 
@@ -690,13 +754,13 @@ func TestLoadThatDoesNotLandLeavesNoReceipt(t *testing.T) {
 // proveo cannot see: it drops the image first, because removal is deterministic
 // where overwriting is merely expected.
 func TestForceReloadDropsFirst(t *testing.T) {
-	origLoad, origRemove, origList := templateLoad, templateRemove, templateList
-	t.Cleanup(func() { templateLoad, templateRemove, templateList = origLoad, origRemove, origList })
+	origLoad, origRemove, origList := sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList
+	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList = origLoad, origRemove, origList })
 
 	var removed, loaded int
-	templateRemove = func(string) error { removed++; return nil }
-	templateLoad = func(string) error { loaded++; return nil }
-	templateList = func() ([]byte, error) {
+	sh.TemplateRemove = func(string) error { removed++; return nil }
+	sh.TemplateLoad = func(string) error { loaded++; return nil }
+	sh.TemplateList = func() ([]byte, error) {
 		return []byte("REPOSITORY                  TAG      IMAGE ID       FLAVOR   CREATED\n" +
 			"docker.io/proveo/cursor     latest   abcabcabcabc            1 minute ago\n"), nil
 	}
@@ -756,10 +820,10 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 // runs on every sbx launch including `--print`, so an unbounded call turns a slow
 // daemon into a proveo that hangs with nothing on screen.
 func TestMemoryLimitSurvivesAHangingDaemon(t *testing.T) {
-	orig := dockerMemTotal
-	t.Cleanup(func() { dockerMemTotal = orig })
+	orig := sh.DockerMemTotal
+	t.Cleanup(func() { sh.DockerMemTotal = orig })
 
-	dockerMemTotal = func() ([]byte, error) {
+	sh.DockerMemTotal = func() ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		// `sleep 60` stands in for the wedged daemon; the context is what must end it.
@@ -830,12 +894,12 @@ func indexOf(xs []string, want string) int {
 // "exists" and "running" cannot be the same question. Reading a stopped sandbox as
 // running is how a restart's own artifacts passed as the run's evidence.
 func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
-	orig := sandboxList
-	t.Cleanup(func() { sandboxList = orig })
+	orig := sh.SandboxList
+	t.Cleanup(func() { sh.SandboxList = orig })
 
 	// The real shape, workspace column and all: STATUS is the third field, and the
 	// header's first field is the literal SANDBOX so it can never match a name.
-	sandboxList = func() ([]byte, error) {
+	sh.SandboxList = func() ([]byte, error) {
 		return []byte("SANDBOX                   AGENT    STATUS    PORTS   WORKSPACE\n" +
 			"proveo-1787-live          claude   running           /w/repo, /w/repo/reports\n" +
 			"proveo-1787-dead          claude   stopped           /w/repo\n"), nil
@@ -856,7 +920,7 @@ func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 	// Unreadable listing: the pessimistic answer. Callers use this to decide whether
 	// to trust a copy-out, and guessing "running" is the guess that lets a restart's
 	// leftovers be reported as what the agent said.
-	sandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
+	sh.SandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
 	if Running("proveo-1787-live") {
 		t.Error("an unreadable listing must not be read as a live sandbox")
 	}
@@ -867,10 +931,10 @@ func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 // — the value is never printed — and reading them is the difference between naming
 // the real cause and blaming the credential for a run that was authenticated.
 func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
-	orig := secretList
-	t.Cleanup(func() { secretList = orig })
+	orig := sh.SecretList
+	t.Cleanup(func() { sh.SecretList = orig })
 
-	secretList = func() ([]byte, error) {
+	sh.SecretList = func() ([]byte, error) {
 		return []byte("SCOPE      TYPE      NAME                      SECRET\n" +
 			"(global)   service   ANTHROPIC_API_KEY         (stored)\n" +
 			"(global)   service   CLAUDE_CODE_OAUTH_TOKEN   (stored)\n" +
@@ -890,8 +954,106 @@ func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
 	// No store, or no sbx: silence. An empty list means "proveo learned nothing",
 	// and a caller must not read that as "the store is empty" — which is why the
 	// hint this feeds never claims a stored value is missing, only unreadable.
-	secretList = func() ([]byte, error) { return nil, errors.New("no daemon") }
+	sh.SecretList = func() ([]byte, error) { return nil, errors.New("no daemon") }
 	if got := StoredSecretNames(); got != nil {
 		t.Errorf("an unreadable store must yield no names, got %v", got)
+	}
+}
+
+func TestPolicyEvidenceArgsMatchTheCLI(t *testing.T) {
+	t.Parallel()
+	if got, want := strings.Join(PolicyLogArgs("proveo-1"), " "), "policy log proveo-1 --json"; got != want {
+		t.Errorf("PolicyLogArgs = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(CheckNetworkArgs("api.example.com"), " "), "policy check network --json api.example.com"; got != want {
+		t.Errorf("CheckNetworkArgs = %q, want %q", got, want)
+	}
+}
+
+func TestNetworkAllowedReadsTheDaemonsAnswer(t *testing.T) {
+	orig := sh.PolicyCheck
+	t.Cleanup(func() { sh.PolicyCheck = orig })
+
+	sh.PolicyCheck = func(string) ([]byte, error) {
+		return []byte(`{"action":"net:connect:tcp","allowed":true,"context":"global"}`), nil
+	}
+	if allowed, known := NetworkAllowed("evil.example.invalid"); !allowed || !known {
+		t.Errorf("allow-all baseline: allowed=%v known=%v, want true/true", allowed, known)
+	}
+
+	sh.PolicyCheck = func(string) ([]byte, error) {
+		return []byte(`{"action":"net:connect:tcp","allowed":false,"context":"global"}`), nil
+	}
+	if allowed, known := NetworkAllowed("evil.example.invalid"); allowed || !known {
+		t.Errorf("deny baseline: allowed=%v known=%v, want false/true", allowed, known)
+	}
+
+	sh.PolicyCheck = func(string) ([]byte, error) { return nil, errors.New("sandboxd unreachable") }
+	if allowed, known := NetworkAllowed("evil.example.invalid"); allowed || known {
+		t.Errorf("unreadable: allowed=%v known=%v, want false/false", allowed, known)
+	}
+}
+
+func TestCPULimitSharesTheHostOnlyWhenAskedTo(t *testing.T) {
+	orig := numCPU
+	defer func() { numCPU = orig }()
+	numCPU = func() int { return 14 }
+
+	for _, c := range []struct {
+		name, cpus, instances string
+		want                  int
+		about                 string
+	}{
+		{"both unset", "", "", 0, "sbx keeps every host CPU; setting nothing changes nothing"},
+		{"one instance", "", "1", 0, "a lone sandbox is not sharing with anyone"},
+		{"four instances", "", "4", 7, "half the machine, not a quarter: an idle vCPU costs nothing"},
+		{"two instances", "", "2", 7, "the burst share does not vary with n"},
+		{"explicit cpus wins", "6", "4", 6, "a measured answer beats the derivation"},
+		{"explicit above the host", "64", "", 14, "clamped to what the host has"},
+		{"more instances than cores", "", "32", 7, "still half: CPU sums past the host on purpose"},
+		{"garbage instances", "", "many", 0, "a typo leaves sbx's default alone"},
+		{"garbage cpus falls back", "lots", "4", 7, "as above, then the derivation applies"},
+		{"zero cpus", "0", "", 0, "not a count; sbx's default stands"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(EnvCPUs, c.cpus)
+			t.Setenv(EnvInstances, c.instances)
+			if got := CPULimit(); got != c.want {
+				t.Errorf("%s=%q %s=%q: CPULimit()=%d, want %d (%s)",
+					EnvCPUs, c.cpus, EnvInstances, c.instances, got, c.want, c.about)
+			}
+		})
+	}
+}
+
+func TestRunArgsCPUsIsOptional(t *testing.T) {
+	t.Parallel()
+	with := RunArgs(RunConfig{Agent: "a", CPUs: 3})
+	if i := indexOf(with, "--cpus"); i < 0 || with[i+1] != "3" {
+		t.Errorf("--cpus 3 missing from %q", with)
+	}
+	if got := RunArgs(RunConfig{Agent: "a"}); slices.Contains(got, "--cpus") {
+		t.Errorf("an unset limit must leave the argv alone, got %q", got)
+	}
+}
+
+func TestCreateArgsIsRunArgsWithoutAttaching(t *testing.T) {
+	t.Parallel()
+	cfg := RunConfig{
+		Name: "proveo-capacity-1", Agent: "shell", Image: "img",
+		Memory: "8192m", CPUs: 7,
+		Mounts:  []Mount{{Host: "/w"}},
+		Command: []string{"sleep", "600"},
+	}
+	got := CreateArgs(cfg)
+	want := []string{"create", "--name", "proveo-capacity-1", "-t", "img", "-m", "8192m", "--cpus", "7", "shell", "/w"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CreateArgs()=\n%q\nwant\n%q", got, want)
+	}
+	if slices.Contains(got, "--") {
+		t.Error("create takes no trailing agent command; a `--` would be read as a workspace")
+	}
+	if RunArgs(cfg)[0] != "run" {
+		t.Error("CreateArgs mutated the shared config and broke RunArgs")
 	}
 }

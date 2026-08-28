@@ -9,6 +9,7 @@ import (
 // Four of the five docker-path artifacts never exist under sbx. Naming them there
 // sent an operator to missing files at exactly the moment they needed a real one.
 func TestArtifactsMatchTheBackend(t *testing.T) {
+	t.Setenv("PROVEO_HOME", t.TempDir())
 	dir := t.TempDir()
 	l, err := Open("t-artifacts")
 	if err != nil {
@@ -29,6 +30,9 @@ func TestArtifactsMatchTheBackend(t *testing.T) {
 	}
 	if !strings.Contains(sbxHalf, "spec.yaml") {
 		t.Errorf("sbx artifacts must name the Kit:\n%s", sbxHalf)
+	}
+	if !strings.Contains(sbxHalf, PolicyLogFile) {
+		t.Errorf("sbx artifacts must name the captured policy log (%s):\n%s", PolicyLogFile, sbxHalf)
 	}
 	if !strings.Contains(dockerHalf, "squid") {
 		t.Errorf("docker artifacts must still name squid:\n%s", dockerHalf)

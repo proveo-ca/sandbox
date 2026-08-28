@@ -28,6 +28,7 @@ type Proxy struct {
 	Tap           func(b []byte, forwarded bool)
 	OutTap        func(b []byte)
 	DisableFilter bool
+	DropReports   bool
 }
 
 // New returns a Proxy stub over the given terminal files.

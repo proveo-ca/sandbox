@@ -40,7 +40,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 # shadowing the link. The volumes then land somewhere the agent never reads while
 # $HOME points elsewhere — including `sessions`, which sbx's own kit calls
 # load-bearing for `claude -c`. Measured: stock image holds a session, the same
-# sbx invocation with this image died in 15s (tests/e2e/ladder_test.go).
+# sbx invocation with this image died in 15s (e2e/ladder_test.go).
 #
 # So the REAL home is /home/agent and the harness-specific name is the alias —
 # the reverse of what this used to do. /home/${USER_NAME} stays as a symlink

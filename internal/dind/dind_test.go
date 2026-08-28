@@ -156,11 +156,14 @@ func TestModeSupported(t *testing.T) {
 		mode string
 		want bool
 	}{
-		{"broker", true},
-		{"BROKER", true},
-		{"  broker  ", true},
-		{"proxy", false},
+		{"open", true},
+		{"OPEN", true},
+		{"  open  ", true},
+		{"allowlist", false},
+		{"review", false},
+		{"broker", false},
 		{"firewall", false},
+		{"proxy", false},
 		{"", false},
 	} {
 		if got := ModeSupported(tc.mode); got != tc.want {

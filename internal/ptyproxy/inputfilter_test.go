@@ -153,3 +153,137 @@ func TestReplayOfTheCapturedZellijTrace(t *testing.T) {
 		}
 	}
 }
+
+// A far end that reads its input as a prompt stream never queried anything, so
+// no report is owed to it and the FIRST copy is already one too many. The dedup
+// rule cannot express that: it forwards the first copy by construction.
+func TestDropRepliesRemovesEvenAnUnpairedReport(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+
+	for _, b := range [][]byte{daReply, xtversion, decrpm, cursorReport, focusIn, focusOut} {
+		if f.keep(b) {
+			t.Errorf("report %q reached a prompt stream that never asked for it", b)
+		}
+	}
+	// Twice, because the dedup path forwards a first copy and this must not be
+	// reachable at all — not merely shadowed by the memory of a previous read.
+	if f.keep(daReply) {
+		t.Error("the first copy is the one that killed the run; it must not pass either")
+	}
+}
+
+// The knob must not cost a keystroke: dropping input to win a filtering
+// argument is the one outcome worse than forwarding a stray report.
+func TestDropRepliesStillNeverDropsKeystrokes(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	for _, b := range [][]byte{
+		[]byte("s"), []byte("\r"), []byte("say hello"), []byte("\x03"),
+		[]byte("\x1b[A"), []byte("\x1bOB"), []byte("\x1b[200~pasted\x1b[201~"),
+	} {
+		if !f.keep(b) {
+			t.Errorf("keystroke %q was dropped", b)
+		}
+	}
+}
+
+// The exact read that killed proveo-1787852436-14907: ONE VT102 Device
+// Attributes reply, five seconds into a run, with no duplicate to mark it as
+// surplus and nothing on the sbx side that had queried. Under the default rule
+// it is forwarded — which is the bug, so the default is asserted here too.
+func TestTheLoneReplyThatKilledTheSbxRun(t *testing.T) {
+	t.Parallel()
+	lone := []byte("\x1b[?6c")
+
+	if got := classifyTerminalReport(lone); got != reportReply {
+		t.Fatalf("classify(%q) = %v, want reportReply", lone, got)
+	}
+	if !newInputFilter().keep(lone) {
+		t.Error("default rule: the first copy is owed to an application that asked; that is the docker contract")
+	}
+	sbx := newInputFilter()
+	sbx.dropReplies = true
+	if sbx.keep(lone) {
+		t.Error("sbx: nothing queried, so this must never reach the prompt stream")
+	}
+}
+
+var (
+	mouseSGRMotion  = []byte("\x1b[<35;1;46M")
+	mouseSGRPress   = []byte("\x1b[<0;12;7M")
+	mouseSGRRelease = []byte("\x1b[<0;12;7m")
+	mouseURXVT      = []byte("\x1b[35;1;46M")
+	mouseX10        = []byte("\x1b[M\x20\x21\x22")
+)
+
+func TestClassifyRecognisesEveryMouseEncoding(t *testing.T) {
+	t.Parallel()
+	for _, b := range [][]byte{mouseSGRMotion, mouseSGRPress, mouseSGRRelease, mouseURXVT, mouseX10} {
+		if got := classifyTerminalReport(b); got != reportMouse {
+			t.Errorf("classify(%q) = %v, want reportMouse", b, got)
+		}
+	}
+}
+
+func TestMouseReportsSurviveOnATTYAndAreDroppedOnAPromptStream(t *testing.T) {
+	t.Parallel()
+	tty := newInputFilter()
+	for i, b := range [][]byte{mouseSGRMotion, mouseSGRMotion, mouseSGRPress, mouseSGRRelease} {
+		if !tty.keep(b) {
+			t.Errorf("read %d (%q) was dropped; a TUI on a real tty consumes clicks and scroll", i, b)
+		}
+	}
+
+	stream := newInputFilter()
+	stream.dropReplies = true
+	for _, b := range [][]byte{mouseSGRMotion, mouseSGRPress, mouseSGRRelease, mouseURXVT, mouseX10} {
+		if stream.keep(b) {
+			t.Errorf("mouse report %q reached a prompt stream that cannot consume one", b)
+		}
+	}
+}
+
+func TestMouseMotionIsNeverDeduplicated(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(0, 0)
+	f := newInputFilter()
+	f.now = func() time.Time { return now }
+	for i := 0; i < 5; i++ {
+		if !f.keep(mouseSGRMotion) {
+			t.Fatalf("identical motion report %d was dropped as a duplicate; a mouse held still still reports", i)
+		}
+		now = now.Add(3 * time.Millisecond)
+	}
+}
+
+func TestReplayOfTheCapturedMouseTrace(t *testing.T) {
+	t.Parallel()
+	reads := [][]byte{
+		[]byte("\x1b[?6c"),
+		[]byte("\x1b[I"),
+		[]byte("\x1b[<35;1;46M"), []byte("\x1b[<35;2;45M"), []byte("\x1b[<35;3;45M"),
+		[]byte("/"), []byte("c"), []byte("o"), []byte("l"), []byte("o"), []byte("r"),
+		[]byte(" "), []byte("r"), []byte("e"), []byte("d"), []byte("\r"),
+	}
+	want := []string{"/", "c", "o", "l", "o", "r", " ", "r", "e", "d", "\r"}
+
+	f := newInputFilter()
+	f.dropReplies = true
+	var got []string
+	for _, r := range reads {
+		if f.keep(r) {
+			got = append(got, string(r))
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("forwarded %d reads, want %d (keystrokes only):\n got %q\nwant %q", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("read %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

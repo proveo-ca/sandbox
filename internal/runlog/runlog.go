@@ -102,6 +102,8 @@ func (l *Log) Fields(section string, kv map[string]string) {
 	}
 }
 
+const PolicyLogFile = "policy-log.json"
+
 // Artifacts records where the evidence for this run lives. These paths outlive the
 // run, and finding them is most of the work when diagnosing an egress denial — which
 // is exactly why they must not be invented. proveo's Squid and MITM sidecars only run
@@ -115,7 +117,8 @@ func (l *Log) Artifacts(egDir string, sandboxed bool) {
 		l.Fields("artifacts", map[string]string{
 			"session state": egDir,
 			"sandbox kit":   filepath.Join(egDir, "sbx", "kit", "spec.yaml"),
-			"enforcement":   "sbx — see `sbx diagnose` and the sandboxd daemon.log; proveo runs no Squid or MITM here",
+			"policy log":    filepath.Join(egDir, "sbx", PolicyLogFile),
+			"enforcement":   "sbx — see `sbx policy log <sandbox>`, `sbx diagnose`; proveo runs no Squid or MITM here",
 		})
 		return
 	}

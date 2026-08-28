@@ -1,0 +1,168 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what one host can actually carry, and why a sandbox's share is declared rather than discovered
+' covers: internal/sbx/sbx.go
+' covers: e2e/capacity_test.go
+'
+' ── WHY DECLARE A SHARE AT ALL ─────────────────────────────────────────────
+' The obvious objection is the right one to answer first: an OS allocates memory
+' on demand and has done for fifty years, so why hand it a number up front?
+'
+' Because these are VMs, not processes. A sandbox is a hardware-virtualised guest
+' (Virtualization.framework on macOS — sandboxd logs it as vm::macos::vm, with its
+' own vCPUs and virtio-blk devices). Three things follow, and none of them apply
+' to an ordinary process:
+'
+'   1. The size is fixed BEFORE the guest exists. A VM's memory is claimed as a
+'      region at boot. There is no moment later at which the guest kernel can be
+'      told it was wrong.
+'   2. The guest SPENDS what it is told it has. A Linux guest sized at 12 GiB
+'      grows its page cache toward 12 GiB and sets its OOM thresholds from that
+'      number. An over-large limit is not idle headroom — it is an instruction.
+'   3. Neither OS can see the other's picture. The host cannot read the guest's
+'      working set; the guest does not know it is one of four. Neither is placed
+'      to arbitrate, and the only lever the host holds is killing the whole VM.
+'
+' So the failure is a CLIFF, not backpressure: the host swaps until everything
+' degrades together, or a VM dies on SIGKILL carrying no OOMKilled flag and no
+' message — invisible in exactly the place an operator would look. See
+' MemoryLimit's own note on why sbx's host-derived default cannot bind inside a
+' VM-backed daemon.
+'
+' ── THIS IS SECOND-BEST, AND SHOULD BE LABELLED AS SUCH ────────────────────
+' The first-best answer IS on-demand, and it exists: free-page reporting and
+' memory ballooning let a guest hand pages back so the host can re-lend them.
+' proveo declares a share because it cannot currently negotiate one, NOT because
+' a static partition is the better design. If sbx exposes ballooning, the right
+' move is to stop dividing and start reclaiming, and this diagram should be
+' rewritten rather than tuned.
+'
+' ── CPU IS NOT MEMORY, AND IS DELIBERATELY NOT PARTITIONED ─────────────────
+' The two knobs look symmetrical. The arguments behind them are not, and reading
+' the symmetry as agreement is the mistake this section exists to stop.
+'
+' CPU is genuinely time-shared. An idle vCPU costs essentially nothing, the host
+' scheduler DOES handle it on demand, and over-subscribing cores has no cliff —
+' it costs scheduling overhead and lock contention inside guests. So the cap buys
+' PREDICTABILITY (a runaway build cannot starve its neighbours) and not survival.
+' Memory kills the host; CPU only makes it slow.
+'
+' Which is why the CPU share does NOT divide by n. A strict divide under-provisions
+' by reserving capacity nobody can lend back: at n=4 on 14 cores a LONE busy
+' sandbox would get 3 while 11 sat idle. The share is half the machine regardless
+' of n, so every sandbox may burst into the idle time its neighbours are not using
+' and the counts sum past the host on purpose. Memory must sum TO the machine;
+' CPU must not.
+'
+' Two properties of the flag that constrain this. --cpus is a COUNT, not an
+' affinity: the host scheduler places the vCPUs, so on an asymmetric machine a
+' share may land wholly on efficiency cores and there is no way to ask otherwise.
+' And nothing anywhere rejects the sum, which is the same blindness memory has —
+' it is simply harmless here.
+'
+' ── WHAT IS MEASURED, NOT ASSUMED ──────────────────────────────────────────
+' Host: Apple M4 Pro, 48 GiB, 14 cores — 10 performance + 4 efficiency, no SMT,
+' so hw.ncpu 14 is ALL of the machine and not half of a hyperthreaded 7.
+' Daemon MemTotal: 23.5 GiB (the docker VM's share, not the host's).
+'   default (no knob)        -m 12031m   x4 = 47.0 GiB     no --cpus: 14 each
+'   PROVEO_SBX_INSTANCES=4   -m  6015m   x4 = 23.5 GiB     --cpus 7  (x4 = 28)
+'   PROVEO_SBX_MEMORY=8g     -m  8192m   x4 = 32.0 GiB     --cpus unchanged
+' Setting nothing changes nothing: the historical half stays the default, because
+' a resource change nobody asked for is a regression however well-reasoned.
+'
+' ── THE PROBE'S FIRST RUN, AND WHAT IT CORRECTED ───────────────────────────
+' 2026-08-27, M4 Pro / 48 GiB, PROVEO_SBX_MEMORY=8g, no instance count set so
+' --cpus was 0 (all 14 cores each). Idle `shell` sandboxes, 20s settle:
+'
+'   baseline  11.1 GiB free   1.7 GiB swap
+'   #1-#5      9.3 GiB free   1.7 GiB swap   (+0.0)
+'   #6         8.8            1.8            (+0.1)
+'   #8         8.9            2.7            (+1.0)
+'   #11        8.6            4.2            (+2.5)   → stopped here
+'   UPPER BOUND: 10 concurrent, and sbx never refused a launch
+'
+' Eleven sandboxes each ENTITLED to 8 GiB is 88 GiB of claims on a 48 GiB host,
+' and it ran. Total additional consumption at #11 was ~5.0 GiB — the 2.5 GiB that
+' left "free" plus the 2.5 GiB that went to swap — so an IDLE sandbox costs on the
+' order of 450 MiB resident against an 8 GiB ceiling.
+'
+' That is the number this diagram was missing. The limit is a CEILING, not a
+' reservation, and idle instances are cheap: the danger is not N sandboxes
+' existing, it is several growing toward their ceilings AT ONCE. Capacity planning
+' by summing limits — the arithmetic in the note below — describes the worst case
+' and not the ordinary one, and treating it as a headcount would refuse runs that
+' work. Which is also why the probe measures rather than calculates.
+'
+' Also visible: free memory PLATEAUS near 8.6-8.9 GiB from #6 while swap climbs.
+' macOS holds "free" roughly constant by compressing and swapping, so free memory
+' alone reports a healthy host right up to the point it is thrashing. Swap delta
+' is the signal; free memory is not.
+title Minimum requirements — what one host carries, and what it costs to exceed it
+
+node "Operator host\n48 GiB · 14 cores" as HOST <<host>> {
+  component "proveo CLI\nsbx.MemoryLimit · sbx.CPULimit" as CLI <<app>>
+  component "docker daemon\nMemTotal — the VM's share, not the host's" as DOCKER <<cloud>>
+}
+
+node "sandboxd" as DAEMON <<cloud>> {
+  component "auto-stop\n30s after last session" as STOP <<cloud>>
+}
+
+database "sandbox VM 1\n-m share · --cpus share" as VM1 <<db>>
+database "sandbox VM n\n-m share · --cpus share" as VMN <<db>>
+component "host exhaustion\nswap · SIGKILL 137 · no OOMKilled flag" as OOM <<error>>
+
+CLI ARROW_MAIN DOCKER : MemTotal, bounded at 10s
+DOCKER ARROW_MAIN CLI : the number sbx cannot see
+CLI ARROW_MAIN VM1 : -m 8192m --cpus 7
+CLI ARROW_MAIN VMN : the SAME share, n times over
+VM1 ARROW_QUEUE DAEMON
+VMN ARROW_QUEUE DAEMON
+VMN ARROW_ERROR OOM : n x share > host
+OOM ARROW_ERROR VM1 : a neighbour's VM is what dies
+
+note right of CLI
+  **Three knobs, and a default that moves for nobody.**
+
+  ""PROVEO_SBX_MEMORY"" — the cap outright ("8g", "8192m",
+  bytes). Skips the derivation, so it is the only one that
+  works when the daemon cannot be read at all.
+
+  ""PROVEO_SBX_CPUS"" — likewise for cores, and the only
+  way to pin an exact count.
+
+  ""PROVEO_SBX_INSTANCES"" — how many are MEANT to coexist.
+  Divides MemTotal so the shares sum to the machine rather
+  than to a multiple of it. It does NOT divide the CPUs:
+  it only signals that several will coexist, and the CPU
+  share is then half the machine whatever n is.
+
+  A malformed value falls BACK to the derivation rather
+  than through to sbx: sbx rejects a bad ""-m"" once the run
+  is under way and names a flag, never the variable behind
+  it. Same reason ""Available"" refuses an old CLI instead of
+  trying it.
+end note
+
+note bottom of OOM
+  **The arithmetic nothing refuses.** Each limit binds on its
+  own, so N sandboxes may each hold a valid limit while the
+  set is impossible. No component sees the sum: sbx sizes one
+  sandbox, the daemon reports one total, the guest counts
+  only itself.
+
+  ""e2e/capacity_test\.go"" — the capacity probe — is
+  the only thing that measures the sum, by launching
+  sandboxes until the host says no and reporting WHERE it
+  said it.
+end note
+
+note bottom of STOP
+  **Idle instances still hold their share.** auto-stop fires
+  30s after the last session disconnects, not when the agent
+  goes quiet — so a sandbox sitting at an idle prompt is a
+  full allocation, and "how many can I run" counts the ones
+  nobody is typing into.
+end note
+@enduml

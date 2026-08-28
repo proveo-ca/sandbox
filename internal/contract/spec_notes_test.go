@@ -16,6 +16,16 @@ import (
 // joins the list once its notes are rewritten. The point is that a compliant file cannot
 // silently regress while the backlog is worked through.
 var specNotesEnforced = []string{
+	"_spec/internal/backend/exit-code.puml",
+	"_spec/internal/broker/off-route-stripping.puml",
+	"_spec/internal/contract/what-a-contract-test-is.puml",
+	"_spec/internal/credentials/credential-decisions.puml",
+	"_spec/internal/gitidentity/authorship.puml",
+	"_spec/internal/posture/one-value-two-renderings.puml",
+	"_spec/internal/run/run-spec.puml",
+	"_spec/internal/sbx/credential-path.puml",
+	"_spec/internal/sbx/policy-baseline.puml",
+	"_spec/internal/tmux/driving-a-tty.puml",
 	"_spec/defs/agent-definition-sharing.puml",
 	"_spec/internal/choiceui/choice-prompt-render.puml",
 	"_spec/internal/entrypoint/model-alias-bridges.puml",

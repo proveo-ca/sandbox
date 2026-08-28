@@ -39,7 +39,7 @@ end note
 note over AGENT
   ""PROVEO_MODELS"" is the assertable contract: one
   machine-greppable line naming the model each harness
-  actually resolved. tests/e2e asserts it instead of
+  actually resolved. e2e asserts it instead of
   trusting the model's prose — see
   _spec/tests/42-hello-world-e2e.puml
 end note

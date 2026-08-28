@@ -1,0 +1,19 @@
+== resolved posture ==
+  add-ons                (unset)
+  agent evidence         default
+  auth var               (unset)
+  brokered               anthropic
+  credentials            broker
+  detected keys          anthropic,openai
+  egress tier            open
+  enforced by            proveo — squid + mitmproxy sidecars on the session network
+  harness hosts          example.test
+  image                  proveo/claudecode:latest (published)
+  local model            qwen2.5-coder
+  model roles            main=claude-opus-5 (anthropic)
+  observability          flows.ndjson (MITM only, no allowlist)
+  reachable hosts        (unset)
+  role providers         anthropic
+  sbx mcp gateway        n/a (docker backend)
+  target                 claudecode
+  workspace              in-container clone (--clone) — the checkout is never written; changes come back with `git fetch`

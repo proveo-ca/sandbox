@@ -16,19 +16,24 @@ node "proveo — ptyproxy" as PX <<host>> {
   component "**tap** — ""PROVEO_TRACE_STDIN""\nrecords arrived + verdict" as TAP <<async>>
 }
 
-node "sbx" as SBX <<cloud>> {
+node "sbx backend — ""DropReports = true""" as SBX <<cloud>> {
   component "agent-session API\ninput read as a PROMPT STREAM" as SESS <<cloud>>
+}
+node "docker backend · review gate" as DOCK <<app>> {
+  component "agent on a REAL tty\nreads reports, discards what it did not ask for" as TTY <<app>>
 }
 component "Claude Code" as AGENT <<app>>
 
 EMU ARROW_MAIN MUX : keystrokes · query replies
-MUX ARROW_ERROR CLASS : one query, TWO answers
+MUX ARROW_ERROR CLASS : one query, TWO answers — or one nobody asked for
 CLASS ARROW_MAIN FILT
-FILT ARROW_MAIN SBX : keystrokes + the first of each reply
+FILT ARROW_MAIN SBX : keystrokes ONLY — every report dropped
+FILT ARROW_MAIN DOCK : keystrokes + the first of each reply
 FILT ARROW_QUEUE TAP : every read, kept or dropped
 SBX ARROW_MAIN SESS
 SESS ARROW_MAIN AGENT
-SESS ARROW_ERROR AGENT : an unfiltered surplus arrives as ""promptSource: sdk""
+TTY ARROW_MAIN AGENT
+SESS ARROW_ERROR AGENT : an unfiltered report arrives as ""promptSource: sdk""
 
 note bottom of MUX
   **Measured, not assumed.** In run ""proveo-1787703005-59852"" the tap recorded
@@ -37,6 +42,26 @@ note bottom of MUX
 
   The surplus has no query to belong to. Whatever reads the stream must treat it
   as input, because input is the only thing it can be.
+
+  **A duplicate was never the requirement.** Run ""proveo-1787852436-14907"" died
+  the same way with no duplicate anywhere: the tap recorded ONE ""\\x1b[?6c"" —
+  a VT102 Device Attributes reply — five seconds into a run, ""sent"", while the
+  focus reports 3s and 8s later were both ""DROPPED"". A lone report is
+  indistinguishable from a legitimate answer under de-duplication alone, so it
+  was forwarded as "the first copy" and enqueued. The agent answered a ""/color""
+  nobody typed and exited; the tail's last bytes were the report's trailing ""c"".
+
+  This needs no multiplexer and no second instance. One unsolicited report is
+  the whole mechanism.
+
+  **And reports are not the only shape of it.** The same tap on run
+  ""proveo-1787868039-64880"" recorded 65 SGR mouse-motion reads —
+  ""\x1b[<35;1;46M"" through ""\x1b[<35;50;39M"", coordinates drifting as a hand
+  moved across the window — every one ""sent"", because ""classifyTerminalReport""
+  knew nothing ending in ""M"". On a prompt stream they land in the input line as
+  noise. Mouse tracking was enabled BY the agent, so this is a report the far end
+  asked for and cannot receive: solicited at one end of the hop and meaningless
+  at the other.
 end note
 
 note right of SESS
@@ -51,16 +76,31 @@ note right of SESS
 end note
 
 note left of FILT
-  **Two rules, both conservative.**
+  **Three rules, and the first one belongs to the BACKEND.**
 
-  ""reportReply"" — forward the FIRST, drop copies inside
+  ""dropReplies"" (""Proxy.DropReports"") — drop EVERY report. Set on the sbx
+  path and nowhere else. De-duplication cannot cover that backend, and the
+  reason is that it answers a different question: it decides which COPY is
+  surplus, having already granted that the first one is owed. On a prompt
+  stream nothing was ever asked, so the first copy is already one too many.
+
+  ""reportReply"" (default) — forward the FIRST, drop copies inside
   ""DefaultReplyWindow"" (2s). The application asked and is owed one answer;
   only the surplus goes. De-duplication is windowed rather than
   adjacent-only, because the captured duplicate had a mode report between
-  it and its twin.
+  it and its twin. This is the DOCKER contract, where the agent holds a real
+  tty and a withheld answer leaves it waiting.
 
   ""reportFocus"" — dropped outright. A focus notification is neither a
-  keystroke nor an answer, and nothing past this point consumes one.
+  keystroke nor an answer, and nothing past this point consumes one. That it
+  was unconditional is why focus never caused this and replies did.
+
+  ""reportMouse"" — DEC 1000/1006/1015/1016, in all four encodings. SOLICITED,
+  unlike the other two: the application turned tracking on, and a TUI on a real
+  tty consumes clicks and scroll. So it follows ""dropReplies"" and is never
+  de-duplicated — every motion is a distinct event, not a surplus copy of one.
+  ""CSI M Cb Cx Cy"" is matched on its LENGTH because its coordinates are raw
+  bytes; the other three end in ""M"" or ""m"" and match like the rest.
 
   A read carrying a report ALONGSIDE anything else is forwarded untouched.
   Eating a keystroke to win a filtering argument is far worse than passing a

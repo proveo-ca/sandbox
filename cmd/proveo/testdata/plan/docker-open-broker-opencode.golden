@@ -1,0 +1,23 @@
+== agent argv ==
+docker run -it --rm --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=4096 -v /work:/app -w /app --network sid-opencode-open-net --dns 0.0.0.0 -e INSPECT_PROXY=http://mitm:8888 -e PROVEO_EGRESS_SESSION_ID=sid -e PROVEO_EGRESS_MODE=open -e HTTP_PROXY=http://mitm:8888 -e HTTPS_PROXY=http://mitm:8888 -e http_proxy=http://mitm:8888 -e https_proxy=http://mitm:8888 -e NO_PROXY=localhost,127.0.0.1,::1,ollama,host.docker.internal -e no_proxy=localhost,127.0.0.1,::1,ollama,host.docker.internal -v /st/mitmproxy/confdir/mitmproxy-ca-cert.pem:/etc/proveo/mitmproxy-ca-cert.pem:ro -e PROVEO_EGRESS_CA_CERT=/etc/proveo/mitmproxy-ca-cert.pem -e SSL_CERT_FILE=/etc/proveo/mitmproxy-ca-cert.pem -e REQUESTS_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem -e CURL_CA_BUNDLE=/etc/proveo/mitmproxy-ca-cert.pem -e GIT_SSL_CAINFO=/etc/proveo/mitmproxy-ca-cert.pem proveo/opencode:latest
+== networks ==
+docker network create --label proveo.egress.session=sid --internal sid-opencode-open-net
+docker network create --label proveo.egress.session=sid sid-open-egress-net
+== sidecars ==
+docker run -d --rm --name sid-egress --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=sid --network sid-opencode-open-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v /st/mitmproxy/confdir:/confdir -v /st/mitmproxy/flows:/flows -e PROVEO_EGRESS_OPEN=1 -e PROVEO_EGRESS_PROVIDERS=anthropic -e PROVEO_EGRESS_PROVIDER_HOSTS=api.anthropic.com -e PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env -v /st/inject:/broker:ro proveo/egress-proxy:latest
+== connects ==
+docker network connect sid-open-egress-net sid-egress
+== cleanup ==
+docker rm -f sid-egress
+docker network rm sid-opencode-open-net
+docker network rm sid-open-egress-net
+== images ==
+proveo/egress-proxy:latest
+== flags ==
+usesSquid=false
+agentNetwork=
+proxyContainer=sid-egress
+squidContainer=
+ollamaContainer=
+caWaitPath=/st/mitmproxy/confdir/mitmproxy-ca-cert.pem
+needsLifecycle=true

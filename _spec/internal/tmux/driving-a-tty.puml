@@ -1,0 +1,48 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the e2e suite drives a real terminal, and why the pane is not the evidence
+' covers: internal/tmux/tmux.go
+'
+' ── THE AGENTS ONLY EXIST AT A TTY ─────────────────────────────────────────
+' Every harness proveo runs is an interactive terminal program. Pipe its stdout
+' and it behaves differently or not at all, so an e2e suite that captured output
+' the ordinary way would be testing a mode no operator ever uses. tmux gives the
+' tests a real terminal to drive, which is the only way the interactive paths —
+' the choice form, the login prompt, ptyproxy — are reachable from a test at all.
+'
+' ── THE PANE IS NOT THE RECORD ─────────────────────────────────────────────
+' Learned the hard way, and it is the reason assertions read a TRANSCRIPT rather
+' than the pane: a one-shot agent prints its last message and exits inside a
+' single poll interval, and once the session is gone CaptureAll can only return
+' what was captured before it died. The model's final answer was being lost even
+' on runs where the model had said it. Tests therefore tee the whole run to a file
+' and assert against that; the pane is only used to notice that the session ended.
+' Line wrapping is the second reason — a pane wraps, a transcript does not.
+'
+' ── INJECTABLE RUNNER ──────────────────────────────────────────────────────
+' Runner is a one-method interface declared here because here is where it is
+' consumed, and the package's own tests use a recorder that scripts stdout per
+' call. So the argv construction and the wait-for-text loop are unit-testable
+' without tmux installed, while Available() keeps the e2e suite honest about
+' skipping on a host that lacks it.
+title internal/tmux — a real terminal, and a transcript rather than a pane
+
+participant "e2e test" as T <<app>>
+participant "tmux.Session" as S <<app>>
+participant "pane" as P <<error>>
+participant "transcript file" as F <<data>>
+
+T ARROW_MAIN S : Start(w, h, sh -c "... | tee run.log")
+S ARROW_QUEUE P : CaptureAll — only to notice the session ended
+S ARROW_MAIN F : every byte, unwrapped
+F ARROW_MAIN T : assertions read HERE
+
+note over P
+  **The pane loses the ending.** A one-shot agent
+  prints its last message and exits within one
+  poll; after that CaptureAll returns only what it
+  already had. The reply was lost even when the
+  model had given it.
+end note
+@enduml

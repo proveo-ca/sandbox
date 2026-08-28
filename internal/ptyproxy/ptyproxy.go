@@ -58,6 +58,20 @@ type Proxy struct {
 	filter        *inputFilter
 	DisableFilter bool
 
+	// DropReports widens the filter from "drop the surplus copy" to "drop every
+	// report", and belongs to the backend rather than to the terminal.
+	//
+	// The default rule forwards a report's FIRST copy because the child asked for
+	// it — true when the child is an agent on a real tty, as on the docker backend
+	// and behind the review gate. It is FALSE on sbx: there the agent is driven
+	// through an agent-session API that reads input as a prompt stream, so no
+	// query was ever sent and a forwarded report is enqueued as a user message
+	// nobody typed. Set by the caller that knows which of the two it is.
+	//
+	// Read once at the start of Run, before the pumps exist, so setting it after
+	// Run has begun has no effect and cannot race the input pump.
+	DropReports bool
+
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
@@ -79,6 +93,10 @@ func Usable(in, out *os.File) bool {
 }
 
 func (p *Proxy) Run(cmd *exec.Cmd) error {
+	// Before pty.Start, so the pump that reads this field cannot exist yet.
+	if p.filter != nil {
+		p.filter.dropReplies = p.DropReports
+	}
 	m, err := pty.Start(cmd)
 	if err != nil {
 		return fmt.Errorf("pty: start: %w", err)

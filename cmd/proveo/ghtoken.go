@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -89,7 +90,7 @@ func (g ghAuth) resolve(interactive bool, in io.Reader, out io.Writer) string {
 }
 
 func resolveGitHubTokenEnv(g ghAuth, interactive bool, in io.Reader, out io.Writer) string {
-	if _, ok := ghConfigMount(g.getenv); !ok {
+	if _, ok := credentials.GhConfigMount(g.getenv); !ok {
 		return ""
 	}
 	tok := g.resolve(interactive, in, out)

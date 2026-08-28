@@ -1,0 +1,122 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how a run hands its terminal to the agent, and what it keeps alongside
+' covers: internal/agentio/**
+' covers: cmd/proveo/main.go
+'
+' Move 1 of _spec/internal/run/run-spec.puml: lifted out of cmd/proveo/main.go
+' with no behaviour change, proven by cmd/proveo/testdata/plan/*.golden. One thing
+' the lift did NOT carry across unchanged: the move was cut before the interactive
+' tail landed on main, so Stdio arrived here still returning nil on a terminal. It
+' is restored below rather than back in main.go — the rule it belongs to is this
+' package's.
+'
+' ── THE ONE RULE THAT SHAPES THIS PACKAGE ──────────────────────────────────
+' os/exec grants a child the real terminal ONLY while the Stdout/Stderr field
+' still holds that same *os.File. Any wrapper — an io.MultiWriter, a tee, a
+' progress bar — silently degrades it into a pipe, and the agent then has no
+' window size and draws its TUI one character per line. The rule binds the
+' WRITERS, and only the writers: there is no "tee a little" option for them.
+'
+' ── THE RULE DOES NOT BIND THE TAIL ────────────────────────────────────────
+' "Hands the terminal over unwrapped" and "takes no tail" were treated as ONE
+' requirement, and conflating them is why a run that died at its prompt had no
+' tail AND no transcript — "sandbox was stopped" was the entire report. They are
+' not one requirement. Stdio therefore ALWAYS returns a Tail; on a terminal the
+' writers stay untouched and the Tail is handed back empty, for internal/ptyproxy
+' to fill from the master side via Proxy.OutTap. Those bytes already pass through
+' proveo, so the copy costs the child nothing and `test -t 1` still succeeds
+' inside. The run that forced this is written up in
+' _spec/internal/runlog/run-transcript.puml.
+'
+' ── WHAT THE TAIL KEEPS ────────────────────────────────────────────────────
+' Tail retains the last 24 non-empty lines. It is a tee, not a filter: everything
+' still reaches the destination untouched and only the retained copy is cleaned
+' up for replay. The cleaning matters — a TUI's output is mostly escapes, and a
+' tail full of cursor moves is harder to read than no tail at all:
+'   * ANSI/OSC sequences stripped, remaining control bytes dropped (tab kept)
+'   * consecutive identical lines collapse — a redrawn status line is ONE line
+'   * an unterminated fragment is flushed on read, and capped at 8 KiB so a TUI
+'     that never emits a newline cannot grow the buffer without bound
+'
+' ── THE MUTEX IS LOAD-BEARING ──────────────────────────────────────────────
+' os/exec copies stdout and stderr on SEPARATE goroutines and both are teed into
+' ONE Tail, so two Writes interleave on the same buffer: one goroutine computes an
+' index, the other reslices under it, and the next reslice panics with bounds out
+' of range. That is not a rare race — it took out the first real run this shipped
+' in. TestTailIsConcurrencySafe reproduces it, and is worth running under -race.
+'
+' ── THE STDIN TRACE ────────────────────────────────────────────────────────
+' PROVEO_TRACE_STDIN answers the question a transcript cannot: an agent that exits
+' having "answered" prompts nobody typed is being driven by something on stdin — a
+' multiplexer replying to a terminal query, a wrapper feeding a script, a stray
+' paste. The transcript records what the agent RECEIVED; only a tap records what
+' arrived, including what the filter DROPPED, which a child-side log can never show.
+' Each read is one line: time, byte count, verdict, printable rendering, hex.
+' Control bytes are the point — a terminal answering a device-attributes query
+' looks like ordinary text in a transcript and like an escape sequence in the hex,
+' and only the second tells the truth. Unset means byte-for-byte untraced, because
+' the traced path swaps a plain pipe for a pty and that is not a change to make
+' behind the operator's back.
+title Agent terminal I/O — hand the terminal over AND keep the last words
+
+participant "proveo run" as RUN <<app>>
+participant "agentio.Stdio" as STDIO <<app>>
+participant "agent process\n(docker run / sbx run)" as AGENT <<app>>
+database "agentio.Tail\nlast 24 lines, de-escaped" as TAIL <<db>>
+database "PROVEO_TRACE_STDIN file\nevery byte, sent or DROPPED" as TRACE <<db>>
+participant "internal/ptyproxy\nterminal-report filter" as PROXY <<app>>
+
+RUN ARROW_MAIN STDIO : (stdout, stderr, IsWriterTTY(stdout))
+
+alt a terminal is attached
+  STDIO ARROW_MAIN AGENT : the same *os.File, unwrapped
+  AGENT ARROW_MAIN PROXY : the child's own pty master
+  PROXY ARROW_QUEUE TAIL : Proxy.OutTap — copied off the master, in passing
+else redirected, piped, or under tmux capture
+  STDIO ARROW_MAIN AGENT : io.MultiWriter(dest, tail)
+  AGENT ARROW_QUEUE TAIL : every line, as it streams
+end
+
+TAIL ARROW_QUEUE RUN : replayed when the run fails — from EITHER branch
+
+RUN ARROW_OPTIONAL PROXY : FilterEnabled() && ptyproxy.Usable
+PROXY ARROW_OPTIONAL TRACE : tap(bytes, forwarded)
+
+note over STDIO
+  Binary by construction for the WRITERS: os/exec
+  hands over the terminal only by identity, so there
+  is no "tee a little" option. Wrapping is what costs
+  the agent its window size.
+
+  The Tail is NOT part of that trade. It is always
+  returned; on a terminal it comes back empty and the
+  pty proxy is what fills it.
+end note
+
+note over TAIL
+  A full-screen TUI restores the display as it
+  exits, so a failed run can leave nothing on
+  screen while every line passed through here.
+  This is the copy the failure message replays.
+
+  An interactive run reaches it by the OutTap branch
+  above — the one channel it had none of while
+  "unwrapped writers" and "no tail" were one rule.
+end note
+
+note over TRACE
+  A child-side log shows what the agent read. Only
+  a tap at this hop shows what the filter refused,
+  which is the half that explains a session
+  answering questions nobody typed.
+end note
+
+note over RUN
+  IsStdinTTY also gates every interactive prompt —
+  scope picker, env wizard, provisioning consent.
+  One package answers "is this a terminal?" so two
+  callers cannot disagree about it.
+end note
+@enduml

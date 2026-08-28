@@ -256,3 +256,70 @@ func TestOutTapIsOptional(t *testing.T) {
 		t.Fatal("Run did not return with no tap set")
 	}
 }
+
+// DropReports has to REACH the pump. A flag set on the struct and never read
+// looks right in review and changes nothing on the wire, which is precisely the
+// shape of the defect it exists to close — so this drives a real report through
+// a real Run and asks the tap what happened to it.
+func TestDropReportsReachesTheInputPump(t *testing.T) {
+	t.Parallel()
+	lone := "\x1b[?6c" // the VT102 DA reply that killed proveo-1787852436-14907
+
+	for _, tc := range []struct {
+		why         string
+		dropReports bool
+		wantForward bool
+	}{
+		{"sbx: a prompt stream queried nothing, so nothing is owed", true, false},
+		{"docker: the child asked on a real tty and is owed its answer", false, true},
+	} {
+		t.Run(tc.why, func(t *testing.T) {
+			t.Parallel()
+			outR, outW, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = outR.Close() }()
+			inR, inW, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = inR.Close() }()
+
+			seen := make(chan bool, 4)
+			p := New(inR, outW)
+			p.DropReports = tc.dropReports
+			p.Tap = func(b []byte, forwarded bool) {
+				if string(b) == lone {
+					seen <- forwarded
+				}
+			}
+
+			// Written before Run: the pipe buffers, so the pump reads it whenever it
+			// starts and the test never has to sleep to win a race.
+			if _, err := inW.Write([]byte(lone)); err != nil {
+				t.Fatal(err)
+			}
+
+			done := make(chan error, 1)
+			go func() { done <- p.Run(exec.Command("sh", "-c", "sleep 1")) }()
+
+			select {
+			case got := <-seen:
+				if got != tc.wantForward {
+					t.Errorf("report forwarded=%v, want %v", got, tc.wantForward)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("the tap never saw the report; the pump is not reading In")
+			}
+
+			_ = inW.Close()
+			_ = outW.Close()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("Run did not return")
+			}
+		})
+	}
+}

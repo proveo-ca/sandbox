@@ -24,8 +24,21 @@ import (
 // neither a keystroke nor an answer anyone is waiting for.
 type inputFilter struct {
 	dropFocus bool
-	window    time.Duration
-	now       func() time.Time
+	// dropReplies removes EVERY report, not just a surplus copy. It is for a far
+	// end that reads its input as a prompt stream rather than as terminal input:
+	// there no report is owed to anyone, because nothing on that side ever asked.
+	//
+	// The dedup rule below cannot cover that case, and the reason is that it was
+	// written for a different one. It forwards the FIRST copy on the premise that
+	// the application asked and is owed an answer, and drops only a duplicate. A
+	// LONE unsolicited report is therefore indistinguishable from a legitimate
+	// answer and sails through — which is exactly what killed the sbx runs: a
+	// single "\x1b[?6c" arrived five seconds into a run nobody had queried from,
+	// was forwarded as the first copy, and was enqueued as a user message nobody
+	// typed. The agent answered it and exited.
+	dropReplies bool
+	window      time.Duration
+	now         func() time.Time
 
 	mu     sync.Mutex
 	recent []seenReply
@@ -57,6 +70,7 @@ const (
 	reportNone  reportKind = iota // keystrokes, pastes, anything not a report
 	reportFocus                   // DEC mode 1004 focus in/out
 	reportReply                   // an answer to a query the application sent
+	reportMouse                   // DEC 1000/1006/1015/1016 mouse press, release or motion
 )
 
 // keep reports whether b should reach the child.
@@ -73,7 +87,17 @@ func (f *inputFilter) keep(b []byte) bool {
 		// Nothing downstream of here consumes it, so forwarding it can only
 		// produce noise in whatever reads the stream.
 		return !f.dropFocus
+	case reportMouse:
+		// Solicited, so never de-duplicated; dropped only where nothing consumes
+		// terminal input. See _spec/internal/ptyproxy/terminal-report-filter.puml.
+		return !f.dropReplies
 	case reportReply:
+		// Nothing downstream asked, so nothing downstream is owed. Treated exactly
+		// like focus: a report is the one thing on this path that is neither a
+		// keystroke nor an answer anyone is waiting for.
+		if f.dropReplies {
+			return false
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		now := f.now()
@@ -114,6 +138,10 @@ func classifyTerminalReport(b []byte) reportKind {
 	switch b[1] {
 	case '[':
 		body := b[2:]
+		// CSI M Cb Cx Cy — raw coordinate bytes, so no final-byte match is possible.
+		if len(body) == 4 && body[0] == 'M' {
+			return reportMouse
+		}
 		switch body[len(body)-1] {
 		case 'I', 'O': // CSI I / CSI O — focus in / focus out
 			if len(body) == 1 {
@@ -130,6 +158,13 @@ func classifyTerminalReport(b []byte) reportKind {
 		case 'R': // CSI … R — cursor position report
 			if isNumericParams(body[:len(body)-1]) {
 				return reportReply
+			}
+		case 'M', 'm': // CSI < b;x;y M|m (SGR) · CSI b;x;y M (urxvt)
+			if body[0] == '<' && isNumericParams(body[1:len(body)-1]) {
+				return reportMouse
+			}
+			if isNumericParams(body[:len(body)-1]) {
+				return reportMouse
 			}
 		}
 	case 'P': // DCS … ST — XTVERSION and friends

@@ -1,5 +1,5 @@
 @startuml TestingLayer4Sequence
-' SPEC source: tests/e2e/e2e_test.go
+' SPEC source: e2e/e2e_test.go
 ' Layer 4 — the promptful flow over time: drive -> prompt -> model -> side effect.
 ' Build tag: //go:build e2e; no env gate — preconditions_test.go skips on missing infra
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml

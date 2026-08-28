@@ -1,0 +1,33 @@
+== sbx argv ==
+sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/claudecode:latest -m 8192m -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e GIT_AUTHOR_NAME=Executor -e GIT_AUTHOR_EMAIL=executor@proveo.test -e PROVEO_WORKDIR=<WORK> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= claude <WORK> <HOME>
+== secret names ==
+CLAUDE_CODE_OAUTH_TOKEN
+ANTHROPIC_API_KEY
+== kit spec.yaml ==
+schemaVersion: "2"
+kind: mixin
+name: claudecode-posture
+displayName: proveo posture (claudecode)
+description: Reachability, host-resolved environment and the seed step for a proveo run.
+permissions:
+    network:
+        allow:
+            - .anthropic.com
+            - api.anthropic.com
+            - statsig.anthropic.com
+environment:
+    variables:
+        ANTHROPIC_BASE_URL: https://api.anthropic.com
+        GIT_AUTHOR_EMAIL: executor@proveo.test
+        GIT_AUTHOR_NAME: Executor
+        MCP_GATEWAY_URL: ""
+        PROVEO_AGENT_EVIDENCE: verbose
+        PROVEO_STATE_HOME: <HOME>
+        PROVEO_WORKDIR: <WORK>
+setup:
+    startup:
+        - command:
+            - /usr/local/bin/proveo-seed
+            - claudecode
+          user: "1000"
+          description: 'proveo: compose subagents, settings and workspace trust'

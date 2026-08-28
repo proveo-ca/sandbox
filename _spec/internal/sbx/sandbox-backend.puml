@@ -11,7 +11,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' Kit schema, the validate handoff, session lifecycle and exit-code handling:
 '   sbx-kit-contract.puml (same directory)
 
-component "doRun backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "run.Do backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
@@ -81,10 +81,10 @@ note left of FB
   ""docker: sbx"" (they take ""docker: dind"") and always run here. Subscription
   harnesses land here only
   when the gate above fails. Def-local shell suites keep covering the fallback
-  images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
+  images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
 
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
-  assert the ARGV from pure ""sandboxSpec"" with no VM.
+  assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
   this backend and asserts what ""docker: sbx"" claims: the sbx line was printed
   (not the fallback), the workspace mount carries writes back to the host, and the
@@ -261,10 +261,10 @@ note bottom of KIT
 end note
 
 note bottom of SEL
-  **Purity split.** ""sandboxSpec"" is a pure function of ""runSandboxInput"":
+  **Purity split.** ""sandbox.Spec"" is a pure function of ""sandbox.Input"":
   same input, same Kit + argv + secret list, no side effects — which is what
   makes ""--print"" and the unit tests able to assert the whole invocation
-  without a sandbox. Every effect lives in ""runSandbox"": render the Kit,
+  without a sandbox. Every effect lives in ""sandbox.Run"": render the Kit,
   hydrate the forwarded host env, ""sbx secret set"", exec, then ""sbx rm"" the
   VM, its images and its volumes on the way out.
 end note
@@ -354,6 +354,39 @@ note bottom of SBX
 
   Silent whenever a credential DID arrive — a hint that fires on every failure
   trains the operator to skip the one time it was right.
+
+  **The same store is now read BEFORE the run, not only after it.** Reading it
+  only from the post-mortem left proveo refusing runs it could have started —
+  see ""_spec/_paradigms/credential-boundary\.puml"".
+end note
+
+note as Memory #F4F9FB
+  **Half the daemon is a SINGLE-sandbox answer.**
+
+  sbx defaults a sandbox to 50% of HOST memory, which cannot bind wherever
+  Docker itself runs in a VM: the limit exceeds the machine it sits in, the
+  container grows past what the VM has, and the run dies with a bare SIGKILL
+  (137) carrying no OOMKilled flag. ""MemoryLimit"" derives the same 50% from the
+  daemon's own ""MemTotal"" instead, which is correct on every platform because on
+  native Linux ""MemTotal"" //is// host memory.
+
+  **The share is PER-sandbox, and nothing adds them up.** Each limit binds on its
+  own, so N sandboxes ask for N×50% of a machine that has 100% and only the host
+  notices. Measured: a 48 GiB host whose daemon reports 23.5 GiB gives ""12031m""
+  each — four of those is 47 GiB, and ""--cpus"" is never passed at all, so every
+  sandbox also believes it owns all 14 cores.
+
+  So the divisor is stated rather than assumed:
+    * ""PROVEO_SBX_INSTANCES"" — how many are meant to coexist. Shares then sum to
+      the machine instead of to a multiple of it (n=4 → ""6015m"").
+    * ""PROVEO_SBX_MEMORY"" — the cap outright, skipping the derivation entirely.
+      It is the only one that works when the daemon cannot be read at all
+      (""8g"" → ""8192m"").
+
+  Neither set leaves the historical half exactly as it was: nobody who set
+  nothing gets a behaviour change. A malformed value falls BACK to the
+  derivation rather than through to sbx — sbx rejects a bad ""-m"" once the run is
+  under way, and reports a flag, never the variable behind it.
 end note
 
 @enduml

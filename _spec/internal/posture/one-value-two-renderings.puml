@@ -1,0 +1,53 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the posture is one value rendered twice, and why nothing here decides anything
+' covers: internal/posture/posture.go
+' covers: cmd/proveo/posture_golden_test.go
+'
+' ── THE BUG THAT MADE IT A PACKAGE ─────────────────────────────────────────
+' A run states its posture twice: the header a human reads BEFORE launch, and the
+' run-log block a human reads AFTER a failure. Those were assembled independently,
+' so they could disagree about the same run — and did: a row named Squid logs on a
+' backend that runs no Squid. Two renderings of one value cannot disagree; two
+' assemblies of the same idea always eventually do.
+'
+' ── NOTHING HERE DECIDES ───────────────────────────────────────────────────
+' Every input arrives as a VALUE. Posture never reads env, never probes docker,
+' never consults a manifest. That is the whole discipline: the moment a row can
+' work out its own answer, the row becomes a second place the decision is made,
+' and the header stops being a report of the run and starts being a claim about
+' it. Observability, EnforcedBy, MCPGateway and ResolveImageChoice all take what
+' they need as arguments for exactly this reason.
+'
+' ── WHAT THE GOLDENS PIN ───────────────────────────────────────────────────
+' cmd/proveo/posture_golden_test.go renders both backends and pins the bytes. The
+' wording differs per backend on purpose ("proveo runs no Squid or MITM" against
+' "squid + mitmproxy sidecars"), and that difference is the thing most likely to
+' rot silently, because nothing else fails when a row describes the wrong backend.
+'
+' ── KNOWN OVERSTATEMENT, DELIBERATELY LEFT ─────────────────────────────────
+' EnforcedBy says "sbx — Kit network allowlist + credential proxy" whatever sbx's
+' global baseline is. On an allow-all host that allowlist ADDS reach rather than
+' limiting it, so the row overstates. It is left standing and recorded here rather
+' than quietly fixed: the same finding governs decision D2, and the egress row
+' already tells the operator the truth at the point of choosing
+' (_spec/internal/sbx/policy-baseline.puml).
+title internal/posture — one value, two readers, no decisions
+
+participant "run.buildPosture" as RUN <<app>>
+participant "posture.Posture" as P <<data>>
+participant "header\n(before launch)" as H <<app>>
+participant "run log\n(after failure)" as L <<data>>
+
+RUN ARROW_MAIN P : every field as a VALUE
+P ARROW_MAIN H : Render()
+P ARROW_MAIN L : Fields()
+
+note over P
+  **A row may not compute its answer.** Give it
+  the value. A row that can decide is a second
+  place the decision is made, and the two readers
+  drift apart again.
+end note
+@enduml

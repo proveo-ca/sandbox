@@ -21,11 +21,7 @@ func EnvEnabled() bool {
 }
 
 func ModeSupported(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "open", "broker":
-		return true
-	}
-	return false
+	return strings.EqualFold(strings.TrimSpace(mode), "open")
 }
 
 func CredentialsSupported(credentials string) bool {

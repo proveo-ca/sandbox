@@ -1,0 +1,11 @@
+run log: <HOME>/logs/proveo-<SID>.log
+proveo home: <HOME> (mounted at /proveo-home)
+gh session: <USERHOME>/.config/gh mounted read-only
+# networks
+# sidecars
+# connects
+# agent-args
+--network=bridge --add-host=host.docker.internal:127.0.0.1
+# cleanup
+# agent
+docker run -it --rm --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=3584 -v <WORK>:/app -v <WORK>/reports:/app/output -v <HOME>:/proveo-home -v <USERHOME>/.config/gh:/proveo-home/.config/gh:ro -e PROVEO_AGENT_EVIDENCE=verbose -e GIT_AUTHOR_NAME=Golden -e GIT_COMMITTER_NAME=Golden -e GIT_AUTHOR_EMAIL=g@example.com -e GIT_COMMITTER_EMAIL=g@example.com -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -w /app --network=bridge --add-host=host.docker.internal:127.0.0.1 proveo/claudecode:test

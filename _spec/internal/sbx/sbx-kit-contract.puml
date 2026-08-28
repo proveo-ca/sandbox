@@ -130,7 +130,7 @@ skinparam noteTextAlignment left
 '                    a detached tmux pane — `sbx run -t <image> shell <ws>` exits
 '                    within seconds there with proveo uninvolved — so an e2e probe
 '                    cannot drive an sbx session to a prompt the way the docker
-'                    ones are driven (tests/e2e/sbx_test.go checks for it and skips).
+'                    ones are driven (e2e/sbx_test.go checks for it and skips).
 ' ────────────────────────────────────────────────────────────────────────────
 
 title sbx Kit contract — schema source, validate handoff, session, exit code

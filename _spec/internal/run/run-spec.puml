@@ -1,0 +1,95 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why a 595-line function's locals became a struct, and what that bought
+' covers: internal/run/spec.go
+' covers: internal/run/run.go
+' covers: cmd/proveo/run_golden_test.go
+'
+' ── THE PROBLEM WAS THE STACK FRAME ────────────────────────────────────────
+' doRun held SIXTY top-level locals. That is not a size complaint: it means the
+' function's contract was invisible. Nothing could be moved out of it without
+' first proving, by reading all 595 lines, which later line still needed the
+' value — and every one of moves 2 to 5 paid that cost again.
+'
+' Spec is those locals, named. It is deliberately NOT a merge of the two backend
+' inputs: it sits ABOVE them, and sandbox.Input / dockeregress.Input are each
+' built FROM it at the seam. Merging would have made every sbx-only field (Clone,
+' CPUs) legible to the docker path and every docker-only field (PidsLimit,
+' ReviewSocket) legible to sbx, which is the coupling the backend split removed.
+'
+' ── THE ORDER OF THE TWO STEPS IS THE WHOLE TRICK ──────────────────────────
+' Enumerating Spec came FIRST, as a change that altered nothing else: the struct
+' was declared, filled where each local settled, and the consumers switched to
+' read it. Only then was the body sliced. Slicing first would have meant
+' discovering the contract and changing the structure in one diff, with no step
+' where a green suite meant anything.
+'
+' ── WHERE THIS DEPARTS FROM THE PLAN, AND WHY ──────────────────────────────
+' The plan names seven stages:
+'   resolveWorkspace · resolveCredentials · promptChoices · buildPosture ·
+'   selectBackend · execute · teardown
+' The shipped set differs in two ways, both forced by output ORDER:
+'   * promptChoices runs BEFORE resolveCredentials, not after. The prompt needs
+'     the env-file lookup, and the auth report needs the answers, so the real
+'     order is workspace -> lookup -> prompt -> auth.
+'   * assembleEnv is a stage of its own. The plan folds it into
+'     resolveCredentials, but posture is rendered BETWEEN the two; moving either
+'     across that line changes the order the operator reads them in.
+'   * teardown is not a stage. It is `defer` inside execute, so a signal
+'     mid-run unwinds exactly the way a normal exit does.
+' Stages are contiguous slices of the original statement order. Nothing was
+' reordered, because reordering is precisely what the golden below forbids.
+'
+' ── THE PROOF HAD A HOLE, AND IT WAS THIS MOVE'S HOLE ───────────────────────
+' Moves 2 to 5 were proved by the plan goldens. Those call dockeregress.Assemble
+' and sandbox.Spec DIRECTLY: they pin the backends and say nothing about the
+' resolve path that feeds them — which is the only thing this move touches. The
+' resolve path's sole coverage was the e2e ladder, which is slow and skips
+' without credentials.
+' cmd/proveo/run_golden_test.go closes that hole: it drives a whole `--print` run
+' under a pinned environment and pins the bytes, ui narrative included. It was
+' written and captured BEFORE the split, so its passing afterwards is evidence
+' rather than decoration.
+title internal/run — the contract that was a stack frame
+
+participant "cmd/proveo\nwiring" as CMD <<app>>
+participant "run.Do" as DO <<app>>
+participant "Spec\nthe resolved contract" as SPEC <<data>>
+participant "sandbox.Input" as SBX <<cloud>>
+participant "dockeregress.Input" as DOC <<cloud>>
+
+CMD ARROW_MAIN DO : Params (flags) + Deps (terminal, gh, docker)
+DO ARROW_MAIN SPEC : resolveWorkspace · promptChoices · resolveCredentials
+DO ARROW_MAIN SPEC : buildPosture · assembleEnv
+SPEC ARROW_QUEUE SBX : selectBackend, when sbx is ready
+SPEC ARROW_QUEUE DOC : execute, otherwise
+
+note over CMD
+  **Deps keeps this package honest.** Prompts,
+  the gh session and image pulls stay in
+  cmd/proveo and arrive as functions.
+end note
+
+note over DO
+  **SquidConfig rides along for another reason.**
+  The ROOT package embeds it, and internal/
+  reaching up for it breaks the sidecar images,
+  which copy only cmd/ and internal/.
+end note
+
+note over SPEC
+  **Sixty locals, named once.** The values the
+  plan called doRun's hidden contract: sid,
+  egDir, uid/gid, mounts, workdir, lookup,
+  detected, homePlan.
+end note
+
+note over DO
+  **Converted with gofmt -r, not regex.** A text
+  pass had already rewritten a string LITERAL.
+  An AST rewrite cannot reach into strings or
+  comments — which is why that damage was
+  caught rather than shipped.
+end note
+@enduml

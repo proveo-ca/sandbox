@@ -15,7 +15,7 @@ node "internal/engine" as ENG <<host>> {
 database "active docker context\nDOCKER_HOST, else\ndocker context inspect" as CTX <<db>>
 database "docker info\nOperatingSystem · Name · ServerVersion" as INFO <<db>>
 
-component "sbx-unavailable warn\ncmd/proveo doRun" as WARN <<app>>
+component "sbx-unavailable warn\ncmd/proveo run.Do" as WARN <<app>>
 component "docker preflight\nensureDockerUsable" as PRE <<app>>
 
 OFF ARROW_MAIN CTX

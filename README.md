@@ -4,7 +4,7 @@
 
 ![proveo run — capability picker on the sample repo](_spec/_assets/hero.gif)
 
-<sub>The capability picker on `tests/e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
+<sub>The capability picker on `e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
 
 `proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
@@ -38,10 +38,10 @@ Details: [`apps/cli/README.md`](apps/cli/README.md).
 ## Quickstart — try it on the sample
 
 The repo ships a **polyglot monorepo sample** (Go API · Rust harness · Bun/TS TUI · TS workspace
-package) at [`tests/e2e/samples/`](tests/e2e/samples) — the same workspace the E2E suite drives.
+package) at [`e2e/samples/`](e2e/samples) — the same workspace the E2E suite drives.
 
 ```bash
-cd tests/e2e/samples
+cd e2e/samples
 
 proveo run opencode                          # capability picker (Tab: browser / DinD), then boots
 proveo run cursor                            # broker egress (Cursor inference is vendor-pinned)

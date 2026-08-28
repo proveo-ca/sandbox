@@ -10,11 +10,21 @@ import (
 
 func TestShouldSkipEnvLoad(t *testing.T) {
 	t.Parallel()
-	if !ShouldSkipEnvLoad("firewall") || !ShouldSkipEnvLoad("proxy") {
-		t.Fatal("proxy/firewall should skip")
+	for _, tier := range CanonicalTiers {
+		if !ShouldSkipEnvLoad(tier) {
+			t.Errorf("%s must skip the .env load", tier)
+		}
 	}
-	if ShouldSkipEnvLoad("broker") || ShouldSkipEnvLoad("") {
-		t.Fatal("broker/empty should not skip")
+	if !ShouldSkipEnvLoad("  ALLOWLIST  ") {
+		t.Error("the tier is matched case- and space-insensitively")
+	}
+	for _, legacy := range []string{"broker", "firewall", "proxy"} {
+		if ShouldSkipEnvLoad(legacy) {
+			t.Errorf("%q must not be understood at the container boundary", legacy)
+		}
+	}
+	if ShouldSkipEnvLoad("") {
+		t.Error("an unset mode must not skip")
 	}
 }
 
@@ -44,7 +54,7 @@ func TestLoadEnvFile(t *testing.T) {
 func TestApplyBrokerSentinel(t *testing.T) {
 	t.Setenv("CURSOR_API_KEY", "sk-real")
 	t.Setenv("OPENAI_API_KEY", "sk-oai")
-	got := ApplyBrokerSentinel("firewall", "CURSOR_API_KEY,OPENAI_API_KEY", "")
+	got := ApplyBrokerSentinel("allowlist", "CURSOR_API_KEY,OPENAI_API_KEY", "")
 	if diff := cmp.Diff([]string{"CURSOR_API_KEY", "OPENAI_API_KEY"}, got); diff != "" {
 		t.Fatal(diff)
 	}
@@ -52,8 +62,21 @@ func TestApplyBrokerSentinel(t *testing.T) {
 		t.Fatalf("cursor key = %q", os.Getenv("CURSOR_API_KEY"))
 	}
 	t.Setenv("CURSOR_API_KEY", "sk-real")
-	if ApplyBrokerSentinel("broker", "CURSOR_API_KEY", "") != nil {
-		t.Fatal("broker mode must not rewrite")
+	if got := ApplyBrokerSentinel("open", "CURSOR_API_KEY", ""); len(got) != 1 {
+		t.Fatalf("open must rewrite a brokered key, got %v", got)
+	}
+	t.Setenv("CURSOR_API_KEY", "sk-real")
+	if ApplyBrokerSentinel("allowlist", "", "") != nil {
+		t.Fatal("no brokered keys must not rewrite")
+	}
+	if os.Getenv("CURSOR_API_KEY") != "sk-real" {
+		t.Fatalf("forwarded key was rewritten: %q", os.Getenv("CURSOR_API_KEY"))
+	}
+	for _, mode := range []string{"firewall", "proxy", "broker", ""} {
+		t.Setenv("CURSOR_API_KEY", "sk-real")
+		if ApplyBrokerSentinel(mode, "CURSOR_API_KEY", "") != nil {
+			t.Fatalf("%q must not be understood at the container boundary", mode)
+		}
 	}
 }
 

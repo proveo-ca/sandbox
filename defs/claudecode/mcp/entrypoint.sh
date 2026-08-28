@@ -135,5 +135,7 @@ else
   report_agent_evidence
 fi
 
+export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
+
 echo "🚀 Launching Claude Code..."
 proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" -- "$@"
