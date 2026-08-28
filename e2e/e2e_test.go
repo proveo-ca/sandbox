@@ -12,7 +12,7 @@
 // infra.
 //
 //	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
-//	  go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 360s
+//	  go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 360s
 //
 // The harness is opencode-specific here: `run --auto --agent build` is opencode's
 // non-interactive form. opencode is the default target and (as of this writing)
@@ -185,7 +185,7 @@ func removeWorkspaceEnv(t *testing.T, work string) {
 	}
 }
 
-// copySampleWorkspace copies tests/e2e/samples/ into a fresh temp dir so the
+// copySampleWorkspace copies e2e/samples/ into a fresh temp dir so the
 // agent edits a throwaway copy while the tracked sample stays pristine.
 func copySampleWorkspace(t *testing.T) string {
 	t.Helper()
@@ -226,7 +226,7 @@ func buildProveo(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoRoot := filepath.Join(wd, "..", "..")
+	repoRoot := filepath.Join(wd, "..")
 	bin := filepath.Join(t.TempDir(), "proveo")
 	c := exec.Command("go", "build", "-o", bin, "./cmd/proveo")
 	c.Dir = repoRoot

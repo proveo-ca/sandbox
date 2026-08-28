@@ -77,7 +77,7 @@ run_e2e() {
   # result is lost — including the passes and the diagnostics of the failures,
   # which is strictly worse than a slow lane. Lower it per invocation with
   # PROVEO_TEST_GO_TIMEOUT when running a single -run selection.
-  go test -tags=e2e ./tests/e2e/ -count=1 -timeout "${PROVEO_TEST_GO_TIMEOUT:-45m}" "$@"
+  go test -tags=e2e ./e2e/ -count=1 -timeout "${PROVEO_TEST_GO_TIMEOUT:-45m}" "$@"
 }
 
 case "$mode" in

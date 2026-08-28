@@ -2,9 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Layer 4 — hello-world E2E (local model, three targets, plain bridge)
 
-participant "go test -tags=e2e\ntests/e2e/hello_world_test.go" as TEST <<app>>
+participant "go test -tags=e2e\ne2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
-database "workspace copy\nof tests/e2e/samples" as WS <<db>>
+database "workspace copy\nof e2e/samples" as WS <<db>>
 participant "cmd/proveo run <target>\n--egress-mode open --credentials forward\n--local-model <model>" as RUN <<app>>
 participant "host Ollama\nhost.docker.internal:11434" as OLLAMA <<host>>
 participant "agent container" as CTR <<host>>

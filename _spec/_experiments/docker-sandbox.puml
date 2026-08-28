@@ -1,6 +1,6 @@
 @startuml DockerSandboxExperiment
 '  covers: internal/sbx/sbx.go, cmd/proveo/main.go (sandbox.Run/sandbox.Spec),
-'          tests/e2e/sbx_test.go
+'          e2e/sbx_test.go
 ' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
 ' sbx backend when available (internal/sbx; auto with docker+egress fallback);
 ' the egress layer is reserved for open-source harnesses (opencode, cecli).

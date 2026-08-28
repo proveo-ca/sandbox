@@ -37,7 +37,7 @@ import (
 //	  keys; the broker.env bind-mounted into the egress-proxy receives each one
 //	  byte-for-byte. broker.env is agent-independent, so one agent proves the path.
 //
-//	go test -tags=e2e ./tests/e2e/ -run CredentialForwardingIntegrity -v
+//	go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v
 func TestCredentialForwardingIntegrity(t *testing.T) {
 	proveoBin := buildProveo(t)
 	keys := provider.KeyVars()
@@ -73,7 +73,7 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 // /app/.env. A lightweight probe image keeps this credential-path test independent
 // of either agent CLI's release/install state.
 //
-//	go test -tags=e2e ./tests/e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
+//	go test -tags=e2e ./e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
 func TestProjectDotEnvAtEgressLayer(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
@@ -526,7 +526,7 @@ func repoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..")
+	return filepath.Join(wd, "..")
 }
 
 func forceClean(proveoBin string) { _ = exec.Command(proveoBin, "clean", "--force").Run() }

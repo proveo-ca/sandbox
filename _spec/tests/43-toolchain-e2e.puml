@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Toolchain e2e — proving the language registry is true as BEHAVIOUR
 
-' covers: tests/e2e/toolchain_test.go, internal/contract/toolchain_test.go,
-'         tests/e2e/testdata/polyglot22
+' covers: e2e/toolchain_test.go, internal/contract/toolchain_test.go,
+'         e2e/testdata/polyglot22
 
 node "Layer 2 — contract (no Docker)" as L2 <<host>> {
   component "registry self-consistency\nfour maps must agree" as C1 <<app>>

@@ -81,7 +81,7 @@ Thumbs.db
 .claude/skills/spec
 
 # --- Sample monorepo (self-contained for testing) ---
-!tests/e2e/samples/
+!e2e/samples/
 
 
 # --- Logs ---

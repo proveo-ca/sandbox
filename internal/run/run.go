@@ -598,7 +598,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		// own agent user and its credential proxy writes the live credential into
 		// that user's home, so the file under the proveo home is not consulted and
 		// its freshness decides nothing. Refusing on it would block runs that work —
-		// verified by tests/e2e/ladder_test.go, whose rung 3 carries this exact Kit.
+		// verified by e2e/ladder_test.go, whose rung 3 carries this exact Kit.
 		if len(rs.Creds.AuthMissingAtStart) > 0 {
 			// On this backend the agent cannot complete a login: it reaches the
 			// prompt, exits, and the sandbox stops with it — which surfaces 30s

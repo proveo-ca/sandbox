@@ -41,7 +41,7 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 2. **Skip on missing prerequisites.** Layer 3 still requires `PROVEO_EGRESS_INTEGRATION=1`.
    Layer 4 has NO env gate — the `e2e` build tag is the opt-in — so every test `t.Skip`s
    itself when `docker`, `tmux`, the harness image, Ollama or the credential it spends is
-   missing (`tests/e2e/preconditions_test.go`) — never fail CI for absent infra. "Missing"
+   missing (`e2e/preconditions_test.go`) — never fail CI for absent infra. "Missing"
    includes a credential that is *present but unspendable* — refused, or out of balance:
    the agent exits at once and the boundary under test never runs, so the watcher
    (`instrument_test.go`) classifies that pane as a skip. Keep that pattern narrow enough
@@ -75,7 +75,7 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 PROVEO_EGRESS_INTEGRATION=1 go test -tags=integration -race ./internal/egress/ -v -timeout 120s
 
 # Layer 4
-go test -tags=e2e ./tests/e2e/ -run PromptfulE2E -v -timeout 300s
+go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 ```
 
 ## Coverage

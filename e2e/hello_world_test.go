@@ -18,7 +18,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestHelloWorldE2E drives each harness against a COPY of tests/e2e/samples on a
+// TestHelloWorldE2E drives each harness against a COPY of e2e/samples on a
 // LOCAL open-source model and asserts three observable facts per target:
 //
 //	the model answered → the run's transcript carries a model message about the
@@ -34,7 +34,7 @@ import (
 // opencode, then claudecode.
 //
 //	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
-//	  go test -tags=e2e ./tests/e2e/ -run HelloWorldE2E -v -timeout 40m
+//	  go test -tags=e2e ./e2e/ -run HelloWorldE2E -v -timeout 40m
 //
 // It runs on a local model on purpose. What this suite asserts — mounts, model
 // bridging, a closed inference loop — needs A model, not a particular vendor's,
@@ -446,7 +446,7 @@ func repoEnv(t *testing.T) map[string]string {
 	if err != nil {
 		return repoEnvCache
 	}
-	path := env("PROVEO_TEST_ENV_FILE", filepath.Join(wd, "..", "..", ".env"))
+	path := env("PROVEO_TEST_ENV_FILE", filepath.Join(wd, "..", ".env"))
 	b, err := os.ReadFile(path) // follows the symlink dev boxes use
 	if err != nil {
 		return repoEnvCache

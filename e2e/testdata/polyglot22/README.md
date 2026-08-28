@@ -1,6 +1,6 @@
 # Polyglot 22 — one file per supported language
 
-Fixture for `tests/e2e/toolchain_test.go`. One trigger per language the shared
+Fixture for `e2e/toolchain_test.go`. One trigger per language the shared
 LSP detector knows about (`packages/lib/entrypoint-lib.sh` §8). This file is
 also the **markdown** trigger, which is why 22 languages need 22 files.
 

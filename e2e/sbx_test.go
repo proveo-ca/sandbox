@@ -152,7 +152,7 @@ func dockerTargets(pick func(manifest.Manifest) bool) []string {
 	if err != nil {
 		panic("sbx suite: cwd: " + err.Error())
 	}
-	ms, err := manifest.Load(filepath.Join(wd, "..", "..", "defs"))
+	ms, err := manifest.Load(filepath.Join(wd, "..", "defs"))
 	if err != nil {
 		panic("sbx suite: load manifests: " + err.Error())
 	}
@@ -412,7 +412,7 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 			// The redirect is retired on this backend and must not return: HOME
 			// pointed away from the home sbx's credential proxy writes into, so the
 			// agent read a stale mounted credential and reported "Not logged in"
-			// (tests/e2e/ladder_test.go, rung 3). See sandbox.Home.
+			// (e2e/ladder_test.go, rung 3). See sandbox.Home.
 			for _, k := range []string{"HOME", "PROVEO_HOME"} {
 				if v, ok := kit.Environment.Variables[k]; ok {
 					t.Errorf("%s: Kit sets %s=%q — the HOME redirect is deliberately deleted on "+
@@ -1055,7 +1055,7 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 // somewhere the agent never read. The redirect that made PROVEO_HOME necessary is
 // gone — it pointed HOME away from the home sbx's own credential proxy writes
 // into, so the agent read a stale mounted credential and reported "Not logged in"
-// (tests/e2e/ladder_test.go, rung 3). With no redirect there is no divergence:
+// (e2e/ladder_test.go, rung 3). With no redirect there is no divergence:
 // seed and agent both resolve the image's home. See sandbox.Home.
 //
 // What the redirect did buy was resume, and PROVEO_STATE_HOME buys it back by

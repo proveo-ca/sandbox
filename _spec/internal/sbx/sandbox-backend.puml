@@ -81,7 +81,7 @@ note left of FB
   ""docker: sbx"" (they take ""docker: dind"") and always run here. Subscription
   harnesses land here only
   when the gate above fails. Def-local shell suites keep covering the fallback
-  images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
+  images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
 
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.

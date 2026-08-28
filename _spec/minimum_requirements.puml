@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: what one host can actually carry, and why a sandbox's share is declared rather than discovered
 ' covers: internal/sbx/sbx.go
-' covers: tests/e2e/capacity_test.go
+' covers: e2e/capacity_test.go
 '
 ' ── WHY DECLARE A SHARE AT ALL ─────────────────────────────────────────────
 ' The obvious objection is the right one to answer first: an OS allocates memory
@@ -152,7 +152,7 @@ note bottom of OOM
   sandbox, the daemon reports one total, the guest counts
   only itself.
 
-  ""tests/e2e/capacity_test\.go"" — the capacity probe — is
+  ""e2e/capacity_test\.go"" — the capacity probe — is
   the only thing that measures the sum, by launching
   sandboxes until the host says no and reporting WHERE it
   said it.

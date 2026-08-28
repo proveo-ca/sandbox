@@ -267,7 +267,7 @@ func Home(env []string, mounts []sbx.Mount) []string {
 	// and has its credential proxy write `.credentials.json` there. Pointing HOME
 	// somewhere else did not move those — it ORPHANED them, so the agent read a
 	// stale mounted credential instead of the live proxy-managed one and reported
-	// "Not logged in" (tests/e2e/ladder_test.go, rung 3).
+	// "Not logged in" (e2e/ladder_test.go, rung 3).
 	//
 	// PROVEO_HOME existed only to survive that redirect: sbx resets HOME from
 	// /etc/passwd for setup.startup, so a seed reading $HOME wrote to a different

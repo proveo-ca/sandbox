@@ -220,7 +220,7 @@ type sessionResult struct {
 }
 
 // holdSbxSession drives sbx on a REAL pty — tmux cannot host an sbx session, which
-// tests/e2e/sbx_test.go already records — reaches a prompt, then holds with zero
+// e2e/sbx_test.go already records — reaches a prompt, then holds with zero
 // input and reports what happened.
 func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) sessionResult {
 	target := ladderTarget()

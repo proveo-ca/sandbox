@@ -32,7 +32,7 @@ func isSbxArgv(agentCmd string) bool {
 // forwarding, clean --homes, and (when images exist) live --shell + resume
 // round-trips that never bind host IDE homes.
 //
-//	go test -tags=e2e ./tests/e2e/ -run ProveoHomePersistence -v
+//	go test -tags=e2e ./e2e/ -run ProveoHomePersistence -v
 func TestProveoHomePersistence(t *testing.T) {
 	proveoBin := buildProveo(t)
 	// Read once, from proveo's own plan. Restating "proveo/cursor:latest" stopped

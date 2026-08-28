@@ -161,7 +161,7 @@ bash scripts/stage-cli-cdn.sh
 
 tests=(
   "apps/cli/public/cli/tests/run_tests.sh"
-  "tests/docker-detached-smoke.sh"
+  "e2e/docker-detached-smoke.sh"
   "defs/cecli/test.sh"
   "defs/sidecars/mitmproxy/test.sh"
   "defs/claudecode/test.sh"

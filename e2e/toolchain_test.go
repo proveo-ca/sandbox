@@ -49,7 +49,7 @@ func repoRootDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..")
+	return filepath.Join(wd, "..")
 }
 
 func entrypointLibPath(t *testing.T) string {

@@ -5,7 +5,7 @@
 #   docker run --rm -v "$PWD":/vhs -w /vhs ghcr.io/charmbracelet/vhs _spec/_assets/hero.tape
 #
 # Prereqs: `proveo` on PATH, run from the repo root. vhs bundles ffmpeg.
-# Records the capability picker on the polyglot sample (tests/e2e/samples).
+# Records the capability picker on the polyglot sample (e2e/samples).
 
 Output _spec/_assets/hero.gif
 
@@ -20,7 +20,7 @@ Set Theme "Catppuccin Mocha"
 Set TypingSpeed 55ms
 
 Hide
-Type "export CURSOR_API_KEY=demo && cd tests/e2e/samples && clear" Enter
+Type "export CURSOR_API_KEY=demo && cd e2e/samples && clear" Enter
 Show
 
 Type "proveo run cursor --scope ."
