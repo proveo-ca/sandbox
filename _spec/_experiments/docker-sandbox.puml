@@ -1,5 +1,5 @@
 @startuml DockerSandboxExperiment
-'  covers: internal/sbx/sbx.go, cmd/proveo/main.go (runSandbox/sandboxSpec),
+'  covers: internal/sbx/sbx.go, cmd/proveo/main.go (sandbox.Run/sandbox.Spec),
 '          tests/e2e/sbx_test.go
 ' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
 ' sbx backend when available (internal/sbx; auto with docker+egress fallback);
@@ -63,7 +63,7 @@ p_life   ..> s_vm     : sbx rm deletes the VM
 
 note right of sbx #E7F0FF
   **Advantages / simplifications**
-  • one ""sbx run"" replaces the ""doRun""/""execWithEgress"" orchestration
+  • one ""sbx run"" replaces the ""run.Do""/""execWithEgress"" orchestration
   • a declarative allowlist replaces the ""plan.go"" multi-net + MITM topology
   • host-side credential injection already matches proveo's broker (convergent design)
   • a private Docker Engine per sandbox removes privileged DinD + its consent gating

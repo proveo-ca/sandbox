@@ -21,7 +21,7 @@ import (
 // only the e2e ladder drove it, which is slow and skips without credentials.
 //
 // This renders a whole `--print` run and pins the bytes. See
-// _spec/_plans/main-decomposition-moves.puml (MOVE 6, PROOF).
+// _spec/internal/run/run-spec.puml (MOVE 6, PROOF).
 func TestRunResolveGolden(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

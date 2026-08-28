@@ -23,8 +23,13 @@ import (
 // function's contract lived in its stack frame, so nothing could be moved
 // without first proving what a given line still needed. Enumerating them here
 // changes no behaviour — it only makes the contract addressable.
+//
+// It was flat at first, and 47 fields wide, which made every stage's surface the
+// whole run. The groups below were already comment headings; making them TYPES
+// costs one selector at each use and buys a stage signature that says what it
+// touches. What stays at the top level is what genuinely crosses every stage:
+// the run's identity, the manifest, and the posture it renders.
 type Spec struct {
-	// ── identity ───────────────────────────────────────────────────────────
 	Sid   string // proveo-<unix>-<pid>; names the sandbox, the egress dir and the run log
 	EgDir string // per-run state: inject/, review/
 	UID   string // host uid, so container-written files land owned by the operator
@@ -33,10 +38,23 @@ type Spec struct {
 
 	Man          manifest.Manifest
 	SquidConfig  fs.FS  // the root package's embedded squid config, passed down rather than imported up
+	ModelBridges fs.FS  // and its model bridge tables — same reason: internal/ never imports the root
 	Start        string // the resolved input dir, before scoping
 	InvocationWD string // where the operator actually stood; the env-file search starts here
 
-	// ── workspace ──────────────────────────────────────────────────────────
+	Posture posture.Posture
+
+	Workspace WorkspaceSpec
+	Creds     CredentialSpec
+	Choices   ChoiceSpec
+	Backend   BackendSpec
+	Model     ModelSpec
+	Docker    DockerSpec
+}
+
+// WorkspaceSpec is WHERE the run happens: the dirs, the repo, and the mount plan
+// they imply.
+type WorkspaceSpec struct {
 	Scope         workspace.Scope
 	RepoRoot      string
 	SubScope      string // the picked project, relative to RepoRoot
@@ -45,8 +63,10 @@ type Spec struct {
 	Workdir       string
 	Links         []workspace.Link
 	WorktreeLinks string // container-correct pointer dir, or "" to fall back to GIT_DIR
+}
 
-	// ── credentials ────────────────────────────────────────────────────────
+// CredentialSpec is WHAT the agent may authenticate with, and what carries it.
+type CredentialSpec struct {
 	HostEnvFile        string
 	Lookup             func(string) string // env-then-file; the ONLY credential read in a run
 	Detected           []string
@@ -61,28 +81,34 @@ type Spec struct {
 	AuthMissingAtStart []manifest.EnvVar
 
 	HomePlan proveohome.Plan
+}
 
-	// ── choices ────────────────────────────────────────────────────────────
+// ChoiceSpec is what the operator was asked, and whether they could be asked.
+type ChoiceSpec struct {
 	SettingsRoot string
 	Settings     *agentsettings.Store
 	Promptable   bool // a TTY, wizard on, not a dry run: the cache may seed a prompt
 	EvidenceSet  bool // the env file pinned evidence, so the cache must not override it
+}
 
-	Posture posture.Posture
-
-	// ── backend ────────────────────────────────────────────────────────────
+// BackendSpec is which backend won, and the add-ons that decision enables.
+type BackendSpec struct {
 	Sbx           bool
 	WantDind      bool
 	DindScope     string
 	DindOfferable bool
 	BrowserImage  string
+}
 
-	// ── local model ────────────────────────────────────────────────────────
+// ModelSpec is the local-model sidecar, when --local-model asks for one.
+type ModelSpec struct {
 	ModelsDir  string
 	HostOllama bool
 	OllamaGPU  bool
+}
 
-	// ── docker+egress execution ────────────────────────────────────────────
+// DockerSpec is what only the docker+egress path needs.
+type DockerSpec struct {
 	Host         runner.HostInfo
 	Browser      bool
 	PidsLimit    int

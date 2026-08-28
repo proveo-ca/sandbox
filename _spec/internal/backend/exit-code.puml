@@ -1,0 +1,52 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why a package exists for one type, and why the interface it was created for is never written
+' covers: internal/backend/backend.go
+'
+' ── ONE TYPE, AND THAT IS THE FINISHED STATE ───────────────────────────────
+' The package was created during the cmd/proveo decomposition to hold what the
+' two backends share, with a Plan(RunSpec)/Execute(Plan) interface promised once
+' RunSpec existed. RunSpec now exists. THE INTERFACE IS STILL NOT WRITTEN, and
+' the promise is withdrawn rather than left standing.
+'
+' Nothing consumes the backends polymorphically. run.selectBackend branches on
+' which one won and calls each by name, because their shapes genuinely differ:
+' sandbox.Run takes an Input and runs, while dockeregress splits into Assemble
+' then Exec so the caller can start a review gate BETWEEN the two. An interface
+' over two divergent implementers with no caller holding one describes nothing —
+' it guesses a shape, which is the abstraction Go's own advice says to declare at
+' the CONSUMER once a consumer exists.
+'
+' ── WHY THE PACKAGE STAYS ANYWAY ───────────────────────────────────────────
+' Not for abstraction — for dependency direction. ExitError is needed by
+' cmd/proveo and by BOTH backends. Put it in either backend and the other has to
+' import its sibling; put it in cmd/proveo and internal/ imports cmd/. A leaf
+' package is the only placement that leaves the graph acyclic.
+'
+' ── WHAT THE TYPE ACTUALLY GUARDS ──────────────────────────────────────────
+' proveo's exit status must be the AGENT's, not proveo's own. A backend returns
+' ExitError from deep inside a run and main recovers it with errors.As, so a CI
+' step sees what the agent decided. The value must therefore survive wrapping:
+' TestExitErrorSurvivesWrapping pins that, because a type that stopped matching
+' through a %w chain would silently turn every agent failure into exit 1 and no
+' test of the happy path would notice.
+title internal/backend — a package for dependency direction, not abstraction
+
+participant "sandbox" as SBX <<cloud>>
+participant "dockeregress" as DOC <<cloud>>
+participant "backend.ExitError" as EE <<data>>
+participant "cmd/proveo main" as MAIN <<app>>
+
+SBX ARROW_ERROR EE : agent exited 137
+DOC ARROW_ERROR EE : agent exited 1
+EE ARROW_MAIN MAIN : errors.As through the wrap chain
+MAIN ARROW_MAIN MAIN : os.Exit(code) — the AGENT's code
+
+note over EE
+  **No Plan/Execute interface.** Two implementers
+  with different shapes and no caller that holds
+  one. Declared at the consumer, if a consumer
+  ever appears.
+end note
+@enduml

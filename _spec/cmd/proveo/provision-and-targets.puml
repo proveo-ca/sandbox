@@ -18,7 +18,7 @@ node "Maintainer path — source tree required" as MAINT <<host>> {
 }
 
 node "Missing declared env" as WIZ <<host>> {
-  component "wizardEnabled · isStdinTTY" as WEN <<app>>
+  component "run.WizardEnabled · isStdinTTY" as WEN <<app>>
   component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
   component "termSecret\nread with echo off" as SEC <<app>>
 }

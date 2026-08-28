@@ -56,9 +56,9 @@ allow      **         filesystem:read    -      active`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			orig := inspectPolicy
-			t.Cleanup(func() { inspectPolicy = orig })
-			inspectPolicy = func() ([]byte, error) { return []byte(header + tc.rules), nil }
+			orig := sh.InspectPolicy
+			t.Cleanup(func() { sh.InspectPolicy = orig })
+			sh.InspectPolicy = func() ([]byte, error) { return []byte(header + tc.rules), nil }
 
 			got, known := PolicyBaseline()
 			if got != tc.want || known != tc.known {
@@ -69,9 +69,9 @@ allow      **         filesystem:read    -      active`,
 }
 
 func TestPolicyBaselineIsUnknownWhenSbxCannotBeRead(t *testing.T) {
-	orig := inspectPolicy
-	t.Cleanup(func() { inspectPolicy = orig })
-	inspectPolicy = func() ([]byte, error) { return nil, errFake }
+	orig := sh.InspectPolicy
+	t.Cleanup(func() { sh.InspectPolicy = orig })
+	sh.InspectPolicy = func() ([]byte, error) { return nil, errFake }
 
 	if got, known := PolicyBaseline(); known {
 		// "unreadable" must never render as a posture: an operator told "deny-all"

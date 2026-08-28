@@ -1,0 +1,53 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why a package with no source exists, and what belongs in it
+' covers: internal/contract
+'
+' ── NO SOURCE, ON PURPOSE ──────────────────────────────────────────────────
+' internal/contract holds zero production lines and ~1900 test lines. It is not a
+' package that forgot its implementation: it is where assertions live that belong
+' to NO single package because they are about the agreement BETWEEN things.
+'
+' Put each of these in the package it happens to touch and it either creates an
+' import cycle or, worse, gets deleted with that package's next refactor — taking
+' the cross-cutting guarantee with it silently.
+'
+' ── WHAT QUALIFIES ─────────────────────────────────────────────────────────
+' * shipped ARTEFACTS agreeing with Go constants — embedded manifests load, the
+'   broker sentinel matches, model slots and defaults line up across defs and code
+' * the shell library agreeing with itself under `set -euo pipefail` — the seed
+'   aborts, and the bare-`exec` stderr loss that hid them
+' * boundaries no compiler enforces — internal packages never importing the root,
+'   the container gate speaking only canonical tier names
+' * conventions about the SPECS themselves — note width, unwrappable exemptions
+'
+' ── WHAT DOES NOT ──────────────────────────────────────────────────────────
+' Anything a package can assert about itself. A contract test that only exercises
+' one package's own logic is a unit test in the wrong directory, and it makes that
+' package look better covered than it is while being harder to find.
+'
+' ── WHY THESE EARN THEIR KEEP ──────────────────────────────────────────────
+' Each one here has caught something. The import-boundary test caught a backend
+' reaching back into the root package twice during one refactor; the seed-abort
+' tests pin two `set -e` defects that each cost a night; the egress-vocabulary
+' tests are the pinned half of decision D4.
+title internal/contract — assertions that belong to no single package
+
+participant "defs/ artefacts" as D <<data>>
+participant "packages/lib\nshell" as SH <<data>>
+participant "contract tests" as C <<app>>
+participant "Go constants" as G <<data>>
+
+D ARROW_MAIN C : manifests, model slots, defaults
+SH ARROW_MAIN C : seed exit status, stderr survival
+C ARROW_MAIN G : must agree
+C ARROW_ERROR C : import boundaries · tier vocabulary · spec notes
+
+note over C
+  **Not a dumping ground.** If one package can
+  assert it alone, it is a unit test in the wrong
+  directory — and it hides how well that package
+  is really covered.
+end note
+@enduml

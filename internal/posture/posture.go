@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/main-decomposition-moves.puml
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml
 //
 // Package posture renders the decisions a run has already made — once, for two
 // readers: the header a human reads before launch, and the run-log block a human

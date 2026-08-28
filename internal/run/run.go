@@ -103,13 +103,13 @@ func Do(p Params, d Deps) error {
 // lookup is built here too — which env file answers depends on those same dirs.
 func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	rs.Start = OrWD(p.Input)
-	rs.Scope = workspace.Resolve(rs.Start)
-	rs.RepoRoot = rs.Start
-	if rs.Scope.IsRepo {
-		rs.RepoRoot = rs.Scope.Root
+	rs.Workspace.Scope = workspace.Resolve(rs.Start)
+	rs.Workspace.RepoRoot = rs.Start
+	if rs.Workspace.Scope.IsRepo {
+		rs.Workspace.RepoRoot = rs.Workspace.Scope.Root
 	}
 	if p.Output == "" {
-		p.Output = filepath.Join(rs.RepoRoot, "reports")
+		p.Output = filepath.Join(rs.Workspace.RepoRoot, "reports")
 	}
 	// Create it here rather than leaving it to the backend. `docker run -v` invents
 	// a missing host path, but as ROOT — which is why callers have been creating it
@@ -122,45 +122,45 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 
-	rs.SubScope = strings.Trim(p.Scope, "/")
-	if rs.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && WizardEnabled() && rs.Scope.IsRepo {
-		if projs := workspace.DiscoverProjects(rs.RepoRoot); len(projs) > 0 {
-			rs.SubScope = d.PickProject(projs)
+	rs.Workspace.SubScope = strings.Trim(p.Scope, "/")
+	if rs.Workspace.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && WizardEnabled() && rs.Workspace.Scope.IsRepo {
+		if projs := workspace.DiscoverProjects(rs.Workspace.RepoRoot); len(projs) > 0 {
+			rs.Workspace.SubScope = d.PickProject(projs)
 		}
 	}
-	if rs.SubScope != "" {
-		ui.Iconf("📂", "scope: %s", rs.SubScope)
+	if rs.Workspace.SubScope != "" {
+		ui.Iconf("📂", "scope: %s", rs.Workspace.SubScope)
 	}
 
-	rs.WS = workspace.MountSpec{
+	rs.Workspace.WS = workspace.MountSpec{
 		Workspace: rs.Man.Workspace, OutputDir: p.Output, EgressMode: p.Mode, Credentials: p.Credentials,
 		MountRootDeps: mountRootDeps(os.Getenv),
 	}
 	{ // one layout: the scope dir drives the /app mount path
-		if rs.SubScope != "" {
-			rs.WS.InputDir = filepath.Join(rs.RepoRoot, rs.SubScope)
+		if rs.Workspace.SubScope != "" {
+			rs.Workspace.WS.InputDir = filepath.Join(rs.Workspace.RepoRoot, rs.Workspace.SubScope)
 		} else {
-			rs.WS.InputDir = rs.Start
+			rs.Workspace.WS.InputDir = rs.Start
 		}
-		if rs.Scope.IsRepo {
-			rs.WS.RepoRoot = rs.RepoRoot
+		if rs.Workspace.Scope.IsRepo {
+			rs.Workspace.WS.RepoRoot = rs.Workspace.RepoRoot
 		}
 	}
 
 	rs.InvocationWD, _ = os.Getwd()
-	rs.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
-	if rs.HostEnvFile == "" {
-		rs.HostEnvFile = workspace.EnvFileSource(rs.InvocationWD, rs.WS.InputDir, rs.WS.RepoRoot)
+	rs.Creds.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
+	if rs.Creds.HostEnvFile == "" {
+		rs.Creds.HostEnvFile = workspace.EnvFileSource(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}
-	rs.Lookup = credentials.ProviderLookup(rs.HostEnvFile)
+	rs.Creds.Lookup = credentials.ProviderLookup(rs.Creds.HostEnvFile)
 
-	rs.EvidenceSet = false
-	if v := strings.ToLower(strings.TrimSpace(rs.Lookup(EvidenceVar))); v != "" {
+	rs.Choices.EvidenceSet = false
+	if v := strings.ToLower(strings.TrimSpace(rs.Creds.Lookup(EvidenceVar))); v != "" {
 		if v != EvidenceDefault && v != EvidenceVerbose {
 			ui.Warnf("%s=%q is not %s|%s — using %s", EvidenceVar, v, EvidenceDefault, EvidenceVerbose, EvidenceVerbose)
 			v = EvidenceVerbose
 		}
-		p.Evidence, rs.EvidenceSet = v, true
+		p.Evidence, rs.Choices.EvidenceSet = v, true
 	}
 
 	return nil
@@ -171,12 +171,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 // default, so the cache is neither read nor written (see the note inside).
 func promptChoices(rs *Spec, p *Params, d Deps) error {
 	var err error
-	rs.SettingsRoot = proveohome.Root(os.Getenv)
-	rs.Settings, err = agentsettings.Load(rs.SettingsRoot)
+	rs.Choices.SettingsRoot = proveohome.Root(os.Getenv)
+	rs.Choices.Settings, err = agentsettings.Load(rs.Choices.SettingsRoot)
 	if err != nil {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
-	rs.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
+	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
 	if err := p.applyCapabilities(rs.Man.Capabilities); err != nil {
 		return err
 	}
@@ -188,9 +188,9 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	// interactive session happened to pick: an e2e run asking for the default
 	// `--credentials broker` silently got `forward` plus a `browser` image
 	// variant, and then rewrote the operator's remembered posture on its way out.
-	if rs.Promptable {
-		if cached, ok := rs.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
-			p.seedFromCache(cached, rs.Lookup, rs.EvidenceSet)
+	if rs.Choices.Promptable {
+		if cached, ok := rs.Choices.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
+			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
 	}
 	if p.Bridges == nil {
@@ -201,26 +201,26 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 	if p.Roles == nil {
-		p.Roles = provider.RolesFrom(rs.Lookup)
+		p.Roles = provider.RolesFrom(rs.Creds.Lookup)
 	}
-	if rs.Promptable {
-		if err := p.promptChoices(rs.Man, rs.Lookup, gitRootOrEmpty(rs.Scope, rs.RepoRoot), rs.SettingsRoot); err != nil {
+	if rs.Choices.Promptable {
+		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
 			return err
 		}
 	}
 	if err := p.applyCapabilities(rs.Man.Capabilities); err != nil {
 		return err
 	}
-	if rs.Promptable {
-		rs.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
+	if rs.Choices.Promptable {
+		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), Models: p.Roles.Canonical(),
 		})
-		if err := rs.Settings.Save(rs.SettingsRoot); err != nil {
+		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
 		}
 	}
-	rs.WS.EgressMode, rs.WS.Credentials = p.Mode, p.Credentials
+	rs.Workspace.WS.EgressMode, rs.Workspace.WS.Credentials = p.Mode, p.Credentials
 
 	if p.Mode == "review" {
 		if ok, why := dockeregress.ReviewSupported(os.Getenv); !ok {
@@ -234,29 +234,29 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			p.Mode, p.credentialsOrDefault())
 	}
 
-	rs.DindScope = rs.WS.InputDir
-	if rs.DindScope == "" {
-		rs.DindScope = rs.Start
+	rs.Backend.DindScope = rs.Workspace.WS.InputDir
+	if rs.Backend.DindScope == "" {
+		rs.Backend.DindScope = rs.Start
 	}
-	rs.WantDind = false
-	rs.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
-	rs.DindOfferable = rs.Man.IsDind() && dind.ModeSupported(p.Mode) && dind.CredentialsSupported(p.Credentials)
-	if hasAddon(p.Addons, "browser") && rs.BrowserImage != "" {
-		chosen, isLocal := posture.ResolveImageChoice(rs.BrowserImage)
+	rs.Backend.WantDind = false
+	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
+	rs.Backend.DindOfferable = rs.Man.IsDind() && dind.ModeSupported(p.Mode) && dind.CredentialsSupported(p.Credentials)
+	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
+		chosen, isLocal := posture.ResolveImageChoice(rs.Backend.BrowserImage)
 		if isLocal {
 			ui.Iconf("📦", "image: %s (local build — newer than the published tag)", chosen)
 		}
 		p.Image = chosen
 		ui.Iconf("🌐", "variant: browser → %s", p.Image)
 	}
-	if hasAddon(p.Addons, addonDind) && rs.DindOfferable {
-		rs.WantDind = true
+	if hasAddon(p.Addons, addonDind) && rs.Backend.DindOfferable {
+		rs.Backend.WantDind = true
 		ui.Iconf("🐳", "sidecar: DinD (same image)")
 	}
 	if len(p.Addons) == 0 && !p.PrintOnly {
-		rs.WantDind = rs.DindOfferable && dind.ShouldStart(rs.Man.IsDind(), rs.DindScope, false, nil)
+		rs.Backend.WantDind = rs.Backend.DindOfferable && dind.ShouldStart(rs.Man.IsDind(), rs.Backend.DindScope, false, nil)
 	}
-	if rs.Man.IsDind() && !dind.ModeSupported(p.Mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(rs.DindScope) {
+	if rs.Man.IsDind() && !dind.ModeSupported(p.Mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(rs.Backend.DindScope) {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.Mode)
 	}
 
@@ -269,14 +269,14 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 // backend provably cannot recover, which selectBackend handles.
 func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	var err error
-	rs.FileLogin, rs.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
-	rs.StoreHeld = sbxStoredAuth(rs.Man, p)
-	rs.LoggedIn = rs.FileLogin || len(rs.StoreHeld) > 0
+	rs.Creds.FileLogin, rs.Creds.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
+	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man, p)
+	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
 	// The agent renews a stale access token itself, but its FIRST turn reports
 	// "Login expired · Please run /login" while it does — which reads as a dead
 	// credential to the operator, who then goes looking for an auth problem that
 	// resolved itself a second later. Saying it up front costs one line.
-	if rs.LoginNeedsRefresh && !p.PrintOnly {
+	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
 		ui.Iconf("🔑", "the login in the proveo home needs a refresh — the agent may report "+
 			"\"Login expired\" on its first turn, and can only carry on if the renewal reaches the "+
 			"provider from where it runs")
@@ -284,29 +284,29 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	// Say so when a token IS exported and is being left out. The 🔓 line below only
 	// fires when auth is missing, so the case that actually misbills — a token set,
 	// silently overriding the mounted login — was the one nothing reported.
-	if rs.FileLogin && !p.PrintOnly && strings.TrimSpace(p.AuthVar) == "" {
-		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(rs.Lookup(av)) != "" {
+	if rs.Creds.FileLogin && !p.PrintOnly && strings.TrimSpace(p.AuthVar) == "" {
+		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(rs.Creds.Lookup(av)) != "" {
 			ui.Iconf("🔓", "%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
-	if missing := rs.Man.MissingEnv(rs.Lookup); len(missing) > 0 && !p.PrintOnly {
+	if missing := rs.Man.MissingEnv(rs.Creds.Lookup); len(missing) > 0 && !p.PrintOnly {
 		switch {
-		case rs.Man.Subscription && rs.FileLogin:
+		case rs.Man.Subscription && rs.Creds.FileLogin:
 			// MissingEnv only reads env vars, so a completed login sitting in the
 			// proveo home read as "no auth" and produced a warning that sent an
 			// operator after a token they did not need.
 			ui.Iconf("🔓", "%s: using the login persisted in the proveo home", rs.Man.Name)
-		case rs.Man.Subscription && len(rs.StoreHeld) > 0:
+		case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
 			ui.Iconf("🔓", "%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
-				rs.Man.Name, strings.Join(rs.StoreHeld, ", "))
+				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
-			rs.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
+			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", rs.Man.Name)
 		case agentio.IsStdinTTY() && WizardEnabled():
 			for name, v := range d.PromptEnv(p.Target, missing) {
 				_ = os.Setenv(name, v)
 			}
-			missing = rs.Man.MissingEnv(rs.Lookup)
+			missing = rs.Man.MissingEnv(rs.Creds.Lookup)
 		}
 		for _, e := range missing {
 			msg := e.Name + " not set"
@@ -319,43 +319,43 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 	// A linked worktree needs container-correct pointer files before planning, so
 	// the mounts can reference them. On failure fall through to the GIT_DIR pin.
-	rs.WorktreeLinks, err = rs.WS.PrepareWorktreeLinks(proveohome.Root(os.Getenv))
+	rs.Workspace.WorktreeLinks, err = rs.Workspace.WS.PrepareWorktreeLinks(proveohome.Root(os.Getenv))
 	if err != nil {
 		ui.Warnf("git worktree: %v; falling back to GIT_DIR pinning", err)
 	}
-	rs.WS.WorktreeLinkDir = rs.WorktreeLinks
+	rs.Workspace.WS.WorktreeLinkDir = rs.Workspace.WorktreeLinks
 
 	var planWorkdir string
-	rs.Mounts, planWorkdir, rs.Links = rs.WS.Plan()
+	rs.Workspace.Mounts, planWorkdir, rs.Workspace.Links = rs.Workspace.WS.Plan()
 	if planWorkdir != "" {
-		rs.Workdir = planWorkdir
+		rs.Workspace.Workdir = planWorkdir
 	}
-	reportLinks(rs.Links)
+	reportLinks(rs.Workspace.Links)
 
-	rs.HomePlan, err = proveohome.Prepare(rs.Man.Home, os.Getenv)
+	rs.Creds.HomePlan, err = proveohome.Prepare(rs.Man.Home, os.Getenv)
 	if err != nil {
 		return err
 	}
-	if rs.HomePlan.Root != "" {
-		rs.Mounts = append(rs.Mounts, rs.HomePlan.Mounts...)
-		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", rs.HomePlan.Root, proveohome.ContainerHome)
+	if rs.Creds.HomePlan.Root != "" {
+		rs.Workspace.Mounts = append(rs.Workspace.Mounts, rs.Creds.HomePlan.Mounts...)
+		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", rs.Creds.HomePlan.Root, proveohome.ContainerHome)
 	}
 
 	if m, ok := credentials.GhConfigMount(os.Getenv); ok {
-		rs.Mounts = append(rs.Mounts, m)
+		rs.Workspace.Mounts = append(rs.Workspace.Mounts, m)
 		ui.Iconf("🔑", "gh session: %s mounted read-only", m.Host)
 	}
 
-	rs.Detected = credentials.FilterProviders(provider.Detect(rs.Lookup), rs.Man.Capabilities)
-	rs.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man, rs.Detected, rs.Lookup, brokerEnabled())
-	if reason := credentials.BrokerOffReason(p.forwards(), rs.Brokered, rs.Detected, brokerEnabled()); reason != "" {
+	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
+	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man, rs.Creds.Detected, rs.Creds.Lookup, brokerEnabled())
+	if reason := credentials.BrokerOffReason(p.forwards(), rs.Creds.Brokered, rs.Creds.Detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
-	if len(rs.Brokered) > 1 {
+	if len(rs.Creds.Brokered) > 1 {
 		ui.Iconf("🔐", "broker: %d providers injected at the egress layer (%s)",
-			len(rs.Brokered), strings.Join(rs.Brokered, ", "))
+			len(rs.Creds.Brokered), strings.Join(rs.Creds.Brokered, ", "))
 	}
-	for _, msg := range p.Roles.MissingKeys(rs.Detected) {
+	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
 	}
 	// ONE value, rendered twice — see internal/posture. The rows used to be
@@ -374,9 +374,9 @@ func buildPosture(rs *Spec, p *Params) {
 		Credentials:    p.credentialsOrDefault(),
 		AddOns:         strings.Join(p.Addons, ","),
 		AgentEvidence:  p.evidenceOrDefault(),
-		DetectedKeys:   strings.Join(rs.Detected, ","),
-		Brokered:       strings.Join(rs.Brokered, ","),
-		ReachableHosts: strings.Join(credentials.ReachableHosts(rs.Detected), ","),
+		DetectedKeys:   strings.Join(rs.Creds.Detected, ","),
+		Brokered:       strings.Join(rs.Creds.Brokered, ","),
+		ReachableHosts: strings.Join(credentials.ReachableHosts(rs.Creds.Detected), ","),
 		HarnessHosts:   strings.Join(rs.Man.Capabilities.Hosts, ","),
 		AuthVar:        p.AuthVar,
 		LocalModel:     p.LocalModel,
@@ -399,25 +399,25 @@ func buildPosture(rs *Spec, p *Params) {
 // is rendered BETWEEN the two, and moving either across that line changes the order
 // the operator reads them in — which the resolve golden pins.
 func assembleEnv(rs *Spec, p *Params, d Deps) error {
-	if len(rs.Brokered) > 0 {
+	if len(rs.Creds.Brokered) > 0 {
 		if p.PrintOnly {
-			rs.BrokerFile = filepath.Join(rs.EgDir, "inject", "broker.env") // path only in dry-run
-		} else if f, err := credentials.WriteBrokerEnv(filepath.Join(rs.EgDir, "inject"), rs.Lookup); err == nil {
-			rs.BrokerFile = f
+			rs.Creds.BrokerFile = filepath.Join(rs.EgDir, "inject", "broker.env") // path only in dry-run
+		} else if f, err := credentials.WriteBrokerEnv(filepath.Join(rs.EgDir, "inject"), rs.Creds.Lookup); err == nil {
+			rs.Creds.BrokerFile = f
 		} else {
 			ui.Warnf("broker secret file: %v", err)
 		}
 	}
 
 	if p.LocalModel != "" {
-		rs.ModelsDir = ollamaModelsDir()
-		rs.HostOllama = preferHostOllama()
-		rs.OllamaGPU = sidecarOllamaGPU()
+		rs.Model.ModelsDir = ollamaModelsDir()
+		rs.Model.HostOllama = preferHostOllama()
+		rs.Model.OllamaGPU = sidecarOllamaGPU()
 	}
 
 	suppressedAuth := credentials.AuthSuppressor(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv))
 	for _, e := range rs.Man.Env {
-		if strings.TrimSpace(rs.Lookup(e.Name)) == "" {
+		if strings.TrimSpace(rs.Creds.Lookup(e.Name)) == "" {
 			continue
 		}
 		if e.Secret {
@@ -425,58 +425,58 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 				continue
 			}
 			if p.forwards() {
-				rs.Env = append(rs.Env, e.Name)
-				credentials.HydrateProcessEnv(e.Name, rs.Lookup)
+				rs.Creds.Env = append(rs.Creds.Env, e.Name)
+				credentials.HydrateProcessEnv(e.Name, rs.Creds.Lookup)
 			} else {
-				rs.Env = append(rs.Env, e.Name+"="+entrypoint.DefaultSentinel)
-				rs.BrokerKeyNames = append(rs.BrokerKeyNames, e.Name)
+				rs.Creds.Env = append(rs.Creds.Env, e.Name+"="+entrypoint.DefaultSentinel)
+				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, e.Name)
 			}
 			continue
 		}
-		rs.Env = append(rs.Env, e.Name)
+		rs.Creds.Env = append(rs.Creds.Env, e.Name)
 	}
 	if !p.forwards() {
 		for _, k := range provider.KeyVars() {
-			if strings.TrimSpace(rs.Lookup(k)) == "" {
+			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
 				continue
 			}
 			already := false
-			for _, n := range rs.BrokerKeyNames {
+			for _, n := range rs.Creds.BrokerKeyNames {
 				if n == k {
 					already = true
 					break
 				}
 			}
 			if !already {
-				rs.Env = append(rs.Env, k+"="+entrypoint.DefaultSentinel)
-				rs.BrokerKeyNames = append(rs.BrokerKeyNames, k)
+				rs.Creds.Env = append(rs.Creds.Env, k+"="+entrypoint.DefaultSentinel)
+				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, k)
 			}
 		}
-		if len(rs.BrokerKeyNames) > 0 {
-			rs.Env = append(rs.Env, "PROVEO_CREDENTIAL_BROKER_KEYS="+strings.Join(rs.BrokerKeyNames, ","))
+		if len(rs.Creds.BrokerKeyNames) > 0 {
+			rs.Creds.Env = append(rs.Creds.Env, "PROVEO_CREDENTIAL_BROKER_KEYS="+strings.Join(rs.Creds.BrokerKeyNames, ","))
 		}
 	}
 	for _, k := range credentials.ConfigVarsFor(rs.Man) {
-		if v := strings.TrimSpace(rs.Lookup(k)); v != "" {
-			rs.Env = append(rs.Env, k+"="+v)
+		if v := strings.TrimSpace(rs.Creds.Lookup(k)); v != "" {
+			rs.Creds.Env = append(rs.Creds.Env, k+"="+v)
 			warnUnknownModel(k, v, p.LocalModel)
 		}
 	}
-	rs.Env = append(rs.Env, EvidenceVar+"="+p.evidenceOrDefault())
-	rs.Env = append(rs.Env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
-	rs.Env = append(rs.Env, rs.HomePlan.Env...)
-	if rel := rs.WS.ScopeRel(); rel != "" {
-		rs.Env = append(rs.Env, "PROVEO_SCOPE_REL="+rel)
+	rs.Creds.Env = append(rs.Creds.Env, EvidenceVar+"="+p.evidenceOrDefault())
+	rs.Creds.Env = append(rs.Creds.Env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
+	rs.Creds.Env = append(rs.Creds.Env, rs.Creds.HomePlan.Env...)
+	if rel := rs.Workspace.WS.ScopeRel(); rel != "" {
+		rs.Creds.Env = append(rs.Creds.Env, "PROVEO_SCOPE_REL="+rel)
 	}
 	// Only when the pointer overlay is unavailable: a coherent .git chain needs no
 	// pin, and GIT_DIR would also capture any nested repo the agent visits.
-	if rs.WS.WorktreeLinkDir == "" {
-		rs.Env = append(rs.Env, rs.WS.WorktreeEnv()...)
+	if rs.Workspace.WS.WorktreeLinkDir == "" {
+		rs.Creds.Env = append(rs.Creds.Env, rs.Workspace.WS.WorktreeEnv()...)
 	}
 
 	if !p.PrintOnly {
 		if k := d.GitHubTokenEnv(agentio.IsStdinTTY() && WizardEnabled()); k != "" {
-			rs.Env = append(rs.Env, k)
+			rs.Creds.Env = append(rs.Creds.Env, k)
 		}
 	}
 
@@ -487,7 +487,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 // it: the sbx path has no sidecars to assemble, so there is nothing left to do
 // after the decision. It returns done=true when it has handled the run.
 func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
-	rs.Sbx = false
+	rs.Backend.Sbx = false
 	if rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled() {
 		switch ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); {
 		case !p.sandboxAddonOn():
@@ -495,11 +495,15 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		case !ok:
 			sandbox.ReportUnavailable(why)
 		default:
-			rs.Sbx = true
+			rs.Backend.Sbx = true
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
 			sandbox.WarnBaseline()
 		}
 	}
+	// Both backends reach here. This used to live in execute(), which is the docker
+	// path only — so the backend that actually READS the .env was the one that said
+	// nothing, while the backend that masks it warned.
+	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, p.Mode, rs.Backend.Sbx, rs.Creds.Lookup)
 	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
 	// one entry, never two) — and it does not need one. sbx gives each sandbox its
 	// OWN daemon, gated on the image label `com.docker.sandboxes.start-docker`,
@@ -510,24 +514,24 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	// --clone is creation-time and sbx-only. Accepting it silently on the docker
 	// backend would hand back a run that edited the checkout after promising not
 	// to, which is the one failure mode this flag exists to prevent.
-	if p.Clone && !rs.Sbx {
+	if p.Clone && !rs.Backend.Sbx {
 		return false, fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
 			"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
 			"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
 	}
 	// sbx clones with git, so without a repository there is nothing to clone and
 	// the failure surfaces inside the sandbox rather than here.
-	if p.Clone && rs.WS.RepoRoot == "" {
+	if p.Clone && rs.Workspace.WS.RepoRoot == "" {
 		return false, fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
 			"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
 			"  Run it from a checkout, or drop --clone to work on the mounted directory",
-			rs.WS.InputDir)
+			rs.Workspace.WS.InputDir)
 	}
-	if rs.Sbx && p.Clone {
+	if rs.Backend.Sbx && p.Clone {
 		ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
 			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", rs.Sid)
 	}
-	if rs.Sbx {
+	if rs.Backend.Sbx {
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: p.Clone, Extra: p.Extra,
@@ -536,18 +540,18 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Forwards:       p.forwards(),
 			SandboxAddonOn: p.sandboxAddonOn(),
 			Man:            rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-			Mounts: rs.Mounts, Workdir: rs.Workdir,
-			Lookup:           rs.Lookup,
-			Detected:         rs.Detected,
+			Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir,
+			Lookup:           rs.Creds.Lookup,
+			Detected:         rs.Creds.Detected,
 			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
-			HomeEnv:          rs.HomePlan.Env,
-			ScopeRel:         rs.WS.ScopeRel(),
-			WorktreeFallback: rs.WS.WorktreeLinkDir == "",
-			WorktreeEnv:      rs.WS.WorktreeEnv(),
+			HomeEnv:          rs.Creds.HomePlan.Env,
+			ScopeRel:         rs.Workspace.WS.ScopeRel(),
+			WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
+			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
 			DataDir:          p.DataDir,
 			Memory:           sbx.MemoryLimit(),
 			CPUs:             sbx.CPULimit(),
-			HomeRoot:         rs.HomePlan.Root,
+			HomeRoot:         rs.Creds.HomePlan.Root,
 			RunLog:           rs.Log.Path(),
 		}
 		if p.PrintOnly {
@@ -595,15 +599,15 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		// that user's home, so the file under the proveo home is not consulted and
 		// its freshness decides nothing. Refusing on it would block runs that work —
 		// verified by tests/e2e/ladder_test.go, whose rung 3 carries this exact Kit.
-		if len(rs.AuthMissingAtStart) > 0 {
+		if len(rs.Creds.AuthMissingAtStart) > 0 {
 			// On this backend the agent cannot complete a login: it reaches the
 			// prompt, exits, and the sandbox stops with it — which surfaces 30s
 			// later as an unrelated 137. Refusing costs nothing; launching costs a
 			// minute of image load to reach a failure that was knowable up front.
 			// Gated on the persisted login too, because MissingEnv alone would
 			// refuse runs whose credentials are already in the proveo home.
-			if rs.Man.Subscription && !rs.LoggedIn {
-				credentials.PrintSubscriptionAuthHints(rs.Man, rs.AuthMissingAtStart, os.Stderr)
+			if rs.Man.Subscription && !rs.Creds.LoggedIn {
+				credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 				sh, _ := shell.Detect(os.Getenv("SHELL"))
 				return false, fmt.Errorf("%s needs a subscription login and the sbx backend cannot complete one:\n"+
 					"  the agent exits at its login prompt and the sandbox stops with it.\n"+
@@ -613,7 +617,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 					"  Or use --egress-mode review, which runs on the docker backend where a login persists",
 					rs.Man.Name, sh.ExportLine("CLAUDE_CODE_OAUTH_TOKEN", "<token>"))
 			}
-			credentials.PrintSubscriptionAuthHints(rs.Man, rs.AuthMissingAtStart, os.Stderr)
+			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 		}
 		return true, sandbox.Run(in)
 	}
@@ -632,20 +636,20 @@ func execute(rs *Spec, p *Params, d Deps) error {
 			return err
 		}
 	}
-	rs.Host = runner.DetectHost(p.Image)
-	rs.Browser = runner.IsBrowserImage(p.Image)
+	rs.Docker.Host = runner.DetectHost(p.Image)
+	rs.Docker.Browser = runner.IsBrowserImage(p.Image)
 	ov, ovSet := runner.ParsePidsOverride(os.Getenv("PROVEO_PIDS_LIMIT"))
-	if err := runner.EnsurePidsCapability(rs.Host, rs.Browser, ov, ovSet); err != nil {
+	if err := runner.EnsurePidsCapability(rs.Docker.Host, rs.Docker.Browser, ov, ovSet); err != nil {
 		return err
 	}
-	rs.PidsLimit = runner.ResolvePidsLimit(rs.Host, rs.Browser, ov, ovSet)
+	rs.Docker.PidsLimit = runner.ResolvePidsLimit(rs.Docker.Host, rs.Docker.Browser, ov, ovSet)
 
 	consent, reviewProxy := reviewConsent(p.Mode)
 	reviewGate, stopReview := dockeregress.StartReviewGate(p.Mode, rs.EgDir, consent)
 	defer stopReview()
-	rs.ReviewSocket = ""
+	rs.Docker.ReviewSocket = ""
 	if reviewGate != nil {
-		rs.ReviewSocket = reviewgate.Path(filepath.Join(rs.EgDir, "review"))
+		rs.Docker.ReviewSocket = reviewgate.Path(filepath.Join(rs.EgDir, "review"))
 	}
 
 	plan, agent, err := dockeregress.Assemble(dockeregress.Input{
@@ -654,17 +658,17 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		LocalModel: p.LocalModel, DataDir: p.DataDir,
 		Shell: p.Shell, Extra: p.Extra,
 		Sid: rs.Sid, EgDir: rs.EgDir, UID: rs.UID, GID: rs.GID,
-		ReviewSocket:  rs.ReviewSocket,
-		WriteHosts:    credentials.ReachableHosts(rs.Detected),
-		ProviderHosts: policyProviderHosts(rs.Detected, rs.Man.Capabilities),
-		ModelsDir:     rs.ModelsDir, Providers: rs.Brokered, BrokerFile: rs.BrokerFile,
-		HostOllama: rs.HostOllama, OllamaGPU: rs.OllamaGPU,
-		Mounts: rs.Mounts, Workdir: rs.Workdir, Env: rs.Env,
+		ReviewSocket:  rs.Docker.ReviewSocket,
+		WriteHosts:    credentials.ReachableHosts(rs.Creds.Detected),
+		ProviderHosts: policyProviderHosts(rs.Creds.Detected, rs.Man.Capabilities),
+		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
+		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
+		Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		ProxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
 		OllamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
-		PidsLimit:       rs.PidsLimit,
+		PidsLimit:       rs.Docker.PidsLimit,
 	})
 	if err != nil {
 		return err
@@ -678,8 +682,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	if err := d.PreflightImages(plan, rs.Man, p.Image); err != nil {
 		return err
 	}
-	if rs.WantDind {
-		sc, err := dind.Start(dind.ExecRunner{}, p.Target, rs.DindScope, os.Stderr)
+	if rs.Backend.WantDind {
+		sc, err := dind.Start(dind.ExecRunner{}, p.Target, rs.Backend.DindScope, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -689,9 +693,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 			agent.ExtraArgs = append(agent.ExtraArgs, sc.LinkArgs()...)
 		}
 	}
-	credentials.WarnMountedSecrets(rs.WS.InputDir, p.Mode, rs.Lookup)
-	if len(rs.AuthMissingAtStart) > 0 {
-		credentials.PrintSubscriptionAuthHints(rs.Man, rs.AuthMissingAtStart, os.Stderr)
+	if len(rs.Creds.AuthMissingAtStart) > 0 {
+		credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
@@ -705,9 +708,9 @@ func execute(rs *Spec, p *Params, d Deps) error {
 			defer stopSig()
 			return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
 		}
-		squidProviders := rs.Detected
-		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Brokered) == 1 {
-			squidProviders = rs.Brokered
+		squidProviders := rs.Creds.Detected
+		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Creds.Brokered) == 1 {
+			squidProviders = rs.Creds.Brokered
 		}
 		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, dindSidecar, reviewProxy)
 	}()

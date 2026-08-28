@@ -1,0 +1,42 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the agent's commits carry a resolved identity, and the precedence that resolves it
+' covers: internal/gitidentity/gitidentity.go
+'
+' ── AN UNSET IDENTITY FAILS LATE AND BADLY ─────────────────────────────────
+' A container has no git identity of its own. Without one the agent works
+' normally, edits files, and then fails at the COMMIT with "Please tell me who you
+' are" — after the work, not before it. On an unattended run that is a completed
+' task with nothing recorded, which is the worst possible time to discover a
+' missing two-line config.
+'
+' Resolve therefore runs host-side, before launch, and its result travels as env
+' pairs the container cannot be missing.
+'
+' ── PRECEDENCE, AND WHY COMMITTER FALLS BACK ───────────────────────────────
+' Environment first, then git config. Both are passed IN (getenv, gitConfig), so
+' the resolution is testable without a git installation or a mutated environment.
+'
+' COMMITTER falls back to AUTHOR when only the author half is set. Git treats them
+' as separate identities and will refuse on the missing one, so an operator who
+' exported the pair they had heard of would still hit the late failure. The
+' fallback makes the common half-configuration work rather than diagnosing it.
+title internal/gitidentity — resolve before launch, not at the commit
+
+participant "host env" as ENV <<data>>
+participant "git config" as CFG <<data>>
+participant "Resolve" as R <<app>>
+participant "container" as C <<cloud>>
+
+ENV ARROW_MAIN R : GIT_AUTHOR_* / GIT_COMMITTER_*
+CFG ARROW_QUEUE R : fallback when env is silent
+R ARROW_MAIN C : EnvPairs() — both identities, always set
+
+note over R
+  **Committer falls back to author.** Git refuses
+  on whichever half is missing, so a half-set
+  identity fails as completely as none — and only
+  once the work is already done.
+end note
+@enduml

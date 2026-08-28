@@ -1,6 +1,6 @@
 @startuml SandboxSteps
 ' SPEC source (the real orchestration this diagram tracks):
-'   cmd/proveo/main.go            — doRun() host flow + execWithEgress()
+'   internal/run/run.go           — run.Do() host flow, in seven stages
 '   internal/egress/{plan,exec,stage}.go — networks/sidecars/readiness/teardown
 '   internal/broker/broker.go     — credential inject / strip
 '   internal/egressproxy/*        — MITM proxy + flows.ndjson recorder

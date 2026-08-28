@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/main-decomposition.puml
+// SPEC: _spec/internal/run/run-spec.puml
 package main
 
 import (

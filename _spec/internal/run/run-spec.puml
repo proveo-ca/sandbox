@@ -66,33 +66,30 @@ SPEC ARROW_QUEUE SBX : selectBackend, when sbx is ready
 SPEC ARROW_QUEUE DOC : execute, otherwise
 
 note over CMD
-  **Deps is what keeps this package honest.** Every
-  terminal prompt, the gh session and the image
-  pulls stay in ""cmd/proveo"" and arrive as
-  functions: ""ManifestFor"", ""PickProject"",
-  ""PromptEnv"", ""GitHubTokenEnv"",
-  ""ProvisionConfirm"", ""PreflightImages"".
+  **Deps keeps this package honest.** Prompts,
+  the gh session and image pulls stay in
+  cmd/proveo and arrive as functions.
+end note
 
-  ""SquidConfig"" rides along for a different
-  reason — the ROOT package embeds it, and
-  ""internal/"" reaching back up for it breaks the
-  sidecar images, which copy only ""cmd/"" and
-  ""internal/"". ""TestInternalPackagesDoNotImportRoot""
-  caught exactly that, left behind by move 5.
+note over DO
+  **SquidConfig rides along for another reason.**
+  The ROOT package embeds it, and internal/
+  reaching up for it breaks the sidecar images,
+  which copy only cmd/ and internal/.
 end note
 
 note over SPEC
-  **Sixty locals, named once.** ""sid"", ""egDir"",
-  ""uid""/""gid"", ""mounts"", ""workdir"", ""lookup"",
-  ""detected"", ""homePlan"" — the values the plan
-  called doRun's hidden contract.
+  **Sixty locals, named once.** The values the
+  plan called doRun's hidden contract: sid,
+  egDir, uid/gid, mounts, workdir, lookup,
+  detected, homePlan.
+end note
 
-  The conversion was done with ""gofmt -r"", not
-  with a regex. A text pass had already rewritten
-  ""\"-browser\""" to ""\"-rs.Browser\""" inside a string
-  literal; an AST rewrite cannot reach into
-  strings or comments, which is the only reason
-  that class of damage was caught rather than
-  shipped.
+note over DO
+  **Converted with gofmt -r, not regex.** A text
+  pass had already rewritten a string LITERAL.
+  An AST rewrite cannot reach into strings or
+  comments — which is why that damage was
+  caught rather than shipped.
 end note
 @enduml

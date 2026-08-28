@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/main-decomposition-moves.puml
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml
 package posture
 
 import (

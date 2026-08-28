@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/main-decomposition-moves.puml, _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/sandbox-backend.puml
 //
 // Package sandbox is the sbx backend: it PLANS a run (Spec) and it EXECUTES one
 // (Run). That split already existed as two functions in cmd/proveo — Spec pure

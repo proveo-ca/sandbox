@@ -9,7 +9,7 @@ skinparam noteTextAlignment left
 ' it runs `node -e`, and the cecli image ships python and no node, so it returned
 ' 127 into the same kind of command substitution. All 24 command-substituted
 ' helpers were then audited by measurement inside the image; two were non-zero and
-' both are fixed. See _spec/_plans/restore-green-e2e.puml (C1) for that sweep and
+' both are fixed. See _spec/internal/sbx/seed-node-version-abort.puml (C1) for that sweep and
 ' for the bare-`exec` stderr bug that hid it.
 '
 ' ── THE DEFECT ─────────────────────────────────────────────────────────────

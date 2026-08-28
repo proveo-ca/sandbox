@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/revision-env-egress.puml, _spec/internal/egress/egress-tiers.puml
+// SPEC: _spec/internal/egress/egress-tiers.puml
 package contract_test
 
 import (

@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/_plans/main-decomposition-moves.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml
 //
 // Package credentials decides what a run authenticates with, and writes nothing
 // else. Every function here is pure over (manifest, lookup, homeRoot): no run
@@ -479,18 +479,39 @@ func ProviderForAuthVar(envVar string) (string, provider.AuthOption, bool) {
 	return "", provider.AuthOption{}, false
 }
 
-func WarnMountedSecrets(dir, mode string, lookup func(string) string) {
+// WarnMountedSecrets speaks when a workspace .env carries a provider key the
+// agent will be able to read.
+//
+// The tier only silences it on the DOCKER backend, and only because proveo masks
+// every .env* with /dev/null there on the enforced tiers. sbx does no such thing:
+// it takes directory workspaces, the repo carrying those files is mounted whole,
+// and with no PROVEO_EGRESS_MODE in the Kit the in-container prelude SOURCES the
+// .env with `set -a` — so every key in it becomes agent environment whatever tier
+// was chosen.
+//
+// That inversion is why sandboxed is a parameter rather than a tier check: the
+// backend where the file IS read was the one saying nothing, while the backend
+// that masks it warned.
+func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) string) {
 	if dir == "" {
 		return
 	}
-	switch strings.ToLower(mode) {
-	case "allowlist", "review":
-		return
+	if !sandboxed {
+		switch strings.ToLower(mode) {
+		case "allowlist", "review":
+			return // proveo masks .env* with /dev/null on these tiers
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
 		return
 	}
 	if len(provider.Detect(lookup)) == 0 {
+		return
+	}
+	if sandboxed {
+		ui.Warnf("%s/.env is inside the sandbox workspace and holds a provider key — the "+
+			"agent's prelude sources it with `set -a`, so the key becomes agent environment "+
+			"whatever egress tier you picked", dir)
 		return
 	}
 	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly; use --egress-mode firewall so egress DLP blocks the key from leaving", dir)

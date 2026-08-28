@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_plans/revision-env-egress.puml, _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/internal/sbx/policy-baseline.puml, _spec/internal/sbx/sandbox-backend.puml
 package e2e
 
 import (

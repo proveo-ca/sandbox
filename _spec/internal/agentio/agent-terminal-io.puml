@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: internal/agentio/**
 ' covers: cmd/proveo/main.go
 '
-' Move 1 of _spec/_plans/main-decomposition.puml: lifted out of cmd/proveo/main.go
+' Move 1 of _spec/internal/run/run-spec.puml: lifted out of cmd/proveo/main.go
 ' with no behaviour change, proven by cmd/proveo/testdata/plan/*.golden. One thing
 ' the lift did NOT carry across unchanged: the move was cut before the interactive
 ' tail landed on main, so Stdio arrived here still returning nil on a terminal. It

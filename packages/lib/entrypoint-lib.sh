@@ -510,7 +510,7 @@ _proveo_lock_installs() {
   # this line was being written to /dev/null, which is why so many failures in
   # this harness present as a silent death with no message.
   # Probe writability with the redirect scoped to a single command, then take the
-  # lock without touching fd 2. See _spec/_plans/restore-green-e2e.puml (C1).
+  # lock without touching fd 2. See _spec/internal/sbx/seed-node-version-abort.puml (C1).
   if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
   exec 9>>"${dir}/install.lock"
   if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then

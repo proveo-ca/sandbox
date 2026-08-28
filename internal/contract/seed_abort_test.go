@@ -63,7 +63,7 @@ echo SEED_REACHED_THE_END`
 }
 
 // TestExecRedirectFailureDoesNotEndTheShell pins the measurement that disproved
-// C1 in _spec/_plans/restore-green-e2e.puml. That plan claimed a failed `exec`
+// C1 in _spec/internal/sbx/seed-node-version-abort.puml. That plan claimed a failed `exec`
 // redirection is fatal to a non-interactive shell, making the `|| return 0` in
 // _proveo_lock_installs dead code, and blamed it for the entrypoint dying. It is
 // not: bash only exits there in POSIX mode, which the entrypoint never sets.

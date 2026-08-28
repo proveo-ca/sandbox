@@ -268,7 +268,7 @@ func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 // The mounted-.env warning was dead for a release cycle: the guard returned on
 // all three canonical tiers after broker/firewall/proxy were renamed. Nothing
 // asserted it, which is why the rename went unnoticed.
-func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
+func TestWarnMountedSecretsFiresOnTheOpenTierAndAlwaysOnSbx(t *testing.T) {
 	dirWithEnv := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirWithEnv, ".env"), []byte("ANTHROPIC_API_KEY=x\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -283,16 +283,26 @@ func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
 
 	cases := []struct {
 		name, dir, mode string
+		sandboxed       bool
 		lookup          func(string) string
 		wantWarning     bool
 	}{
-		{"open tier warns — the plain bridge has no DLP", dirWithEnv, "open", withKey, true},
-		{"allowlist stays silent — DLP blocks the exfil", dirWithEnv, "allowlist", withKey, false},
-		{"review stays silent — same topology as allowlist", dirWithEnv, "review", withKey, false},
-		{"mode is matched case-insensitively", dirWithEnv, "OPEN", withKey, true},
-		{"no .env in the mounted tree", t.TempDir(), "open", withKey, false},
-		{"no provider key on the host", dirWithEnv, "open", noKey, false},
-		{"no mounted dir at all", "", "open", withKey, false},
+		{"open tier warns — the plain bridge has no DLP", dirWithEnv, "open", false, withKey, true},
+		{"allowlist stays silent — proveo masks .env* there", dirWithEnv, "allowlist", false, withKey, false},
+		{"review stays silent — same topology as allowlist", dirWithEnv, "review", false, withKey, false},
+		{"mode is matched case-insensitively", dirWithEnv, "OPEN", false, withKey, true},
+		{"no .env in the mounted tree", t.TempDir(), "open", false, withKey, false},
+		{"no provider key on the host", dirWithEnv, "open", false, noKey, false},
+		{"no mounted dir at all", "", "open", false, withKey, false},
+
+		// The inversion this parameter exists for: sbx masks nothing, and the
+		// in-container prelude sources the .env with `set -a`, so the tier that
+		// silences docker must NOT silence the backend that actually reads the file.
+		{"sbx warns on allowlist — nothing is masked there", dirWithEnv, "allowlist", true, withKey, true},
+		{"sbx warns on review too", dirWithEnv, "review", true, withKey, true},
+		{"sbx warns on open", dirWithEnv, "open", true, withKey, true},
+		{"sbx still needs a key to be at risk", dirWithEnv, "allowlist", true, noKey, false},
+		{"sbx still needs a .env", t.TempDir(), "allowlist", true, withKey, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -301,9 +311,10 @@ func TestWarnMountedSecretsFiresOnlyOnTheOpenTier(t *testing.T) {
 			ui.Default = ui.New(&buf)
 			t.Cleanup(func() { ui.Default = restore })
 
-			WarnMountedSecrets(tc.dir, tc.mode, tc.lookup)
+			WarnMountedSecrets(tc.dir, tc.mode, tc.sandboxed, tc.lookup)
 
-			got := strings.Contains(buf.String(), ".env is mounted")
+			got := strings.Contains(buf.String(), ".env is mounted") ||
+				strings.Contains(buf.String(), ".env is inside the sandbox workspace")
 			if got != tc.wantWarning {
 				t.Errorf("WarnMountedSecrets(%q, %q, lookup) warned = %v, want %v (output %q)",
 					tc.dir, tc.mode, got, tc.wantWarning, buf.String())

@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/main-decomposition-moves.puml, _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/internal/egress/teardown-and-signals.puml, _spec/internal/egress/teardown-and-signals.puml
 //
 // Package dockeregress is the docker+egress backend: Assemble PLANS a run and
 // Exec EXECUTES one — the same split as internal/backend/sandbox, which is what

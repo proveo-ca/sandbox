@@ -11,7 +11,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' Kit schema, the validate handoff, session lifecycle and exit-code handling:
 '   sbx-kit-contract.puml (same directory)
 
-component "doRun backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "run.Do backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
@@ -84,7 +84,7 @@ note left of FB
   images; ""tests/e2e/sbx_test.go"" skips unless the host can run sbx.
 
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
-  assert the ARGV from pure ""sandboxSpec"" with no VM.
+  assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
   this backend and asserts what ""docker: sbx"" claims: the sbx line was printed
   (not the fallback), the workspace mount carries writes back to the host, and the
@@ -261,10 +261,10 @@ note bottom of KIT
 end note
 
 note bottom of SEL
-  **Purity split.** ""sandboxSpec"" is a pure function of ""runSandboxInput"":
+  **Purity split.** ""sandbox.Spec"" is a pure function of ""sandbox.Input"":
   same input, same Kit + argv + secret list, no side effects — which is what
   makes ""--print"" and the unit tests able to assert the whole invocation
-  without a sandbox. Every effect lives in ""runSandbox"": render the Kit,
+  without a sandbox. Every effect lives in ""sandbox.Run"": render the Kit,
   hydrate the forwarded host env, ""sbx secret set"", exec, then ""sbx rm"" the
   VM, its images and its volumes on the way out.
 end note

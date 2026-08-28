@@ -8,7 +8,7 @@ node "PROVEO_HOME/logs" as HOME <<host>> {
 }
 
 node "proveo run" as RUN <<host>> {
-  component "runlog.Open(sid)\nfirst statement in doRun" as OPEN <<app>>
+  component "runlog.Open(sid)\nfirst statement in run.Do" as OPEN <<app>>
   component "ui.TeeTo\nstatus lines, ANSI stripped" as TEE <<app>>
   component "rl.Fields\nresolved posture" as FIELDS <<app>>
   component "captureSidecarLogs\nteardown, before --rm" as CAP <<app>>
@@ -100,8 +100,8 @@ note as Tail #F4F9FB
 end note
 
 note bottom of LOG
-  **A failed run names this file back.** The path travels into ""runSandbox"" on
-  ""runSandboxInput.runLog"" and is printed beside the ""kept for diagnosis"" line,
+  **A failed run names this file back.** The path travels into ""sandbox.Run"" on
+  ""sandbox.Input.runLog"" and is printed beside the ""kept for diagnosis"" line,
   because the lines worth reading are the ones already gone: the resolved posture
   and the credential warnings print in the first seconds, and an agent can die a
   minute later. An operator who did not redirect stdout then has no route back to

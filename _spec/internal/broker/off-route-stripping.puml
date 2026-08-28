@@ -1,0 +1,49 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the docker-side credential broker — what it attaches, and what it removes
+' covers: internal/broker/broker.go
+'
+' ── THE POINT IS THE STRIP, NOT THE INJECT ─────────────────────────────────
+' The broker exists so a provider key never enters the container on the enforced
+' egress tiers. The container gets a SENTINEL; the real value lives in the egress
+' layer and is attached at the proxy, on route, per provider.
+'
+' The half that is easy to forget is the other one: on an OFF-ROUTE request the
+' broker STRIPS credential headers. Injection alone would be a half-measure — an
+' agent that has learned a key from anywhere else could still post it to a host
+' the operator never approved, and the enforced tier would have bought nothing.
+' DefaultStripHeaders is that floor, applied whenever the broker is active and no
+' explicit strip list is configured.
+'
+' ── ROUTE IS DECIDED BY HOST, NOT BY TRUST ─────────────────────────────────
+' IsProviderHost matches the request's host — including the port and proxy-request
+' shapes, which is where this kind of check usually leaks. A request is on-route
+' because of where it is GOING, never because of who sent it.
+'
+' Some providers authenticate by query parameter rather than header, so the broker
+' injects there too; a header-only broker would silently fail to protect exactly
+' the providers whose secret is most exposed in a URL.
+'
+' ── THE SBX BACKEND DOES NOT USE ANY OF THIS ───────────────────────────────
+' Worth stating plainly, because "broker" appears on both backends and means
+' different machinery. There is no proveo egress layer inside a sandbox: sbx holds
+' the secret in its own store and its proxy injects. Same guarantee, different
+' party — see _spec/internal/sbx/credential-path.puml.
+title internal/broker — inject on route, strip off it
+
+participant "agent\n(holds a sentinel)" as AG <<app>>
+participant "broker\nin the egress layer" as BR <<cloud>>
+participant "provider host" as PR <<cloud>>
+participant "anywhere else" as X <<error>>
+
+AG ARROW_MAIN BR : request + sentinel
+BR ARROW_MAIN PR : on route — real value attached\n(header or query param)
+BR ARROW_ERROR X : off route — credential headers STRIPPED
+
+note over BR
+  **Stripping is not the optional half.** Without
+  it a key learned from anywhere else still leaves
+  the box, and the enforced tier means nothing.
+end note
+@enduml
