@@ -21,6 +21,8 @@ Read each harness's own published list:
 - **opencode** — models.dev is its catalog; ids are `provider/model`.
 - **cecli / aider** — litellm ids, `provider/model`.
 - **claudecode** — Anthropic's model list; ids go in `ANTHROPIC_MODEL`.
+- **codex** — OpenAI's model list; the bare id goes in `CODEX_MODEL` (the
+  bridge strips a `provider/` prefix, so record the canonical id).
 - **cursor** — vendor-pinned. Record as unsupported; do NOT emit an id.
 
 If a source cannot be reached, stop and say so. A partial sync that silently

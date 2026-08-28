@@ -1,0 +1,99 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
+
+actor "Developer" as DEV
+
+node "codex container" as CTR <<host>> {
+  component "defs/codex/entrypoint.sh" as EP <<app>>
+  component "codex --dangerously-bypass-approvals-and-sandbox" as CLI <<app>>
+
+  frame "Instruction tiers (lowest first)" as TIERS <<host>> {
+    component "$CODEX_HOME/AGENTS.md\nproveo house rules" as HOUSE <<app>>
+    component "AGENTS.md in the repo\nread natively" as PROJ <<app>>
+  }
+
+  frame "In-loop review gates" as GATES <<host>> {
+    component "adversarial-reviewer\nsecurity-reviewer\n(sandbox_mode = read-only)" as RO <<app>>
+    component "spec-keeper\n(workspace-write — the single writer)" as SK <<app>>
+  }
+
+  database "/app — repo" as WS <<db>>
+}
+
+node "Layer 2 — container + egress" as L2 <<host>> {
+  component "hardened container\ncap-drop · no-new-privileges · pids-limit" as SBX <<app>>
+  component "egress tier\nopen · allowlist · review" as EG <<app>>
+}
+
+cloud "api.openai.com" as VENDOR <<cloud>>
+
+DEV ARROW_MAIN CLI
+CLI ARROW_MAIN HOUSE
+HOUSE ARROW_MAIN PROJ : errorLabel(project outranks house)
+CLI ARROW_MAIN RO : final diff, before "done"
+RO ARROW_ERROR CLI : errorLabel([BLOCKER]/[HIGH] block completion)
+SK ARROW_MAIN WS : _spec/ · PLAN.md · AGENTS.md only
+CLI ARROW_MAIN WS
+CTR ARROW_MAIN SBX
+SBX ARROW_CLOUD VENDOR : via EG
+
+note right of TIERS
+  **codex has no managed-policy tier, so the house rules sit at the
+  BOTTOM — and that is the honest place for them.**
+
+  claudecode bakes proveo's conventions to
+  ""/etc/claude-code/CLAUDE.md"", a tier that loads before everything
+  else and cannot be excluded at any settings layer. codex has no
+  equivalent path. What it has instead is native ""AGENTS.md"": the
+  repo's own file is read with no bridge written into the operator's
+  checkout, and it ranks ABOVE the global one.
+
+  So the house rules ADD to a repository's rules rather than
+  competing with them, and a project can overrule the house. Writing
+  them into the workspace to win the ranking was rejected: it mutates
+  the operator's tree, and cannot apply at all where an ""AGENTS.md""
+  already exists.
+end note
+
+note bottom of GATES
+  **The read-only split is what makes a review gate a gate.**
+
+  This harness launches with approvals off, so an advisor that could
+  edit would be able to fix its own findings and mark itself green.
+
+  codex exposes no per-tool allowlist — there is no ""tools:"" line to
+  write — so the control is each agent's ""sandbox_mode"", set to
+  ""read-only"". It is the same guarantee claudecode gets from its
+  frontmatter, expressed in the only vocabulary codex enforces.
+  ""spec-keeper"" is the single writer, scoped by its prompt to
+  ""_spec/"", ""PLAN.md"" and ""AGENTS.md"".
+end note
+
+note bottom of CLI
+  **The CLI is installed system-wide from npm, and pinnable.**
+  ""@openai/codex"" ships the same native binary as the install script,
+  but a bare ""curl | sh"" resolves whatever release is current, which
+  is not a thing an image can reproduce. ""--codex-version"" pins it.
+
+  **Evidence is limited by the CLI, not by policy.** The TUI has no
+  verbosity switch; the only dial is ""codex exec --json"", which emits
+  each event as JSONL. A caller's own ""--json"" is a parse contract and
+  wins. So verbose here buys structured events in headless runs and
+  nothing at all interactively — which the preamble says out loud
+  rather than implying it bought something.
+end note
+
+note bottom of L2
+  **The container is the sandbox, and the egress tier is the network
+  boundary.** Unlike cursor there is no vendor TLS pin in the way:
+  ""api.openai.com"" is broker-injectable, so every egress tier applies
+  and the manifest constrains only the provider (""providers: [openai]"").
+
+  Unlike cursor's Landlock, codex's own sandbox COULD run here. It is
+  off because it confines the agent to part of a tree that is already
+  a disposable copy while its prompts stall an unattended loop —
+  a cost with no matching benefit, not an impossibility.
+end note
+
+@enduml

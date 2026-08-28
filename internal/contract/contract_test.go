@@ -38,7 +38,7 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
-	for _, name := range []string{"cursor", "opencode", "cecli", "claudecode"} {
+	for _, name := range []string{"cursor", "opencode", "cecli", "claudecode", "codex"} {
 		img, ok := targets[name]
 		if !ok {
 			t.Errorf("missing target %q in embedded manifests", name)
@@ -88,7 +88,7 @@ func TestRunnerHardeningBaseline(t *testing.T) {
 func TestRunShimsExecProveo(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for _, shim := range []string{"opencode", "cursor", "cecli", "claudecode"} {
+	for _, shim := range []string{"opencode", "cursor", "cecli", "claudecode", "codex"} {
 		path := filepath.Join(root, "defs", shim, "run.sh")
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -115,6 +115,7 @@ func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
 		"defs/opencode/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",
+		"defs/codex/entrypoint.sh",
 	}
 	for _, rel := range paths {
 		path := filepath.Join(root, rel)
@@ -210,7 +211,11 @@ func TestSubscriptionHarnesses(t *testing.T) {
 	}
 	want := map[string]string{
 		"claudecode": "CLAUDE_CODE_OAUTH_TOKEN",
-		"cursor":     "CURSOR_API_KEY",
+		// codex authenticates either way: a ChatGPT-plan login persisted in the
+		// proveo home, or this key. The manifest declares the key because that is
+		// the half proveo can broker; the login half is credentials.PersistedLogin.
+		"codex":  "OPENAI_API_KEY",
+		"cursor": "CURSOR_API_KEY",
 	}
 	found := map[string]bool{}
 	for _, m := range ms {
@@ -268,6 +273,7 @@ func TestDockerModeIsOneChoicePerHarness(t *testing.T) {
 		"opencode":   manifest.DockerDind,
 		"cursor":     manifest.DockerSbx,
 		"claudecode": manifest.DockerSbx,
+		"codex":      manifest.DockerSbx,
 	}
 	for _, m := range ms {
 		w, tracked := want[m.Name]
@@ -289,7 +295,7 @@ func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"claudecode": true, "cursor": true}
+	want := map[string]bool{"claudecode": true, "codex": true, "cursor": true}
 	for _, m := range ms {
 		if m.Subscription {
 			if !m.IsSbx() {

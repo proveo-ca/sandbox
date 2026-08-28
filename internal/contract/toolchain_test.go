@@ -249,6 +249,7 @@ var imageDockerfiles = map[string]string{
 	"proveo/cursor":            "defs/cursor/Dockerfile",
 	"proveo/cecli":             "defs/cecli/Dockerfile",
 	"proveo/claudecode":        "defs/claudecode/mcp/Dockerfile",
+	"proveo/codex":             "defs/codex/Dockerfile",
 }
 
 var baseImageRe = regexp.MustCompile(`(?m)^ARG BASE_IMAGE=(\S+)`)

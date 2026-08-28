@@ -115,6 +115,18 @@ func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 		default:
 			return []string{"--resume", resumeID}, nil
 		}
+	case "codex":
+		// `codex resume` is a SUBCOMMAND, not a flag, and every form of it is
+		// spelled through that one word: bare for the picker, --last for the most
+		// recent session started in this directory, or a session UUID.
+		switch {
+		case list:
+			return []string{"resume"}, nil
+		case cont:
+			return []string{"resume", "--last"}, nil
+		default:
+			return []string{"resume", resumeID}, nil
+		}
 	case "opencode":
 		switch {
 		case list:
@@ -134,6 +146,8 @@ func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 func harnessFamily(target string) string {
 	t := strings.TrimSuffix(target, "-browser")
 	switch {
+	case t == "codex":
+		return "codex"
 	case t == "cursor":
 		return "cursor"
 	case t == "opencode":

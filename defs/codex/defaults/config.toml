@@ -1,0 +1,30 @@
+# proveo baked defaults for the Codex CLI.
+#
+# Seeded into $CODEX_HOME/config.toml on first run (missing-only, so a durable
+# proveo home keeps your edits; CODEX_RESEED=1 refreshes them). Every key here is
+# a CLI default the argv can still override.
+
+# The container is the boundary, so the in-process one is not asked to be.
+#
+# proveo runs this harness under a cap-dropped container (docker) or a sandbox VM
+# (sbx) with the egress tier in front of it. Codex's own sandbox would confine the
+# agent to a subset of a filesystem that is ALREADY a disposable copy, at the cost
+# of a blocking prompt in an unattended loop — which is fatal, not safe: the run
+# stalls forever with nobody to answer.
+#
+# These two keys are the config half of the same decision the entrypoint makes on
+# the argv (--dangerously-bypass-approvals-and-sandbox), and they are written down
+# here as well so `codex exec`, `codex resume` and a bare `codex` all inherit it
+# without depending on flag placement. Override per-run with PROVEO_CODEX_SANDBOX.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+# Reasoning summaries stay visible. The harness's evidence posture is that an
+# operator reading a transcript can tell what the agent did and why; hiding the
+# summary buys nothing here and removes the only in-band account of a wrong turn.
+hide_agent_reasoning = false
+
+# Codex reads AGENTS.md natively — no CLAUDE.md bridge is written into the
+# operator's checkout. A repo that steers agents through one of these instead is
+# still read, in this order, rather than being silently ignored.
+project_doc_fallback_filenames = ["CLAUDE.md", "CONVENTIONS.md"]

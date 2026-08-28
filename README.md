@@ -6,7 +6,7 @@
 
 <sub>The capability picker on `e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
 
-`proveo run <agent>` drops a coding agent (opencode, Claude Code, Cursor, cecli) into an
+`proveo run <agent>` drops a coding agent (opencode, Claude Code, Codex, Cursor, cecli) into an
 **ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
 broker that keeps API keys **out of the agent**, opt-in Playwright/browser and Docker-in-Docker,
 and local-model support where the harness allows it. No per-tool setup.
@@ -71,6 +71,7 @@ pills and the first-run choice prompt.
 | --- | --- | --- |
 | **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
 | **Claude Code** | `claudecode` (+ `-solidity`, `-browser`) | MCP / Solidity toolchain; subscription auth (Anthropic) |
+| **Codex** | `codex` · `codex-browser` | same loop as Claude Code; ChatGPT-plan login or `OPENAI_API_KEY`; LSP over MCP |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
 | **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
@@ -81,7 +82,7 @@ layer).
 vendor-pinned (rejected). Claude Code speaks the Anthropic API shape, not Ollama’s OpenAI-compatible
 endpoint — the sidecar is not a drop-in ([`_spec/tests/testing-strategy.puml`](_spec/tests/testing-strategy.puml)).
 
-**Subscription agents** (claudecode, cursor): proveo warns if auth env is missing and
+**Subscription agents** (claudecode, codex, cursor): proveo warns if auth env is missing and
 lets the agent handle login; after the sandbox exits it prints shell-specific setup hints
 (`.env` or a safe host location). Prefer host env / project `.env` over in-sandbox login tokens.
 
@@ -136,6 +137,7 @@ scrubbed before every run.
 | --- | --- | --- |
 | cursor | `~/.proveo/.cursor` | `proveo run cursor --resume <id>` / `--continue` / `--ls` |
 | claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
+| codex | `~/.proveo/.codex` | `proveo run codex --resume <id>` / `--continue` / `--ls` |
 | opencode | `~/.proveo/opencode/{config,share}` | `proveo run opencode --resume <session-id>` |
 | cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
 

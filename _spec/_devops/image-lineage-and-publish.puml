@@ -15,7 +15,7 @@ folder "Lineage" as CHAIN <<host>> {
   component "proveo/base-node-lsp" as BNL <<app>>
   component "proveo/base-node-browser" as BNB <<app>>
   component "cecli · cursor" as H1 <<app>>
-  component "opencode · claudecode" as H2 <<app>>
+  component "opencode · claudecode · codex" as H2 <<app>>
   component "claudecode-solidity" as H3 <<app>>
 }
 

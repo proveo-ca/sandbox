@@ -165,6 +165,7 @@ tests=(
   "defs/cecli/test.sh"
   "defs/sidecars/mitmproxy/test.sh"
   "defs/claudecode/test.sh"
+  "defs/codex/test.sh"
   "defs/opencode/test.sh"
   "defs/cursor/test.sh"
 )

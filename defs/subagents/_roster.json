@@ -6,6 +6,13 @@
     "security-reviewer",
     "spec-keeper"
   ],
+  "codex": [
+    "adversarial-reviewer",
+    "architect",
+    "monorepo-coordinator",
+    "security-reviewer",
+    "spec-keeper"
+  ],
   "cecli": [
     "adversarial-reviewer",
     "architect",

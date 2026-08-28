@@ -38,6 +38,7 @@ var variantArgs = map[string][]string{
 	"claudecode":          {"--variant", "mcp"},
 	"claudecode-solidity": {"--variant", "solidity"},
 	"claudecode-browser":  {"--browser"},
+	"codex-browser":       {"--browser"},
 	"opencode-browser":    {"--browser"},
 	"cursor-browser":      {"--browser"},
 }

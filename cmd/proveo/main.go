@@ -212,7 +212,7 @@ func runCmd() *cobra.Command {
 			"and changes come back with `git fetch sandbox-<name>`")
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
-	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
+	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
 	cmd.Flags().BoolVar(&shellMode, "shell", false, "open a shell in the container instead of the agent")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the docker plan instead of executing")
 	return cmd

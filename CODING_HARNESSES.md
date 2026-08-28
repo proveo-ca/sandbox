@@ -144,7 +144,7 @@ Harness images should:
 - avoid baking credentials, auth files, or `.env` contents into the image;
 - source secrets only at runtime from mounted files or `docker run -e` values;
 - keep session/config persistence under proveo-owned `~/.proveo` (default-on via
-  `harness.manifest` `home:`); never bind-mount host IDE homes (`~/.cursor`, `~/.claude`);
+  `harness.manifest` `home:`); never bind-mount host IDE homes (`~/.cursor`, `~/.claude`, `~/.codex`);
 - scrub deny-listed auth filenames from proveo home each run; keep inference auth on
   env / credential-broker keys;
 - avoid logging secret values while still reporting whether required keys were detected.
@@ -183,6 +183,7 @@ The level is one axis, chosen in the run prompt's `agent evidence` row and shipp
 | Harness | Verbose launch adds | Notes |
 | --- | --- | --- |
 | **claudecode** | `--verbose` (+ `--include-partial-messages` when the caller already asked for `--output-format stream-json`) | `--debug` is deliberately excluded: transport noise, not the agent's work. |
+| **codex** | `--json`, headless only (`codex exec`) | The TUI has no verbosity switch. A caller's own `--json` / `--output-last-message` is a parse contract and wins. |
 | **cursor** | `--output-format stream-json --stream-partial-output`, headless only | The CLI has no verbosity switch for its TUI, and it suppresses thinking events in print mode. A caller's own `--output-format` wins. |
 | **opencode** | `--log-level DEBUG`; `--print-logs` off the TUI path; `--thinking` on `run` | `--print-logs` writes to stderr, so it is withheld while the TUI owns the terminal. |
 | **cecli** | `--verbose --show-diffs` | `--show-repo-map` / `--show-prompts` print and **exit**, so they can never be defaults. |

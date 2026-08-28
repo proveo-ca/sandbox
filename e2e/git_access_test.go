@@ -19,6 +19,7 @@ var harnessWorkdir = map[string]string{
 	"cursor":     "/app",
 	"cecli":      "/app",
 	"claudecode": "/app",
+	"codex":      "/app",
 }
 
 func newTempRepo(t *testing.T) string {

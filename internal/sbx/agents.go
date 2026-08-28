@@ -12,6 +12,7 @@ import "sort"
 // every run with a skipped binding gate and a session dropped seconds in.
 var builtinAgent = map[string]string{
 	"claudecode": "claude",
+	"codex":      "codex",
 	"cursor":     "cursor",
 }
 

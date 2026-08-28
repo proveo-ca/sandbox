@@ -1100,6 +1100,12 @@ readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
 #               settings layer, which is what "always processed" requires. The
 #               home file this function would write is the LOWEST tier and a
 #               project CLAUDE.md outranks it.
+#   codex       $CODEX_HOME/AGENTS.md (~/.codex/AGENTS.md) — the documented
+#               global file. Codex reads AGENTS.md natively and ranks the
+#               project's above it, so this ADDS to a repo's own rules rather
+#               than competing with them. It is the lowest tier, which is the
+#               right one: codex has no managed-policy path, so there is nothing
+#               above the project layer to write to.
 #   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
 #               instructions render global first, then project on top.
 #   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
@@ -1114,6 +1120,7 @@ _house_rules_target() { case "$1" in
   # file this function writes and cannot be excluded. Writing both would put the
   # same text in context twice.
   claudecode) echo "" ;;
+  codex)      echo ".codex/AGENTS.md" ;;
   opencode)   echo ".config/opencode/AGENTS.md" ;;
   cursor|cecli) echo "" ;;
 esac; }
@@ -1653,25 +1660,57 @@ render_subagents() {
   done < "$varfile"
  fi
 
- local seeded=() yaml name body line out i
- for yaml in "$fmdir"/*.yaml; do
-  [[ -e "$yaml" ]] || continue
-  name="$(basename "$yaml" .yaml)"
+ local seeded=() fm name ext body text line out i dest
+ for fm in "$fmdir"/*.yaml "$fmdir"/*.toml; do
+  [[ -e "$fm" ]] || continue
+  ext="${fm##*.}"
+  name="$(basename "$fm" ".$ext")"
   body="$src/$name.md"
   [[ -f "$body" ]] || { echo "⚠️  subagent body missing for $name; skipping" >&2; continue; }
-  [[ "$reseed" == "1" || ! -f "$dst/$name.md" ]] || continue
 
-  out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
-  out+="$(cat "$yaml")"$'\n'"---"$'\n'$'\n'
+  # The harness's token values go into the SHARED body; the frontmatter is copied
+  # through verbatim, because it is the half that is already harness-specific.
+  text=""
   while IFS= read -r line || [[ -n "$line" ]]; do
    for i in "${!keys[@]}"; do
     line="${line//\{\{${keys[$i]}\}\}/${vals[$i]}}"
    done
-   out+="$line"$'\n'
+   text+="$line"$'\n'
   done < "$body"
 
-  if printf '%s' "$out" > "$dst/$name.md" 2>/dev/null; then
-   seeded+=("$name.md")
+  case "$ext" in
+  yaml)
+   dest="$dst/$name.md"
+   [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
+   out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
+   out+="$(cat "$fm")"$'\n'"---"$'\n'$'\n'"$text"
+   ;;
+  toml)
+   # codex declares its agents as TOML documents rather than as a markdown file
+   # with frontmatter, so the body is not appended after a delimiter — it IS a
+   # value, and the delimiter choice is load-bearing.
+   #
+   # A multi-line LITERAL string, never a basic one: literal strings process no
+   # escapes, so the shared markdown travels through byte for byte. The bodies
+   # carry backslash sequences on purpose (spec-keeper documents what a backslash
+   # escape means inside a PlantUML label), and a basic string would eat them
+   # silently — a corruption with no error, in a file nobody re-reads after it is
+   # composed.
+   dest="$dst/$name.toml"
+   [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
+   if [[ "$text" == *"'''"* ]]; then
+    echo "⚠️  subagent body for $name contains ''' (no TOML literal can carry it); skipping" >&2
+    continue
+   fi
+   out="# composed at runtime from $src/$name.md"$'\n'
+   out+="$(cat "$fm")"$'\n'$'\n'
+   out+="developer_instructions = '''"$'\n'"$text'''"$'\n'
+   ;;
+  *) continue ;;
+  esac
+
+  if printf '%s' "$out" > "$dest" 2>/dev/null; then
+   seeded+=("$(basename "$dest")")
   fi
  done
 
@@ -1975,6 +2014,7 @@ proveo_seed() {
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
+ codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
  cecli) render_subagents cecli "$home/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;

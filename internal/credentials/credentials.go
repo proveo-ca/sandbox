@@ -126,6 +126,11 @@ func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
 // mounted proveo home, relative to it. Keyed by target: each CLI chooses its own.
 var agentTranscriptDirs = map[string][]string{
 	"claudecode": {".claude/projects"},
+	// codex writes one rollout .jsonl per session, filed under a date tree
+	// ($CODEX_HOME/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl). The walk
+	// below is recursive and matches on the suffix, so the tree needs no
+	// enumerating — only its root.
+	"codex": {".codex/sessions"},
 }
 
 // AgentTranscript names the session transcript written during this run, if any.
@@ -192,6 +197,13 @@ func AgentTranscript(target, homeRoot string, since, until time.Time) string {
 // guessing, or a missing file will read as "no login" forever.
 var subscriptionLoginFiles = map[string][]string{
 	"claudecode": {".claude/.credentials.json"},
+	// codex persists a completed `codex login` here. loginUsable does not
+	// recognise this file's shape and therefore reports PRESENCE only — which is
+	// the honest answer for it: the OAuth stamps live under a different key than
+	// claudecode's, and inferring "expired" from a shape we do not parse would
+	// refuse runs that work. So an expired codex login reads as a login, and the
+	// run reaches the CLI's own re-auth rather than proveo's guard.
+	"codex": {".codex/auth.json"},
 }
 
 // EffectiveAuthVar is the credential the run should authenticate with: the row the

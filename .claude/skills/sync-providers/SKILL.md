@@ -38,6 +38,7 @@ Fetch the **current public docs**, do not rely on recall — provider lists move
 - Harness supported-provider lists:
   - OpenCode — `opencode.ai/docs` (it sources models from Models.dev)
   - Cursor CLI — `docs.cursor.com`
+  - Codex CLI — `developers.openai.com/codex` (`[model_providers.*]` in config.toml)
   - cecli — the aider docs it forked from, `aider.chat/docs/llms.html`
 
 If a page is unreachable or ambiguous, **say so and stop** for that harness. An

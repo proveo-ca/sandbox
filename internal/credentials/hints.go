@@ -27,6 +27,12 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 			Login: "claude setup-token",
 		},
 	},
+	"codex": {
+		"OPENAI_API_KEY": {
+			HowTo: "create an OpenAI API key at platform.openai.com/api-keys",
+			Login: "codex login",
+		},
+	},
 	"cursor": {
 		"CURSOR_API_KEY": {
 			HowTo: "create a Cursor API key at cursor.com/dashboard → API Keys",
@@ -202,7 +208,7 @@ func PrintSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 // (e.g. claudecode-solidity → claudecode).
 func HarnessFamily(name string) string {
 	name = strings.TrimSpace(name)
-	for _, base := range []string{"claudecode", "cursor", "opencode", "cecli"} {
+	for _, base := range []string{"claudecode", "codex", "cursor", "opencode", "cecli"} {
 		if name == base || strings.HasPrefix(name, base+"-") {
 			return base
 		}

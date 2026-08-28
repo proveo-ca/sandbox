@@ -30,6 +30,7 @@ func bridgeTable(t *testing.T) provider.BridgeTable {
 var bridgeEntrypoint = map[string]string{
 	"claudecode": "defs/claudecode/mcp/entrypoint.sh",
 	"cecli":      "defs/cecli/entrypoint.sh",
+	"codex":      "defs/codex/entrypoint.sh",
 	"cursor":     "defs/cursor/entrypoint.sh",
 	"opencode":   "defs/opencode/entrypoint.sh",
 }
@@ -322,7 +323,7 @@ func TestHouseRulesNeverWriteIntoTheWorkspace(t *testing.T) {
 	// Every supported target needs a row, so an empty one is a decision.
 	route := src[strings.Index(src, "_house_rules_target() {"):]
 	route = route[:strings.Index(route, "esac; }")]
-	for _, target := range []string{"claudecode", "opencode", "cursor", "cecli"} {
+	for _, target := range []string{"claudecode", "codex", "opencode", "cursor", "cecli"} {
 		if !strings.Contains(route, target) {
 			t.Errorf("_house_rules_target has no row for %q — silence must be a decision, not an omission", target)
 		}
