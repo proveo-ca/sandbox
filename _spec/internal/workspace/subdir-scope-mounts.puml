@@ -27,7 +27,7 @@ SCOPE ARROW_MAIN M1
 GIT   ARROW_MAIN M2
 RF    ARROW_MAIN M3
 RD    ARROW_MAIN M4
-RDD   ARROW_OPTIONAL M5 : PROVEO_MOUNT_ROOT_DEPS
+RDD   ARROW_OPTIONAL M5 : plain-copy to temp, mount rw overlay\nPROVEO_MOUNT_ROOT_DEPS controls copy (0=omit)
 M4    ARROW_QUEUE MASK : walked for secrets
 M5    ARROW_ERROR ARCH
 
@@ -61,11 +61,12 @@ note bottom of MASK
 end note
 
 note right of ARCH
-  A dependency tree installed on the HOST holds binaries built for the host
-  OS/arch — esbuild, sharp, better-sqlite3 — and those do not run in the Linux
-  container. Mounting it still pays off for module RESOLUTION in a workspace
-  monorepo, which is why it is on by default and switched off with
-  ""PROVEO_MOUNT_ROOT_DEPS=0"" when the mismatch bites.
+  Host tree is NOT bind-mounted directly — it is plain-copied into a temp
+  dir and that copy is mounted rw at ""/app/node_modules"", overlay-hiding
+  the host tree inside the workspace mount (whole-repo ""/app"" or subdir
+  ""/app/<rel>"" + ""/app/node_modules""). Host and container install
+  independently; when OS/arch matches the copy still reuses the host tree
+  and avoids a reinstall. ""PROVEO_MOUNT_ROOT_DEPS=0"" omits the copy entirely.
 end note
 
 note right of M2

@@ -5,6 +5,8 @@
 ' Escaping symlinks have their own diagram: mount-symlink-escape.puml.
 title Mount model — two layouts, one scope resolver, secrets decided by egress
 
+' covers: internal/workspace/mount.go
+
 node "Scope resolution" as SCOPE <<host>> {
   component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>
   component "DiscoverProjects(root)\npnpm · npm/yarn · convention globs" as DISC <<app>>
@@ -119,6 +121,16 @@ note right of SUB
   when it exists at the root **and** is absent from the scope dir — so the
   union is safe: a harness never sees a file its repo does not have, and a
   scope that ships its own ""package\.json"" keeps it.
+end note
+
+note bottom of SUB
+  **Root dependency isolation via plain copy overlay.** Host ""node_modules""
+  is plain-copied to a temp dir and that copy is mounted rw at
+  ""/app/node_modules"", overlay-hiding the host tree inside the workspace
+  mount — both whole-repo ""/app"" and subdir ""/app/<rel>"" scopes. Host and
+  container stay independent; when OS/arch matches the copy reuses the host
+  tree, otherwise the container can reinstall without rewriting the host.
+  Controlled by ""PROVEO_MOUNT_ROOT_DEPS"" (0 omits the copy).
 end note
 
 

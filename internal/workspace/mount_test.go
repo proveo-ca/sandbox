@@ -848,3 +848,111 @@ func TestMountPlanWorktreeHonorsGitModeRO(t *testing.T) {
 		t.Fatalf("no %s mount planned for a linked worktree: %+v", ContainerGitCommonDir, got)
 	}
 }
+
+func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
+	t.Parallel()
+	// Whole-repo: host node_modules must NOT be exposed via the parent /app bind.
+	// A plain copy overlay hides it so host and container stay independent.
+	t.Run("whole repo overlay hides host tree", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		touch(t, filepath.Join(root, "node_modules", "pkg", "index.js"))
+		got, _, _ := MountSpec{
+			Workspace: manifest.Workspace{Layout: "app"},
+			RepoRoot:  root, InputDir: root,
+			EgressMode: "open", Credentials: "forward",
+		}.Plan()
+		byContainer := map[string]runner.Mount{}
+		for _, m := range got {
+			byContainer[m.Container] = m
+		}
+		m, ok := byContainer["/app/node_modules"]
+		if !ok {
+			t.Fatalf("whole-repo must overlay /app/node_modules with a plain copy, got %v", got)
+		}
+		if m.Host == filepath.Join(root, "node_modules") {
+			t.Errorf("host node_modules bind-mounted directly at %s; must be a plain copy", m.Host)
+		}
+		if _, err := os.Stat(filepath.Join(m.Host, "pkg", "index.js")); err != nil {
+			t.Errorf("plain copy must contain host tree, missing pkg/index.js: %v", err)
+		}
+		if m.ReadOnly {
+			t.Error("node_modules overlay must be writable for container installs")
+		}
+	})
+
+	// Subdir scope: root node_modules is provided as a plain copy at /app/node_modules,
+	// not a direct bind, so container writes do not hit host.
+	t.Run("subdir root copy is isolated", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		touch(t, filepath.Join(root, "node_modules", "root-pkg", "index.js"))
+		scope := filepath.Join(root, "apps", "web")
+		touch(t, filepath.Join(scope, "index.ts"))
+		got, _, _ := MountSpec{
+			Workspace: manifest.Workspace{Layout: "app"},
+			RepoRoot:  root, InputDir: scope,
+			EgressMode: "open", Credentials: "forward",
+			MountRootDeps: true,
+		}.Plan()
+		byContainer := map[string]runner.Mount{}
+		for _, m := range got {
+			byContainer[m.Container] = m
+		}
+		m, ok := byContainer["/app/node_modules"]
+		if !ok {
+			t.Fatalf("subdir scope must mount plain copy at /app/node_modules, got %v", got)
+		}
+		if m.Host == filepath.Join(root, "node_modules") {
+			t.Errorf("root node_modules bind-mounted directly; must be plain copy")
+		}
+		if _, err := os.Stat(filepath.Join(m.Host, "root-pkg", "index.js")); err != nil {
+			t.Errorf("plain copy must contain host root tree: %v", err)
+		}
+	})
+
+	// Subdir scope's own node_modules must also be isolated via overlay at /app/<rel>/node_modules.
+	t.Run("subdir own tree is isolated", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		scope := filepath.Join(root, "apps", "web")
+		touch(t, filepath.Join(scope, "node_modules", "scoped-pkg", "index.js"))
+		got, _, _ := MountSpec{
+			Workspace: manifest.Workspace{Layout: "app"},
+			RepoRoot:  root, InputDir: scope,
+			EgressMode: "open", Credentials: "forward",
+		}.Plan()
+		byContainer := map[string]runner.Mount{}
+		for _, m := range got {
+			byContainer[m.Container] = m
+		}
+		m, ok := byContainer["/app/apps/web/node_modules"]
+		if !ok {
+			t.Fatalf("scope's own node_modules must be overlaid at /app/apps/web/node_modules, got %v", got)
+		}
+		if m.Host == filepath.Join(scope, "node_modules") {
+			t.Errorf("scope node_modules bind-mounted directly; must be plain copy")
+		}
+		if _, err := os.Stat(filepath.Join(m.Host, "scoped-pkg", "index.js")); err != nil {
+			t.Errorf("plain copy must contain scope tree: %v", err)
+		}
+	})
+}
+
+func TestPlanWholeRepoNodeModulesIsolatedWithoutRootDepsToggle(t *testing.T) {
+	t.Parallel()
+	// Non-repo or whole-repo without explicit MountRootDeps still isolates via overlay.
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "node_modules", "x", "y.js"))
+	got, _, _ := MountSpec{
+		Workspace: manifest.Workspace{Layout: "app"},
+		RepoRoot:  root, InputDir: root,
+		EgressMode: "open", Credentials: "forward",
+		MountRootDeps: false,
+	}.Plan()
+	for _, m := range got {
+		if m.Container == "/app/node_modules" && m.Host == filepath.Join(root, "node_modules") {
+			t.Errorf("node_modules must not be direct bind even with MountRootDeps=false: %+v", m)
+		}
+	}
+}

@@ -4,7 +4,8 @@ title Workspace dependency trees — one probe, one table, every language
 
 ' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
 '         defs/cursor/entrypoint.sh, defs/cecli/entrypoint.sh,
-'         defs/claudecode/mcp/entrypoint.sh
+'         defs/claudecode/mcp/entrypoint.sh,
+'         internal/workspace/mount.go
 
 node "Host checkout — bind-mounted at /app" as HOST <<host>> {
   database "portable majority\nJS · gems · .lua · source" as PORT <<db>>
@@ -28,7 +29,7 @@ CLASS ARROW_MAIN PROBE : addons · artifacts
 PROBE ARROW_MAIN OWNER : any non-ELF object
 OWNER ARROW_OPTIONAL FIX : ""PROVEO_DEPS=reinstall"" · addons only
 FIX ARROW_CLOUD REG : fetch
-FIX ARROW_ERROR PORT : rewrites the operator's own tree
+FIX ARROW_ERROR PORT : writes to temp copy, host checkout untouched
 REG ARROW_ERROR FIX : off the allowlist on every tier but ""open""
 
 note bottom of BIN
@@ -74,24 +75,24 @@ note left of PROBE
 end note
 
 note bottom of REG
-  **The reinstall is a trade, and ""--clone"" is the way out of it.** Rebuilding a
-  foreign tree writes Linux binaries into the operator's own checkout, so their
-  host builds break until they reinstall — which makes the tree foreign again and
-  earns another reinstall on the next run. One each way, indefinitely.
+  **Workspace trees are now isolated via plain copy — the reinstall trade is gone.**
+  Host ""node_modules"" is plain-copied to a temp dir and that copy is mounted rw
+  at ""/app/node_modules"", overlay-hiding the host tree. A container reinstall
+  writes to the copy, not the operator's checkout, so host and container stay
+  independent; when OS/arch matches the copy reuses the host tree, otherwise it
+  is rebuilt in place without rewriting the host.
 
-  ""proveo run <target> --clone"" ends it: sbx builds the workspace by CLONING the
-  host repo, so only TRACKED files cross. Measured — a Mach-O ""node_modules"" on
-  the host, absent inside the clone, and still Mach-O on the host afterwards. The
-  seed then installs Linux dependencies into the clone, and the checkout is never
-  written at all. Changes come back with ""git fetch sandbox-<name>"".
+  ""proveo run <target> --clone"" still avoids the copy entirely: sbx CLONEs only
+  TRACKED files, so ""node_modules"" never crosses. Measured — Mach-O on the host,
+  absent inside the clone, and still Mach-O on the host afterwards.
 end note
 
 note bottom of FIX
-  **Why the repair is opt-in, on two counts.** It writes into the mounted tree,
-  which IS the operator's checkout — a sandbox that silently rewrites the host's
-  dependencies has defeated its own purpose. And under any egress tier but
+  **Why the repair stays opt-in.** Under the plain-copy overlay a reinstall
+  writes to the temp copy at ""/app/node_modules"", not the host checkout — host
+  and container stay independent. It is still opt-in: under any egress tier but
   ""open"" the registry is off the allowlist, so the install fails partway and
-  leaves the tree PARTIAL: strictly worse than the host-built one it replaced,
+  leaves the copy PARTIAL: strictly worse than the host-built tree it replaced,
   which at least carried everything portable.
 
   ""artifacts"" never reach here at all — no registry can help a stale ""target/"",
