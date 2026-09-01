@@ -1,3 +1,4 @@
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml
 package run
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
@@ -36,6 +38,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 	}
 	sandboxOn := sbxBackend && p.sandboxAddonOn()
+	chromeWhy := ""
+	if man.Capabilities.HasHostBrowser() {
+		chromeWhy = chromeUnavailable(lookup)
+	}
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.Target),
@@ -57,7 +63,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy)
+		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy, chromeWhy)
 		// Toggling the sandbox add-on moves the review tier with it: the consent
 		// gate has no sbx transport, so review is reachable only off that backend.
 		gateReview(f, hasAddon(f.Selections("add-ons"), addonSandbox))
@@ -134,7 +140,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy string) {
+func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy string) {
 	tier := f.Selection("egress")
 	if tier == "" {
 		tier = tierFallback
@@ -152,9 +158,16 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy string) {
 		if len(r.On) != len(r.Options) {
 			r.On = make([]bool, len(r.Options))
 		}
-		r.Reason = ""
+		var reasons []string
+		sandboxTicked := false
 		for j, opt := range r.Options {
-			if opt == addonSandbox {
+			if opt == addonSandbox && r.On[j] && sbxWhy == "" {
+				sandboxTicked = true
+			}
+		}
+		for j, opt := range r.Options {
+			switch opt {
+			case addonSandbox:
 				// Offered, but only checkable on a host that can actually run it.
 				if sbxWhy != "" {
 					r.Off[j] = true
@@ -162,20 +175,60 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy string) {
 					// worse than an absent one, because the operator reads it as the
 					// posture of the run rather than as a thing they cannot have.
 					r.On[j] = false
-					r.Reason = "docker sandbox: " + sbxWhy
+					reasons = append(reasons, "docker sandbox: "+sbxWhy)
 				}
-				continue
+			case addonDind:
+				if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
+					r.Off[j] = true
+					r.On[j] = false
+					reasons = append(reasons, addonDind+" needs egress open + credentials forward")
+				}
+			case addonChrome:
+				// The bridge is a TCP relay on the host that the agent reaches as
+				// host.docker.internal — which only the docker backend's bridge network
+				// resolves to the host, and only on the open+forward tier (every other
+				// tier parks the agent behind a sidecar with no route out but the proxy).
+				// A sandbox VM cannot name the host at all, so the sbx box and this one
+				// are exclusive, and re-gated on every toggle.
+				why := chromeWhy
+				switch {
+				case why != "":
+				case sandboxTicked:
+					why = "docker backend only — untick docker (sandbox)"
+				case !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds):
+					why = "needs egress open + credentials forward"
+				}
+				if why != "" {
+					r.Off[j] = true
+					r.On[j] = false
+					reasons = append(reasons, addonChrome+": "+why)
+				}
 			}
-			if opt != addonDind {
-				continue
-			}
-			if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
-				r.Off[j] = true
-				r.On[j] = false
-				r.Reason = addonDind + " needs egress open + credentials forward"
+		}
+		r.Reason = strings.Join(reasons, " · ")
+	}
+}
+
+// chromeUnavailable is the host-side preflight for the Claude in Chrome add-on:
+// what, at this moment, would stop the bridge from connecting. Empty means go.
+//
+// The credential check is Claude Code's rule, not proveo's: since 2.1.216 an
+// env-var or setup-token session is refused Chrome integration outright, because
+// those tokens carry the inference-only OAuth scope and the extension cannot
+// authenticate with them. Offering the box would sell a bridge to a client that
+// has already decided not to use it.
+func chromeUnavailable(lookup func(string) string) string {
+	if lookup != nil {
+		for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+			if strings.TrimSpace(lookup(k)) != "" {
+				return "Claude Code turns Chrome integration off for " + k + " sessions (inference-only scope) — sign in with /login instead"
 			}
 		}
 	}
+	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
+		return why
+	}
+	return ""
 }
 
 // gateReview re-greys the review tier whenever the sandbox add-on is toggled,
@@ -349,6 +402,7 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 const (
 	addonSandbox = "docker (sandbox)"
 	addonDind    = "docker (dind)"
+	addonChrome  = chromebridge.Addon
 )
 
 func addonOptions(man manifest.Manifest) []string {
@@ -358,6 +412,12 @@ func addonOptions(man manifest.Manifest) []string {
 			opts = append(opts, "browser")
 			break
 		}
+	}
+	// "browser" is a Chromium INSIDE the sandbox (the -browser image variant);
+	// "chrome (host browser)" is the operator's own Chrome, reached through the
+	// Claude in Chrome bridge. Different things, so both can be offered at once.
+	if man.Capabilities.HasHostBrowser() {
+		opts = append(opts, addonChrome)
 	}
 	// One entry, never two: the manifest's docker mode IS the choice, so the
 	// picker cannot offer a harness both daemons.

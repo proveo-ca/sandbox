@@ -1,0 +1,85 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Claude in Chrome from a sandbox — the native host socket, carried across the boundary
+
+' covers: internal/chromebridge/**, defs/claudecode/mcp/proveo-lib/chrome-bridge.js, packages/lib/entrypoint-lib.sh (proveo_chrome_bridge), internal/run/choices.go, internal/egress/plan.go (HostBridge)
+
+node "Operator's machine" as HOSTM <<host>> {
+  component "Chrome + Claude in Chrome extension\n(the operator's logins, the extension's site permissions)" as CHROME <<cloud>>
+  component "native messaging host\n""claude --chrome-native-host""" as NMH <<app>>
+  database "LISTENS\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""" as HSOCK <<db>>
+  component "proveo run — ""internal/chromebridge""\nTCP relay, per-run token" as RELAY <<app>>
+  component "picker add-on\n""chrome (host browser)"" — off by default" as PICK <<app>>
+}
+
+node "Agent container (docker backend)" as CONT <<host>> {
+  component "chrome-bridge.js\n""proveo_chrome_bridge"" starts it before ""exec claude""" as CRELAY <<app>>
+  database "LISTENS, same rule for <user>\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""\n0700 dir · 0600 socket" as CSOCK <<db>>
+  component "Claude Code ""--chrome""\nclaude-in-chrome MCP server (CONNECTS)" as CC <<app>>
+}
+
+component "sandbox VM (sbx)\nno route to the host" as SBX <<error>>
+component "setup-token / API-key session\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
+component "connection without the token\nclosed before a byte flows" as BAD <<error>>
+
+CHROME ARROW_MAIN NMH : spawns, native messaging (stdio)
+NMH    ARROW_MAIN HSOCK : creates, listens
+CC     ARROW_MAIN CSOCK : newest ""*.sock"" in its dir
+CSOCK  ARROW_MAIN CRELAY
+CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\nfirst line ""PROVEO-CHROME-BRIDGE <token>""
+RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
+PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
+PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked
+PICK   ARROW_ERROR SCOPE : greyed when the run authenticates\nwith ""CLAUDE_CODE_OAUTH_TOKEN"" / ""ANTHROPIC_API_KEY""
+RELAY  ARROW_ERROR BAD
+
+note right of NMH
+  **Who listens, who connects.** The native
+  host is the server; Claude Code's MCP
+  server is the client and picks the newest
+  socket. Both halves of the bridge keep
+  that shape, so neither Claude Code changes.
+end note
+
+note bottom of RELAY
+  **TCP, because virtiofs drops sockets.** A
+  bind mount cannot carry a Unix socket into
+  Docker Desktop or OrbStack. The listener is
+  loopback on macOS; the token is what guards
+  Linux's bridge-facing address.
+end note
+
+note bottom of CRELAY
+  **Same username rule as Claude Code.**
+  ""os.userInfo().username"", else ""$USER"",
+  ""$USERNAME"", ""default"". An arbitrary run-as
+  uid lands on the fallback; guessing from
+  the shell would miss the directory.
+end note
+
+note bottom of CC
+  **--chrome is the only switch.**
+  ""claudeInChromeDefaultEnabled"" is never
+  persisted: the home outlives the run, and a
+  later run would load browser tools that
+  cannot connect. Onboarding IS marked seen.
+end note
+
+note right of SBX
+  **Docker backend only.** Every outbound TCP
+  of a sandbox is proxied on the host and the
+  VM "cannot access your host network
+  directly" (Docker Sandboxes security docs).
+  Fallback prints why, never silently.
+end note
+
+note right of SCOPE
+  **Claude Code's rule since 2.1.216.** Env
+  and setup-token sessions hold the
+  inference-only scope; the extension cannot
+  authenticate with them. A ""/login"" in the
+  proveo home is what works.
+end note
+
+@enduml

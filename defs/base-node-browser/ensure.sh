@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/_devops/image-lineage-and-publish.puml
+# SPEC: _spec/_devops/image-lineage-and-publish.puml, _spec/defs/browser-layer.puml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,14 +35,19 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# Floor: the base-node-lsp floor plus the Playwright CLI and an installed Chromium
-# under the shared browser store.
+# Floor: the base-node-lsp floor plus the Playwright CLI, an installed Chromium
+# under the shared browser store, and agent-browser wired to that Chromium with
+# its bundled skills (the tree `agent-browser skills get core` serves).
 browser_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v node >/dev/null \
       && command -v playwright >/dev/null \
       && command -v typescript-language-server >/dev/null \
-      && ls "${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"/chromium-* >/dev/null 2>&1
+      && ls "${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"/chromium-* >/dev/null 2>&1 \
+      && command -v agent-browser >/dev/null \
+      && test -x "${AGENT_BROWSER_EXECUTABLE_PATH:-/opt/proveo/chromium/chrome}" \
+      && test -f "${AGENT_BROWSER_SKILLS_DIR:-/opt/agent-browser/skill-data}/core/SKILL.md" \
+      && test -f /opt/proveo/skills/agent-browser/SKILL.md
   ' >/dev/null 2>&1
 }
 
@@ -50,7 +55,7 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
   if browser_floor; then
     exit 0
   fi
-  echo "⚠️  $IMAGE present but missing the Playwright/Chromium floor — rebuilding" >&2
+  echo "⚠️  $IMAGE present but missing the Playwright/Chromium/agent-browser floor — rebuilding" >&2
   exec "$SCRIPT_DIR/build.sh" --image "$IMAGE"
 fi
 

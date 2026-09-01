@@ -38,7 +38,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
     credentials | (X) forward | ( ) broker | . | .
     . | . | ———— add-ons ———— | . | .
-    . | [X] browser | [X] docker (sandbox) | . | .
+    . | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | [X] docker (sandbox) | <color:#9a9a9a>— chrome (host browser): docker backend only — untick docker (sandbox)
     agent evidence | [ ] default | [X] verbose | . | .
   }
   --

@@ -66,6 +66,7 @@ type Input struct {
 	UID, GID                            string
 	ModelsDir, BrokerFile               string
 	HostOllama, OllamaGPU               bool
+	HostBridge                          bool // a `proveo run` relay is listening on the host (Claude in Chrome bridge)
 	Mounts                              []runner.Mount
 	Workdir                             string
 	Env                                 []string // declared env var names to forward (bare -e)
@@ -84,6 +85,7 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		SessionID: in.Sid, AgentName: in.Target, UID: in.UID, GID: in.GID,
 		LocalModel: in.LocalModel, ModelsDir: in.ModelsDir, Providers: in.Providers, BrokerEnvFile: in.BrokerFile,
 		HostOllama: in.HostOllama, OllamaGPU: in.OllamaGPU,
+		HostBridge:      in.HostBridge,
 		ProviderDomains: in.ProviderDomains,
 		ReviewSocket:    in.ReviewSocket,
 		AuthVar:         in.AuthVar,

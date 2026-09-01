@@ -32,3 +32,6 @@ env:
 
 capabilities:
   providers: [anthropic]
+  # Claude in Chrome: the agent drives the OPERATOR's Chrome through proveo's
+  # bridge — add-on "chrome (host browser)", off by default, docker backend only.
+  hostBrowser: claude-in-chrome

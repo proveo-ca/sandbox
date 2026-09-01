@@ -1571,6 +1571,130 @@ proveo_enable_claude_lsp_plugins() {
   return 0
 }
 
+# ── 7j. Browser layer — the agent-browser skill, and the Claude in Chrome bridge ──
+# SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
+# Knobs: PROVEO_BROWSER_SKILL=off · PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN
+#        (both set by `proveo run` when the "chrome (host browser)" add-on is on).
+#
+# The `-browser` image variants (FROM proveo/base-node-browser) carry Playwright's
+# Chromium and vercel-labs/agent-browser pointed at it. The binary alone is not
+# discoverable by an agent, so the seed drops agent-browser's discovery stub into
+# the harness's USER-level skills directory — the one place every harness below
+# reads without a project edit. The stub only tells the agent to run
+# `agent-browser skills get core`, which serves the guide matching the installed
+# version; nothing here goes stale when the binary moves.
+#
+#   claudecode  ~/.claude/skills/<name>/SKILL.md
+#   cursor      ~/.cursor/skills/<name>/SKILL.md   (also reads ~/.agents/skills)
+#   opencode    ~/.config/opencode/skills/<name>/SKILL.md   (also reads ~/.claude/skills)
+#   cecli       NONE — no browser variant and no skills directory; a decision, so
+#               the case is spelled out rather than falling through.
+#
+# Gated on the binary, not the image name: a non-browser image has no
+# agent-browser and gets no skill, so the agent is never handed a tool it lacks.
+_browser_skill_dir() { case "$1" in
+  claudecode) echo ".claude/skills" ;;
+  cursor)     echo ".cursor/skills" ;;
+  opencode)   echo ".config/opencode/skills" ;;
+  cecli|*)    echo "" ;;
+esac; }
+
+readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
+
+proveo_seed_browser_skills() {
+  local target="${1:-}" home dir dst ver
+  case "$(printf '%s' "${PROVEO_BROWSER_SKILL:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  command -v agent-browser >/dev/null 2>&1 || return 0
+  [[ -s "$PROVEO_BROWSER_SKILL_SRC" ]] || return 0
+  dir="$(_browser_skill_dir "$target")"
+  [[ -n "$dir" ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  dst="$home/$dir/agent-browser"
+  mkdir -p "$dst" 2>/dev/null || return 0
+  # proveo's file, so it is refreshed in place; an operator's own skills beside it
+  # are never touched. (sha256sum, not cmp: diffutils is not on the slim floor.)
+  if [[ "$(sha256sum < "$PROVEO_BROWSER_SKILL_SRC")" != "$(sha256sum < "$dst/SKILL.md" 2>/dev/null)" ]]; then
+    cp -f "$PROVEO_BROWSER_SKILL_SRC" "$dst/SKILL.md" 2>/dev/null || return 0
+  fi
+  ver="$(agent-browser --version 2>/dev/null | awk '{print $NF}')"
+  echo "🕸️  browser: agent-browser ${ver:-?} + Playwright Chromium (headless) — skill at ~/${dir}/agent-browser"
+  return 0
+}
+
+# Claude in Chrome does not cross a container boundary on its own: Claude Code's
+# claude-in-chrome MCP server connects to a Unix socket the extension's native
+# messaging host listens on, and that host runs where Chrome runs — the operator's
+# machine. The bridge is two relays carrying that socket: chrome-bridge.js in here
+# (listening where Claude Code looks) and `proveo run`'s TCP relay on the host
+# (dialling the real native host socket). PROVEO_CHROME_BRIDGE names the host end.
+#
+# Docker backend only. On sbx every outbound TCP is proxied and the VM "cannot
+# access your host network directly" (Docker Sandboxes security docs), so the run
+# never sets the variable there and this is a no-op.
+#
+# The launch flag is the ONLY thing that turns Chrome integration on for the
+# session. `claudeInChromeDefaultEnabled` is deliberately NOT written to the
+# operator's ~/.claude.json: it persists in the proveo home, and a later run
+# without the add-on would then load browser tools that cannot connect, on every
+# turn. The one-time onboarding dialog IS marked seen — it blocks on a keypress no
+# automation answers, and it carries no posture.
+readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
+PROVEO_CHROME_READY=""
+
+proveo_chrome_bridge() {
+  local target="${1:-}" home log out sock i
+  [[ "$target" == claudecode ]] || return 0
+  [[ -n "${PROVEO_CHROME_BRIDGE:-}" ]] || return 0
+  if [[ -z "${PROVEO_CHROME_BRIDGE_TOKEN:-}" ]]; then
+    echo "⚠️  chrome: PROVEO_CHROME_BRIDGE is set without PROVEO_CHROME_BRIDGE_TOKEN — the relay will not run unauthenticated; Claude in Chrome stays off" >&2
+    return 0
+  fi
+  command -v node >/dev/null 2>&1 || return 0
+  if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
+    echo "⚠️  chrome: $PROVEO_CHROME_BRIDGE_JS is not in this image; Claude in Chrome stays off" >&2
+    return 0
+  fi
+  log="${TMPDIR:-/tmp}/proveo-chrome-bridge.log"
+  out="${TMPDIR:-/tmp}/proveo-chrome-bridge.sock-path"
+  : > "$out"
+  # Detached from this shell: the entrypoint execs into the agent, and the relay
+  # has to outlive that hand-over for as long as the agent does.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
+  else
+    node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
+  fi
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    sock="$(head -n1 "$out" 2>/dev/null)"
+    [[ -n "$sock" && -S "$sock" ]] && break
+    sleep 0.3
+  done
+  if [[ -z "$sock" || ! -S "$sock" ]]; then
+    echo "⚠️  chrome: relay did not come up (see $log); Claude in Chrome stays off" >&2
+    return 0
+  fi
+  home="$(_proveo_agent_home)"
+  if [[ -n "$home" ]]; then
+    PROVEO_AGENT_HOME="$home" node -e '
+      const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
+      let j = {};
+      try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+      if (j.hasCompletedClaudeInChromeOnboarding === undefined) j.hasCompletedClaudeInChromeOnboarding = true;
+      fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+    ' 2>/dev/null || true
+  fi
+  # shellcheck disable=SC2034  # read by defs/claudecode/mcp/entrypoint.sh after this returns
+  PROVEO_CHROME_READY=1
+  echo "🧭 chrome: Claude in Chrome via the host browser — relay ${sock} → ${PROVEO_CHROME_BRIDGE} (the agent drives YOUR Chrome, with your logins)"
+  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]]; then
+    echo "⚠️  chrome: Claude Code disables Chrome integration for env-var / setup-token sessions (their OAuth scope is inference-only); sign in with /login for it to connect" >&2
+  fi
+  return 0
+}
+
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
@@ -2277,4 +2401,5 @@ proveo_seed() {
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
+ proveo_seed_browser_skills "$target"
 }

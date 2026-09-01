@@ -198,6 +198,56 @@ export CLAUDE_CODE_OAUTH_TOKEN="sk-your-token"
 ./run.sh -- --debug --mcp-debug
 ```
 
+## Browser: agent-browser in the sandbox, Claude in Chrome on the host
+
+Two different browsers, two different add-ons in the `proveo run` picker:
+
+| add-on | what the agent drives | image | backend |
+| --- | --- | --- | --- |
+| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (FROM `proveo/base-node-browser`) | sbx or docker |
+| `chrome (host browser)` | **your own Chrome**, through the Claude in Chrome extension — your logins, the extension's site permissions | any claudecode image | docker only |
+
+### `browser` — agent-browser beside Playwright
+
+The `-browser` variant bakes agent-browser pointed at Playwright's Chromium
+(`AGENT_BROWSER_EXECUTABLE_PATH`), with its bundled skills (`agent-browser skills get core`)
+and a discovery stub that the seed copies to `~/.claude/skills/agent-browser/SKILL.md`. The
+stub tells Claude Code to load the version-matched guide and never to run
+`agent-browser install`. Opt out of the skill with `PROVEO_BROWSER_SKILL=off`. Details:
+`defs/base-node-browser/README.md`, spec `_spec/defs/browser-layer.puml`.
+
+### `chrome (host browser)` — the Claude in Chrome bridge
+
+Claude Code's browser integration is two processes on one machine: its `claude-in-chrome`
+MCP server, and a native messaging host that Chrome spawns for the extension. They meet on a
+Unix socket the native host listens on (`/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock`)
+and the CLI connects to. Anthropic does not carry that across a container boundary
+(anthropics/claude-code#25506, #21299), so proveo does:
+
+1. `proveo run` starts a TCP relay on the host (`internal/chromebridge`, loopback on macOS,
+   per-run token) and hands the agent `PROVEO_CHROME_BRIDGE=host.docker.internal:<port>` plus
+   the token.
+2. The entrypoint starts `chrome-bridge.js` in the container, listening on the exact socket
+   path Claude Code looks for (same username rule, `0700`/`0600`), piping every connection to
+   the host relay, which pipes on to the newest native host socket.
+3. Claude Code is launched with `--chrome`. Nothing is persisted into your `~/.claude.json`
+   except the one-time onboarding flag; a run without the add-on loads no browser tools.
+
+Preconditions, each named in the picker when it fails:
+
+- Chrome (or Edge/Brave…) is open on the host with the Claude in Chrome extension, and
+  `claude --chrome` has run once on the host so the native host is registered.
+- The run signs in with `/login` (a persisted login in `~/.proveo/.claude` works). Claude Code
+  turns Chrome integration off for `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` sessions —
+  their OAuth scope is inference-only and the extension cannot authenticate with them.
+- `--egress-mode open --credentials forward` and the docker backend: the bridge network is
+  the only one with a route to the host, and a sandbox VM cannot reach it (Docker Sandboxes
+  proxies every outbound TCP). Ticking `docker (sandbox)` greys this add-on.
+
+The agent then has your browser's sessions. The extension's site permissions still apply, and
+the relay closes any connection that does not present the run's token. Spec:
+`_spec/defs/claudecode/chrome-bridge.puml`.
+
 ## Code intelligence
 
 The image bakes the language servers and **seeds the official Claude Code LSP plugins**

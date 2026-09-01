@@ -66,7 +66,10 @@ note bottom of EP
   image (""proveo/claudecode""); ""solidity"" layers the EVM
   contract toolchain (Foundry · solc · solhint · semgrep)
   **on top of mcp** — the heaviest variant; ""-browser"" is
-  mcp FROM base-node-browser (Playwright + Chromium).
+  mcp FROM base-node-browser (Playwright + Chromium +
+  agent-browser, _spec/defs/browser-layer.puml). Every
+  variant also carries the Claude in Chrome bridge for the
+  ""chrome (host browser)"" add-on (chrome-bridge.puml).
 
   Subscription harness: proveo warns rather than prompts
   when ""CLAUDE_CODE_OAUTH_TOKEN"" is absent and lets the

@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
@@ -620,6 +621,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			rs.Backend.Sbx = true
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
 			sandbox.WarnBaseline()
+			if hasAddon(p.Addons, addonChrome) {
+				// The picker greys this pair; a cached or scripted answer can still
+				// carry both, so the run says which one it is not honouring.
+				ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; untick docker (sandbox) to use it", addonChrome)
+			}
 		}
 	}
 	// Both backends reach here. This used to live in execute(), which is the docker
@@ -774,6 +780,37 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Docker.PidsLimit = runner.ResolvePidsLimit(rs.Docker.Host, rs.Docker.Browser, ov, ovSet)
 
+	// Claude in Chrome through the operator's browser: a relay held open on the
+	// host for the life of the run, named to the agent by environment. Skipped —
+	// and said so — rather than failed: the add-on is a convenience over the run,
+	// and the run must not die because Chrome was closed after the prompt.
+	var bridge *chromebridge.Relay
+	if hasAddon(p.Addons, addonChrome) {
+		switch {
+		case p.PrintOnly:
+			ui.Iconf("🧭", "%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)", addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
+		case !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()):
+			ui.Warnf("%s: skipped — needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)", addonChrome)
+		default:
+			if why := chromeUnavailable(rs.Creds.Lookup); why != "" {
+				ui.Warnf("%s: skipped — %s", addonChrome, why)
+				break
+			}
+			r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
+			if err != nil {
+				ui.Warnf("%s: skipped — %v", addonChrome, err)
+				break
+			}
+			bridge = r
+			defer func() { _ = bridge.Close() }()
+			if err := bridge.SetTokenEnv(); err != nil {
+				ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
+			}
+			rs.Creds.Env = append(rs.Creds.Env, bridge.Env()...)
+			ui.Iconf("🧭", "chrome: Claude in Chrome through YOUR browser — host relay %s → %s. The agent gets your logged-in sessions; site permissions stay the extension's", bridge.Addr(), chromebridge.HostSocketDir())
+		}
+	}
+
 	consent, reviewProxy := reviewConsent(p.Mode)
 	reviewGate, stopReview := dockeregress.StartReviewGate(p.Mode, rs.EgDir, consent)
 	defer stopReview()
@@ -793,7 +830,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		ProviderHosts: policyProviderHosts(rs.Creds.Detected, rs.Man.Capabilities),
 		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
 		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
-		Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
+		HostBridge: bridge != nil,
+		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		ProxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),

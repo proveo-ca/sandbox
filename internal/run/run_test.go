@@ -47,14 +47,14 @@ func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{{
 		Label: "add-ons", Options: []string{addonDind}, Multi: true, On: []bool{false},
 	}}}
-	gateAddons(f, "firewall", "inject", "")
+	gateAddons(f, "firewall", "inject", "", "")
 	if !f.Rows[0].Off[0] {
 		t.Fatal("firewall+inject must still disable dind")
 	}
 	if f.Rows[0].Reason != addonDind+" needs egress open + credentials forward" {
 		t.Errorf("reason = %q", f.Rows[0].Reason)
 	}
-	gateAddons(f, "open", "forward", "")
+	gateAddons(f, "open", "forward", "", "")
 	if f.Rows[0].Off[0] {
 		t.Error("open+forward on a docker: dind harness must leave the add-on enabled")
 	}
@@ -361,6 +361,103 @@ func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
 	}
 }
 
+// The two browsers are different things — a Chromium inside the sandbox versus
+// the operator's own Chrome over the bridge — so a harness that has both is
+// offered both, and one that declares no host-browser client is never sold a
+// bridge it cannot use.
+func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name:         "claudecode",
+		Docker:       manifest.DockerSbx,
+		Images:       map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
+		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
+	}
+	want := []string{"browser", addonChrome, addonSandbox}
+	if diff := cmp.Diff(want, addonOptions(man)); diff != "" {
+		t.Errorf("addonOptions() mismatch (-want +got):\n%s", diff)
+	}
+	if opts := addonOptions(manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}); slices.Contains(opts, addonChrome) {
+		t.Errorf("no hostBrowser capability, yet offered %q: %v", addonChrome, opts)
+	}
+	// Off by default: the picker never pre-ticks a box that hands the agent the
+	// operator's logged-in browser.
+	p := &Params{}
+	if on := p.addonDefaults(want); on[1] {
+		t.Errorf("%q must start unticked, got %v", addonChrome, on)
+	}
+	if on := (&Params{Addons: []string{addonChrome}, AddonsAnswered: true}).addonDefaults(want); !on[1] {
+		t.Errorf("a remembered %q must come back ticked, got %v", addonChrome, on)
+	}
+}
+
+// The host-browser box is gated three ways, each re-evaluated on every toggle:
+// the host preflight (Chrome + native host, a /login session), the tier (open +
+// forward is the only one with a route to the host), and the sandbox box (a VM
+// cannot name the host). The reason on the row names the one that applied.
+func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
+	t.Parallel()
+	row := func(sandboxOn bool) *choiceui.Form {
+		return &choiceui.Form{Rows: []choiceui.Row{{
+			Label: "add-ons", Options: []string{addonChrome, addonSandbox}, Multi: true, On: []bool{true, sandboxOn},
+		}}}
+	}
+	f := row(false)
+	gateAddons(f, "open", "forward", "", "no Claude in Chrome native host on this machine")
+	if !f.Rows[0].Off[0] || f.Rows[0].On[0] || !strings.Contains(f.Rows[0].Reason, "native host") {
+		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", f.Rows[0].Off, f.Rows[0].On, f.Rows[0].Reason)
+	}
+
+	f = row(true)
+	gateAddons(f, "open", "forward", "", "")
+	if !f.Rows[0].Off[0] || f.Rows[0].On[0] || !strings.Contains(f.Rows[0].Reason, "untick docker (sandbox)") {
+		t.Errorf("a ticked sandbox must grey the host browser: off=%v on=%v reason=%q", f.Rows[0].Off, f.Rows[0].On, f.Rows[0].Reason)
+	}
+	if f.Rows[0].Off[1] || !f.Rows[0].On[1] {
+		t.Errorf("the sandbox box itself must stay ticked and selectable: off=%v on=%v", f.Rows[0].Off, f.Rows[0].On)
+	}
+
+	f = row(false)
+	gateAddons(f, "allowlist", "forward", "", "")
+	if !f.Rows[0].Off[0] || !strings.Contains(f.Rows[0].Reason, "egress open + credentials forward") {
+		t.Errorf("an intercepting tier must grey the host browser: off=%v reason=%q", f.Rows[0].Off, f.Rows[0].Reason)
+	}
+
+	f = row(false)
+	gateAddons(f, "open", "forward", "", "")
+	if f.Rows[0].Off[0] || !f.Rows[0].On[0] || f.Rows[0].Reason != "" {
+		t.Errorf("open + forward, sandbox off, host ready: the box must be live: off=%v on=%v reason=%q", f.Rows[0].Off, f.Rows[0].On, f.Rows[0].Reason)
+	}
+
+	// A sandbox the host cannot run is unticked by its own gate, so it must not
+	// count as "ticked" against the host browser.
+	f = row(true)
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
+	if f.Rows[0].Off[0] || !f.Rows[0].On[0] {
+		t.Errorf("an unavailable sandbox must not grey the host browser: off=%v on=%v reason=%q", f.Rows[0].Off, f.Rows[0].On, f.Rows[0].Reason)
+	}
+	if !strings.Contains(f.Rows[0].Reason, "docker sandbox: sbx CLI not found") {
+		t.Errorf("the sandbox reason must still be on the row: %q", f.Rows[0].Reason)
+	}
+}
+
+// Claude Code's own rule, mirrored: an env-var or setup-token session gets no
+// Chrome integration, so the preflight names the variable rather than letting the
+// operator discover "Disabled" inside the sandbox.
+func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
+	t.Parallel()
+	lookup := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-…"
+		}
+		return ""
+	}
+	why := chromeUnavailable(lookup)
+	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(why, "/login") {
+		t.Errorf("why = %q", why)
+	}
+}
+
 func TestSandboxAddonIsOnUntilAnAnswerSaysOtherwise(t *testing.T) {
 	t.Parallel()
 	if !(&Params{}).sandboxAddonOn() {
@@ -382,7 +479,7 @@ func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{{
 		Label: "add-ons", Options: []string{"browser", addonSandbox}, Multi: true, On: []bool{false, true},
 	}}}
-	gateAddons(f, "open", "forward", "sbx CLI not found on PATH")
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
 	r := f.Rows[0]
 	if !r.Off[1] {
 		t.Fatal("the sandbox add-on must be greyed out when sbx is unavailable")
@@ -394,7 +491,7 @@ func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
 		t.Errorf("a greyed add-on must not count as selected, got %v", got)
 	}
 	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
-	gateAddons(f, "open", "forward", "")
+	gateAddons(f, "open", "forward", "", "")
 	if f.Rows[0].Off[1] {
 		t.Error("an available sbx must leave the add-on checkable")
 	}
@@ -612,7 +709,7 @@ func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 	}
 	f := &choiceui.Form{Rows: []choiceui.Row{row}}
 
-	gateAddons(f, "open", "forward", "PROVEO_SBX is off")
+	gateAddons(f, "open", "forward", "PROVEO_SBX is off", "")
 
 	got := f.Rows[0]
 	var i int
@@ -635,7 +732,7 @@ func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 		Label: "add-ons", Multi: true,
 		Options: []string{addonSandbox}, On: []bool{true},
 	}}}
-	gateAddons(f2, "open", "forward", "")
+	gateAddons(f2, "open", "forward", "", "")
 	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
 		t.Error("an available sandbox add-on must stay selectable and ticked")
 	}

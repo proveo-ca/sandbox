@@ -64,6 +64,11 @@ echo "--- Phase 9: Egress Mode Tests ---"
 source "$SCRIPT_DIR/test_egress.sh"
 echo ""
 
+# --- Phase 10: Claude in Chrome bridge ---
+echo "--- Phase 10: Claude in Chrome Bridge ---"
+source "$SCRIPT_DIR/test_chrome_bridge.sh"
+echo ""
+
 # --- Summary ---
 print_summary
 exit $?

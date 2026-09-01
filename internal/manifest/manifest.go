@@ -102,7 +102,15 @@ type Capabilities struct {
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
 	Hosts       []string `yaml:"hosts"`
+	// HostBrowser names the integration through which the agent can drive the
+	// OPERATOR's browser (claude-in-chrome). It is what makes `proveo run` offer
+	// the "chrome (host browser)" add-on; a harness without one is never offered
+	// a bridge it has no client for. See _spec/defs/claudecode/chrome-bridge.puml.
+	HostBrowser string `yaml:"hostBrowser"`
 }
+
+// HasHostBrowser reports whether the harness can drive the operator's browser.
+func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
 
 func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
 

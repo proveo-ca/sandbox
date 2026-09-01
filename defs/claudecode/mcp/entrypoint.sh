@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
 # Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
 set -e
 
@@ -89,6 +89,11 @@ seed_claude_proveo_home
 # Bodies are shared across harnesses; only the frontmatter is Claude Code's.
 proveo_seed claudecode
 
+# ── Claude in Chrome (host browser) — docker backend, add-on "chrome (host browser)" ──
+# No-op unless `proveo run` set PROVEO_CHROME_BRIDGE; sets PROVEO_CHROME_READY=1
+# when the container relay is listening where Claude Code looks.
+proveo_chrome_bridge claudecode
+
 # Surface available subagents (user + project)
 agent_files=()
 [[ -d "${HOME}/.claude/agents" ]] && \
@@ -137,5 +142,10 @@ fi
 
 export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
 
+# --chrome is the only switch for this session; nothing is persisted (see
+# proveo_chrome_bridge for why claudeInChromeDefaultEnabled stays untouched).
+CLAUDE_CHROME_ARGS=()
+[[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
+
 echo "🚀 Launching Claude Code..."
-proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" -- "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" -- "$@"
