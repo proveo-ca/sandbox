@@ -809,16 +809,31 @@ _py_activate() {
 # differs per language is not whether the tree crosses the boundary but what it
 # COSTS when it does, and that is what the table below encodes.
 #
+# Two things happen here, in order, for every project the walk finds:
+#
+#   1. a HOST-BUILT tree is made usable. On the docker backend proveo never
+#      binds a dependency directory from the host: each one named by the table
+#      is a PRIVATE COPY (internal/workspace/deps.go), reused on the off chance
+#      host and container OS/arch agree. When they do not — the probe below finds
+#      a non-ELF object — the copy is cleared and rebuilt for this platform, and
+#      the operator's checkout is never touched. On sbx the tree IS the host's
+#      (the checkout is mirrored at its own path), so rebuilding it in place is
+#      opt-in (PROVEO_DEPS=reinstall) and the remedy on offer is --clone.
+#   2. the INSTALL runs before the agent does. A workspace with nothing installed
+#      is the single most confusing state to hand an agent — every import fails
+#      and every tool guesses why — so an absent tree is installed, and a present
+#      one is refreshed against its lockfile by the managers for which that is a
+#      cheap no-op. Lockfiles are respected, never rewritten.
+#
 # Python is the extreme: a venv ALWAYS holds a platform interpreter, so it can
 # never be inherited and ensure_python_env provisions unconditionally, outside
-# the workspace. Everything else is a mixture, and the mixture is the trap —
-# the portable majority loads fine and the failure surfaces later, at the first
-# call into a platform binary, in a message that names the tool rather than the
-# platform.
+# the workspace. Its in-tree ".venv" is still isolated by the mount plan, so the
+# host's interpreter never crosses either way.
 
 # _dep_lang_class decides the remedy, so every supported language gets an
 # explicit entry — including the ones with nothing to do, because an absent row
-# is indistinguishable from an oversight.
+# is indistinguishable from an oversight. internal/contract pins this list to the
+# language registry, and the markers/dirs rows to internal/workspace.DepLangs.
 #
 #   addons      mostly-portable tree punctuated by platform binaries; the
 #               package manager can rebuild it, given a reachable registry
@@ -828,28 +843,39 @@ _py_activate() {
 #   portable    nothing host-specific lands in-tree: Go modules and vendor/ are
 #               source; Java/Kotlin resolve to bytecode JARs; Nix keeps its
 #               closure in /nix/store, which is never mounted
+#   none        markup and configuration; no toolchain writes anything in-tree
 _dep_lang_class() { case "$1" in
   typescript|ruby|lua|terraform) REPLY=addons ;;
   rust|cpp|zig)                  REPLY=artifacts ;;
   python)                        REPLY=provisioned ;;
   go|java|kotlin|nix)            REPLY=portable ;;
+  bash|css|docker|html|json|markdown|mermaid|plantuml|toml|yaml) REPLY=none ;;
   *)                             REPLY="" ;;
 esac; }
+
+# _dep_langs is the order the walk visits languages in: every class row except
+# `none`, which has neither markers nor an install.
+_dep_langs() { echo "typescript python ruby lua terraform rust cpp zig go java kotlin nix"; }
 
 # Markers that say "a project of this language is rooted here".
 _dep_lang_markers() { case "$1" in
   typescript) echo "package.json" ;;
+  python)     echo "pyproject.toml requirements*.txt Pipfile uv.lock poetry.lock environment.yml environment.yaml" ;;
   ruby)       echo "Gemfile" ;;
   lua)        echo "*.rockspec" ;;
   terraform)  echo ".terraform.lock.hcl" ;;
   rust)       echo "Cargo.toml" ;;
   cpp)        echo "CMakeLists.txt meson.build" ;;
   zig)        echo "build.zig" ;;
+  go)         echo "go.mod" ;;
 esac; }
 
 # The directories that language's tooling materialises inside the project.
+# The first listed is the PRIMARY: its absence means "nothing is installed"; the
+# rest are secondary caches whose absence says nothing.
 _dep_lang_dirs() { case "$1" in
   typescript) echo "node_modules" ;;
+  python)     echo ".venv venv" ;;
   ruby)       echo "vendor/bundle" ;;
   lua)        echo "lua_modules" ;;
   terraform)  echo ".terraform" ;;
@@ -869,8 +895,16 @@ _dep_lang_binaries() { case "$1" in
   rust|cpp|zig) echo "*.o *.so *.dylib" ;;
 esac; }
 
-# The command that rebuilds an `addons` tree, chosen by the project's own lockfile.
-_dep_install_cmd() { local lang="$1" d="$2"; case "$lang" in
+# The command that installs a project's dependencies, chosen by its own lockfile
+# and RESPECTING it: `--frozen-lockfile`, `--immutable`, `ci`. A drifted lockfile
+# is reported, not rewritten — that is the agent's task, if it is anyone's.
+#
+# Languages with no row install nothing here, each for a stated reason: python's
+# environment is built by ensure_python_env; cpp resolves through system or
+# external package managers proveo does not drive; zig fetches at build time;
+# java/kotlin resolution (gradle/maven) is heavy and the build performs it; nix
+# realises its closure on demand.
+_dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
   typescript)
     [[ -f "$d/pnpm-lock.yaml" ]] && { echo "pnpm install --frozen-lockfile"; return 0; }
     [[ -f "$d/bun.lockb" || -f "$d/bun.lock" ]] && { echo "bun install --frozen-lockfile"; return 0; }
@@ -878,9 +912,41 @@ _dep_install_cmd() { local lang="$1" d="$2"; case "$lang" in
     [[ -f "$d/package-lock.json" ]] && { echo "npm ci"; return 0; }
     echo "npm install" ;;
   ruby)      echo "bundle install" ;;
-  lua)       echo "luarocks install --only-deps" ;;
-  terraform) echo "terraform init -upgrade" ;;
-esac; }
+  lua)
+    # luarocks installs INTO the project tree named by _dep_lang_dirs, from the
+    # rockspec that roots it — bare `--only-deps` with no rockspec is an error.
+    spec="$(ls "$d"/*.rockspec 2>/dev/null | head -n1)"
+    [[ -n "$spec" ]] && echo "luarocks --tree lua_modules install --only-deps ${spec##*/}" ;;
+  terraform) echo "terraform init -input=false" ;;   # honours .terraform.lock.hcl; -upgrade would rewrite it
+  rust)      echo "cargo fetch" ;;                    # crates land in CARGO_HOME, outside the tree
+  go)        echo "go mod download" ;;                # modules land in GOMODCACHE; gopls needs them present
+esac; return 0; }
+
+# _dep_install_idempotent says whether re-running the install on a tree that is
+# already present and native is a cheap no-op. `npm ci` is the exception: it
+# deletes node_modules first, every time, so it is only run when the tree is
+# absent or foreign.
+_dep_install_idempotent() { case "$1" in "npm ci"*) return 1 ;; esac; return 0; }
+
+# _proveo_dep_is_isolated reports whether DIR is proveo's private copy rather than
+# the host's tree. A copy is bind-mounted at exactly that path, so it is its own
+# mount point; the host's tree sits INSIDE the workspace mount and is not.
+# /proc is the source of truth on the docker backend; anywhere it is unreadable
+# the answer is "not isolated", which is the conservative one.
+_proveo_dep_is_isolated() {
+  local real
+  real="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  [[ -r /proc/self/mountinfo ]] || return 1
+  awk -v p="$real" '$5 == p { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+# _dep_clear_tree empties a private copy in place. The directory itself is a
+# mount point and cannot be removed; its contents can.
+_dep_clear_tree() {
+  local dir="$1"
+  find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
+  return 0
+}
 
 # ELF is the only object format this container can execute, so anything else —
 # Mach-O from macOS, PE from Windows — came from the host. Four bytes settle it:
@@ -943,61 +1009,108 @@ _dep_probe() {
   return 0
 }
 
-# Why the repair is opt-in, on two counts. It writes into the mounted tree,
-# which IS the operator's checkout — a sandbox that silently rewrites the host's
-# dependencies has defeated its own purpose. And under any egress tier but open
-# the registry is off the allowlist, so the install fails partway and leaves the
-# tree PARTIAL: strictly worse than the host-built one it replaced, which at
-# least carried everything portable.
-_dep_reinstall() {
-  local lang="$1" root="$2" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
+# _dep_install runs the language's install command in ROOT, bounded, and reports
+# the outcome without ever failing the seed: a workspace whose install cannot
+# complete still gets an agent, just a warned one.
+_dep_install() {
+  local lang="$1" root="$2" why="$3" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
   cmd="$(_dep_install_cmd "$lang" "$root")"
   [[ -n "$cmd" ]] || return 0
   if ! command -v "${cmd%% *}" >/dev/null 2>&1; then
-    echo "    ⚠️  ${cmd%% *} is not on PATH; cannot reinstall"
+    echo "    ⚠️  ${cmd%% *} is not on PATH; cannot install ${lang} dependencies for ${root#"$(_proveo_scan_root)"/}"
     return 0
   fi
-  echo "    ♻️  ${cmd} — rebuilding for this platform; this rewrites the mounted tree,"
-  echo "        which is the operator's checkout (PROVEO_DEPS=off to skip)..."
+  echo "    📦 ${cmd} — ${why}"
   ( cd "$root" && _proveo_bounded "$bounded" $cmd ) || rc=$?
   if [[ $rc -eq 0 ]]; then
-    echo "    ✅ ${lang} dependencies rebuilt for this platform"
+    echo "    ✅ ${lang} dependencies ready in ${root#"$(_proveo_scan_root)"/}"
   else
-    echo "    ⚠️  Reinstall failed (rc=${rc}). Under any egress tier but open the registry is"
-    echo "        off the allowlist, so the fetch cannot complete; the tree is now PARTIAL."
-    echo "        Rerun with --egress-mode open, or restore it on the host."
+    echo "    ⚠️  ${cmd} failed (rc=${rc}). If the registry is not reachable under this egress tier,"
+    echo "        rerun with --egress-mode open; a lockfile that disagrees with its manifest is"
+    echo "        reported rather than rewritten — reconcile it and rerun."
   fi
   return 0
 }
 
-_dep_report_addons() {
-  local lang="$1" root="$2" dir="$3" mode="$4" foreign names count
+# _dep_addons_tree handles a PRESENT addons tree: foreign → rebuild (where that
+# is safe), native → refresh against the lockfile.
+_dep_addons_tree() {
+  local lang="$1" root="$2" dir="$3" mode="$4" foreign names count cmd
   foreign="$(_dep_probe "$dir" "$lang" | sort -u)"
-  [[ -n "$foreign" ]] || return 0
-  count="$(printf '%s\n' "$foreign" | grep -c .)"
-  names="$(printf '%s\n' "$foreign" | head -n 5 | paste -sd' ' -)"
-  echo "⚠️  ${dir#"$root"/} was built on the host: ${count} ${lang} package(s) carry binaries"
-  echo "    this platform cannot load (${names})."
-  echo "    The portable majority still loads, so the failure arrives later, at the first"
-  echo "    call into one of them, naming the TOOL rather than the platform."
-  # A FOREIGN tree is already unusable here, so reinstalling costs the sandbox
-  # nothing and is the only way the agent can run anything. It does rewrite the
-  # mounted tree — which is the operator's checkout — so it is confined to exactly
-  # this case: a tree that is native, or absent, is never silently replaced.
-  case "$mode" in
-    off) ;;
-    reinstall|auto) _dep_reinstall "$lang" "$root" ;;
-  esac
+  if [[ -n "$foreign" ]]; then
+    count="$(printf '%s\n' "$foreign" | grep -c .)"
+    names="$(printf '%s\n' "$foreign" | head -n 5 | paste -sd' ' -)"
+    echo "⚠️  ${dir#"$root"/} was built on the host: ${count} ${lang} package(s) carry binaries"
+    echo "    this platform cannot load (${names})."
+    echo "    The portable majority still loads, so the failure arrives later, at the first"
+    echo "    call into one of them, naming the TOOL rather than the platform."
+    if _proveo_dep_is_isolated "$dir"; then
+      # The copy is proveo's, so clearing it costs the operator nothing — and a
+      # package manager handed an existing tree would keep the foreign binaries
+      # it finds there, which is why the rebuild starts from empty.
+      echo "    ♻️  this is proveo's private copy; the host checkout is untouched — clearing it"
+      _dep_clear_tree "$dir"
+      _dep_install "$lang" "$root" "rebuilding ${dir#"$root"/} for this platform"
+    else
+      case "$mode" in
+        reinstall) _dep_install "$lang" "$root" "rebuilding ${dir#"$root"/} IN PLACE — this rewrites the operator's checkout (PROVEO_DEPS=reinstall)" ;;
+        *)
+          echo "    ℹ️  this tree is the host's own (sbx mirrors the checkout): PROVEO_DEPS=reinstall rewrites it"
+          echo "        in place, or run with --clone so untracked trees stay behind and the seed installs fresh" ;;
+      esac
+    fi
+    return 0
+  fi
+  cmd="$(_dep_install_cmd "$lang" "$root")"
+  [[ -n "$cmd" ]] && _dep_install_idempotent "$cmd" || return 0
+  _dep_install "$lang" "$root" "refreshing ${dir#"$root"/} against its lockfile"
 }
 
-# Build output needs no registry — the toolchain regenerates it. The only advice
-# that helps is to get the stale tree out of the way, so this never offers an
-# install and never touches the operator's files.
-_dep_report_artifacts() {
+# Build output needs no registry — the toolchain regenerates it. A foreign copy
+# is simply cleared out of the way; a foreign HOST tree is named, since removing
+# the operator's build output is not proveo's call.
+_dep_artifacts_tree() {
   local lang="$1" root="$2" dir="$3"
   [[ -n "$(_dep_probe "$dir" "$lang" | head -n1)" ]] || return 0
-  echo "ℹ️  ${dir#"$root"/} holds ${lang} build output from the host and cannot be reused here."
-  echo "    The toolchain rebuilds it; remove that directory if a build reads the stale one."
+  if _proveo_dep_is_isolated "$dir"; then
+    echo "♻️  ${dir#"$root"/} holds ${lang} build output from the host; clearing proveo's private copy so the toolchain rebuilds it here"
+    _dep_clear_tree "$dir"
+  else
+    echo "ℹ️  ${dir#"$root"/} holds ${lang} build output from the host and cannot be reused here."
+    echo "    The toolchain rebuilds it; remove that directory if a build reads the stale one."
+  fi
+  return 0
+}
+
+# _ts_is_workspace_root: a pnpm/npm/yarn/bun workspace installs every member from
+# ITS root, hoisting into one node_modules — so a member with no node_modules of
+# its own is the normal state, not "nothing is installed", and `npm ci` inside a
+# member (no lockfile there) is an error. Members are collapsed into their root.
+_ts_is_workspace_root() {
+  local d="$1"
+  [[ -f "$d/pnpm-workspace.yaml" ]] && return 0
+  [[ -f "$d/package.json" ]] && grep -q '"workspaces"' "$d/package.json" 2>/dev/null
+}
+
+# _dep_collapse_workspaces reads project roots (shallowest first, as
+# _proveo_project_roots emits them) and drops every root that sits under a
+# workspace root already seen.
+_dep_collapse_workspaces() {
+  local root w skip
+  local ws=()
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    skip=0
+    if [[ ${#ws[@]} -gt 0 ]]; then
+      for w in "${ws[@]}"; do
+        case "$root" in "$w"/*) skip=1; break ;; esac
+      done
+    fi
+    [[ $skip -eq 1 ]] && continue
+    _ts_is_workspace_root "$root" && ws+=("$root")
+    printf '%s\n' "$root"
+  done
+  return 0
 }
 
 ensure_dependency_trees() {
@@ -1006,33 +1119,35 @@ ensure_dependency_trees() {
   mode="$(printf '%s' "${PROVEO_DEPS:-auto}" | tr '[:upper:]' '[:lower:]')"
   case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
 
-  for lang in typescript ruby lua terraform rust cpp zig; do
+  for lang in $(_dep_langs); do
     _dep_lang_class "$lang"; class="$REPLY"
-    markers="$(_dep_lang_markers "$lang")"; dirs="$(_dep_lang_dirs "$lang")"
-    [[ -n "$markers" && -n "$dirs" ]] || continue
-    # The first listed directory is the one whose absence means "nothing is
-    # installed"; the rest are secondary caches whose absence says nothing.
-    primary="${dirs%% *}"
+    markers="$(_dep_lang_markers "$lang")"
+    [[ -n "$markers" ]] || continue
+    dirs="$(_dep_lang_dirs "$lang")"; primary="${dirs%% *}"
     roots="$(_proveo_project_roots "$scan" "${PROVEO_DEP_SCAN_DEPTH:-4}" $markers)"
     [[ -n "$roots" ]] || continue
+    [[ "$lang" == typescript ]] && roots="$(printf '%s\n' "$roots" | _dep_collapse_workspaces)"
     while IFS= read -r root; do
       [[ -n "$root" ]] || continue
-      for dir in $dirs; do
-        if [[ ! -d "$root/$dir" ]]; then
-          # Only an `addons` tree is REQUIRED to exist: absent build output is
-          # the normal state of a clean checkout, absent dependencies are not.
-          if [[ "$class" == addons && "$dir" == "$primary" ]]; then
-            echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${dir} — nothing is installed here"
-            # Nothing to replace, so installing destroys nothing.
-            [[ "$mode" != off ]] && _dep_reinstall "$lang" "$root"
-          fi
-          continue
-        fi
-        case "$class" in
-          addons)    _dep_report_addons "$lang" "$root" "$root/$dir" "$mode" ;;
-          artifacts) _dep_report_artifacts "$lang" "$root" "$root/$dir" ;;
-        esac
-      done
+      case "$class" in
+        addons)
+          if [[ ! -d "$root/$primary" ]]; then
+            echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${primary} — nothing is installed here"
+            _dep_install "$lang" "$root" "installing ${primary} before the agent starts"
+          else
+            for dir in $dirs; do
+              [[ -d "$root/$dir" ]] && _dep_addons_tree "$lang" "$root" "$root/$dir" "$mode"
+            done
+          fi ;;
+        artifacts)
+          for dir in $dirs; do
+            [[ -d "$root/$dir" ]] && _dep_artifacts_tree "$lang" "$root" "$root/$dir"
+          done
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+        portable)
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+        provisioned|none|"") ;;
+      esac
     done <<< "$roots"
   done
   return 0

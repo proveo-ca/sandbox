@@ -255,6 +255,7 @@ func TestPlanSubdirPreservesRootDirs(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "_spec", "components.puml"))
 	touch(t, filepath.Join(root, "vendor", "modules.txt"))
+	touch(t, filepath.Join(root, "package.json")) // a node_modules is a dependency tree only where a project roots it
 	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
@@ -286,6 +287,7 @@ func TestPlanSubdirRootDepsAreOptional(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "_spec", "components.puml"))
+	touch(t, filepath.Join(root, "package.json"))
 	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
@@ -312,8 +314,10 @@ func TestPlanSubdirRootDepsAreOptional(t *testing.T) {
 func TestPlanSubdirRootDirsYieldToScope(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	touch(t, filepath.Join(root, "package.json"))
 	touch(t, filepath.Join(root, "node_modules", ".modules.yaml"))
 	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, "package.json"))
 	touch(t, filepath.Join(scope, "node_modules", ".modules.yaml"))
 
 	got, _, _ := MountSpec{
@@ -851,21 +855,34 @@ func TestMountPlanWorktreeHonorsGitModeRO(t *testing.T) {
 
 func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
 	t.Parallel()
+	// planAndCopy runs the pure plan, then the writing step the run performs,
+	// and indexes the result by container path.
+	planAndCopy := func(t *testing.T, spec MountSpec) (map[string]runner.Mount, []runner.Mount) {
+		t.Helper()
+		got, _, _ := spec.Plan()
+		if _, err := MaterializeDeps(spec.DepCopies(), true); err != nil {
+			t.Fatalf("materialize: %v", err)
+		}
+		byContainer := map[string]runner.Mount{}
+		for _, m := range got {
+			byContainer[m.Container] = m
+		}
+		return byContainer, got
+	}
+
 	// Whole-repo: host node_modules must NOT be exposed via the parent /app bind.
 	// A plain copy overlay hides it so host and container stay independent.
 	t.Run("whole repo overlay hides host tree", func(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
+		touch(t, filepath.Join(root, "package.json"))
 		touch(t, filepath.Join(root, "node_modules", "pkg", "index.js"))
-		got, _, _ := MountSpec{
+		byContainer, got := planAndCopy(t, MountSpec{
 			Workspace: manifest.Workspace{Layout: "app"},
 			RepoRoot:  root, InputDir: root,
 			EgressMode: "open", Credentials: "forward",
-		}.Plan()
-		byContainer := map[string]runner.Mount{}
-		for _, m := range got {
-			byContainer[m.Container] = m
-		}
+			DepStage: t.TempDir(),
+		})
 		m, ok := byContainer["/app/node_modules"]
 		if !ok {
 			t.Fatalf("whole-repo must overlay /app/node_modules with a plain copy, got %v", got)
@@ -886,19 +903,16 @@ func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
 	t.Run("subdir root copy is isolated", func(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
+		touch(t, filepath.Join(root, "package.json"))
 		touch(t, filepath.Join(root, "node_modules", "root-pkg", "index.js"))
 		scope := filepath.Join(root, "apps", "web")
 		touch(t, filepath.Join(scope, "index.ts"))
-		got, _, _ := MountSpec{
+		byContainer, got := planAndCopy(t, MountSpec{
 			Workspace: manifest.Workspace{Layout: "app"},
 			RepoRoot:  root, InputDir: scope,
 			EgressMode: "open", Credentials: "forward",
-			MountRootDeps: true,
-		}.Plan()
-		byContainer := map[string]runner.Mount{}
-		for _, m := range got {
-			byContainer[m.Container] = m
-		}
+			MountRootDeps: true, DepStage: t.TempDir(),
+		})
 		m, ok := byContainer["/app/node_modules"]
 		if !ok {
 			t.Fatalf("subdir scope must mount plain copy at /app/node_modules, got %v", got)
@@ -916,16 +930,14 @@ func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
 		scope := filepath.Join(root, "apps", "web")
+		touch(t, filepath.Join(scope, "package.json"))
 		touch(t, filepath.Join(scope, "node_modules", "scoped-pkg", "index.js"))
-		got, _, _ := MountSpec{
+		byContainer, got := planAndCopy(t, MountSpec{
 			Workspace: manifest.Workspace{Layout: "app"},
 			RepoRoot:  root, InputDir: scope,
 			EgressMode: "open", Credentials: "forward",
-		}.Plan()
-		byContainer := map[string]runner.Mount{}
-		for _, m := range got {
-			byContainer[m.Container] = m
-		}
+			DepStage: t.TempDir(),
+		})
 		m, ok := byContainer["/app/apps/web/node_modules"]
 		if !ok {
 			t.Fatalf("scope's own node_modules must be overlaid at /app/apps/web/node_modules, got %v", got)
@@ -941,18 +953,28 @@ func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
 
 func TestPlanWholeRepoNodeModulesIsolatedWithoutRootDepsToggle(t *testing.T) {
 	t.Parallel()
-	// Non-repo or whole-repo without explicit MountRootDeps still isolates via overlay.
+	// MountRootDeps governs only the hoisted repo-root copy of a SUBDIR scope. A
+	// tree under the mounted scope itself is isolated regardless of the toggle.
 	root := t.TempDir()
+	touch(t, filepath.Join(root, "package.json"))
 	touch(t, filepath.Join(root, "node_modules", "x", "y.js"))
 	got, _, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
 		EgressMode: "open", Credentials: "forward",
-		MountRootDeps: false,
+		MountRootDeps: false, DepStage: t.TempDir(),
 	}.Plan()
+	found := false
 	for _, m := range got {
-		if m.Container == "/app/node_modules" && m.Host == filepath.Join(root, "node_modules") {
+		if m.Container != "/app/node_modules" {
+			continue
+		}
+		found = true
+		if m.Host == filepath.Join(root, "node_modules") {
 			t.Errorf("node_modules must not be direct bind even with MountRootDeps=false: %+v", m)
 		}
+	}
+	if !found {
+		t.Errorf("scope node_modules not isolated when MountRootDeps=false: %+v", got)
 	}
 }

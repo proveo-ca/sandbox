@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,32 +23,13 @@ var rootFiles = []string{
 }
 
 // SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml
+//
+// vendor is here as SOURCE: Go's vendor/ is checked-in module code and is
+// portable. The host-built tree that can live under it, ruby's vendor/bundle, is
+// a row of DepLangs (deps.go) and gets its own overlay on top of this bind.
 var rootDirs = []string{
 	"_spec",
 	"vendor",
-}
-
-var rootDepDirs = []string{
-	"node_modules",
-}
-
-// isolatedDepDirs are install trees that must not be bind-mounted directly.
-// They hold platform binaries (e.g. .node, .so, provider executables) built for
-// the host OS/arch, which cannot execute in the Linux container. Instead of a
-// bind, the host tree is plain-copied into a temp directory and that copy is
-// mounted. The container reuses the copy on the off chance the host OS matches,
-// but subsequent installs stay in the copy so host and container stay independent.
-// Kept in sync with _dep_lang_dirs in packages/lib/entrypoint-lib.sh.
-var isolatedDepDirs = []string{
-	"node_modules",
-	"vendor/bundle",
-	"lua_modules",
-	".terraform",
-	"target",
-	"build",
-	"zig-cache",
-	".zig-cache",
-	"zig-out",
 }
 
 type MountSpec struct {
@@ -59,7 +39,15 @@ type MountSpec struct {
 	OutputDir          string
 	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
-	MountRootDeps      bool
+	// MountRootDeps copies a subdir scope's repo-root dependency trees (the
+	// hoisted node_modules a pnpm workspace member resolves through) to /app.
+	// PROVEO_MOUNT_ROOT_DEPS=0 turns it off; trees under the scope itself are
+	// isolated regardless — see DepCopies.
+	MountRootDeps bool
+	// DepStage is the directory dependency-tree copies are staged under (see
+	// DepCopies / MaterializeDeps). The run points it inside its per-run state
+	// dir so `proveo clean` reclaims it; empty falls back to a per-pid temp dir.
+	DepStage string
 	// WorktreeLinkDir holds the container-only pointer files written by
 	// PrepareWorktreeLinks. Empty disables the overlay (see worktreeMounts).
 	WorktreeLinkDir string
@@ -116,27 +104,8 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 				mounts = append(mounts, maskEnvMounts(host, "/app/"+d)...)
 			}
 		}
-		// Root dependency trees (node_modules etc.) are NOT bind-mounted directly.
-		// The host tree holds platform binaries for the host arch; bind-mounting
-		// it forces the container to share the host's OS/arch. Instead, host is
-		// plain-copied into a temp directory and THAT copy is mounted. On the
-		// off chance host and container OS match, the copy reuses the install;
-		// but writes stay in the copy so host and container installs stay
-		// independent. Disabled with PROVEO_MOUNT_ROOT_DEPS=0.
-		if w.MountRootDeps {
-			for _, d := range rootDepDirs {
-				host := filepath.Join(w.RepoRoot, d)
-				if !isDir(host) || exists(filepath.Join(w.InputDir, d)) {
-					continue
-				}
-				if m, err := plainCopyMount(host, "/app/"+d); err == nil {
-					mounts = append(mounts, m)
-					if w.isolateEnv() && !envMaskPrune[d] {
-						mounts = append(mounts, maskEnvMounts(m.Host, "/app/"+d)...)
-					}
-				}
-			}
-		}
+		// Root dependency trees (the hoisted node_modules a workspace member
+		// resolves through) arrive as plain copies too — see depMounts below.
 		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
@@ -146,13 +115,14 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
-	// Isolate dependency trees inside the mounted workspace so the host's
-	// platform binaries do not leak into the container. The workspace mount
-	// (RepoRoot or InputDir -> /app) would otherwise carry its node_modules
-	// subtree directly. An overlay mount with a plain copy hides the host
-	// tree: the container sees a copy that reuses the host install when the
-	// OS happens to match, but writes stay in the copy.
-	mounts = append(mounts, w.depOverlayMounts(scopeHost, scopeContainer, ro)...)
+	// Dependency trees are never the host's. Every directory DepLangs names
+	// under the scope (and, for a subdir scope, at the repo root) is overlaid
+	// with a private copy: the workspace bind above would otherwise carry the
+	// host's platform binaries in and a container install back out. The copy
+	// reuses the host install on the off chance OS and arch match; either way
+	// writes stay in the copy. Plan only NAMES the copies — MaterializeDeps
+	// makes them, so --print never copies a tree to render an argv.
+	mounts = append(mounts, w.depMounts()...)
 
 	mounts = append(mounts, w.worktreeMounts()...)
 	mounts = append(mounts, w.envOverlay()...)
@@ -608,44 +578,4 @@ func findEnvFileResolved(dir string) string {
 		return p
 	}
 	return abs
-}
-
-// plainCopyMount creates a temp directory that is a plain copy of src and
-// returns a mount that overlays that copy at container. The copy is best-effort:
-// if cp fails the mount still isolates with an empty directory, which is
-// preferable to a host-arch bind.
-func plainCopyMount(src, container string) (runner.Mount, error) {
-	dst, err := os.MkdirTemp("", "proveo-dep-*")
-	if err != nil {
-		return runner.Mount{}, err
-	}
-	// Use cp -a for speed and fidelity (preserves symlinks, permissions).
-	// Fall back to empty isolation if cp is unavailable or fails.
-	// filepath.Join(src, ".") cleans to src, so build the dot suffix manually.
-	_ = exec.Command("cp", "-a", src+"/.", dst).Run()
-	return runner.Mount{Host: dst, Container: container}, nil
-}
-
-func (w MountSpec) depOverlayMounts(hostBase, containerBase string, ro bool) []runner.Mount {
-	if hostBase == "" {
-		return nil
-	}
-	// Only overlay when the host path is actually mounted as the workspace.
-	// Worktree, env and output mounts are separate and do not contain deps.
-	var out []runner.Mount
-	for _, d := range isolatedDepDirs {
-		hostDep := filepath.Join(hostBase, d)
-		if !isDir(hostDep) {
-			continue
-		}
-		containerDest := containerBase + "/" + d
-		m, err := plainCopyMount(hostDep, containerDest)
-		if err != nil {
-			continue
-		}
-		// ro flag follows workspace mode; dep trees must stay writable for installs.
-		_ = ro
-		out = append(out, m)
-	}
-	return out
 }

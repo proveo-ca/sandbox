@@ -95,7 +95,58 @@ func Do(p Params, d Deps) error {
 	if done, err := selectBackend(&rs, &p, d); err != nil || done {
 		return err
 	}
+	defer stageDeps(&rs, &p)()
 	return execute(&rs, &p, d)
+}
+
+// stageDeps materialises the dependency-tree copies the mount plan named, and
+// returns the function that removes them once the run is over.
+//
+// Docker only: selectBackend has already returned for sbx, which cannot express
+// a nested overlay and strips the copies instead. Never for --print, which must
+// not copy a tree to render an argv. The copies are disposable by construction
+// — the seed reinstalls into an empty one — so nothing is lost by removing them,
+// and leaving multi-gigabyte node_modules copies to pile up under the state dir
+// until someone runs `proveo clean` is the leak this avoids.
+func stageDeps(rs *Spec, p *Params) func() {
+	none := func() {}
+	if p.PrintOnly {
+		return none
+	}
+	copies := rs.Workspace.WS.DepCopies()
+	if len(copies) == 0 {
+		return none
+	}
+	// Copy only when the tree can run here. A macOS-built node_modules in a Linux
+	// container is foreign in every native module, and the seed would clear the
+	// copy before reinstalling — so on a platform mismatch the overlays start
+	// empty and the install IS the plan. The image platform is what the defs
+	// build (linux/<arch>) as docker will pick it; see workspace.ImagePlatform.
+	reuse, why := workspace.DepCopyPolicy(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
+	made, err := workspace.MaterializeDeps(copies, reuse)
+	if err != nil {
+		ui.Warnf("dependency trees: %v", err)
+	}
+	copied := map[string]bool{}
+	for _, c := range made {
+		copied[c.Container] = true
+	}
+	var parts []string
+	for _, c := range copies {
+		if copied[c.Container] {
+			parts = append(parts, c.Container+" (copied)")
+		} else {
+			parts = append(parts, c.Container+" (empty)")
+		}
+	}
+	ui.Iconf("📦", "dependency trees isolated, host untouched: %s", why)
+	ui.Iconf("📦", "  %s", strings.Join(parts, ", "))
+	stage := rs.Workspace.WS.DepStage
+	return func() {
+		if stage != "" {
+			_ = os.RemoveAll(stage)
+		}
+	}
 }
 
 // resolveWorkspace settles WHERE the run happens: the input dir, the repo it sits
@@ -135,6 +186,9 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	rs.Workspace.WS = workspace.MountSpec{
 		Workspace: rs.Man.Workspace, OutputDir: p.Output, EgressMode: p.Mode, Credentials: p.Credentials,
 		MountRootDeps: mountRootDeps(os.Getenv),
+		// Under the per-run state dir: reclaimed with the run, and by `proveo clean`
+		// for anything a crash leaves behind.
+		DepStage: filepath.Join(rs.EgDir, "deps"),
 	}
 	{ // one layout: the scope dir drives the /app mount path
 		if rs.Workspace.SubScope != "" {
@@ -532,6 +586,17 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", rs.Sid)
 	}
 	if rs.Backend.Sbx {
+		// sbx mounts every path at its own HOST path and cannot say "this
+		// directory, at that container path" — so the private dependency-tree
+		// copies the plan named have no expression there. Passed through, each
+		// would become an unrelated extra workspace while the host tree still rode
+		// in inside the mirrored checkout. Drop them, and say what that means: on
+		// this backend only --clone keeps host-built trees out of the sandbox.
+		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
+		if dropped > 0 && !p.Clone {
+			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
+				"  the seed rebuilds a foreign tree only with PROVEO_DEPS=reinstall (it rewrites your checkout) — `--clone` keeps untracked trees out and installs fresh", dropped)
+		}
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: p.Clone, Extra: p.Extra,
@@ -540,7 +605,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Forwards:       p.forwards(),
 			SandboxAddonOn: p.sandboxAddonOn(),
 			Man:            rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-			Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir,
+			Mounts: mounts, Workdir: rs.Workspace.Workdir,
 			Lookup:           rs.Creds.Lookup,
 			Detected:         rs.Creds.Detected,
 			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),

@@ -9,7 +9,7 @@ node "Host repo" as HOST <<host>> {
   component "root .git" as GIT <<app>>
   component "rootFiles — FILES\nAGENTS.md · package.json · turbo.json …" as RF <<app>>
   component "rootDirs — DIRECTORIES\n""_spec"" · ""vendor""" as RD <<app>>
-  component "rootDepDirs\n""node_modules""" as RDD <<app>>
+  component "DepLangs at the repo root\n""node_modules"" · ""target"" · "".venv"" …" as RDD <<app>>
 }
 
 node "Container /app" as APP <<host>> {
@@ -17,7 +17,7 @@ node "Container /app" as APP <<host>> {
   component "/app/.git  ro|rw" as M2 <<app>>
   component "/app/<file>  ro" as M3 <<app>>
   component "/app/_spec  rw" as M4 <<app>>
-  component "/app/node_modules  rw" as M5 <<app>>
+  component "/app/<dep dir>  rw\nprivate copy" as M5 <<app>>
 }
 
 component "dotenv mask\n""/dev/null"":ro" as MASK <<app>>
@@ -27,7 +27,7 @@ SCOPE ARROW_MAIN M1
 GIT   ARROW_MAIN M2
 RF    ARROW_MAIN M3
 RD    ARROW_MAIN M4
-RDD   ARROW_OPTIONAL M5 : plain-copy to temp, mount rw overlay\nPROVEO_MOUNT_ROOT_DEPS controls copy (0=omit)
+RDD   ARROW_OPTIONAL M5 : present trees only, plain-copied\n""PROVEO_MOUNT_ROOT_DEPS=0"" omits them
 M4    ARROW_QUEUE MASK : walked for secrets
 M5    ARROW_ERROR ARCH
 
@@ -61,12 +61,12 @@ note bottom of MASK
 end note
 
 note right of ARCH
-  Host tree is NOT bind-mounted directly — it is plain-copied into a temp
-  dir and that copy is mounted rw at ""/app/node_modules"", overlay-hiding
-  the host tree inside the workspace mount (whole-repo ""/app"" or subdir
-  ""/app/<rel>"" + ""/app/node_modules""). Host and container install
-  independently; when OS/arch matches the copy still reuses the host tree
-  and avoids a reinstall. ""PROVEO_MOUNT_ROOT_DEPS=0"" omits the copy entirely.
+  **Never a bind of the host tree.** Each dependency dir
+  the table names — at the root here, and under the scope
+  at ""/app/<rel>/<dir>"" — is a private plain copy staged
+  under the run's state dir. Same OS/arch: the copy is
+  reused. Foreign: the seed clears and rebuilds it, host
+  untouched. ""_spec/packages/lib/dependency-trees.puml"".
 end note
 
 note right of M2

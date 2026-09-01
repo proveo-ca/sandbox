@@ -127,13 +127,35 @@ may overlay a symlink-resolved `.env` at `/app/.env` for entrypoint autoload con
 
 ## Dependency Bootstrapping
 
-Harnesses may install project dependencies on first run, but should be conservative:
+Dependency trees are never the host's. Every directory a language's tooling materialises
+inside the workspace (`node_modules`, `.venv`, `vendor/bundle`, `target`, `.terraform`, …)
+is table-driven in `internal/workspace.DepLangs` and mirrored by `_dep_lang_dirs` in
+`packages/lib/entrypoint-lib.sh`; a contract test keeps the two identical. On the docker
+backend each such directory is overlaid with a **private overlay** staged under the run's
+state dir — present or not — so the host's platform binaries never cross in and a container
+install never crosses out. Whether the overlay starts as a plain copy of the host tree is
+decided by comparing the host's OS/arch with the image platform the defs build
+(`linux/<arch>`, or `DOCKER_DEFAULT_PLATFORM`): a match copies, since the tree runs as-is; a
+mismatch (macOS, Windows, cross-arch) stages empty, since every native module would be
+foreign and the seed would clear the copy anyway. `PROVEO_DEPS_COPY=always|never` overrides.
+A foreign copy that does arrive (any non-ELF object) is cleared and rebuilt. sbx mirrors the
+checkout at its host path and cannot express the overlay: there, only `--clone` keeps host
+trees out, and the seed says so.
 
-- only install when a project manifest exists and dependencies are missing;
-- prefer lockfile-respecting commands such as `pnpm install` or `npm ci`;
-- do not modify lockfiles unless the underlying task explicitly requires it;
-- make automatic dependency installation visible in startup logs;
-- allow disabling install behavior when the harness supports read-only or audit workflows.
+The seed installs **before the agent starts** (`ensure_dependency_trees`, reached by both
+backends), because a workspace with nothing installed is the most confusing state to hand an
+agent. Rules:
+
+- install when a project manifest exists and its primary tree is absent; a workspace root
+  (pnpm/npm/yarn/bun `workspaces`) installs once, for all members;
+- refresh a present, native tree against its lockfile only with managers for which that is a
+  cheap no-op (`pnpm`, `bun`, `yarn`, `bundle`, `go mod download`, `cargo fetch`,
+  `terraform init`); `npm ci` wipes first, so it runs only for an absent or foreign tree;
+- respect lockfiles (`--frozen-lockfile`, `--immutable`, `ci`, `init` without `-upgrade`);
+  never rewrite one — a drifted lockfile is reported for the agent to reconcile;
+- make every install visible in the startup log, and name the remedy when one fails;
+- `PROVEO_DEPS=off` disables installs; `PROVEO_DEPS=reinstall` additionally allows rewriting
+  a foreign **host** tree in place (sbx without `--clone`), which is otherwise refused.
 
 ## Security and Secrets
 

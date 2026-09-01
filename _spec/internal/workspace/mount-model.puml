@@ -124,13 +124,13 @@ note right of SUB
 end note
 
 note bottom of SUB
-  **Root dependency isolation via plain copy overlay.** Host ""node_modules""
-  is plain-copied to a temp dir and that copy is mounted rw at
-  ""/app/node_modules"", overlay-hiding the host tree inside the workspace
-  mount — both whole-repo ""/app"" and subdir ""/app/<rel>"" scopes. Host and
-  container stay independent; when OS/arch matches the copy reuses the host
-  tree, otherwise the container can reinstall without rewriting the host.
-  Controlled by ""PROVEO_MOUNT_ROOT_DEPS"" (0 omits the copy).
+  **Dependency trees are never the host's.** Every dir
+  ""DepLangs"" names under the scope is overlaid with a
+  private copy staged under the run's state dir — present
+  or not — and the seed installs into the copy. A subdir
+  scope also copies the repo root's present trees to
+  ""/app/<dir>"" (""PROVEO_MOUNT_ROOT_DEPS=0"" omits those).
+  Mechanism: ""_spec/packages/lib/dependency-trees.puml"".
 end note
 
 
