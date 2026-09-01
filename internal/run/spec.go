@@ -93,7 +93,12 @@ type ChoiceSpec struct {
 
 // BackendSpec is which backend won, and the add-ons that decision enables.
 type BackendSpec struct {
-	Sbx           bool
+	Sbx bool
+	// Clone is the EFFECTIVE workspace mode: true when the agent edits a private
+	// in-VM clone, false when it edits the mounted checkout. CloneOff says why the
+	// clone default did not apply ("" when it did, or when nothing asked for it).
+	Clone         bool
+	CloneOff      string
 	WantDind      bool
 	DindScope     string
 	DindOfferable bool

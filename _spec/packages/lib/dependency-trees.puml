@@ -104,8 +104,8 @@ end note
 note bottom of REG
   **sbx cannot overlay.** It mirrors the checkout at its
   host path; ""StripDepCopies"" drops the staged dirs and
-  the run warns that host trees cross. ""--clone"" carries
-  tracked files only, so nothing host-built arrives and
-  the seed installs fresh into the clone.
+  the run warns that host trees cross. Clone mode — the
+  sbx default — carries tracked files only, so nothing
+  host-built arrives and the seed installs into the clone.
 end note
 @enduml

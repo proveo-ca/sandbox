@@ -227,7 +227,7 @@ func DetectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
 // lands, which is the one thing an operator must not have to guess.
 func Workspace(clone bool) string {
 	if clone {
-		return "in-container clone (--clone) — the checkout is never written; changes come back with `git fetch`"
+		return "in-container clone (default on sbx; --clone=false opts out) — the checkout is never written; the agent's commits are `git fetch`ed back at teardown under refs/proveo/<sid>/"
 	}
 	return "mounted checkout — the agent edits it directly"
 }

@@ -440,9 +440,77 @@ func buildPosture(rs *Spec, p *Params) {
 		ModelRoles:     posture.RolesLine(p.Bridges, p.Target, p.Roles),
 		RoleProviders:  strings.Join(p.Roles.Providers(), ","),
 		MCPGateway:     posture.MCPGateway(p.willSandbox(rs.Man), sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
-		Workspace:      posture.Workspace(p.Clone),
+		// Predicted from the manifest here, settled against the real backend in
+		// selectBackend; the two agree except when sbx turns out unavailable, and
+		// that fallback is announced where it happens.
+		Workspace: posture.Workspace(predictClone(p, p.willSandbox(rs.Man), rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
+}
+
+// decideClone settles whether the agent edits a private in-VM clone or the
+// mounted checkout, and why not when it cannot.
+//
+// Clone is the DEFAULT on the sbx backend (CloneDefault). It is the only shape in
+// which the checkout is never written, no host-built dependency tree crosses into
+// the sandbox, and — the reason it became the default — the workspace lives on the
+// VM's own disk instead of the virtiofs passthrough, whose directory entries have
+// been measured vanishing under a running agent and taking every Bash call with
+// them (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
+//
+// sbx can only clone what git can: the MAIN worktree of a repository, offered as
+// the primary workspace. Where the default cannot apply the run falls back to the
+// mounted checkout and says why. An EXPLICIT --clone in those shapes is an error
+// rather than a fallback, because it asked for a promise that cannot be kept.
+func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, whyOff string, err error) {
+	if !p.Clone {
+		return false, "", nil // --clone=false or PROVEO_CLONE=off: the mounted checkout, by choice
+	}
+	switch {
+	case !sbxBackend:
+		// --clone is creation-time and sbx-only. Accepting it silently on the docker
+		// backend would hand back a run that edited the checkout after promising not
+		// to, which is the one failure mode the flag exists to prevent.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
+				"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
+				"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
+		}
+		return false, "", nil // docker has no clone; nothing to announce
+	case ws.RepoRoot == "":
+		// sbx clones with git, so without a repository there is nothing to clone and
+		// the failure would surface inside the sandbox rather than here.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
+				"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
+				"  Run it from a checkout, or drop --clone to work on the mounted directory",
+				ws.InputDir)
+		}
+		return false, "not a git repository — sbx clones with git", nil
+	case workspace.LinkedWorktree(ws.InputDir):
+		// sbx documents clone mode for the main worktree only.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone cannot clone a linked git worktree (%s):\n"+
+				"  sbx clones the MAIN worktree only. Run from the main checkout, or drop --clone",
+				ws.InputDir)
+		}
+		return false, "linked git worktree — sbx clones only the main worktree", nil
+	case ws.ScopeRel() != "":
+		// The primary workspace is the sub-scope, and sbx clones the primary. An
+		// explicit ask is honoured and left to sbx; the default stays conservative.
+		if p.CloneSet {
+			return true, "", nil
+		}
+		return false, "monorepo sub-scope — the primary workspace has to be the repository root", nil
+	}
+	return true, "", nil
+}
+
+// predictClone is decideClone for the posture row, before the backend is
+// settled: errors are the flag's business later, not the posture's.
+func predictClone(p *Params, sbxBackend bool, ws workspace.MountSpec) bool {
+	on, _, err := decideClone(p, sbxBackend, ws)
+	return err == nil && on
 }
 
 // assembleEnv turns the resolved credentials into the container's environment:
@@ -565,26 +633,22 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
 	// hello-world` succeeds. Nothing to warn about any more; the warning that used
 	// to live here told the operator docker would fail, which is now false.
-	// --clone is creation-time and sbx-only. Accepting it silently on the docker
-	// backend would hand back a run that edited the checkout after promising not
-	// to, which is the one failure mode this flag exists to prevent.
-	if p.Clone && !rs.Backend.Sbx {
-		return false, fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
-			"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
-			"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
+	var err error
+	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
+	if err != nil {
+		return false, err
 	}
-	// sbx clones with git, so without a repository there is nothing to clone and
-	// the failure surfaces inside the sandbox rather than here.
-	if p.Clone && rs.Workspace.WS.RepoRoot == "" {
-		return false, fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
-			"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
-			"  Run it from a checkout, or drop --clone to work on the mounted directory",
-			rs.Workspace.WS.InputDir)
+	if rs.Backend.Sbx {
+		switch {
+		case rs.Backend.Clone:
+			ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
+				"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
+		case rs.Backend.CloneOff != "":
+			ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
+		}
 	}
-	if rs.Backend.Sbx && p.Clone {
-		ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
-			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", rs.Sid)
-	}
+	// The posture row was predicted from the manifest; the backend is now known.
+	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
 	if rs.Backend.Sbx {
 		// sbx mounts every path at its own HOST path and cannot say "this
 		// directory, at that container path" — so the private dependency-tree
@@ -593,14 +657,15 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		// in inside the mirrored checkout. Drop them, and say what that means: on
 		// this backend only --clone keeps host-built trees out of the sandbox.
 		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
-		if dropped > 0 && !p.Clone {
+		if dropped > 0 && !rs.Backend.Clone {
 			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
 				"  the seed rebuilds a foreign tree only with PROVEO_DEPS=reinstall (it rewrites your checkout) — `--clone` keeps untracked trees out and installs fresh", dropped)
 		}
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
-			Shell: p.Shell, Clone: p.Clone, Extra: p.Extra,
-			Roles: p.Roles, Bridges: p.Bridges,
+			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
+			RepoRoot: rs.Workspace.WS.RepoRoot,
+			Roles:    p.Roles, Bridges: p.Bridges,
 			Evidence:       p.evidenceOrDefault(),
 			Forwards:       p.forwards(),
 			SandboxAddonOn: p.sandboxAddonOn(),

@@ -173,6 +173,40 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
+// PreserveClone lifts a clone-mode sandbox's work into the host repository before
+// the sandbox goes: a snapshot commit of anything the agent left uncommitted, then
+// a fetch of every branch into refs/proveo/<name>/. Clone is the default, so a
+// teardown that dropped the clone silently would be the default losing work.
+//
+// Refs, not a remote-tracking namespace: sbx removes its sandbox-<name> remote with
+// the sandbox, and `git remote remove` deletes refs/remotes/<remote>/* with it.
+// refs/proveo/ is proveo's own and outlives both. No-op when the run was not a
+// clone, or when nothing is there to fetch from.
+func PreserveClone(in Input, cfg sbx.RunConfig) {
+	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
+		return
+	}
+	if wd := FirstHost(cfg.Mounts); wd != "" {
+		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
+			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
+		}
+	}
+	fetch := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...)
+	if out, err := fetch.CombinedOutput(); err != nil {
+		ui.Warnf("clone: fetch from %s failed (%v): %s — if the sandbox still exists, `git fetch %s` by hand",
+			sbx.CloneRemote(cfg.Name), err, strings.TrimSpace(string(out)), sbx.CloneRemote(cfg.Name))
+		return
+	}
+	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref", "--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
+	names := strings.Fields(string(refs))
+	if len(names) == 0 {
+		ui.Notef("clone: the agent left no branches to fetch")
+		return
+	}
+	ui.Iconf("\U0001f5c2", "clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
+	ui.Notef("    review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
+}
+
 // KeptLines is what proveo says about a failed run after the evidence
 // channels have had their turn: how to look inside the sandbox, how to clean it up,
 // and where the run's own transcript is.
@@ -303,6 +337,7 @@ type Input struct {
 	// read — resolved by the caller, exactly as move 6 will resolve the rest.
 	Target, Image, AuthVar string
 	Shell, Clone           bool
+	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	Extra                  []string
 	Roles                  provider.Roles
 	Bridges                provider.BridgeTable
@@ -771,6 +806,7 @@ func Run(in Input) error {
 			// Whether the harvest had to wake a stopped sandbox is worth saying out
 			// loud: it is why the home holds files newer than the run.
 			restarted := !sbx.Running(cfg.Name)
+			PreserveClone(in, cfg)
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
 			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
 				said = true
@@ -799,10 +835,12 @@ func Run(in Input) error {
 			}
 			return
 		}
-		// Resume state lives in per-sandbox volumes that the next line destroys, so
-		// it has to come out FIRST. Best-effort by design: a sandbox that never
+		// A clone lives in the VM that `sbx rm` is about to destroy, so its commits
+		// come out FIRST — before the resume state, which lives in per-sandbox
+		// volumes the same line destroys. Best-effort by design: a sandbox that never
 		// started has nothing to copy, and losing yesterday's transcripts is not a
 		// reason to leave a VM running.
+		PreserveClone(in, cfg)
 		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}

@@ -1409,6 +1409,47 @@ proveo_apply_ui_defaults() {
   ' 2>/dev/null || true
 }
 
+# ── 7h. Claude Code hooks — the cwd guard ──
+# SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+# Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (path; tests point it elsewhere).
+#
+# In an sbx sandbox the workspace is a virtiofs passthrough, and its directory
+# entry has been measured vanishing inside the VM under a running agent while the
+# host directory stayed put. Claude Code then holds a cwd of "<path> (deleted)" and
+# every Bash call exits 1 with no output — but hooks still spawn (Claude Code falls
+# back to the session start dir for them), so a PreToolUse(Bash) hook is the one
+# channel that can tell the MODEL what happened and what to do. Registered in the
+# agent's user-level settings, MERGED like proveo_apply_ui_defaults: the file is
+# the operator's, and the hook is added once, never duplicated.
+proveo_install_claude_hooks() {
+  local target="${1:-}" home hook
+  case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ "$target" == claudecode ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  hook="${PROVEO_CWD_GUARD_HOOK:-/opt/claudecode/defaults/hooks/cwd-guard.sh}"
+  [[ -s "$hook" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_AGENT_HOME="$home" PROVEO_HOOK="$hook" node -e '
+    const fs = require("fs");
+    const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
+    const path = dir + "/settings.json";
+    const cmd = "bash " + process.env.PROVEO_HOOK;
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (typeof j.hooks !== "object" || j.hooks === null) j.hooks = {};
+    if (!Array.isArray(j.hooks.PreToolUse)) j.hooks.PreToolUse = [];
+    const present = j.hooks.PreToolUse.some(g => g && Array.isArray(g.hooks)
+      && g.hooks.some(h => h && h.command === cmd));
+    if (!present) j.hooks.PreToolUse.push({ matcher: "Bash", hooks: [{ type: "command", command: cmd, timeout: 5 }] });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null && echo "🛡️  cwd guard: PreToolUse(Bash) hook names a vanished working directory instead of a silent exit 1"
+  return 0
+}
+
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
@@ -2107,4 +2148,5 @@ proveo_seed() {
 
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
+ proveo_install_claude_hooks "$target"
 }

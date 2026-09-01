@@ -220,6 +220,15 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir)}, true
 }
 
+// LinkedWorktree reports whether dir is a LINKED git worktree — its .git is a
+// pointer file into another checkout's .git/worktrees/ — as opposed to the main
+// worktree or no repository at all. sbx's clone mode can clone only the main
+// worktree, so the clone default has to step aside here.
+func LinkedWorktree(dir string) bool {
+	_, ok := readGitWorktree(dir)
+	return ok
+}
+
 // WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil. The
 // per-worktree commondir file is RELATIVE, so pointing GIT_DIR inside the
 // mounted common dir resolves without host and container paths having to match.

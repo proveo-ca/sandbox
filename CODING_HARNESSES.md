@@ -139,8 +139,13 @@ decided by comparing the host's OS/arch with the image platform the defs build
 mismatch (macOS, Windows, cross-arch) stages empty, since every native module would be
 foreign and the seed would clear the copy anyway. `PROVEO_DEPS_COPY=always|never` overrides.
 A foreign copy that does arrive (any non-ELF object) is cleared and rebuilt. sbx mirrors the
-checkout at its host path and cannot express the overlay: there, only `--clone` keeps host
-trees out, and the seed says so.
+checkout at its host path and cannot express the overlay: there, only clone mode keeps host
+trees out — which is why **clone is the default on sbx** (`--clone=false` or `PROVEO_CLONE=off`
+opts out). The default steps aside, and says why, where sbx cannot clone: no git repository,
+a linked worktree, a monorepo sub-scope, or the docker backend. At teardown proveo commits
+whatever the agent left uncommitted and fetches every branch of the clone into
+`refs/proveo/<sid>/`, because `sbx rm` drops the clone and its remote. See
+`_spec/internal/sbx/virtiofs-cwd-invalidation.puml` for the failure the default closes off.
 
 The seed installs **before the agent starts** (`ensure_dependency_trees`, reached by both
 backends), because a workspace with nothing installed is the most confusing state to hand an
@@ -155,7 +160,7 @@ agent. Rules:
   never rewrite one — a drifted lockfile is reported for the agent to reconcile;
 - make every install visible in the startup log, and name the remedy when one fails;
 - `PROVEO_DEPS=off` disables installs; `PROVEO_DEPS=reinstall` additionally allows rewriting
-  a foreign **host** tree in place (sbx without `--clone`), which is otherwise refused.
+  a foreign **host** tree in place (sbx with `--clone=false`), which is otherwise refused.
 
 ## Security and Secrets
 

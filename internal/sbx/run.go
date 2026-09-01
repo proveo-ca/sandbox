@@ -174,6 +174,33 @@ func RunArgs(cfg RunConfig) []string {
 	return args
 }
 
+// CloneRemote is the git remote sbx adds to the host repository for a clone-mode
+// sandbox: the in-VM clone, reachable for fetch while the sandbox exists.
+func CloneRemote(name string) string { return "sandbox-" + name }
+
+// CloneRefs is where a clone's branches are kept on the host after the sandbox is
+// gone. NOT refs/remotes/<remote>/: removing the remote removes those, and `sbx rm`
+// is exactly the moment they are needed. refs/proveo/<name>/<branch> survives it.
+func CloneRefs(name string) string { return "refs/proveo/" + name }
+
+// CloneSnapshotArgs commits whatever the agent left UNCOMMITTED in the clone, so
+// the fetch that follows carries it. Only when there is something to commit — a
+// clean tree gets no empty commit — and under an author that says who did it.
+// `sbx rm` drops the clone with the VM, and sbx's own guidance is to fetch or
+// push before removing; an agent that stopped mid-edit has nothing to push.
+func CloneSnapshotArgs(name, workdir string) []string {
+	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
+		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"commit -q -m 'proveo: uncommitted work at teardown (left in the clone by the agent)')"}
+}
+
+// CloneFetchArgs is the host-side git argv that lifts every branch of the clone
+// into CloneRefs. --no-tags: the clone's tags are the host's own, fetched back.
+func CloneFetchArgs(repoRoot, name string) []string {
+	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(name),
+		"+refs/heads/*:" + CloneRefs(name) + "/*"}
+}
+
 // StateHomeVar names the host directory that resume state is copied to and from.
 //
 // It is deliberately NOT HOME. Redirecting HOME on this backend orphans the

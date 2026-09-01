@@ -22,7 +22,11 @@ type Params struct {
 	Evidence                                                                    string
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
-	Clone                                                                       bool
+	// Clone is the REQUEST: --clone / PROVEO_CLONE. Whether the run actually
+	// clones is Spec.Backend.Clone, settled by decideClone once the backend and
+	// the workspace shape are known. CloneSet records an explicit flag, which
+	// turns "cannot clone here" from a fallback into an error.
+	Clone, CloneSet bool
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }
