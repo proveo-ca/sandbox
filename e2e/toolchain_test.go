@@ -394,22 +394,23 @@ echo "PLANTUML_COPIES=$(type -a plantuml 2>/dev/null | awk '{print $NF}' \
 
 func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 	required := []string{
-		"_proveo_lock_installs",       // §7/§8 concurrency guard
-		"_go_current_version",         // honours a go.mod toolchain pin
-		"ensure_language_servers",     // §8 provisioning
-		"_lsp_mise_spec",              // the recipe table
-		"_proveo_github_token",        // GitHub API auth for ubi recipes
-		"_proveo_walk",                // the prune list §7c, §7d and §8 must share
-		"_proveo_project_roots",       // NESTED project discovery, every language
-		"ensure_dependency_trees",     // §7d host-built dependency probe
-		"_dep_lang_class",             // the per-language remedy table
-		"proveo_provision_toolchain",  // §7 install-shaped work, reached by BOTH backends
-		"_proveo_agent_home",          // the home the AGENT runs with, not this process's
-		"_proveo_persist_tool_env",    // the resolved PATH, written where bash will read it
-		"proveo_compose_house_rules",  // §7e proveo's conventions as user-level instructions
-		"_proveo_write_block",         // marked-region rewrite that spares operator content
-		"proveo_apply_ui_defaults",    // §7g sandbox theme + syntax highlighting
-		"proveo_install_claude_hooks", // §7h the cwd guard that names a vanished working directory
+		"_proveo_lock_installs",            // §7/§8 concurrency guard
+		"_go_current_version",              // honours a go.mod toolchain pin
+		"ensure_language_servers",          // §8 provisioning
+		"_lsp_mise_spec",                   // the recipe table
+		"_proveo_github_token",             // GitHub API auth for ubi recipes
+		"_proveo_walk",                     // the prune list §7c, §7d and §8 must share
+		"_proveo_project_roots",            // NESTED project discovery, every language
+		"ensure_dependency_trees",          // §7d host-built dependency probe
+		"_dep_lang_class",                  // the per-language remedy table
+		"proveo_provision_toolchain",       // §7 install-shaped work, reached by BOTH backends
+		"_proveo_agent_home",               // the home the AGENT runs with, not this process's
+		"_proveo_persist_tool_env",         // the resolved PATH, written where bash will read it
+		"proveo_compose_house_rules",       // §7e proveo's conventions as user-level instructions
+		"_proveo_write_block",              // marked-region rewrite that spares operator content
+		"proveo_apply_ui_defaults",         // §7g sandbox theme + syntax highlighting
+		"proveo_install_claude_hooks",      // §7h the cwd guard that names a vanished working directory
+		"proveo_enable_claude_lsp_plugins", // §7i seeded code-intelligence plugins, enabled per binary
 	}
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {

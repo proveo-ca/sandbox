@@ -1,0 +1,64 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Claude Code code intelligence — seeded plugins, enabled per binary, no install prompt
+
+' covers: defs/claudecode/mcp/Dockerfile, packages/lib/entrypoint-lib.sh
+
+node "Image build — defs/claudecode/mcp/Dockerfile" as BUILD <<host>> {
+  component "language servers on PATH\n""typescript-language-server"" · ""pyright-langserver"" · …" as BIN <<app>>
+  component "plugin seed — ""/opt/proveo/claude-plugins""\n""known_marketplaces.json"" · ""marketplaces/"" · ""cache/""" as SEED <<db>>
+}
+cloud "anthropics/claude-plugins-official\n(clone once, at build)" as MKT <<cloud>>
+
+node "Seed step — ""proveo_seed claudecode""" as RUN <<host>> {
+  component "provision servers for the\nworkspace's languages" as PROV <<app>>
+  component "**enable** — ""proveo_enable_claude_lsp_plugins""\nplugin ON ⇔ its binary is on PATH" as EN <<app>>
+  component "**proveo-lsp** — ""configure_claude_lsp""\nthe languages no official plugin covers" as OWN <<app>>
+}
+
+component "Claude Code\n""CLAUDE_CODE_PLUGIN_SEED_DIR""" as CC <<app>>
+component "install prompt\n'language server found — install its plugin?'" as PROMPT <<error>>
+
+MKT   ARROW_CLOUD SEED : ""claude plugin marketplace add"" ·\n""claude plugin install <p>@claude-plugins-official""
+SEED  ARROW_MAIN CC : read in place, read-only,\nno network at run time
+BIN   ARROW_ERROR PROMPT : binary present + plugin absent\nis what used to prompt
+EN    ARROW_MAIN CC : install + marketplace records → the seed;\n""enabledPlugins[…] = true"" — all merged, never overwritten
+PROV  ARROW_MAIN EN
+EN    ARROW_MAIN OWN : ""PROVEO_CLAUDE_LSP_OFFICIAL"" — languages to leave alone
+OWN   ARROW_MAIN CC : ""~/.claude/skills/proveo-lsp/.lsp.json""
+CC    ARROW_OPTIONAL PROMPT : never — every present\nbinary has its plugin
+
+note bottom of SEED
+  **The seed holds the files; the home holds the records.**
+  Measured on 2.1.251: the seed alone is "marketplace not
+  registered", 0 plugins. So the seed step writes
+  ""installed_plugins.json"" and ""known_marketplaces.json""
+  into the run's HOME pointing here. Build: 16 s, 9.9 MB.
+end note
+
+note right of EN
+  **The binary decides, not the list.** Present binary and
+  absent plugin prompts; present plugin and absent binary
+  is "Executable not found" in ""/plugin"". Enabling per
+  binary, after provisioning, produces neither. An explicit
+  ""false"" the operator wrote is left alone.
+end note
+
+note bottom of OWN
+  **One server per extension.** Two enabled servers on one
+  extension means the second never starts and ""/plugin""
+  warns. proveo-lsp keeps bash, yaml, json, docker, html,
+  css, markdown, toml, terraform, plantuml, zig, nix, ruby,
+  kotlin — and yields typescript, python, go, rust, cpp,
+  java, lua to the official plugins when they are on.
+end note
+
+note left of BUILD
+  **kotlin-lsp is not seeded.** It expects a ""kotlin-lsp""
+  binary; this floor provisions fwcd's
+  ""kotlin-language-server"", which proveo-lsp drives. A
+  seeded plugin that can never find its binary would only
+  add an error row. ""internal/contract"" pins seed ⇔ table.
+end note
+@enduml

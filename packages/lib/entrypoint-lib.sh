@@ -1450,6 +1450,127 @@ proveo_install_claude_hooks() {
   return 0
 }
 
+# ── 7i. Claude Code code-intelligence plugins — seeded by the image, enabled here ──
+# SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
+# Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (set by the image).
+#
+# The image seeds the official `*-lsp` plugins (defs/claudecode/mcp/Dockerfile)
+# so Claude Code stops offering to install them; this step decides which are ON.
+# The rule is the binary: an official plugin is enabled exactly when its language
+# server is on PATH after provisioning. Present binary + absent plugin is what
+# prompts; present plugin + absent binary is an "Executable not found" error in
+# /plugin. Enabling per binary produces neither. proveo-lsp then declares only the
+# languages no enabled official plugin already covers (configure_claude_lsp), so
+# no extension has two servers racing for it.
+#
+# Pinned to the Dockerfile's install list by internal/contract.
+_claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
+_claude_lsp_plugin_binary() { case "$1" in
+  typescript-lsp)    echo "typescript-language-server" ;;
+  pyright-lsp)       echo "pyright-langserver" ;;
+  gopls-lsp)         echo "gopls" ;;
+  rust-analyzer-lsp) echo "rust-analyzer" ;;
+  clangd-lsp)        echo "clangd" ;;
+  jdtls-lsp)         echo "jdtls" ;;
+  lua-lsp)           echo "lua-language-server" ;;
+esac; }
+# The proveo-lsp language each official plugin supersedes.
+_claude_lsp_plugin_lang() { case "$1" in
+  typescript-lsp)    echo "typescript" ;;
+  pyright-lsp)       echo "python" ;;
+  gopls-lsp)         echo "go" ;;
+  rust-analyzer-lsp) echo "rust" ;;
+  clangd-lsp)        echo "cpp" ;;
+  jdtls-lsp)         echo "java" ;;
+  lua-lsp)           echo "lua" ;;
+esac; }
+
+# proveo_enable_claude_lsp_plugins turns on every seeded official plugin whose
+# binary is present, MERGED into the agent's user settings: the file is the
+# operator's, an explicit `false` there is respected, and the run is idempotent.
+# Exports PROVEO_CLAUDE_LSP_OFFICIAL — the languages configure_claude_lsp must
+# leave to those plugins.
+#
+# It also writes the two RECORDS Claude Code installs by — plugins/installed_plugins.json
+# and plugins/known_marketplaces.json — into the home, pointing at the seed. Measured
+# on 2.1.251 (2026-09-01): with the seed alone, startup logs "Skipping orphaned
+# enabledPlugins entry … marketplace not registered" and loads 0 plugins; with the
+# records present it lists the plugin enabled with its LSP server. The seed is where
+# the files live; the records are how Claude Code finds them. Existing entries in
+# either file are the operator's and are never overwritten.
+proveo_enable_claude_lsp_plugins() {
+  local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
+  export PROVEO_CLAUDE_LSP_OFFICIAL=""
+  case "$(printf '%s' "${PROVEO_CLAUDE_LSP_PLUGINS:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ "$target" == claudecode ]] || return 0
+  seed="${CLAUDE_CODE_PLUGIN_SEED_DIR:-}"
+  [[ -n "$seed" && -d "$seed/cache/claude-plugins-official" ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  for p in $(_claude_lsp_plugins); do
+    [[ -d "$seed/cache/claude-plugins-official/$p" ]] || continue
+    bin="$(_claude_lsp_plugin_binary "$p")"
+    command -v "$bin" >/dev/null 2>&1 || continue
+    candidates="${candidates:+$candidates }$p"
+  done
+  [[ -n "$candidates" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  # node merges the three files and REPORTS what is on afterwards: a plugin the
+  # operator set to false stays off, and its language goes back to proveo-lsp.
+  enabled="$(PROVEO_AGENT_HOME="$home" PROVEO_SEED="$seed" PROVEO_PLUGINS="$candidates" node -e '
+    const fs = require("fs"), path = require("path");
+    const home = process.env.PROVEO_AGENT_HOME + "/.claude", seed = process.env.PROVEO_SEED;
+    const MKT = "claude-plugins-official";
+    const read = (p, fallback) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) || fallback; } catch (e) { return fallback; } };
+    const write = (p, j) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); };
+    // 1. the marketplace, at the seed clone, unless the operator has one already
+    const known = read(home + "/plugins/known_marketplaces.json", {});
+    const seedKnown = read(seed + "/known_marketplaces.json", {});
+    if (!known[MKT]) {
+      known[MKT] = seedKnown[MKT] || { source: { source: "github", repo: "anthropics/" + MKT } };
+      known[MKT].installLocation = seed + "/marketplaces/" + MKT;
+      write(home + "/plugins/known_marketplaces.json", known);
+    }
+    // 2. the install records, at the seed cache, unless already installed
+    const inst = read(home + "/plugins/installed_plugins.json", { version: 2, plugins: {} });
+    if (typeof inst.plugins !== "object" || inst.plugins === null) inst.plugins = {};
+    const seedInst = read(seed + "/installed_plugins.json", { plugins: {} }).plugins || {};
+    const now = new Date().toISOString();
+    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
+      const key = p + "@" + MKT;
+      if (inst.plugins[key]) continue;
+      const cache = seed + "/cache/" + MKT + "/" + p;
+      let version = "", installPath = "";
+      const fromSeed = (seedInst[key] || [])[0];
+      if (fromSeed && fromSeed.installPath && fs.existsSync(fromSeed.installPath)) { version = fromSeed.version; installPath = fromSeed.installPath; }
+      else { const vs = fs.existsSync(cache) ? fs.readdirSync(cache).filter(d => !d.startsWith(".")) : []; if (vs.length) { version = vs[0]; installPath = cache + "/" + vs[0]; } }
+      if (!installPath) continue;
+      inst.plugins[key] = [{ scope: "user", installPath, version, installedAt: now, lastUpdated: now }];
+    }
+    write(home + "/plugins/installed_plugins.json", inst);
+    // 3. enablement, respecting an explicit false
+    const settingsPath = home + "/settings.json";
+    const j = read(settingsPath, {});
+    if (typeof j.enabledPlugins !== "object" || j.enabledPlugins === null) j.enabledPlugins = {};
+    const on = [];
+    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
+      const key = p + "@" + MKT;
+      if (!inst.plugins[key]) continue;
+      if (j.enabledPlugins[key] === undefined) j.enabledPlugins[key] = true;
+      if (j.enabledPlugins[key] === true) on.push(p);
+    }
+    write(settingsPath, j);
+    process.stdout.write(on.join(" "));
+  ' 2>/dev/null)" || return 0
+  [[ -n "$enabled" ]] || return 0
+  for p in $enabled; do langs="${langs:+$langs }$(_claude_lsp_plugin_lang "$p")"; done
+  export PROVEO_CLAUDE_LSP_OFFICIAL="$langs"
+  echo "🧠 code intelligence plugins (seeded in the image, no install prompt): ${enabled}"
+  return 0
+}
+
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
 
 # LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
@@ -1759,6 +1880,12 @@ configure_claude_lsp() {
       }
     }) | from_entries')"
   [ -z "$lsp_json" ] && lsp_json="{}"
+  # Languages an enabled official plugin already serves are left to it: two
+  # servers on one extension means one never starts and /plugin warns about it.
+  if [[ -n "${PROVEO_CLAUDE_LSP_OFFICIAL:-}" ]]; then
+    lsp_json="$(printf '%s' "$lsp_json" | jq --arg drop "$PROVEO_CLAUDE_LSP_OFFICIAL" \
+      'with_entries(select(.key as $k | ($drop | split(" ") | index($k)) == null))')"
+  fi
   [ "$lsp_json" = "{}" ] && return 0
 
   mkdir -p "$plugdir/.claude-plugin"
@@ -2139,6 +2266,7 @@ proveo_seed() {
  accept_workspace_trust "$(_proveo_scan_root)"
 
  proveo_provision_toolchain
+ proveo_enable_claude_lsp_plugins "$target"
 
  # Written after provisioning, so it records the servers that now exist rather
  # than the ones that did before.
