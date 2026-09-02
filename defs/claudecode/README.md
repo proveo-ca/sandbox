@@ -246,7 +246,9 @@ Preconditions, each named in the picker when it fails:
   does not displace a login. The check runs before `--chrome`, so no flag overrides it.
 - `--egress-mode open --credentials forward` and the docker backend: the bridge network is
   the only one with a route to the host, and a sandbox VM cannot reach it (Docker Sandboxes
-  proxies every outbound TCP). Ticking `docker (sandbox)` greys this add-on.
+  proxies every outbound TCP). claudecode declares `docker: sbx`, so it runs in the sandbox
+  and the picker greys this add-on on every run — reach the docker backend with `PROVEO_SBX=0`
+  (or `--egress-mode review`, which has no sbx transport either) if you want the bridge.
 
 The agent then has your browser's sessions. The extension's site permissions still apply, and
 the relay closes any connection that does not present the run's token. Spec:

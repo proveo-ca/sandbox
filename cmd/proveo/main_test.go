@@ -365,15 +365,14 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	// that are not (the project .env arrives as a file bind and sbx refuses it).
 	dataDir := t.TempDir()
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Shell:          true,
-		Forwards:       false,
-		SandboxAddonOn: true,
-		Man:            manifest.Manifest{Name: "claudecode"},
-		Lookup:         func(string) string { return "" },
-		Workdir:        "/app",
-		DataDir:        dataDir,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Shell:    true,
+		Forwards: false,
+		Man:      manifest.Manifest{Name: "claudecode"},
+		Lookup:   func(string) string { return "" },
+		Workdir:  "/app",
+		DataDir:  dataDir,
 	}
 	cfg, _, secrets := sandbox.Spec(in)
 	// --shell selects sbx's OWN shell agent; it does not pass a command. Launch-shaped
@@ -514,9 +513,9 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
 	}
 	base := sandbox.Input{
-		Target:         "claudecode",
-		Forwards:       false,
-		SandboxAddonOn: true, Man: man, Sid: "s", Lookup: lookup}
+		Target:   "claudecode",
+		Forwards: false,
+		Man:      man, Sid: "s", Lookup: lookup}
 
 	names := func(in sandbox.Input) map[string]bool {
 		_, _, secrets := sandbox.Spec(in)
@@ -667,10 +666,9 @@ func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:local",
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:local",
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode", Subscription: true,
 			Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},

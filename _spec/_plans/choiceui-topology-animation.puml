@@ -1,0 +1,153 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the mechanism of the planned topology strip — its inputs, its budget, its clock
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' This file owns the MECHANISM: what the strip is a function of, where its rows come
+' from, and what makes it tick. It owns no pictures.
+'   the pictures, per selection ... _spec/_plans/choiceui-animation-states.puml
+'   the three placement options .... _spec/_plans/choiceui-viewport-proposals.puml
+'   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
+'   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
+'   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
+'   why the sbx row is LOCKED ...... _spec/internal/sbx/policy-baseline.puml
+'   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
+'   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+title PLANNED — choice-prompt topology strip: one projection, one budget, one clock
+
+node "internal/choiceui — planned additions" as PKG <<host>> {
+  component "layout(w, h)\nfit budget · drop ladder · reserved slots" as LAYOUT <<app>>
+  component "topology(*Form, cursor)\nform state + cursor -> one Frame value" as MODEL <<app>>
+  component "drawTopology(s, y, Frame, tick)\nfixed 3-row figure + caption" as PAINT <<app>>
+  component "glyphSet(PROVEO_GLYPHS)\nemoji · nerd · ascii" as GLYPH <<app>>
+}
+
+component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
+component "Run()\nexisting event loop" as RUN <<app>>
+component "Rows\negress · credentials · auth\nexecution · interface · agent evidence" as ROWS <<app>>
+queue "animTicker\nPostEvent every ~120ms, while unsettled" as TICK <<async>>
+component "Operator terminal\nw x h, resized at will" as TTY <<host>>
+
+component "A figure that only decorates" as DECOR <<error>>
+component "A figure that disagrees with the boxes" as LIE <<error>>
+
+ROWS ARROW_MAIN MODEL : the same values ""Selection"" returns
+MODEL ARROW_MAIN PAINT : Frame, rebuilt per paint
+GLYPH ARROW_MAIN PAINT
+TTY ARROW_MAIN LAYOUT : width x height, on every resize
+LAYOUT ARROW_MAIN DRAW : which regions are affordable
+DRAW ARROW_OPTIONAL PAINT : only when the strip fits
+PAINT ARROW_MAIN TTY
+TICK ARROW_QUEUE RUN : EventInterrupt — the clock is an event
+RUN ARROW_MAIN DRAW
+RUN ARROW_MAIN TICK : started on the first change, stopped before ""Fini""
+PAINT ARROW_ERROR DECOR
+MODEL ARROW_ERROR LIE
+
+note top of MODEL
+  **The strip is a projection, never a second
+  state.** It reads the rows ""Selection"" reads,
+  so a frame cannot disagree with the checkboxes
+  above it — which is the failure every ASCII
+  diagram bolted onto a form eventually reaches.
+end note
+
+note bottom of MODEL
+  **The cursor picks the emphasis, not the
+  content.** Every element is drawn on every
+  frame; the focused row raises one to brand and
+  dims the rest, so nothing appears or vanishes
+  as the operator walks down the form.
+end note
+
+note right of ROWS
+  **Six rows, four targets.** ""egress"" owns the
+  lanes and clouds — and is LOCKED on sbx, where
+  it reports a host fact — ""credentials"" and
+  ""auth"" own the key, ""execution"" the square,
+  ""interface"" the return, evidence the glyph.
+end note
+
+note top of LAYOUT
+  **Height is spent in a fixed order.** The rows,
+  the hint and the help slot are paid first;
+  the banner, the header detail and the strip
+  are what a short terminal loses, and each is
+  dropped whole rather than clipped mid-figure.
+end note
+
+note bottom of LAYOUT
+  **The help slot is reserved at its maximum.**
+  Help is 0-4 lines and changes with the cursor,
+  so a strip drawn straight after it would jump
+  a row per keystroke. The reserved slot is the
+  only thing that holds the figure still.
+end note
+
+note bottom of LAYOUT
+  **The strip costs 5 rows and needs 72
+  columns.** One blank, three figure rows, one
+  caption — and 72 is already the width the
+  add-on divider centres on, so the form gains
+  no new minimum width by carrying it.
+end note
+
+note top of TICK
+  **""PollEvent"" blocks, so the clock has to be
+  an event.** A goroutine posting an interrupt
+  at ~8 fps is the only tick that does not
+  starve the keystrokes the form waits on.
+end note
+
+note bottom of TICK
+  **Motion is bound to change, not to time.**
+  A keystroke animates for ~1.2s and the strip
+  then rests on a still frame, so an idle prompt
+  costs no CPU and any movement means something
+  in the form just moved.
+end note
+
+note bottom of TICK
+  **Stopped before ""Fini"", on every path.** A
+  ticker outliving the screen posts into a dead
+  ""tcell.Screen""; accept and cancel both return
+  through ""Run"", so the stop belongs on the
+  defer already standing beside it.
+end note
+
+note top of GLYPH
+  **The strip inherits ""PROVEO_GLYPHS"".** A
+  terminal that cannot draw a devicon will not
+  draw an emoji either, so the ladder the lsp
+  row already uses decides the cloud, the key
+  and the speech bubble too.
+end note
+
+note bottom of GLYPH
+  **""put"" advances one column per rune.** Every
+  glyph here is double-width and the speaking
+  head is two runes, so the strip needs a
+  width-aware writer or each emoji silently
+  overwrites the cell after it.
+end note
+
+note bottom of DECOR
+  **A figure that only decorates earns no rows.**
+  It must answer what the checkboxes cannot —
+  where the key sleeps, what the tier stops —
+  or the five rows it costs belong to the form
+  that is actually being filled in.
+end note
+
+note bottom of LIE
+  **There is no single egress axis.** A sbx
+  harness shows the host baseline — allow-all,
+  balanced, deny-all — and a docker one shows
+  proveo's tiers. Different question, different
+  hop; a frame must name which it drew.
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+DECOR -down[hidden]- LIE
+' --- END IGNORE ---
+@enduml

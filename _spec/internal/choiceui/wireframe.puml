@@ -20,6 +20,12 @@
 ' EDITOR_MODEL) into ANTHROPIC_MODEL, and SMALL_MODEL into
 ' ANTHROPIC_SMALL_FAST_MODEL — two slots, so a third role var is never read.
 ' Bridge dialects for the other harnesses: _spec/internal/entrypoint/model-alias-bridges.puml.
+'
+' PLANNED, not drawn here: a topology strip under the hints.
+'   the mechanism ..... _spec/_plans/choiceui-topology-animation.puml
+'   where it fits ..... _spec/_plans/choiceui-viewport-proposals.puml
+'   every frame ....... _spec/_plans/choiceui-animation-states.puml
+' Nothing in those three has shipped; this file stays the resolved layout of today.
 
 title Choice prompt wireframe — resolved layout, and how a gated element is drawn
 
@@ -44,15 +50,15 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
     credentials | (X) forward | ( ) broker | . | .
     . | . | ———— execution ———— | . | .
-    . | [ ] <color:#9a9a9a>host</color> | [X] docker (sandbox) | . | .
+    . | [ ] <color:#9a9a9a>host</color> | [X] <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
-    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | <color:#9a9a9a>— chrome (host browser): docker backend only…
+    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | <color:#9a9a9a>— chrome (host browser): docker backend only — set…
     agent evidence | [ ] default | [X] verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   ..
-  › docker (sandbox) — a microVM with its own Docker daemon (sbx); unticked: docker + egress sidecars
+  always on: every run on this harness is sandboxed — set PROVEO_SBX=0 to fall back to the docker backend
 }
 {
 {^"1 · greyed — comingSoon"
@@ -126,7 +132,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   what the checkbox shows.
 }
 {^"8 · fixed — a box that states a fact"
-  execution | [ ] <color:#9a9a9a>host</color> | [X] docker (sandbox) | .
+  execution | [ ] <color:#9a9a9a>host</color> | [X] <color:#9a9a9a>docker (sandbox)</color> | .
   interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | .
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator
@@ -135,6 +141,19 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   session whether or not a browser joins it. Neither is reported as a selected
   add-on, and neither appears in the row's inline ""Reason"": a note greyed on
   every run teaches the operator to skip the line that sometimes matters.
+
+  **The sandbox is greyed for the opposite reason: it is COMPULSORY.** A harness
+  that declares sbx runs there and nowhere else, so the box is ticked and locked
+  and its help line reads "always on:". Unticking used to reach the docker
+  backend behind egress sidecars — a weaker boundary one keystroke away — and
+  that escape is now ""PROVEO_SBX=0"", which the greyed reason names. Like the
+  two facts above it stays out of the row's inline ""Reason"": a note greyed on
+  every run only teaches the operator to skip the line that sometimes matters.
+
+  It is the one greyed box that IS reported as a selected add-on. ""Selections""
+  drops every greyed option, which is right for the two facts above and wrong
+  here: a compulsory sandbox dropped from the read-back would send the run to
+  the very backend the lock exists to remove.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
   default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server

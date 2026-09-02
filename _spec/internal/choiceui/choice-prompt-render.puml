@@ -6,6 +6,9 @@
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
 ' Why review needs a pty: _spec/internal/reviewgate/pty-review-proxy.puml.
+' Why the sandbox box is compulsory and what the escape is:
+' _spec/internal/sbx/sandbox-backend.puml.
+' PLANNED topology strip (nothing shipped): _spec/_plans/choiceui-topology-animation.puml.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Choice prompt render — radio axes above the divider, checkboxes below
 
@@ -72,6 +75,30 @@ note top of GATE
   ticked, and clearing both is allowed because
   ""evidenceFrom"" only asks whether verbose was
   selected.
+end note
+
+note bottom of GATE
+  **A greyed box means one of two opposite
+  things.** Unavailable is greyed AND unticked;
+  compulsory is greyed AND ticked, which is the
+  execution plane's sandbox — and only the
+  second is read back as a selected add-on.
+end note
+
+note bottom of GATE
+  **Greyed in both directions, and outside
+  ""addonFixed"".** That table declares constant
+  boxes, whereas an available sandbox is settled
+  per run by ""sbx.Available"" — which is why the
+  gate greys it, and not the declaration.
+end note
+
+note bottom of READ
+  **""Selections"" drops every greyed box, so the
+  compulsory one is re-added deliberately.**
+  Reporting the sandbox as unselected would
+  route the run to the docker backend, the exact
+  posture this lock removes.
 end note
 
 note top of SOON

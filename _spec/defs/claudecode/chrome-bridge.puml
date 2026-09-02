@@ -30,7 +30,7 @@ CSOCK  ARROW_MAIN CRELAY
 CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\nfirst line ""PROVEO-CHROME-BRIDGE <token>""
 RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
 PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
-PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked
+PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked —\nand on an sbx harness that box is now COMPULSORY,\nso ""PROVEO_SBX=0"" is the only way to reach this add-on
 PICK   ARROW_ERROR SCOPE : greyed when the session's scopes\nname none of the three (""chromebridge.ScopeGate"")
 RELAY  ARROW_ERROR BAD
 

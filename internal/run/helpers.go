@@ -74,10 +74,6 @@ func mountRootDeps(getenv func(string) string) bool {
 	return true
 }
 
-// willSandbox adds the ADD-ON to sandbox.Selected's host-capability test.
-// Unticking "docker (sandbox)" and PROVEO_SBX=off reach the same backend, but only
-// the env var was visible to the free function — so an unticked run reported
-// "enforced by sbx" while actually running on docker+egress.
 func reviewConsent(mode string) (func(host, port string) bool, *ptyproxy.Proxy) {
 	if mode != "review" {
 		return nil, nil
@@ -118,7 +114,7 @@ func sbxStoredAuth(man manifest.Manifest, p *Params) []string {
 // credential lives in sbx's store rather than in the proveo home.
 func sbxSuppliesCredential(man manifest.Manifest, p *Params, sbxOK bool) bool {
 	return man.Subscription && man.IsSbx() && p.Mode != "review" &&
-		sandbox.Enabled() && p.sandboxAddonOn() && sbxOK
+		sandbox.Enabled() && sbxOK
 }
 
 func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {

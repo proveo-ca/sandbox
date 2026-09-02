@@ -617,8 +617,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	rs.Backend.Sbx = false
 	if rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled() {
 		switch ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); {
-		case !p.sandboxAddonOn():
-			ui.Iconf("🐳", "docker sandbox: off (add-on unchecked) — running on docker+egress")
 		case !ok:
 			sandbox.ReportUnavailable(why)
 		default:
@@ -628,7 +626,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			if hasAddon(p.Addons, addonChrome) {
 				// The picker greys this pair; a cached or scripted answer can still
 				// carry both, so the run says which one it is not honouring.
-				ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; untick docker (sandbox) to use it", addonChrome)
+				ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
 			}
 		}
 	}
@@ -685,10 +683,9 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
 			Roles: p.Roles, Bridges: p.Bridges,
-			Evidence:       p.evidenceOrDefault(),
-			Forwards:       p.forwards(),
-			SandboxAddonOn: p.sandboxAddonOn(),
-			Man:            rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
+			Evidence: p.evidenceOrDefault(),
+			Forwards: p.forwards(),
+			Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
 			Mounts: mounts, Workdir: rs.Workspace.Workdir,
 			Lookup:           rs.Creds.Lookup,
 			Detected:         rs.Creds.Detected,

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
@@ -32,12 +33,18 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		// disagree: the picker offered a ticked "docker (sandbox)" while the run took
 		// the docker backend, so the prompt described a posture the run did not have.
 		if !sandbox.Enabled() {
-			sbxWhy = "PROVEO_SBX is off"
+			sbxWhy = "PROVEO_SBX=0 is set"
 		} else {
 			sbxBackend, sbxWhy = sbx.Available()
 		}
 	}
-	sandboxOn := sbxBackend && p.sandboxAddonOn()
+	// The add-on does not vote any more: a harness that declares sbx runs there
+	// whenever the host can, so availability alone decides which egress axis the
+	// operator is shown. Consulting the remembered answer here offered the docker
+	// tiers — open/allowlist/review — for a run that was going to sbx and read the
+	// host baseline instead, and hid changeBaselineHint, the one true statement
+	// about what governs egress there.
+	sandboxOn := sbxBackend
 	chromeWhy := ""
 	if man.Capabilities.HasHostBrowser() {
 		chromeWhy = chromeUnavailable(lookup, p.Target, homeRoot)
@@ -157,7 +164,10 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 	// Read from the form, not from the row in hand: the sandbox box lives in the
 	// execution group and the Chrome box it excludes lives in the interface one,
 	// so the two are no longer neighbours in the same slice.
-	sandboxTicked := sbxWhy == "" && rowTicked(f, rowExecution, addonSandbox)
+	// Read from the row's OPTIONS, not from On: the loop below is what ticks the
+	// compulsory box, so asking On here answers from the previous pass and leaves
+	// the host browser drawn live for one whole paint — long enough to accept.
+	sandboxTicked := sbxWhy == "" && rowOffers(f, rowExecution, addonSandbox)
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if !isAddonRow(r.Label) {
@@ -185,16 +195,20 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 			}
 			switch opt {
 			case addonSandbox:
-				// Offered, but only checkable on a host that can actually run it.
+				// A fact in both directions, greyed either way.
+				r.Off[j] = true
 				if sbxWhy != "" {
-					r.Off[j] = true
 					// Greyed AND unticked: a ticked box that cannot be honoured is
 					// worse than an absent one, because the operator reads it as the
 					// posture of the run rather than as a thing they cannot have.
 					r.On[j] = false
 					reasons = append(reasons, "docker sandbox: "+sbxWhy)
 					r.OffWhy[opt] = sbxWhy
+					break
 				}
+				// Greyed AND ticked: compulsory, and out of `reasons`.
+				r.On[j] = true
+				r.OffWhy[opt] = "this harness runs in the sandbox and nowhere else; PROVEO_SBX=0 or --egress-mode review fall back to docker + egress sidecars"
 			case addonDind:
 				if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
 					r.Off[j] = true
@@ -213,7 +227,7 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 				switch {
 				case why != "":
 				case sandboxTicked:
-					why = "docker backend only — untick docker (sandbox)"
+					why = "docker backend only — set PROVEO_SBX=0"
 				case !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds):
 					why = "needs egress open + credentials forward"
 				}
@@ -450,7 +464,7 @@ var addonFixed = map[string]struct {
 	on  bool
 	why string
 }{
-	addonHost: {why: "proveo never runs an agent there — every run is containerised, which is the point of it"},
+	addonHost: {why: "the agent won't run with access to everything in your computer"},
 	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
 }
 
@@ -467,7 +481,7 @@ var addonHelp = map[string]string{
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "your own Chrome, with your profile and logins, driven through proveo's bridge",
-	addonSandbox: "a microVM with its own Docker daemon (sbx); unticked: docker + egress sidecars",
+	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 	addonDind:    "a privileged sibling Docker daemon; unticked: no daemon reaches the agent",
 }
 
@@ -516,8 +530,44 @@ func selectedAddons(f *choiceui.Form) []string {
 	var out []string
 	for _, label := range addonRows {
 		out = append(out, f.Selections(label)...)
+		out = append(out, compulsory(f, label)...)
 	}
 	return out
+}
+
+// compulsory are the ticked boxes of one group that "Selections" drops because
+// they are greyed. See _spec/internal/choiceui/choice-prompt-render.puml.
+func compulsory(f *choiceui.Form, label string) []string {
+	var out []string
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != label {
+			continue
+		}
+		for j, opt := range r.Options {
+			if _, declared := addonFixed[opt]; declared {
+				continue
+			}
+			if j < len(r.On) && r.On[j] && j < len(r.Off) && r.Off[j] {
+				out = append(out, opt)
+			}
+		}
+		break
+	}
+	return out
+}
+
+// rowOffers reports whether a group lists an option at all, which is a different
+// question from whether it is ticked: the execution row carries the sandbox only
+// on a harness that declares it, and a dind harness must not be read as one.
+func rowOffers(f *choiceui.Form, label, option string) bool {
+	for i := range f.Rows {
+		if f.Rows[i].Label != label {
+			continue
+		}
+		return slices.Contains(f.Rows[i].Options, option)
+	}
+	return false
 }
 
 // rowTicked reports whether one option of one group is checked, reading On
@@ -538,9 +588,8 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// sandboxAddonOn reports whether this run takes the sandbox backend. It is
-// default-ON: only a remembered or prompted answer can turn it off, so a first
-// run — and every non-interactive one — still gets the sandbox.
+// normalizeAddons upgrades the names a previous version remembered, so a cached
+// choice keeps meaning what the operator picked.
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {

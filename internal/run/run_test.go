@@ -98,9 +98,14 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 			t.Errorf("%q is greyed with no explanation", o)
 		}
 	}
-	// Neither is a run option, so neither may be reported as one.
+	// "host" and the TUI state facts, so neither is reported as a run option. The
+	// sandbox is greyed for the opposite reason — it is compulsory — and dropping
+	// it here would report the run as taking the weaker backend.
+	if !exec.Off[1] || !exec.On[1] {
+		t.Error("an available sandbox must be greyed and TICKED: it is compulsory, not optional")
+	}
 	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox, addonBrowser}) {
-		t.Errorf("selectedAddons = %v, want only the real toggles from both planes", got)
+		t.Errorf("selectedAddons = %v, want the real toggles plus the compulsory sandbox", got)
 	}
 }
 
@@ -199,12 +204,11 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}[k]
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Extra:          []string{"--verbose"},
-		Evidence:       EvidenceDefault,
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Extra:    []string{"--verbose"},
+		Evidence: EvidenceDefault,
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode",
 			Capabilities: manifest.Capabilities{
@@ -323,11 +327,10 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:         "cursor",
-		Image:          "proveo/cursor:latest",
-		Evidence:       EvidenceDefault,
-		Forwards:       true,
-		SandboxAddonOn: true,
+		Target:   "cursor",
+		Image:    "proveo/cursor:latest",
+		Evidence: EvidenceDefault,
+		Forwards: true,
 		Man: manifest.Manifest{
 			Name: "cursor",
 			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
@@ -371,11 +374,10 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Evidence:       EvidenceDefault,
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Evidence: EvidenceDefault,
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode",
 			Env:  []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
@@ -479,23 +481,28 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 
 	f = row(true)
 	gateAddons(f, "open", "forward", "", "")
-	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "untick docker (sandbox)") {
+	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "PROVEO_SBX=0") {
 		t.Errorf("a ticked sandbox must grey the host browser: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
-	if sb := sandbox(f); sb.Off[0] || !sb.On[0] {
-		t.Errorf("the sandbox box itself must stay ticked and selectable: off=%v on=%v", sb.Off, sb.On)
+	// The escape the reason names is the env var, not the checkbox: an available
+	// sandbox is greyed AND ticked, so there is no box left to untick.
+	if sb := sandbox(f); !sb.Off[0] || !sb.On[0] {
+		t.Errorf("the sandbox box itself must be greyed and ticked: off=%v on=%v", sb.Off, sb.On)
 	}
 
 	f = row(false)
-	gateAddons(f, "allowlist", "forward", "", "")
+	gateAddons(f, "allowlist", "forward", "no sbx", "")
+	// sbxWhy != "" above is a host that cannot run sbx at all — the only way the
+	// box is unticked. With sbx available the box is force-ticked by this very
+	// call, and the host browser must be excluded on that same pass.
 	if c := chrome(f); !c.Off[0] || !strings.Contains(c.Reason, "egress open + credentials forward") {
 		t.Errorf("an intercepting tier must grey the host browser: off=%v reason=%q", c.Off, c.Reason)
 	}
 
 	f = row(false)
-	gateAddons(f, "open", "forward", "", "")
+	gateAddons(f, "open", "forward", "no sbx", "")
 	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
-		t.Errorf("open + forward, sandbox off, host ready: the box must be live: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+		t.Errorf("open + forward, no sandbox to exclude it, host ready: the box must be live: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 
 	// A sandbox the host cannot run is unticked by its own gate, so it must not
@@ -562,19 +569,71 @@ func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
 	}
 }
 
-func TestSandboxAddonIsOnUntilAnAnswerSaysOtherwise(t *testing.T) {
+// The sandbox stopped being an add-on decision: a harness that declares sbx runs
+// there whenever the host allows it. A remembered answer written before the lock
+// — or one with the box cleared — must no longer be able to route the run to the
+// weaker docker backend, so every Params below has to agree with the host test.
+func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
 	t.Parallel()
-	if !(&Params{}).sandboxAddonOn() {
-		t.Error("a first run must take the sandbox backend without being asked")
+	man := manifest.Manifest{Name: "claudecode", Docker: manifest.DockerSbx}
+	want := sandbox.Selected(man)
+	for _, p := range []*Params{
+		{},
+		{Addons: []string{addonSandbox}, AddonsAnswered: true},
+		{Addons: []string{addonBrowser}, AddonsAnswered: true},
+		{AddonsAnswered: true},
+	} {
+		if got := p.willSandbox(man); got != want {
+			t.Errorf("Addons=%v answered=%v: willSandbox = %v, want the host test %v",
+				p.Addons, p.AddonsAnswered, got, want)
+		}
 	}
-	if !(&Params{Addons: []string{addonSandbox}, AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("a remembered yes must keep the sandbox on")
+	if (&Params{}).willSandbox(manifest.Manifest{Docker: manifest.DockerDind}) {
+		t.Error("a harness that does not declare sbx never takes the sandbox backend")
 	}
-	if (&Params{Addons: []string{"browser"}, AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("a remembered answer WITHOUT the add-on means the operator turned it off")
+}
+
+// The compulsory tick happens INSIDE gateAddons, so anything gating on it must
+// read the row's options rather than On — or the first paint, the one an Enter
+// can accept outright, is computed from a state that no longer exists.
+func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
+	t.Parallel()
+	form := func() *choiceui.Form {
+		return &choiceui.Form{Rows: []choiceui.Row{
+			// On=false is what a cache answered before the lock looks like.
+			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{false}},
+			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+		}}
 	}
-	if (&Params{AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("an empty remembered answer is still an answer — the sandbox stays off")
+	first := form()
+	gateAddons(first, "open", "forward", "", "")
+	second := form()
+	gateAddons(second, "open", "forward", "", "")
+	gateAddons(second, "open", "forward", "", "")
+	for _, tc := range []struct {
+		name string
+		f    *choiceui.Form
+	}{{"first pass", first}, {"second pass", second}} {
+		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
+			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
+		}
+		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] {
+			t.Errorf("%s: a sandboxed run must grey and untick the host browser, got off=%v on=%v",
+				tc.name, c.Off, c.On)
+		}
+	}
+}
+
+// A dind harness carries no sandbox box at all, so nothing may read it as one.
+func TestGateAddonsLeavesTheHostBrowserAloneOnADindHarness(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: rowExecution, Options: []string{addonDind}, Multi: true, On: []bool{true}},
+		{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+	}}
+	gateAddons(f, "open", "forward", "", "")
+	if c := f.Rows[1]; c.Off[0] || !c.On[0] {
+		t.Errorf("no sandbox in the execution row means no exclusion: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 }
 
@@ -596,8 +655,18 @@ func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
 	}
 	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
 	gateAddons(f, "open", "forward", "", "")
-	if f.Rows[0].Off[1] {
-		t.Error("an available sbx must leave the add-on checkable")
+	r = f.Rows[0]
+	if !r.Off[1] || !r.On[1] {
+		t.Errorf("an available sbx is compulsory: greyed and ticked, got off=%v on=%v", r.Off, r.On)
+	}
+	if r.Reason != "" {
+		t.Errorf("a box greyed on every run must stay out of the inline reason, got %q", r.Reason)
+	}
+	if !strings.Contains(r.OffWhy[addonSandbox], "PROVEO_SBX=0") {
+		t.Errorf("the compulsory sandbox must name its escape hatch, got %q", r.OffWhy[addonSandbox])
+	}
+	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox}) {
+		t.Errorf("a compulsory sandbox must still be reported as selected, got %v", got)
 	}
 }
 
@@ -837,8 +906,8 @@ func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 		Options: []string{addonSandbox}, On: []bool{true},
 	}}}
 	gateAddons(f2, "open", "forward", "", "")
-	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
-		t.Error("an available sandbox add-on must stay selectable and ticked")
+	if !f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
+		t.Error("an available sandbox add-on must be greyed and ticked — it is compulsory")
 	}
 }
 
@@ -875,10 +944,10 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 			because: "a store proveo cannot reach cannot be the reason to launch"},
 		{name: "PROVEO_SBX=off", man: sbxMan, sbxOK: true, sbxOff: true, want: false,
 			because: "the knob pins docker+egress; the backend decides the store"},
-		{name: "sandbox add-on unchecked", man: sbxMan,
+		{name: "a remembered answer without the add-on", man: sbxMan,
 			p:     Params{Addons: []string{}, AddonsAnswered: true},
-			sbxOK: true, want: false,
-			because: "an answered picker that turned the sandbox off runs on docker"},
+			sbxOK: true, want: true,
+			because: "the add-on no longer votes: an sbx harness runs on sbx, so the store is still the source"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.sbxOff {

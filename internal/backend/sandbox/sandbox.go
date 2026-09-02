@@ -528,7 +528,6 @@ type Input struct {
 	Bridges          provider.BridgeTable
 	Evidence         string // was params.evidenceOrDefault()
 	Forwards         bool   // was params.forwards()
-	SandboxAddonOn   bool   // was params.sandboxAddonOn()
 	Man              manifest.Manifest
 	Sid, EgDir       string
 	Mounts           []runner.Mount
