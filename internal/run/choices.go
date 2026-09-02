@@ -464,7 +464,7 @@ var addonFixed = map[string]struct {
 	on  bool
 	why string
 }{
-	addonHost: {why: "the agent won't run with access to everything in your computer"},
+	addonHost: {why: "the agent can't touch your whole machine"},
 	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
 }
 
