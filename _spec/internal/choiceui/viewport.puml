@@ -1,0 +1,133 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the choice prompt stays usable on a terminal shorter than the form
+' covers: internal/choiceui/viewport.go
+' covers: internal/choiceui/canvas.go
+' covers: internal/choiceui/layout.go
+'   the budget it extends ....... _spec/internal/choiceui/topology-strip.puml
+'   the figure in the foot ...... _spec/internal/choiceui/topology-states.puml
+'   the resolved layout ......... _spec/internal/choiceui/wireframe.puml
+'   what is still unbuilt ....... _spec/_plans/choiceui-viewport-proposals.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+title Choice-prompt viewport — a droppable head, a scrolling body, a foot that follows
+
+node "internal/choiceui" as PKG <<host>> {
+  component "bodyLines()\nevery painted line, and its row" as LINES <<app>>
+  component "scrollTo(prev, window, lines, cursor)\nthe offset that keeps the cursor on" as SCROLL <<app>>
+  component "gutter\nends of travel · proportional thumb" as GUTTER <<app>>
+  component "canvas\none writer, one window, drops outside" as CANVAS <<app>>
+  component "layout(w, h)\nthe ladder, now yielding a body height" as LAYOUT <<app>>
+}
+
+component "head — banner · title · header · axis\ndroppable, never scrolled" as HEAD <<app>>
+component "body — the rows\nthe only region that scrolls" as BODY <<app>>
+component "foot — hint · help slot · strip\nfollows the body, never painted over" as FOOT <<app>>
+component "Operator terminal\nw x h, resized at will" as TTY <<host>>
+component "A form that loses its last rows in silence" as LOST <<error>>
+
+LINES ARROW_MAIN SCROLL
+LINES ARROW_MAIN LAYOUT : its length IS rowsHeight
+SCROLL ARROW_MAIN GUTTER
+LAYOUT ARROW_MAIN BODY : how many lines it may paint
+CANVAS ARROW_MAIN HEAD
+CANVAS ARROW_MAIN BODY
+CANVAS ARROW_MAIN FOOT
+HEAD ARROW_MAIN TTY
+BODY ARROW_MAIN TTY
+FOOT ARROW_MAIN TTY
+LOST ARROW_ERROR FOOT : what this replaces
+
+note top of LINES
+  **The body scrolls by LINE, never by row.** A
+  divider costs four lines and a plain row one,
+  so an offset counted in rows would travel four
+  at a time and could never put a heading and
+  its own row on screen together.
+end note
+
+note bottom of LINES
+  **One description of the height, not two.** The
+  formula and the paint loop used to state it
+  separately and could drift; the painter now
+  walks the same list the budget measures, so
+  the two cannot disagree.
+end note
+
+note top of SCROLL
+  **The offset is a cache, never a source of
+  truth.** Every paint re-clamps it and re-earns
+  the margin, so a form drawn again at another
+  size cannot inherit an offset that stopped
+  making sense when the terminal changed.
+end note
+
+note bottom of SCROLL
+  **The whole group comes on screen when it
+  fits.** Checkboxes arriving without the heading
+  that names them cannot be identified — and when
+  the window is too small for the furniture, the
+  row itself is what wins.
+end note
+
+note bottom of GUTTER
+  **A divider row takes its label back.** The
+  heading names the group, so the row is drawn
+  bare — but the heading can scroll away, and a
+  nameless group of boxes is worse than saying
+  the name twice.
+end note
+
+note top of CANVAS
+  **Outside the window a write is DROPPED, not
+  clipped.** A half-painted row is worse than an
+  absent one, and tcell would happily let a
+  scrolled-off row paint over the hint — which is
+  the silent failure being ended here.
+end note
+
+note bottom of CANVAS
+  **It landed as a proven no-op.** With the window
+  wide open it is the closure it replaces, so the
+  whole suite passed before anything scrolled and
+  the flip could be judged on its own.
+end note
+
+note top of LAYOUT
+  **The body's FLOOR is priced up front.** Running
+  the ladder, finding the body too small and
+  dropping another region is a feedback loop that
+  can oscillate — and it would break the
+  monotonicity the strict ladder exists for.
+end note
+
+note bottom of LAYOUT
+  **The foot FOLLOWS the body.** Pinned means
+  always drawn, never scrolled off — not fixed to
+  the bottom edge. So a form that fits renders
+  exactly where it did before the viewport, with
+  no offset and no gutter drawn at all.
+end note
+
+note bottom of FOOT
+  **The count rides on the hint.** A region that
+  exists to say the rows ran out must not be the
+  reason one more of them did, so "N more below"
+  costs no body line of its own.
+end note
+
+note bottom of LOST
+  **Below the floor the failure is loud.** The
+  prompt names the size it needs and draws
+  nothing else, and the event loop keeps running:
+  a terminal too small to draw the form must
+  never be one the operator cannot leave.
+end note
+
+note bottom of TTY
+  **No new minimum width.** The gutter costs two
+  columns, the options run to about seventy, and
+  a row's inline reason was already clipped — so
+  the strip's own 72 stays the only width floor
+  the prompt has.
+end note
+@enduml

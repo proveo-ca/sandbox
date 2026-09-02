@@ -35,19 +35,20 @@ type layout struct {
 	axis     bool
 	strip    stripFit
 	helpSlot int // rows held for help, at its maximum over every row and option
+	// tooSmall means the body cannot even show its floor, so the form is not
+	// navigable and the prompt says so rather than painting a broken one.
+	tooSmall bool
+	// body is how many lines the scrolling region may paint. Fewer than the form
+	// has means it scrolls; the foot then follows the body rather than being
+	// pinned to the screen's bottom edge, so a form that fits renders exactly as
+	// it did before the viewport existed.
+	body int
 }
 
-// rowsHeight is what the rows themselves cost: one line each, and three more
-// for a divider — a blank, the heading, another blank.
-func (f *Form) rowsHeight() int {
-	n := len(f.Rows)
-	for _, r := range f.Rows {
-		if r.Divider {
-			n += 3
-		}
-	}
-	return n
-}
+// rowsHeight is what the rows cost, read off the enumeration the painter walks
+// rather than recomputed. The formula and the paint loop used to say it
+// separately, and a viewport would have made that three places to disagree.
+func (f *Form) rowsHeight() int { return len(f.bodyLines()) }
 
 // maxHelpLines is the tallest the help block can EVER be for this form, taken
 // over every row and every option rather than over the current selection.
@@ -80,22 +81,23 @@ func (f *Form) maxHelpLines(width int) int {
 // the optional regions in the order they are worth keeping.
 func (f *Form) layout(w, h int) layout {
 	help := f.maxHelpLines(w - 4)
+	lines := f.rowsHeight()
 	lay := layout{helpSlot: help}
 
-	// Mandatory: the title pair, the rows, the hint pair, and the help slot —
-	// plus the blank line the help block opens with. The blank is charged
-	// whenever the slot is reserved, because draw() advances past it whether or
-	// not the cursor's option has anything to say; charging it only when help is
-	// non-empty put the strip one row higher than the paint actually left it.
-	need := 2 + f.rowsHeight() + 2 + help
+	// Mandatory: the title pair, the whole body, the blank-and-hint pair, and the
+	// help slot with the blank it opens with.
+	//
+	// The body is charged at its FULL height, so a decoration can only ever be
+	// bought with rows that are genuinely spare. Charging its floor instead was a
+	// real bug: the ladder then spent rows the body was already using, and
+	// GROWING the terminal by one row could buy the header and start the rows
+	// scrolling. "What a short terminal loses is decoration" has to hold in that
+	// direction too.
+	need := 2 + lines + 2 + help
 	if help > 0 {
-		need++
+		need++ // the blank the help block opens with
 	}
 
-	// A STRICT ladder, not a best fit. Afford the regions in order and stop at
-	// the first that does not fit: a cheaper region further down must not sneak
-	// in past a dearer one that was refused, or a terminal loses its banner and
-	// keeps a decoration that ranks below it.
 	afford := func(cost int) bool {
 		if need+cost > h {
 			return false
@@ -138,5 +140,19 @@ func (f *Form) layout(w, h int) layout {
 		}
 	}
 	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
+
+	// Only when even the mandatory regions do not fit does the body give ground —
+	// which is exactly what scrolling is for. Decorations were already refused
+	// above, because `afford` measured them against a `need` holding the WHOLE
+	// body, so nothing here can take a row a decoration is using. That ordering
+	// is also what makes the foot FOLLOW the body rather than sit at the screen's
+	// bottom edge, so a form that fits renders where it always did.
+	lay.body = lines
+	if deficit := need - h; deficit > 0 {
+		lay.body = clampInt(lines-deficit, 0, lines)
+	}
+	// The floor is capped by what the form HAS: a two-row form on a tall terminal
+	// wants two lines, and demanding three would call a usable prompt unusable.
+	lay.tooSmall = lines == 0 || lay.body < min(minBodyLines, lines)
 	return lay
 }

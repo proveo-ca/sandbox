@@ -68,6 +68,12 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 		if prev.strip > lay.strip {
 			t.Errorf("h=%d: the strip shrank when the terminal grew (%v -> %v)", h, prev.strip, lay.strip)
 		}
+		// The body too. Leaving it out of this loop is exactly how a decoration
+		// came to be bought with rows the body was already using: growing the
+		// terminal by one row bought the header and started the rows scrolling.
+		if prev.body > lay.body {
+			t.Errorf("h=%d: the body shrank when the terminal GREW (%d -> %d)", h, prev.body, lay.body)
+		}
 		prev = lay
 	}
 }
@@ -88,7 +94,9 @@ func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 		if lay.strip == stripNone {
 			continue
 		}
-		floor := 2 + f.rowsHeight() + 2 + lay.helpSlot
+		// The body's FLOOR, not its full height: the rows scroll now, so what the
+		// budget guarantees is a navigable window rather than all of them.
+		floor := 2 + lay.body + 2 + lay.helpSlot
 		if lay.helpSlot > 0 {
 			floor++
 		}
@@ -186,9 +194,10 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 			switch {
 			case strings.Contains(line, "enter accept"):
 				hint = y
-			// Indented: a bare "› " at column 0 is the CURSOR's row marker, which
-			// is a different thing that happens to share the glyph.
-			case strings.HasPrefix(line, "  › ") && help < 0:
+			// BELOW the hint: the body's cursor marker is also "  › " now that the
+			// gutter has pushed the body right, so the glyph alone no longer
+			// distinguishes a help line from the row the cursor is on.
+			case hint >= 0 && y > hint && strings.HasPrefix(line, "  › ") && help < 0:
 				help = y
 			case strings.Contains(line, "() host"):
 				figure = y
@@ -231,4 +240,24 @@ func renderAt(t *testing.T, f *Form, cursor, w, h int) []string {
 		out[y] = strings.TrimRight(b.String(), " ")
 	}
 	return out
+}
+
+// A decoration may only ever be bought with rows that are genuinely spare.
+// "What a short terminal loses is decoration" has to hold in both directions:
+// no region above the body on the ladder may cost the body a single line.
+func TestNoDecorationIsBoughtWithABodyLine(t *testing.T) {
+	t.Parallel()
+	f := budgetForm()
+	full := f.rowsHeight()
+	for h := 8; h <= 60; h++ {
+		lay := f.layout(120, h)
+		if lay.tooSmall {
+			continue
+		}
+		bought := lay.banner || lay.header || lay.axis || lay.strip != stripNone
+		if bought && lay.body < full {
+			t.Errorf("h=%d: the body scrolls (%d of %d) while a decoration was still afforded",
+				h, lay.body, full)
+		}
+	}
 }

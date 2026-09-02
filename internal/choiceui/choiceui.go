@@ -156,6 +156,10 @@ type Form struct {
 	// Topology means no strip, which is what every caller that does not want
 	// one gets for free.
 	Topology func(f *Form, cursor int) *Frame
+	// scroll is the body's first visible line. It is a CACHE and never a source
+	// of truth: every paint re-clamps it and re-satisfies the cursor margin, so
+	// a form drawn twice at different sizes cannot inherit a stale offset.
+	scroll int
 }
 
 func Banner() []string {
@@ -212,6 +216,24 @@ func (f *Form) Run() (confirmed bool, err error) {
 			// One unconditional bump, before the key switch: no path can miss it,
 			// and a keystroke that changes nothing costs only a second of frames.
 			tick.bump()
+			// On a screen too small to draw the form, only leaving it is allowed.
+			// This prompt exists to confirm a credential and network posture, and
+			// silently CHANGING a posture nobody can see is worse than the
+			// truncation the viewport replaced — accepting one unseen is bad
+			// enough, and esc is always the answer to that.
+			if !f.navigable(screen) {
+				switch ev.Key() {
+				case tcell.KeyEscape, tcell.KeyCtrlC:
+					return false, nil
+				case tcell.KeyEnter:
+					return true, nil
+				case tcell.KeyRune:
+					if ev.Rune() == 'q' {
+						return false, nil
+					}
+				}
+				continue
+			}
 			switch ev.Key() {
 			case tcell.KeyEscape, tcell.KeyCtrlC:
 				return false, nil
@@ -223,6 +245,17 @@ func (f *Form) Run() (confirmed bool, err error) {
 				cursor = f.move(cursor, -1)
 			case tcell.KeyDown:
 				cursor = f.move(cursor, +1)
+			// Paging moves the CURSOR, never the window on its own: the body has
+			// nothing to read but rows, so a viewport that could drift away from
+			// the cursor would make the next arrow key teleport.
+			case tcell.KeyPgUp:
+				cursor = f.page(cursor, -1)
+			case tcell.KeyPgDn:
+				cursor = f.page(cursor, +1)
+			case tcell.KeyHome:
+				cursor = f.firstSelectable()
+			case tcell.KeyEnd:
+				cursor = f.lastSelectable()
 			case tcell.KeyLeft:
 				f.cycle(cursor, -1)
 			case tcell.KeyRight:
@@ -358,91 +391,69 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	p := styles()
 	w, h := s.Size()
 	lay := f.layout(w, h)
-
-	y := 0
-	put := func(x int, style tcell.Style, text string) {
-		for i, r := range []rune(text) {
-			s.SetContent(x+i, y, r, nil, style)
-		}
+	if lay.tooSmall {
+		// Too small to navigate. The event loop keeps running, so enter and esc
+		// still work: a terminal too small to draw the form must never be a
+		// terminal the operator cannot leave.
+		drawTooSmall(s, w, h, f.minHeight(w))
+		s.Show()
+		return
 	}
 
+	c := newCanvas(s)
+
+	// ── head: droppable, never scrolled ────────────────────────────────────
 	if lay.banner {
 		for _, b := range f.Banner {
-			put(0, p.brand, b)
-			y++
+			c.put(0, p.brand, b)
+			c.y++
 		}
-		y++
+		c.y++
 	}
-	put(0, p.title, f.Title)
-	y += 2
+	c.put(0, p.title, f.Title)
+	c.y += 2
 	if lay.header {
 		for _, hl := range f.Header {
-			putHeader(put, p, hl)
-			y++
+			putHeader(c.put, p, hl)
+			c.y++
 		}
-		y++
+		c.y++
 	}
-
 	if lay.axis {
-		put(22, p.body, "◀ riskier")
-		put(60, p.body, "safer ▶")
-		y += 2
+		c.put(bodyIndent+22, p.body, "◀ riskier")
+		c.put(bodyIndent+60, p.body, "safer ▶")
+		c.y += 2
 	}
 
-	for i, r := range f.Rows {
-		namedByDivider := false
-		if r.Divider {
-			namedByDivider = true
-			label := " " + r.Label + " "
-			pad := (72 - len([]rune(label))) / 2
-			if pad < 0 {
-				pad = 0
-			}
-			y++
-			put(pad, p.body, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
-			y += 2
-		}
-		marker := "  "
-		labelStyle := p.accent
-		if i == cursor {
-			marker = "› "
-			labelStyle = p.brand
-		}
-		rowLabel := r.Label
-		if namedByDivider {
-			rowLabel = ""
-		}
-		put(0, labelStyle, marker+rowLabel)
-		x := 22
-		for j, opt := range r.Options {
-			var glyph string
+	// ── body: the only region that scrolls ─────────────────────────────────
+	lines := f.bodyLines()
+	f.scroll = scrollTo(f.scroll, lay.body, lines, cursor)
+	g := newGutter(f.scroll, lay.body, len(lines))
+	named := headingsInWindow(lines, f.scroll, lay.body)
+	bodyTop := c.y
+	c.clipTo(bodyTop, bodyTop+lay.body)
+	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
+		c.y = bodyTop + i
+		ln := lines[f.scroll+i]
+		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII); glyph != "" {
 			st := p.idle
-			switch {
-			case r.Multi && r.onAt(j):
-				glyph, st = "[x] ", p.brand
-			case r.Multi:
-				glyph = "[ ] "
-			case j == r.Selected:
-				glyph, st = "(•) ", p.brand
-			default:
-				glyph = "( ) "
+			if thumb {
+				st = p.brand
 			}
-			if i == cursor && j == r.Selected {
-				st = st.Underline(true)
-			}
-			if r.Locked || r.offAt(j) {
-				st = p.warn
-			}
-			put(x, st, glyph+opt)
-			x += len(glyph) + len(opt) + 3
+			c.put(0, st, glyph)
 		}
-		if r.Reason != "" && (r.Locked || r.anyOff()) {
-			put(x, p.warn, clip("— "+r.Reason, w-x))
-		}
-		y++
+		// A divider row hands its name to the heading above it — but that heading
+		// can scroll away, and a group of checkboxes with no name at all is worse
+		// than the duplication. When the heading is off screen the label comes back.
+		f.drawBodyLine(c, p, ln, cursor, w, named[ln.row])
 	}
+	c.unclip()
+	// The blank the rows have always had under them. Dropping it put the hint
+	// flush against the last row AND made the budget over-reserve by one, since
+	// the arithmetic still charged for it.
+	c.y = bodyTop + lay.body + 1
 
-	y++
+	// ── foot: follows the body, and is never painted over ──────────────────
 	hint := "↑↓ row · ←→ choose · enter accept · esc cancel"
 	for _, r := range f.Rows {
 		if r.Multi {
@@ -450,47 +461,162 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			break
 		}
 	}
-	put(0, p.body, hint)
+	// The count rides on the hint rather than taking a body line of its own: the
+	// rows are the scarce thing here, and a region that exists to say the rows
+	// ran out must not be the reason one more of them did.
+	// Clipped BEFORE the count is appended, so the count is not the first thing
+	// a narrow terminal cuts — on exactly the terminals where scrolling happens.
+	hint = clip(hint, w)
+	if n := g.hiddenRows(lines); n > 0 {
+		hint = clip(hint+fmt.Sprintf(" · %d more below", n), w)
+	}
+	c.put(0, p.body, hint)
+	c.y++
 
-	// The cursor's option explains itself HERE, below the hint, and nothing is
-	// drawn after it. Under the row it belonged to, the block's height changed
-	// with the cursor and shoved every row beneath it up and down — the form
-	// moved while the operator was reading it. Pinned last, it can grow freely
-	// and the rows above never shift.
-	// The help block is drawn into a slot reserved at its MAXIMUM height, so the
-	// figure below it does not jump a row every time the cursor reaches a wordier
-	// option. Without the reservation the strip moved under the operator while
-	// they were reading it — the same failure that pushed help to the bottom in
-	// the first place, one level down.
-	// y+2, not y+1: the hint sits at y and the block has always opened with a
-	// blank line under it. Reserving from y+1 silently deleted that blank and
-	// pushed the help up against the hint.
-	helpTop := y + 2
-	if cursor >= 0 && cursor < len(f.Rows) {
-		if lines := f.Rows[cursor].helpLines(w - 4); len(lines) > 0 {
-			for i, hl := range lines {
+	// The cursor's option explains itself below the hint, and the block is drawn
+	// into a slot reserved at its MAXIMUM height. Under its own row the block
+	// shoved every row beneath it as the cursor moved; unreserved down here it
+	// shoved the figure instead. y+2, not y+1: the hint sits at y and the block
+	// has always opened with a blank line under it.
+	if lay.helpSlot > 0 {
+		c.y++ // the blank the help block opens with
+		helpTop := c.y
+		if cursor >= 0 && cursor < len(f.Rows) {
+			for i, line := range f.Rows[cursor].helpLines(w - 4) {
 				st := p.body
-				if hl.warn {
+				if line.warn {
 					st = p.warn
 				}
-				y = helpTop + i
-				put(2, st, hl.text)
+				c.y = helpTop + i
+				c.put(2, st, line.text)
 			}
 		}
+		c.y = helpTop + lay.helpSlot
 	}
-	y = helpTop + lay.helpSlot
 
 	if lay.strip != stripNone && f.Topology != nil {
 		if fr := f.Topology(f, cursor); fr != nil {
-			if lay.strip == stripDigest {
-				y++
-				put(2, p.aside, clip(fr.Caption, w-3))
-			} else {
-				drawTopology(s, y, *fr, f.Glyphs, p, tick)
+			switch {
+			case lay.strip == stripDigest:
+				c.y++
+				c.put(2, p.aside, clip(fr.Caption, w-3))
+			// drawTopology paints through its own pen rather than the canvas, so
+			// it has no window to be dropped by. The budget already guarantees the
+			// room; this is the belt to that pair of braces, because the one region
+			// outside the canvas is the one that could overrun it unnoticed.
+			case c.y+stripRows <= h:
+				drawTopology(s, c.y, *fr, f.Glyphs, p, tick)
 			}
 		}
 	}
 	s.Show()
+}
+
+// drawBodyLine paints one enumerated line of the scrolling body. Splitting it
+// out is what lets the body be walked by LINE — the painter no longer decides
+// how many lines a row costs, it is told which one to draw.
+func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, w int, named bool) {
+	r := f.Rows[ln.row]
+	switch ln.kind {
+	case lineBlank:
+		return
+	case lineHeading:
+		label := " " + r.Label + " "
+		pad := (72 - len([]rune(label))) / 2
+		if pad < 0 {
+			pad = 0
+		}
+		c.put(bodyIndent+pad, p.body, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
+		return
+	}
+
+	marker := "  "
+	labelStyle := p.accent
+	if ln.row == cursor {
+		marker = "› "
+		labelStyle = p.brand
+	}
+	rowLabel := r.Label
+	if r.Divider && named {
+		rowLabel = "" // the heading above it is on screen and already says this
+	}
+	c.put(bodyIndent, labelStyle, marker+rowLabel)
+	x := bodyIndent + 22
+	for j, opt := range r.Options {
+		var glyph string
+		st := p.idle
+		switch {
+		case r.Multi && r.onAt(j):
+			glyph, st = "[x] ", p.brand
+		case r.Multi:
+			glyph = "[ ] "
+		case j == r.Selected:
+			glyph, st = "(•) ", p.brand
+		default:
+			glyph = "( ) "
+		}
+		if ln.row == cursor && j == r.Selected {
+			st = st.Underline(true)
+		}
+		if r.Locked || r.offAt(j) {
+			st = p.warn
+		}
+		c.put(x, st, glyph+opt)
+		x += len(glyph) + len(opt) + 3
+	}
+	if r.Reason != "" && (r.Locked || r.anyOff()) {
+		c.put(x, p.warn, clip("— "+r.Reason, w-x))
+	}
+}
+
+// headingsInWindow is the set of rows whose divider heading is on screen. Only
+// those rows may drop their own label; every other row keeps it, because its
+// label is the only place its name was ever going to appear.
+//
+// Built once per frame rather than rescanned per line: the body repaints at the
+// animation ticker's rate.
+func headingsInWindow(lines []bodyLine, off, window int) map[int]bool {
+	named := map[int]bool{}
+	for i := off; i < off+window && i < len(lines); i++ {
+		if lines[i].kind == lineHeading {
+			named[lines[i].row] = true
+		}
+	}
+	return named
+}
+
+// navigable reports whether this screen can draw a form the operator can steer.
+func (f *Form) navigable(s tcell.Screen) bool {
+	w, h := s.Size()
+	return !f.layout(w, h).tooSmall
+}
+
+// minHeight is the shortest terminal that can still draw a navigable form.
+//
+// It takes the width because the help slot's height depends on it: asking at
+// width zero measured the help wrapped to wrap()'s 20-column floor and reported
+// a number far larger than the one layout actually tested — in the one region
+// whose entire job is naming the right size.
+func (f *Form) minHeight(w int) int {
+	need := 2 + minBodyLines + 2
+	if help := f.maxHelpLines(w - 4); help > 0 {
+		need += help + 1
+	}
+	return need
+}
+
+// drawTooSmall names the size the prompt needs and draws nothing else. Being
+// loud about it is the entire point: the failure this replaces was a form that
+// silently lost its last rows and said nothing.
+func drawTooSmall(s tcell.Screen, w, h, needH int) {
+	p := styles()
+	msg := fmt.Sprintf("terminal too small: %dx%d, need %d rows", w, h, needH)
+	c := newCanvas(s)
+	c.put(0, p.warn, clip(msg, w))
+	if h > 1 {
+		c.y = 1
+		c.put(0, p.body, clip("enter accepts the resolved values · esc cancels", w))
+	}
 }
 
 // putHeader styles "label: value" and "KEY=value" lines with accent labels. Both

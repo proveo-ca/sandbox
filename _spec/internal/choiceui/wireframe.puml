@@ -21,11 +21,14 @@
 ' ANTHROPIC_SMALL_FAST_MODEL — two slots, so a third role var is never read.
 ' Bridge dialects for the other harnesses: _spec/internal/entrypoint/model-alias-bridges.puml.
 '
-' PLANNED, not drawn here: a topology strip under the hints.
+' NOT drawn here, and all of it shipped: the topology strip under the hints, and
+' the three regions the form is now painted in — a droppable head, a scrolling
+' body indented two columns for its gutter, and a foot that follows the body.
 '   the mechanism ..... _spec/internal/choiceui/topology-strip.puml
-'   where it fits ..... _spec/_plans/choiceui-viewport-proposals.puml
+'   the regions ....... _spec/internal/choiceui/viewport.puml
 '   every frame ....... _spec/internal/choiceui/topology-states.puml
-' Nothing in those three has shipped; this file stays the resolved layout of today.
+'   still unbuilt ..... _spec/_plans/choiceui-viewport-proposals.puml (the side pane)
+' This file stays the resolved layout of one screenful, at a size that holds it.
 
 title Choice prompt wireframe — resolved layout, and how a gated element is drawn
 

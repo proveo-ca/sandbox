@@ -2,15 +2,15 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: what is still UNBUILT about the prompt at small terminal sizes
 '
-' WHAT SHIPPED, and what did not. Proposal A — one budget pass and a strict drop
-' ladder — is built: internal/choiceui/layout.go, and the strip is its first
-' casualty. What remains planned is B (a scrolling row viewport with pinned
-' chrome) and C's PANE (the figure beside the rows at w >= 112). C's other two
-' fidelities shipped with A: BLOCK at 72 columns, DIGEST as the one-line caption.
+' WHAT SHIPPED, and what did not. A (one budget pass, a strict drop ladder) and
+' B (pinned chrome, a scrolling row viewport) are both built — see
+' _spec/internal/choiceui/viewport.puml. C's BLOCK and DIGEST shipped with A.
 '
-' The pre-existing bug B exists to fix is UNFIXED: draw() still paints straight
-' down and a terminal shorter than the form still loses its last rows. The budget
-' guarantees only that the STRIP is never what pushed them off.
+' ONLY C's PANE remains: the figure beside the rows at w >= 112, costing no
+' height at all. It is a bigger change than the height budget was — draw() paints
+' rows flush from a fixed column with unbounded option widths, and a row's inline
+' reason is already clipped against the right margin the pane would occupy — so
+' it needs a row-WIDTH budget, not just the height one that exists.
 ' PLANNED — three answers to one question: the prompt is already taller than a
 ' small terminal, and the topology strip wants five more rows.
 '   the strip's mechanism ....... _spec/internal/choiceui/topology-strip.puml
@@ -22,7 +22,7 @@
 ' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
 ' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
 ' tier rather than an approximation of it.
-title PLANNED — the scrolling viewport and the side pane, neither of them built
+title PLANNED — the side pane; the scrolling viewport it sits beside has shipped
 
 {
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
@@ -171,7 +171,7 @@ title PLANNED — the scrolling viewport and the side pane, neither of them buil
   stage | what ships | why now
   1 | **SHIPPED** A's drop ladder | one budget pass; the strip is dropped first and can evict nothing mandatory
   2 | **SHIPPED** BLOCK + DIGEST | five rows when they exist, one sentence when they do not
-  3 | PLANNED B's scroll, then C's PANE | the silent truncation is still a bug, at 38-39 rows, with no strip at all
+  3 | **SHIPPED** B's three regions | the body scrolls, the foot is never painted over, and the failure below the floor is loud
 }
   .
   Stage 1 is worth doing whether or not the animation is ever built, and it is
