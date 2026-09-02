@@ -39,9 +39,21 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
-RUN python3 -m venv /opt/cecli \
+# cecli-dev is pinned by version, never bare: BuildKit caches this layer by its
+# text, so an unpinned install re-runs only when something ABOVE it changes, and a
+# warm cache keeps last month's agent with nothing in the build saying so. build.sh
+# resolves the current PyPI release (proveo_agent_version) and passes it in, which
+# moves the cache key exactly when upstream moves; the version check makes the pin
+# a fact about the image. No default on purpose — a bare `docker build` must fail
+# here, not bake whatever is newest.
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG CECLI_VERSION
+RUN test -n "${CECLI_VERSION}" \
+      || { echo "CECLI_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
+  && python3 -m venv /opt/cecli \
   && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
-  && /opt/cecli/bin/pip install cecli-dev boto3 botocore \
+  && /opt/cecli/bin/pip install "cecli-dev==${CECLI_VERSION}" boto3 botocore \
+  && /opt/cecli/bin/pip show cecli-dev | grep -qx "Version: ${CECLI_VERSION}" \
   && rm -rf /root/.cache /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
@@ -72,6 +84,11 @@ RUN chmod +x /usr/local/bin/cecli-entrypoint \
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
+
+# What agent the image carries, readable without running it:
+#   docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/cecli:local
+LABEL proveo.agent="cecli-dev" \
+      proveo.agent.version="${CECLI_VERSION}"
 
 ENTRYPOINT ["dumb-init", "--", "cecli-entrypoint"]
 CMD ["cecli"]

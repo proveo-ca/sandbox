@@ -28,6 +28,29 @@ assert_inspect \
   '{{index .Config.Labels "security.hardened"}}' \
   "true"
 
+# The image says which agent it carries, and the label is the truth: cursor's
+# installer takes no version, so the check is that the release build.sh read out
+# of cursor.com/install is the one the installer unpacked. An image without the
+# label predates the pin — rebuild it (proveo build cursor) rather than trusting it.
+# SPEC: _spec/_devops/agent-version-pin.puml
+assert_inspect \
+  "proveo.agent label names the agent package" \
+  "$IMAGE" \
+  '{{index .Config.Labels "proveo.agent"}}' \
+  "cursor-agent"
+AGENT_VERSION_LABEL="$(docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' "$IMAGE" 2>/dev/null)"
+if [[ -n "$AGENT_VERSION_LABEL" ]]; then
+  assert_success \
+    "installed cursor-agent release is proveo.agent.version=$AGENT_VERSION_LABEL" \
+    "$IMAGE" \
+    "test -d /opt/cursor-dist/.local/share/cursor-agent/versions/$AGENT_VERSION_LABEL"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("proveo.agent.version label is set")
+  printf "${RED}FAIL${NC} [%d] proveo.agent.version label is set (image predates the pin — proveo build cursor)\n" "$TESTS_RUN"
+fi
+
 assert_inspect \
   "Docker USER is non-root (cursor)" \
   "$IMAGE" \

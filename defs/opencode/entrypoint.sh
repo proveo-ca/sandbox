@@ -255,7 +255,12 @@ fi
 configure_workspace_lsps
 
 # ── API key detection ──────────────────────────────────────
+# OPENCODE_API_KEY is OpenCode's own gateway — Zen (pay-as-you-go) and Go (the
+# subscription) both read it, ahead of auth.json, so a host-exported key is a
+# complete login and needs no /connect inside the sandbox (whose auth.json proveo
+# scrubs every run).
 has_api_key() {
+  [[ -n "$OPENCODE_API_KEY" ]] || \
   [[ -n "$ANTHROPIC_API_KEY" ]] || \
   [[ -n "$OPENAI_API_KEY" ]] || \
   [[ -n "$OPENROUTER_API_KEY" ]] || \
@@ -274,9 +279,10 @@ has_project_config() {
 
 if ! has_api_key && ! has_project_config; then
   echo "⚠️  No provider API key env vars and no opencode.json detected."
-  echo "   Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY,"
-  echo "   XAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, ..."
-  echo "   Or run 'opencode auth login' to configure credentials interactively."
+  echo "   Set one of: OPENCODE_API_KEY (OpenCode Zen / Go), ANTHROPIC_API_KEY, OPENAI_API_KEY,"
+  echo "   OPENROUTER_API_KEY, XAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, ..."
+  echo "   A key exported on the host is the login; 'opencode auth login' inside the"
+  echo "   sandbox writes auth.json, which proveo scrubs on the next run."
 fi
 
 # ── Agent evidence ─────────────────────────────────────────

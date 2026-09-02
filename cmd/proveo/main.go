@@ -166,6 +166,10 @@ func runCmd() *cobra.Command {
 				}
 				image = chosen
 			}
+			proxyImage, proxyLocal := egressProxyImage(os.Getenv, posture.ResolveImageChoice)
+			if proxyLocal {
+				ui.Iconf("📦", "egress proxy: %s (local build — newer than the published tag)", proxyImage)
+			}
 			modeSet := cmd.Flags().Changed("egress-mode")
 			credsSet := cmd.Flags().Changed("credentials")
 			if !egress.ValidMode(egressMode) {
@@ -195,6 +199,7 @@ func runCmd() *cobra.Command {
 				Input: input, Output: output, Scope: scope, DataDir: dataDir,
 				Shell: shellMode, PrintOnly: printOnly, Extra: extra,
 				Clone: cloneMode, CloneSet: cmd.Flags().Changed("clone"),
+				ProxyImage: proxyImage,
 			}, runDeps())
 		},
 	}
@@ -372,4 +377,24 @@ func runDeps() run.Deps {
 		SquidConfig:      proveo.SquidConfig,
 		ModelBridges:     proveo.ModelBridges,
 	}
+}
+
+// egressProxyImage settles which egress-proxy sidecar a run launches: the
+// operator's PROVEO_EGRESS_PROXY_IMAGE when set, otherwise the published tag
+// resolved against a local build by recency — the same rule the harness image
+// gets. resolve is injected so the choice stays testable without docker.
+//
+// The sidecar deserves the rule as much as the harness does, and for a sharper
+// reason: proveo-egress compiles the provider registry into its own binary, so a
+// provider added to internal/provider is not brokered until the sidecar is
+// rebuilt — and `proveo build egress-proxy` writes :local while the plan named
+// :latest outright. The result was a run that detected the new key, sentinel-
+// injected it, allowlisted the host, and then let the request reach the vendor
+// with nothing attached: a 401 that read as a bad key, from a build that was
+// sitting right there.
+func egressProxyImage(getenv func(string) string, resolve func(string) (string, bool)) (image string, isLocal bool) {
+	if v := strings.TrimSpace(getenv("PROVEO_EGRESS_PROXY_IMAGE")); v != "" {
+		return v, false // an explicit override is a decision, not a default
+	}
+	return resolve("proveo/egress-proxy:latest")
 }

@@ -838,7 +838,7 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
-		ProxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
+		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),
 		OllamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
 		PidsLimit:       rs.Docker.PidsLimit,
 	})

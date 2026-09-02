@@ -34,6 +34,27 @@ func TestCheckModel(t *testing.T) {
 	}
 }
 
+// models.dev spells OpenCode's two plans as two provider ids; the registry holds
+// ONE entry because key and host are shared. Both prefixes must land on it, or a
+// Go model id pins a provider the registry cannot look up and MissingKeys names
+// no credential for it.
+func TestModelProviderFoldsOpenCodeGoOntoOpenCode(t *testing.T) {
+	t.Parallel()
+	for _, m := range []string{"opencode/claude-sonnet-5", "opencode-go/glm-5", "OpenCode-Go/kimi-k2.5"} {
+		if got := ModelProvider(m); got != "opencode" {
+			t.Errorf("ModelProvider(%q) = %q, want opencode", m, got)
+		}
+	}
+	if _, ok := Lookup(ModelProvider("opencode-go/glm-5")); !ok {
+		t.Error("the provider an opencode-go/ id resolves to is not in the registry")
+	}
+	want := "ARCHITECT_MODEL=opencode-go/glm-5 needs OPENCODE_API_KEY (opencode), which is not set"
+	got := Roles{"ARCHITECT_MODEL": "opencode-go/glm-5"}.MissingKeys(nil)
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("MissingKeys = %q, want [%q]", got, want)
+	}
+}
+
 func TestModelProviderIgnoresLocalEndpoints(t *testing.T) {
 	t.Parallel()
 	for _, m := range []string{"ollama/gemma4", "ollama_chat/gemma4", "openai-compatible/whatever"} {

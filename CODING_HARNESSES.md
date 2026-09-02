@@ -27,6 +27,28 @@ Each harness definition should expose, where applicable:
 
 The README should explicitly mark whether the definition is experimental, candidate, or stable.
 
+## Agent Version
+
+The agent a harness bakes is **pinned to a release resolved at build time, never
+`@latest`**. BuildKit caches a `RUN` layer by its text and its parents, so an unpinned
+install line never changes when upstream publishes: a warm cache reuses last month's
+layer and nothing in the build says so. Every def follows one shape
+(`_spec/_devops/agent-version-pin.puml`, enforced by `internal/contract/agent_pin_test.go`):
+
+- `build.sh` resolves the current release with `proveo_agent_version <ARG> <npm|pypi|cursor> <pkg>`
+  from `defs/lib/docker-build.sh`, prints a `📌 <pkg>@<version>` line, and passes it as
+  `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
+  silent fallback to `latest`.
+- The `Dockerfile` declares the ARG **bare** (no default), guards it with `test -n`, installs
+  exactly that version, verifies the installed CLI reports it, and labels the image with
+  `proveo.agent` and `proveo.agent.version`. A bare `docker build` without the arg fails on
+  purpose.
+- The def's runtime suite checks the label against the agent's own `--version`.
+
+Exporting the ARG pins a specific release or builds offline, e.g.
+`OPENCODE_VERSION=1.18.20 proveo build opencode`. To see what an image carries without
+running it: `docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local`.
+
 ## Runtime Configuration Discovery
 
 Harnesses should load configuration in this order unless the underlying tool requires a stricter precedence:

@@ -62,6 +62,14 @@ else
   "$SCRIPT_DIR/../base/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 fi
 
+# Pin the agent to the release cursor.com/install currently ships (or
+# CURSOR_AGENT_VERSION when exported); the Dockerfile verifies that exact release
+# landed. See proveo_agent_version for why `curl | bash` alone is not a pin.
+CURSOR_INSTALL_URL="${CURSOR_INSTALL_URL:-https://cursor.com/install}"
+CURSOR_AGENT_VERSION="$(proveo_agent_version CURSOR_AGENT_VERSION cursor "$CURSOR_INSTALL_URL")"
+
 proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \
   --build-arg BASE_IMAGE="$BASE_IMAGE" \
+  --build-arg CURSOR_INSTALL_URL="$CURSOR_INSTALL_URL" \
+  --build-arg CURSOR_AGENT_VERSION="$CURSOR_AGENT_VERSION" \
   -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR/../.."

@@ -1,0 +1,89 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Agent version pin — the image carries the release build.sh resolved, and says so
+
+' purpose: why `@latest` in a Dockerfile is not a pin, and the one shape every harness uses instead
+' covers: defs/lib/docker-build.sh
+' covers: defs/*/build.sh
+' covers: defs/*/Dockerfile
+' covers: internal/contract/agent_pin_test.go
+
+actor "Maintainer" as MT
+participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
+participant "defs/<harness>/build.sh" as BUILD <<app>>
+participant "defs/lib/docker-build.sh\nproveo_agent_version" as LIB <<app>>
+participant "upstream release source\nnpm dist-tag · PyPI · cursor.com/install" as UP <<cloud>>
+participant "BuildKit\ndefs/<harness>/Dockerfile" as BK <<host>>
+database "image labels\nproveo.agent · proveo.agent.version" as LBL <<db>>
+participant "internal/contract\nagent_pin_test.go" as CT <<app>>
+
+MT ARROW_MAIN CMD : " ""proveo build <target>"" "
+CMD ARROW_MAIN BUILD : " ""bash build.sh --tag local"" "
+BUILD ARROW_MAIN LIB : " ""proveo_agent_version <ARG> <eco> <pkg>"" "
+alt <ARG> exported by the maintainer
+  LIB ARROW_OPTIONAL BUILD : that version, upstream not asked
+else resolve
+  LIB ARROW_CLOUD UP : npm view · PyPI JSON · read the installer
+  UP ARROW_CLOUD LIB : current release
+  LIB ARROW_MAIN BUILD : version
+else unreachable
+  LIB ARROW_ERROR BUILD : errorLabel(refuse — names ""<ARG>=<x.y.z>"" as the way out)
+end
+BUILD ARROW_MAIN MT : " ""📌 <pkg>@<version> (resolved upstream; override with <ARG>=…)"" "
+BUILD ARROW_MAIN BK : " ""--build-arg <ARG>=<version>"" "
+BK ARROW_MAIN BK : " ""ARG <ARG>"" (bare) → ""test -n"" guard\n→ install ""<pkg>@${<ARG>}"" → ""<agent> --version"" = ""${<ARG>}"" "
+BK ARROW_MAIN LBL : " ""LABEL proveo.agent=<pkg> proveo.agent.version=${<ARG>}"" "
+CT ARROW_OPTIONAL BK : every harness row: bare ARG · guard · pinned install\n· label · no ""@latest"" spelling
+CT ARROW_OPTIONAL LIB : fake npm/curl on PATH: npm · registry fallback\n· PyPI · installer scrape · override · refusal
+
+note over BK
+  **""@latest"" is a request to the registry, not a property of the image.**
+  BuildKit caches a ""RUN"" by its text and its parent chain. An
+  ""npm install -g x@latest"" line does not change when upstream publishes,
+  so with a warm cache the layer is reused and the image keeps the agent
+  from whenever that layer last ran — with nothing in the build saying so.
+  Only ""--no-cache"", or an edit ABOVE the line, ever refreshed it. The
+  fleet was current on 2026-09-01 by coincidence: unrelated Dockerfile edits
+  had busted the cache that morning, while the published
+  ""opencode-browser:latest"" from a week earlier still carried 1.18.23.
+
+  **A used build-arg is what moves the cache key.** BuildKit misses the cache
+  on an ARG's first //use// when its value differs from the previous build,
+  never on its declaration. So the version must appear in the install
+  line itself; a label alone would record a version the layer did not
+  necessarily install.
+
+  **Bare ""ARG"", by design.** A default would be ""@latest"" one step removed:
+  a bare ""docker build"" would bake whatever is newest and label it
+  truthfully, so the guard fails that build instead and points at build.sh.
+
+  **The version check makes the pin a fact about the image.**
+  ""opencode --version"" must print the arg exactly;
+  ""claude --version"" must contain it; ""pip show"" must report it;
+  cursor's installer, which takes no version, must have unpacked the
+  release build.sh read out of the script.
+end note
+
+note over LIB
+  **One resolver, three ecosystems, one shape.** ""npm"" asks the dist-tag
+  (registry JSON as the fallback when ""npm"" is not on the host); ""pypi""
+  reads ""info.version""; ""cursor"" scrapes the release directory out of
+  ""cursor.com/install"", because that script hardcodes its build and takes no
+  argument. The maintainer override is the same ""<ARG>"" the Dockerfile
+  takes, so ""OPENCODE_VERSION=1.18.20 proveo build opencode"" pins an older
+  release and doubles as the offline path.
+
+  **Unresolvable is a refusal, never a silent ""latest"".** Falling back to the
+  dist-tag would reopen the hole in the one place — offline, behind a
+  proxy — where nobody is watching the build log.
+end note
+
+note over LBL
+  **How to know what a harness carries:**
+  ""docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local""
+  and what upstream ships: ""npm view opencode-ai version"". The build log's
+  ""📌"" line states the same version at build time. Each def's runtime suite
+  (""test_build.sh"") checks the label against the agent's own ""--version"".
+end note
+
+@enduml

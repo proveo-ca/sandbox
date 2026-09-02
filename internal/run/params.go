@@ -22,6 +22,12 @@ type Params struct {
 	Evidence                                                                    string
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
+	// ProxyImage is the egress-proxy sidecar image the launcher settled on —
+	// PROVEO_EGRESS_PROXY_IMAGE when the operator set it, otherwise the same
+	// recency choice the harness image gets (a newer :local beats the published
+	// :latest). Settled in cmd/proveo rather than here so a --print plan rendered
+	// by a test never depends on what the host happens to have built.
+	ProxyImage string
 	// Clone is the REQUEST: --clone / PROVEO_CLONE. Whether the run actually
 	// clones is Spec.Backend.Clone, settled by decideClone once the backend and
 	// the workspace shape are known. CloneSet records an explicit flag, which

@@ -287,6 +287,40 @@ func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
 	}
 }
 
+// The egress sidecar gets the same recency rule as the harness image. It embeds
+// the provider registry, so a provider added in Go is not brokered until the
+// sidecar is rebuilt — and that rebuild is :local, which a plan naming :latest
+// outright never launched: the run detected the key, sentinel-injected it, and
+// the vendor answered 401 as if the key were bad.
+func TestEgressProxyImagePrefersANewerLocalBuildUnlessOverridden(t *testing.T) {
+	t.Parallel()
+	resolve := func(ref string) (string, bool) {
+		if ref != "proveo/egress-proxy:latest" {
+			t.Errorf("resolved %q, want the published sidecar reference", ref)
+		}
+		return "proveo/egress-proxy:local", true
+	}
+	env := func(map[string]string) func(string) string {
+		return func(string) string { return "" }
+	}
+	if got, local := egressProxyImage(env(nil), resolve); got != "proveo/egress-proxy:local" || !local {
+		t.Errorf("no override: got (%q, %v), want the newer local build", got, local)
+	}
+	override := func(k string) string {
+		if k == "PROVEO_EGRESS_PROXY_IMAGE" {
+			return " ghcr.io/acme/egress:pinned "
+		}
+		return ""
+	}
+	notCalled := func(string) (string, bool) {
+		t.Error("an explicit override must not consult the local image store")
+		return "", false
+	}
+	if got, local := egressProxyImage(override, notCalled); got != "ghcr.io/acme/egress:pinned" || local {
+		t.Errorf("override: got (%q, %v), want the trimmed override and not-local", got, local)
+	}
+}
+
 func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	t.Parallel()
 	none := func(string) string { return "" }

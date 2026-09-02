@@ -59,12 +59,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Pin the agent to the current release (or CLAUDE_CODE_VERSION when exported); see
+# proveo_agent_version for why an unpinned `npm install -g` is not a pin. Resolved
+# once, so every variant built by this invocation carries the same agent.
+CLAUDE_CODE_VERSION="$(proveo_agent_version CLAUDE_CODE_VERSION npm @anthropic-ai/claude-code)"
+
 build_variant() {
   local variant="$1"
   local image="$2"
   local base="${3:-$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")}"
   echo "Building $image:$TAG from $variant (base $base)..."
   proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} --build-arg BASE_IMAGE="$base" \
+    --build-arg CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" \
     -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
 

@@ -2443,7 +2443,11 @@ proveo_seed() {
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
- cecli) render_subagents cecli "$home/agents" "${CECLI_RESEED:-0}" ;;
+ # cecli reads subagents from CECLI_HOME (/app/.cecli in the image, the workspace
+ # by design — see defs/cecli/README.md), and its entrypoint lists exactly that
+ # dir in CECLI_AGENT_CONFIG's subagent_paths. "$home/agents" was seeded where
+ # nothing looked: the banner never listed them and Delegate never saw them.
+ cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 

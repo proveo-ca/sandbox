@@ -90,6 +90,7 @@ warns when no provider key and no `opencode.json` are detected. Recognised env v
 
 | Provider     | Env var                |
 | ------------ | ---------------------- |
+| OpenCode Zen / Go | `OPENCODE_API_KEY` |
 | Anthropic    | `ANTHROPIC_API_KEY`    |
 | OpenAI       | `OPENAI_API_KEY`       |
 | OpenRouter   | `OPENROUTER_API_KEY`   |
@@ -99,11 +100,21 @@ warns when no provider key and no `opencode.json` are detected. Recognised env v
 | Groq         | `GROQ_API_KEY`         |
 | Mistral      | `MISTRAL_API_KEY`      |
 
-For providers without a dedicated env var (Together, Hugging Face, OpenCode Zen, …) run
-`opencode auth login` once — credentials are stored at
-`~/.local/share/opencode/auth.json` inside the container. Proveo mounts durable config/share
-under `~/.proveo/opencode/` but **scrubs `auth.json` each run** so login tokens are not
-cached; prefer provider API keys via env / egress broker. Resume a prior session with:
+### OpenCode Zen and OpenCode Go
+
+OpenCode's own gateway — Zen (pay-as-you-go, model ids `opencode/<model>`) and Go (the
+subscription, `opencode-go/<model>`) — takes the same key, `OPENCODE_API_KEY`. Copy it from
+<https://opencode.ai/auth> and export it on the host **before launch**, in your shell rc or a
+gitignored `.env`; opencode reads env keys ahead of `auth.json`, so no `/connect` step is
+needed inside the sandbox. proveo detects the key like any other provider: it brokers it in
+firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
+`.opencode.ai` only) and `proveo --init` offers it.
+
+`opencode auth login` / `/connect` inside the container is the wrong place: it writes
+`~/.local/share/opencode/auth.json`, which proveo **scrubs from the mounted share on every
+run** so login tokens never persist in the proveo home. The same holds for providers with no
+dedicated env var (Together, Hugging Face, …): prefer an API key via env or the egress broker.
+Resume a prior session with:
 
 ```bash
 proveo run opencode --resume <session-id>

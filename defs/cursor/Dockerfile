@@ -91,7 +91,19 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 COPY --from=lsp-builder /go/bin/mcp-language-server /go/bin/gopls /usr/local/bin/
 
-RUN HOME=/opt/cursor-dist bash -c "curl -fsS ${CURSOR_INSTALL_URL} | bash" \
+# cursor.com/install hardcodes the build it unpacks and takes no version argument,
+# so the pin works the other way round: build.sh reads the release out of the
+# script (proveo_agent_version cursor) and this layer VERIFIES it installed that
+# release — the versions/<release> directory is the installer's own layout. Using
+# the arg here is what moves BuildKit's cache key when the installer moves; a
+# `curl | bash` line alone never changes, and a warm cache keeps last month's
+# agent with nothing in the build saying so. No default on purpose.
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG CURSOR_AGENT_VERSION
+RUN test -n "${CURSOR_AGENT_VERSION}" \
+      || { echo "CURSOR_AGENT_VERSION build-arg is required — defs/cursor/build.sh resolves it" >&2; exit 1; } \
+    && HOME=/opt/cursor-dist bash -c "curl -fsS ${CURSOR_INSTALL_URL} | bash" \
+    && test -d "/opt/cursor-dist/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}" \
     && ln -s /opt/cursor-dist/.local/bin/agent /usr/local/bin/agent \
     && ln -s /opt/cursor-dist/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
     && agent --version
@@ -134,9 +146,13 @@ WORKDIR /app
 ENV NO_OPEN_BROWSER=1 \
     PATH="/usr/local/bin:${PATH}"
 
+# proveo.agent.* is what the image carries, readable without running it:
+#   docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/cursor:local
 LABEL security.non-root=true \
       security.hardened=true \
-      security.version="1.0"
+      security.version="1.0" \
+      proveo.agent="cursor-agent" \
+      proveo.agent.version="${CURSOR_AGENT_VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD agent --version >/dev/null 2>&1 || exit 1

@@ -119,8 +119,20 @@ RUN npm install -g --no-optional \
     eslint \
     && npm cache clean --force
 
-# Install Claude Code
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+# Install Claude Code — pinned by version, never the bare package (= `@latest`):
+# BuildKit caches this layer by its text, so an unpinned line re-runs only when
+# something ABOVE it changes, and a warm cache keeps last month's agent with
+# nothing in the build saying so. build.sh resolves the current release
+# (proveo_agent_version) and passes it in, which moves the cache key exactly when
+# upstream moves; the version check makes the pin a fact about the image. No
+# default on purpose — a bare `docker build` must fail here, not bake whatever
+# is newest.
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG CLAUDE_CODE_VERSION
+RUN test -n "${CLAUDE_CODE_VERSION}" \
+      || { echo "CLAUDE_CODE_VERSION build-arg is required — defs/claudecode/build.sh resolves it" >&2; exit 1; } \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force \
+    && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
 
 # ── Code-intelligence plugins, pre-seeded ───────────────────────────────────
 # SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
@@ -228,10 +240,13 @@ WORKDIR /app
 # project's own .env set it if it wants one (load_env exports .env with `set -a`).
 ENV YAMA_PTRACE_SCOPE=1
 
-# Add security labels
+# Security labels, plus what agent the image carries — readable without running it:
+#   docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/claudecode:local
 LABEL security.non-root=true \
       security.hardened=true \
-      security.version="1.0"
+      security.version="1.0" \
+      proveo.agent="@anthropic-ai/claude-code" \
+      proveo.agent.version="${CLAUDE_CODE_VERSION}"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
