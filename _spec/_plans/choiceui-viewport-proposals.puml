@@ -28,14 +28,14 @@ title PLANNED — the scrolling viewport and the side pane, neither of them buil
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
 {#
   region | rows | A · fit-or-omit | B · scrolling rows | C · responsive panes
-  banner + blank | 8 | dropped 2nd | dropped 2nd | dropped 2nd
+  banner + blank | 8 | **dropped 1st** | dropped 1st | dropped 1st
   the run title + blank | 2 | kept | kept | kept
-  the env header + blank | 8 | trimmed 3rd | trimmed 3rd | trimmed 3rd
+  the env header + blank | 8 | dropped 3rd | dropped 3rd | dropped 3rd
   riskier/safer legend | 2 | dropped 4th | dropped 4th | dropped 4th
   the rows themselves | 11-12 | never dropped | scrolled | scrolled
   the hint + blank | 2 | never dropped | pinned foot | pinned foot
   help slot, reserved | 5 | never dropped | pinned foot | pinned foot
-  **topology strip** | **5** | **dropped 1st** | **dropped 1st** | **moves, then shrinks, then drops**
+  **topology strip** | **5** | **dropped 2nd** | **dropped 2nd** | **moves, then shrinks, then drops**
   **total** | **43-44** | . | . | .
 }
   .
@@ -183,7 +183,7 @@ title PLANNED — the scrolling viewport and the side pane, neither of them buil
 legend bottom
   **▲ ▼ ░** — the scroll gutter: ends of travel, and a proportional thumb
   **PANE · BLOCK · DIGEST · OMITTED** — the four fidelities of one figure, by breakpoint
-  **dropped Nth** — the order the drop ladder spends height, strip first
+  **dropped Nth** — the order the drop ladder spends height, banner first
   **43-44 rows** — the form at full dress; 38-39 of them exist today, before any strip
   **a reserved slot** — space held at its maximum height so the figure below never moves
   a "." cell — element absent, column position preserved for the survivors

@@ -23,20 +23,22 @@ func budgetForm() *Form {
 	}
 }
 
-// The drop ladder is strip, banner, header, axis — so anything still drawn
-// implies everything below it on the ladder is too. Asserted as an ordering
-// rather than as a table of heights: the costs move whenever a row is added,
-// and a table of magic numbers would only record whatever the code did that day.
+// The drop ladder is banner, figure, header, axis — the figure outranks the
+// wordmark, because this prompt is about posture and the figure is the only
+// thing on it that draws posture. Anything still drawn implies everything below
+// it on the ladder is too. Asserted as an ordering rather than as a table of
+// heights: the costs move whenever a row is added, and magic numbers would only
+// record whatever the code did that day.
 func TestLayoutObeysTheDropLadder(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
 	for h := 8; h <= 60; h++ {
 		lay := f.layout(120, h)
-		if lay.strip == stripBlock && !lay.banner {
-			t.Errorf("h=%d: the strip is dropped FIRST, so it cannot outlive the banner", h)
+		if lay.banner && lay.strip != stripBlock {
+			t.Errorf("h=%d: the banner is dropped FIRST, so it cannot outlive the figure", h)
 		}
-		if lay.banner && !lay.header {
-			t.Errorf("h=%d: the banner is dropped before the header, so it cannot outlive it", h)
+		if lay.strip != stripNone && !lay.header {
+			t.Errorf("h=%d: the figure is dropped before the header, so it cannot outlive it", h)
 		}
 		if lay.header && !lay.axis {
 			t.Errorf("h=%d: the header is dropped before the axis legend", h)
@@ -75,8 +77,9 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 // before any optional one, so whenever the figure is drawn there was room for
 // everything that is not decoration.
 //
-// It costs no other region either: the ladder is strict, so turning the figure
-// on cannot take the banner away from an operator who never asked for one.
+// It MAY cost the banner, deliberately: the figure outranks the wordmark on a
+// prompt about posture. What it may never cost is anything mandatory, which is
+// why this asserts the floor rather than that nothing else moved.
 func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -104,8 +107,8 @@ func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 		if a.helpSlot != b.helpSlot {
 			t.Errorf("h=%d: the strip changed the reserved help slot, %d vs %d", h, a.helpSlot, b.helpSlot)
 		}
-		if a.banner != b.banner || a.header != b.header || a.axis != b.axis {
-			t.Errorf("h=%d: turning the figure on evicted another region", h)
+		if a.header != b.header || a.axis != b.axis {
+			t.Errorf("h=%d: the figure evicted the header or the axis legend", h)
 		}
 	}
 }

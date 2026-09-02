@@ -73,11 +73,11 @@ note right of ROWS
 end note
 
 note top of LAYOUT
-  **Height is spent in a fixed order.** The rows,
-  the hint and the help slot are paid first;
-  the banner, the header detail and the strip
-  are what a short terminal loses, and each is
-  dropped whole rather than clipped mid-figure.
+  **The figure outranks the banner.** This prompt
+  is about posture and the figure is the only
+  thing on it that draws posture, so eight rows
+  of wordmark go before five rows of it. The
+  rows, hint and help slot are never dropped.
 end note
 
 note bottom of LAYOUT
@@ -91,9 +91,9 @@ end note
 note bottom of LAYOUT
   **The ladder is strict, not best-fit.** A
   cheaper region may not sneak past a dearer one
-  that was refused — except the one-line digest,
-  which is afforded FIRST because it is dropped
-  LAST, below even the axis legend.
+  that was refused — which is what stopped the
+  figure vanishing as the terminal GREW, back
+  when the budget was a best fit.
 end note
 
 note top of TICK

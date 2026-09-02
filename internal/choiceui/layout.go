@@ -105,13 +105,13 @@ func (f *Form) layout(w, h int) layout {
 	}
 	// ONE strict ladder, afforded in order, stopping at the first thing that does
 	// not fit. A cheaper region may never sneak past a dearer one that was
-	// refused — including the strip, which is why turning the figure on cannot
-	// take the banner away from an operator who never asked for a figure.
+	// refused — that is what stops the figure DISAPPEARING as a terminal grows.
 	//
-	// The cost of that guarantee is real and worth stating: the form is already
-	// 38-39 rows, so on a 40-row terminal there is nothing left to spend and the
-	// strip does not appear at all. The fix for that is the scrolling viewport
-	// (_spec/_plans/choiceui-viewport-proposals.puml), not a queue-jump here.
+	// The figure outranks the banner. This is a confirmation prompt about network
+	// and credential posture, and the figure is the only thing on it that draws
+	// that posture; the banner is a logo. Eight rows of wordmark ahead of five
+	// rows of "where does the key rest and what does the hop stop" is the wrong
+	// way round, so the ladder spends on the picture first.
 	room := true
 	step := func(want bool, cost int) bool {
 		if !room {
@@ -125,20 +125,18 @@ func (f *Form) layout(w, h int) layout {
 	}
 	lay.axis = step(f.axisLabel(), 2)
 	lay.header = step(len(f.Header) > 0, len(f.Header)+1)
-	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
 
-	// The figure last of all, and its one-line digest as the fidelity below it:
-	// a sentence carrying where the key rests and what the hop does is the
-	// cheapest real information on the screen, so a terminal that cannot spare
-	// five rows loses the picture rather than the facts.
-	if f.Topology == nil {
-		return lay
-	}
-	if step(true, digestRows) {
+	// The digest is the fidelity below the figure: a sentence carrying where the
+	// key rests and what the hop does is the cheapest real information here, so a
+	// terminal that cannot spare five rows loses the picture rather than the facts.
+	if f.Topology != nil && step(true, digestRows) {
 		lay.strip = stripDigest
 		if w >= stripCols && afford(stripRows-digestRows) {
 			lay.strip = stripBlock
+		} else {
+			room = false // the figure did not fit, so nothing below it may
 		}
 	}
+	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
 	return lay
 }
