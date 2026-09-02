@@ -8,6 +8,8 @@ TOOLS=(
   "node:node --version"
   "npm:npm --version"
   "pnpm:pnpm --version"
+  "bun:bun --version"
+  "bunx:bunx --version"
   "git:git --version"
   "gh:gh --version"
   "python3:python3 --version"
@@ -42,6 +44,12 @@ for image in $(images_to_test); do
     IFS=':' read -r name cmd <<< "$tool_entry"
     assert_failure "[$tag] $name stays out of the base variant (sol-only)" "$image" "command -v $name"
   done
+done
+
+# Bun runs TypeScript directly — the TS toolkit's second runtime (proveo/base-node).
+for image in $(images_to_test); do
+  assert_output_contains "[$(image_tag "$image")] bun executes a TypeScript file without a build step" "$image" \
+    "printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts" "42"
 done
 
 SOL_IMAGE="${SOL_IMAGE:-proveo/claudecode-solidity:latest}"

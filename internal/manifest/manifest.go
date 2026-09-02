@@ -65,6 +65,14 @@ type Manifest struct {
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
 	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
 	Config       []string          `yaml:"config"`
+	// AgentEnv is proveo's own opinion about how the harness should run: NAME:
+	// value pairs handed to the agent on EVERY backend unless the operator sets
+	// NAME themselves. It is neither `env` — variables the OPERATOR supplies,
+	// prompted for when missing and hinted about when auth fails — nor `config`,
+	// which forwards a host preference only when one exists. It exists because a
+	// default exported by the image entrypoint reached only the docker backend:
+	// sbx launches the agent through its own kit and never runs the entrypoint.
+	AgentEnv     map[string]string `yaml:"agentEnv"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
 
@@ -142,6 +150,28 @@ func (m Manifest) MissingEnv(getenv func(string) string) []EnvVar {
 	return out
 }
 
+// AgentEnvPairs renders agentEnv as NAME=value in name order — a map's order is
+// not an argv's, and the plan goldens read the argv — with the operator's own
+// value, when they set one, in place of the default.
+func (m Manifest) AgentEnvPairs(lookup func(string) string) []string {
+	names := make([]string, 0, len(m.AgentEnv))
+	for k := range m.AgentEnv {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, k := range names {
+		v := m.AgentEnv[k]
+		if lookup != nil {
+			if own := strings.TrimSpace(lookup(k)); own != "" {
+				v = own
+			}
+		}
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
 // Validate reports whether a manifest is well-formed.
 func (m Manifest) Validate() error {
 	if m.Name == "" {
@@ -194,6 +224,7 @@ func (m Manifest) Validate() error {
 		}
 		seen[e.Name] = true
 	}
+	configured := map[string]bool{}
 	for _, c := range m.Config {
 		c = strings.TrimSpace(c)
 		if c == "" {
@@ -203,6 +234,23 @@ func (m Manifest) Validate() error {
 		// docker argv in plain sight. Declared secrets go through Env.
 		if seen[c] {
 			return fmt.Errorf("manifest %q: %q is declared in env (brokered) — it cannot also be a config passthrough", m.Name, c)
+		}
+		configured[c] = true
+	}
+	for k, v := range m.AgentEnv {
+		if strings.TrimSpace(k) == "" {
+			return fmt.Errorf("manifest %q: agentEnv entry with empty name", m.Name)
+		}
+		// An empty value IS the unset state. A default that says nothing is not a
+		// default, and on an argv it would occupy the slot the agent reads.
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("manifest %q: agentEnv %s has no value — drop the entry rather than defaulting it to empty", m.Name, k)
+		}
+		if seen[k] {
+			return fmt.Errorf("manifest %q: %q is declared in env — the operator supplies it, it cannot also carry a default in agentEnv", m.Name, k)
+		}
+		if configured[k] {
+			return fmt.Errorf("manifest %q: %q is a config passthrough — it forwards the operator's value only; a default belongs in agentEnv alone", m.Name, k)
 		}
 	}
 	if err := m.Home.validate(m.Name); err != nil {

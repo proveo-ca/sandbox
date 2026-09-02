@@ -15,7 +15,7 @@ node "sandbox" as BOX <<app>> {
   database "sandbox-local volume\n$HOME/.claude/*\ndies with `sbx rm`" as VOL <<db>>
 }
 
-component "proveo failure path\nsaveSandboxState → sbx exec" as FAIL <<error>>
+component "proveo teardown + failure path\nSaveState → sbx exec -w /" as FAIL <<error>>
 
 SEED ARROW_MAIN RESTORE : before the agent looks for transcripts
 FAIL ARROW_ERROR SAVE : on a STOPPED sandbox this STARTS the VM…
@@ -40,6 +40,20 @@ note right of FAIL
   and the short copy was then propagated to the other side, so no intact copy
   remained. Nothing reported it: the copy sent stderr to ""/dev/null"" and ended
   in ""|| true"".
+end note
+
+note left of SAVE
+  **""-w /"", or the save never runs.** ""sbx exec"" starts in the container's
+  WorkingDir — the first workspace — and on this backend that directory can
+  stop resolving while the sandbox lives on (virtiofs-cwd-invalidation.puml).
+  The runtime then dies at chdir, ""OCI runtime exec failed: getcwd: Operation
+  not permitted"", exit 127, before the sync runs a line; teardown reported
+  "resume state not preserved" and carried on to ""sbx rm"". Four days of
+  transcripts on proveo-1787956302-22788 went with the volumes.
+
+  The sync reads nothing from the cwd: the lib is sourced by absolute path and
+  every directory it moves comes from ""$HOME"" and ""PROVEO_STATE_HOME"", so ""/""
+  costs nothing and is the one directory every container has.
 end note
 
 note bottom of TREE

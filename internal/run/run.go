@@ -586,6 +586,10 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 	rs.Creds.Env = append(rs.Creds.Env, EvidenceVar+"="+p.evidenceOrDefault())
+	// proveo's own defaults for the agent (manifest agentEnv), the operator's value
+	// winning. The image entrypoint repeats the same defaults for a bare `docker
+	// run`; forwarding them here keeps both backends reading one declaration.
+	rs.Creds.Env = append(rs.Creds.Env, rs.Man.AgentEnvPairs(rs.Creds.Lookup)...)
 	rs.Creds.Env = append(rs.Creds.Env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
 	rs.Creds.Env = append(rs.Creds.Env, rs.Creds.HomePlan.Env...)
 	if rel := rs.Workspace.WS.ScopeRel(); rel != "" {

@@ -7,6 +7,8 @@ TOOLS=(
   "node:node --version"
   "npm:npm --version"
   "pnpm:timeout 10s pnpm --version"
+  "bun:bun --version"
+  "bunx:bunx --version"
   "git:git --version"
   "gh:gh --version"
   "curl:curl --version"
@@ -24,6 +26,13 @@ assert_output_matches \
   "$IMAGE" \
   "node --version" \
   "^v22\."
+
+# Bun runs TypeScript directly — the TS toolkit's second runtime (proveo/base-node).
+assert_output_contains \
+  "bun executes a TypeScript file without a build step" \
+  "$IMAGE" \
+  "printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts" \
+  "42"
 
 # opencode CLI exposes the `run` subcommand
 assert_output_contains \

@@ -565,6 +565,15 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(strings.Join(got, " "), "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
+	// `-w /` is not decoration. The exec otherwise starts in the container's
+	// WorkingDir — the workspace — and a virtiofs-invalidated workspace kills it at
+	// chdir (`getcwd: Operation not permitted`, exit 127) before the sync runs a
+	// line. Measured on proveo-1787956302-22788: teardown said "resume state not
+	// preserved" and `sbx rm` took four days of transcripts with the volumes.
+	w := slices.Index(got, "-w")
+	if w < 0 || w+1 >= len(got) || got[w+1] != "/" || w > slices.Index(got, "s1") {
+		t.Errorf("save must exec from / (an sbx exec flag, before the sandbox name), not from the workspace cwd: %v", got)
+	}
 }
 
 // With no proveo home among the mounts there is nothing to strip against, and the
@@ -786,5 +795,42 @@ func TestStoreHoldsMatchesOnlyTheHarnessOwnCredentials(t *testing.T) {
 	}
 	if got := credentials.StoreHolds(man, []string{"PROVEO_AGENT_EVIDENCE"}); len(got) != 0 {
 		t.Errorf("a non-secret var counted as a credential: %v", got)
+	}
+}
+
+// agentEnv is proveo's opinion about the agent, delivered on the backend whose
+// agent never runs the image entrypoint. The default lands when the operator is
+// silent, gives way when they are not, and reaches both the -e argv and the Kit's
+// environment block — the posture proveo publishes.
+func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", AgentEnv: map[string]string{
+		"CLAUDE_CODE_NO_FLICKER":               "0",
+		"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1",
+	}}
+	for _, tc := range []struct {
+		why  string
+		set  map[string]string
+		want []string
+	}{
+		{"operator silent", nil,
+			[]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1", "CLAUDE_CODE_NO_FLICKER=0"}},
+		{"operator overrides one", map[string]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "0"},
+			[]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=0", "CLAUDE_CODE_NO_FLICKER=0"}},
+	} {
+		in := sandbox.Input{
+			Target: "claudecode", Image: "proveo/claudecode:local", Man: man, Sid: "proveo-1-2",
+			Lookup: func(k string) string { return tc.set[k] },
+		}
+		cfg, kit, _ := sandbox.Spec(in)
+		for _, w := range tc.want {
+			if !slices.Contains(cfg.Env, w) {
+				t.Errorf("%s: -e argv lacks %s: %v", tc.why, w, cfg.Env)
+			}
+			k, v, _ := strings.Cut(w, "=")
+			if kit.Environment == nil || kit.Environment.Variables[k] != v {
+				t.Errorf("%s: Kit environment lacks %s", tc.why, w)
+			}
+		}
 	}
 }

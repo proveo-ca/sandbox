@@ -5,7 +5,8 @@ title sbx virtiofs drops the agent's cwd — a silent Bash tool, and the two ans
 
 ' covers: defs/claudecode/mcp/defaults/hooks/cwd-guard.sh, packages/lib/entrypoint-lib.sh,
 '         internal/run/run.go, internal/run/helpers.go, internal/backend/sandbox/sandbox.go,
-'         internal/sbx/run.go, cmd/proveo/main.go, internal/workspace/mount.go
+'         internal/sbx/run.go, cmd/proveo/main.go, internal/workspace/mount.go,
+'         cmd/proveo/main_test.go, e2e/resume_test.go
 '
 ' Measured 2026-09-01 on proveo-1787956302-22788 (proveo/claudecode, Claude Code
 ' 2.1.251), see the memory sbx-virtiofs-unlinks-agent-cwd for the full forensics.
@@ -25,6 +26,7 @@ CC ARROW_OPTIONAL HOOK : hooks still spawn — Claude Code\nfalls back to the se
 HOOK ARROW_MAIN CC : exit 2: names the cause, forbids\nretries, asks for a restart
 RUN ARROW_MAIN VFS : clone mode — the workspace lives\non the VM disk, not on virtiofs
 RUN ARROW_MAIN HOST : teardown: snapshot + fetch to\n""refs/proveo/<sid>/*"" before ""sbx rm""
+RUN ARROW_MAIN VFS : teardown save: ""sbx exec -w /"" —\nnever the container WorkingDir
 
 note over HOST, VFS
   **The host did nothing.** Birth time and inode of the
@@ -65,6 +67,18 @@ note over RUN, HOST
   remote deletes ""refs/remotes/<remote>/*"". Teardown
   therefore commits what the agent left uncommitted,
   then fetches every branch into ""refs/proveo/<sid>/*"".
+end note
+
+note over RUN
+  **Teardown is an exec too.** ""SaveStateArgs"" pins ""-w /"":
+  without it the copy-out inherits the dead WorkingDir and
+  dies with the same ""getcwd"" error, exit 127, before a byte
+  moves — "resume state not preserved" — and ""sbx rm"" then
+  takes the volumes. Measured on 22788 at the end of a
+  four-day session; the transcripts never reached the host.
+  Reproduced on demand by replacing the workspace directory's
+  inode on the host (""mv"" + ""mkdir""); putting it back does
+  not heal the guest, only a restart does.
 end note
 
 note over BASH

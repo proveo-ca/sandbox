@@ -290,3 +290,64 @@ func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
 		}
 	}
 }
+
+// agentEnv is proveo's opinion about how a harness should run, delivered as an
+// argv on both backends. The pairs come out in name order because the plan
+// goldens read the argv; the operator's own value replaces the default; and the
+// field cannot double-declare a name the operator supplies (env) or a host
+// preference forwarded only when present (config), nor default anything to empty.
+func TestAgentEnv(t *testing.T) {
+	t.Parallel()
+	got, err := Parse([]byte("name: claudecode\nimages:\n  claudecode: img\nagentEnv:\n  CLAUDE_CODE_NO_FLICKER: \"0\"\n  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: \"1\"\n"), "dir")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := map[string]string{"CLAUDE_CODE_NO_FLICKER": "0", "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"}
+	if diff := cmp.Diff(want, got.AgentEnv); diff != "" {
+		t.Errorf("agentEnv round-trip (-want +got):\n%s", diff)
+	}
+
+	silent := got.AgentEnvPairs(func(string) string { return "" })
+	if diff := cmp.Diff([]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1", "CLAUDE_CODE_NO_FLICKER=0"}, silent); diff != "" {
+		t.Errorf("defaults must land in name order when the operator is silent (-want +got):\n%s", diff)
+	}
+	own := got.AgentEnvPairs(func(k string) string {
+		return map[string]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": " 0 "}[k]
+	})
+	if diff := cmp.Diff([]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=0", "CLAUDE_CODE_NO_FLICKER=0"}, own); diff != "" {
+		t.Errorf("the operator's value must replace the default, trimmed (-want +got):\n%s", diff)
+	}
+	if pairs := (Manifest{}).AgentEnvPairs(nil); len(pairs) != 0 {
+		t.Errorf("no agentEnv means no pairs, got %v", pairs)
+	}
+
+	base := Manifest{Name: "x", Images: map[string]string{"x": "img"}}
+	for _, tc := range []struct {
+		why string
+		mut func(*Manifest)
+	}{
+		{"empty name", func(m *Manifest) { m.AgentEnv = map[string]string{" ": "1"} }},
+		{"empty value is the unset state", func(m *Manifest) { m.AgentEnv = map[string]string{"A": ""} }},
+		{"also declared in env", func(m *Manifest) {
+			m.Env = []EnvVar{{Name: "A"}}
+			m.AgentEnv = map[string]string{"A": "1"}
+		}},
+		{"also a config passthrough", func(m *Manifest) {
+			m.Config = []string{"A"}
+			m.AgentEnv = map[string]string{"A": "1"}
+		}},
+	} {
+		m := base
+		tc.mut(&m)
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: must be rejected", tc.why)
+		}
+	}
+	ok := base
+	ok.Env = []EnvVar{{Name: "TOKEN", Secret: true}}
+	ok.Config = []string{"THEME"}
+	ok.AgentEnv = map[string]string{"A": "1"}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("disjoint names must validate: %v", err)
+	}
+}

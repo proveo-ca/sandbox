@@ -482,6 +482,11 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
+	// proveo's own defaults for the agent (manifest agentEnv). HERE and not in the
+	// image entrypoint alone: sbx launches the agent through its own kit, so an
+	// export in the entrypoint never reaches it on this backend — claudecode came
+	// up in whatever renderer its saved `tui` setting named.
+	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
 	if in.ScopeRel != "" {

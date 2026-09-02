@@ -1315,7 +1315,9 @@ ensure_node_toolchain() {
   # for this container; the standalone pnpm the image ships would otherwise win
   # on PATH and quietly use a different major.
   pm="$(_node_json_field "$pkg" packageManager)"
-  if [[ -n "$pm" ]] && command -v corepack >/dev/null 2>&1; then
+  # corepack knows npm, pnpm and yarn. A `bun@…` pin is mise's (ensure_bun_pin,
+  # below); handing it to corepack only buys a "could not activate" warning.
+  if [[ -n "$pm" && "$pm" != bun@* ]] && command -v corepack >/dev/null 2>&1; then
     if _proveo_bounded "${PROVEO_NODE_TIMEOUT:-180}" corepack prepare "$pm" --activate >/dev/null 2>&1 \
        && _proveo_bounded 30 corepack enable >/dev/null 2>&1; then
       echo "📦 package manager: ${pm} (corepack, from $(basename "$(dirname "$pkg")")/package.json)"
@@ -1323,6 +1325,8 @@ ensure_node_toolchain() {
       echo "⚠️  could not activate ${pm}; continuing with $(pnpm --version 2>/dev/null || echo 'the image default')"
     fi
   fi
+
+  ensure_bun_pin "$pkg" "$scan"
 
   # engines.node is a RANGE, not a pin, so it is only acted on when the running
   # node fails it — reinstalling a satisfying runtime buys nothing and costs a
@@ -1338,6 +1342,62 @@ ensure_node_toolchain() {
   command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — keeping node ${have}"; return 0; }
   _mise_install "node@${want_node%%.x*}" "$(_proveo_github_token)" >/dev/null 2>&1 \
     && _proveo_tool_path || echo "⚠️  could not provision node ${want_node}; keeping ${have}"
+}
+
+# ── Bun: the same rule, through mise ──
+# The floor ships one bun (defs/base-node); a project asks for its own with
+# `packageManager: "bun@1.2.3"` (an exact pin — bun's own reading of the field),
+# `engines.bun` (a range), or a `.bun-version` file. A bun lockfile alone means
+# "use the bun that is here", never "reinstall". corepack does not manage bun,
+# so the pin is honoured through mise, which carries bun as a core tool — the
+# same path engines.node takes when the running node fails its range.
+_bun_wanted() {
+  local pkg="$1" scan="$2" pm want
+  pm="$(_node_json_field "$pkg" packageManager)"
+  case "$pm" in bun@?*) printf '%s' "${pm#bun@}"; return 0 ;; esac
+  want="$(_node_json_field "$pkg" engines.bun)"
+  [[ -n "$want" ]] && { printf '%s' "$want"; return 0; }
+  [[ -f "$scan/.bun-version" ]] && head -n1 "$scan/.bun-version" | tr -d ' v\t'
+  return 0
+}
+
+# _bun_satisfies: an exact X.Y.Z is matched exactly (that is what a pin means);
+# anything else is a range and follows _node_satisfies (major agreement).
+_bun_satisfies() {
+  local have="$1" want="$2"
+  [[ -n "$have" ]] || return 1
+  case "$want" in
+    [0-9]*.[0-9]*.[0-9]*) [[ "${want%%[^0-9.]*}" == "$want" ]] && { [[ "$have" == "$want" ]]; return $?; } ;;
+  esac
+  _node_satisfies "$have" "$want"
+}
+
+# _bun_mise_spec turns what the project wrote into what mise installs: an exact
+# pin verbatim, a range down to its leading version prefix ("^1.4" → 1.4).
+_bun_mise_spec() {
+  local want="$1" v
+  v="$(printf '%s' "$want" | sed -n 's/^[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+  v="${v%.x}"; v="${v%.}"
+  printf '%s' "${v:-latest}"
+}
+
+ensure_bun_pin() {
+  local pkg="$1" scan="$2" want have
+  want="$(_bun_wanted "$pkg" "$scan")"
+  [[ -n "$want" ]] || return 0
+  have="$(bun --version 2>/dev/null)"
+  if _bun_satisfies "$have" "$want"; then
+    return 0
+  fi
+  echo "🥟 bun ${have:-none} does not satisfy ${want}; provisioning via mise..."
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — keeping bun ${have:-none}"; return 0; }
+  if _mise_install "bun@$(_bun_mise_spec "$want")" "$(_proveo_github_token)" >/dev/null 2>&1; then
+    _proveo_tool_path
+    echo "📦 bun: $(bun --version 2>/dev/null || echo "$want") (mise, from $(basename "$(dirname "$pkg")")/package.json)"
+  else
+    echo "⚠️  could not provision bun ${want}; keeping ${have:-none}"
+  fi
+  return 0
 }
 
 _node_version_file() {

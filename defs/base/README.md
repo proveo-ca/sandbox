@@ -42,7 +42,7 @@ debian:bookworm-slim
 └── proveo/base                    git/gh/jq/curl/dumb-init/bash/tmux/proveo-entrypoint/harden
      ├── cursor                    cursor-agent binary; no runtime
      ├── cecli                     + python3-venv (aider fork)
-     └── proveo/base-node          + Node 22 LTS + pnpm
+     └── proveo/base-node          + Node 22 LTS + pnpm + Bun
           └── proveo/base-node-lsp        + workspace language servers
                ├── opencode
                ├── claudecode (mcp)   └── claudecode-solidity

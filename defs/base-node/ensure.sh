@@ -35,13 +35,15 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# Floor: the proveo/base floor plus a working Node + pnpm.
+# Floor: the proveo/base floor plus a working Node + pnpm + Bun.
 node_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v git >/dev/null \
       && command -v jq >/dev/null \
       && command -v node >/dev/null \
       && command -v pnpm >/dev/null \
+      && command -v bun >/dev/null \
+      && command -v bunx >/dev/null \
       && test -x /usr/local/bin/proveo-entrypoint
   ' >/dev/null 2>&1
 }
@@ -50,7 +52,7 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
   if node_floor; then
     exit 0
   fi
-  echo "⚠️  $IMAGE present but missing the node floor — rebuilding" >&2
+  echo "⚠️  $IMAGE present but missing the node/pnpm/bun floor — rebuilding" >&2
   exec "$SCRIPT_DIR/build.sh" --image "$IMAGE"
 fi
 

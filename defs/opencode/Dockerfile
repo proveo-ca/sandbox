@@ -26,7 +26,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 # plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    unzip xclip \
+    xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 

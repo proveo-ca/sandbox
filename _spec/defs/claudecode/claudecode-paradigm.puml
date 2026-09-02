@@ -110,11 +110,21 @@ note bottom of CLI
 end note
 
 note bottom of CLI
-  ""CLAUDE_CODE_NO_FLICKER=0"" is the documented off
-  switch and out-ranks a saved ""tui"" setting, so a
-  mounted home carrying ""fullscreen"" cannot re-enter
-  it. The entrypoint defaults it; an operator who
-  exports their own value keeps it.
+  Two switches, one intent, declared once in the
+  manifest's ""agentEnv"" and forwarded on BOTH backends.
+  ""CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"" is the
+  documented opt-out (2.1.132+) that forces the classic
+  renderer whatever a saved ""tui"" setting says;
+  ""CLAUDE_CODE_NO_FLICKER=0"" is the older off switch and
+  covers images pinned before it. A mounted home carrying
+  ""fullscreen"" cannot re-enter it; an operator who sets
+  their own value keeps it.
+
+  The manifest and not the entrypoint alone, because sbx
+  launches the agent through its own kit: an export there
+  never reached it, and the sandboxed session came up in
+  whatever renderer the saved setting named. The entrypoint
+  repeats the defaults for a bare ""docker run"".
 end note
 
 @enduml

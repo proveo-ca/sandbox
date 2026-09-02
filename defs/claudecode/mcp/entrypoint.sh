@@ -140,7 +140,19 @@ else
   report_agent_evidence
 fi
 
+# Two names for one intent, kept together. CLAUDE_CODE_NO_FLICKER=0 is the older
+# off switch for the fullscreen renderer; CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+# (Claude Code 2.1.132+) is the documented opt-out that forces the classic
+# renderer whatever a saved `tui` setting says. The classic renderer is part of
+# agent evidence (claudecode-paradigm.puml) and a mounted home can carry a
+# `tui: fullscreen` the operator never chose for this run.
+#
+# The manifest's agentEnv is the delivery on BOTH backends — sbx launches the
+# agent through its own kit and never runs this file. These exports repeat the
+# same defaults for a bare `docker run` of the image; a forwarded or exported
+# value is kept either way.
 export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"
 
 # --chrome is the only switch for this session; nothing is persisted (see
 # proveo_chrome_bridge for why claudeInChromeDefaultEnabled stays untouched).

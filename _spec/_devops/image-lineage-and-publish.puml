@@ -91,7 +91,7 @@ note right of CHAIN
 
   | layer | holds | why not lower |
   | ""proveo/base"" | git · gh · ca-certs · curl · jq · dumb-init · bash · tmux · ""proveo-entrypoint"" · the harden pass | the universally-shared floor, and **no language runtime** |
-  | ""proveo/base-node"" | Node + pnpm | cursor and cecli would otherwise carry a Node runtime they never call |
+  | ""proveo/base-node"" | Node + pnpm + Bun | cursor and cecli would otherwise carry a Node runtime they never call |
   | ""proveo/base-node-lsp"" | the language servers ""_lsp_server()"" can run | a non-LSP Node consumer should not pay for them |
   | ""proveo/base-node-browser"" | Playwright + Chromium + agent-browser + ~150 apt libs | only browser-capable harnesses need it |
   | ""claudecode-solidity"" | Foundry · solc-select · solhint · semgrep | ~1.5 GB of toolchain, on the one harness that audits contracts |

@@ -201,14 +201,25 @@ func CloneFetchArgs(repoRoot, name string) []string {
 		"+refs/heads/*:" + CloneRefs(name) + "/*"}
 }
 
-// StateHomeVar names the host directory that resume state is copied to and from.
+// SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared
+// sync inside the sandbox before `sbx rm` takes the volumes with it. The host
+// side of the copy is named by StateHomeVar in the sandbox environment, not
+// handed over again here.
 //
-// It is deliberately NOT HOME. Redirecting HOME on this backend orphans the
-// credential sbx's proxy writes into the image's home, which is what made the
-// agent report "Not logged in" on ladder rung 3. This variable moves only the
-// state, and only by copy.
+// `-w /` is load-bearing. Without it the exec inherits the container's
+// WorkingDir — the first workspace — and on this backend that directory can stop
+// resolving while the sandbox lives on (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
+// The runtime then fails at chdir before a byte is copied — `OCI runtime exec
+// failed: getcwd: Operation not permitted`, exit 127 — teardown reports "resume
+// state not preserved" and goes on to remove the volumes. That is how a four-day
+// session's transcripts were lost on proveo-1787956302-22788. The sync itself
+// never reads the cwd: the lib is sourced by absolute path and every directory it
+// moves comes from $HOME and PROVEO_STATE_HOME. Reproduced on demand by replacing
+// the workspace directory's inode on the host (mv + mkdir); putting the directory
+// back does not heal the guest. `/` is the one directory every container has and
+// every user may enter.
 func SaveStateArgs(name string) []string {
-	return []string{"exec", name, "--", "bash", "-c",
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		". /entrypoint-lib.sh && proveo_sync_state save"}
 }
 
