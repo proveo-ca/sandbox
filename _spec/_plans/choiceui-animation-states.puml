@@ -7,8 +7,10 @@
 '   the form it hangs under .... _spec/internal/choiceui/wireframe.puml
 '   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
+'   what the Kit allowlists ..... internal/backend/sandbox/sandbox.go Spec()
 '   the key on sbx ............. _spec/internal/sbx/credential-path.puml
 '   the docker tiers ........... _spec/internal/egress/egress-tiers.puml
+'   who the '?' actually asks .. _spec/internal/reviewgate/pty-review-proxy.puml
 '   the key on docker .......... _spec/_paradigms/credential-boundary.puml
 '
 ' THE CORRECTION THIS FILE EXISTS TO CARRY: there is no single egress axis. The
@@ -49,6 +51,16 @@ title PLANNED — the topology strip in every selectable state, on both backends
   On sbx the baseline is host-wide and shared by sandboxes proveo never started,
   which is why the row is locked. The strip is REPORTING there — it draws a fact
   about the machine, and its caption carries the change hint, not a choice.
+  .
+  **deny-all is the tightest posture, NOT a dead one.** It is classified by the
+  ABSENCE of a network allow rule, not by an explicit deny — and the Kit can only
+  add allows, never subtract. So the Kit's list is the only one standing, and it
+  is built from the harness's declared hosts plus the API hosts of the providers
+  proveo actually detected. The agent reaches its model, and nothing else.
+  .
+  That is also why the lane count falls 3 -> 2 -> 1 across the row rather than
+  3 -> 2 -> 0: the axis runs riskier to safer, and the safest end still has to
+  let the run work. A frame with no lane at all would say the agent cannot think.
 }
 ..
 {^"Variant S · the sbx backend — the baseline, and sbx as the broker"
@@ -57,7 +69,7 @@ title PLANNED — the topology strip in every selectable state, on both backends
   . | . | . | . | . | - - ▸ <:cloud:>
   () host | ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ | () sbx proxy <:key:> | - - ▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
-  allow-all — the Kit ADDS reach here, it cannot subtract; sbx injects the key
+  allow-all — everything is reachable, so the Kit ADDS reach instead of limiting it
 }
 {^"allow-all · forward"
   . | . | . | . | . | - - ▸ <:cloud:>
@@ -71,27 +83,27 @@ title PLANNED — the topology strip in every selectable state, on both backends
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced — 3 asked, 2 allowed by baseline + Kit; sbx injects the key
+  balanced — the host's own allows UNION the Kit's; sbx injects the key
 }
 {^"balanced · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced · forward — 3 asked, 2 allowed; the real value rides inside the square
+  balanced · forward — the host's allows union the Kit's; the value is inside
 }
 }
 {
-{^"deny-all · broker"
-  . | . | . | . | . | .
-  () host | ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ | () sbx proxy <:key:> | <:cloud:>
-  ▴ | ◂── | () interface ↑ | . | . | .
-  deny-all — a deny beats every allow, so the Kit cannot open a lane either
+{^"deny-all · broker — the Kit lane survives, and it is the only one that does"
+  . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
+  () host | ══▸ | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ──×
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
+  deny-all — only the Kit allowlist gets out: your provider, and nothing else
 }
 {^"deny-all · forward"
-  . | . | . | . | . | .
-  () host | ══▸ | [ <:key:> <:speech_balloon:> claudecode ] | ══▸ | () sbx proxy | <:cloud:>
-  ▴ | ◂── | () interface ↑ | . | . | .
-  deny-all · forward — nothing reaches the internet; the key is inside regardless
+  . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
+  () host | ══▸ | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ──×
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
+  deny-all · forward — one lane out, and the real key rides inside the square
 }
 }
   .
@@ -134,17 +146,17 @@ title PLANNED — the topology strip in every selectable state, on both backends
 }
 }
 {
-{^"review · broker"
-  . | . | . | . | . | .
-  () host | ══▸ | [ <:speech_balloon:> opencode ] | ══▸ | () mitm + squid <:key:> ? | <:cloud:>
+{^"review · broker — the '?' comes back to YOU, which is what makes it review"
+  **?** ▴ | ◂─ ─ ─ | ◂─ ─ ─ | ◂─ ─ ─ | **?** the hop asks | .
+  () host | ══▸ | [ <:speech_balloon:> opencode ] | ══▸ | () mitm + squid <:key:> | <:cloud:>
   ▴ | ◂── | () interface ↑ | . | . | .
-  review — same sidecars as allowlist; nothing crosses until you answer
+  review — 'Allow connection to <host>?' over your suspended agent TUI
 }
 {^"review · forward"
-  . | . | . | . | . | .
-  () host | ══▸ | [ <:key:> <:speech_balloon:> opencode ] | ══▸ | () mitm + squid ? | <:cloud:>
+  **?** ▴ | ◂─ ─ ─ | ◂─ ─ ─ | ◂─ ─ ─ | **?** the hop asks | .
+  () host | ══▸ | [ <:key:> <:speech_balloon:> opencode ] | ══▸ | () mitm + squid | <:cloud:>
   ▴ | ◂── | () interface ↑ | . | . | .
-  review · forward — nothing crosses until you answer; the key is inside
+  review · forward — you answer each host; the key is inside regardless
 }
 }
   .
@@ -251,10 +263,16 @@ title PLANNED — the topology strip in every selectable state, on both backends
   f2 | () host | ══▸ | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:>
   f3 | () host | ══▸ | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ───×
 }
-{^"stopped — deny-all refuses, review asks; only one of them can ever answer yes"
+{^"asked — review — the question walks back up the wire and the agent waits"
   f1 | () host | ══▸ | [ def ] | •══▸ | () egress | <:cloud:>
   f2 | () host | ══▸ | [ def ] | ══▸ | (?) egress | <:cloud:>
-  f3 | () host | ══▸ | [ def ] | ══▸ | (?) egress | <:cloud:>
+  f3 | (?) host ◂─ ─ | ─ ─ | ─ ─ [ def ] | ─ ─ | (?) egress | <:cloud:>
+  f4 | () host | ══▸ | [ def ] | ───▸ | () egress | ──▸ <:cloud:>  (you said yes)
+}
+{^"refused — deny-all — no question, because there is nobody to ask"
+  f1 | () host | ══▸ | [ def ] | •───▸ | () egress | ───▸ <:cloud:> Kit
+  f2 | () host | ══▸ | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:> Kit
+  f3 | () host | ══▸ | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ──× the rest
 }
 }
   .
@@ -262,10 +280,20 @@ title PLANNED — the topology strip in every selectable state, on both backends
   about 1.2 seconds and the strip then rests on its still frame. An idle prompt
   costs nothing, and any movement means the form just moved.
   .
-  The third strip is two states in one shape. deny-all never resolves — the '?'
-  is the operator being told no lane exists — while review's '?' is a question
-  waiting on a pty. The caption is what separates them, which is why it is not
-  optional furniture.
+  **'?' and '×' are different events, so they are different glyphs.** review's
+  '?' is a question with somebody to ask: the MITM's CONNECT hook calls the
+  reviewgate daemon, which raises a full-screen overlay on the real terminal —
+  the same terminal the agent is drawing on, which is why the agent is suspended
+  while you answer. That return lane is the whole point of the tier.
+  .
+  deny-all's '×' has no return lane because there is nothing to ask. It is a
+  host-wide baseline with no consent mechanism at all, so a refusal there is the
+  end of the story rather than the start of a question — and it refuses
+  everything EXCEPT the Kit lane, which is what keeps the provider reachable.
+  .
+  Two more facts the return lane carries: a decision is CACHED per host for the
+  session, so a repeat host never re-asks — and with no tty, or past the
+  deadline, the answer defaults to DENY without the overlay ever appearing.
 }
 }
 
@@ -277,7 +305,8 @@ legend bottom
   **<:speech_balloon:> / <:speaking_head:>** — agent evidence: default, or verbose
   **<:cloud:>** — the internet: one cloud per lane that survives
   **═══** the session's own traffic · **───** a lane the hop terminates · **- - -** a lane it only watches
-  **───×** a lane the policy refuses · **?** the hop is refusing, or waiting on the operator
+  **───×** a lane the policy refuses · **×** — refused, and nobody was asked
+  **?** at the hop, with a lane back to () host — review asking YOU, agent suspended
   **bold / dim** — what the cursor's row owns, and everything it does not; NOT the form's gated grey
   a "." cell — element absent, column position preserved for the survivors
 end legend
