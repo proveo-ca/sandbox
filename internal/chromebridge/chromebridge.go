@@ -95,6 +95,101 @@ func SocketDir(username string) string { return SocketDirPrefix + username }
 // HostSocketDir is SocketDir for the operator running proveo.
 func HostSocketDir() string { return SocketDir(Username(os.Getenv)) }
 
+// The credential gate, mirrored from Claude Code 2.1.258.
+//
+// Before the browser integration is wired at all — BEFORE `--chrome` and before
+// CLAUDE_CODE_ENABLE_CFC, so neither overrides it — Claude Code asks whether the
+// session's OAuth scopes contain any of BrowserScopes, and logs
+//
+//	[Claude in Chrome] Disabled: OAuth token has no scope accepted by
+//	/api/oauth/validate (needs user:profile, user:office, or user:ccr_inference;
+//	env-var and setup-token sessions default to user:inference only)
+//
+// The endpoint is named in the message but never called: the scopes are
+// SYNTHESISED on the client from where the credential arrived. That is the whole
+// rule, and it is why "an env-var session gets no Chrome" was too broad a reading —
+// Anthropic's own cloud launcher passes CLAUDE_CODE_OAUTH_TOKEN and gets Chrome,
+// because it sets CLAUDE_CODE_OAUTH_SCOPES beside it.
+const (
+	// EnvOAuthToken shadows the credential store outright: when it is set, Claude
+	// Code stops looking and a /login sitting in the same home is never consulted.
+	EnvOAuthToken = "CLAUDE_CODE_OAUTH_TOKEN"
+	// EnvOAuthScopes is the only thing that decides an env-var session's scopes.
+	// Space-separated; unset means the hardcoded fallback below.
+	EnvOAuthScopes = "CLAUDE_CODE_OAUTH_SCOPES"
+	// EnvOAuthTokenFD is the desktop app's delivery path. Its scope default
+	// carries user:ccr_inference, so that shape passes without saying anything.
+	EnvOAuthTokenFD = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"
+	// EnvAPIKey buys inference and no OAuth account, so there are no scopes to
+	// accept — unless a login is persisted, which the key does not displace.
+	EnvAPIKey = "ANTHROPIC_API_KEY"
+)
+
+// BrowserScopes is the accepted set. Any ONE of them is enough.
+var BrowserScopes = []string{"user:profile", "user:office", "user:ccr_inference"}
+
+// envTokenFallbackScopes is what Claude Code assumes when EnvOAuthToken arrives
+// with no EnvOAuthScopes: inference only, which accepts nothing. `claude
+// setup-token` mints exactly this shape, which is where the "setup-token sessions
+// cannot use Chrome" folklore comes from — true, but as a consequence, not a rule.
+var envTokenFallbackScopes = []string{"user:inference"}
+
+// ScopeGate reports why Claude Code would refuse to wire the browser integration
+// for the session this run is about to start, or "" when it would wire it.
+//
+// hasPersistedLogin is the credential store half — a /login already in the home
+// this run mounts. Its real scopes include user:profile, so it passes; proveo
+// cannot read them (macOS moves the token to the Keychain and blanks the file)
+// and does not need to.
+//
+// A shape this cannot classify returns "": the gate exists to spare the operator a
+// bridge that Claude Code has already decided not to use, not to invent refusals.
+func ScopeGate(lookup func(string) string, hasPersistedLogin bool) string {
+	if lookup == nil {
+		return ""
+	}
+	get := func(k string) string { return strings.TrimSpace(lookup(k)) }
+	switch {
+	case get(EnvOAuthToken) != "":
+		scopes := strings.Fields(get(EnvOAuthScopes))
+		if len(scopes) == 0 {
+			scopes = envTokenFallbackScopes
+		}
+		if hasBrowserScope(scopes) {
+			return ""
+		}
+		if len(strings.Fields(get(EnvOAuthScopes))) > 0 {
+			return EnvOAuthScopes + " names none of " + scopeList() +
+				", so Claude Code turns Chrome integration off for this session"
+		}
+		return EnvOAuthToken + " without " + EnvOAuthScopes +
+			" is an inference-only session to Claude Code, which turns Chrome integration off — set " +
+			EnvOAuthScopes + " to the scopes the token was issued with (one of " + scopeList() +
+			"), or sign in with /login instead"
+	case get(EnvOAuthTokenFD) != "":
+		return "" // scope default carries user:ccr_inference
+	case hasPersistedLogin:
+		return "" // real /login scopes include user:profile
+	case get(EnvAPIKey) != "":
+		return EnvAPIKey + " alone is no OAuth account, so the session has no scope in " +
+			scopeList() + " and Claude Code turns Chrome integration off — sign in with /login instead"
+	}
+	return ""
+}
+
+func hasBrowserScope(scopes []string) bool {
+	for _, s := range scopes {
+		for _, want := range BrowserScopes {
+			if s == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func scopeList() string { return strings.Join(BrowserScopes, ", ") }
+
 // NewestSocket returns the most recently modified *.sock in dir. Claude Code
 // lists the directory the same way; when Chrome has restarted the native host,
 // the newest socket is the live one and the older files are leftovers.

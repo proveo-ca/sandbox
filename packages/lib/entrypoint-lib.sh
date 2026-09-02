@@ -1684,6 +1684,8 @@ proveo_seed_browser_skills() {
   return 0
 }
 
+# SPEC: _spec/defs/claudecode/chrome-bridge.puml
+#
 # Claude in Chrome does not cross a container boundary on its own: Claude Code's
 # claude-in-chrome MCP server connects to a Unix socket the extension's native
 # messaging host listens on, and that host runs where Chrome runs — the operator's
@@ -1703,6 +1705,40 @@ proveo_seed_browser_skills() {
 # automation answers, and it carries no posture.
 readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
 PROVEO_CHROME_READY=""
+
+# Claude Code's own credential gate, mirrored so the warning below is true rather
+# than merely cautious. Before the integration is wired at all it wants the
+# session's OAuth scopes to name one of user:profile / user:office /
+# user:ccr_inference — and those scopes are SYNTHESISED on the client, never read
+# off the wire, whatever "/api/oauth/validate" in its log message suggests:
+#
+#   CLAUDE_CODE_OAUTH_TOKEN -> CLAUDE_CODE_OAUTH_SCOPES, else "user:inference"
+#   ...FILE_DESCRIPTOR      -> a default carrying user:ccr_inference
+#   a persisted /login      -> its real scopes, which include user:profile
+#
+# So "an env-var session cannot use Chrome" was the wrong reading of the right
+# rule: the token shadows the credential store, but the scopes beside it decide.
+# ANTHROPIC_API_KEY does not shadow a login, and is only fatal on its own.
+_proveo_chrome_scope_ok() {
+  local scopes home
+  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    scopes="${CLAUDE_CODE_OAUTH_SCOPES:-user:inference}"
+    case " $scopes " in
+      *" user:profile "*|*" user:office "*|*" user:ccr_inference "*) return 0 ;;
+    esac
+    return 1
+  fi
+  [[ -n "${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:-}" ]] && return 0
+  home="$(_proveo_agent_home)"
+  # A login whose accessToken is present and non-empty. The blanked shape is what
+  # a macOS host leaves behind when it moves the token to the Keychain; in here
+  # the file is the credential, so an empty token means there is no login.
+  if [[ -n "$home" ]] && grep -q '"accessToken":"[^"]' "$home/.claude/.credentials.json" 2>/dev/null; then
+    return 0
+  fi
+  [[ -n "${ANTHROPIC_API_KEY:-}" ]] && return 1
+  return 0  # nothing we can classify: not ours to warn about
+}
 
 proveo_chrome_bridge() {
   local target="${1:-}" home log out sock i
@@ -1749,8 +1785,8 @@ proveo_chrome_bridge() {
   # shellcheck disable=SC2034  # read by defs/claudecode/mcp/entrypoint.sh after this returns
   PROVEO_CHROME_READY=1
   echo "🧭 chrome: Claude in Chrome via the host browser — relay ${sock} → ${PROVEO_CHROME_BRIDGE} (the agent drives YOUR Chrome, with your logins)"
-  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]]; then
-    echo "⚠️  chrome: Claude Code disables Chrome integration for env-var / setup-token sessions (their OAuth scope is inference-only); sign in with /login for it to connect" >&2
+  if ! _proveo_chrome_scope_ok; then
+    echo "⚠️  chrome: this session's OAuth scopes name none of user:profile / user:office / user:ccr_inference, so Claude Code turns Chrome integration off; set CLAUDE_CODE_OAUTH_SCOPES to the scopes the token was issued with, or sign in with /login" >&2
   fi
   return 0
 }

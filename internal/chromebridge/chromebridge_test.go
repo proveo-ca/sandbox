@@ -197,3 +197,110 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 		t.Fatal("Close must scrub the token from the environment")
 	}
 }
+
+// ScopeGate is a table over CREDENTIAL SHAPES, not over variable names, because
+// that is the axis Claude Code actually decides on: it synthesises the session's
+// OAuth scopes from where the credential arrived, then asks whether the result
+// contains user:profile, user:office or user:ccr_inference. Two shapes here would
+// have been refused by the old "an env var is set" reading, and both work.
+func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
+	t.Parallel()
+	env := func(kv map[string]string) func(string) string {
+		return func(k string) string { return kv[k] }
+	}
+	for _, tc := range []struct {
+		name  string
+		vars  map[string]string
+		login bool
+		want  string // substring the refusal must carry; "" means Chrome is wired
+	}{{
+		name: "bare setup-token: the one shape that really is inference-only",
+		vars: map[string]string{EnvOAuthToken: "sk-ant-oat01-x"},
+		want: EnvOAuthScopes,
+	}, {
+		name: "env token WITH the scopes Anthropic's own cloud launcher sets",
+		vars: map[string]string{
+			EnvOAuthToken:  "sk-ant-oat01-x",
+			EnvOAuthScopes: "user:inference user:ccr_inference user:file_upload",
+		},
+		want: "",
+	}, {
+		name: "env token scoped for a subscription login",
+		vars: map[string]string{
+			EnvOAuthToken:  "sk-ant-oat01-x",
+			EnvOAuthScopes: "user:profile user:inference user:sessions:claude_code",
+		},
+		want: "",
+	}, {
+		name: "env token whose scopes are real but none of the three",
+		vars: map[string]string{
+			EnvOAuthToken:  "sk-ant-oat01-x",
+			EnvOAuthScopes: "user:inference user:file_upload",
+		},
+		want: "names none of",
+	}, {
+		name:  "the env token SHADOWS a login sitting in the same home",
+		vars:  map[string]string{EnvOAuthToken: "sk-ant-oat01-x"},
+		login: true,
+		want:  EnvOAuthScopes,
+	}, {
+		name: "file-descriptor delivery defaults to a scope set that passes",
+		vars: map[string]string{EnvOAuthTokenFD: "3"},
+		want: "",
+	}, {
+		name: "a persisted /login is the shape the add-on was written for",
+		vars: map[string]string{}, login: true, want: "",
+	}, {
+		name: "an API key alone is no OAuth account",
+		vars: map[string]string{EnvAPIKey: "sk-ant-api03-x"},
+		want: EnvAPIKey,
+	}, {
+		name:  "an API key does NOT displace the login beside it",
+		vars:  map[string]string{EnvAPIKey: "sk-ant-api03-x"},
+		login: true,
+		want:  "",
+	}, {
+		name: "no credential signal at all: not ours to refuse",
+		vars: map[string]string{}, want: "",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			why := ScopeGate(env(tc.vars), tc.login)
+			switch {
+			case tc.want == "" && why != "":
+				t.Errorf("Chrome should be offered here, got refusal %q", why)
+			case tc.want != "" && !strings.Contains(why, tc.want):
+				t.Errorf("why = %q, want it to mention %q", why, tc.want)
+			}
+		})
+	}
+}
+
+// A refusal the operator cannot act on is worse than no box. Every one names the
+// accepted scopes, so the fix is visible without reading Claude Code's log.
+func TestScopeGateRefusalsNameTheScopesThatWouldWork(t *testing.T) {
+	t.Parallel()
+	for _, vars := range []map[string]string{
+		{EnvOAuthToken: "x"},
+		{EnvOAuthToken: "x", EnvOAuthScopes: "user:inference"},
+		{EnvAPIKey: "x"},
+	} {
+		why := ScopeGate(func(k string) string { return vars[k] }, false)
+		if why == "" {
+			t.Fatalf("expected a refusal for %v", vars)
+		}
+		for _, s := range BrowserScopes {
+			if !strings.Contains(why, s) {
+				t.Errorf("%q does not name %s", why, s)
+			}
+		}
+	}
+}
+
+// nil lookup is the print-only / no-environment path; it must not refuse.
+func TestScopeGateWithoutAnEnvironmentDoesNotRefuse(t *testing.T) {
+	t.Parallel()
+	if why := ScopeGate(nil, false); why != "" {
+		t.Errorf("why = %q", why)
+	}
+}

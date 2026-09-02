@@ -179,10 +179,47 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 	if !strings.Contains(joined(t, f), "dind needs egress open") {
 		t.Errorf("a gated option must render its reason\n--- rendered ---\n%s", joined(t, f))
 	}
+	// A MULTI row's Selected is the cursor, not the choice — the checkbox is the
+	// choice, and toggle refuses a gated one on its own. So the cursor may rest on
+	// a greyed box, which is what makes its explanation readable: it is the option
+	// whose reason the operator most needs, and it was the one the cursor could
+	// never reach.
 	f.Rows[0].Selected = 0
 	f.cycle(0, +1)
-	if f.Rows[0].Selected != 0 {
-		t.Error("cycle must not land on a gated option")
+	if f.Rows[0].Selected != 1 {
+		t.Error("on a multi row the cursor must be able to rest on a gated option to read why")
+	}
+	f.toggle(0)
+	if f.Rows[0].On[1] {
+		t.Error("resting on a gated option must not make it checkable")
+	}
+	if got := f.Selections("add-ons"); len(got) != 0 {
+		t.Errorf("a gated option must never be reported as selected, got %v", got)
+	}
+
+	// A SINGLE-select row's Selected IS the choice, so it must still skip one.
+	single := &Form{Rows: []Row{{
+		Label: "egress", Options: []string{"open", "allowlist", "review"},
+		Off: []bool{false, false, true}, Selected: 1,
+	}}}
+	single.cycle(0, +1)
+	if single.Rows[0].Selected != 0 {
+		t.Errorf("a single-select row must skip its gated option, landed on %d", single.Rows[0].Selected)
+	}
+}
+
+// An option that is available says what it does and nothing more: "off: " alone
+// is still one field, so an available option printed a bare "off:" under itself.
+func TestAvailableOptionPrintsNoEmptyOffLine(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{true},
+		Help: map[string]string{"browser": "Chromium inside the sandbox"},
+	}}}
+	for _, line := range render(t, f) {
+		if strings.TrimSpace(line) == "off:" {
+			t.Errorf("an available option must not carry an empty off line\n--- rendered ---\n%s", joined(t, f))
+		}
 	}
 }
 
@@ -212,7 +249,7 @@ func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
 		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: make([]bool, 2)},
+		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, Divider: true, On: make([]bool, 2)},
 	}}
 	lines := render(t, f)
 	out := strings.Join(lines, "\n")
@@ -282,14 +319,17 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 	}
 }
 
-// Only the row the divider is named after gives up its own label. A second
-// checkbox section has no divider to name it, so dropping its label too would
-// leave the operator staring at an anonymous pair of boxes.
-func TestSecondMultiRowKeepsItsLabel(t *testing.T) {
+// A row the divider names gives up its own label; a checkbox row without one
+// keeps it, or the operator is left staring at an anonymous pair of boxes.
+//
+// Which rows get a heading is DECLARED. It used to be "the first multi-select
+// row", which quietly meant only one group could ever be named — and the picker
+// now draws two, one per plane.
+func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: make([]bool, 2)},
+		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, Divider: true, On: make([]bool, 2)},
 		{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true, On: []bool{false, true}},
 	}}
 	lines := render(t, f)
@@ -314,7 +354,23 @@ func TestSecondMultiRowKeepsItsLabel(t *testing.T) {
 		t.Errorf("second checkbox row lost its label: %q", lines[evidenceRow])
 	}
 	if strings.Count(out, "─ agent evidence ─") != 0 {
-		t.Errorf("only the first checkbox row gets a divider:\n%s", out)
+		t.Errorf("a row that declared no divider must not be given one:\n%s", out)
+	}
+	if strings.Count(out, "─ add-ons ─") != 1 {
+		t.Errorf("the row that declared a divider must get exactly one:\n%s", out)
+	}
+
+	// Two declared groups both get a heading — the case the old "first multi row"
+	// rule could not express.
+	two := &Form{Rows: []Row{
+		{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true, On: make([]bool, 2)},
+		{Label: "interface", Options: []string{"tui (this session)", "browser"}, Multi: true, Divider: true, On: make([]bool, 2)},
+	}}
+	got := strings.Join(render(t, two), "\n")
+	for _, want := range []string{"─ execution ─", "─ interface ─"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("both declared groups must be named, missing %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -422,5 +478,92 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 	}
 	if strings.Contains(acc, "monorepo") {
 		t.Errorf("repo name must not be accented; accented=%q", acc)
+	}
+}
+
+// The picker could only ever explain what it had taken away: Reason is written
+// when an option is gated off, so the add-ons that were available and ticked
+// carried no text at all. Help describes the option the cursor is on.
+func TestCursorRowDescribesTheOptionUnderTheCursor(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "add-ons", Options: []string{"browser", "docker (sandbox)"}, Multi: true,
+		On: make([]bool, 2),
+		Help: map[string]string{
+			"browser":          "Chromium inside the sandbox",
+			"docker (sandbox)": "microVM with its own daemon",
+		},
+	}}}
+	got := joined(t, f)
+	if !strings.Contains(got, "› browser — Chromium inside the sandbox") {
+		t.Errorf("the focused option must describe itself\n--- rendered ---\n%s", got)
+	}
+	if strings.Contains(got, "microVM with its own daemon") {
+		t.Errorf("only the FOCUSED option is described, or the row becomes the wall of text this replaces\n%s", got)
+	}
+
+	// Moving along the row moves the description with it.
+	f.Rows[0].Selected = 1
+	got = joined(t, f)
+	if !strings.Contains(got, "› docker (sandbox) — microVM with its own daemon") {
+		t.Errorf("the description must follow the cursor\n--- rendered ---\n%s", got)
+	}
+}
+
+// Only the row the cursor is on explains itself.
+func TestHelpIsDrawnForTheCursorRowAlone(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open"}, Help: map[string]string{"open": "no allowlist"}},
+		{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{true},
+			Help: map[string]string{"browser": "Chromium inside the sandbox"}},
+	}}
+	got := joined(t, f)
+	if !strings.Contains(got, "no allowlist") {
+		t.Errorf("the cursor's row must describe itself\n%s", got)
+	}
+	if strings.Contains(got, "Chromium inside the sandbox") {
+		t.Errorf("a row the cursor is not on must stay quiet\n%s", got)
+	}
+}
+
+// A greyed option says what it does AND why it cannot be picked — in full, under
+// the row, where the row-level Reason has no width left to say it.
+func TestGreyedOptionExplainsItselfUnderTheRow(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "add-ons", Options: []string{"chrome (host browser)"}, Multi: true,
+		On: []bool{false}, Off: []bool{true},
+		Help:   map[string]string{"chrome (host browser)": "your own Chrome, driven through proveo's bridge"},
+		OffWhy: map[string]string{"chrome (host browser)": "Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions"},
+	}}}
+	got := joined(t, f)
+	for _, want := range []string{
+		"› chrome (host browser) — your own Chrome, driven through proveo's bridge",
+		"off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered form lacks %q\n--- rendered ---\n%s", want, got)
+		}
+	}
+}
+
+// tcell drops runes past the last column in silence, so an over-long reason
+// stopped mid-word with nothing saying it had been cut.
+func TestOverlongReasonIsMarkedAsTruncated(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("reason ", 40)
+	f := &Form{Rows: []Row{{
+		Label: "add-ons", Options: []string{"a"}, Multi: true,
+		On: []bool{false}, Off: []bool{true}, Reason: long,
+	}}}
+	if !strings.Contains(joined(t, f), "…") {
+		t.Errorf("a clipped reason must say so\n--- rendered ---\n%s", joined(t, f))
+	}
+	if got := clip("abcdef", 4); got != "abc…" {
+		t.Errorf("clip(abcdef, 4) = %q, want abc…", got)
+	}
+	if got := clip("abc", 9); got != "abc" {
+		t.Errorf("clip must leave text that fits alone, got %q", got)
 	}
 }

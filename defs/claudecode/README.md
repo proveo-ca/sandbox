@@ -237,9 +237,13 @@ Preconditions, each named in the picker when it fails:
 
 - Chrome (or Edge/Brave…) is open on the host with the Claude in Chrome extension, and
   `claude --chrome` has run once on the host so the native host is registered.
-- The run signs in with `/login` (a persisted login in `~/.proveo/.claude` works). Claude Code
-  turns Chrome integration off for `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` sessions —
-  their OAuth scope is inference-only and the extension cannot authenticate with them.
+- The session holds an OAuth scope Claude Code accepts: `user:profile`, `user:office` or
+  `user:ccr_inference`. A `/login` (persisted in `~/.proveo/.claude`) carries `user:profile`, so
+  it just works. The scopes are synthesised on the client from where the credential came, not
+  read off the wire, so `CLAUDE_CODE_OAUTH_TOKEN` is whatever `CLAUDE_CODE_OAUTH_SCOPES` says
+  beside it and `user:inference` when that is unset — which is what `claude setup-token` mints,
+  and the one shape that really is refused. `ANTHROPIC_API_KEY` is fatal only on its own; it
+  does not displace a login. The check runs before `--chrome`, so no flag overrides it.
 - `--egress-mode open --credentials forward` and the docker backend: the bridge network is
   the only one with a route to the host, and a sandbox VM cannot reach it (Docker Sandboxes
   proxies every outbound TCP). Ticking `docker (sandbox)` greys this add-on.

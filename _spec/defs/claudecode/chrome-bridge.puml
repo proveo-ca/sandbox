@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 title Claude in Chrome from a sandbox — the native host socket, carried across the boundary
 
-' covers: internal/chromebridge/**, defs/claudecode/mcp/proveo-lib/chrome-bridge.js, packages/lib/entrypoint-lib.sh (proveo_chrome_bridge), internal/run/choices.go, internal/egress/plan.go (HostBridge)
+' covers: internal/chromebridge/** (ScopeGate), defs/claudecode/mcp/proveo-lib/chrome-bridge.js, packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok), internal/run/choices.go, internal/egress/plan.go (HostBridge)
 
 node "Operator's machine" as HOSTM <<host>> {
   component "Chrome + Claude in Chrome extension\n(the operator's logins, the extension's site permissions)" as CHROME <<cloud>>
@@ -20,7 +20,7 @@ node "Agent container (docker backend)" as CONT <<host>> {
 }
 
 component "sandbox VM (sbx)\nno route to the host" as SBX <<error>>
-component "setup-token / API-key session\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
+component "session with no accepted scope\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
 component "connection without the token\nclosed before a byte flows" as BAD <<error>>
 
 CHROME ARROW_MAIN NMH : spawns, native messaging (stdio)
@@ -31,7 +31,7 @@ CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\n
 RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
 PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
 PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked
-PICK   ARROW_ERROR SCOPE : greyed when the run authenticates\nwith ""CLAUDE_CODE_OAUTH_TOKEN"" / ""ANTHROPIC_API_KEY""
+PICK   ARROW_ERROR SCOPE : greyed when the session's scopes\nname none of the three (""chromebridge.ScopeGate"")
 RELAY  ARROW_ERROR BAD
 
 note right of NMH
@@ -75,11 +75,39 @@ note right of SBX
 end note
 
 note right of SCOPE
-  **Claude Code's rule since 2.1.216.** Env
-  and setup-token sessions hold the
-  inference-only scope; the extension cannot
-  authenticate with them. A ""/login"" in the
-  proveo home is what works.
+  **A rule about scopes, not variables.** The
+  gate wants one of ""user:profile"",
+  ""user:office"" or ""user:ccr_inference"", and it
+  runs BEFORE ""--chrome"" and
+  ""CLAUDE_CODE_ENABLE_CFC"" — neither overrides
+  it. But ""/api/oauth/validate"" is only NAMED
+  in the message: the scopes are synthesised
+  on the client from where the credential came.
+
+  ""CLAUDE_CODE_OAUTH_TOKEN"" → whatever
+  ""CLAUDE_CODE_OAUTH_SCOPES"" says, else the
+  literal ""user:inference"" — which is what
+  ""claude setup-token"" mints. File-descriptor
+  delivery → a default carrying
+  ""user:ccr_inference"". A ""/login"" store → its
+  real scopes. Two of the three paths pass;
+  Anthropic's own cloud launcher sets both env
+  vars and gets Chrome.
+
+  ""CLAUDE_CODE_OAUTH_TOKEN"" SHADOWS the store.
+  ""ANTHROPIC_API_KEY"" does not.
+end note
+
+note as SbxViewport #F4F9FB
+  **The sandbox backend takes the other route.** This bridge points OUTWARD: the
+  agent reaches the operator's own Chrome through a relay on the host, named as
+  ""host.docker.internal"" — which only the docker backend's bridge network
+  resolves, and which a sandbox VM cannot name at all. sbx publishes ports the
+  other way (host → sandbox), so it can never serve this direction.
+
+  What it can serve is the mirror image: the agent's OWN Chromium, published to
+  host loopback so the operator attaches DevTools or Playwright to it. That is
+  the browser add-on's viewport — _spec/internal/sbx/browser-viewport.puml.
 end note
 
 @enduml

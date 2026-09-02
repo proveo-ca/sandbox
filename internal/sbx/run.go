@@ -1,6 +1,7 @@
 package sbx
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -103,8 +104,12 @@ type RunConfig struct {
 	// (--clone) rather than on the mounted tree itself. Creation-time only: sbx
 	// ignores it when re-attaching, which is why it belongs in the run config
 	// rather than being toggled later.
-	Clone   bool
-	Mounts  []Mount  // workspace binds, passed POSITIONALLY
+	Clone  bool
+	Mounts []Mount // workspace binds, passed POSITIONALLY
+	// Publish is -p/--publish: sandbox ports mapped onto host loopback. Applied
+	// when the sandbox is CREATED — sbx ignores it on a re-attach — which is why
+	// it belongs here beside Clone rather than being added later.
+	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	Command []string // trailing agent command (after "--")
 }
@@ -154,6 +159,9 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.Clone {
 		args = append(args, "--clone")
 	}
+	for _, p := range cfg.Publish {
+		args = append(args, "-p", p)
+	}
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)
 	}
@@ -199,6 +207,110 @@ func CloneSnapshotArgs(name, workdir string) []string {
 func CloneFetchArgs(repoRoot, name string) []string {
 	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(name),
 		"+refs/heads/*:" + CloneRefs(name) + "/*"}
+}
+
+// The browser viewport: the operator watching, or driving, the Chromium the
+// agent is using — from the host, over the sandbox boundary.
+//
+// Two ports, because one cannot do both jobs. Chromium's DevTools endpoint
+// refuses every peer that is not loopback: bound with --remote-debugging-address
+// 0.0.0.0 and asked from the sandbox's OWN address it answers nothing (measured
+// 2026-09-02 — loopback 200, sandbox IP reset), which is exactly how sbx's port
+// forwarder arrives. So Chromium stays on loopback and a relay owns the published
+// port, connecting onward as a loopback client.
+const (
+	CDPRelayPort   = 9222 // the relay listens here, on every interface; this is what is published
+	CDPBrowserPort = 9223 // Chromium's own DevTools port, loopback only
+)
+
+// BrowserCDPArgs is the AGENT_BROWSER_ARGS value that makes the agent's own
+// Chromium expose CDP, preserving whatever the operator already set.
+//
+// agent-browser launches Chromium itself and picks its own endpoint, so there was
+// nothing to attach to; --args (AGENT_BROWSER_ARGS) is its documented way to pass
+// browser flags through, and a fixed port there is what turns the agent's browser
+// into one the host can find. Measured against agent-browser 0.36.0.
+func BrowserCDPArgs(existing string) string {
+	flag := fmt.Sprintf("--remote-debugging-port=%d", CDPBrowserPort)
+	existing = strings.TrimSpace(existing)
+	switch {
+	case existing == "":
+		return "--no-sandbox," + flag
+	case strings.Contains(existing, "--remote-debugging-port="):
+		return existing // the operator pinned their own; theirs wins
+	}
+	return existing + "," + flag
+}
+
+// cdpRelay is the loopback relay, as a python3 -c program: accept on every
+// interface, dial Chromium on loopback, pipe both ways. python3 is in the base
+// image and this is stdlib only, so it needs nothing installed and no image
+// change — which is why it travels as an argv rather than as a file.
+const cdpRelay = `
+import socket,sys,threading
+L,T=int(sys.argv[1]),int(sys.argv[2])
+def pipe(a,b):
+    try:
+        while True:
+            d=a.recv(65536)
+            if not d: break
+            b.sendall(d)
+    except Exception: pass
+    finally:
+        for s in (a,b):
+            try: s.close()
+            except Exception: pass
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(("0.0.0.0",L)); s.listen(64)
+while True:
+    c,_=s.accept()
+    try: u=socket.create_connection(("127.0.0.1",T))
+    except Exception:
+        c.close(); continue
+    for a,b in ((c,u),(u,c)):
+        threading.Thread(target=pipe,args=(a,b),daemon=True).start()
+`
+
+// CDPRelayArgs runs the relay inside the sandbox. It stays in the foreground so
+// the run owns its lifetime: when proveo stops waiting, the relay goes with it,
+// rather than outliving the session as an orphan holding a published port.
+//
+// `-w /` for the reason SaveStateArgs pins it: the container WorkingDir can stop
+// resolving mid-run, and an exec that inherits it dies at chdir.
+func CDPRelayArgs(name string) []string {
+	return []string{"exec", "-w", "/", name, "--", "python3", "-c", cdpRelay,
+		strconv.Itoa(CDPRelayPort), strconv.Itoa(CDPBrowserPort)}
+}
+
+// CloneLiftNothing is the exit status CloneLiftArgs reserves for "the agent wrote
+// nothing there": the directory does not exist in the clone, so there is nothing
+// to unpack and nothing went wrong. Every other non-zero status is a failure.
+const CloneLiftNothing = 3
+
+// CloneLiftArgs streams a directory the agent wrote INSIDE the clone out of the
+// sandbox as a tar archive on stdout, for the host to unpack under repoRoot.
+//
+// It exists because clone mode cannot mount that directory live. sbx clones only
+// into an EMPTY workspace, and it mounts every positional workspace at its own
+// host path — so an output dir nested under the repository (<repo>/reports) was
+// mounted INTO the clone target before the clone ran, the target was no longer
+// empty, and sbx skipped the clone without a word. The agent then sat in a
+// root-owned directory holding nothing but `reports/`, with the real checkout
+// read-only at /run/sandbox/source (measured 2026-09-02 on proveo-1788366117-41470,
+// reproduced with a throwaway repo). The nested bind is therefore dropped in clone
+// mode and its contents are lifted here at teardown, beside the commit fetch.
+//
+// `-w /` for the same reason SaveStateArgs pins it; the workdir is named by
+// absolute path. rel is the directory's path relative to the clone root.
+func CloneLiftArgs(name, workdir, rel string) []string {
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " && { [ -d " + bashQuote(rel) + " ] || exit " +
+			strconv.Itoa(CloneLiftNothing) + "; } && tar -cf - " + bashQuote(rel)}
+}
+
+// bashQuote single-quotes s for a bash -c script: host paths carry spaces.
+func bashQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared

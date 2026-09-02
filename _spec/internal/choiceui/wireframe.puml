@@ -3,6 +3,12 @@
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
+'
+' The checkboxes are grouped into two PLANES, each named by its own divider:
+' execution (where the agent runs) and interface (what it can drive). One
+' undifferentiated "add-ons" row put a Docker daemon beside a browser as though
+' they answered the same question, and named only the first group because the
+' divider was inferred from "the first multi-select row" rather than declared.
 ' Source: internal/choiceui/choiceui.go draw(); cmd/proveo/main.go row builders.
 '
 ' Salt possesses no conditional construct. Optionality is consequently encoded,
@@ -37,12 +43,16 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | ◀ riskier | . | safer ▶ | .
     ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
     credentials | (X) forward | ( ) broker | . | .
-    . | . | ———— add-ons ———— | . | .
-    . | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | [X] docker (sandbox) | <color:#9a9a9a>— chrome (host browser): docker backend only — untick docker (sandbox)
+    . | . | ———— execution ———— | . | .
+    . | [ ] <color:#9a9a9a>host</color> | [X] docker (sandbox) | . | .
+    . | . | ———— interface ———— | . | .
+    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | <color:#9a9a9a>— chrome (host browser): docker backend only…
     agent evidence | [ ] default | [X] verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  ..
+  › docker (sandbox) — a microVM with its own Docker daemon (sbx); unticked: docker + egress sidecars
 }
 {
 {^"1 · greyed — comingSoon"
@@ -87,6 +97,45 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   shows the resolved slots instead — and every slot it shows is highlighted,
   because a half-highlighted row reads as one model mattering more than another.
 }
+{^"7 · described — the cursor's option explains itself, BELOW the hint"
+  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser)</color>
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel | . | . | .
+  <color:#00BAC6>› chrome (host browser) — your own Chrome, with your profile and logins,</color> | . | . | .
+  <color:#9a9a9a>off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions</color> | . | . | .
+  .
+  The picker could only ever explain what it had taken AWAY: ""Reason"" is written
+  when an option is gated off, so the add-ons that were available and ticked
+  carried no text at all and "browser" had to be inferred from its name.
+  ""Help"" describes the option the CURSOR is on, one row at a time — describing
+  every option of every row at once is the wall of text this replaces.
+
+  WRAPPED, never appended to the row: the row is already ~70 columns of
+  checkboxes, so text placed after them runs off the terminal, which is how the
+  one description the picker did have ended mid-sentence. The row's own
+  ""Reason"" is still drawn inline and is now clipped with an ellipsis — it is a
+  glance signal for a row the cursor is not on, and the same words are here in
+  full.
+
+  **Pinned LAST, under the hint, with nothing drawn after it.** Under its own row
+  the block's height changed with the cursor and shoved every row beneath it up
+  and down — the form moved while the operator was reading it. At the bottom it
+  can grow freely and nothing above ever shifts.
+
+  A greyed box that is TICKED reads "always on:" rather than "off:": it is not
+  unavailable, it is compulsory, and the other label would say the opposite of
+  what the checkbox shows.
+}
+{^"8 · fixed — a box that states a fact"
+  execution | [ ] <color:#9a9a9a>host</color> | [X] docker (sandbox) | .
+  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | .
+  .
+  Greyed, and left in the state it states. ""host"" is the alternative an operator
+  might otherwise assume unticking the daemon selects — it never is, because
+  proveo containerises every run — and the TUI is the interface for the whole
+  session whether or not a browser joins it. Neither is reported as a selected
+  add-on, and neither appears in the row's inline ""Reason"": a note greyed on
+  every run teaches the operator to skip the line that sometimes matters.
+}
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
   default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server
   ""=ascii"" | <> typescript-language-server | $ bash-language-server
@@ -109,5 +158,6 @@ legend bottom
   <s>struck</s> — cleared by a cross-row gate, or never read by this harness
   no frame whatsoever — no TTY, so the form is never drawn and resolved values stand
   a glyph before a label — accented marker; devicon by default, ASCII via PROVEO_GLYPHS=ascii
+  a "›" line under a row — what the option the cursor is on does, wrapped; "off:" adds why it cannot be picked
 end legend
 @endsalt

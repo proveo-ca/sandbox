@@ -69,6 +69,26 @@ note over RUN, HOST
   then fetches every branch into ""refs/proveo/<sid>/*"".
 end note
 
+note over RUN, VFS
+  **Nothing may be mounted UNDER the repository in clone
+  mode.** sbx mounts each positional workspace at its own
+  host path and clones only into an EMPTY workspace. The
+  harness's output dir (""<repo>/reports"") went to sbx as a
+  second positional, landed inside the clone target first,
+  and sbx skipped the clone without a word: the agent started
+  in a root-owned directory holding nothing but ""reports/"",
+  with the checkout read-only at ""/run/sandbox/source""
+  (proveo-1788366117-41470, 2026-09-02; reproduced with a
+  throwaway repo). ""SplitNested"" drops every nested bind and
+  says so; the output dir is **lifted at teardown** instead —
+  ""CloneLiftArgs"" tars it out of the clone over ""sbx exec""
+  (stdio is forwarded) and the host unpacks it under the
+  repo root, before the commit fetch. The ""--print"" plan
+  never showed the nested positional because it does not
+  create the output dir and non-existent hosts are dropped;
+  ""e2e/clone_output_test.go"" drives ""proveo run"" itself.
+end note
+
 note over RUN
   **Teardown is an exec too.** ""SaveStateArgs"" pins ""-w /"":
   without it the copy-out inherits the dead WorkingDir and

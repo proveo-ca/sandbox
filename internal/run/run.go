@@ -671,11 +671,20 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
 				"  the seed rebuilds a foreign tree only with PROVEO_DEPS=reinstall (it rewrites your checkout) — `--clone` keeps untracked trees out and installs fresh", dropped)
 		}
+		// The browser viewport is offered only where there is a browser to show and
+		// a port to show it on. Chosen here, before the plan is assembled, so the
+		// argv carries it and --print renders the same run.
+		browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
+		cdpPort := 0
+		if browserOn && !p.PrintOnly {
+			cdpPort = sandbox.FreeLoopbackPort()
+		}
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
-			RepoRoot: rs.Workspace.WS.RepoRoot,
-			Roles:    p.Roles, Bridges: p.Bridges,
+			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
+			Browser: browserOn, CDPHostPort: cdpPort,
+			Roles: p.Roles, Bridges: p.Bridges,
 			Evidence:       p.evidenceOrDefault(),
 			Forwards:       p.forwards(),
 			SandboxAddonOn: p.sandboxAddonOn(),
@@ -796,7 +805,7 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		case !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()):
 			ui.Warnf("%s: skipped — needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)", addonChrome)
 		default:
-			if why := chromeUnavailable(rs.Creds.Lookup); why != "" {
+			if why := chromeUnavailable(rs.Creds.Lookup, p.Target, rs.Creds.HomePlan.Root); why != "" {
 				ui.Warnf("%s: skipped — %s", addonChrome, why)
 				break
 			}

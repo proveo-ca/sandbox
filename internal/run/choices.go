@@ -40,7 +40,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	sandboxOn := sbxBackend && p.sandboxAddonOn()
 	chromeWhy := ""
 	if man.Capabilities.HasHostBrowser() {
-		chromeWhy = chromeUnavailable(lookup)
+		chromeWhy = chromeUnavailable(lookup, p.Target, homeRoot)
 	}
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
@@ -56,9 +56,14 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 			axisRow("auth", auth, auth, orElseFirst(p.AuthVar, auth)),
 		)...)
 	}
-	if addons := addonOptions(man); len(addons) > 0 {
+	for _, label := range addonRows {
+		opts := addonOptions(man, label)
+		if len(opts) == 0 {
+			continue
+		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
-			Label: "add-ons", Options: addons, Multi: true, On: p.addonDefaults(addons),
+			Label: label, Options: opts, Multi: true, Divider: true,
+			On: p.addonDefaults(opts), Help: addonHelp,
 		})...)
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
@@ -66,7 +71,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy, chromeWhy)
 		// Toggling the sandbox add-on moves the review tier with it: the consent
 		// gate has no sbx transport, so review is reachable only off that backend.
-		gateReview(f, hasAddon(f.Selections("add-ons"), addonSandbox))
+		gateReview(f, hasAddon(selectedAddons(f), addonSandbox))
 		gateEvidence(f)
 	}
 	form.OnChange(form)
@@ -84,7 +89,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if v := form.Selection("credentials"); v != "" && !p.CredsSet {
 		p.Credentials = v
 	}
-	p.Addons, p.AddonsAnswered = form.Selections("add-ons"), true
+	p.Addons, p.AddonsAnswered = selectedAddons(form), true
 	if v := form.Selection("auth"); v != "" {
 		p.AuthVar = v
 	}
@@ -149,23 +154,35 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 	if creds == "" {
 		creds = credsFallback
 	}
+	// Read from the form, not from the row in hand: the sandbox box lives in the
+	// execution group and the Chrome box it excludes lives in the interface one,
+	// so the two are no longer neighbours in the same slice.
+	sandboxTicked := sbxWhy == "" && rowTicked(f, rowExecution, addonSandbox)
 	for i := range f.Rows {
 		r := &f.Rows[i]
-		if r.Label != "add-ons" {
+		if !isAddonRow(r.Label) {
 			continue
 		}
 		r.Off = make([]bool, len(r.Options))
 		if len(r.On) != len(r.Options) {
 			r.On = make([]bool, len(r.Options))
 		}
+		// Rebuilt from scratch on every toggle, like Off: these constraints move
+		// with the other rows, and a stale entry would explain a box that is
+		// available again.
+		r.OffWhy = map[string]string{}
 		var reasons []string
-		sandboxTicked := false
 		for j, opt := range r.Options {
-			if opt == addonSandbox && r.On[j] && sbxWhy == "" {
-				sandboxTicked = true
+			// A fact, not a choice: greyed, and left in the state it states.
+			if fixed, ok := addonFixed[opt]; ok {
+				r.Off[j] = true
+				r.On[j] = fixed.on
+				r.OffWhy[opt] = fixed.why
+				// Deliberately NOT in reasons: these are greyed on every run, and an
+				// inline note that never changes teaches the operator to skip the
+				// line that sometimes matters.
+				continue
 			}
-		}
-		for j, opt := range r.Options {
 			switch opt {
 			case addonSandbox:
 				// Offered, but only checkable on a host that can actually run it.
@@ -176,12 +193,14 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 					// posture of the run rather than as a thing they cannot have.
 					r.On[j] = false
 					reasons = append(reasons, "docker sandbox: "+sbxWhy)
+					r.OffWhy[opt] = sbxWhy
 				}
 			case addonDind:
 				if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
 					r.Off[j] = true
 					r.On[j] = false
 					reasons = append(reasons, addonDind+" needs egress open + credentials forward")
+					r.OffWhy[opt] = "needs egress open + credentials forward"
 				}
 			case addonChrome:
 				// The bridge is a TCP relay on the host that the agent reaches as
@@ -202,6 +221,7 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 					r.Off[j] = true
 					r.On[j] = false
 					reasons = append(reasons, addonChrome+": "+why)
+					r.OffWhy[opt] = why
 				}
 			}
 		}
@@ -212,18 +232,15 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 // chromeUnavailable is the host-side preflight for the Claude in Chrome add-on:
 // what, at this moment, would stop the bridge from connecting. Empty means go.
 //
-// The credential check is Claude Code's rule, not proveo's: since 2.1.216 an
-// env-var or setup-token session is refused Chrome integration outright, because
-// those tokens carry the inference-only OAuth scope and the extension cannot
-// authenticate with them. Offering the box would sell a bridge to a client that
-// has already decided not to use it.
-func chromeUnavailable(lookup func(string) string) string {
-	if lookup != nil {
-		for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
-			if strings.TrimSpace(lookup(k)) != "" {
-				return "Claude Code turns Chrome integration off for " + k + " sessions (inference-only scope) — sign in with /login instead"
-			}
-		}
+// The credential check is Claude Code's rule, not proveo's, and it is a rule about
+// SCOPES rather than about variables: see chromebridge.ScopeGate. Reading it as
+// "env-var sessions are refused" greyed the box for a correctly-scoped token that
+// would have connected, and for an ANTHROPIC_API_KEY set beside a login the key
+// does not displace. Offering the box would sell a bridge to a client that has
+// already decided not to use it; withholding it hides one that works.
+func chromeUnavailable(lookup func(string) string, target, homeRoot string) string {
+	if why := chromebridge.ScopeGate(lookup, credentials.HasPersistedLogin(target, homeRoot)); why != "" {
+		return why
 	}
 	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
 		return why
@@ -400,27 +417,65 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 // subject to its own gate, so an entry can be checked and greyed at once, with
 // the reason on the row.
 const (
+	// The two planes the checkboxes are grouped into: WHERE the agent runs, and
+	// WHAT it can drive. One undifferentiated "add-ons" row put a Docker daemon
+	// beside a browser as though they answered the same question.
+	rowExecution = "execution"
+	rowInterface = "interface"
+
+	addonHost    = "host"
+	addonTUI     = "tui (this session)"
+	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
 	addonDind    = "docker (dind)"
 	addonChrome  = chromebridge.Addon
 )
 
-func addonOptions(man manifest.Manifest) []string {
-	var opts []string
-	for target := range man.Images {
-		if strings.HasSuffix(target, "-browser") {
-			opts = append(opts, "browser")
-			break
-		}
-	}
-	// "browser" is a Chromium INSIDE the sandbox (the -browser image variant);
-	// "chrome (host browser)" is the operator's own Chrome, reached through the
-	// Claude in Chrome bridge. Different things, so both can be offered at once.
-	if man.Capabilities.HasHostBrowser() {
-		opts = append(opts, addonChrome)
-	}
-	// One entry, never two: the manifest's docker mode IS the choice, so the
-	// picker cannot offer a harness both daemons.
+// addonRows is the order the two groups are drawn and read back in.
+var addonRows = []string{rowExecution, rowInterface}
+
+func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
+
+// addonFixed are the boxes that state a FACT rather than offer a choice: their
+// state is never the operator's to change, and drawing them is how the plane
+// says what it excludes. "host" is the alternative an operator might otherwise
+// assume unticking the daemon selects — it never is, because proveo containerises
+// every run — and the TUI is the interface for the whole session whether or not
+// a browser joins it.
+//
+// They are greyed but keep their true state: a ticked greyed box reads as
+// compulsory, which is exactly what it is, and the help line below says "always
+// on" rather than "off" for one.
+var addonFixed = map[string]struct {
+	on  bool
+	why string
+}{
+	addonHost: {why: "proveo never runs an agent there — every run is containerised, which is the point of it"},
+	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
+}
+
+// addonHelp is what each add-on DOES, in one line, shown under the row while the
+// cursor is on that box.
+//
+// Naming the alternative is half the job and the half that was missing: an
+// unticked box is a posture too, and "docker (sandbox)" said nothing about what
+// unticking it selects. It is not the host — proveo never runs an agent there —
+// it is the docker backend behind egress sidecars, and an operator reading only
+// the checkbox had no way to know that.
+var addonHelp = map[string]string{
+	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
+	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
+	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
+	addonChrome:  "your own Chrome, with your profile and logins, driven through proveo's bridge",
+	addonSandbox: "a microVM with its own Docker daemon (sbx); unticked: docker + egress sidecars",
+	addonDind:    "a privileged sibling Docker daemon; unticked: no daemon reaches the agent",
+}
+
+// executionOptions is WHERE the agent runs: the excluded host, then the daemon
+// this harness declares. One entry, never two — the manifest's docker mode IS
+// the choice, so the picker cannot offer a harness both daemons.
+func executionOptions(man manifest.Manifest) []string {
+	opts := []string{addonHost}
 	switch man.Docker {
 	case manifest.DockerSbx:
 		opts = append(opts, addonSandbox)
@@ -428,6 +483,59 @@ func addonOptions(man manifest.Manifest) []string {
 		opts = append(opts, addonDind)
 	}
 	return opts
+}
+
+// interfaceOptions is WHAT the agent can drive. "browser" is a Chromium INSIDE
+// the sandbox (the -browser image variant); "chrome (host browser)" is the
+// operator's own Chrome, reached through the Claude in Chrome bridge. Different
+// things, so both can be offered at once.
+func interfaceOptions(man manifest.Manifest) []string {
+	opts := []string{addonTUI}
+	for target := range man.Images {
+		if strings.HasSuffix(target, "-browser") {
+			opts = append(opts, addonBrowser)
+			break
+		}
+	}
+	if man.Capabilities.HasHostBrowser() {
+		opts = append(opts, addonChrome)
+	}
+	return opts
+}
+
+func addonOptions(man manifest.Manifest, label string) []string {
+	if label == rowExecution {
+		return executionOptions(man)
+	}
+	return interfaceOptions(man)
+}
+
+// selectedAddons reads both groups back as the one list the rest of the run
+// consumes, so splitting the row changed the picker and nothing downstream.
+func selectedAddons(f *choiceui.Form) []string {
+	var out []string
+	for _, label := range addonRows {
+		out = append(out, f.Selections(label)...)
+	}
+	return out
+}
+
+// rowTicked reports whether one option of one group is checked, reading On
+// directly: gating runs before Off is recomputed, so Selections would answer
+// from a stale gate on the first pass.
+func rowTicked(f *choiceui.Form, label, option string) bool {
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != label {
+			continue
+		}
+		for j, opt := range r.Options {
+			if opt == option && j < len(r.On) && r.On[j] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sandboxAddonOn reports whether this run takes the sandbox backend. It is

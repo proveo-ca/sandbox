@@ -21,6 +21,110 @@ type Row struct {
 	Multi    bool
 	On       []bool
 	Off      []bool
+	// Help is what an option DOES, keyed by the option itself. Keyed rather than
+	// indexed because callers assemble Options conditionally — a harness without a
+	// -browser variant is never offered one — and a parallel slice would then
+	// describe the wrong box.
+	//
+	// It exists because the picker could only ever explain what it had taken AWAY:
+	// Reason is written when something is gated off, so the two add-ons that were
+	// available and ticked carried no text at all, and the operator was left to
+	// infer "browser" and "docker (sandbox)" from their names.
+	Help map[string]string
+	// OffWhy is why one option is greyed, keyed the same way. Reason states the
+	// row's constraints at a glance; this states one option's, in full, next to
+	// its description.
+	OffWhy map[string]string
+	// Divider draws the row's name as a centered heading instead of a label in
+	// the left column, and is how a group of checkboxes announces itself.
+	// Declared rather than inferred: it used to be "the first multi-select row",
+	// which silently meant only one group could ever be named.
+	Divider bool
+}
+
+// helpLine is one line under the cursor's row: what the option the cursor is on
+// means, and why it cannot be picked.
+type helpLine struct {
+	text string
+	warn bool
+}
+
+// helpLines describes the option the cursor is on, wrapped to width. Drawn BELOW
+// the row, never appended to it: the row is already ~70 columns of checkboxes, so
+// text placed after them runs off the terminal — which is how the one description
+// the picker did have, a gated option's reason, came to end mid-sentence.
+//
+// Wrapped rather than clipped, because these are the sentences the operator is
+// meant to READ. The row's own Reason is still clipped: it is a glance signal for
+// a row the cursor is not on, and the same words are here in full.
+func (r *Row) helpLines(width int) []helpLine {
+	if r.Selected < 0 || r.Selected >= len(r.Options) {
+		return nil
+	}
+	opt := r.Options[r.Selected]
+	var out []helpLine
+	// Guarded on the description: an option with none must stay silent, or the
+	// block reads "› allowlist —" and explains nothing.
+	if h := r.Help[opt]; h != "" {
+		for _, l := range wrap("› "+opt+" — "+h, width, 2) {
+			out = append(out, helpLine{text: l})
+		}
+	}
+	// Guarded on the reason, not on the label: "off: " alone is still one field,
+	// so an available option printed a bare "off:" under itself.
+	if why := r.OffWhy[opt]; why != "" {
+		// A greyed box that is TICKED is not unavailable, it is compulsory, and
+		// labelling it "off:" would say the opposite of what the checkbox shows.
+		label := "off: "
+		if r.onAt(r.Selected) {
+			label = "always on: "
+		}
+		for _, l := range wrap(label+why, width, len([]rune(label))) {
+			out = append(out, helpLine{text: l, warn: true})
+		}
+	}
+	return out
+}
+
+// wrap breaks text on spaces into lines of at most width runes, indenting every
+// line after the first so a continuation reads as one. Empty text yields no
+// lines, which is what makes an option with no help simply silent.
+func wrap(text string, width, indent int) []string {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return nil
+	}
+	if width < 20 {
+		width = 20 // narrower than any sentence; wrap rather than refuse
+	}
+	pad := strings.Repeat(" ", indent)
+	var out []string
+	line := fields[0]
+	for _, w := range fields[1:] {
+		if len([]rune(line))+1+len([]rune(w)) > width {
+			out = append(out, line)
+			line = pad + w
+			continue
+		}
+		line += " " + w
+	}
+	return append(out, line)
+}
+
+// clip shortens text to width and marks the cut. tcell drops runes past the last
+// column in silence, so an over-long reason simply stopped mid-word with nothing
+// saying it had been truncated.
+func clip(text string, width int) string {
+	runes := []rune(text)
+	switch {
+	case width <= 0:
+		return ""
+	case len(runes) <= width:
+		return text
+	case width == 1:
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
 }
 
 func (r *Row) offAt(i int) bool { return i < len(r.Off) && r.Off[i] }
@@ -168,7 +272,13 @@ func (f *Form) cycle(cursor, delta int) {
 	n := len(r.Options)
 	for step := 1; step <= n; step++ {
 		next := ((r.Selected+delta*step)%n + n) % n
-		if !r.offAt(next) {
+		// A single-select row's Selected IS the choice, so it may never rest on a
+		// gated option. On a MULTI row it is only the cursor — the checkbox is the
+		// choice, and toggle refuses a gated one on its own — so the cursor is
+		// allowed to stop there. That is what makes a greyed box's explanation
+		// readable: it is the one whose reason the operator most needs, and it was
+		// the one option the cursor could never reach.
+		if r.Multi || !r.offAt(next) {
 			r.Selected = next
 			break
 		}
@@ -260,11 +370,9 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		y += 2
 	}
 
-	dividerDone := false
 	for i, r := range f.Rows {
 		namedByDivider := false
-		if r.Multi && !dividerDone {
-			dividerDone = true
+		if r.Divider {
 			namedByDivider = true
 			label := " " + r.Label + " "
 			pad := (72 - len([]rune(label))) / 2
@@ -310,7 +418,8 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			x += len(glyph) + len(opt) + 3
 		}
 		if r.Reason != "" && (r.Locked || r.anyOff()) {
-			put(x, p.warn, "— "+r.Reason)
+			width, _ := s.Size()
+			put(x, p.warn, clip("— "+r.Reason, width-x))
 		}
 		y++
 	}
@@ -324,6 +433,26 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		}
 	}
 	put(0, p.body, hint)
+
+	// The cursor's option explains itself HERE, below the hint, and nothing is
+	// drawn after it. Under the row it belonged to, the block's height changed
+	// with the cursor and shoved every row beneath it up and down — the form
+	// moved while the operator was reading it. Pinned last, it can grow freely
+	// and the rows above never shift.
+	if cursor >= 0 && cursor < len(f.Rows) {
+		width, _ := s.Size()
+		if lines := f.Rows[cursor].helpLines(width - 4); len(lines) > 0 {
+			y++
+			for _, h := range lines {
+				y++
+				st := p.body
+				if h.warn {
+					st = p.warn
+				}
+				put(2, st, h.text)
+			}
+		}
+	}
 	s.Show()
 }
 
