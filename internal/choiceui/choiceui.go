@@ -146,6 +146,16 @@ type Form struct {
 	Header   []string
 	Rows     []Row
 	OnChange func(*Form)
+	// Glyphs is how much decoration the terminal is trusted with — a capability
+	// of the session, so it is constant for the run.
+	Glyphs GlyphTier
+	// Topology projects the form onto the picture drawn under the help block.
+	// It is called at PAINT time, on every frame, so it tracks the cursor —
+	// which `move` deliberately does not report through OnChange. It must be
+	// pure: it reads rows and never mutates the form it is handed. A nil
+	// Topology means no strip, which is what every caller that does not want
+	// one gets for free.
+	Topology func(f *Form, cursor int) *Frame
 }
 
 func Banner() []string {
@@ -186,15 +196,22 @@ func (f *Form) Run() (confirmed bool, err error) {
 	if err := screen.Init(); err != nil {
 		return false, fmt.Errorf("choice prompt: %w", err)
 	}
+	// Registered FIRST, so it runs LAST: the ticker must be stopped before the
+	// screen it posts into is torn down, and defers unwind in reverse.
 	defer screen.Fini()
+	tick := newTicker(screen.PostEvent)
+	defer tick.stop()
 
 	cursor := f.firstSelectable()
 	for {
-		f.draw(screen, cursor)
+		f.draw(screen, cursor, tick.frame())
 		switch ev := screen.PollEvent().(type) {
 		case *tcell.EventResize:
 			screen.Sync()
 		case *tcell.EventKey:
+			// One unconditional bump, before the key switch: no path can miss it,
+			// and a keystroke that changes nothing costs only a second of frames.
+			tick.bump()
 			switch ev.Key() {
 			case tcell.KeyEscape, tcell.KeyCtrlC:
 				return false, nil
@@ -336,9 +353,11 @@ func styles() palette {
 	}
 }
 
-func (f *Form) draw(s tcell.Screen, cursor int) {
+func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	s.Clear()
 	p := styles()
+	w, h := s.Size()
+	lay := f.layout(w, h)
 
 	y := 0
 	put := func(x int, style tcell.Style, text string) {
@@ -347,24 +366,24 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 		}
 	}
 
-	for _, b := range f.Banner {
-		put(0, p.brand, b)
-		y++
-	}
-	if len(f.Banner) > 0 {
+	if lay.banner {
+		for _, b := range f.Banner {
+			put(0, p.brand, b)
+			y++
+		}
 		y++
 	}
 	put(0, p.title, f.Title)
 	y += 2
-	for _, h := range f.Header {
-		putHeader(put, p, h)
-		y++
-	}
-	if len(f.Header) > 0 {
+	if lay.header {
+		for _, hl := range f.Header {
+			putHeader(put, p, hl)
+			y++
+		}
 		y++
 	}
 
-	if f.axisLabel() {
+	if lay.axis {
 		put(22, p.body, "◀ riskier")
 		put(60, p.body, "safer ▶")
 		y += 2
@@ -418,8 +437,7 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 			x += len(glyph) + len(opt) + 3
 		}
 		if r.Reason != "" && (r.Locked || r.anyOff()) {
-			width, _ := s.Size()
-			put(x, p.warn, clip("— "+r.Reason, width-x))
+			put(x, p.warn, clip("— "+r.Reason, w-x))
 		}
 		y++
 	}
@@ -439,17 +457,36 @@ func (f *Form) draw(s tcell.Screen, cursor int) {
 	// with the cursor and shoved every row beneath it up and down — the form
 	// moved while the operator was reading it. Pinned last, it can grow freely
 	// and the rows above never shift.
+	// The help block is drawn into a slot reserved at its MAXIMUM height, so the
+	// figure below it does not jump a row every time the cursor reaches a wordier
+	// option. Without the reservation the strip moved under the operator while
+	// they were reading it — the same failure that pushed help to the bottom in
+	// the first place, one level down.
+	// y+2, not y+1: the hint sits at y and the block has always opened with a
+	// blank line under it. Reserving from y+1 silently deleted that blank and
+	// pushed the help up against the hint.
+	helpTop := y + 2
 	if cursor >= 0 && cursor < len(f.Rows) {
-		width, _ := s.Size()
-		if lines := f.Rows[cursor].helpLines(width - 4); len(lines) > 0 {
-			y++
-			for _, h := range lines {
-				y++
+		if lines := f.Rows[cursor].helpLines(w - 4); len(lines) > 0 {
+			for i, hl := range lines {
 				st := p.body
-				if h.warn {
+				if hl.warn {
 					st = p.warn
 				}
-				put(2, st, h.text)
+				y = helpTop + i
+				put(2, st, hl.text)
+			}
+		}
+	}
+	y = helpTop + lay.helpSlot
+
+	if lay.strip != stripNone && f.Topology != nil {
+		if fr := f.Topology(f, cursor); fr != nil {
+			if lay.strip == stripDigest {
+				y++
+				put(2, p.aside, clip(fr.Caption, w-3))
+			} else {
+				drawTopology(s, y, *fr, f.Glyphs, p, tick)
 			}
 		}
 	}

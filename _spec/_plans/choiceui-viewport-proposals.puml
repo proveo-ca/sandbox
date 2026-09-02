@@ -1,10 +1,20 @@
 @startsalt
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: where the planned topology strip goes when the terminal cannot hold the whole form
+' purpose: what is still UNBUILT about the prompt at small terminal sizes
+'
+' WHAT SHIPPED, and what did not. Proposal A — one budget pass and a strict drop
+' ladder — is built: internal/choiceui/layout.go, and the strip is its first
+' casualty. What remains planned is B (a scrolling row viewport with pinned
+' chrome) and C's PANE (the figure beside the rows at w >= 112). C's other two
+' fidelities shipped with A: BLOCK at 72 columns, DIGEST as the one-line caption.
+'
+' The pre-existing bug B exists to fix is UNFIXED: draw() still paints straight
+' down and a terminal shorter than the form still loses its last rows. The budget
+' guarantees only that the STRIP is never what pushed them off.
 ' PLANNED — three answers to one question: the prompt is already taller than a
 ' small terminal, and the topology strip wants five more rows.
-'   the strip's mechanism ....... _spec/_plans/choiceui-topology-animation.puml
-'   every drawn combination ..... _spec/_plans/choiceui-animation-states.puml
+'   the strip's mechanism ....... _spec/internal/choiceui/topology-strip.puml
+'   every drawn combination ..... _spec/internal/choiceui/topology-states.puml
 '   the layout as it ships today  _spec/internal/choiceui/wireframe.puml
 '   help pinned last, grows ..... _spec/internal/choiceui/choice-prompt-render.puml
 '   why the sbx row is locked ... _spec/internal/sbx/policy-baseline.puml
@@ -12,7 +22,7 @@
 ' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
 ' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
 ' tier rather than an approximation of it.
-title PLANNED — the choice prompt at four terminal sizes, and where the strip fits
+title PLANNED — the scrolling viewport and the side pane, neither of them built
 
 {
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
@@ -159,9 +169,9 @@ title PLANNED — the choice prompt at four terminal sizes, and where the strip 
 {^"Recommendation — they are one design in three stages, not three candidates"
 {#
   stage | what ships | why now
-  1 | B's three regions, A's drop ladder | the silent truncation is a bug today, at 38-39 rows, with no strip at all
-  2 | the strip as C's BLOCK + DIGEST | five rows when they exist, one sentence when they do not
-  3 | C's PANE at w >= 112 | pure gain: the margin beside the rows is already empty
+  1 | **SHIPPED** A's drop ladder | one budget pass; the strip is dropped first and can evict nothing mandatory
+  2 | **SHIPPED** BLOCK + DIGEST | five rows when they exist, one sentence when they do not
+  3 | PLANNED B's scroll, then C's PANE | the silent truncation is still a bug, at 38-39 rows, with no strip at all
 }
   .
   Stage 1 is worth doing whether or not the animation is ever built, and it is

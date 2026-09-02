@@ -8,7 +8,7 @@
 ' Why review needs a pty: _spec/internal/reviewgate/pty-review-proxy.puml.
 ' Why the sandbox box is compulsory and what the escape is:
 ' _spec/internal/sbx/sandbox-backend.puml.
-' PLANNED topology strip (nothing shipped): _spec/_plans/choiceui-topology-animation.puml.
+' The topology strip drawn under the help block: _spec/internal/choiceui/topology-strip.puml.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Choice prompt render — radio axes above the divider, checkboxes below
 

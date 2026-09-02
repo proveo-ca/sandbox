@@ -1,9 +1,10 @@
 @startsalt
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: every frame the planned topology strip can draw, per backend, and what each element means
-' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
-'   the mechanism behind it .... _spec/_plans/choiceui-topology-animation.puml
-'   where the strip is placed .. _spec/_plans/choiceui-viewport-proposals.puml
+' purpose: every frame the topology strip can draw, per backend, and what each element means
+' covers: internal/run/topology.go
+' covers: internal/choiceui/topology.go
+'   the mechanism behind it .... _spec/internal/choiceui/topology-strip.puml
+'   scrolling, panes: unbuilt .. _spec/_plans/choiceui-viewport-proposals.puml
 '   the form it hangs under .... _spec/internal/choiceui/wireframe.puml
 '   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
@@ -20,10 +21,18 @@
 ' names for open/allowlist/review; they are a separate, host-wide axis that proveo
 ' reports and never sets. Every frame below therefore names its backend.
 '
+'
+' THE GLYPHS BELOW ARE THE DIAGRAM'S, NOT THE TERMINAL'S. Emoji read well here and
+' badly in a grid: the speaking head is two runes that go-runewidth measures as one
+' column and terminals draw as two, and the cloud is ambiguous-width. The strip
+' therefore ships with Nerd Font devicons (one rune, one column) and an ASCII tier,
+' and PROVEO_GLYPHS=off draws the ASCII figure rather than none. Read every emoji
+' below as "the key", "the cloud", "the bubble" — a role, not a codepoint.
+'
 ' Salt has no conditional construct, so every state is a separate frame. Lanes use
 ' '-' and '=' because the diagram font carries no box-drawing set — which makes
 ' these sheets a literal picture of the PROVEO_GLYPHS=ascii tier.
-title PLANNED — the topology strip in every selectable state, on both backends
+title The topology strip in every selectable state, on both backends
 
 {
 {^"Anatomy — six columns, three rows, one caption. Nothing here ever moves."
@@ -83,13 +92,13 @@ title PLANNED — the topology strip in every selectable state, on both backends
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced — the host's own allows UNION the Kit's; sbx injects the key
+  balanced — the host's own allows, plus proveo's; sbx injects the key
 }
 {^"balanced · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced · forward — the host's allows union the Kit's; the value is inside
+  balanced · forward — the host's allows plus proveo's; the value is inside
 }
 }
 {
@@ -136,13 +145,13 @@ title PLANNED — the topology strip in every selectable state, on both backends
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:speech_balloon:> opencode ] | ───▸ | () mitm + squid <:key:> | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  allowlist — 3 asked, 2 allowed; the key is injected at the MITM, never inside
+  allowlist — screened at the hop, the unlisted refused; the key never goes inside
 }
 {^"allowlist · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:>
   () host | ══▸ | [ <:key:> <:speech_balloon:> opencode ] | ───▸ | () mitm + squid | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  allowlist · forward — 3 asked, 2 allowed; the real key rides inside the square
+  allowlist · forward — screened at the hop; the real key rides inside the square
 }
 }
 {
@@ -249,6 +258,12 @@ title PLANNED — the topology strip in every selectable state, on both backends
   These re-label; they do not re-shape. Keeping them out of the matrix is what
   holds it at twelve frames, and the strip stays a picture of the three questions
   that actually change the drawing: the backend, the row it puts there, and the key.
+  .
+  **The lane counts are illustrative, never measured.** A real "how many hosts
+  survive" would mean reading the Kit allowlist or Squid's config at prompt time,
+  which costs more than the picture is worth — so the counts fall 3, 2, 1 to show
+  the axis tightening, and every caption says what the tier DOES rather than
+  claiming a number. One lane always survives, because the run has to work.
 }
 ..
 {^"Motion — three frames per shape, and the pulse is what carries the meaning"

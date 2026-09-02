@@ -35,7 +35,7 @@ func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 	}
 
 	man := manifest.Manifest{Workspace: manifest.Workspace{ConfigDir: ".opencode"}}
-	got := strings.Join(WorkspaceHeader(man, dir, dir, t.TempDir(), glyphsOff), "\n")
+	got := strings.Join(WorkspaceHeader(man, dir, dir, t.TempDir(), GlyphsOff), "\n")
 
 	for _, want := range []string{"tooling:", "go", "nx", "node", "docker", "subagents: 2 definition(s)", ".opencode/settings.json"} {
 		if !strings.Contains(got, want) {
@@ -57,7 +57,7 @@ func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 
 func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	t.Parallel()
-	if got := WorkspaceHeader(manifest.Manifest{}, "", "", "", glyphsOff); got != nil {
+	if got := WorkspaceHeader(manifest.Manifest{}, "", "", "", GlyphsOff); got != nil {
 		t.Errorf("no input dir must yield no header, got %v", got)
 	}
 }
@@ -130,11 +130,11 @@ func TestLSPGlyphModes(t *testing.T) {
 	t.Parallel()
 	labels := []string{"typescript-language-server", "bash-language-server", "gopls"}
 
-	if got := WithGlyphs(labels, glyphsOff); !reflect.DeepEqual(got, labels) {
+	if got := WithGlyphs(labels, GlyphsOff); !reflect.DeepEqual(got, labels) {
 		t.Errorf("glyphs off must not touch the labels, got %v", got)
 	}
 
-	for _, mode := range []GlyphMode{glyphsNerd, glyphsASCII} {
+	for _, mode := range []GlyphMode{GlyphsNerd, GlyphsASCII} {
 		got := WithGlyphs(labels, mode)
 		for i, l := range labels {
 			if !strings.HasSuffix(got[i], l) {
@@ -149,12 +149,12 @@ func TestLSPGlyphModes(t *testing.T) {
 	// Nerd falls back to the ASCII category marker rather than leaving a hole.
 	delete(lspNerd, "gopls")
 	defer func() { lspNerd["gopls"] = "\ue627" }()
-	if got := WithGlyphs([]string{"gopls"}, glyphsNerd); got[0] != lspASCII["gopls"]+" gopls" {
+	if got := WithGlyphs([]string{"gopls"}, GlyphsNerd); got[0] != lspASCII["gopls"]+" gopls" {
 		t.Errorf("a server with no devicon must fall back to ASCII, got %q", got[0])
 	}
 
 	// A server in neither table stays bare.
-	if got := WithGlyphs([]string{"unknown-langserver"}, glyphsNerd); got[0] != "unknown-langserver" {
+	if got := WithGlyphs([]string{"unknown-langserver"}, GlyphsNerd); got[0] != "unknown-langserver" {
 		t.Errorf("unmapped server must stay bare, got %q", got[0])
 	}
 }
@@ -182,9 +182,9 @@ func TestEveryLSPMarkerHasAnASCIIGlyph(t *testing.T) {
 func TestGlyphModeFromLookup(t *testing.T) {
 	t.Parallel()
 	cases := map[string]GlyphMode{
-		"": glyphsNerd, "nerd": glyphsNerd, "1": glyphsNerd, "typo": glyphsNerd,
-		"ascii": glyphsASCII, "ASCII": glyphsASCII,
-		"off": glyphsOff, "0": glyphsOff, "false": glyphsOff, "none": glyphsOff,
+		"": GlyphsNerd, "nerd": GlyphsNerd, "1": GlyphsNerd, "typo": GlyphsNerd,
+		"ascii": GlyphsASCII, "ASCII": GlyphsASCII,
+		"off": GlyphsOff, "0": GlyphsOff, "false": GlyphsOff, "none": GlyphsOff,
 	}
 	for in, want := range cases {
 		if got := GlyphModeFrom(func(string) string { return in }); got != want {

@@ -17,7 +17,7 @@ func render(t *testing.T, f *Form) []string {
 	}
 	defer s.Fini()
 	s.SetSize(120, 40)
-	f.draw(s, f.firstSelectable())
+	f.draw(s, f.firstSelectable(), 0)
 
 	cells, w, h := s.GetContents()
 	lines := make([]string, 0, h)
@@ -294,7 +294,7 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 	}
 	defer s.Fini()
 	s.SetSize(120, 40)
-	f.draw(s, 0)
+	f.draw(s, 0, 0)
 
 	cells, w, h := s.GetContents()
 	slate := tcell.NewHexColor(int32(ui.ColorCloud))

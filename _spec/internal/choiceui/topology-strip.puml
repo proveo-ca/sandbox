@@ -1,11 +1,15 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: the mechanism of the planned topology strip — its inputs, its budget, its clock
-' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' purpose: the mechanism of the topology strip — its inputs, its budget, its clock
+' covers: internal/choiceui/topology.go
+' covers: internal/choiceui/layout.go
+' covers: internal/choiceui/anim.go
+' covers: internal/choiceui/pen.go
+' covers: internal/run/topology.go
 ' This file owns the MECHANISM: what the strip is a function of, where its rows come
 ' from, and what makes it tick. It owns no pictures.
-'   the pictures, per selection ... _spec/_plans/choiceui-animation-states.puml
-'   the three placement options .... _spec/_plans/choiceui-viewport-proposals.puml
+'   the pictures, per selection ... _spec/internal/choiceui/topology-states.puml
+'   scrolling and panes, unbuilt .. _spec/_plans/choiceui-viewport-proposals.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
 '   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
@@ -13,13 +17,13 @@
 '   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
-title PLANNED — choice-prompt topology strip: one projection, one budget, one clock
+title Choice-prompt topology strip — one projection, one budget, one clock
 
-node "internal/choiceui — planned additions" as PKG <<host>> {
+node "internal/choiceui" as PKG <<host>> {
   component "layout(w, h)\nfit budget · drop ladder · reserved slots" as LAYOUT <<app>>
-  component "topology(*Form, cursor)\nform state + cursor -> one Frame value" as MODEL <<app>>
+  component "Form.Topology(f, cursor)\nrun/topology.go builds one Frame" as MODEL <<app>>
   component "drawTopology(s, y, Frame, tick)\nfixed 3-row figure + caption" as PAINT <<app>>
-  component "glyphSet(PROVEO_GLYPHS)\nemoji · nerd · ascii" as GLYPH <<app>>
+  component "glyphsFor(tier)\nnerd devicons · ascii" as GLYPH <<app>>
 }
 
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
@@ -85,11 +89,11 @@ note bottom of LAYOUT
 end note
 
 note bottom of LAYOUT
-  **The strip costs 5 rows and needs 72
-  columns.** One blank, three figure rows, one
-  caption — and 72 is already the width the
-  add-on divider centres on, so the form gains
-  no new minimum width by carrying it.
+  **The ladder is strict, not best-fit.** A
+  cheaper region may not sneak past a dearer one
+  that was refused — except the one-line digest,
+  which is afforded FIRST because it is dropped
+  LAST, below even the axis legend.
 end note
 
 note top of TICK
@@ -116,19 +120,19 @@ note bottom of TICK
 end note
 
 note top of GLYPH
-  **The strip inherits ""PROVEO_GLYPHS"".** A
-  terminal that cannot draw a devicon will not
-  draw an emoji either, so the ladder the lsp
-  row already uses decides the cloud, the key
-  and the speech bubble too.
+  **No emoji reach the terminal.** The speaking
+  head is two runes that ""go-runewidth"" measures
+  as ONE column and terminals draw as two, and
+  the cloud is ambiguous-width. A devicon is one
+  rune of one column, so nerd is the top tier.
 end note
 
 note bottom of GLYPH
-  **""put"" advances one column per rune.** Every
-  glyph here is double-width and the speaking
-  head is two runes, so the strip needs a
-  width-aware writer or each emoji silently
-  overwrites the cell after it.
+  **""put"" advances one column per rune**, so
+  the strip has its own ""pen"". ""off"" draws the
+  ASCII figure rather than none: it says the
+  terminal cannot decorate, not that the reader
+  wants less than the boxes can tell them.
 end note
 
 note bottom of DECOR

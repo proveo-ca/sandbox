@@ -53,6 +53,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Banner: choiceui.Banner(),
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header: buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
+		// The same lookup buildHeader uses, so one project .env governs the
+		// header's devicons and the strip's together.
+		Glyphs:   stripGlyphs(posture.GlyphModeFrom(lookup)),
+		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
 			egressRow(man, p.Mode, sandboxOn),
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
