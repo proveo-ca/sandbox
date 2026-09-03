@@ -14,23 +14,11 @@ const (
 	animWindow = 1200 * time.Millisecond // how long a change stays animated
 )
 
-// ticker is the strip's clock.
-//
-// Motion is bound to CHANGE rather than to time: a keystroke runs the filmstrip
-// for animWindow and the strip then rests on its still frame. Any movement on
-// screen therefore means something in the form actually moved, which is the only
-// thing that makes the motion worth the distraction it costs.
-//
-// PollEvent blocks, so the clock cannot be a timer the draw loop reads; it has
-// to be an event. PostEvent is non-blocking and reports a full queue rather than
-// parking, so a tick that arrives against a screen nobody is reading is dropped
-// instead of wedging the goroutine that sent it.
+// ticker is the strip's clock: motion is bound to CHANGE rather than to time,
+// and posted as an event because PollEvent blocks.
 type ticker struct {
-	// base is the monotonic origin, and since is the offset of the current
-	// window from it. Both are durations off ONE reading, never wall-clock
-	// instants: a wall clock stepped backwards by NTP makes an elapsed time
-	// negative, and a negative elapsed never satisfies "the window has closed" —
-	// so the strip would repaint every 120ms forever, with no pulse to show for it.
+	// base is the monotonic origin and since the current window's offset from it.
+	// Durations off ONE reading, never wall-clock instants.
 	base  time.Time
 	since atomic.Int64 // ns from base, or 0 at rest
 
@@ -60,8 +48,7 @@ func (t *ticker) run(post func(tcell.Event) error) {
 				moving = true
 			case moving:
 				// The window just closed. One last post so the strip repaints
-				// WITHOUT its pulse — otherwise the final frame painted is a
-				// mid-animation one and the mote stays frozen on a lane forever.
+				// WITHOUT its pulse.
 				moving = false
 			default:
 				continue // at rest, and already still: post nothing
@@ -73,13 +60,8 @@ func (t *ticker) run(post func(tcell.Event) error) {
 	}
 }
 
-// bump restarts the animation window. It is called once per key event rather
-// than per mutation: the cursor changes the strip's emphasis and `move` does not
-// report through OnChange, so hanging this off the individual mutations would
-// leave the one case that matters uncovered.
-//
-// It posts nothing itself — the keystroke that triggered it already causes the
-// draw loop to repaint.
+// bump restarts the animation window, once per KEY EVENT rather than per
+// mutation. It posts nothing itself.
 func (t *ticker) bump() { t.since.Store(int64(time.Since(t.base))) }
 
 // frame is how many frames into the current window we are, or 0 at rest.
@@ -95,12 +77,8 @@ func (t *ticker) frame() int {
 	return int(elapsed/animFrame) + 1
 }
 
-// stop ends the clock and WAITS for its goroutine to leave, so that no post can
-// still be in flight against a screen the caller is about to tear down. Run
-// registers it after screen.Fini precisely so it runs first.
-//
-// Idempotent and safe from any goroutine, because it is reached both from the
-// normal return and from a panic unwinding through Run's defers.
+// stop ends the clock and WAITS for its goroutine to leave. Idempotent and safe
+// from any goroutine: it is reached from the normal return and from a panic.
 func (t *ticker) stop() {
 	t.once.Do(func() { close(t.done) })
 	<-t.stopped

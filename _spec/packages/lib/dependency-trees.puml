@@ -6,6 +6,157 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 '         internal/workspace/mount.go, internal/run/run.go,
 '         defs/opencode/entrypoint.sh, defs/cursor/entrypoint.sh,
 '         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: internal/workspace/platform.go
+'
+' ── WHAT THE IN-CONTAINER STEP DOES, IN ORDER, PER PROJECT ─────────────────
+'   1. a HOST-BUILT tree is made usable. On the docker backend proveo never
+'      binds a dependency directory from the host: each one the table names is
+'      a PRIVATE COPY, reused on the off chance host and container OS/arch
+'      agree. When they do not — the probe finds a non-ELF object — the copy is
+'      cleared and rebuilt for this platform, and the operator's checkout is
+'      never touched. On sbx the tree IS the host's (the checkout is mirrored
+'      at its own path), so rebuilding in place is opt-in (PROVEO_DEPS=
+'      reinstall) and the remedy on offer is --clone.
+'   2. the INSTALL runs before the agent does. A workspace with nothing
+'      installed is the single most confusing state to hand an agent — every
+'      import fails and every tool guesses why — so an absent tree is
+'      installed and a present one refreshed against its lockfile by the
+'      managers for which that is a cheap no-op. Lockfiles are RESPECTED
+'      (--frozen-lockfile, --immutable, ci) and never rewritten: a drifted
+'      lockfile is reported, because rewriting it is the agent's task if it is
+'      anyone's.
+'
+' Every language has a row even when the row is "nothing", because a missing
+' row is indistinguishable from an oversight. Languages that install nothing
+' each have a stated reason: python's environment is built by
+' ensure_python_env; cpp resolves through system or external package managers
+' proveo does not drive; zig fetches at build time; java/kotlin resolution
+' (gradle/maven) is heavy and the build performs it; nix realises its closure
+' on demand.
+'
+' _dep_install_idempotent says whether re-running an install on a tree that is
+' already present and native is a cheap no-op. `npm ci` is THE exception: it
+' deletes node_modules first, every time, so it runs only when the tree is
+' absent or foreign.
+'
+' _proveo_dep_is_isolated reports whether a directory is proveo's private copy
+' rather than the host's tree: a copy is bind-mounted at exactly that path, so
+' it is its own mount point, while the host's tree sits INSIDE the workspace
+' mount and is not. /proc is the source of truth on the docker backend, and
+' anywhere it is unreadable the answer is "not isolated" — the conservative one.
+'
+' A pnpm/npm/yarn/bun WORKSPACE installs every member from its root, hoisting
+' into one node_modules, so a member with no node_modules of its own is the
+' normal state rather than "nothing is installed" — and `npm ci` inside a
+' member, which has no lockfile, is an error. Members collapse into their root.
+'
+' ── BUN IS PINNED THROUGH mise, NOT corepack ───────────────────────────────
+' The floor ships one bun (defs/base-node); a project asks for its own with
+' `packageManager: "bun@1.2.3"` (an exact pin — bun's own reading of the
+' field), `engines.bun` (a range), or a `.bun-version` file. A bun lockfile
+' alone means "use the bun that is here", never "reinstall". corepack does not
+' manage bun, so the pin is honoured through mise, which carries bun as a core
+' tool — the same path engines.node takes when the running node fails its range.
+'
+' ── WHY EVERY ROW IS HOST-BUILT CONTENT ────────────────────────────────────
+' ── THE TABLE LIVES TWICE, AND THE LOCKSTEP IS A TEST ──────────────────────
+' internal/workspace.DepLangs decides which host directories the mount plan
+' hides behind a private copy; the shell's _dep_lang_markers/_dep_lang_dirs
+' decide which trees the seed then installs into. They must name the same
+' directories for the same projects, or a tree gets isolated but never
+' installed (an empty overlay the agent trips on), or installed but never
+' isolated (a Linux install written into the operator's macOS checkout).
+' internal/contract/deps_table_test.go is that lockstep.
+'
+' ── WHAT THE WORKSPACE BIND WOULD OTHERWISE CARRY ──────────────────────────
+' Go's vendor/ is checked-in module code and portable, so it is mounted as
+' SOURCE. The host-built tree that can live under it — ruby's vendor/bundle —
+' is a DepLangs row and gets its own overlay on top of that bind. Root
+' dependency trees (the hoisted node_modules a workspace member resolves
+' through) arrive as plain copies too, gated by MountRootDeps
+' (PROVEO_MOUNT_ROOT_DEPS=0 turns it off); trees under the scope itself are
+' isolated regardless.
+'
+' Every directory the table names holds platform binaries (.node, .so,
+' .bundle, provider executables), a venv's interpreter, or a toolchain's build
+' output. None of it may cross the workspace bind as-is, because the container
+' cannot execute what the host compiled — and worse, the PORTABLE MAJORITY of
+' each tree loads fine, so the failure surfaces late, at the first call into a
+' native module, naming the tool rather than the platform.
+'
+' The table is language-uniform on purpose. node_modules is only the loudest
+' instance; a fix shaped like the one ecosystem that broke is how the next
+' ecosystem breaks the same way. It stays in lockstep with _dep_lang_markers /
+' _dep_lang_dirs in packages/lib/entrypoint-lib.sh, and internal/contract pins
+' the two together so editing one without the other fails the build.
+'
+' Languages whose tooling leaves nothing host-specific in-tree (go, java,
+' kotlin, nix — modules resolve outside the workspace or to portable bytecode)
+' have no row in DepLangs, but they DO have an explicit row in the shell's
+' _dep_lang_class, where "nothing to isolate" is a recorded decision rather
+' than an absence.
+'
+' A tree's Host path may not exist: a checkout with nothing installed still
+' gets an overlay, so the install the seed runs lands in the copy and never in
+' the host tree. Dep dirs themselves and the shared prune set are never
+' descended into — a nested node_modules inside node_modules is the package
+' manager's business.
+'
+' ── THE TWO LAYOUTS, AND WHY THEY DIFFER ───────────────────────────────────
+'   under the scope tree (bind-mounted at /app or /app/<rel>) every table row
+'   found by the walk gets an overlay, present or not: the parent bind would
+'   otherwise carry the host tree in, or carry a container install out — the
+'   ping-pong this exists to stop.
+'   at the repo root of a subdir scope only trees that EXIST are copied (gated
+'   by MountRootDeps, yielding to a scope dir of the same name), because /app
+'   itself is container filesystem there — a hoisted install the agent runs
+'   lands in the container without any help.
+'
+' ── PURE PLAN, WRITING STEP ────────────────────────────────────────────────
+' DepCopies reads the filesystem the way Plan does (existence, markers) and
+' writes nothing; MaterializeDeps is the one part that writes, which is why it
+' is a separate step. Plan stays pure, and --print never copies a
+' multi-gigabyte tree to render an argv. Materialising is best-effort per tree:
+' a copy that fails still leaves an empty directory, which isolates and
+' installs, and both the copies made and the joined errors come back so the
+' caller can report both.
+'
+' copyTree asks for clonefile(2) first on macOS: on APFS that is
+' copy-on-write, so a multi-gigabyte node_modules stages in milliseconds and
+' costs no disk until the container writes to it. cp falls back to a byte copy
+' on its own when cloning is impossible (a different volume, a non-APFS
+' filesystem).
+'
+' The staging root is the run's DepStage under the per-run state dir so
+' `proveo clean` can reclaim it. The fallback keeps a caller that never set it
+' isolated anyway, keyed by pid so concurrent runs cannot collide and repeated
+' Plan calls in one process agree.
+'
+' ── WHY THE POLICY ASKS ABOUT PLATFORM, AND WHERE IT READS IT ──────────────
+' The defs build linux images only — defs/lib/docker-build.sh publishes
+' linux/amd64 and linux/arm64, and a local load builds linux/<host arch> — and
+' the runner passes no --platform, so docker picks the daemon default: the host
+' architecture unless DOCKER_DEFAULT_PLATFORM says otherwise. ImagePlatform
+' reproduces exactly that rule, so the decision matches what docker will do
+' without asking the daemon — which --print must not.
+'
+'   equal (a Linux host of the image's arch)  the tree runs as-is, so the copy
+'     saves the install entirely and the seed's probe confirms it native.
+'   different (macOS, Windows, cross-arch)    every native module in the tree
+'     is foreign, the seed would clear the copy and reinstall anyway — so the
+'     copy is skipped and the install IS the plan.
+'
+' PROVEO_DEPS_COPY overrides: `always` copies regardless (a pure-JS tree from a
+' macOS host loads fine and spares a registry round-trip under a tight egress
+' tier); `never` skips even on a match. The reason is returned for the operator.
+'
+' ── WHY sbx STRIPS THEM ────────────────────────────────────────────────────
+' StripDepCopies exists because the sbx backend mounts every path at its own
+' HOST path and has no way to say "this directory, at that container path", so
+' a nested overlay has no expression there. Passed through, each copy would
+' become an unrelated extra workspace while the host tree still rode in inside
+' the mirrored checkout. On sbx the only thing that keeps host-built trees out
+' is --clone, and the caller says so when it drops any.
 
 node "Host checkout" as HOST <<host>> {
   database "source\nbind-mounted at /app" as SRC <<db>>

@@ -3,18 +3,9 @@ package choiceui
 
 import "github.com/gdamore/tcell/v2"
 
-// canvas is the one writer draw() paints through. It owns the current row —
-// the `y` the paint used to close over — plus an open window: a write outside
-// the window is DROPPED, not clipped.
-//
-// Dropped rather than clipped, because a half-painted row is worse than an
-// absent one: tcell would happily let a scrolled-off body row paint over the
-// hint, and a foot silently painted over is the exact failure the viewport
-// exists to end. Vertical only — horizontal clipping already exists as clip(),
-// and the row painter's column arithmetic is left alone.
-//
-// With the window wide open it is byte-for-byte the closure it replaces, which
-// is what let it land as a proven no-op before anything scrolled.
+// canvas is the one writer draw() paints through. It owns the current row plus
+// an open window: a write outside the window is DROPPED, not clipped. Vertical
+// only — horizontal clipping is clip().
 type canvas struct {
 	s        tcell.Screen
 	y        int

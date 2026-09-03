@@ -287,11 +287,7 @@ func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
 	}
 }
 
-// The egress sidecar gets the same recency rule as the harness image. It embeds
-// the provider registry, so a provider added in Go is not brokered until the
-// sidecar is rebuilt — and that rebuild is :local, which a plan naming :latest
-// outright never launched: the run detected the key, sentinel-injected it, and
-// the vendor answered 401 as if the key were bad.
+// The egress sidecar gets the same recency rule as the harness image.
 func TestEgressProxyImagePrefersANewerLocalBuildUnlessOverridden(t *testing.T) {
 	t.Parallel()
 	resolve := func(ref string) (string, bool) {
@@ -598,11 +594,8 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(strings.Join(got, " "), "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
-	// `-w /` is not decoration. The exec otherwise starts in the container's
-	// WorkingDir — the workspace — and a virtiofs-invalidated workspace kills it at
-	// chdir (`getcwd: Operation not permitted`, exit 127) before the sync runs a
-	// line. Measured on proveo-1787956302-22788: teardown said "resume state not
-	// preserved" and `sbx rm` took four days of transcripts with the volumes.
+	// `-w /` is not decoration: a virtiofs-invalidated workspace kills the exec at
+	// chdir. SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 	w := slices.Index(got, "-w")
 	if w < 0 || w+1 >= len(got) || got[w+1] != "/" || w > slices.Index(got, "s1") {
 		t.Errorf("save must exec from / (an sbx exec flag, before the sandbox name), not from the workspace cwd: %v", got)

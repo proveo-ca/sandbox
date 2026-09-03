@@ -20,11 +20,9 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// The browser layer pins agent-browser the way it pins Playwright: by version AND
-// by digest of the tarball it unpacks, and it points the binary at the Chromium
-// Playwright already installed rather than letting `agent-browser install` fetch a
-// second one. A layer that drifts on any of these rebuilds into something the
-// floor probe and the seed no longer describe.
+// The browser layer pins agent-browser by version AND by tarball digest, and
+// points it at the Chromium Playwright already installed.
+// SPEC: _spec/defs/browser-layer.puml
 func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base-node-browser/Dockerfile")

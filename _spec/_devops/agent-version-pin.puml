@@ -7,6 +7,40 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' covers: defs/*/build.sh
 ' covers: defs/*/Dockerfile
 ' covers: internal/contract/agent_pin_test.go
+'
+' ── WHY A PIN AT ALL: BuildKit's CACHE KEY ─────────────────────────────────
+' The 📌 note states the version AND how it was chosen. The first version of
+' it said "from CECLI_VERSION" on every build, because it was printed by the
+' caller — which assigns the result to a variable named like the override, after
+' which "override or resolved" is unknowable from outside.
+'
+' BuildKit caches a RUN layer by its text and its parents. An
+' `npm install -g x@latest` line NEVER changes when upstream publishes, so a
+' warm cache keeps last month's agent and nothing in the build says so.
+' Resolving the release ahead of the build and passing it as a --build-arg the
+' Dockerfile USES moves the cache key exactly when upstream moves, and lets the
+' image LABEL what it carries.
+'
+' A default on the ARG would be the same hole one step removed — a bare
+' `docker build` would bake whatever is newest — so the ARG is declared bare
+' and guarded by a version check inside the same RUN.
+'
+' One row per agent, uniform across ecosystems:
+'   npm     the registry's dist-tag `latest` for the package
+'   pypi    PyPI's current release
+'   cursor  the build cursor.com/install unpacks, read out of the script
+'           itself: the installer hardcodes its release and takes no version
+'           argument, so that script is the only place the version is stated.
+'           An image without the label predates the pin — rebuild rather than
+'           trust it.
+'
+' An exported override wins outright (OPENCODE_VERSION=1.18.20 proveo build
+' opencode): that is how a maintainer rebuilds an older agent, or builds
+' offline. The bare version goes to stdout; the 📌 note saying which release is
+' about to be baked, and how it was chosen, goes to STDERR beside the buildx
+' line — printed inside the resolver rather than by the caller, because the
+' caller assigns the result to a variable of the same name as the override, and
+' after that nothing outside can tell an override from a resolution.
 
 actor "Maintainer" as MT
 participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>

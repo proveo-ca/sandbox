@@ -35,13 +35,9 @@ docker run --rm --entrypoint bash "$IMAGE_NAME" -c \
   "/opt/cecli/bin/pip show cecli-dev | grep -qx 'Version: $AGENT_VERSION_LABEL'"
 echo "✅ cecli-dev==$AGENT_VERSION_LABEL pinned, installed and labeled"
 
-# Subagents are not baked as files. One body per agent lives in
-# /opt/proveo/subagents and the entrypoint composes them for cecli at start
-# (proveo_seed cecli → render_subagents) into $CECLI_HOME/agents, which is where
-# cecli's subagent_paths point. So this goes THROUGH the entrypoint and asks
-# cecli's own registry to load what it seeded, requiring exactly the roster
-# _roster.json declares for cecli — read from the image, not restated here, so a
-# roster change cannot leave this assertion stale again.
+# Goes THROUGH the entrypoint and asks cecli's own registry to load what it
+# seeded, requiring exactly the roster _roster.json declares — read from the
+# image, never restated here.
 # SPEC: _spec/defs/agent-definition-sharing.puml
 echo "── Seeded subagents ─────────────────────────────────"
 docker run --rm "$IMAGE_NAME" bash -c 'set -euo pipefail

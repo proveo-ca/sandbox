@@ -8,11 +8,27 @@
 '   what governs egress there ... _spec/internal/sbx/policy-baseline.puml
 '   the tiers this does NOT decide _spec/internal/egress/egress-tiers.puml
 '   the consent flow at stake ... _spec/internal/reviewgate/pty-review-proxy.puml
+'   what this UNBLOCKS .......... _spec/_plans/secret-custody.puml
 '
 ' SCOPE. Eliminate the dind sidecar. The fate of mitmproxy and Squid is
 ' deliberately NOT decided here — they serve the docker backend, which survives
 ' this change as the PROVEO_SBX=0 fallback, and deciding both at once would
 ' couple a security win to an observability regression.
+'
+' ── WHAT ELSE IS WAITING ON THIS ───────────────────────────────────────────
+' secret-custody's exposure (d) — a plaintext credential in a mounted file —
+' cannot be closed while the docker backend survives. There the agent's
+' credential IS ~/.claude/.credentials.json in the mounted proveo home, so any
+' path that carries a login to the agent writes a plaintext token into a
+' bind-mounted directory every later run can read. On sbx that file is written
+' INSIDE the sandbox by sbx's own proxy and holds proxy-managed sentinels while
+' the real tokens stay in the egress layer.
+'
+' So (d) closes by REMOVING the backend rather than by patching it, and this
+' plan is the removal. Note the tension with the SCOPE above: keeping docker as
+' the PROVEO_SBX=0 fallback keeps review, the flow record and Chrome alive AND
+' keeps (d) open. That trade is the "one backend, or two?" question below, and
+' secret-custody is a third voice in it.
 title PLANNED — retire dind: one privileged sidecar, and what goes with it
 
 component "**dind sidecar** — what retires\n""--privileged"", sibling daemon, agent-reachable" as DIND <<error>>
@@ -107,6 +123,14 @@ note bottom of SBX
   record and Chrome alive for anyone who needs
   them. Deleting it is a second decision, and why
   mitmproxy and Squid are out of scope here.
+end note
+
+note top of SBX
+  **It unblocks secret custody (d).** On sbx the
+  agent never reads a host credential file —
+  sbx's proxy writes it inside the sandbox with
+  sentinels. While docker survives, a plaintext
+  token on disk is unavoidable there.
 end note
 
 legend bottom

@@ -356,13 +356,10 @@ echo "NESTED_OK"`).CombinedOutput()
 	}
 }
 
-// Every language's dependency tree can arrive host-built — on docker as the
-// private copy proveo stages, on sbx as the mirrored checkout itself — so this
-// is never a TypeScript-only hazard; node_modules is just the loudest instance.
-// The portable majority of each tree loads, so the failure arrives late and
-// names the TOOL rather than the platform. One probe, one table, every language.
-// The bind here is a plain host directory, which is the sbx shape: the probe
-// reports and offers --clone rather than clearing a tree that is not its own.
+// One probe, one table, every language. The bind here is a plain host
+// directory, which is the sbx shape: the probe reports and offers --clone
+// rather than clearing a tree that is not its own.
+// SPEC: _spec/packages/lib/dependency-trees.puml
 func TestHostBuiltDependencyTreesAreReported(t *testing.T) {
 	img := harnessImage(t, "opencode")
 

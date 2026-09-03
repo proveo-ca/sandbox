@@ -18,13 +18,9 @@ var classicRenderer = map[string]string{
 	"CLAUDE_CODE_NO_FLICKER":               "0",
 }
 
-// The classic renderer is part of agent evidence: fullscreen draws on the
-// alternate screen and restores it on exit, so a finished or failed run leaves
-// nothing in scrollback, nothing for the transcript's tee, and an empty pane for a
-// probe. The manifest is the declaration both backends read — sbx launches the
-// agent through its own kit and never runs the image entrypoint, which is how an
-// entrypoint-only default left sandboxed sessions in whatever renderer the saved
-// `tui` setting named.
+// The classic renderer is part of agent evidence, and the MANIFEST is the
+// declaration both backends read.
+// SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 func TestClaudecodeManifestDefaultsTheClassicRenderer(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)

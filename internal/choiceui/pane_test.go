@@ -46,11 +46,10 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 		if !strings.Contains(hopRow(joined, g.cornerTL), g.key) {
 			t.Errorf("tier %v: the key is not beside the hop:\n%s", tier, joined)
 		}
-		// Counted as the END OF A LANE, not as a bare glyph: the ASCII refusal is
-		// "x", and "sbx · claudecode" contains one — a naive count made the test
-		// report three refusals for a frame that has two.
+		// Counted as the END OF A LANE, not as a bare glyph: "sbx · claudecode"
+		// contains the ASCII refusal glyph.
 		// A lane that SURVIVES ends in a cloud; the bare arrow also appears on the
-		// connector between the square and the hop, so the cloud is what counts.
+		// connector, so the cloud is what counts.
 		if n := strings.Count(joined, g.east+" "+g.cloud); n != 1 {
 			t.Errorf("tier %v: %d surviving lanes, want the frame's 1", tier, n)
 		}
@@ -160,13 +159,8 @@ func paneWidth(f *Form) int  { return f.bodyRight() + paneGutter + paneCols.widt
 func blockWidth(f *Form) int { return paneWidth(f) - 1 }
 
 // THE load-bearing test of the whole feature: the budget must agree with the
-// painter, or the pane silently overwrites an option.
-//
-// Asserted as "the gutter between the rows and the figure is empty", which is
-// the invariant itself rather than a proxy for it. Comparing against bodyRight
-// directly cannot work: with the pane on, a gated row's inline reason is
-// deliberately clipped to the limit, so the widest painted column is a
-// CONSEQUENCE of the budget and proves nothing about it.
+// painter, or the pane silently overwrites an option. Asserted as "the gutter
+// is empty", which is the invariant itself rather than a proxy for it.
 func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
@@ -184,12 +178,9 @@ func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 	}
 }
 
-// gutterBreaches reports rows where the body reached into the pane's gutter.
-//
-// Scoped to the rows the pane actually occupies, found from its spine. The hint
-// and the help block sit BELOW the figure and legitimately span the full width —
-// they overlap the pane's columns on their own rows, where there is nothing to
-// collide with, so a test that judged by columns alone would flag them.
+// gutterBreaches reports rows where the body reached into the pane's gutter,
+// scoped to the rows the pane actually occupies. The hint and help block sit
+// BELOW the figure and legitimately span the full width.
 func gutterBreaches(rows []string, pane int) []int {
 	spine := -1
 	for y, line := range rows {
@@ -311,11 +302,8 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	}
 }
 
-// The pane may never cost a FACT. The locked sbx egress row carries
-// changeBaselineHint — the one runnable command for changing the host baseline —
-// with no Help and no OffWhy, and a locked row can never hold the cursor, so the
-// help block never shows it either. Clipping it to make room for a picture would
-// destroy the only copy of that text.
+// The pane may never cost a FACT: the locked sbx egress row's inline hint is
+// the only copy of that text. SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestThePaneWaitsForTheInlineReason(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
@@ -354,11 +342,8 @@ func TestNoTopologyMeansNoPaneAtAnyWidth(t *testing.T) {
 	}
 }
 
-// The budget must cover everything the body PAINTS, not just its options. A
-// divider heading is centred rather than left-aligned and the heading branch of
-// the painter ignores the limit entirely; a row label is written left of the
-// option column and a short row can outrun it. Both were holes the gutter test
-// could not see, because neither is clipped by the limit at all.
+// The budget must cover everything the body PAINTS, not just its options:
+// a centred divider heading and a row label are both outside the limit.
 func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

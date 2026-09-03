@@ -9,6 +9,43 @@
 '   the resolved layout ......... _spec/internal/choiceui/wireframe.puml
 '   what is still unbuilt ....... _spec/_plans/choiceui-viewport-proposals.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY WRITES ARE DROPPED, NOT CLIPPED ────────────────────────────────────
+' canvas owns the current row plus an open window, and a write outside that
+' window is DROPPED. A half-painted row is worse than an absent one: tcell
+' would happily let a scrolled-off body row paint over the hint, and a foot
+' silently painted over is the exact failure the viewport exists to end.
+' Vertical only — horizontal clipping already exists as clip(), and the row
+' painter's column arithmetic is left alone. With the window wide open it is
+' byte-for-byte the closure it replaces, which is what let it land as a proven
+' no-op before anything scrolled.
+'
+' ── THE BODY SCROLLS BY LINE, AND COUNTS IN ROWS ───────────────────────────
+' A divider row costs four lines and a plain row one, so an offset counted in
+' ROWS would travel four lines at a time and could never place a heading and
+' its row on screen together. `row` is valid on every line, furniture included:
+' the blank and the heading above a row belong to that row, which is what lets a
+' group's name arrive on screen along with the group.
+'
+' bodyLines is the ONE description of the body's height — rowsHeight is its
+' length and the painter walks it, so the budget cannot disagree with the paint.
+' That arithmetic used to exist twice, as a formula and in the paint loop, and a
+' viewport would have made it three.
+'
+' hiddenRows counts ROWS, not lines: the operator counts rows, and a body with
+' two dividers can hide eight lines that are only four rows. The gutter may
+' measure in lines — it is drawing them — but the sentence beside it must not.
+'
+' `prev` is a cache and never a source of truth: every paint re-clamps it and
+' re-satisfies the margin, so a form drawn twice at different sizes, or after
+' its rows changed, cannot inherit an offset that no longer makes sense.
+'
+' The thumb is proportional and never shorter than one line — a body ten times
+' the window would otherwise round its position away to nothing. Its position
+' scales the offset over its TRAVEL, [0, total-window] onto [0, window-size],
+' rather than over the total: scaling over the total floors the thumb short of
+' the last line, so at the very end of travel the gutter still said there was
+' somewhere further to go.
 title Choice-prompt viewport — a droppable head, a scrolling body, a foot that follows
 
 node "internal/choiceui" as PKG <<host>> {

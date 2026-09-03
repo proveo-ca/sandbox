@@ -291,11 +291,8 @@ func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
 	}
 }
 
-// agentEnv is proveo's opinion about how a harness should run, delivered as an
-// argv on both backends. The pairs come out in name order because the plan
-// goldens read the argv; the operator's own value replaces the default; and the
-// field cannot double-declare a name the operator supplies (env) or a host
-// preference forwarded only when present (config), nor default anything to empty.
+// agentEnv is delivered as an argv on both backends, in NAME order because the
+// plan goldens read it. SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 func TestAgentEnv(t *testing.T) {
 	t.Parallel()
 	got, err := Parse([]byte("name: claudecode\nimages:\n  claudecode: img\nagentEnv:\n  CLAUDE_CODE_NO_FLICKER: \"0\"\n  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: \"1\"\n"), "dir")

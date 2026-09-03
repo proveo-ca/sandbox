@@ -1,4 +1,17 @@
 @startuml
+' ── THE CLASSIC RENDERER IS PART OF AGENT EVIDENCE ─────────────────────────
+' Fullscreen draws on the alternate screen and restores it on exit, so a
+' finished or failed run leaves NOTHING in scrollback, nothing for the
+' transcript's tee, and an empty pane for a probe.
+'
+' The MANIFEST is the declaration both backends read — sbx launches the agent
+' through its own kit and never runs the image entrypoint, which is how an
+' entrypoint-only default left sandboxed sessions in whatever renderer the
+' saved `tui` setting named. Two names carry one intent:
+' CLAUDE_CODE_NO_FLICKER=0 is the older off switch, and
+' CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (2.1.132+) is the documented opt-out
+' that wins over a saved setting.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title claudecode paradigm — ML blackbox algorithm (spec → plan → implement → verify → loop)
 

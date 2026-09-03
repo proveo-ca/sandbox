@@ -16,12 +16,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 )
 
-// The whole Claude in Chrome bridge minus the two ends that need a human: a fake
-// native host on the host side (echo server on the socket Claude Code's native
-// host would hold), proveo's host relay, docker's host.docker.internal mapping,
-// the container relay started by proveo_chrome_bridge, and a client inside the
-// container standing where Claude Code's claude-in-chrome MCP server connects.
-// Bytes written at that client must come back through all five hops.
+// The whole Claude in Chrome bridge minus the two ends that need a human: bytes
+// written by a client inside the container must come back through all five hops.
 func TestChromeBridgeCarriesTheHostSocketIntoTheContainer(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not on PATH")

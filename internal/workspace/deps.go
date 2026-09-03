@@ -20,30 +20,16 @@ import (
 
 // DepLang is one row of the dependency-tree table: which files root a project of
 // that language, and which directories its tooling materialises beside them.
-//
-// Every directory named here is HOST-BUILT content: platform binaries (.node,
-// .so, .bundle, provider executables), a venv's interpreter, or a toolchain's
-// build output. None of it may cross the workspace bind as-is, because the
-// container cannot execute what the host compiled — and worse, the portable
-// majority of each tree loads fine, so the failure surfaces late, at the first
-// call into a native module, naming the tool rather than the platform.
-//
-// The table is language-uniform on purpose. node_modules is only the loudest
-// instance; a fix shaped like the one ecosystem that broke is how the next
-// ecosystem breaks the same way. It is kept in lockstep with _dep_lang_markers /
-// _dep_lang_dirs in packages/lib/entrypoint-lib.sh — internal/contract pins the
-// two tables together, so editing one without the other fails the build.
+// Kept in lockstep with _dep_lang_markers / _dep_lang_dirs in
+// packages/lib/entrypoint-lib.sh; internal/contract pins the two together.
 type DepLang struct {
 	Lang    string
 	Markers []string // filenames (filepath.Match globs) that root a project
 	Dirs    []string // project-relative dirs the tooling writes; may be nested (vendor/bundle)
 }
 
-// DepLangs is the table. Languages whose tooling leaves nothing host-specific
-// in-tree (go, java, kotlin, nix — modules resolve outside the workspace or to
-// portable bytecode) have no row HERE; they still have an explicit row in the
-// shell's _dep_lang_class, where "nothing to isolate" is a recorded decision
-// rather than an absence.
+// DepLangs is the table. Languages with nothing host-specific in-tree have no
+// row here, but do have one in the shell's _dep_lang_class.
 var DepLangs = []DepLang{
 	{Lang: "typescript", Markers: []string{"package.json"}, Dirs: []string{"node_modules"}},
 	{Lang: "python", Markers: []string{"pyproject.toml", "requirements*.txt", "Pipfile", "uv.lock", "poetry.lock", "environment.yml", "environment.yaml"}, Dirs: []string{".venv", "venv"}},
@@ -67,12 +53,9 @@ const depScanBudget = 20000
 
 // DepCopy is one isolated dependency tree.
 //
-//	Host      the operator's tree. May not exist: a checkout with nothing
-//	          installed still gets an overlay, so the install the seed runs
-//	          lands in the copy and never in the host tree.
-//	Stage     the private directory proveo mounts in its place. Plan names it;
-//	          MaterializeDeps fills it.
-//	Container where it lands in the agent's view.
+//	Host      the operator's tree; may not exist
+//	Stage     the private directory proveo mounts in its place
+//	Container where it lands in the agent's view
 type DepCopy struct {
 	Host, Stage, Container string
 	Lang, Dir              string
@@ -111,9 +94,8 @@ func markersMatch(markers []string, entries []fs.DirEntry) bool {
 }
 
 // depTreesUnder walks root to DepScanDepth and returns every tree the table
-// names for a project found there — whether or not the directory exists on the
-// host. Dep dirs themselves and the shared prune set are never descended into:
-// a nested node_modules inside node_modules is the package manager's business.
+// names for a project found there, present on the host or not. Dep dirs and the
+// shared prune set are never descended into.
 func depTreesUnder(root string) []depTree {
 	root = filepath.Clean(root)
 	var out []depTree
@@ -149,10 +131,8 @@ func depTreesUnder(root string) []depTree {
 	return out
 }
 
-// depStage is where copies are staged. The run sets DepStage under its per-run
-// state dir so `proveo clean` can reclaim it; the fallback keeps a caller that
-// never set it isolated anyway, keyed by pid so concurrent runs cannot collide
-// and repeated Plan calls in one process agree.
+// depStage is where copies are staged. The fallback is keyed by pid, so
+// concurrent runs cannot collide and repeated Plan calls in one process agree.
 func (w MountSpec) depStage() string {
 	if w.DepStage != "" {
 		return filepath.Clean(w.DepStage)
@@ -168,19 +148,9 @@ func stagePath(stage, container string) string {
 }
 
 // DepCopies is the PURE half of dependency isolation: which host trees the plan
-// hides, and where each private copy is staged. It reads the filesystem the way
-// Plan does (existence, markers) and writes nothing — MaterializeDeps does.
-//
-// Two sets, mirroring Plan's two layouts:
-//
-//   - under the scope tree (the directory bind-mounted at /app or /app/<rel>),
-//     every table row found by the walk gets an overlay, present or not. The
-//     parent bind would otherwise carry the host tree in, or carry a container
-//     install out — the ping-pong this exists to stop.
-//   - at the repo root of a subdir scope, only trees that EXIST are copied
-//     (gated by MountRootDeps, and yielding to a scope dir of the same name),
-//     because /app itself is container filesystem there: a hoisted install the
-//     agent runs lands in the container without any help.
+// hides, and where each private copy is staged. Two sets, mirroring Plan's two
+// layouts — under the scope tree every table row gets an overlay present or
+// not, at the repo root of a subdir scope only trees that EXIST are copied.
 func (w MountSpec) DepCopies() []DepCopy {
 	scopeHost, scopeContainer := w.scope()
 	if scopeHost == "" {
@@ -247,16 +217,8 @@ func (w MountSpec) depMounts() []runner.Mount {
 }
 
 // MaterializeDeps is the WRITING half: it creates every staging dir and, when
-// reuse is set, plain-copies the host tree into it. Without reuse — the host
-// platform differs from the image's, see DepCopyPolicy — every overlay starts
-// empty and the seed installs; copying a tree only for the probe to clear it
-// would be the whole cost for none of the benefit. Best-effort per tree: a copy
-// that fails still leaves an empty directory, which isolates and installs.
-// Returns the copies made and the joined errors, so the caller can report both.
-//
-// This is the one part of dependency isolation that writes, which is why it is
-// a separate step (see PrepareWorktreeLinks): Plan stays pure, and --print
-// never copies a multi-gigabyte tree to render an argv.
+// reuse is set, plain-copies the host tree into it. Best-effort per tree,
+// returning the copies made and the joined errors.
 func MaterializeDeps(copies []DepCopy, reuse bool) ([]DepCopy, error) {
 	var errs []error
 	var made []DepCopy
@@ -278,11 +240,7 @@ func MaterializeDeps(copies []DepCopy, reuse bool) ([]DepCopy, error) {
 }
 
 // copyTree plain-copies src's contents into dst (which exists), preserving
-// symlinks, modes and times. On macOS it asks for clonefile(2) first: on APFS
-// that is copy-on-write, so a multi-gigabyte node_modules stages in
-// milliseconds and costs no disk until the container writes to it. cp falls
-// back to a byte copy on its own when cloning is not possible (a different
-// volume, a non-APFS filesystem).
+// symlinks, modes and times. On macOS it asks for clonefile(2) first.
 func copyTree(src, dst string) error {
 	args := []string{"-a"}
 	if runtime.GOOS == "darwin" {
@@ -302,12 +260,7 @@ func copyTree(src, dst string) error {
 }
 
 // StripDepCopies removes the staged overlays from a mount list and reports how
-// many it dropped. The sbx backend needs this: it mounts every path at its own
-// HOST path and has no way to say "this directory, at that container path", so
-// a nested overlay has no expression there — passed through, each copy would
-// become an unrelated extra workspace while the host tree still rode in inside
-// the mirrored checkout. On sbx the only thing that keeps host-built trees out
-// is --clone, and the caller says so when it drops any.
+// many it dropped. A nested overlay has no expression on the sbx backend.
 func StripDepCopies(mounts []runner.Mount, stage string) ([]runner.Mount, int) {
 	if stage == "" {
 		return mounts, 0

@@ -12,13 +12,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
-// The dependency-tree table lives twice: internal/workspace.DepLangs decides
-// which host directories the mount plan hides behind a private copy, and the
-// shell's _dep_lang_markers/_dep_lang_dirs decide which trees the seed then
-// installs into. They have to name the same directories for the same projects,
-// or a tree gets isolated but never installed (an empty overlay the agent trips
-// on), or installed but never isolated (a Linux install written into the
-// operator's macOS checkout). These tests are the lockstep.
+// The dependency-tree table lives twice — Go and shell — and these tests are
+// the lockstep. SPEC: _spec/packages/lib/dependency-trees.puml
 
 var (
 	classArmRe = regexp.MustCompile(`(?m)^\s*([a-z|]+)\)\s+REPLY=([a-z]+)\s*;;`)

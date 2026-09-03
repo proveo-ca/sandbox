@@ -4,6 +4,21 @@ skinparam noteTextAlignment left
 title sbx virtiofs drops the agent's cwd — a silent Bash tool, and the two answers
 
 ' covers: defs/claudecode/mcp/defaults/hooks/cwd-guard.sh, packages/lib/entrypoint-lib.sh,
+'
+' ── WHY A HOOK IS THE ONLY CHANNEL LEFT ────────────────────────────────────
+' Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (tests point it elsewhere).
+'
+' In an sbx sandbox the workspace is a virtiofs passthrough, and its directory
+' entry has been measured vanishing inside the VM under a running agent while
+' the host directory stayed put. Claude Code then holds a cwd of "<path>
+' (deleted)" and every Bash call exits 1 with no output — but HOOKS STILL
+' SPAWN, because Claude Code falls back to the session start dir for them. So
+' a PreToolUse(Bash) hook is the one channel that can tell the MODEL what
+' happened and what to do about it.
+'
+' Registered in the agent's user-level settings and MERGED, the same way
+' proveo_apply_ui_defaults is: the file is the operator's, and the hook is
+' added once, never duplicated.
 '         internal/run/run.go, internal/run/helpers.go, internal/backend/sandbox/sandbox.go,
 '         internal/sbx/run.go, cmd/proveo/main.go, internal/workspace/mount.go,
 '         cmd/proveo/main_test.go, e2e/resume_test.go

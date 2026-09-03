@@ -9,6 +9,43 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 ' covers: internal/run/run.go
 ' covers: e2e/browser_viewport_test.go
 '
+' ── TWO PORTS, BECAUSE ONE CANNOT DO BOTH JOBS ─────────────────────────────
+' Chromium's DevTools endpoint refuses every peer that is not loopback: bound
+' with --remote-debugging-address 0.0.0.0 and asked from the sandbox's OWN
+' address it answers nothing (measured 2026-09-02 — loopback 200, sandbox IP
+' reset), which is exactly how sbx's port forwarder arrives. So Chromium stays
+' on loopback and a RELAY owns the published port, connecting onward as a
+' loopback client.
+'
+' BrowserCDPArgs is the AGENT_BROWSER_ARGS value that makes the agent's own
+' Chromium expose CDP, preserving whatever the operator already set.
+' agent-browser launches Chromium itself and picks its own endpoint, so there
+' was nothing to attach to; --args is its documented way to pass browser flags
+' through, and a fixed port there is what turns the agent's browser into one the
+' host can find. Measured against agent-browser 0.36.0.
+'
+' The relay runs in the FOREGROUND so the run owns its lifetime: when proveo
+' stops waiting the relay goes with it, rather than outliving the session as an
+' orphan holding a published port. It passes `-w /` for the reason the state
+' sync does — the container WorkingDir can stop resolving mid-run, and an exec
+' that inherits it dies at chdir.
+'
+' ── WHY THE HOST STARTS IT, AND WHY IT CHECKS Running ──────────────────────
+' Started from the host rather than seeded into the image for two reasons: the
+' exec's lifetime is the run's, so the relay cannot outlive the session; and an
+' already-built -browser image gains the viewport without a rebuild.
+'
+' Guarded on Running, never merely on Exists: `sbx exec` RESTARTS a stopped
+' sandbox, so a retry loop that did not check would resurrect the VM after the
+' agent had finished with it.
+'
+' The host port is reserved by binding it and letting it go, so the URL can be
+' printed BEFORE the sandbox exists. Impure by nature, which is why it is the
+' caller's job and not Spec's: a plan rendered by --print must not depend on
+' which ports this machine happens to have free. The gap between releasing and
+' sbx binding is a race nothing can close from here, and losing it costs the
+' viewport, not the run.
+'
 ' Every link measured 2026-09-02 against sbx (schema 1.132.0), Chromium 149.0.7827.0
 ' and agent-browser 0.36.0, on proveo/claudecode-browser.
 

@@ -51,13 +51,9 @@ func reportLinks(links []workspace.Link) {
 	}
 }
 
-// CloneDefault is the --clone default: on, unless PROVEO_CLONE turns it off.
-// Clone is the default because the alternative — the checkout as a virtiofs
-// passthrough — has been measured dropping the agent's working directory under a
-// running session (_spec/internal/sbx/virtiofs-cwd-invalidation.puml), and because
-// a clone is the one shape in which no host-built dependency tree crosses into the
-// sandbox and no sandbox install crosses out. An explicit `--clone=false` still
-// wins over the environment, flag over env being the rule everywhere else here.
+// CloneDefault is the --clone default: on, unless PROVEO_CLONE turns it off. An
+// explicit `--clone=false` still wins over the environment.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneDefault(getenv func(string) string) bool {
 	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_CLONE"))) {
 	case "0", "off", "no", "false", "disable", "disabled":

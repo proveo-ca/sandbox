@@ -28,10 +28,8 @@ assert_inspect \
   '{{index .Config.Labels "security.hardened"}}' \
   "true"
 
-# The image says which agent it carries, and the label is the truth: cursor's
-# installer takes no version, so the check is that the release build.sh read out
-# of cursor.com/install is the one the installer unpacked. An image without the
-# label predates the pin — rebuild it (proveo build cursor) rather than trusting it.
+# The label is the truth: the release build.sh read out of cursor.com/install
+# must be the one the installer unpacked.
 # SPEC: _spec/_devops/agent-version-pin.puml
 assert_inspect \
   "proveo.agent label names the agent package" \

@@ -24,9 +24,7 @@ var rootFiles = []string{
 
 // SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml
 //
-// vendor is here as SOURCE: Go's vendor/ is checked-in module code and is
-// portable. The host-built tree that can live under it, ruby's vendor/bundle, is
-// a row of DepLangs (deps.go) and gets its own overlay on top of this bind.
+// vendor is here as SOURCE: Go's vendor/ is checked-in module code and portable.
 var rootDirs = []string{
 	"_spec",
 	"vendor",
@@ -39,10 +37,8 @@ type MountSpec struct {
 	OutputDir          string
 	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
-	// MountRootDeps copies a subdir scope's repo-root dependency trees (the
-	// hoisted node_modules a pnpm workspace member resolves through) to /app.
-	// PROVEO_MOUNT_ROOT_DEPS=0 turns it off; trees under the scope itself are
-	// isolated regardless — see DepCopies.
+	// MountRootDeps copies a subdir scope's repo-root dependency trees to /app.
+	// PROVEO_MOUNT_ROOT_DEPS=0 turns it off.
 	MountRootDeps bool
 	// DepStage is the directory dependency-tree copies are staged under (see
 	// DepCopies / MaterializeDeps). The run points it inside its per-run state
@@ -115,13 +111,9 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
-	// Dependency trees are never the host's. Every directory DepLangs names
-	// under the scope (and, for a subdir scope, at the repo root) is overlaid
-	// with a private copy: the workspace bind above would otherwise carry the
-	// host's platform binaries in and a container install back out. The copy
-	// reuses the host install on the off chance OS and arch match; either way
-	// writes stay in the copy. Plan only NAMES the copies — MaterializeDeps
-	// makes them, so --print never copies a tree to render an argv.
+	// Dependency trees are never the host's: every directory DepLangs names is
+	// overlaid with a private copy. Plan only NAMES them.
+	// SPEC: _spec/packages/lib/dependency-trees.puml
 	mounts = append(mounts, w.depMounts()...)
 
 	mounts = append(mounts, w.worktreeMounts()...)

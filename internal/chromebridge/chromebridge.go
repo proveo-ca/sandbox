@@ -1,30 +1,10 @@
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 //
-// Package chromebridge is the HOST half of the Claude in Chrome bridge.
-//
-// Claude Code's browser integration is two processes on one machine: the
-// claude-in-chrome MCP server inside the CLI, and a native messaging host that
-// Chrome spawns for the Claude in Chrome extension. They meet on a Unix socket the
-// native host LISTENS on —
-//
-//	/tmp/claude-mcp-browser-bridge-<username>/<pid>.sock
-//
-// — and the CLI connects to. Put the CLI in a container and nothing listens there;
-// the native host is on the operator's machine with Chrome. Anthropic's position
-// is that the integration does not cross that boundary (anthropics/claude-code
-// #25506, #21299).
-//
-// The bridge carries the socket across instead. This package runs on the host, as
-// part of `proveo run`: a TCP listener that, per connection, dials the newest
-// native host socket and pipes bytes both ways. Its counterpart in the image
-// (defs/claudecode/mcp/proveo-lib/chrome-bridge.js) listens where Claude Code
-// looks and dials this relay. Claude Code on either end is unmodified.
-//
-// Why TCP and not a bind-mounted socket: virtiofs (Docker Desktop, OrbStack) does
-// not carry Unix sockets, and every proveo host that matters is a Mac. The
-// listener is therefore guarded by a per-run token that the container relay sends
-// as its first line; a connection that does not present it is closed before a
-// byte reaches the browser.
+// Package chromebridge is the HOST half of the Claude in Chrome bridge: a TCP
+// listener that, per connection, dials the newest native-host socket at
+// /tmp/claude-mcp-browser-bridge-<username>/<pid>.sock and pipes bytes both
+// ways, guarded by a per-run token. Its counterpart in the image is
+// defs/claudecode/mcp/proveo-lib/chrome-bridge.js.
 package chromebridge
 
 import (
@@ -95,21 +75,9 @@ func SocketDir(username string) string { return SocketDirPrefix + username }
 // HostSocketDir is SocketDir for the operator running proveo.
 func HostSocketDir() string { return SocketDir(Username(os.Getenv)) }
 
-// The credential gate, mirrored from Claude Code 2.1.258.
-//
-// Before the browser integration is wired at all — BEFORE `--chrome` and before
-// CLAUDE_CODE_ENABLE_CFC, so neither overrides it — Claude Code asks whether the
-// session's OAuth scopes contain any of BrowserScopes, and logs
-//
-//	[Claude in Chrome] Disabled: OAuth token has no scope accepted by
-//	/api/oauth/validate (needs user:profile, user:office, or user:ccr_inference;
-//	env-var and setup-token sessions default to user:inference only)
-//
-// The endpoint is named in the message but never called: the scopes are
-// SYNTHESISED on the client from where the credential arrived. That is the whole
-// rule, and it is why "an env-var session gets no Chrome" was too broad a reading —
-// Anthropic's own cloud launcher passes CLAUDE_CODE_OAUTH_TOKEN and gets Chrome,
-// because it sets CLAUDE_CODE_OAUTH_SCOPES beside it.
+// The credential gate, mirrored from Claude Code 2.1.258: the scopes are
+// SYNTHESISED on the client from where the credential arrived, and
+// /api/oauth/validate is named in its log line but never called.
 const (
 	// EnvOAuthToken shadows the credential store outright: when it is set, Claude
 	// Code stops looking and a /login sitting in the same home is never consulted.
@@ -129,21 +97,12 @@ const (
 var BrowserScopes = []string{"user:profile", "user:office", "user:ccr_inference"}
 
 // envTokenFallbackScopes is what Claude Code assumes when EnvOAuthToken arrives
-// with no EnvOAuthScopes: inference only, which accepts nothing. `claude
-// setup-token` mints exactly this shape, which is where the "setup-token sessions
-// cannot use Chrome" folklore comes from — true, but as a consequence, not a rule.
+// with no EnvOAuthScopes: inference only, which accepts nothing.
 var envTokenFallbackScopes = []string{"user:inference"}
 
 // ScopeGate reports why Claude Code would refuse to wire the browser integration
-// for the session this run is about to start, or "" when it would wire it.
-//
-// hasPersistedLogin is the credential store half — a /login already in the home
-// this run mounts. Its real scopes include user:profile, so it passes; proveo
-// cannot read them (macOS moves the token to the Keychain and blanks the file)
-// and does not need to.
-//
-// A shape this cannot classify returns "": the gate exists to spare the operator a
-// bridge that Claude Code has already decided not to use, not to invent refusals.
+// for the session this run is about to start, or "" when it would wire it — a
+// shape it cannot classify included.
 func ScopeGate(lookup func(string) string, hasPersistedLogin bool) string {
 	if lookup == nil {
 		return ""
@@ -217,10 +176,8 @@ func NewestSocket(dir string) (string, error) {
 	return socks[0].path, nil
 }
 
-// Available reports whether a Claude in Chrome native host is reachable from
-// this machine right now, and if not, what the operator has to do about it. The
-// native host lives only while Chrome runs with the extension connected, so this
-// is a moment-in-time answer — which is the honest one for a picker.
+// Available reports whether a Claude in Chrome native host is reachable right
+// now, and if not, what the operator has to do about it.
 func Available(dir string) (ok bool, why string) {
 	if _, err := NewestSocket(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -241,11 +198,8 @@ type Relay struct {
 	errf  func(string, ...any)
 }
 
-// BindAddr picks where the relay listens. Docker Desktop and OrbStack route
-// host.docker.internal to the host's loopback, so 127.0.0.1 is enough there and
-// exposes nothing to the LAN. Linux's host-gateway is the bridge address, which
-// loopback does not answer on; the token is what stands between the LAN and the
-// operator's browser in that case.
+// BindAddr picks where the relay listens: loopback where host.docker.internal
+// routes there, the bridge address on Linux.
 func BindAddr() string {
 	if runtime.GOOS == "linux" {
 		return "0.0.0.0:0"

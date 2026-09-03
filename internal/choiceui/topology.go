@@ -8,12 +8,8 @@ import (
 )
 
 // Frame is one still picture of the run the form currently describes: where the
-// credential rests, which hop is in the path, how many lanes survive it.
-//
-// It is a PROJECTION and never a second state — the caller builds it at paint
-// time from the same values Selection returns — so a frame cannot disagree with
-// the checkboxes above it. Everything the design calls a "re-label" is a string
-// here rather than a shape, which is what holds the picture to one geometry.
+// credential rests, which hop is in the path, how many lanes survive it. A
+// projection of Selection, built at paint time, never a second state.
 type Frame struct {
 	// Host and HostOS name the machine the operator is on, one under the other:
 	// the account, then the platform. "host" said only that a host existed.
@@ -46,10 +42,8 @@ const (
 // names do not say out loud.
 type LaneKind int
 
-// The ZERO value is the screened hop, deliberately. A zero Frame — one built by
-// a caller that forgot a field, or a future bug — then draws the tighter picture
-// with no lanes rather than an open one: a security figure must not fail to the
-// most permissive reading of itself.
+// The ZERO value is the screened hop, deliberately: a security figure must not
+// fail to the most permissive reading of itself.
 const (
 	LaneScreened LaneKind = iota // the hop terminates and re-originates: allowlist, balanced, deny-all
 	LaneWatched                  // the hop sees it and passes it: open, allow-all
@@ -70,14 +64,8 @@ const (
 	FocusSay
 )
 
-// GlyphTier is how much decoration the terminal is trusted with.
-//
-// Emoji are deliberately absent. They read well in a diagram and badly in a
-// grid: the speaking head is two runes that go-runewidth measures as one column
-// and terminals draw as two, and the cloud is an ambiguous-width character
-// whose column count depends on the font. A Nerd Font devicon is one rune of
-// one column with no ambiguity, so nerd is the decorated tier and ASCII is the
-// tier that is correct everywhere.
+// GlyphTier is how much decoration the terminal is trusted with. Emoji are
+// deliberately absent — their column counts are ambiguous.
 type GlyphTier int
 
 const (
@@ -94,11 +82,8 @@ type glyphSet struct {
 	refused, asking             string
 	east, west, north, up       string // the arrowheads and the two corner marks
 	pulse                       string // the mote that rides a lane while animating
-	// node is a point in the topology and wall encloses the container. Both are
-	// the BANNER's vocabulary rather than ASCII punctuation: the mark is built
-	// from dots interrupting rules inside a bracketed frame, and the figure is
-	// the same idea applied to a run. It also ends a collision — "()" is the
-	// form's radio glyph three rows above, and it meant something else there.
+	// node is a point in the topology and wall encloses the container — both the
+	// BANNER's vocabulary, not ASCII punctuation.
 	node, wallL, wallR string
 	// The container's frame, in the banner's own set: the mark is a bracketed
 	// frame with dots interrupting its rules, and the figure encloses the agent
@@ -140,15 +125,11 @@ func (g glyphSet) lane(k LaneKind) string {
 	return g.spine
 }
 
-// topoCols is the figure's column set, relative to its origin.
-//
-// A struct rather than a handful of parameters because the columns must move
-// TOGETHER: a hop column moved without the lanes column behind it draws the hop
-// under the lanes, which is the one failure the fit budget exists to prevent.
+// topoCols is the figure's column set, relative to its origin. A struct so the
+// columns move TOGETHER.
 type topoCols struct {
 	host, box, hop, lanes int
 	boxW                  int  // the container's inner width, walls excluded
-	iface                 int  // where the interface dot sits on the return
 	width                 int  // columns the whole figure occupies
 	runLen                int  // rule characters in a connector run
 	asksLabel             bool // whether review spells out "asks you"
@@ -160,10 +141,8 @@ var blockCols = topoCols{
 	width: stripCols, runLen: 3, asksLabel: true,
 }
 
-// paneCols is the same figure in the margin beside the rows. It drops the two
-// things that cost columns and carry least: the connector RUNS shrink to a
-// single rule (the arrowhead carries the direction, the length carries
-// nothing), and the caption keeps only its leading clause.
+// paneCols is the same figure in the margin beside the rows, dropping the two
+// things that cost columns and carry least.
 var paneCols = topoCols{
 	host: 1, box: 11, boxW: 26, hop: 44, lanes: 55,
 	width: 62, runLen: 1, headCaption: true,
@@ -193,12 +172,7 @@ func captionHead(caption string) string {
 }
 
 // drawFigure paints the figure with its origin at (x0, y0), in one of the two
-// column sets.
-//
-// The shape is the mark's: a bracketed frame with dots interrupting rules. The
-// agent's container is fully enclosed, and what runs INSIDE it — the harness and
-// the interface it drives — is drawn inside the frame rather than beside it,
-// which is both where they are and one row cheaper than labelling them outside.
+// column sets. What runs INSIDE the agent's container is drawn inside the frame.
 func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p palette, tick int) {
 	g := glyphsFor(tier)
 	dim, lit := p.body, p.brand
@@ -217,10 +191,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	boxR := boxL + cs.boxW + 1
 	boxMid := boxL + (boxR-boxL)/2
 
-	// at centres text on a column — how every node outside the frame names
-	// itself. Clamped to the figure's origin: a label wider than twice its
-	// column would otherwise start left of the figure and paint into its
-	// neighbour.
+	// at centres text on a column, clamped to the figure's origin.
 	at := func(row, col, floor int, style tcell.Style, text string) *pen {
 		x := col - textWidth(text)/2
 		if x < floor {
@@ -285,10 +256,8 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	} else {
 		spine.write(dim, strings.Repeat(g.lane(fr.Lane), colHop-boxR-1))
 		spine.padTo(colHop).write(on(FocusHop), g.node)
-		// ...and on to the fan, so the lanes are visibly the hop's rather than
-		// three runs floating off to its right. Only when there ARE lanes: review
-		// has none yet, and a rule running to an empty margin would draw a route
-		// that is exactly what the tier is withholding.
+		// ...and on to the fan, but only when there ARE lanes: a rule to an empty
+		// margin would draw the route the tier is withholding.
 		if fr.Open+fr.Refused > 0 {
 			spine.write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-spine.col()))
 		}
@@ -351,9 +320,7 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 		run := strings.Repeat(rule, runLen)
 		if tick > 0 && (tick/2)%3 == i && g.pulse != "" {
 			// The mote replaces a rule rather than joining the run, so a lane is
-			// the same width moving as at rest. On the pane, where a run is one
-			// rule wide, the mote IS the lane for that frame — which is the most a
-			// single column can say.
+			// the same width moving as at rest.
 			r := []rune(run)
 			r[len(r)/2] = []rune(g.pulse)[0]
 			run = string(r)
@@ -369,13 +336,6 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 		// out of reach until the operator answers the question on row one.
 		newPen(s, col+4, y0+2).write(dim, g.cloud)
 	}
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // keyIf returns the key glyph when this is where the credential rests.

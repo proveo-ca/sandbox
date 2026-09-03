@@ -127,19 +127,9 @@ func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
 // TestSaveStateSurvivesAnInvalidatedWorkspaceCwd is the teardown half of the
 // virtiofs failure in _spec/internal/sbx/virtiofs-cwd-invalidation.puml.
 //
-// `sbx exec` starts in the container's WorkingDir — the first workspace — unless
-// told otherwise, and on this backend that directory can stop resolving while the
-// sandbox lives on. The exec then dies at chdir, `OCI runtime exec failed: getcwd:
-// Operation not permitted`, exit 127, before the sync runs a line; teardown said
-// "resume state not preserved" and `sbx rm` took the volumes. Four days of
-// transcripts on proveo-1787956302-22788 went with them, and the test above never
-// saw it coming because its workspace stays healthy throughout.
-//
-// The invalidation is reproduced, not simulated: replacing the workspace directory's
-// inode on the host (mv + mkdir) leaves the guest holding a dentry it can no longer
-// resolve, exactly as measured — a plain exec fails with that error and keeps
-// failing after the directory is put back. The property is that the save argv
-// proveo uses succeeds anyway and the transcript reaches the host.
+// The invalidation is REPRODUCED, not simulated: replacing the workspace
+// directory's inode on the host leaves the guest holding a dentry it can no
+// longer resolve. The property is that proveo's save argv succeeds anyway.
 func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

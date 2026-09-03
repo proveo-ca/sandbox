@@ -65,15 +65,9 @@ func TestGoBashBridgeParity(t *testing.T) {
 	}
 }
 
-// The Claude in Chrome scope gate exists twice — chromebridge.ScopeGate on the
-// host, so the picker can grey the box, and _proveo_chrome_scope_ok in
-// entrypoint-lib.sh, so the container can warn when the box was ticked anyway.
-// Two copies of one rule drift, and the drift is invisible: each side is silent
-// in exactly the case the other one talks about. So the table is run through
-// BOTH and they must agree, shape for shape.
-//
-// It also pins bash 3.2: /bin/bash on macOS is the oldest shell an image entrypoint
-// has to survive, and `case " $scopes "` is the pattern that works there.
+// The Claude in Chrome scope gate exists twice, host-side and in the
+// entrypoint, so one table is run through BOTH. Also pins bash 3.2.
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestChromeScopeGateParityWithBash(t *testing.T) {
 	t.Parallel()
 	sh, err := exec.LookPath("bash")

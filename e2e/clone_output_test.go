@@ -16,19 +16,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself — not
-// `sbx create` — because the failure it guards lived in proveo's mount assembly:
-// the harness's output dir (<repo>/reports) went to sbx as a second positional
-// workspace, sbx mounted it INSIDE the clone target, and sbx clones only into an
-// empty workspace. The clone was skipped without a word and the agent started in
-// a root-owned directory holding nothing but `reports/`, with the real checkout
-// read-only at /run/sandbox/source (proveo-1788366117-41470, 2026-09-02).
-// TestCloneLeavesTheHostTreeAlone could not see it: it hands sbx one workspace.
-//
-// Two claims, in the order they matter to an operator:
-//  1. the clone LANDED — the agent's cwd is a git work tree carrying a tracked file;
-//  2. what the agent writes under reports/ is on the host after teardown, lifted
-//     out of the clone, since that directory can no longer be mounted live.
+// TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself, not
+// `sbx create`, because the failure it guards lived in proveo's mount assembly.
+// Two claims: the clone LANDED, and what the agent wrote under reports/ is on
+// the host after teardown. SPEC: _spec/internal/sbx/clone-workspace.puml
 func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

@@ -1,10 +1,7 @@
 // SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
-// The strip's fixed geometry. Five rows because a figure that is clipped
-// mid-body is worse than one that is absent, and 72 columns because that is
-// already the width the add-on divider centres on — so carrying the strip gives
-// the form no new minimum width.
+// The strip's fixed geometry.
 const (
 	stripRows  = figureRows + 1 // the figure, plus a blank separating it from the help
 	stripCols  = 72             // the narrowest terminal the figure is drawn on
@@ -23,13 +20,7 @@ const (
 
 // layout is which optional regions this terminal can afford, decided in ONE
 // pass before anything is painted. A region is dropped whole rather than
-// clipped, and the rows, the hint and the help slot are never dropped: what a
-// short terminal loses is decoration, never the thing being filled in.
-//
-// The promise here is deliberately narrow. draw() has always painted straight
-// down and tcell has always discarded the overflow, so a terminal shorter than
-// the form still loses its last rows. What the budget guarantees is only that
-// THE STRIP is never what pushed them off.
+// clipped, and the rows, the hint and the help slot are never dropped.
 type layout struct {
 	banner   bool
 	header   bool
@@ -41,10 +32,8 @@ type layout struct {
 	// tooSmall means the body cannot even show its floor, so the form is not
 	// navigable and the prompt says so rather than painting a broken one.
 	tooSmall bool
-	// body is how many lines the scrolling region may paint. Fewer than the form
-	// has means it scrolls; the foot then follows the body rather than being
-	// pinned to the screen's bottom edge, so a form that fits renders exactly as
-	// it did before the viewport existed.
+	// body is how many lines the scrolling region may paint; fewer than the form
+	// has means it scrolls, and the foot then follows the body.
 	body int
 }
 
@@ -53,19 +42,15 @@ type layout struct {
 // separately, and a viewport would have made that three places to disagree.
 func (f *Form) rowsHeight() int { return len(f.bodyLines()) }
 
-// maxHelpLines is the tallest the help block can EVER be for this form, taken
-// over every row and every option rather than over the current selection.
-// Reserving the current height would still jump the moment the cursor reached a
-// wordier option, which is the whole failure the reservation exists to prevent.
+// maxHelpLines is the tallest the help block can EVER be for this form — over
+// every row and every option, not the current selection.
 func (f *Form) maxHelpLines(width int) int {
 	most := 0
 	for i := range f.Rows {
 		r := f.Rows[i]
 		for j := range r.Options {
-			// Over the TICK as well as the option: helpLines writes "off: " for a
-			// greyed box and "always on: " for a greyed-and-ticked one, six
-			// columns apart, so a space press could still wrap one line further
-			// and move the figure — the exact jump the reservation exists to stop.
+			// Over the TICK as well as the option: the two greyed prefixes differ
+			// in width, so one can wrap a line further than the other.
 			for _, on := range []bool{false, true} {
 				probe := r
 				probe.Selected = j
@@ -80,14 +65,8 @@ func (f *Form) maxHelpLines(width int) int {
 	return most
 }
 
-// layout runs the height ladder, and first asks the one question the ladder
-// cannot: whether the figure can be had for nothing.
-//
-// The pane is NOT a rung. A rung that spends no height cannot be refused by a
-// budget it never draws on, and putting it on the ladder would let it evict the
-// banner it never charged for. So it short-circuits to the shipped ladder
-// instead, run WITHOUT the strip rung — because that is the layout a pane
-// actually produces: the five rows the block would have cost stay with the body.
+// layout runs the height ladder, first asking the one question the ladder
+// cannot: whether the figure can be had for nothing. The pane is not a rung.
 func (f *Form) layout(w, h int) layout {
 	if col := f.paneOrigin(w); col >= 0 {
 		if lay := f.ladder(w, h, false); !lay.tooSmall && lay.body >= paneRows {
@@ -105,15 +84,8 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 	lines := f.rowsHeight()
 	lay := layout{helpSlot: help}
 
-	// Mandatory: the title pair, the whole body, the blank-and-hint pair, and the
-	// help slot with the blank it opens with.
-	//
-	// The body is charged at its FULL height, so a decoration can only ever be
-	// bought with rows that are genuinely spare. Charging its floor instead was a
-	// real bug: the ladder then spent rows the body was already using, and
-	// GROWING the terminal by one row could buy the header and start the rows
-	// scrolling. "What a short terminal loses is decoration" has to hold in that
-	// direction too.
+	// Mandatory: the title pair, the whole body at its FULL height, the
+	// blank-and-hint pair, and the help slot with its opening blank.
 	need := 2 + lines + 2 + help
 	if help > 0 {
 		need++ // the blank the help block opens with
@@ -126,15 +98,8 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 		need += cost
 		return true
 	}
-	// ONE strict ladder, afforded in order, stopping at the first thing that does
-	// not fit. A cheaper region may never sneak past a dearer one that was
-	// refused — that is what stops the figure DISAPPEARING as a terminal grows.
-	//
-	// The figure outranks the banner. This is a confirmation prompt about network
-	// and credential posture, and the figure is the only thing on it that draws
-	// that posture; the banner is a logo. Eight rows of wordmark ahead of five
-	// rows of "where does the key rest and what does the hop stop" is the wrong
-	// way round, so the ladder spends on the picture first.
+	// ONE strict ladder, afforded in order, stopping at the first refusal. The
+	// figure outranks the banner.
 	room := true
 	step := func(want bool, cost int) bool {
 		if !room {
@@ -162,12 +127,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 	}
 	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
 
-	// Only when even the mandatory regions do not fit does the body give ground —
-	// which is exactly what scrolling is for. Decorations were already refused
-	// above, because `afford` measured them against a `need` holding the WHOLE
-	// body, so nothing here can take a row a decoration is using. That ordering
-	// is also what makes the foot FOLLOW the body rather than sit at the screen's
-	// bottom edge, so a form that fits renders where it always did.
+	// Only when even the mandatory regions do not fit does the body give ground.
 	lay.body = lines
 	if deficit := need - h; deficit > 0 {
 		lay.body = clampInt(lines-deficit, 0, lines)
@@ -181,13 +141,8 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 // paneGutter is the empty columns between the widest row and the figure.
 const paneGutter = 2
 
-// rightEdge is the last column this row's painter will touch.
-//
-// Computed with the SAME len() drawBodyLine advances by — bytes, not display
-// columns. Agreeing with the painter matters more than being right about wide
-// runes: a non-ASCII option label already mis-advances the paint, and a budget
-// that quietly "fixed" it would disagree with where the options actually land
-// and let the pane overwrite one.
+// rightEdge is the last column this row's painter will touch, advanced by the
+// SAME len() drawBodyLine uses — bytes, not display columns.
 func (r *Row) rightEdge() int {
 	// The label, which a row with few options can outrun.
 	x := bodyIndent + len("  "+r.Label)
@@ -198,14 +153,7 @@ func (r *Row) rightEdge() int {
 	if opts > x {
 		x = opts
 	}
-	// The inline reason IN FULL, not a floor.
-	//
-	// A floor was worse than no budget at all. The locked sbx egress row carries
-	// changeBaselineHint — the one runnable command for changing the host
-	// baseline — and it has no Help or OffWhy, and a locked row can never hold
-	// the cursor, so the help block never shows it either. Clipping it to a floor
-	// destroyed the only copy of that text to make room for a picture, which is
-	// precisely the trade the pane is not allowed to make.
+	// The inline reason IN FULL, never clipped to a floor.
 	if r.Reason != "" && (r.Locked || r.anyOff()) {
 		x += len("— ") + len(r.Reason)
 	}
@@ -221,10 +169,7 @@ func (f *Form) bodyRight() int {
 			most = e
 		}
 		if f.Rows[i].Divider {
-			// The heading's real right edge, not the 72 it is centred ON: the
-			// painter writes 6 rules, the padded label and 6 more from a pad of
-			// (72-L)/2, so a label past ~48 reaches beyond 72 — and the heading
-			// branch of the painter ignores the limit entirely.
+			// The heading's real right edge, not the 72 it is centred ON.
 			label := len(" " + f.Rows[i].Label + " ")
 			pad := (72 - label) / 2
 			if pad < 0 {
@@ -239,17 +184,8 @@ func (f *Form) bodyRight() int {
 }
 
 // paneOrigin is the column the figure starts at when it can sit beside the
-// rows, or -1 when it cannot.
-//
-// This is a PLACEMENT decision and never a clipping one: the origin is chosen
-// after the widest row this form has, so no option is ever cut to make room for
-// a picture. That keeps the shipped invariant — what a short terminal loses is
-// decoration — true on the width axis too.
-//
-// Derived rather than a constant. A two-row prompt earns the pane far sooner
-// than the full claudecode form does, and any fixed breakpoint would either
-// clip somebody's options or withhold the figure from a terminal with room for
-// it. There is deliberately no magic number here.
+// rows, or -1 when it cannot. Placement, never clipping: derived from the
+// widest row this form has, so no option is ever cut for a picture.
 func (f *Form) paneOrigin(w int) int {
 	if f.Topology == nil {
 		return -1 // nothing to place, so nothing may narrow the rows
@@ -257,9 +193,6 @@ func (f *Form) paneOrigin(w int) int {
 	if f.bodyRight()+paneGutter+paneCols.width > w {
 		return -1
 	}
-	// Anchored RIGHT, not flush against the rows. Both satisfy the budget, but
-	// hugging the rows leaves the margin empty on a wide terminal while still
-	// pressing on the row limit; against the right edge the rows keep every
-	// column the figure does not need.
+	// Anchored RIGHT, not flush against the rows.
 	return w - paneCols.width
 }

@@ -24,24 +24,8 @@ const opencodeKeyVar = "OPENCODE_API_KEY"
 
 // TestOpenCodeAuth asserts the CREDENTIAL BOUNDARY for OpenCode's own gateway:
 // that OPENCODE_API_KEY still authenticates after crossing the egress layer.
-//
-// Unlike anthropic's, this gateway's GET /v1/models is PUBLIC — 200 with no
-// header and 200 with a bad one (probed 2026-09-01) — so it cannot tell a
-// delivered credential from a dropped one. The cheapest request that can is a
-// one-token chat completion on the plan's least expensive paid model: 401 with
-// no valid key, 200 with one. On Zen that spends a fraction of a cent; on a Go
-// subscription nothing extra. A FREE model would not do: opencode.ai serves free
-// models to an unauthenticated caller, so the probe would pass with the boundary
-// broken.
-//
-// Each plan is a case, and each skips unless the host itself gets 200 on that
-// plan's endpoint — a Zen key is not a Go key, and asking host-side first is what
-// lets a container failure be attributed to the egress layer instead of the key.
-//
-// `forward` is skipped throughout: opencode declares no secret in its manifest
-// env, so nothing is forwarded — the key reaches a forward run only through a
-// workspace .env the entrypoint autoloads, which this probe's empty workspace does
-// not have. The broker is the boundary under test.
+// Its GET /v1/models is PUBLIC, so the probe is a one-token paid completion.
+// SPEC: _spec/_paradigms/credential-boundary.puml
 func TestOpenCodeAuth(t *testing.T) {
 	requireHarness(t, "opencode")
 
@@ -94,11 +78,8 @@ func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, cr
 	sess := tmux.New(fmt.Sprintf("proveo-ocauth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
-	// --shell puts a shell on the PTY instead of the agent: the topology is
-	// identical, and the credential question is answerable with curl. The
-	// narrowed env file holds ONLY this credential, so the broker pins opencode
-	// rather than refusing over a multi-key host. PROVEO_HOME is isolated so a
-	// developer's own mounted home cannot supply or suppress anything.
+	// --shell puts a shell on the PTY instead of the agent: identical topology,
+	// and the credential question is answerable with curl.
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsFor(t, opencodeKeyVar)...)
 	cmd = append(cmd, "PROVEO_HOME="+t.TempDir())
@@ -131,13 +112,8 @@ func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, cr
 		opencodeKeyVar, mode, creds, c.base)
 }
 
-// opencodeProbeLine is the request the container makes.
-//
-// Under `broker` it sends NO auth header: the container holds only the sentinel,
-// and the proxy is supposed to attach the real key on-route — an unauthenticated
-// request answering 200 IS the brokering assertion, and on this endpoint it
-// cannot pass by accident (401 without a key, probed). Under `forward` the
-// container holds the real key and presents it the way the agent does.
+// opencodeProbeLine is the request the container makes: no auth header under
+// `broker`, the real key under `forward`.
 func opencodeProbeLine(c opencodeAuthCase, creds string) string {
 	var b strings.Builder
 	// -o /dev/null so neither the credential nor a completion is echoed onto the

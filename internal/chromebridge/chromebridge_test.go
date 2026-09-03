@@ -198,11 +198,9 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 	}
 }
 
-// ScopeGate is a table over CREDENTIAL SHAPES, not over variable names, because
-// that is the axis Claude Code actually decides on: it synthesises the session's
-// OAuth scopes from where the credential arrived, then asks whether the result
-// contains user:profile, user:office or user:ccr_inference. Two shapes here would
-// have been refused by the old "an env var is set" reading, and both work.
+// ScopeGate is a table over CREDENTIAL SHAPES, not over variable names — the
+// axis Claude Code actually decides on.
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
 	t.Parallel()
 	env := func(kv map[string]string) func(string) string {

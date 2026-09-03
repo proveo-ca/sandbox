@@ -99,15 +99,9 @@ var entries = []Entry{
 		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
 	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
 		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
-	// OpenCode's own gateway. models.dev lists it as TWO providers — `opencode`
-	// (Zen, pay-as-you-go, opencode.ai/zen/v1) and `opencode-go` (Go, the
-	// subscription, opencode.ai/zen/go/v1) — but they share the host and the key
-	// (OPENCODE_API_KEY on both), so for detection, reach and injection they are
-	// one route; ModelProvider folds the `opencode-go/` prefix onto this entry.
-	// The key is a plain bearer the agent reads from its environment ahead of
-	// auth.json, which is what lets the login happen on the host before launch
-	// instead of through the TUI's /connect inside a sandbox whose auth.json
-	// proveo scrubs every run.
+	// OpenCode's own gateway. models.dev lists it as TWO providers (Zen and Go) but
+	// they share the host and the key, so for detection, reach and injection they
+	// are one route. The key is a plain bearer read ahead of auth.json.
 	{Name: "opencode", Detect: []string{"OPENCODE_API_KEY"},
 		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"}, Auth: bearer("OPENCODE_API_KEY")},
 	// Signed-request providers: detectable + Squid-pinned, but NOT broker-injectable.

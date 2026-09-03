@@ -515,12 +515,8 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 	}
 }
 
-// Claude Code's own rule, mirrored: a bare setup-token session gets no Chrome
-// integration, so the preflight names the variable rather than letting the
-// operator discover "Disabled" inside the sandbox. The scope table itself lives in
-// chromebridge; what this pins is that the preflight asks it, and asks it with the
-// proveo home — the login that answers the question is a FILE in there, and
-// dropping that argument is how the box ends up greyed for a session that works.
+// What this pins is that the preflight asks chromebridge's scope table, and
+// asks it WITH the proveo home — the login that answers is a file in there.
 func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
 	t.Parallel()
 	lookup := func(k string) string {
@@ -972,15 +968,9 @@ func claudecodeMan() manifest.Manifest {
 	}
 }
 
-// Two ways of being authenticated compete and do not merge: AuthSuppressor drops
-// every auth var of a provider whose login is already on disk, so a
-// CLAUDE_CODE_OAUTH_TOKEN exported on the host is NOT the session's credential
-// when a usable login is mounted beside it.
-//
-// The gate used to read the raw host environment and grey the Chrome box over a
-// token proveo was itself about to suppress: the run got the login and the
-// bridge would have worked, while the picker said it could not. Both halves now
-// come from AuthSuppressor, so they cannot disagree.
+// A CLAUDE_CODE_OAUTH_TOKEN exported on the host is NOT the session's
+// credential when a usable login is mounted beside it. Both halves come from
+// AuthSuppressor, so they cannot disagree.
 func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -1015,12 +1005,8 @@ func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
 	}
 }
 
-// A credential file with blanked tokens is the ordinary state of the proveo home
-// on macOS — `claude` on the host writes the real value to the Keychain. The host
-// can fall back to the Keychain; the container cannot, so in there the file IS the
-// credential and an empty one is no login. ScopeGate cannot see this: it reasons
-// about the session's shape, and this shape classifies as nothing at all, so the
-// gate fell silent and offered a bridge the container would refuse.
+// A blanked credential file is the ordinary state of the proveo home on macOS,
+// and ScopeGate cannot see it — it reasons about the session's SHAPE.
 func TestChromeGateWarnsAboutABlankedLogin(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

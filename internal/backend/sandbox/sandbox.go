@@ -176,14 +176,9 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 }
 
 // PreserveClone lifts a clone-mode sandbox's work into the host repository before
-// the sandbox goes: a snapshot commit of anything the agent left uncommitted, then
-// a fetch of every branch into refs/proveo/<name>/. Clone is the default, so a
-// teardown that dropped the clone silently would be the default losing work.
-//
-// Refs, not a remote-tracking namespace: sbx removes its sandbox-<name> remote with
-// the sandbox, and `git remote remove` deletes refs/remotes/<remote>/* with it.
-// refs/proveo/ is proveo's own and outlives both. No-op when the run was not a
-// clone, or when nothing is there to fetch from.
+// the sandbox goes: a snapshot commit, then a fetch of every branch into
+// refs/proveo/<name>/. No-op when the run was not a clone.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func PreserveClone(in Input, cfg sbx.RunConfig) {
 	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return
@@ -213,12 +208,8 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 }
 
 // liftClonedOutput copies the output dir out of the clone into the host output
-// dir. Untracked and usually gitignored, deliverables are exactly what the fetch
-// above leaves behind, and clone mode could not mount the dir live (SplitNested).
-// The archive's members are relative to the clone root, so unpacking under the
-// host repo root recreates the same path; tar refuses absolute members and `..`
-// on its own. Failure is a warning that names the sandbox, so the operator can
-// still `sbx exec` the files out before removing it.
+// dir, as a tar stream unpacked under the host repo root. Failure warns and
+// names the sandbox.
 func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
 	rel, ok := nestedRel(in.RepoRoot, in.OutputDir)
 	wd := FirstHost(cfg.Mounts)
@@ -270,13 +261,8 @@ func liftViaSbx(args []string, into string) (int, string, error) {
 	return 0, "", nil
 }
 
-// FreeLoopbackPort reserves a host port by binding it and letting it go, so the
-// viewport URL can be printed BEFORE the sandbox exists. Impure by nature, which
-// is why it is the caller's job and not Spec's: a plan rendered by --print must
-// not depend on which ports this machine happens to have free.
-//
-// The gap between releasing and sbx binding is a race nothing can close from
-// here; losing it costs the viewport, not the run.
+// FreeLoopbackPort reserves a host port by binding it and letting it go.
+// Impure, which is why it is the caller's job and not Spec's.
 func FreeLoopbackPort() int {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -288,16 +274,8 @@ func FreeLoopbackPort() int {
 }
 
 // StartCDPViewport publishes the agent's own Chromium to the host and holds the
-// relay open for the run's life. It returns the stop function.
-//
-// Started from the HOST rather than seeded into the image, for two reasons: the
-// exec's lifetime is the run's, so the relay cannot outlive the session holding a
-// published port; and an already-built -browser image gains the viewport without
-// a rebuild.
-//
-// Guarded on Running, never merely on Exists: `sbx exec` RESTARTS a stopped
-// sandbox, so a retry loop that did not check would resurrect the VM after the
-// agent had finished with it.
+// relay open for the run's life, returning the stop function. Guarded on
+// Running, never merely on Exists: `sbx exec` RESTARTS a stopped sandbox.
 func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
 	if len(cfg.Publish) == 0 {
 		return func() {}
@@ -699,11 +677,8 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		mounts = append(mounts, sbx.Mount{Host: in.DataDir, Container: "/workspace/data", ReadOnly: true})
 	}
 	// In clone mode nothing may be mounted UNDER the repository: sbx clones only
-	// into an empty workspace, and a positional nested there lands inside the clone
-	// target before the clone runs — the clone is then skipped silently and the
-	// agent starts in a root-owned directory holding nothing but that mount. The
-	// output dir is lifted back at teardown (PreserveClone); anything else nested
-	// is simply not mounted, and both are said out loud.
+	// into an empty workspace, and a nested mount arriving first skips the clone
+	// silently. The output dir is lifted back at teardown instead.
 	if in.Clone && in.RepoRoot != "" {
 		var nested []sbx.Mount
 		mounts, nested = SplitNested(in.RepoRoot, mounts)
@@ -887,9 +862,12 @@ func Run(in Input) error {
 	}); err != nil {
 		return err
 	}
+	// The values behind every bare `-e NAME` in the Kit's env, for the `sbx` exec
+	// below and nowhere else.
+	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") {
-			credentials.HydrateProcessEnv(e, in.Lookup)
+			child.Add(e, in.Lookup)
 		}
 	}
 	for _, kv := range secrets {
@@ -943,6 +921,7 @@ func Run(in Input) error {
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
 	run := func() error {
 		c := exec.Command(sbx.Binary, args...)
+		c.Env = child.Apply(os.Environ())
 		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered

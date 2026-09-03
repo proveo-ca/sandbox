@@ -67,11 +67,8 @@ type Manifest struct {
 	Config       []string          `yaml:"config"`
 	// AgentEnv is proveo's own opinion about how the harness should run: NAME:
 	// value pairs handed to the agent on EVERY backend unless the operator sets
-	// NAME themselves. It is neither `env` — variables the OPERATOR supplies,
-	// prompted for when missing and hinted about when auth fails — nor `config`,
-	// which forwards a host preference only when one exists. It exists because a
-	// default exported by the image entrypoint reached only the docker backend:
-	// sbx launches the agent through its own kit and never runs the entrypoint.
+	// NAME themselves. Neither `env` nor `config`.
+	// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 	AgentEnv     map[string]string `yaml:"agentEnv"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)

@@ -19,21 +19,8 @@ import (
 )
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the browser
-// add-on now publishes, using the same three builders the run uses: the env flag
-// that pins Chromium's DevTools port, the -p mapping, and the relay argv.
-//
-// Every link was measured before it was built, and each one is load-bearing:
-//
-//  1. agent-browser launches Chromium itself and picks its own endpoint, so there
-//     was nothing to attach to. AGENT_BROWSER_ARGS is how a fixed port gets in.
-//  2. Chromium's DevTools endpoint refuses every peer that is not loopback — even
-//     bound to 0.0.0.0, asked from the sandbox's own address it resets. sbx's port
-//     forwarder arrives exactly that way, so publishing 9222 could never work.
-//  3. A relay inside the sandbox terminates the forwarded connection and dials
-//     Chromium over loopback, which Chromium accepts.
-//
-// The assertion is a TARGET LIST containing the page the agent's own tool opened:
-// anything less would pass against a browser proveo launched for itself.
+// add-on publishes, using the same three builders the run uses. The assertion is
+// a TARGET LIST containing the page the agent's own tool opened.
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

@@ -38,12 +38,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 			sbxBackend, sbxWhy = sbx.Available()
 		}
 	}
-	// The add-on does not vote any more: a harness that declares sbx runs there
-	// whenever the host can, so availability alone decides which egress axis the
-	// operator is shown. Consulting the remembered answer here offered the docker
-	// tiers — open/allowlist/review — for a run that was going to sbx and read the
-	// host baseline instead, and hid changeBaselineHint, the one true statement
-	// about what governs egress there.
+	// Availability alone decides which egress axis the operator is shown; the
+	// add-on does not vote.
 	sandboxOn := sbxBackend
 	chromeWhy := ""
 	if man.Capabilities.HasHostBrowser() {
@@ -143,12 +139,9 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 	if creds == "" {
 		creds = credsFallback
 	}
-	// Read from the form, not from the row in hand: the sandbox box lives in the
-	// execution group and the Chrome box it excludes lives in the interface one,
-	// so the two are no longer neighbours in the same slice.
-	// Read from the row's OPTIONS, not from On: the loop below is what ticks the
-	// compulsory box, so asking On here answers from the previous pass and leaves
-	// the host browser drawn live for one whole paint — long enough to accept.
+	// Read from the form, not from the row in hand: the two boxes live in
+	// different groups.
+	// Read from the row's OPTIONS, not from On: the loop below is what sets On.
 	sandboxTicked := sbxWhy == "" && rowOffers(f, rowExecution, addonSandbox)
 	for i := range f.Rows {
 		r := &f.Rows[i]
@@ -199,12 +192,8 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 					r.OffWhy[opt] = "needs egress open + credentials forward"
 				}
 			case addonChrome:
-				// The bridge is a TCP relay on the host that the agent reaches as
-				// host.docker.internal — which only the docker backend's bridge network
-				// resolves to the host, and only on the open+forward tier (every other
-				// tier parks the agent behind a sidecar with no route out but the proxy).
-				// A sandbox VM cannot name the host at all, so the sbx box and this one
-				// are exclusive, and re-gated on every toggle.
+				// A sandbox VM cannot name the host at all, so the sbx box and this one are
+				// exclusive, and re-gated on every toggle.
 				why := chromeWhy
 				switch {
 				case why != "":
@@ -227,23 +216,10 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 
 // chromeUnavailable is the host-side preflight for the Claude in Chrome add-on:
 // what, at this moment, would stop the bridge from connecting. Empty means go.
-//
-// The credential check is Claude Code's rule, not proveo's, and it is a rule about
-// SCOPES rather than about variables: see chromebridge.ScopeGate. Reading it as
-// "env-var sessions are refused" greyed the box for a correctly-scoped token that
-// would have connected, and for an ANTHROPIC_API_KEY set beside a login the key
-// does not displace. Offering the box would sell a bridge to a client that has
-// already decided not to use it; withholding it hides one that works.
+// The credential check is Claude Code's rule about SCOPES — chromebridge.ScopeGate.
 // It asks about the environment the AGENT will see, not the one proveo was
-// launched in. Those differ, and the difference was a live bug: two ways of
-// being authenticated compete and do not merge, so AuthSuppressor drops every
-// auth var of a provider whose login is already on disk — and the gate, reading
-// the raw host environment, greyed the box over a CLAUDE_CODE_OAUTH_TOKEN that
-// proveo was itself about to suppress. The run got the login and Chrome would
-// have worked; the picker said it could not.
-//
-// Both halves come from AuthSuppressor rather than from a second rule that
-// happens to agree, because the two disagreeing is what produced the bug.
+// launched in. Both halves come from AuthSuppressor rather than from a second
+// rule that happens to agree.
 func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
 	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot)
 	effective := func(k string) string {
@@ -455,16 +431,8 @@ var addonRows = []string{rowExecution, rowInterface}
 
 func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
 
-// addonFixed are the boxes that state a FACT rather than offer a choice: their
-// state is never the operator's to change, and drawing them is how the plane
-// says what it excludes. "host" is the alternative an operator might otherwise
-// assume unticking the daemon selects — it never is, because proveo containerises
-// every run — and the TUI is the interface for the whole session whether or not
-// a browser joins it.
-//
-// They are greyed but keep their true state: a ticked greyed box reads as
-// compulsory, which is exactly what it is, and the help line below says "always
-// on" rather than "off" for one.
+// addonFixed are the boxes that state a FACT rather than offer a choice. They
+// are greyed but keep their TRUE state.
 var addonFixed = map[string]struct {
 	on  bool
 	why string
@@ -474,13 +442,7 @@ var addonFixed = map[string]struct {
 }
 
 // addonHelp is what each add-on DOES, in one line, shown under the row while the
-// cursor is on that box.
-//
-// Naming the alternative is half the job and the half that was missing: an
-// unticked box is a posture too, and "docker (sandbox)" said nothing about what
-// unticking it selects. It is not the host — proveo never runs an agent there —
-// it is the docker backend behind egress sidecars, and an operator reading only
-// the checkbox had no way to know that.
+// cursor is on that box. Each names its ALTERNATIVE too.
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",

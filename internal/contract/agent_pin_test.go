@@ -11,15 +11,9 @@ import (
 )
 
 // agentPins is the table: every harness image that bakes an agent, and how it
-// pins it. One row per agent, uniform across ecosystems — the pin is a build-arg
-// the Dockerfile USES (only a used ARG moves BuildKit's cache key), a version
-// check inside the same RUN, and the label that records what landed.
-//
-// The rows exist because `npm install -g x@latest` is not a pin: the line never
-// changes when upstream publishes, so a warm cache reuses last month's layer and
-// nothing in the build says so. A default on the ARG would be the same hole one
-// step removed — a bare `docker build` would bake whatever is newest — so the
-// ARG must be declared bare and guarded.
+// pins it — a build-arg the Dockerfile USES, a version check inside the same
+// RUN, and the label that records what landed. The ARG is declared BARE.
+// SPEC: _spec/_devops/agent-version-pin.puml
 var agentPins = []struct {
 	image       string // key into imageDockerfiles
 	buildScript string
@@ -138,11 +132,8 @@ printf '%s' "${CURL_BODY:-}"
 func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 	t.Parallel()
 	run := pinHarness(t)
-	// wantNote is the 📌 line on stderr: the version AND how it was chosen. The
-	// resolver prints it, not the caller, because build.sh assigns the result to
-	// a variable named like the override — after which "override or resolved"
-	// is unknowable from outside, and the first version of this note said "from
-	// CECLI_VERSION" on every build.
+	// wantNote is the 📌 line on stderr: the version AND how it was chosen.
+	// SPEC: _spec/_devops/agent-version-pin.puml
 	cases := []struct {
 		name     string
 		env      map[string]string

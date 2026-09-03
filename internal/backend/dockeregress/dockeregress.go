@@ -70,6 +70,7 @@ type Input struct {
 	Mounts                              []runner.Mount
 	Workdir                             string
 	Env                                 []string // declared env var names to forward (bare -e)
+	ChildEnv                            []string // "KEY=VALUE" for the docker process, never the argv
 	ProviderDomains                     string
 	SquidImage, ProxyImage, OllamaImage string
 	PidsLimit                           int      // host/tier-resolved --pids-limit
@@ -105,6 +106,7 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		Mounts:    in.Mounts,
 		Workdir:   in.Workdir,
 		Env:       in.Env,
+		ChildEnv:  in.ChildEnv,
 		ExtraArgs: plan.AgentArgs, Image: in.Image, Command: in.Extra,
 		PidsLimit: in.PidsLimit,
 	}
@@ -208,6 +210,10 @@ func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, prov
 
 func ExecAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 	c := exec.Command("docker", runner.DockerRunArgs(agent)...)
+	// The values behind every bare `-e NAME`, for THIS process only.
+	if len(agent.ChildEnv) > 0 {
+		c.Env = append(os.Environ(), agent.ChildEnv...)
+	}
 	var err error
 	if proxy != nil {
 		err = proxy.Run(c)

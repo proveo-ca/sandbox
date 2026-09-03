@@ -2,19 +2,8 @@
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 # PreToolUse(Bash) guard: name the one failure the Bash tool cannot name itself.
 #
-# In an sbx sandbox the workspace is a virtiofs passthrough of the host path, and
-# its directory entry can be dropped inside the VM while the host directory lives
-# on. Claude Code then records its working directory as "<path> (deleted)", and
-# every Bash spawn fails — exit 1, no output, `true` included, subagents too —
-# while Read/Edit/Write (absolute paths) keep working. Claude Code ≥ 2.1.119 has no
-# fallback for that (anthropics/claude-code#52747), so the model retries, invents
-# causes, and burns the session. Hooks DO still run: Claude Code falls back to the
-# session start directory to spawn them. So this is the one place a sentence can
-# reach the model at the moment it matters.
-#
 # Exit 2 blocks the call and hands stderr to the model. Everything else exits 0
-# and says nothing — a guard that speaks on a healthy shell is noise. PROVEO_PROC
-# points the /proc walk elsewhere so the logic is testable on a host without one.
+# and says nothing. PROVEO_PROC points the /proc walk elsewhere for tests.
 set -u
 payload="$(cat 2>/dev/null || true)"
 proc="${PROVEO_PROC:-/proc}"

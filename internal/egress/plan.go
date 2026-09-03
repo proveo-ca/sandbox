@@ -64,12 +64,8 @@ type Options struct {
 	// (Linux + NVIDIA container runtime). Without it the sidecar runs on CPU.
 	OllamaGPU bool
 	// HostBridge makes host.docker.internal resolve to the REAL host gateway, so
-	// the agent can reach a relay `proveo run` holds open on the host (the Claude
-	// in Chrome bridge, internal/chromebridge). Off, the open+forward path pins
-	// the name to the container's own loopback on purpose: an agent that can
-	// name the host can probe it. Only the open+forward paths honour it — every
-	// other tier puts the agent behind a sidecar with no route to the host, and
-	// the picker greys the add-on there.
+	// the agent can reach a relay `proveo run` holds open. Only the open+forward
+	// paths honour it.
 	HostBridge bool
 }
 

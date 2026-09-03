@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
-# tests/test_chrome_bridge.sh - the container half of the Claude in Chrome bridge
-#
-# Every claudecode image carries chrome-bridge.js. proveo_chrome_bridge starts it
-# where Claude Code looks for the native host socket and pipes each connection to
-# PROVEO_CHROME_BRIDGE. A fake host relay INSIDE the container stands in for
-# `proveo run`'s, so the chain is driven end to end without a browser.
+# tests/test_chrome_bridge.sh - the container half of the Claude in Chrome bridge.
+# A fake host relay inside the container stands in for `proveo run`'s, so the
+# chain is driven end to end without a browser.
 
 read -r -d '' CHAIN_SCRIPT <<'EOS'
 set -e

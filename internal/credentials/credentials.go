@@ -24,6 +24,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -258,6 +259,9 @@ type oauthCredential struct {
 		// shape we do not judge; an explicit "" is a token that was removed.
 		AccessToken  *string `json:"accessToken"`
 		RefreshToken *string `json:"refreshToken"`
+		// Descriptive only — read for the host-store report, never for a decision.
+		Scopes           []string `json:"scopes"`
+		SubscriptionType string   `json:"subscriptionType"`
 	} `json:"claudeAiOauth"`
 }
 
@@ -276,6 +280,12 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	if err != nil || len(b) == 0 {
 		return false, false
 	}
+	return loginUsableBytes(b, now)
+}
+
+// loginUsableBytes is loginUsable over bytes from ANY source, so the host secret
+// store and the mounted file are judged by one rule.
+func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	var c oauthCredential
 	if json.Unmarshal(b, &c) != nil {
 		return true, false // presence is all this file lets us honestly assert
@@ -310,16 +320,10 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
-// LoginBlanked reports a credential file that exists but holds no token.
-//
-// This is the ordinary state of the proveo home on macOS: `claude` on the host
-// writes the credential to the Keychain and leaves the file with "" tokens and
-// every stamp intact. The host can fall back to the Keychain; the CONTAINER
-// cannot — in there the file is the credential — so the two sides look at the
-// same bytes and correctly disagree about whether a login exists.
-//
-// Worth saying out loud rather than treating as "no login": the operator has a
-// working `claude` on their machine and no reason to suspect the file.
+// LoginBlanked reports a credential file that exists but holds no token — the
+// ordinary state of the proveo home on macOS, and worth saying out loud rather
+// than treating as "no login".
+// SPEC: _spec/internal/secretref/secret-references.puml
 func LoginBlanked(target, homeRoot string) bool {
 	if homeRoot == "" {
 		return false
@@ -547,13 +551,57 @@ func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) st
 	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly; use --egress-mode firewall so egress DLP blocks the key from leaving", dir)
 }
 
-func HydrateProcessEnv(name string, lookup func(string) string) {
-	if strings.TrimSpace(os.Getenv(name)) != "" {
+// ChildEnv carries the values a bare `-e NAME` needs the CHILD to inherit,
+// keeping them out of proveo's own environ. Replaces the os.Setenv hydration;
+// see _spec/internal/secretref/secret-references.puml. Zero value usable.
+type ChildEnv struct {
+	pairs []string
+	seen  map[string]bool
+}
+
+// Add records name's value for the child, resolved through lookup. A name
+// already in proveo's environment needs no pair — the child inherits it anyway.
+func (c *ChildEnv) Add(name string, lookup func(string) string) {
+	if c.seen[name] || strings.TrimSpace(os.Getenv(name)) != "" {
 		return
 	}
-	if v := strings.TrimSpace(lookup(name)); v != "" {
-		_ = os.Setenv(name, v)
+	v := ""
+	if lookup != nil {
+		v = strings.TrimSpace(lookup(name))
 	}
+	if v == "" {
+		return
+	}
+	if c.seen == nil {
+		c.seen = map[string]bool{}
+	}
+	c.seen[name] = true
+	c.pairs = append(c.pairs, name+"="+v)
+}
+
+// Pairs is the "KEY=VALUE" list for one exec's cmd.Env, nil when empty.
+func (c *ChildEnv) Pairs() []string { return c.pairs }
+
+// Names lists what this ChildEnv carries, for reporting. Names only.
+func (c *ChildEnv) Names() []string {
+	out := make([]string, 0, len(c.pairs))
+	for _, p := range c.pairs {
+		name, _, _ := strings.Cut(p, "=")
+		out = append(out, name)
+	}
+	return out
+}
+
+// Apply builds the environment for one exec: base, then these pairs, so a pair
+// here overrides a same-named value in base. Nil when empty, which leaves
+// os/exec passing proveo's environment through untouched.
+func (c *ChildEnv) Apply(base []string) []string {
+	if len(c.pairs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(base)+len(c.pairs))
+	out = append(out, base...)
+	return append(out, c.pairs...)
 }
 
 // ParseEnvFile reads a KEY=VALUE env file (project .env shape). Missing => empty.
@@ -611,13 +659,43 @@ func WriteBrokerEnv(dir string, lookup func(string) string) (string, error) {
 }
 
 // ProviderLookup prefers the process env, then a host-side KEY=VALUE file
-// (project .env / PROVEO_EGRESS_ENV_FILE) for detection and broker.env writing.
+// (project .env / PROVEO_EGRESS_ENV_FILE). A value that parses as a secret
+// reference is resolved here, once per name per run.
 func ProviderLookup(envFile string) func(string) string {
+	return ProviderLookupWith(envFile, &secretref.Resolver{
+		Getenv: os.Getenv,
+		Announce: func(scheme string) {
+			ui.Iconf("🔐", "resolving a %s: secret reference on the host — approve the prompt if one appears", scheme)
+		},
+	}, ui.Warnf)
+}
+
+// ProviderLookupWith is ProviderLookup with the resolver and warning sink
+// injected. warn fires once per variable; an unresolved reference yields "",
+// never the reference text itself.
+func ProviderLookupWith(envFile string, r *secretref.Resolver, warn func(string, ...any)) func(string) string {
 	fileVals := ParseEnvFile(envFile)
+	warned := map[string]bool{}
 	return func(k string) string {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
+		raw := strings.TrimSpace(os.Getenv(k))
+		if raw == "" {
+			raw = strings.TrimSpace(fileVals[k])
 		}
-		return fileVals[k]
+		if raw == "" {
+			return ""
+		}
+		ref, isRef := secretref.Parse(raw)
+		if !isRef || r == nil {
+			return raw
+		}
+		res := r.Resolve(k, ref)
+		if res.Outcome == secretref.OK {
+			return res.Value
+		}
+		if warn != nil && !warned[k] {
+			warned[k] = true
+			warn("%s", secretref.Advice(k, res))
+		}
+		return ""
 	}
 }

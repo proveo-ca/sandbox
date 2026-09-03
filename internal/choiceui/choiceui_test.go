@@ -179,11 +179,8 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 	if !strings.Contains(joined(t, f), "dind needs egress open") {
 		t.Errorf("a gated option must render its reason\n--- rendered ---\n%s", joined(t, f))
 	}
-	// A MULTI row's Selected is the cursor, not the choice — the checkbox is the
-	// choice, and toggle refuses a gated one on its own. So the cursor may rest on
-	// a greyed box, which is what makes its explanation readable: it is the option
-	// whose reason the operator most needs, and it was the one the cursor could
-	// never reach.
+	// A MULTI row's Selected is the cursor, not the choice, so it may rest on a
+	// greyed box. SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 	f.Rows[0].Selected = 0
 	f.cycle(0, +1)
 	if f.Rows[0].Selected != 1 {
@@ -320,11 +317,7 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 }
 
 // A row the divider names gives up its own label; a checkbox row without one
-// keeps it, or the operator is left staring at an anonymous pair of boxes.
-//
-// Which rows get a heading is DECLARED. It used to be "the first multi-select
-// row", which quietly meant only one group could ever be named — and the picker
-// now draws two, one per plane.
+// keeps it. Which rows get a heading is DECLARED.
 func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{

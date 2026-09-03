@@ -19,6 +19,182 @@
 '   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE CLOCK: MOTION IS BOUND TO CHANGE, NOT TO TIME ──────────────────────
+' ── WHERE THE VOCABULARY LIVES, AND WHY IT IS NOT IN choiceui ──────────────
+' topologyOf (internal/run/topology.go) is the ONLY place the picture learns
+' what "allow-all" or "docker (sandbox)" mean. internal/choiceui owns the
+' geometry and the glyphs and stays ignorant of the vocabulary, so a new tier
+' renames a string there and redraws nothing.
+'
+' BOTH the egress and credentials rows need a fallback, because applicableRows
+' drops any axis with one option — and cursor declares exactly one of each.
+' Reading the form alone drew a "mitm + squid" hop for a run whose plan is a
+' bare bridge network with no sidecar: the strip inventing a boundary that does
+' not exist is the worst thing this picture can do.
+'
+' THE LANE COUNTS ARE ILLUSTRATIVE, NOT MEASURED. A real "how many hosts
+' survive" would mean reading the Kit allowlist (harness capabilities plus
+' detected providers) or Squid's config at prompt time, which is a bigger change
+' than the picture is worth — so the captions say what the tier DOES and never
+' claim a number. One lane always survives: on the strictest posture the agent
+' still reaches its model (deny-all is the absence of an allow rule and the Kit
+' can only add), so a frame with no lane would say the agent cannot think.
+'
+' The UNREADABLE sbx baseline is drawn as deny-all, deliberately. proveo could
+' not read the host policy, so it may be anything; drawing the most permissive
+' posture and captioning it "the host allows every destination" would state as
+' fact the one thing nobody measured. An unknown boundary is the tightest one.
+'
+' focusOf never focuses a LOCKED row, because `move` skips it — so on an sbx
+' harness the hop is simply never the highlighted element. That is honest: the
+' row is locked precisely because there is nothing there to choose.
+'
+' A keystroke runs the filmstrip for animWindow and the strip then rests on its
+' still frame, so any movement on screen means something in the form actually
+' moved — the only thing that makes the motion worth the distraction it costs.
+'
+' PollEvent blocks, so the clock cannot be a timer the draw loop reads; it has
+' to be an event. PostEvent is non-blocking and reports a full queue rather than
+' parking, so a tick arriving against a screen nobody is reading is dropped
+' instead of wedging the goroutine that sent it.
+'
+' Both times are DURATIONS off one monotonic reading, never wall-clock instants.
+' A wall clock stepped backwards by NTP makes an elapsed time negative, and a
+' negative elapsed never satisfies "the window has closed" — so the strip would
+' repaint every 120ms forever with no pulse to show for it. One last post fires
+' as the window closes, so the final frame painted is the still one rather than
+' a mid-animation frame with the mote frozen on a lane.
+'
+' bump is called once per KEY EVENT rather than per mutation: the cursor changes
+' the strip's emphasis and `move` does not report through OnChange, so hanging
+' it off individual mutations would leave the one case that matters uncovered.
+' It posts nothing itself — the keystroke already causes a repaint. stop WAITS
+' for the goroutine to leave so no post is in flight against a screen the caller
+' is tearing down; Run registers it after screen.Fini precisely so it runs first.
+'
+' ── WHY THE STRIP HAS ITS OWN WRITER ───────────────────────────────────────
+' pen advances by DISPLAY width rather than rune count, because the strip is
+' assembled from variable-width pieces — a devicon here, a label of unknown
+' length there — so no caller can precompute the columns the way the row painter
+' does. `put` is deliberately left alone: its callers do their own arithmetic
+' (`x += len(glyph) + len(opt) + 3`), and making it width-aware without
+' rewriting them would only let the two disagree.
+'
+' A zero-width rune is attached to the PRECEDING cell as a tcell combining rune
+' instead of being given a column, and it is asked directly rather than through
+' go-runewidth — which reports U+FE0F, the variation selector, as ONE column.
+' That single disagreement is why emoji are kept out of the strip entirely: a
+' writer trusting the width table smears every variation-selected glyph one cell
+' right. The mark attaches to p.x-1's BASE cell, never to the continuation cell
+' of a wide rune, which tcell owns.
+'
+' textWidth is asked rather than assumed: a Nerd Font devicon lives in the
+' private-use area, which Unicode classes as AMBIGUOUS width — one column in a
+' Latin locale, two in a CJK one — so the figure's budget has to be measured the
+' same way tcell will measure it when it paints.
+'
+' ── WHY THE FRAME IS A PROJECTION, AND WHAT ITS ZERO VALUE DRAWS ───────────
+' Frame is one still picture of the run the form currently describes: where the
+' credential rests, which hop is in the path, how many lanes survive it. It is
+' built at paint time from the same values Selection returns, so it cannot
+' disagree with the checkboxes above it. Everything the design calls a
+' "re-label" is a STRING here rather than a shape, which holds the picture to
+' one geometry.
+'
+' THE ZERO VALUE IS THE SCREENED HOP, deliberately. A zero Frame — one built by
+' a caller that forgot a field, or by a future bug — draws the tighter picture
+' with no lanes rather than an open one: a security figure must not fail to the
+' most permissive reading of itself.
+'
+' ── WHY THE GLYPHS ARE DEVICONS AND NOT EMOJI ──────────────────────────────
+' Emoji read well in a diagram and badly in a grid. The speaking head is two
+' runes that go-runewidth measures as one column and terminals draw as two, and
+' the cloud is an ambiguous-width character whose column count depends on the
+' font. A Nerd Font devicon is one rune of one column with no ambiguity, so
+' nerd is the decorated tier and ASCII is the tier that is correct everywhere.
+'
+' The node and wall glyphs are the BANNER's vocabulary rather than ASCII
+' punctuation: the mark is dots interrupting rules inside a bracketed frame,
+' and the figure is that idea applied to a run. It also ends a collision — "()"
+' is the form's radio glyph three rows above, where it means something else.
+'
+' ── WHY THE COLUMNS TRAVEL AS ONE STRUCT ───────────────────────────────────
+' topoCols is a struct rather than a handful of parameters because the columns
+' must move TOGETHER: a hop column moved without the lanes column behind it
+' draws the hop under the lanes, which is the one failure the fit budget exists
+' to prevent. paneCols is the same figure in the margin, dropping the two
+' things that cost columns and carry least — the connector runs shrink to a
+' single rule (the arrowhead carries the direction, the length carries nothing)
+' and the caption keeps only its leading clause.
+'
+' A label outside the frame is centred on its column and CLAMPED to the
+' figure's origin: one wider than twice its column would otherwise start left
+' of the figure and paint into its neighbour.
+'
+' The rule runs on to the fan so the lanes are visibly the hop's rather than
+' three runs floating off to its right — and only when there ARE lanes, because
+' a rule running to an empty margin would draw the route the tier is
+' withholding. The animation mote REPLACES a rule rather than joining the run,
+' so a lane is the same width moving as at rest; on the pane, where a run is
+' one rule wide, the mote IS the lane for that frame.
+'
+' ── THE BUDGET'S EXACT ARITHMETIC ──────────────────────────────────────────
+' Five rows and 72 columns are the strip's fixed geometry. Five because a
+' figure clipped mid-body is worse than one that is absent; 72 because that is
+' already the width the add-on divider centres on, so carrying the strip gives
+' the form no new minimum width.
+'
+' THE PROMISE IS DELIBERATELY NARROW. draw() has always painted straight down
+' and tcell has always discarded the overflow, so a terminal shorter than the
+' form still loses its last rows. What the budget guarantees is only that THE
+' STRIP is never what pushed them off.
+'
+' The mandatory set is the title pair, the WHOLE body, the blank-and-hint pair,
+' and the help slot with its opening blank. The body is charged at its FULL
+' height, not its floor, so a decoration can only be bought with rows that are
+' genuinely spare. Charging the floor was a real bug: the ladder then spent
+' rows the body was already using, and GROWING the terminal by one row could
+' buy the header and start the rows scrolling. "What a short terminal loses is
+' decoration" has to hold in that direction too.
+'
+' Only when even the mandatory regions do not fit does the body give ground —
+' which is what scrolling is for. That ordering is also what makes the foot
+' FOLLOW the body rather than sit at the screen's bottom edge, so a form that
+' fits renders exactly where it always did.
+'
+' ── THE HELP RESERVATION SPANS THE TICK, NOT JUST THE OPTION ───────────────
+' maxHelpLines is taken over every row AND every option, and over the tick
+' state too: helpLines writes "off: " for a greyed box and "always on: " for a
+' greyed-and-ticked one, six columns apart, so a space press could still wrap
+' one line further and move the figure — the exact jump the reservation exists
+' to stop.
+'
+' ── WIDTH IS MEASURED THE PAINTER'S WAY, NOT THE RIGHT WAY ─────────────────
+' rightEdge advances by the same len() drawBodyLine uses — BYTES, not display
+' columns. Agreeing with the painter matters more than being right about wide
+' runes: a non-ASCII option label already mis-advances the paint, and a budget
+' that quietly "fixed" it would disagree with where the options actually land
+' and let the pane overwrite one.
+'
+' A heading's real right edge is not the 72 it is centred ON: the painter
+' writes 6 rules, the padded label and 6 more from a pad of (72-L)/2, so a
+' label past ~48 reaches beyond 72 — and the heading branch ignores the limit.
+'
+' THE INLINE REASON IS MEASURED IN FULL, never clipped to a floor. A floor was
+' worse than no budget: the locked sbx egress row carries changeBaselineHint —
+' the one runnable command for changing the host baseline — with no Help and no
+' OffWhy, and a locked row can never hold the cursor, so the help block never
+' shows it either. Clipping destroyed the only copy of that text to make room
+' for a picture, which is precisely the trade the pane may not make.
+'
+' ── THE PANE IS PLACED, NEVER CLIPPED INTO PLACE ───────────────────────────
+' paneOrigin is chosen AFTER the widest row this form has, so no option is ever
+' cut to make room for a picture: the shipped invariant holds on the width axis
+' too. It is anchored RIGHT rather than flush against the rows — both satisfy
+' the budget, but hugging the rows leaves the margin empty on a wide terminal
+' while still pressing on the row limit, whereas against the right edge the
+' rows keep every column the figure does not need.
 title Choice-prompt topology strip — one projection, one budget, one clock
 
 node "internal/choiceui" as PKG <<host>> {

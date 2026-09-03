@@ -35,9 +35,8 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# Floor: the base-node-lsp floor plus the Playwright CLI, an installed Chromium
-# under the shared browser store, and agent-browser wired to that Chromium with
-# its bundled skills (the tree `agent-browser skills get core` serves).
+# Floor: base-node-lsp plus the Playwright CLI, a Chromium under the shared
+# browser store, and agent-browser wired to it.
 browser_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v node >/dev/null \

@@ -4,6 +4,32 @@ skinparam noteTextAlignment left
 title Claude Code code intelligence — seeded plugins, enabled per binary, no install prompt
 
 ' covers: defs/claudecode/mcp/Dockerfile, packages/lib/entrypoint-lib.sh
+'
+' ── THE RULE IS THE BINARY ─────────────────────────────────────────────────
+' Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (image-set).
+'
+' The image seeds the official `*-lsp` plugins so Claude Code stops offering to
+' install them; the entrypoint decides which are ON. An official plugin is
+' enabled exactly when its language server is on PATH after provisioning.
+' Present binary + absent plugin is what prompts; present plugin + absent
+' binary is an "Executable not found" error in /plugin. Enabling per binary
+' produces neither. proveo-lsp then declares only the languages no enabled
+' official plugin already covers, so no extension has two servers racing.
+' Pinned to the Dockerfile's install list by internal/contract.
+'
+' Settings are MERGED into the agent's user file: it is the operator's, an
+' explicit `false` there is respected, and the run is idempotent.
+' PROVEO_CLAUDE_LSP_OFFICIAL is exported as the set configure_claude_lsp must
+' leave alone.
+'
+' ── THE SEED IS NOT ENOUGH: CLAUDE CODE NEEDS ITS OWN RECORDS ──────────────
+' Two files are written into the home — plugins/installed_plugins.json and
+' plugins/known_marketplaces.json — pointing at the seed. Measured on 2.1.251
+' (2026-09-01): with the seed alone, startup logs "Skipping orphaned
+' enabledPlugins entry … marketplace not registered" and loads 0 plugins; with
+' the records present it lists the plugin enabled with its LSP server. The seed
+' is where the files live; the records are how Claude Code finds them. Existing
+' entries in either file are the operator's and are never overwritten.
 
 node "Image build — defs/claudecode/mcp/Dockerfile" as BUILD <<host>> {
   component "language servers on PATH\n""typescript-language-server"" · ""pyright-langserver"" · …" as BIN <<app>>

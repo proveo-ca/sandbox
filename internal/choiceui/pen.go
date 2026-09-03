@@ -9,18 +9,8 @@ import (
 )
 
 // pen writes styled runs left to right on one row, advancing by DISPLAY width
-// rather than by rune count.
-//
-// The strip is assembled from variable-width pieces — a devicon here, a label
-// of unknown length there — so no caller can precompute the columns the way the
-// row painter does. `put` is left alone for exactly that reason: its callers do
-// their own arithmetic (`x += len(glyph) + len(opt) + 3`), and making it
-// width-aware without rewriting them would only let the two disagree.
-//
-// A zero-width rune is attached to the PRECEDING cell as a tcell combining rune
-// instead of being given a column. U+FE0F is the case that matters: it is what
-// makes a variation-selected emoji two runes and one grapheme, and go-runewidth
-// measures the pair as one column while a terminal draws two.
+// rather than rune count. A zero-width rune attaches to the PRECEDING cell as a
+// tcell combining rune. `put` is deliberately left alone.
 type pen struct {
 	s     tcell.Screen
 	x, y  int
@@ -41,9 +31,7 @@ func (p *pen) write(style tcell.Style, text string) *pen {
 			if !p.wrote {
 				continue
 			}
-			// p.x-1 is the CONTINUATION cell of a wide rune, not its base. Writing
-			// the mark there would attach it to a cell tcell owns rather than to
-			// the glyph it decorates.
+			// p.x-1 is the CONTINUATION cell of a wide rune, not its base.
 			base := p.x - p.last
 			mainc, combc, st, _ := p.s.GetContent(base, p.y)
 			p.s.SetContent(base, p.y, mainc, append(append([]rune(nil), combc...), r), st)
@@ -71,12 +59,7 @@ func (p *pen) padTo(col int) *pen {
 }
 
 // zeroWidth reports a rune that decorates the cell before it instead of taking
-// a column of its own.
-//
-// It is asked directly rather than through go-runewidth, which reports U+FE0F —
-// the variation selector — as ONE column. That single disagreement is why emoji
-// are kept out of the strip entirely: a writer that trusts the width table
-// silently smears every variation-selected glyph one cell to the right.
+// a column of its own. Asked directly, not through go-runewidth.
 func zeroWidth(r rune) bool {
 	switch {
 	case r >= 0xFE00 && r <= 0xFE0F: // variation selectors
@@ -89,11 +72,8 @@ func zeroWidth(r rune) bool {
 	return false
 }
 
-// textWidth is the columns text will occupy once written. Asked rather than
-// assumed: a Nerd Font devicon lives in the private-use area, which Unicode
-// classes as AMBIGUOUS width — one column in a Latin locale and two in a CJK
-// one — so the figure's own budget has to be measured the same way tcell will
-// measure it when it paints.
+// textWidth is the columns text will occupy once written, measured the way
+// tcell will measure it.
 func textWidth(text string) int {
 	w := 0
 	for _, r := range text {

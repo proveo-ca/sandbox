@@ -192,10 +192,8 @@ func CloneRemote(name string) string { return "sandbox-" + name }
 func CloneRefs(name string) string { return "refs/proveo/" + name }
 
 // CloneSnapshotArgs commits whatever the agent left UNCOMMITTED in the clone, so
-// the fetch that follows carries it. Only when there is something to commit — a
-// clean tree gets no empty commit — and under an author that says who did it.
-// `sbx rm` drops the clone with the VM, and sbx's own guidance is to fetch or
-// push before removing; an agent that stopped mid-edit has nothing to push.
+// the fetch that follows carries it. Only when the tree is dirty.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneSnapshotArgs(name, workdir string) []string {
 	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
 		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
@@ -210,26 +208,16 @@ func CloneFetchArgs(repoRoot, name string) []string {
 }
 
 // The browser viewport: the operator watching, or driving, the Chromium the
-// agent is using — from the host, over the sandbox boundary.
-//
-// Two ports, because one cannot do both jobs. Chromium's DevTools endpoint
-// refuses every peer that is not loopback: bound with --remote-debugging-address
-// 0.0.0.0 and asked from the sandbox's OWN address it answers nothing (measured
-// 2026-09-02 — loopback 200, sandbox IP reset), which is exactly how sbx's port
-// forwarder arrives. So Chromium stays on loopback and a relay owns the published
-// port, connecting onward as a loopback client.
+// agent is using — from the host, over the sandbox boundary. Two ports, because
+// Chromium's DevTools endpoint refuses every non-loopback peer.
 const (
 	CDPRelayPort   = 9222 // the relay listens here, on every interface; this is what is published
 	CDPBrowserPort = 9223 // Chromium's own DevTools port, loopback only
 )
 
 // BrowserCDPArgs is the AGENT_BROWSER_ARGS value that makes the agent's own
-// Chromium expose CDP, preserving whatever the operator already set.
-//
-// agent-browser launches Chromium itself and picks its own endpoint, so there was
-// nothing to attach to; --args (AGENT_BROWSER_ARGS) is its documented way to pass
-// browser flags through, and a fixed port there is what turns the agent's browser
-// into one the host can find. Measured against agent-browser 0.36.0.
+// Chromium expose CDP on a fixed port, preserving what the operator already set.
+// Measured against agent-browser 0.36.0.
 func BrowserCDPArgs(existing string) string {
 	flag := fmt.Sprintf("--remote-debugging-port=%d", CDPBrowserPort)
 	existing = strings.TrimSpace(existing)
@@ -271,12 +259,8 @@ while True:
         threading.Thread(target=pipe,args=(a,b),daemon=True).start()
 `
 
-// CDPRelayArgs runs the relay inside the sandbox. It stays in the foreground so
-// the run owns its lifetime: when proveo stops waiting, the relay goes with it,
-// rather than outliving the session as an orphan holding a published port.
-//
-// `-w /` for the reason SaveStateArgs pins it: the container WorkingDir can stop
-// resolving mid-run, and an exec that inherits it dies at chdir.
+// CDPRelayArgs runs the relay inside the sandbox, in the FOREGROUND so the run
+// owns its lifetime. `-w /` for the reason SaveStateArgs pins it.
 func CDPRelayArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "python3", "-c", cdpRelay,
 		strconv.Itoa(CDPRelayPort), strconv.Itoa(CDPBrowserPort)}
@@ -288,20 +272,10 @@ func CDPRelayArgs(name string) []string {
 const CloneLiftNothing = 3
 
 // CloneLiftArgs streams a directory the agent wrote INSIDE the clone out of the
-// sandbox as a tar archive on stdout, for the host to unpack under repoRoot.
-//
-// It exists because clone mode cannot mount that directory live. sbx clones only
-// into an EMPTY workspace, and it mounts every positional workspace at its own
-// host path — so an output dir nested under the repository (<repo>/reports) was
-// mounted INTO the clone target before the clone ran, the target was no longer
-// empty, and sbx skipped the clone without a word. The agent then sat in a
-// root-owned directory holding nothing but `reports/`, with the real checkout
-// read-only at /run/sandbox/source (measured 2026-09-02 on proveo-1788366117-41470,
-// reproduced with a throwaway repo). The nested bind is therefore dropped in clone
-// mode and its contents are lifted here at teardown, beside the commit fetch.
-//
-// `-w /` for the same reason SaveStateArgs pins it; the workdir is named by
-// absolute path. rel is the directory's path relative to the clone root.
+// sandbox as a tar archive on stdout, for the host to unpack under repoRoot. It
+// exists because clone mode cannot mount that directory live. `-w /` for the
+// same reason SaveStateArgs pins it; rel is relative to the clone root.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneLiftArgs(name, workdir, rel string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		"cd " + bashQuote(workdir) + " && { [ -d " + bashQuote(rel) + " ] || exit " +
@@ -314,22 +288,9 @@ func bashQuote(s string) string {
 }
 
 // SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared
-// sync inside the sandbox before `sbx rm` takes the volumes with it. The host
-// side of the copy is named by StateHomeVar in the sandbox environment, not
-// handed over again here.
-//
-// `-w /` is load-bearing. Without it the exec inherits the container's
-// WorkingDir — the first workspace — and on this backend that directory can stop
-// resolving while the sandbox lives on (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
-// The runtime then fails at chdir before a byte is copied — `OCI runtime exec
-// failed: getcwd: Operation not permitted`, exit 127 — teardown reports "resume
-// state not preserved" and goes on to remove the volumes. That is how a four-day
-// session's transcripts were lost on proveo-1787956302-22788. The sync itself
-// never reads the cwd: the lib is sourced by absolute path and every directory it
-// moves comes from $HOME and PROVEO_STATE_HOME. Reproduced on demand by replacing
-// the workspace directory's inode on the host (mv + mkdir); putting the directory
-// back does not heal the guest. `/` is the one directory every container has and
-// every user may enter.
+// sync inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
+// load-bearing.
+// SPEC: _spec/internal/sbx/state-sync.puml
 func SaveStateArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		". /entrypoint-lib.sh && proveo_sync_state save"}

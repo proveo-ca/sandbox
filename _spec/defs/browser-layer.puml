@@ -4,6 +4,33 @@ skinparam noteTextAlignment left
 title Browser layer — Playwright and agent-browser share one Chromium, and every harness is told
 
 ' covers: defs/base-node-browser/**, defs/base-node-browser/skills/agent-browser/SKILL.md, packages/lib/entrypoint-lib.sh (proveo_seed_browser_skills)
+'
+' ── WHY A DISCOVERY STUB RATHER THAN A COPIED GUIDE ────────────────────────
+' The layer pins agent-browser the way it pins Playwright: by VERSION and by
+' DIGEST of the tarball it unpacks, and it points the binary at the Chromium
+' Playwright already installed rather than letting `agent-browser install` fetch
+' a second one. A layer that drifts on any of these rebuilds into something the
+' floor probe and the seed no longer describe.
+'
+' Knob: PROVEO_BROWSER_SKILL=off.
+'
+' The `-browser` image variants (FROM proveo/base-node-browser) carry
+' Playwright's Chromium and vercel-labs/agent-browser pointed at it. The binary
+' alone is not discoverable by an agent, so the seed drops agent-browser's
+' discovery STUB into the harness's USER-level skills directory — the one place
+' every harness reads without a project edit. The stub only tells the agent to
+' run `agent-browser skills get core`, which serves the guide matching the
+' INSTALLED version, so nothing here goes stale when the binary moves.
+'
+'   claudecode  ~/.claude/skills/<name>/SKILL.md
+'   cursor      ~/.cursor/skills/<name>/SKILL.md  (also reads ~/.agents/skills)
+'   opencode    ~/.config/opencode/skills/<name>/SKILL.md
+'               (also reads ~/.claude/skills)
+'   cecli       NONE — no browser variant and no skills directory. A decision,
+'               so the case is spelled out rather than falling through.
+'
+' Gated on the BINARY, not the image name: a non-browser image has no
+' agent-browser and gets no skill, so the agent is never handed a tool it lacks.
 
 cloud "registry.npmjs.org\n""agent-browser-<v>.tgz""" as NPM <<cloud>>
 

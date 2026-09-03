@@ -1,4 +1,17 @@
 @startuml
+' ── agentEnv IS A THIRD KIND OF VARIABLE, AND THE DISTINCTION MATTERS ──────
+' NAME: value pairs handed to the agent on EVERY backend unless the operator
+' sets NAME themselves. It is neither `env` — variables the OPERATOR supplies,
+' prompted for when missing and hinted about when auth fails — nor `config`,
+' which forwards a host preference only when one exists.
+'
+' It exists because a default exported by the image entrypoint reached only the
+' docker backend: sbx launches the agent through its own kit and never runs the
+' entrypoint. Delivered as an ARGV on both backends, and the pairs come out in
+' NAME ORDER because the plan goldens read that argv. The field cannot
+' double-declare a name `env` or `config` already claims, and nothing may
+' default to empty.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title harness.manifest — the single registration point (schema)
 

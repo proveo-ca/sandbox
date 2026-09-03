@@ -22,11 +22,9 @@ type Params struct {
 	Evidence                                                                    string
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
-	// ProxyImage is the egress-proxy sidecar image the launcher settled on —
-	// PROVEO_EGRESS_PROXY_IMAGE when the operator set it, otherwise the same
-	// recency choice the harness image gets (a newer :local beats the published
-	// :latest). Settled in cmd/proveo rather than here so a --print plan rendered
-	// by a test never depends on what the host happens to have built.
+	// ProxyImage is the egress-proxy sidecar image the launcher settled on, in
+	// cmd/proveo rather than here.
+	// SPEC: _spec/internal/egress/teardown-and-signals.puml
 	ProxyImage string
 	// Clone is the REQUEST: --clone / PROVEO_CLONE. Whether the run actually
 	// clones is Spec.Backend.Clone, settled by decideClone once the backend and
@@ -115,10 +113,7 @@ func (p *Params) addonDefaults(opts []string) []bool {
 }
 
 // willSandbox reports whether this run takes the sandbox backend, and is the
-// value every posture line is rendered from. It used to AND in the add-on, so a
-// remembered answer with the box cleared reported "enforced by sbx" for a run on
-// docker+egress; the box is no longer a choice, so the host test is the whole
-// answer and the two can no longer disagree.
+// value every posture line is rendered from.
 func (p *Params) willSandbox(man manifest.Manifest) bool {
 	return sandbox.Selected(man)
 }

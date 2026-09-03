@@ -37,12 +37,9 @@ func ModelProvider(model string) string {
 	return bareModelProvider(strings.ToLower(model))
 }
 
-// providerAliases folds upstream provider ids that share ONE registry entry. A
-// harness spells the prefix the way its catalog does — models.dev lists OpenCode
-// Go apart from Zen, with its own model list under its own base path — but the
-// key and the host are the same, so a Go model id has to pin the same route and
-// name the same credential in MissingKeys, or `ARCHITECT_MODEL=opencode-go/…`
-// resolves to a provider the registry cannot look up and the pin evaporates.
+// providerAliases folds upstream provider ids that share ONE registry entry, so
+// a model id spelled the catalog's way still pins the same route and names the
+// same credential.
 var providerAliases = map[string]string{
 	"opencode-go": "opencode",
 }

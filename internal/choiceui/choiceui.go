@@ -21,32 +21,18 @@ type Row struct {
 	Multi    bool
 	On       []bool
 	Off      []bool
-	// Help is what an option DOES, keyed by the option itself. Keyed rather than
-	// indexed because callers assemble Options conditionally — a harness without a
-	// -browser variant is never offered one — and a parallel slice would then
-	// describe the wrong box.
-	//
-	// It exists because the picker could only ever explain what it had taken AWAY:
-	// Reason is written when something is gated off, so the two add-ons that were
-	// available and ticked carried no text at all, and the operator was left to
-	// infer "browser" and "docker (sandbox)" from their names.
+	// Help is what an option DOES, keyed by the option itself rather than indexed:
+	// callers assemble Options conditionally.
 	Help map[string]string
 	// OffWhy is why one option is greyed, keyed the same way. Reason states the
 	// row's constraints at a glance; this states one option's, in full, next to
 	// its description.
 	OffWhy map[string]string
-	// Radio draws a MULTI row's boxes as radio marks. Brackets say "any number
-	// of these"; parentheses say "one of these" — and the execution plane is one
-	// of these, since a run has exactly one place it runs. The storage stays a
-	// checkbox set because "neither" is a reachable state there (a dind harness
-	// with the daemon unticked reaches the agent with no daemon at all), and a
-	// radio cannot express it; that state draws as two empty marks, which is
-	// what it is.
+	// Radio draws a MULTI row's boxes as radio marks: parentheses say "one of
+	// these", brackets say "any number of these".
 	Radio bool
-	// Divider draws the row's name as a centered heading instead of a label in
-	// the left column, and is how a group of checkboxes announces itself.
-	// Declared rather than inferred: it used to be "the first multi-select row",
-	// which silently meant only one group could ever be named.
+	// Divider draws the row's name as a centered heading instead of a left-column
+	// label. Declared rather than inferred, so more than one group can be named.
 	Divider bool
 }
 
@@ -57,14 +43,8 @@ type helpLine struct {
 	warn bool
 }
 
-// helpLines describes the option the cursor is on, wrapped to width. Drawn BELOW
-// the row, never appended to it: the row is already ~70 columns of checkboxes, so
-// text placed after them runs off the terminal — which is how the one description
-// the picker did have, a gated option's reason, came to end mid-sentence.
-//
-// Wrapped rather than clipped, because these are the sentences the operator is
-// meant to READ. The row's own Reason is still clipped: it is a glance signal for
-// a row the cursor is not on, and the same words are here in full.
+// helpLines describes the option the cursor is on, wrapped to width and drawn
+// BELOW the row rather than appended to it.
 func (r *Row) helpLines(width int) []helpLine {
 	if r.Selected < 0 || r.Selected >= len(r.Options) {
 		return nil
@@ -157,12 +137,8 @@ type Form struct {
 	// Glyphs is how much decoration the terminal is trusted with — a capability
 	// of the session, so it is constant for the run.
 	Glyphs GlyphTier
-	// Topology projects the form onto the picture drawn under the help block.
-	// It is called at PAINT time, on every frame, so it tracks the cursor —
-	// which `move` deliberately does not report through OnChange. It must be
-	// pure: it reads rows and never mutates the form it is handed. A nil
-	// Topology means no strip, which is what every caller that does not want
-	// one gets for free.
+	// Topology projects the form onto the picture under the help block. Called at
+	// PAINT time on every frame, and must be pure. Nil means no strip.
 	Topology func(f *Form, cursor int) *Frame
 	// scroll is the body's first visible line. It is a CACHE and never a source
 	// of truth: every paint re-clamps it and re-satisfies the cursor margin, so
@@ -225,10 +201,6 @@ func (f *Form) Run() (confirmed bool, err error) {
 			// and a keystroke that changes nothing costs only a second of frames.
 			tick.bump()
 			// On a screen too small to draw the form, only leaving it is allowed.
-			// This prompt exists to confirm a credential and network posture, and
-			// silently CHANGING a posture nobody can see is worse than the
-			// truncation the viewport replaced — accepting one unseen is bad
-			// enough, and esc is always the answer to that.
 			if !f.navigable(screen) {
 				switch ev.Key() {
 				case tcell.KeyEscape, tcell.KeyCtrlC:
@@ -331,11 +303,7 @@ func (f *Form) cycle(cursor, delta int) {
 	for step := 1; step <= n; step++ {
 		next := ((r.Selected+delta*step)%n + n) % n
 		// A single-select row's Selected IS the choice, so it may never rest on a
-		// gated option. On a MULTI row it is only the cursor — the checkbox is the
-		// choice, and toggle refuses a gated one on its own — so the cursor is
-		// allowed to stop there. That is what makes a greyed box's explanation
-		// readable: it is the one whose reason the operator most needs, and it was
-		// the one option the cursor could never reach.
+		// gated option. On a MULTI row it is only the cursor, so it may.
 		if r.Multi || !r.offAt(next) {
 			r.Selected = next
 			break
@@ -438,10 +406,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	f.scroll = scrollTo(f.scroll, lay.body, lines, cursor)
 	g := newGutter(f.scroll, lay.body, len(lines))
 	named := headingsInWindow(lines, f.scroll, lay.body)
-	// With the pane on, the rows stop short of it. Nothing is clipped to make
-	// room: the origin was chosen AFTER this form's widest row, so the limit only
-	// ever bites on a gated row's inline reason, whose full text is in the help
-	// block below either way.
+	// With the pane on, the rows stop short of it. Nothing is clipped to make room.
 	limit := w
 	if lay.strip == stripPane {
 		limit = lay.pane - paneGutter
@@ -466,13 +431,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	c.unclip()
 
 	// The figure in the margin, anchored to the body's TOP line rather than
-	// centred against it: everything else in this layout is top-anchored, and a
-	// centred figure would move whenever the body's height changed — re-breaking
-	// the very thing the reserved help slot exists to hold still.
-	//
-	// Its rows are nested inside the body's window by construction, because the
-	// pane is only ever chosen when the body is at least paneRows tall. The guard
-	// is the belt to that pair of braces, mirroring the block's.
+	// centred. The guard is the belt to the budget's braces.
 	if lay.strip == stripPane && f.Topology != nil && lay.body >= paneRows &&
 		bodyTop+paneRows <= h && lay.pane+paneCols.width <= w {
 		if fr := f.Topology(f, cursor); fr != nil {
@@ -493,11 +452,8 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			break
 		}
 	}
-	// The count rides on the hint rather than taking a body line of its own: the
-	// rows are the scarce thing here, and a region that exists to say the rows
-	// ran out must not be the reason one more of them did.
-	// Clipped BEFORE the count is appended, so the count is not the first thing
-	// a narrow terminal cuts — on exactly the terminals where scrolling happens.
+	// The count rides on the hint rather than taking a body line of its own.
+	// Clipped BEFORE the count is appended.
 	hint = clip(hint, w)
 	if n := g.hiddenRows(lines); n > 0 {
 		hint = clip(hint+fmt.Sprintf(" · %d more below", n), w)
@@ -505,11 +461,8 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	c.put(0, p.body, hint)
 	c.y++
 
-	// The cursor's option explains itself below the hint, and the block is drawn
-	// into a slot reserved at its MAXIMUM height. Under its own row the block
-	// shoved every row beneath it as the cursor moved; unreserved down here it
-	// shoved the figure instead. y+2, not y+1: the hint sits at y and the block
-	// has always opened with a blank line under it.
+	// The cursor's option explains itself below the hint, into a slot reserved at
+	// its MAXIMUM height. y+2, not y+1: the block opens with a blank line.
 	if lay.helpSlot > 0 {
 		c.y++ // the blank the help block opens with
 		helpTop := c.y
@@ -533,10 +486,8 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			case lay.strip == stripDigest:
 				c.y++
 				c.put(2, p.aside, clip(fr.Caption, w-3))
-			// drawTopology paints through its own pen rather than the canvas, so
-			// it has no window to be dropped by. The budget already guarantees the
-			// room; this is the belt to that pair of braces, because the one region
-			// outside the canvas is the one that could overrun it unnoticed.
+			// drawTopology paints through its own pen rather than the canvas, so it has no
+			// window to be dropped by.
 			case c.y+stripRows <= h:
 				drawTopology(s, c.y+1, *fr, f.Glyphs, p, tick)
 			}
@@ -606,12 +557,8 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 	}
 }
 
-// headingsInWindow is the set of rows whose divider heading is on screen. Only
-// those rows may drop their own label; every other row keeps it, because its
-// label is the only place its name was ever going to appear.
-//
-// Built once per frame rather than rescanned per line: the body repaints at the
-// animation ticker's rate.
+// headingsInWindow is the set of rows whose divider heading is on screen; only
+// those may drop their own label. Built once per frame.
 func headingsInWindow(lines []bodyLine, off, window int) map[int]bool {
 	named := map[int]bool{}
 	for i := off; i < off+window && i < len(lines); i++ {
@@ -628,12 +575,8 @@ func (f *Form) navigable(s tcell.Screen) bool {
 	return !f.layout(w, h).tooSmall
 }
 
-// minHeight is the shortest terminal that can still draw a navigable form.
-//
-// It takes the width because the help slot's height depends on it: asking at
-// width zero measured the help wrapped to wrap()'s 20-column floor and reported
-// a number far larger than the one layout actually tested — in the one region
-// whose entire job is naming the right size.
+// minHeight is the shortest terminal that can still draw a navigable form. It
+// takes the WIDTH because the help slot's height depends on it.
 func (f *Form) minHeight(w int) int {
 	need := 2 + minBodyLines + 2
 	if help := f.maxHelpLines(w - 4); help > 0 {

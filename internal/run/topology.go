@@ -12,21 +12,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 )
 
-// topologyOf builds the projection the strip is painted from. This is the ONLY
-// place the picture learns what "allow-all" or "docker (sandbox)" mean:
-// internal/choiceui owns the geometry and the glyphs and stays ignorant of the
-// vocabulary, so a new tier renames a string here and redraws nothing.
-//
-// The returned function is called at PAINT time, once per frame, and reads the
-// same values Selection returns — so the figure cannot drift from the boxes
-// above it, and it follows a cursor that `move` never reports.
+// topologyOf builds the projection the strip is painted from — the ONLY place
+// the picture learns what "allow-all" or "docker (sandbox)" mean. The returned
+// function is called at PAINT time, once per frame.
 func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefault, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		// BOTH rows need a fallback, because applicableRows drops any axis with
-		// one option — and cursor declares exactly one of each. Reading the form
-		// alone drew a "mitm + squid" hop for a run whose plan is a bare bridge
-		// network with no sidecar at all: the strip inventing a boundary that
-		// does not exist is the worst thing this picture can do.
+		// one option — and cursor declares exactly one of each.
 		tier := f.Selection("egress")
 		if tier == "" {
 			tier = tierDefault
@@ -54,17 +46,8 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 	}
 }
 
-// lanesOf is how many lanes leave the hop, and how many die at it.
-//
-// The counts are ILLUSTRATIVE, not measured. A real "how many hosts survive"
-// would mean reading the Kit allowlist (sandbox.Spec: harness capabilities plus
-// detected providers) or Squid's config at prompt time, which is a bigger change
-// than the picture is worth — so the captions below say what the tier DOES and
-// never claim a number.
-//
-// One lane always survives. On the strictest posture the agent still reaches its
-// model — deny-all is the absence of an allow rule, and the Kit can only add —
-// so a frame with no lane at all would say the agent cannot think.
+// lanesOf is how many lanes leave the hop, and how many die at it. The counts
+// are ILLUSTRATIVE, not measured, and one lane always survives.
 func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
 	if sbx {
 		switch tier {
@@ -73,11 +56,8 @@ func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
 		case "balanced":
 			return choiceui.LaneScreened, 2, 1
 		default:
-			// deny-all, and — deliberately — the unreadable baseline. proveo could
-			// not read the host policy, so it may be anything; drawing the most
-			// permissive posture and captioning it "the host allows every
-			// destination" would state as fact the one thing nobody measured.
-			// An unknown boundary is drawn as the tightest one.
+			// deny-all, and — deliberately — the unreadable baseline: an unknown
+			// boundary is drawn as the tightest one.
 			return choiceui.LaneScreened, 1, 2
 		}
 	}
@@ -172,12 +152,8 @@ func interfaceOf(f *choiceui.Form) string {
 	return strings.Join(driven, " + ")
 }
 
-// focusOf maps the cursor's row onto the element that row owns.
-//
-// A locked row is never focused, because `move` skips it — so on a sbx harness,
-// where the baseline row is locked, the hop is simply never the highlighted
-// element. That is honest: the row is locked precisely because there is nothing
-// there to choose.
+// focusOf maps the cursor's row onto the element that row owns. A locked row is
+// never focused, because `move` skips it.
 func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	if cursor < 0 || cursor >= len(f.Rows) {
 		return choiceui.FocusNone

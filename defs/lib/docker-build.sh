@@ -33,28 +33,9 @@ except Exception:
 #
 #   proveo_agent_version <OVERRIDE_VAR> <ecosystem> <package>
 #
-# ecosystem is one of:
-#   npm    — the registry's dist-tag `latest` for <package>
-#   pypi   — PyPI's current release of <package>
-#   cursor — the build cursor.com/install (URL in <package>) unpacks, read out of
-#            the script itself: the installer hardcodes its release and takes no
-#            version argument, so this is the only place the version is stated.
-#
-# Why a pin at all: BuildKit caches a RUN layer by its text and its parents. An
-# `npm install -g x@latest` line never changes when upstream publishes, so a warm
-# cache keeps last month's agent and nothing in the build says so. Resolving the
-# release here and passing it as a --build-arg the Dockerfile USES moves the cache
-# key exactly when upstream moves, and lets the image label what it carries.
-#
-# An exported OVERRIDE_VAR wins outright (OPENCODE_VERSION=1.18.20 proveo build
-# opencode): that is how a maintainer rebuilds an older agent, or builds offline.
-#
-# The bare version goes to stdout; a 📌 note saying which release the build is
-# about to bake, and how it was chosen, goes to stderr — beside the buildx line,
-# so a maintainer reading a build log sees the agent version without inspecting
-# the image. The note is printed HERE rather than by the caller because the
-# caller assigns the result to a variable of the same name as OVERRIDE_VAR, after
-# which nothing outside this function can tell an override from a resolution.
+# ecosystem is npm, pypi or cursor. An exported OVERRIDE_VAR wins outright. The
+# bare version goes to stdout, the 📌 note to stderr.
+# SPEC: _spec/_devops/agent-version-pin.puml
 proveo_agent_version() {
   local override_var="$1" eco="$2" pkg="$3" v=""
   if [[ -n "${!override_var:-}" ]]; then

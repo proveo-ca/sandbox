@@ -23,12 +23,9 @@ func budgetForm() *Form {
 	}
 }
 
-// The drop ladder is banner, figure, header, axis — the figure outranks the
-// wordmark, because this prompt is about posture and the figure is the only
-// thing on it that draws posture. Anything still drawn implies everything below
-// it on the ladder is too. Asserted as an ordering rather than as a table of
-// heights: the costs move whenever a row is added, and magic numbers would only
-// record whatever the code did that day.
+// The drop ladder is banner, figure, header, axis. Asserted as an ORDERING
+// rather than as a table of heights, since the costs move whenever a row is
+// added. SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestLayoutObeysTheDropLadder(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -81,13 +78,8 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 }
 
 // The whole point of the budget, stated as a test: the strip is never what
-// pushed the hint or the help off the screen. The mandatory regions are priced
-// before any optional one, so whenever the figure is drawn there was room for
-// everything that is not decoration.
-//
-// It MAY cost the banner, deliberately: the figure outranks the wordmark on a
-// prompt about posture. What it may never cost is anything mandatory, which is
-// why this asserts the floor rather than that nothing else moved.
+// pushed the hint or the help off the screen. It MAY cost the banner; it may
+// never cost anything mandatory, so this asserts the FLOOR.
 func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()

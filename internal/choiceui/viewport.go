@@ -28,24 +28,15 @@ const (
 )
 
 // bodyLine is one screen line of the scrolling body, and the row it belongs to.
-//
-// The body scrolls by LINE and never by row index: a divider row costs four
-// lines and a plain row one, so an offset counted in rows would travel four
-// lines at a time and could never place a heading and its row on screen
-// together. `row` is valid on every line, furniture included — the blank and
-// the heading above a row belong to that row, which is what lets a group's
-// name arrive on screen along with the group.
+// The body scrolls by LINE, never by row index; `row` is valid on every line,
+// furniture included.
 type bodyLine struct {
 	row  int
 	kind lineKind
 }
 
-// bodyLines enumerates every line the body paints, in order.
-//
-// It is the ONE description of the body's height: rowsHeight is its length and
-// the painter walks it, so the budget cannot disagree with the paint. That
-// arithmetic used to exist twice — once as a formula and once in the paint loop
-// — and a viewport would have made it three.
+// bodyLines enumerates every line the body paints, in order — the ONE
+// description of the body's height.
 func (f *Form) bodyLines() []bodyLine {
 	lines := make([]bodyLine, 0, len(f.Rows)+4)
 	for i, r := range f.Rows {
@@ -76,11 +67,8 @@ func rowSpan(lines []bodyLine, row int) (from, to int) {
 	return from, to
 }
 
-// scrollTo chooses the offset that keeps the cursor's row on screen.
-//
-// `prev` is a cache and never a source of truth: every paint re-clamps it and
-// re-satisfies the margin, so a form drawn twice at different sizes — or drawn
-// after its rows changed — cannot inherit an offset that no longer makes sense.
+// scrollTo chooses the offset that keeps the cursor's row on screen. `prev` is
+// a cache and never a source of truth.
 func scrollTo(prev, window int, lines []bodyLine, cursor int) int {
 	limit := len(lines) - window
 	if limit < 0 {
@@ -147,13 +135,8 @@ func (g gutter) glyph(i int, ascii bool) (string, bool) {
 	case i == g.window-1 && g.off+g.window < g.total:
 		return down, false
 	}
-	// A proportional thumb, never shorter than one line: a body ten times the
-	// window would otherwise round its own position away to nothing.
-	//
-	// The position scales the offset over its TRAVEL — [0, total-window] onto
-	// [0, window-size] — rather than over the total. Scaling over the total
-	// floors the thumb short of the last line, so at the very end of travel the
-	// gutter still said there was somewhere further to go.
+	// A proportional thumb, never shorter than one line, positioned by scaling the
+	// offset over its TRAVEL rather than over the total.
 	size := clampInt(g.window*g.window/g.total, 1, g.window)
 	travel, room := g.total-g.window, g.window-size
 	start := 0
@@ -168,10 +151,6 @@ func (g gutter) glyph(i int, ascii bool) (string, bool) {
 }
 
 // hiddenRows is how many ROWS lie below the window, for the hint to name.
-//
-// Rows, not lines: the operator counts rows, and a body with two dividers can
-// hide eight lines that are only four rows. The gutter may measure in lines —
-// it is drawing them — but the sentence beside it must not.
 func (g gutter) hiddenRows(lines []bodyLine) int {
 	if !g.scrolls() {
 		return 0

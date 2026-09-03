@@ -28,6 +28,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -101,14 +102,8 @@ func Do(p Params, d Deps) error {
 }
 
 // stageDeps materialises the dependency-tree copies the mount plan named, and
-// returns the function that removes them once the run is over.
-//
-// Docker only: selectBackend has already returned for sbx, which cannot express
-// a nested overlay and strips the copies instead. Never for --print, which must
-// not copy a tree to render an argv. The copies are disposable by construction
-// — the seed reinstalls into an empty one — so nothing is lost by removing them,
-// and leaving multi-gigabyte node_modules copies to pile up under the state dir
-// until someone runs `proveo clean` is the leak this avoids.
+// returns the function that removes them once the run is over. Docker only,
+// and never for --print.
 func stageDeps(rs *Spec, p *Params) func() {
 	none := func() {}
 	if p.PrintOnly {
@@ -118,11 +113,8 @@ func stageDeps(rs *Spec, p *Params) func() {
 	if len(copies) == 0 {
 		return none
 	}
-	// Copy only when the tree can run here. A macOS-built node_modules in a Linux
-	// container is foreign in every native module, and the seed would clear the
-	// copy before reinstalling — so on a platform mismatch the overlays start
-	// empty and the install IS the plan. The image platform is what the defs
-	// build (linux/<arch>) as docker will pick it; see workspace.ImagePlatform.
+	// Copy only when the tree can run here; on a platform mismatch the overlays
+	// start empty and the install IS the plan.
 	reuse, why := workspace.DepCopyPolicy(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
 	made, err := workspace.MaterializeDeps(copies, reuse)
 	if err != nil {
@@ -318,6 +310,34 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// hostStoreResolver reads the host secret store: one bounded exec, announced
+// before it can block.
+func hostStoreResolver() *secretref.Resolver {
+	return &secretref.Resolver{
+		Getenv: os.Getenv,
+		Announce: func(string) {
+			ui.Iconf("🔐", "reading the host secret store — approve the prompt if one appears")
+		},
+	}
+}
+
+// reportKeychain says what the host store holds and what THIS backend can do
+// with it — both halves, always together.
+func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
+	if line := k.Report(); line != "" {
+		ui.Iconf("🔐", "%s", line)
+		if advice := k.KeychainAdvice(sbxBackend, fileLogin); advice != "" {
+			ui.Notef("    %s", advice)
+		}
+		return
+	}
+	// Every failure is a warning and a no-op. A host that never logged in with
+	// `claude` says nothing.
+	if advice := k.KeychainFailureAdvice(); advice != "" {
+		ui.Warnf("%s", advice)
+	}
+}
+
 // resolveCredentials settles WHAT the agent may authenticate with: the persisted
 // login, sbx's stored names, the env the manifest asks for, and the mounts that
 // carry them. It reports what is missing rather than refusing — except where the
@@ -327,6 +347,13 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	rs.Creds.FileLogin, rs.Creds.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
 	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man, p)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
+	// The HOST secret store, read as a peer of the two above. Skipped on --print:
+	// this can raise a modal, and a dry run must ask the operator nothing.
+	if !p.PrintOnly {
+		rs.Creds.Keychain = credentials.ReadKeychainLogin(
+			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
+		reportKeychain(rs.Creds.Keychain, p.willSandbox(rs.Man), rs.Creds.FileLogin)
+	}
 	// The agent renews a stale access token itself, but its FIRST turn reports
 	// "Login expired · Please run /login" while it does — which reads as a dead
 	// credential to the operator, who then goes looking for an auth problem that
@@ -450,19 +477,10 @@ func buildPosture(rs *Spec, p *Params) {
 }
 
 // decideClone settles whether the agent edits a private in-VM clone or the
-// mounted checkout, and why not when it cannot.
-//
-// Clone is the DEFAULT on the sbx backend (CloneDefault). It is the only shape in
-// which the checkout is never written, no host-built dependency tree crosses into
-// the sandbox, and — the reason it became the default — the workspace lives on the
-// VM's own disk instead of the virtiofs passthrough, whose directory entries have
-// been measured vanishing under a running agent and taking every Bash call with
-// them (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
-//
-// sbx can only clone what git can: the MAIN worktree of a repository, offered as
-// the primary workspace. Where the default cannot apply the run falls back to the
-// mounted checkout and says why. An EXPLICIT --clone in those shapes is an error
-// rather than a fallback, because it asked for a promise that cannot be kept.
+// mounted checkout, and why not when it cannot. Clone is the DEFAULT on sbx;
+// where it cannot apply the run falls back and says why, and an EXPLICIT
+// --clone there is an error rather than a fallback.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, whyOff string, err error) {
 	if !p.Clone {
 		return false, "", nil // --clone=false or PROVEO_CLONE=off: the mounted checkout, by choice
@@ -549,7 +567,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 			}
 			if p.forwards() {
 				rs.Creds.Env = append(rs.Creds.Env, e.Name)
-				credentials.HydrateProcessEnv(e.Name, rs.Creds.Lookup)
+				rs.Creds.Child.Add(e.Name, rs.Creds.Lookup)
 			} else {
 				rs.Creds.Env = append(rs.Creds.Env, e.Name+"="+entrypoint.DefaultSentinel)
 				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, e.Name)
@@ -658,12 +676,9 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	// The posture row was predicted from the manifest; the backend is now known.
 	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
 	if rs.Backend.Sbx {
-		// sbx mounts every path at its own HOST path and cannot say "this
-		// directory, at that container path" — so the private dependency-tree
-		// copies the plan named have no expression there. Passed through, each
-		// would become an unrelated extra workspace while the host tree still rode
-		// in inside the mirrored checkout. Drop them, and say what that means: on
-		// this backend only --clone keeps host-built trees out of the sandbox.
+		// The private dependency-tree copies have no expression on sbx, which
+		// mounts every path at its own HOST path. Drop them, and say what that
+		// means: only --clone keeps host-built trees out of the sandbox.
 		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
 		if dropped > 0 && !rs.Backend.Clone {
 			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
@@ -842,6 +857,7 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
 		HostBridge: bridge != nil,
 		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
+		ChildEnv:        rs.Creds.Child.Pairs(),
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),

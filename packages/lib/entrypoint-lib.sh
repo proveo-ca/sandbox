@@ -809,21 +809,8 @@ _py_activate() {
 # differs per language is not whether the tree crosses the boundary but what it
 # COSTS when it does, and that is what the table below encodes.
 #
-# Two things happen here, in order, for every project the walk finds:
-#
-#   1. a HOST-BUILT tree is made usable. On the docker backend proveo never
-#      binds a dependency directory from the host: each one named by the table
-#      is a PRIVATE COPY (internal/workspace/deps.go), reused on the off chance
-#      host and container OS/arch agree. When they do not — the probe below finds
-#      a non-ELF object — the copy is cleared and rebuilt for this platform, and
-#      the operator's checkout is never touched. On sbx the tree IS the host's
-#      (the checkout is mirrored at its own path), so rebuilding it in place is
-#      opt-in (PROVEO_DEPS=reinstall) and the remedy on offer is --clone.
-#   2. the INSTALL runs before the agent does. A workspace with nothing installed
-#      is the single most confusing state to hand an agent — every import fails
-#      and every tool guesses why — so an absent tree is installed, and a present
-#      one is refreshed against its lockfile by the managers for which that is a
-#      cheap no-op. Lockfiles are respected, never rewritten.
+# Per project the walk finds: make a HOST-BUILT tree usable, then INSTALL
+# before the agent runs. See _spec/packages/lib/dependency-trees.puml.
 #
 # Python is the extreme: a venv ALWAYS holds a platform interpreter, so it can
 # never be inherited and ensure_python_env provisions unconditionally, outside
@@ -896,14 +883,7 @@ _dep_lang_binaries() { case "$1" in
 esac; }
 
 # The command that installs a project's dependencies, chosen by its own lockfile
-# and RESPECTING it: `--frozen-lockfile`, `--immutable`, `ci`. A drifted lockfile
-# is reported, not rewritten — that is the agent's task, if it is anyone's.
-#
-# Languages with no row install nothing here, each for a stated reason: python's
-# environment is built by ensure_python_env; cpp resolves through system or
-# external package managers proveo does not drive; zig fetches at build time;
-# java/kotlin resolution (gradle/maven) is heavy and the build performs it; nix
-# realises its closure on demand.
+# and RESPECTING it. Languages with no row install nothing here.
 _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
   typescript)
     [[ -f "$d/pnpm-lock.yaml" ]] && { echo "pnpm install --frozen-lockfile"; return 0; }
@@ -923,16 +903,12 @@ _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
 esac; return 0; }
 
 # _dep_install_idempotent says whether re-running the install on a tree that is
-# already present and native is a cheap no-op. `npm ci` is the exception: it
-# deletes node_modules first, every time, so it is only run when the tree is
-# absent or foreign.
+# already present and native is a cheap no-op. `npm ci` is the exception.
 _dep_install_idempotent() { case "$1" in "npm ci"*) return 1 ;; esac; return 0; }
 
 # _proveo_dep_is_isolated reports whether DIR is proveo's private copy rather than
-# the host's tree. A copy is bind-mounted at exactly that path, so it is its own
-# mount point; the host's tree sits INSIDE the workspace mount and is not.
-# /proc is the source of truth on the docker backend; anywhere it is unreadable
-# the answer is "not isolated", which is the conservative one.
+# the host's tree, by asking whether it is its own mount point. Where /proc is
+# unreadable the answer is "not isolated".
 _proveo_dep_is_isolated() {
   local real
   real="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
@@ -1082,10 +1058,8 @@ _dep_artifacts_tree() {
   return 0
 }
 
-# _ts_is_workspace_root: a pnpm/npm/yarn/bun workspace installs every member from
-# ITS root, hoisting into one node_modules — so a member with no node_modules of
-# its own is the normal state, not "nothing is installed", and `npm ci` inside a
-# member (no lockfile there) is an error. Members are collapsed into their root.
+# _ts_is_workspace_root: a workspace installs every member from ITS root, so
+# members are collapsed into their root.
 _ts_is_workspace_root() {
   local d="$1"
   [[ -f "$d/pnpm-workspace.yaml" ]] && return 0
@@ -1345,12 +1319,8 @@ ensure_node_toolchain() {
 }
 
 # ── Bun: the same rule, through mise ──
-# The floor ships one bun (defs/base-node); a project asks for its own with
-# `packageManager: "bun@1.2.3"` (an exact pin — bun's own reading of the field),
-# `engines.bun` (a range), or a `.bun-version` file. A bun lockfile alone means
-# "use the bun that is here", never "reinstall". corepack does not manage bun,
-# so the pin is honoured through mise, which carries bun as a core tool — the
-# same path engines.node takes when the running node fails its range.
+# packageManager (exact pin), engines.bun (a range) or .bun-version asks for a
+# bun; corepack does not manage bun, so the pin goes through mise.
 _bun_wanted() {
   local pkg="$1" scan="$2" pm want
   pm="$(_node_json_field "$pkg" packageManager)"
@@ -1472,15 +1442,6 @@ proveo_apply_ui_defaults() {
 # ── 7h. Claude Code hooks — the cwd guard ──
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 # Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (path; tests point it elsewhere).
-#
-# In an sbx sandbox the workspace is a virtiofs passthrough, and its directory
-# entry has been measured vanishing inside the VM under a running agent while the
-# host directory stayed put. Claude Code then holds a cwd of "<path> (deleted)" and
-# every Bash call exits 1 with no output — but hooks still spawn (Claude Code falls
-# back to the session start dir for them), so a PreToolUse(Bash) hook is the one
-# channel that can tell the MODEL what happened and what to do. Registered in the
-# agent's user-level settings, MERGED like proveo_apply_ui_defaults: the file is
-# the operator's, and the hook is added once, never duplicated.
 proveo_install_claude_hooks() {
   local target="${1:-}" home hook
   case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1513,17 +1474,7 @@ proveo_install_claude_hooks() {
 # ── 7i. Claude Code code-intelligence plugins — seeded by the image, enabled here ──
 # SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
 # Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (set by the image).
-#
-# The image seeds the official `*-lsp` plugins (defs/claudecode/mcp/Dockerfile)
-# so Claude Code stops offering to install them; this step decides which are ON.
-# The rule is the binary: an official plugin is enabled exactly when its language
-# server is on PATH after provisioning. Present binary + absent plugin is what
-# prompts; present plugin + absent binary is an "Executable not found" error in
-# /plugin. Enabling per binary produces neither. proveo-lsp then declares only the
-# languages no enabled official plugin already covers (configure_claude_lsp), so
-# no extension has two servers racing for it.
-#
-# Pinned to the Dockerfile's install list by internal/contract.
+# The rule is the binary. Pinned to the Dockerfile's install list by internal/contract.
 _claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
 _claude_lsp_plugin_binary() { case "$1" in
   typescript-lsp)    echo "typescript-language-server" ;;
@@ -1546,18 +1497,9 @@ _claude_lsp_plugin_lang() { case "$1" in
 esac; }
 
 # proveo_enable_claude_lsp_plugins turns on every seeded official plugin whose
-# binary is present, MERGED into the agent's user settings: the file is the
-# operator's, an explicit `false` there is respected, and the run is idempotent.
-# Exports PROVEO_CLAUDE_LSP_OFFICIAL — the languages configure_claude_lsp must
-# leave to those plugins.
-#
-# It also writes the two RECORDS Claude Code installs by — plugins/installed_plugins.json
-# and plugins/known_marketplaces.json — into the home, pointing at the seed. Measured
-# on 2.1.251 (2026-09-01): with the seed alone, startup logs "Skipping orphaned
-# enabledPlugins entry … marketplace not registered" and loads 0 plugins; with the
-# records present it lists the plugin enabled with its LSP server. The seed is where
-# the files live; the records are how Claude Code finds them. Existing entries in
-# either file are the operator's and are never overwritten.
+# binary is present, MERGED into the agent's user settings, and writes the two
+# records Claude Code installs by (installed_plugins.json, known_marketplaces.json).
+# Exports PROVEO_CLAUDE_LSP_OFFICIAL.
 proveo_enable_claude_lsp_plugins() {
   local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
   export PROVEO_CLAUDE_LSP_OFFICIAL=""
@@ -1635,23 +1577,7 @@ proveo_enable_claude_lsp_plugins() {
 # SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
 # Knobs: PROVEO_BROWSER_SKILL=off · PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN
 #        (both set by `proveo run` when the "chrome (host browser)" add-on is on).
-#
-# The `-browser` image variants (FROM proveo/base-node-browser) carry Playwright's
-# Chromium and vercel-labs/agent-browser pointed at it. The binary alone is not
-# discoverable by an agent, so the seed drops agent-browser's discovery stub into
-# the harness's USER-level skills directory — the one place every harness below
-# reads without a project edit. The stub only tells the agent to run
-# `agent-browser skills get core`, which serves the guide matching the installed
-# version; nothing here goes stale when the binary moves.
-#
-#   claudecode  ~/.claude/skills/<name>/SKILL.md
-#   cursor      ~/.cursor/skills/<name>/SKILL.md   (also reads ~/.agents/skills)
-#   opencode    ~/.config/opencode/skills/<name>/SKILL.md   (also reads ~/.claude/skills)
-#   cecli       NONE — no browser variant and no skills directory; a decision, so
-#               the case is spelled out rather than falling through.
-#
-# Gated on the binary, not the image name: a non-browser image has no
-# agent-browser and gets no skill, so the agent is never handed a tool it lacks.
+# Gated on the BINARY, not the image name.
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
   cursor)     echo ".cursor/skills" ;;
@@ -1686,39 +1612,16 @@ proveo_seed_browser_skills() {
 
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
 #
-# Claude in Chrome does not cross a container boundary on its own: Claude Code's
-# claude-in-chrome MCP server connects to a Unix socket the extension's native
-# messaging host listens on, and that host runs where Chrome runs — the operator's
-# machine. The bridge is two relays carrying that socket: chrome-bridge.js in here
-# (listening where Claude Code looks) and `proveo run`'s TCP relay on the host
-# (dialling the real native host socket). PROVEO_CHROME_BRIDGE names the host end.
-#
-# Docker backend only. On sbx every outbound TCP is proxied and the VM "cannot
-# access your host network directly" (Docker Sandboxes security docs), so the run
-# never sets the variable there and this is a no-op.
-#
-# The launch flag is the ONLY thing that turns Chrome integration on for the
-# session. `claudeInChromeDefaultEnabled` is deliberately NOT written to the
-# operator's ~/.claude.json: it persists in the proveo home, and a later run
-# without the add-on would then load browser tools that cannot connect, on every
-# turn. The one-time onboarding dialog IS marked seen — it blocks on a keypress no
-# automation answers, and it carries no posture.
+# Two relays carry the native-host socket across the boundary; this is the
+# in-container half. PROVEO_CHROME_BRIDGE names the host end. Docker backend
+# only — the run never sets the variable on sbx.
 readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
 PROVEO_CHROME_READY=""
 
-# Claude Code's own credential gate, mirrored so the warning below is true rather
-# than merely cautious. Before the integration is wired at all it wants the
-# session's OAuth scopes to name one of user:profile / user:office /
-# user:ccr_inference — and those scopes are SYNTHESISED on the client, never read
-# off the wire, whatever "/api/oauth/validate" in its log message suggests:
-#
-#   CLAUDE_CODE_OAUTH_TOKEN -> CLAUDE_CODE_OAUTH_SCOPES, else "user:inference"
-#   ...FILE_DESCRIPTOR      -> a default carrying user:ccr_inference
-#   a persisted /login      -> its real scopes, which include user:profile
-#
-# So "an env-var session cannot use Chrome" was the wrong reading of the right
-# rule: the token shadows the credential store, but the scopes beside it decide.
-# ANTHROPIC_API_KEY does not shadow a login, and is only fatal on its own.
+# Claude Code's own credential gate, mirrored so the warning below is true
+# rather than merely cautious. Kept in lockstep with chromebridge.ScopeGate by
+# internal/entrypoint/parity_test.go.
+# SPEC: _spec/defs/claudecode/chrome-bridge.puml
 _proveo_chrome_scope_ok() {
   local scopes home
   if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
