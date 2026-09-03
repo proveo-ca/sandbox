@@ -74,7 +74,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: label, Options: opts, Multi: true, Divider: true,
-			On: p.addonDefaults(opts), Help: addonHelp,
+			// WHERE it runs is one of these; WHAT it drives is any number.
+			Radio: label == rowExecution,
+			On:    p.addonDefaults(opts), Help: addonHelp,
 		})...)
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
@@ -83,7 +85,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		// Toggling the sandbox add-on moves the review tier with it: the consent
 		// gate has no sbx transport, so review is reachable only off that backend.
 		gateReview(f, hasAddon(selectedAddons(f), addonSandbox))
-		gateEvidence(f)
 	}
 	form.OnChange(form)
 
@@ -104,46 +105,23 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if v := form.Selection("auth"); v != "" {
 		p.AuthVar = v
 	}
-	p.Evidence = evidenceFrom(form.Selections(evidenceLabel))
+	if v := form.Selection(evidenceLabel); v != "" {
+		p.Evidence = v
+	}
 	return nil
 }
 
-// evidenceRow offers the two levels as checkboxes with verbose ticked.
+// evidenceRow offers the two levels as a RADIO, which is what they are: one
+// answer, never both and never neither. It used to be a checkbox pair kept
+// exclusive by a gate, with "neither ticked" quietly meaning default — a state
+// the operator could reach and the picker could not explain.
 func evidenceRow(current string) choiceui.Row {
 	opts := []string{EvidenceDefault, EvidenceVerbose}
-	on := make([]bool, len(opts))
-	for i, o := range opts {
-		on[i] = o == current
+	sel := 0
+	if current == EvidenceVerbose {
+		sel = 1
 	}
-	return choiceui.Row{Label: evidenceLabel, Options: opts, Multi: true, On: on}
-}
-
-// gateEvidence keeps the two evidence boxes exclusive.
-func gateEvidence(f *choiceui.Form) {
-	for i := range f.Rows {
-		r := &f.Rows[i]
-		if r.Label != evidenceLabel {
-			continue
-		}
-		if r.Selected < 0 || r.Selected >= len(r.On) || !r.On[r.Selected] {
-			return
-		}
-		for j := range r.On {
-			if j != r.Selected {
-				r.On[j] = false
-			}
-		}
-		return
-	}
-}
-
-func evidenceFrom(selected []string) string {
-	for _, v := range selected {
-		if v == EvidenceVerbose {
-			return EvidenceVerbose
-		}
-	}
-	return EvidenceDefault
+	return choiceui.Row{Label: evidenceLabel, Options: opts, Selected: sel}
 }
 
 func orElseFirst(v string, opts []string) string {

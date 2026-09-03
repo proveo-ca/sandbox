@@ -22,7 +22,12 @@
 ' reports and never sets. Every frame below therefore names its backend.
 '
 '
-' THE GLYPHS BELOW ARE THE DIAGRAM'S, NOT THE TERMINAL'S. Emoji read well here and
+' THE GLYPHS BELOW ARE THE DIAGRAM'S, NOT THE TERMINAL'S. Salt draws a node as
+' its radio widget and the container as its button; the terminal draws them in
+' the BANNER's vocabulary instead — a filled dot for a node and the mark's own
+' wall for the container, so the figure reads as the same drawing as the logo
+' above it, and so that "()" keeps meaning "a radio" everywhere on the screen.
+' Emoji read well here and
 ' badly in a grid: the speaking head is two runes that go-runewidth measures as one
 ' column and terminals draw as two, and the cloud is ambiguous-width. The strip
 ' therefore ships with Nerd Font devicons (one rune, one column) and an ASCII tier,

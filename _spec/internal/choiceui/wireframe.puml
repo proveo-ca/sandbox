@@ -53,10 +53,10 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
     credentials | (X) forward | ( ) broker | . | .
     . | . | ———— execution ———— | . | .
-    . | [ ] <color:#9a9a9a>host</color> | [X] <color:#9a9a9a>docker (sandbox)</color> | . | .
+    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
     . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | <color:#9a9a9a>— chrome (host browser): docker backend only — set…
-    agent evidence | [ ] default | [X] verbose | . | .
+    agent evidence | ( ) default | (X) verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
@@ -87,13 +87,21 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   eliminated wholesale. The legend
   survives while one ordered row remains.
 }
-{^"4 · struck — cleared by a gate"
-  before | [ ] default | [X] verbose
-  after | [X] default | [ ] <s><color:#9a9a9a>verbose</color></s>
+{^"4 · one answer — a radio, not a gated pair"
+  agent evidence | ( ) default | (X) verbose
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color>
   .
-  Activation deactivates the counterpart.
-  Simultaneous deactivation is permissible
-  and signifies "default".
+  Brackets say "any number of these" and
+  parentheses "one of these". Evidence is
+  genuinely one-of, so it is a radio row and
+  the gate that kept two boxes exclusive —
+  leaving "neither" reachable — is gone.
+  .
+  Execution is one-of by construction (a run
+  has one place it runs) but keeps a checkbox
+  model, because "neither" IS reachable on a
+  dind harness with the daemon off. That state
+  draws as two empty marks, which is what it is.
 }
 {^"5 · filtered — the bridge never reads it"
   set by operator | <color:#00BAC6>ARCHITECT_MODEL</color> | <color:#9a9a9a><s>EDITOR_MODEL</s></color> | <color:#00BAC6>SMALL_MODEL</color>
@@ -135,7 +143,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   what the checkbox shows.
 }
 {^"8 · fixed — a box that states a fact"
-  execution | [ ] <color:#9a9a9a>host</color> | [X] <color:#9a9a9a>docker (sandbox)</color> | .
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | .
   interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | .
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator

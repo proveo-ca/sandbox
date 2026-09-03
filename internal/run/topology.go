@@ -42,7 +42,7 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 			Lane:      lane,
 			Open:      open,
 			Refused:   refused,
-			Speaking:  evidenceFrom(f.Selections(evidenceLabel)) == EvidenceVerbose,
+			Speaking:  f.Selection(evidenceLabel) == EvidenceVerbose,
 			Focus:     focusOf(f, cursor),
 		}
 		fr.Caption = captionOf(fr, tier, creds, sbxBackend)

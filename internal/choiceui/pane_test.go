@@ -31,7 +31,7 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 		joined := strings.Join(screenLines(s), "\n")
 		s.Fini()
 
-		for _, want := range []string{"() host", "dind · claudecode", "mitm + squid",
+		for _, want := range []string{g.node + " host", "dind · claudecode", "mitm + squid",
 			"interface: tui + browser + chrome"} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("tier %v: the pane dropped %q, which is a fact and not decoration:\n%s",
@@ -184,7 +184,7 @@ func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 func gutterBreaches(rows []string, pane int) []int {
 	spine := -1
 	for y, line := range rows {
-		if strings.Contains(line, "() host") {
+		if strings.Contains(line, "● host") {
 			spine = y
 		}
 	}
@@ -287,7 +287,7 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 		if strings.Contains(line, "enter accept") {
 			hint = y
 		}
-		if strings.Contains(line, "() host") {
+		if strings.Contains(line, "● host") {
 			figure = y
 		}
 	}

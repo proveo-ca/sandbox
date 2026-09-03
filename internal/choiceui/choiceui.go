@@ -35,6 +35,14 @@ type Row struct {
 	// row's constraints at a glance; this states one option's, in full, next to
 	// its description.
 	OffWhy map[string]string
+	// Radio draws a MULTI row's boxes as radio marks. Brackets say "any number
+	// of these"; parentheses say "one of these" — and the execution plane is one
+	// of these, since a run has exactly one place it runs. The storage stays a
+	// checkbox set because "neither" is a reachable state there (a dind harness
+	// with the daemon unticked reaches the agent with no daemon at all), and a
+	// radio cannot express it; that state draws as two empty marks, which is
+	// what it is.
+	Radio bool
 	// Divider draws the row's name as a centered heading instead of a label in
 	// the left column, and is how a group of checkboxes announces itself.
 	// Declared rather than inferred: it used to be "the first multi-select row",
@@ -571,6 +579,10 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		var glyph string
 		st := p.idle
 		switch {
+		case r.Multi && r.Radio && r.onAt(j):
+			glyph, st = "(•) ", p.brand
+		case r.Multi && r.Radio:
+			glyph = "( ) "
 		case r.Multi && r.onAt(j):
 			glyph, st = "[x] ", p.brand
 		case r.Multi:

@@ -14,8 +14,7 @@ func stripForm(tier, creds string) *choiceui.Form {
 	if creds != "" {
 		rows = append(rows, choiceui.Row{Label: "credentials", Options: []string{creds}})
 	}
-	rows = append(rows, choiceui.Row{Label: evidenceLabel,
-		Options: []string{EvidenceDefault, EvidenceVerbose}, Multi: true, On: []bool{true, false}})
+	rows = append(rows, evidenceRow(EvidenceDefault))
 	return &choiceui.Form{Rows: rows}
 }
 
@@ -90,26 +89,27 @@ func TestHopNamesTheRightParty(t *testing.T) {
 	}
 }
 
-// Speaking comes from the same read-back the RUN uses, not from the row's
-// cursor: gateEvidence leaves a window where neither box is ticked, and Selected
-// on a multi row is only where the cursor is.
-func TestSpeakingFollowsTheRunNotTheCursor(t *testing.T) {
+// Speaking is read the same way the RUN reads it. It used to come from a
+// checkbox pair whose "neither ticked" state quietly meant default and whose
+// Selected was only the cursor; as one radio there is no third state to
+// disagree about, and the figure cannot drift from the run.
+func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 	t.Parallel()
-	f := stripForm("open", "broker")
-	ev := &f.Rows[len(f.Rows)-1]
-	ev.Selected = 1 // cursor on "verbose"...
-	ev.On = []bool{true, false}
 	proj := topologyOf(manifest.Manifest{}, "opencode", false, "open", "broker")
-	if proj(f, 0).Speaking {
-		t.Error("the cursor resting on verbose is not the same as verbose being ticked")
-	}
-	ev.On = []bool{false, true}
-	if !proj(f, 0).Speaking {
-		t.Error("a ticked verbose box must reach the strip")
-	}
-	ev.On = []bool{false, false} // the window gateEvidence leaves open
-	if proj(f, 0).Speaking {
-		t.Error("neither box ticked means default, which is what the run does")
+	for _, c := range []struct {
+		level string
+		want  bool
+	}{{EvidenceDefault, false}, {EvidenceVerbose, true}} {
+		f := stripForm("open", "broker")
+		ev := &f.Rows[len(f.Rows)-1]
+		for i, o := range ev.Options {
+			if o == c.level {
+				ev.Selected = i
+			}
+		}
+		if got := proj(f, 0).Speaking; got != c.want {
+			t.Errorf("%s: Speaking = %v, want %v", c.level, got, c.want)
+		}
 	}
 }
 
@@ -167,8 +167,7 @@ func TestGlyphsOffStillDrawsTheFigure(t *testing.T) {
 // network with no sidecar — the strip inventing a boundary that is not there.
 func TestBothAxesFallBackWhenTheirRowWasDropped(t *testing.T) {
 	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{{Label: evidenceLabel,
-		Options: []string{EvidenceDefault, EvidenceVerbose}, Multi: true, On: []bool{true, false}}}}
+	f := &choiceui.Form{Rows: []choiceui.Row{evidenceRow(EvidenceDefault)}}
 	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerDind}, "cursor", false, "open", "forward")(f, 0)
 	if fr.Hop != "" {
 		t.Errorf("open + forward has no hop at all; the strip drew %q", fr.Hop)

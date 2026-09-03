@@ -130,51 +130,47 @@ func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
 	t.Parallel()
 	r := evidenceRow((Params{}).evidenceOrDefault())
-	if r.Label != evidenceLabel || !r.Multi {
-		t.Fatalf("row = %+v, want a checkbox row labelled %q", r, evidenceLabel)
+	if r.Label != evidenceLabel || r.Multi {
+		t.Fatalf("row = %+v, want a RADIO row labelled %q", r, evidenceLabel)
 	}
 	if len(r.Options) != 2 || r.Options[0] != EvidenceDefault || r.Options[1] != EvidenceVerbose {
 		t.Fatalf("options = %v, want [%s %s]", r.Options, EvidenceDefault, EvidenceVerbose)
 	}
-	if r.On[0] || !r.On[1] {
-		t.Errorf("On = %v, want verbose ticked and default clear", r.On)
-	}
-	if got := evidenceRow(EvidenceDefault); !got.On[0] || got.On[1] {
-		t.Errorf("a remembered 'default' must tick default only, got %v", got.On)
+	if r.Options[r.Selected] != EvidenceVerbose {
+		t.Errorf("selected = %q, want verbose to be the default answer", r.Options[r.Selected])
 	}
 }
 
-// The two boxes are one answer wearing checkbox glyphs: ticking one clears the
-// other, and clearing both reads as default rather than as a third state.
-func TestGateEvidenceKeepsTheLevelsExclusive(t *testing.T) {
+// The two levels are one answer, so they are one radio. They used to be a
+// checkbox pair kept exclusive by a gate, which left "neither ticked" reachable
+// and quietly meaning default — a state the picker could not explain.
+func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	t.Parallel()
+	r := evidenceRow(EvidenceVerbose)
+	if r.Multi {
+		t.Error("evidence is one-of, so it must not be a checkbox row")
+	}
+	if r.Options[r.Selected] != EvidenceVerbose {
+		t.Errorf("a remembered verbose must come back selected, got %q", r.Options[r.Selected])
+	}
+	if got := evidenceRow(EvidenceDefault); got.Options[got.Selected] != EvidenceDefault {
+		t.Errorf("default must come back selected, got %q", got.Options[got.Selected])
+	}
+	// Cycling reaches the other level and nothing else: there is no third state.
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: rowInterface, Options: []string{addonBrowser}, Multi: true, On: []bool{true}},
-		evidenceRow(EvidenceVerbose),
+		evidenceRow(EvidenceDefault),
 	}}
-	// Ticking "default" (index 0) must clear the verbose box.
-	f.Rows[1].Selected, f.Rows[1].On[0] = 0, true
-	gateEvidence(f)
-	if f.Rows[1].On[1] {
-		t.Errorf("verbose survived a tick on default: %v", f.Rows[1].On)
+	seen := map[string]bool{}
+	for i := 0; i < 4; i++ {
+		seen[f.Selection(evidenceLabel)] = true
+		f.Rows[1].Selected = (f.Rows[1].Selected + 1) % len(f.Rows[1].Options)
 	}
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceDefault {
-		t.Errorf("evidence = %q, want %q", got, EvidenceDefault)
-	}
-	// Un-ticking the only box leaves nothing selected, which is still default.
-	f.Rows[1].On[0] = false
-	gateEvidence(f)
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceDefault {
-		t.Errorf("empty row = %q, want %q", got, EvidenceDefault)
-	}
-	// Back to verbose, and the other row must be untouched throughout.
-	f.Rows[1].Selected, f.Rows[1].On[1] = 1, true
-	gateEvidence(f)
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceVerbose {
-		t.Errorf("evidence = %q, want %q", got, EvidenceVerbose)
+	if len(seen) != 2 || !seen[EvidenceDefault] || !seen[EvidenceVerbose] {
+		t.Errorf("the row reaches %v, want exactly the two levels", seen)
 	}
 	if !f.Rows[0].On[0] {
-		t.Error("gateEvidence must not reach into the add-ons row")
+		t.Error("the evidence row must not reach into the add-ons row")
 	}
 }
 

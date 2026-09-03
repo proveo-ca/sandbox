@@ -172,7 +172,7 @@ func TestNerdTierGlyphsAreSingleRuneSingleColumn(t *testing.T) {
 func TestFocusChangesEmphasisNotContent(t *testing.T) {
 	t.Parallel()
 	want := strings.Join(paint(t, base(), GlyphsNerd, 0), "\n")
-	if !strings.Contains(want, "() host") {
+	if !strings.Contains(want, "● host") {
 		t.Fatal("nothing was drawn, so comparing two blank renders proves nothing")
 	}
 	for _, f := range []Focus{FocusHop, FocusKey, FocusSquare, FocusReturn, FocusSay} {
@@ -235,7 +235,7 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 			for x := 0; x < w; x++ {
 				row += string(cells[y*w+x].Runes)
 			}
-			if strings.Contains(row, "() host") {
+			if strings.Contains(row, "● host") {
 				return y
 			}
 		}

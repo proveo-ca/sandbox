@@ -90,6 +90,12 @@ type glyphSet struct {
 	refused, asking             string
 	east, west, north, up       string // the arrowheads and the two corner marks
 	pulse                       string // the mote that rides a lane while animating
+	// node is a point in the topology and wall encloses the container. Both are
+	// the BANNER's vocabulary rather than ASCII punctuation: the mark is built
+	// from dots interrupting rules inside a bracketed frame, and the figure is
+	// the same idea applied to a run. It also ends a collision — "()" is the
+	// form's radio glyph three rows above, and it meant something else there.
+	node, wallL, wallR string
 }
 
 func glyphsFor(t GlyphTier) glyphSet {
@@ -99,6 +105,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 			spine: "=", screened: "-", watched: ".",
 			refused: "x", asking: "?",
 			east: ">", west: "<", north: "^", up: "^", pulse: "*",
+			node: "o", wallL: "|", wallR: "|",
 		}
 	}
 	return glyphSet{
@@ -106,6 +113,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 		spine: "═", screened: "─", watched: "╌",
 		refused: "×", asking: "?",
 		east: "▸", west: "◂", north: "▴", up: "↑", pulse: "•",
+		node: "●", wallL: "│", wallR: "│",
 	}
 }
 
@@ -248,10 +256,10 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	// Row 2 — the spine: host, the square, the hop, the lanes.
 	pn := newPen(s, colHost, top+1)
 	pn.write(keyStyle(fr, KeyAtHost, on), keyIf(g, fr, KeyAtHost))
-	pn.write(on(FocusNone), "() host")
+	pn.write(on(FocusNone), g.node+" host")
 	gap(pn, colSquare-cs.runLen-1).write(dim, spine+g.east)
 
-	gap(pn, colSquare).write(on(FocusSquare), "[ ")
+	gap(pn, colSquare).write(on(FocusSquare), g.wallL+" ")
 	pn.write(keyStyle(fr, KeyInSquare, on), keyIf(g, fr, KeyInSquare))
 	say := g.quiet
 	if fr.Speaking {
@@ -263,7 +271,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	// name pushes the hop right rather than being cut to fit a slot. The only
 	// thing that must never happen is running under the lanes, because that
 	// corrupts the figure instead of shortening a label.
-	pn.write(on(FocusSquare), fit(fr.Square, pn.col(), colLanes-14)+" ]")
+	pn.write(on(FocusSquare), fit(fr.Square, pn.col(), colLanes-14)+" "+g.wallR)
 
 	if fr.Hop == "" {
 		// The one shape with nothing in the path. The columns are held open
@@ -282,7 +290,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		if k != "" {
 			room-- // the space between the label and the key
 		}
-		gap(pn, colHop).write(on(FocusHop), "() "+fit(fr.Hop, pn.col()+3, room))
+		gap(pn, colHop).write(on(FocusHop), g.node+" "+fit(fr.Hop, pn.col()+3, room))
 		if k != "" {
 			pn.write(tcell.StyleDefault, " ").write(keyStyle(fr, KeyAtHop, on), k)
 		}
@@ -293,7 +301,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	rt.write(on(FocusReturn), g.north).padTo(colHost+3).
 		write(on(FocusReturn), g.west+strings.Repeat(g.screened, colSquare-colHost-4))
 	gap(rt, colSquare).
-		write(on(FocusReturn), "() "+fit(fr.Interface, rt.col()+3, colLanes-2)+" "+g.up)
+		write(on(FocusReturn), g.node+" "+fit(fr.Interface, rt.col()+3, colLanes-2)+" "+g.up)
 
 	// The lanes, stacked so the spine's own lane is the middle one.
 	drawLanes(s, top-1, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen)
