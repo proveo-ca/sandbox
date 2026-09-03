@@ -106,6 +106,27 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' the image: the seed dir is baked and the enablement is a merge into files
 ' that are themselves ephemeral.
 '
+' ── WHAT CLONE MODE MOVES, AND WHAT IT CANNOT ─────────────────────────────
+' sbx runs default to --clone precisely to keep the WORKSPACE off virtiofs: the
+' guest's directory entry has been measured vanishing under a running agent
+' while the host directory stayed put, after which every Bash spawn exits 1 and
+' only a restart heals it. The trigger is a host-side inode replacement of a
+' mounted directory (reproduced with `mv` + `mkdir`), which ordinary developer
+' tooling does to a checkout constantly.
+'
+' Clone cannot move the proveo home. SplitNested only lifts binds nested UNDER
+' the repository, the home is not one, and it has to stay a host bind or it
+' would not persist at all — persisting is its whole job. So the durable root
+' IS a virtiofs passthrough, on both clone and non-clone runs, and step 2 puts
+' the toolchain tree there.
+'
+' That is a smaller exposure than the workspace, for a reason worth stating
+' rather than assuming: nothing on the HOST rewrites a toolchain tree. No
+' branch switch, no build system, no editor. Exactly one thing does —
+' `proveo clean --tools` — and its liveness gate could not see an sbx run,
+' because that backend has no egress sidecar to count. That gate now counts
+' running sandboxes, and treats an unreadable `sbx ls` as undecidable.
+'
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.
 '
@@ -246,6 +267,12 @@ legend bottom
   ""initialize"" handshake, with the e2e boot scan asserting the answer rather than
   the file. cecli is the harness with no native LSP, so this is the row that
   decides whether it has code intelligence at all.
+  ==
+  **Still open on step 2.** Whether the toolchain tree should be INSTALLED on the
+  VM disk and synced to the durable root at teardown — ext4 speed and no virtiofs
+  exposure at all — rather than installed directly onto the host bind. The cost
+  is a copy proportional to the tree, per run, against a resume-state copy that is
+  proportional to a transcript. Not taken on a guess; it wants a measurement.
   ==
   **Left open on purpose.** Whether formatters are a class or belong to the
   dependency-tree chain that already installs the project's own toolchain;

@@ -46,8 +46,13 @@ note bottom of TOOLS
 
   Per-session ephemera belong to exactly one run, so liveness is decided per
   session. This tree is shared by every run on the machine, so ANY running
-  proveo container holds the whole prune back — ""--force"" is the documented
-  escape hatch. Removing it is never destructive: the cost of being wrong is
+  proveo container **or sbx sandbox** holds the whole prune back — ""--force"" is
+  the documented escape hatch. The sandbox arm is not symmetry: an sbx run has
+  no egress sidecar and no dind, so counting only containers read "nothing is
+  running" on that backend every time, and since the toolchains moved to the
+  durable host root the prune would replace a directory inode that a LIVE
+  sandbox has mounted over virtiofs — which unlinks the guest's dentry for good.
+  An unreadable ""sbx ls"" is undecidable, not quiet, and holds back too. Removing it is never destructive: the cost of being wrong is
   time on the next boot, not lost work, which is why it reports what it
   reclaims and why it is opt-in rather than part of ""--deep"".
 end note

@@ -35,6 +35,14 @@ type Inventory struct {
 	StateDirs  []string // session ids present under <stateDir>/egress/
 	Images     []string // proveo/* image refs (populated only for --deep)
 	ToolDirs   []ToolDir
+	// Sandboxes are proveo's RUNNING sbx sandboxes. They hold the toolchain
+	// prune back exactly as a live egress sidecar does — and they are the only
+	// thing that does on that backend, which has no sidecars at all.
+	Sandboxes []string
+	// SandboxesUnknown is set when sbx is installed but its listing could not be
+	// read. Liveness is then undecidable, and a destructive prune must hold back
+	// rather than guess that nothing is running.
+	SandboxesUnknown bool
 }
 
 // Options tunes the plan.
@@ -97,7 +105,14 @@ func BuildPlan(inv Inventory, o Options) Plan {
 	}
 
 	if o.Tools {
-		running := false
+		// Every way a run can still be holding the toolchain tree open. The sbx
+		// arms are not symmetry for its own sake: a sandbox run has no egress
+		// sidecar and no dind, so before they were counted this gate read "nothing
+		// is running" on that backend every single time — and the tree it prunes
+		// now lives on the host, mounted into the live sandbox over virtiofs, where
+		// replacing a directory's inode unlinks the guest's dentry for good.
+		// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+		running := len(inv.Sandboxes) > 0 || inv.SandboxesUnknown
 		for _, c := range inv.Egress {
 			if c.Running {
 				running = true

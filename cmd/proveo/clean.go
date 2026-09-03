@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/run"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -30,6 +31,7 @@ func cleanCmd() *cobra.Command {
 			}
 			if tools {
 				inv.ToolDirs = gatherToolDirs()
+				inv.Sandboxes, inv.SandboxesUnknown = gatherSandboxes()
 			}
 			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools}), dryRun); err != nil {
 				return err
@@ -83,6 +85,12 @@ func toolRoots(root string) []string {
 		}
 	}
 	return roots
+}
+
+// gatherSandboxes reports proveo's running sbx sandboxes for the liveness gate.
+func gatherSandboxes() (names []string, unknown bool) {
+	names, ok := sbx.RunningNames()
+	return names, !ok
 }
 
 func gatherToolDirs() []clean.ToolDir {

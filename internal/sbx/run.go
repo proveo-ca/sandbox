@@ -53,6 +53,45 @@ func statusOf(out, name string) string {
 	return ""
 }
 
+// NamePrefix is what proveo calls its own sandboxes (run.go builds the sid as
+// "proveo-<unix>-<pid>"). Used to tell proveo's sandboxes from an operator's own.
+const NamePrefix = "proveo-"
+
+// RunningNames lists proveo's sandboxes that sbx reports as running, and whether
+// the listing could be read at all.
+//
+// It exists for `proveo clean --tools`. That prune's liveness gate saw only the
+// docker egress sidecars, which an sbx run does not have — so on the backend
+// that has no sidecars it always read "nothing is running". That was harmless
+// while sbx toolchains lived on the VM's own disk; once they moved to the
+// durable host root the prune removes the tree a LIVE sandbox is executing
+// from, and virtiofs does not heal a replaced directory inode (only a restart
+// does). SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+//
+// ok=false means the listing was unreadable while sbx IS installed. The caller
+// must treat that as "may be live": for a destructive prune the safe direction
+// is to hold back and say so, not to guess that nothing is running.
+func RunningNames() (names []string, ok bool) {
+	if _, err := lookPath(Binary); err != nil {
+		return nil, true // sbx absent: there are no sandboxes, and that is a fact
+	}
+	out, err := sh.SandboxList()
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// The header row cannot collide: it is never prefixed like a proveo sid.
+		if len(f) < 3 || !strings.HasPrefix(f[0], NamePrefix) {
+			continue
+		}
+		if strings.ToLower(f[2]) == "running" {
+			names = append(names, f[0])
+		}
+	}
+	return names, true
+}
+
 // secretList reads the credential store listing. Overridable in tests.
 func StoredSecretNames() []string {
 	out, err := sh.SecretList()
