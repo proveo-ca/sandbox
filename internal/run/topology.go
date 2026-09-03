@@ -3,6 +3,8 @@
 package run
 
 import (
+	"os"
+	"runtime"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
@@ -35,6 +37,8 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 		}
 		lane, open, refused := lanesOf(tier, sbxBackend)
 		fr := choiceui.Frame{
+			Host:      hostAccount(),
+			HostOS:    "(" + hostPlatform() + ")",
 			Square:    squareOf(man, target),
 			Hop:       hopOf(tier, creds, sbxBackend),
 			Interface: interfaceOf(f),
@@ -112,6 +116,32 @@ func keyHomeOf(creds string) choiceui.KeyHome {
 		return choiceui.KeyAtHop
 	}
 	return choiceui.KeyAtHost
+}
+
+// hostAccount is who the operator is on their own machine. Read from the
+// environment rather than os/user, which shells out to getent on some builds —
+// this is drawn on every animation frame.
+func hostAccount() string {
+	for _, k := range []string{"USER", "LOGNAME", "USERNAME"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return "host"
+}
+
+// hostPlatform is the operator's OS under its common name. runtime.GOOS calls
+// macOS "darwin", which is the kernel's name for it and not the one on the box.
+func hostPlatform() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macOS"
+	case "windows":
+		return "windows"
+	case "linux":
+		return "linux"
+	}
+	return runtime.GOOS
 }
 
 // squareOf labels the container the agent runs in with the daemon behind it.

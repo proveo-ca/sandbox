@@ -802,7 +802,7 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		case !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()):
 			ui.Warnf("%s: skipped — needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)", addonChrome)
 		default:
-			if why := chromeUnavailable(rs.Creds.Lookup, p.Target, rs.Creds.HomePlan.Root); why != "" {
+			if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
 				ui.Warnf("%s: skipped — %s", addonChrome, why)
 				break
 			}

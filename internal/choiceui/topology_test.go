@@ -33,7 +33,7 @@ func paint(t *testing.T, fr Frame, tier GlyphTier, tick int) []string {
 }
 
 func base() Frame {
-	return Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
+	return Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 		Caption: "allow-all · broker — the hop watches", Key: KeyAtHop,
 		Lane: LaneWatched, Open: 3}
 }
@@ -171,7 +171,7 @@ func TestNerdTierGlyphsAreSingleRuneSingleColumn(t *testing.T) {
 func TestFocusChangesEmphasisNotContent(t *testing.T) {
 	t.Parallel()
 	want := strings.Join(paint(t, base(), GlyphsNerd, 0), "\n")
-	if !strings.Contains(want, "host") || !strings.Contains(want, glyphsFor(GlyphsNerd).cornerTL) {
+	if !strings.Contains(want, "pluvo") || !strings.Contains(want, glyphsFor(GlyphsNerd).cornerTL) {
 		t.Fatal("nothing was drawn, so comparing two blank renders proves nothing")
 	}
 	for _, f := range []Focus{FocusHop, FocusKey, FocusSquare, FocusReturn, FocusSay} {
@@ -217,7 +217,7 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 				Help: map[string]string{"forward": "a much longer sentence about forwarding that is certain to wrap across at least three separate lines of the reserved help slot below the hint"}},
 		},
 		Topology: func(*Form, int) *Frame {
-			return &Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
+			return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 				Caption: "c", Lane: LaneWatched, Open: 1}
 		},
 	}

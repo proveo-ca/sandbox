@@ -96,6 +96,18 @@ note right of SCOPE
 
   ""CLAUDE_CODE_OAUTH_TOKEN"" SHADOWS the store.
   ""ANTHROPIC_API_KEY"" does not.
+
+  **The gate asks what the AGENT will see, not
+  what proveo was launched in.** Two ways of being
+  authenticated compete and do not merge, so
+  ""AuthSuppressor"" drops every auth var of a
+  provider whose login is already on disk. Reading
+  the raw host environment instead greyed the box
+  over a token proveo was itself about to suppress:
+  the run got the login and the bridge would have
+  worked, while the picker said it could not. Both
+  halves come from ""AuthSuppressor"" now, rather
+  than from a second rule that happens to agree.
 end note
 
 note as SbxViewport #F4F9FB

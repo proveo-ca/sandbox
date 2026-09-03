@@ -529,7 +529,7 @@ func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
 		}
 		return ""
 	}
-	why := chromeUnavailable(lookup, "claudecode", "")
+	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", "")
 	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(why, "/login") {
 		t.Errorf("why = %q", why)
 	}
@@ -556,11 +556,11 @@ func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
 		}
 		return ""
 	}
-	if why := chromeUnavailable(lookup, "claudecode", home); strings.Contains(why, "ANTHROPIC_API_KEY") {
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home); strings.Contains(why, "ANTHROPIC_API_KEY") {
 		t.Errorf("the login in the home must outrank the key beside it: %q", why)
 	}
 	// Same key, no login: now the refusal is the honest one.
-	if why := chromeUnavailable(lookup, "claudecode", t.TempDir()); !strings.Contains(why, "ANTHROPIC_API_KEY") {
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "ANTHROPIC_API_KEY") {
 		t.Errorf("why = %q", why)
 	}
 }
@@ -956,5 +956,61 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 				t.Errorf("sbxSuppliesCredential = %v, want %v (%s)", got, c.want, c.because)
 			}
 		})
+	}
+}
+
+// claudecodeMan is the harness shape the Chrome gate reasons about: a
+// subscription harness whose declared secrets are the two anthropic auth vars,
+// which is what AuthSuppressor scopes the login's suppression to.
+func claudecodeMan() manifest.Manifest {
+	return manifest.Manifest{
+		Name: "claudecode", Subscription: true, Docker: manifest.DockerSbx,
+		Env: []manifest.EnvVar{
+			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+			{Name: "ANTHROPIC_API_KEY", Secret: true},
+		},
+	}
+}
+
+// Two ways of being authenticated compete and do not merge: AuthSuppressor drops
+// every auth var of a provider whose login is already on disk, so a
+// CLAUDE_CODE_OAUTH_TOKEN exported on the host is NOT the session's credential
+// when a usable login is mounted beside it.
+//
+// The gate used to read the raw host environment and grey the Chrome box over a
+// token proveo was itself about to suppress: the run got the login and the
+// bridge would have worked, while the picker said it could not. Both halves now
+// come from AuthSuppressor, so they cannot disagree.
+func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A bare setup-token on the host — the shape Claude Code calls inference-only.
+	lookup := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-…"
+		}
+		return ""
+	}
+	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home)
+	if strings.Contains(why, "inference-only") {
+		t.Errorf("the token is suppressed in favour of the mounted login, so the gate "+
+			"must not refuse over it: %q", why)
+	}
+	// And with no login to suppress it, the refusal is the honest one again.
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "inference-only") {
+		t.Errorf("without a login the token IS the credential, so the gate must refuse: %q", why)
+	}
+	// The operator naming the token explicitly is their answer, and it stands.
+	why = chromeUnavailable(claudecodeMan(), lookup, "CLAUDE_CODE_OAUTH_TOKEN", "claudecode", home)
+	if !strings.Contains(why, "inference-only") {
+		t.Errorf("a token the operator CHOSE is the credential even beside a login: %q", why)
 	}
 }

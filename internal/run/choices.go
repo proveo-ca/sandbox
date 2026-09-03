@@ -47,7 +47,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	sandboxOn := sbxBackend
 	chromeWhy := ""
 	if man.Capabilities.HasHostBrowser() {
-		chromeWhy = chromeUnavailable(lookup, p.Target, homeRoot)
+		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
 	}
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
@@ -234,8 +234,25 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 // would have connected, and for an ANTHROPIC_API_KEY set beside a login the key
 // does not displace. Offering the box would sell a bridge to a client that has
 // already decided not to use it; withholding it hides one that works.
-func chromeUnavailable(lookup func(string) string, target, homeRoot string) string {
-	if why := chromebridge.ScopeGate(lookup, credentials.HasPersistedLogin(target, homeRoot)); why != "" {
+// It asks about the environment the AGENT will see, not the one proveo was
+// launched in. Those differ, and the difference was a live bug: two ways of
+// being authenticated compete and do not merge, so AuthSuppressor drops every
+// auth var of a provider whose login is already on disk — and the gate, reading
+// the raw host environment, greyed the box over a CLAUDE_CODE_OAUTH_TOKEN that
+// proveo was itself about to suppress. The run got the login and Chrome would
+// have worked; the picker said it could not.
+//
+// Both halves come from AuthSuppressor rather than from a second rule that
+// happens to agree, because the two disagreeing is what produced the bug.
+func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
+	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot)
+	effective := func(k string) string {
+		if suppressed(k) {
+			return ""
+		}
+		return lookup(k)
+	}
+	if why := chromebridge.ScopeGate(effective, suppressed(chromebridge.EnvOAuthToken)); why != "" {
 		return why
 	}
 	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {

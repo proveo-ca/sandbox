@@ -12,6 +12,7 @@ import (
 // the widest key, with the longest square and the longest interface label.
 func paneFrame() Frame {
 	return Frame{
+		Host: "pluvo", HostOS: "(macOS)",
 		Square: "dind · claudecode", Hop: "mitm + squid",
 		Interface: "tui + browser + chrome",
 		Key:       KeyAtHop, Lane: LaneScreened, Open: 1, Refused: 2, Speaking: true,
@@ -31,7 +32,7 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 		joined := strings.Join(screenLines(s), "\n")
 		s.Fini()
 
-		for _, want := range []string{"host", "dind · claudecode", "mitm + squid",
+		for _, want := range []string{"pluvo", "(macOS)", "dind · claudecode", "mitm + squid",
 			"tui + browser + chrome"} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("tier %v: the pane dropped %q, which is a fact and not decoration:\n%s",
@@ -381,7 +382,7 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 				{Label: "two", Options: []string{"a", "b"}},
 				{Label: "agent evidence", Options: []string{"default", "verbose"}}},
 			Topology: func(*Form, int) *Frame {
-				return &Frame{Square: "sbx · x", Hop: "mitm", Interface: "interface",
+				return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · x", Hop: "mitm", Interface: "interface",
 					Caption: "cap", Lane: LaneWatched, Open: 1}
 			},
 		}

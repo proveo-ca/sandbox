@@ -25,7 +25,7 @@ func tallForm() *Form {
 		},
 	}
 	f.Topology = func(*Form, int) *Frame {
-		return &Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
+		return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 			Caption: "deny-all · broker — only proveo's allowlist gets out", Lane: LaneScreened, Open: 1, Refused: 2}
 	}
 	return f

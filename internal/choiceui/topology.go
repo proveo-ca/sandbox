@@ -15,6 +15,10 @@ import (
 // the checkboxes above it. Everything the design calls a "re-label" is a string
 // here rather than a shape, which is what holds the picture to one geometry.
 type Frame struct {
+	// Host and HostOS name the machine the operator is on, one under the other:
+	// the account, then the platform. "host" said only that a host existed.
+	Host      string
+	HostOS    string
 	Square    string // inside the box: "sbx · claudecode", "dind · opencode"
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
 	Interface string // the interface dot's label
@@ -293,7 +297,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	// r3 — what the agent drives, inside the frame with it; and the two outside
 	// nodes naming themselves under their dots.
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
-	at(3, colHost, x0, on(FocusNone), "host")
+	at(3, colHost, x0, on(FocusNone), fit(fr.Host, boxL-x0-1))
 	if fr.Hop != "" {
 		// Floored past the frame's right wall: a hop label long enough to centre
 		// on top of the wall would erase it, and the wall is the thing saying
@@ -305,8 +309,10 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		}
 	}
 
-	// r4 — the floor, with the tee the return leaves by, and the host's stem.
-	newPen(s, colHost, y0+4).write(on(FocusReturn), g.wallL)
+	// r4 — the floor, with the tee the return leaves by; and under the host's
+	// name, the platform it is. Two rows for one node, because "host" alone said
+	// only that a host existed.
+	at(4, colHost, x0, p.aside, fit(fr.HostOS, boxL-x0-1))
 	floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)

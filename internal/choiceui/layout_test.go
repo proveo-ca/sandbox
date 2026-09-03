@@ -19,7 +19,7 @@ func budgetForm() *Form {
 				Help: map[string]string{"docker (sandbox)": "a microVM with its own Docker daemon, and a good deal more text so this option wraps to several lines of help"}},
 			{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true},
 		},
-		Topology: func(*Form, int) *Frame { return &Frame{Caption: "c"} },
+		Topology: func(*Form, int) *Frame { return &Frame{Host: "pluvo", HostOS: "(macOS)", Caption: "c"} },
 	}
 }
 
@@ -186,7 +186,7 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
 	f.Topology = func(*Form, int) *Frame {
-		return &Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
+		return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 			Caption: "CAPTION", Lane: LaneWatched, Open: 1}
 	}
 	// Pinned to a width where the BLOCK is the fidelity drawn. At a pane width
