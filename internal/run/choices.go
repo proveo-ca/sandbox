@@ -255,6 +255,12 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 	if why := chromebridge.ScopeGate(effective, suppressed(chromebridge.EnvOAuthToken)); why != "" {
 		return why
 	}
+	// The container has no Keychain to fall back to, so a blanked file is no login
+	// in there however well `claude` works out here. ScopeGate cannot see this: it
+	// reasons about the session's SHAPE, and this shape classifies as nothing.
+	if credentials.LoginBlanked(target, homeRoot) {
+		return "the login in the proveo home is empty (macOS keeps it in the Keychain) — run /login once inside a proveo run"
+	}
 	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
 		return why
 	}

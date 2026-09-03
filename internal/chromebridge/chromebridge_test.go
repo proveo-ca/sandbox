@@ -280,19 +280,31 @@ func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
 // accepted scopes, so the fix is visible without reading Claude Code's log.
 func TestScopeGateRefusalsNameTheScopesThatWouldWork(t *testing.T) {
 	t.Parallel()
-	for _, vars := range []map[string]string{
-		{EnvOAuthToken: "x"},
-		{EnvOAuthToken: "x", EnvOAuthScopes: "user:inference"},
-		{EnvAPIKey: "x"},
+	// Every refusal ends in something the operator can DO. Where the fix is a
+	// scope, the refusal names the scopes; where it is signing in, it says so —
+	// listing three scopes at someone holding an API key is noise, not help.
+	for _, c := range []struct {
+		vars map[string]string
+		want []string
+	}{
+		{map[string]string{EnvOAuthToken: "x"}, BrowserScopes},
+		{map[string]string{EnvOAuthToken: "x", EnvOAuthScopes: "user:inference"}, BrowserScopes},
+		{map[string]string{EnvAPIKey: "x"}, []string{"/login"}},
 	} {
-		why := ScopeGate(func(k string) string { return vars[k] }, false)
+		why := ScopeGate(func(k string) string { return c.vars[k] }, false)
 		if why == "" {
-			t.Fatalf("expected a refusal for %v", vars)
+			t.Fatalf("expected a refusal for %v", c.vars)
 		}
-		for _, s := range BrowserScopes {
+		for _, s := range c.want {
 			if !strings.Contains(why, s) {
 				t.Errorf("%q does not name %s", why, s)
 			}
+		}
+		// Brief: one clause and an action, not a paragraph. The cap is generous
+		// because two of these must spell out variable names 23 characters long
+		// before they can say anything; it is here to stop prose returning.
+		if len(why) > 150 {
+			t.Errorf("refusal is %d chars, too long to read in a row: %q", len(why), why)
 		}
 	}
 }

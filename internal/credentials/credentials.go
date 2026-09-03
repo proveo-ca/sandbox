@@ -310,6 +310,36 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
+// LoginBlanked reports a credential file that exists but holds no token.
+//
+// This is the ordinary state of the proveo home on macOS: `claude` on the host
+// writes the credential to the Keychain and leaves the file with "" tokens and
+// every stamp intact. The host can fall back to the Keychain; the CONTAINER
+// cannot — in there the file is the credential — so the two sides look at the
+// same bytes and correctly disagree about whether a login exists.
+//
+// Worth saying out loud rather than treating as "no login": the operator has a
+// working `claude` on their machine and no reason to suspect the file.
+func LoginBlanked(target, homeRoot string) bool {
+	if homeRoot == "" {
+		return false
+	}
+	for _, rel := range subscriptionLoginFiles[target] {
+		b, err := os.ReadFile(filepath.Join(homeRoot, rel))
+		if err != nil || len(b) == 0 {
+			continue
+		}
+		var c oauthCredential
+		if json.Unmarshal(b, &c) != nil {
+			continue
+		}
+		if tokenCleared(c.ClaudeAIOauth.AccessToken) {
+			return true
+		}
+	}
+	return false
+}
+
 // AuthSuppressor reports which auth vars must NOT be injected for this run.
 //
 // Two ways of being authenticated compete, and they do not merge: an env token

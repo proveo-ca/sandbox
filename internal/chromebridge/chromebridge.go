@@ -159,20 +159,16 @@ func ScopeGate(lookup func(string) string, hasPersistedLogin bool) string {
 			return ""
 		}
 		if len(strings.Fields(get(EnvOAuthScopes))) > 0 {
-			return EnvOAuthScopes + " names none of " + scopeList() +
-				", so Claude Code turns Chrome integration off for this session"
+			return EnvOAuthScopes + " names none of " + scopeList() + " — add one"
 		}
-		return EnvOAuthToken + " without " + EnvOAuthScopes +
-			" is an inference-only session to Claude Code, which turns Chrome integration off — set " +
-			EnvOAuthScopes + " to the scopes the token was issued with (one of " + scopeList() +
-			"), or sign in with /login instead"
+		return EnvOAuthToken + " has no " + EnvOAuthScopes +
+			" — set it to " + strings.Join(BrowserScopes, "/") + ", or unset it and use /login"
 	case get(EnvOAuthTokenFD) != "":
 		return "" // scope default carries user:ccr_inference
 	case hasPersistedLogin:
 		return "" // real /login scopes include user:profile
 	case get(EnvAPIKey) != "":
-		return EnvAPIKey + " alone is no OAuth account, so the session has no scope in " +
-			scopeList() + " and Claude Code turns Chrome integration off — sign in with /login instead"
+		return EnvAPIKey + " is not an OAuth account — sign in with /login"
 	}
 	return ""
 }
@@ -228,9 +224,9 @@ func NewestSocket(dir string) (string, error) {
 func Available(dir string) (ok bool, why string) {
 	if _, err := NewestSocket(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, "no Claude in Chrome native host on this machine — open Chrome with the Claude extension and run `claude --chrome` once on the host"
+			return false, "no native host socket — open Chrome with the Claude extension, then run `claude --chrome` once on the host"
 		}
-		return false, "Chrome is not running with the Claude extension connected (no native host socket)"
+		return false, "Chrome is not running with the Claude extension — start it"
 	}
 	return true, ""
 }

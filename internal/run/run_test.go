@@ -1000,17 +1000,53 @@ func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
 		return ""
 	}
 	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home)
-	if strings.Contains(why, "inference-only") {
+	if strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
 		t.Errorf("the token is suppressed in favour of the mounted login, so the gate "+
 			"must not refuse over it: %q", why)
 	}
 	// And with no login to suppress it, the refusal is the honest one again.
-	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "inference-only") {
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
 		t.Errorf("without a login the token IS the credential, so the gate must refuse: %q", why)
 	}
 	// The operator naming the token explicitly is their answer, and it stands.
 	why = chromeUnavailable(claudecodeMan(), lookup, "CLAUDE_CODE_OAUTH_TOKEN", "claudecode", home)
-	if !strings.Contains(why, "inference-only") {
+	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
 		t.Errorf("a token the operator CHOSE is the credential even beside a login: %q", why)
+	}
+}
+
+// A credential file with blanked tokens is the ordinary state of the proveo home
+// on macOS — `claude` on the host writes the real value to the Keychain. The host
+// can fall back to the Keychain; the container cannot, so in there the file IS the
+// credential and an empty one is no login. ScopeGate cannot see this: it reasons
+// about the session's shape, and this shape classifies as nothing at all, so the
+// gate fell silent and offered a bridge the container would refuse.
+func TestChromeGateWarnsAboutABlankedLogin(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blanked := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","refreshTokenExpiresAt":%d}}`,
+		time.Now().Add(20*24*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(blanked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	none := func(string) string { return "" }
+	why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home)
+	if !strings.Contains(why, "Keychain") || !strings.Contains(why, "/login") {
+		t.Errorf("a blanked login must be named, with the action that fixes it: %q", why)
+	}
+	if len(why) > 150 {
+		t.Errorf("the warning is %d chars; it must stay one line: %q", len(why), why)
+	}
+	// A real login is not warned about.
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home); strings.Contains(why, "Keychain") {
+		t.Errorf("a usable login must not be reported as blanked: %q", why)
 	}
 }
