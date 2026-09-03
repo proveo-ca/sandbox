@@ -461,15 +461,96 @@ _proveo_auto_install_enabled() {
   return 0
 }
 
+# ── 7a. The durable root, and the toolchain tree under it ───
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+
+# _proveo_durable_home is the root that OUTLIVES the run, on either backend.
+#
+#   docker  the agent home IS the mounted host dir (HOME=/proveo-home), so this
+#           returns exactly today's answer and that backend cannot regress.
+#   sbx     HOME is deliberately NOT redirected — sbx's credential proxy owns
+#           .credentials.json in the image home and pointing HOME elsewhere
+#           orphaned it — so the agent home lives inside the VM and `sbx rm`
+#           destroys it. PROVEO_STATE_HOME carries the HOST path of the same
+#           proveo home, which travels as a workspace bind.
+_proveo_durable_home() {
+  local d="${PROVEO_STATE_HOME:-}"
+  [ -n "$d" ] || d="$(_proveo_agent_home)"
+  printf '%s' "$d"
+}
+
+# _proveo_container_platform names the os-arch a provisioned binary is built
+# for. Folded onto docker's spelling, matching proveo_docker_host_platform in
+# defs/lib/docker-build.sh and normalizeArch in internal/workspace/platform.go.
+#
+# An unrecognised machine keeps its own `uname -m` spelling instead of
+# defaulting to amd64 the way the BUILD-side fold does. The two want opposite
+# fallbacks: there the value picks a published image and a guess is recoverable,
+# here it NAMES A DIRECTORY, and guessing wrong silently shares one toolchain
+# tree between two architectures — the wrong-arch binary that satisfies
+# `command -v` and dies on first exec.
+_proveo_container_platform() {
+  local m
+  m="$(uname -m 2>/dev/null || echo unknown)"
+  [ -n "$m" ] || m=unknown
+  case "$m" in
+    x86_64 | amd64) m=amd64 ;;
+    aarch64 | arm64) m=arm64 ;;
+  esac
+  printf 'linux-%s' "$m"
+}
+
+# _proveo_tool_home is where provisioned TOOLCHAINS live — the mise tree, Go,
+# jdtls, the npm --prefix, the install lock.
+#
+# Tools are found through PATH rather than opened by a fixed name, which is what
+# makes them relocatable where a config is not: moving ~/.claude would break the
+# agent, moving the mise tree breaks nothing. They MUST be relocated, or an sbx
+# run reinstalls every language server it needs on every single open, through a
+# GitHub API budget of 60 requests an hour shared per source IP.
+#
+# Namespaced by platform because this tree is now SHARED — the docker backend
+# and the sbx VM on one host reach the same directory, and so does a run pinned
+# with DOCKER_DEFAULT_PLATFORM. Sharing is the point (install once, reuse on the
+# other backend); the namespace is what stops an amd64 install from answering
+# `command -v` for an arm64 sandbox.
+#
+# Memoised: every caller would otherwise re-probe writability, and the answer
+# cannot change inside one run.
+_proveo_tool_home() {
+  if [ -n "${_PROVEO_TOOL_HOME:-}" ]; then printf '%s' "$_PROVEO_TOOL_HOME"; return 0; fi
+  local t
+  t="$(_proveo_durable_home)/toolchains/$(_proveo_container_platform)"
+  if ! { mkdir -p "$t/.local/bin" 2>/dev/null && [ -w "$t" ]; }; then
+    # An absent or read-only durable root is not a reason to skip provisioning.
+    # Fall back to the agent home — today's location — so the run still gets its
+    # tools; it just pays for them again next time.
+    t="$(_proveo_agent_home)"
+    mkdir -p "$t/.local/bin" 2>/dev/null || true
+  fi
+  _PROVEO_TOOL_HOME="$t"
+  export _PROVEO_TOOL_HOME
+  printf '%s' "$t"
+}
+
 _proveo_tool_path() {
-  mkdir -p "${HOME}/.local/bin"
+  local t
+  t="$(_proveo_tool_home)"
+  # mise keeps installs, shims, its global config, state and cache under the
+  # tool home rather than $HOME. Set as a GROUP: a data dir without a config dir
+  # leaves `mise use -g` recording a global config in a home the next run does
+  # not read, so the tools are on disk and nothing knows they are.
+  export MISE_DATA_DIR="$t/.local/share/mise"
+  export MISE_CONFIG_DIR="$t/.config/mise"
+  export MISE_STATE_DIR="$t/.local/state/mise"
+  export MISE_CACHE_DIR="$t/.cache/mise"
   case ":${PATH}:" in
-    *":${HOME}/.local/bin:"*) ;;
-    *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    *":$t/.local/bin:"*) ;;
+    *) export PATH="$t/.local/bin:${PATH}" ;;
   esac
   case ":${PATH}:" in
-    *":${HOME}/.local/share/mise/shims:"*) ;;
-    *) export PATH="${HOME}/.local/share/mise/shims:${PATH}" ;;
+    *":${MISE_DATA_DIR}/shims:"*) ;;
+    *) export PATH="${MISE_DATA_DIR}/shims:${PATH}" ;;
   esac
   export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
 }
@@ -511,12 +592,13 @@ _go_current_version() {
 }
 
 _install_go() {
-  local version="$1"
+  local version="$1" t
+  t="$(_proveo_tool_home)"
   if curl -fsSL --connect-timeout 5 --max-time 120 \
-       -o "${HOME}/.local/bin/g" \
+       -o "$t/.local/bin/g" \
        https://github.com/stefanmaric/g/releases/latest/download/g; then
-    chmod +x "${HOME}/.local/bin/g"
-    "${HOME}/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
+    chmod +x "$t/.local/bin/g"
+    "$t/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
       || echo "WARN: g could not install Go ${version}"
   elif command -v mise >/dev/null 2>&1; then
     mise use -g "go@${version}" >/dev/null 2>&1 \
@@ -528,7 +610,11 @@ _install_go() {
 
 _proveo_lock_installs() {
   command -v flock >/dev/null 2>&1 || return 0
-  local dir="${HOME}/.local/share/proveo"
+  # Under the TOOL home, so the lock covers every run reaching the same tree —
+  # a docker run and an sbx run on one host now share it, which is exactly the
+  # race the lock exists for and could not previously see.
+  local dir
+  dir="$(_proveo_tool_home)/.local/share/proveo"
   mkdir -p "$dir" 2>/dev/null || return 0
   # `exec` with no command makes its redirections PERMANENT for this shell, so
   # `2>/dev/null` here did not scope stderr to the exec — it silenced stderr for
@@ -540,7 +626,7 @@ _proveo_lock_installs() {
   if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
   exec 9>>"${dir}/install.lock"
   if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then
-    echo "⏳ another proveo run is provisioning tools under ${HOME}; skipping installs this run"
+    echo "⏳ another proveo run is provisioning tools under $(_proveo_tool_home); skipping installs this run"
     _proveo_unlock_installs
     return 1
   fi
@@ -559,12 +645,13 @@ ensure_project_tools() {
 
  # Bounded network so a blackholed egress can't hang the container at startup.
  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
+ local tool_home; tool_home="$(_proveo_tool_home)"
 
  # 1. NX Detection & Installation
  if [[ -f nx.json ]]; then
  if ! command -v nx >/dev/null 2>&1; then
  echo "📦 Detected nx.json. Dynamically installing nx..."
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
  fi
  fi
 
@@ -572,7 +659,7 @@ ensure_project_tools() {
  if [[ -f turbo.json ]]; then
  if ! command -v turbo >/dev/null 2>&1; then
  echo "📦 Detected turbo.json. Dynamically installing turbo..."
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
  fi
  fi
 
@@ -585,9 +672,9 @@ ensure_project_tools() {
  local mise_installer
  mise_installer="$(mktemp)"
  if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
- MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
+ MISE_INSTALL_PATH="${tool_home}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
  else
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
  fi
  rm -f "$mise_installer"
  fi
@@ -595,8 +682,8 @@ ensure_project_tools() {
 
  # 4. Go Detection & Installation
  if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
- export GOROOT="${GOROOT:-${HOME}/.go}"
- export GOPATH="${GOPATH:-${HOME}/go}"
+ export GOROOT="${GOROOT:-${tool_home}/.go}"
+ export GOPATH="${GOPATH:-${tool_home}/go}"
  export PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
 
  local go_version="latest" pinned="" current=""
@@ -1819,7 +1906,9 @@ _lsp_has_custom_install() { case "$1" in
 esac; }
 
 _install_jdtls() {
-  local gh_token="${1:-}" home="${HOME}/.local/share/proveo/jdtls" tarball rc
+  local gh_token="${1:-}" t home tarball rc
+  t="$(_proveo_tool_home)"
+  home="$t/.local/share/proveo/jdtls"
   local url="${PROVEO_JDTLS_URL:-https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz}"
 
   if [ "$(_java_major)" -lt 21 ]; then
@@ -1840,8 +1929,8 @@ _install_jdtls() {
   rm -f "$tarball"
   [ $rc -eq 0 ] || return 1
 
-  mkdir -p "${HOME}/.local/bin"
-  cat > "${HOME}/.local/bin/jdtls" <<PROVEO_JDTLS
+  mkdir -p "$t/.local/bin"
+  cat > "$t/.local/bin/jdtls" <<PROVEO_JDTLS
 #!/bin/sh
 J="${home}"
 case "\$(uname -m)" in
@@ -1863,7 +1952,7 @@ exec java \\
   -jar "\$L" \\
   -data "\${JDTLS_WORKSPACE:-\$HOME/.cache/jdtls-workspace}" "\$@"
 PROVEO_JDTLS
-  chmod +x "${HOME}/.local/bin/jdtls"
+  chmod +x "$t/.local/bin/jdtls"
 }
 
 # _proveo_walk runs find under scan_root with the build-output, cache and
@@ -2464,10 +2553,14 @@ _proveo_write_block() {
 # runs is a bash invocation, and bash reads this file. Writing it down is the only
 # way a venv provisioned in one process is on PATH for a `pytest` run in another.
 _proveo_persist_tool_env() {
- local home; home="$(_proveo_agent_home)"
+ local home tool; home="$(_proveo_agent_home)"; tool="$(_proveo_tool_home)"
  [[ -n "$home" ]] || return 0
+ # The rc file lives in the AGENT's home (that is where a shell reads it); the
+ # paths inside it name the TOOL home (that is where the binaries are).
  {
-   printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$home" "$home"
+   printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
+   printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
+   printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
    [[ -n "${GOROOT:-}" ]] && printf 'export GOROOT="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOROOT" "$GOROOT"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then

@@ -15,7 +15,7 @@ import (
 // active. Tools write sessions under this tree; host uid remapping cannot move it.
 const ContainerHome = "/proveo-home"
 
-// Root returns PROVEO_HOME, or $HOME/.proveo when unset.
+// Root returns PROVEO_HOME, or <user home>/.proveo when unset.
 func Root(getenv func(string) string) string {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -23,11 +23,39 @@ func Root(getenv func(string) string) string {
 	if v := strings.TrimSpace(getenv("PROVEO_HOME")); v != "" {
 		return v
 	}
-	home := getenv("HOME")
-	if home == "" {
-		home = "."
+	return filepath.Join(UserHome(getenv), ".proveo")
+}
+
+// UserHome resolves the operator's home directory across the three host OSes
+// proveo ships for (see .goreleaser.yaml: linux, darwin, windows).
+//
+// HOME alone is a Unix answer. On Windows it is set by Git Bash / MSYS and by
+// nothing else, so a proveo started from PowerShell or cmd read an EMPTY HOME
+// and fell through to ".", which put the durable root — sessions, logs, run
+// transcripts and now provisioned toolchains — inside whatever directory the
+// operator happened to be standing in, typically their repository.
+//
+// USERPROFILE is the documented Windows answer and HOMEDRIVE+HOMEPATH is its
+// domain-joined fallback; both are what os.UserHomeDir consults. This is
+// getenv-driven rather than a call to os.UserHomeDir so one seam still governs
+// the whole resolution and a test can pin every platform's shape from any host.
+func UserHome(getenv func(string) string) string {
+	if getenv == nil {
+		getenv = os.Getenv
 	}
-	return filepath.Join(home, ".proveo")
+	if h := strings.TrimSpace(getenv("HOME")); h != "" {
+		return h
+	}
+	if h := strings.TrimSpace(getenv("USERPROFILE")); h != "" {
+		return h
+	}
+	drive, path := strings.TrimSpace(getenv("HOMEDRIVE")), strings.TrimSpace(getenv("HOMEPATH"))
+	if drive != "" && path != "" {
+		return drive + path
+	}
+	// Every source empty. "." keeps proveo runnable rather than erroring at
+	// startup, and it is the state the caller sees when a home cannot be found.
+	return "."
 }
 
 // Plan is the resolved bind of PROVEO_HOME plus env to inject.

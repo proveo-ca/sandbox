@@ -3,6 +3,7 @@ package proveohome
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -25,6 +26,55 @@ func TestRoot(t *testing.T) {
 		return ""
 	}); got != "/home/u/.proveo" {
 		t.Errorf("default root = %q", got)
+	}
+}
+
+// The durable root is where sessions, logs and provisioned toolchains live, so
+// resolving it to "." puts all three inside the operator's repository. HOME is
+// set by Git Bash on Windows and by nothing else, which is why a PowerShell
+// proveo needs USERPROFILE and its domain-joined fallback.
+func TestUserHomeAcrossHostOSes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"unix", map[string]string{"HOME": "/home/u"}, "/home/u"},
+		{"macos", map[string]string{"HOME": "/Users/u"}, "/Users/u"},
+		{"windows powershell", map[string]string{"USERPROFILE": `C:\Users\u`}, `C:\Users\u`},
+		{"windows git bash", map[string]string{"HOME": "/c/Users/u", "USERPROFILE": `C:\Users\u`}, "/c/Users/u"},
+		{"windows domain joined", map[string]string{"HOMEDRIVE": "H:", "HOMEPATH": `\users\u`}, `H:\users\u`},
+		{"nothing set", map[string]string{}, "."},
+		// Whitespace is not a home. An env var set to blanks used to pass the
+		// != "" test and produce a root of " /.proveo".
+		{"blank home falls through", map[string]string{"HOME": "   ", "USERPROFILE": `C:\Users\u`}, `C:\Users\u`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := UserHome(func(k string) string { return tc.env[k] })
+			if got != tc.want {
+				t.Errorf("UserHome() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Root must never land in the working directory on a supported host: that is
+// the shape that scatters durable state into repositories.
+func TestRootIsNotRelativeOnWindows(t *testing.T) {
+	t.Parallel()
+	got := Root(func(k string) string {
+		if k == "USERPROFILE" {
+			return `C:\Users\u`
+		}
+		return ""
+	})
+	if got == filepath.Join(".", ".proveo") {
+		t.Fatalf("Root() = %q — a PowerShell proveo puts its durable root in the CWD", got)
+	}
+	if !strings.HasPrefix(got, `C:\Users\u`) {
+		t.Errorf("Root() = %q, want it under the USERPROFILE home", got)
 	}
 }
 

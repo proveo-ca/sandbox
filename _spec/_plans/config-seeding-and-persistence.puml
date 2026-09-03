@@ -4,7 +4,13 @@ skinparam noteTextAlignment left
 title Config seeding and persistence — one chain for LSPs, MCPs, formatters and plugins
 
 ' purpose: why only LSPs have a detect→provide→wire chain, why nothing that chain writes survives an sbx run, and the one shape that fixes both
-' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' PARTLY LANDED — steps 1 and 2 of the legend are implemented; 3-5 are not.
+'   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
+'   step 2 · the tool relocation .. packages/lib/entrypoint-lib.sh (_proveo_tool_home,
+'                                   _proveo_container_platform, _proveo_tool_path)
+'   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
+'   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
+'                                   internal/proveohome/proveohome_test.go
 '   the one chain that exists ...... packages/lib/entrypoint-lib.sh (§8 ensure_language_servers)
 '   where it is wired .............. packages/lib/entrypoint-lib.sh (proveo_seed)
 '   the plugin half ................ packages/lib/entrypoint-lib.sh (proveo_enable_claude_lsp_plugins)
@@ -201,15 +207,26 @@ end note
 legend bottom
   **The order to do it in — and what each step must not break**
   ==
-  **1. Make the durable root explicit, one accessor.**
+  **1. Make the durable root explicit, one accessor.** — LANDED.
   ""_proveo_durable_home"" = ""${PROVEO_STATE_HOME:-$(_proveo_agent_home)}"". On
   docker it resolves to today's answer, so that backend cannot regress; on sbx
   it names the host path for the first time. Nothing moves yet.
   --
-  **2. Relocate TOOLS only.** Point ""MISE_DATA_DIR"", ""MISE_INSTALL_PATH"" and the
-  ""\.local/bin"" entry of ""_proveo_tool_path"" at the durable root. HOME does not
-  move, so the credential the sbx proxy owns is untouched. ""proveo clean --tools""
-  starts finding sbx-provisioned toolchains, which today it silently cannot.
+  **1b. And make it resolve on every host proveo ships for.** — LANDED.
+  ""proveohome\.Root"" read ""HOME"" alone and fell through to ""\."" — which is what a
+  PowerShell or cmd proveo got, putting sessions, logs and now toolchains in the
+  operator's repository. ""UserHome"" adds ""USERPROFILE"" and ""HOMEDRIVE""+""HOMEPATH"".
+  Relocating tools onto a CWD-relative root would have multiplied that bug.
+  --
+  **2. Relocate TOOLS only.** — LANDED.
+  ""MISE_DATA_DIR"", ""MISE_CONFIG_DIR"", ""MISE_STATE_DIR"", ""MISE_CACHE_DIR"",
+  ""MISE_INSTALL_PATH"", the ""npm -g --prefix"", ""GOROOT""/""GOPATH"", the jdtls tree and
+  the install lock all hang off ""_proveo_tool_home"". HOME does not move, so the
+  credential the sbx proxy owns is untouched. Namespaced ""toolchains/<os>-<arch>""
+  because the tree is now shared by both backends; the fold is pinned against
+  ""internal/workspace.normalizeArch"". An unwritable durable root degrades to the
+  agent home rather than skipping provisioning. ""proveo clean --tools"" globs the
+  platform trees and keeps the legacy root so nothing already installed strands.
   --
   **3. Copy CONFIGS by a NAMED set.** Extend ""proveo_sync_state"" with a per-harness
   config manifest — ""\.claude/settings\.json"", ""\.claude/skills/proveo-lsp"",
