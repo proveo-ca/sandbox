@@ -34,7 +34,9 @@ func TestLayoutObeysTheDropLadder(t *testing.T) {
 	f := budgetForm()
 	for h := 8; h <= 60; h++ {
 		lay := f.layout(120, h)
-		if lay.banner && lay.strip != stripBlock {
+		// stripPane is exempt: it spends no height, so it cannot be what the
+		// banner outlived.
+		if lay.banner && lay.strip != stripBlock && lay.strip != stripPane {
 			t.Errorf("h=%d: the banner is dropped FIRST, so it cannot outlive the figure", h)
 		}
 		if lay.strip != stripNone && !lay.header {
@@ -101,8 +103,11 @@ func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 			floor++
 		}
 		cost := digestRows
-		if lay.strip == stripBlock {
+		switch lay.strip {
+		case stripBlock:
 			cost = stripRows
+		case stripPane:
+			cost = 0 // beside the rows, in columns the rows never use
 		}
 		if floor+cost > h {
 			t.Errorf("h=%d: the strip (%d rows) was drawn over the mandatory %d", h, cost, floor)
@@ -128,12 +133,13 @@ func TestNarrowTerminalKeepsTheCaption(t *testing.T) {
 	if got := budgetForm().layout(70, 60).strip; got != stripDigest {
 		t.Errorf("below %d columns the figure is replaced by its caption, got %v", stripCols, got)
 	}
+	bw := blockWidth(budgetForm())
 	// Somewhere between "nothing fits" and "everything fits" the digest is what
 	// stands in for the figure. Asserted as existence rather than at one height,
 	// because the exact row is a property of the fixture, not of the design.
 	seen := false
 	for h := 8; h <= 60; h++ {
-		if budgetForm().layout(120, h).strip == stripDigest {
+		if budgetForm().layout(bw, h).strip == stripDigest {
 			seen = true
 		}
 	}
@@ -183,12 +189,18 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 		return &Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 			Caption: "CAPTION", Lane: LaneWatched, Open: 1}
 	}
+	// Pinned to a width where the BLOCK is the fidelity drawn. At a pane width
+	// the `continue` below would fire on every height and the test — the only one
+	// walking the real paint against the budget — would prove nothing at all.
+	bw := blockWidth(f)
+	drawn := 0
 	for h := 20; h <= 60; h++ {
-		lay := f.layout(120, h)
+		lay := f.layout(bw, h)
 		if lay.strip != stripBlock {
 			continue
 		}
-		rows := renderAt(t, f, 2, 120, h)
+		drawn++
+		rows := renderAt(t, f, 2, bw, h)
 		hint, help, figure := -1, -1, -1
 		for y, line := range rows {
 			switch {
@@ -217,6 +229,9 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 		if caption := figure + 2; caption >= h {
 			t.Errorf("h=%d: the figure's caption fell off the bottom, at row %d", h, caption)
 		}
+	}
+	if drawn == 0 {
+		t.Fatal("no height drew the block, so nothing above was actually checked")
 	}
 }
 
@@ -254,7 +269,10 @@ func TestNoDecorationIsBoughtWithABodyLine(t *testing.T) {
 		if lay.tooSmall {
 			continue
 		}
-		bought := lay.banner || lay.header || lay.axis || lay.strip != stripNone
+		// stripPane is not "bought" — it spends no height at all, so it cannot be
+		// the thing that took a line from the body.
+		bought := lay.banner || lay.header || lay.axis ||
+			(lay.strip != stripNone && lay.strip != stripPane)
 		if bought && lay.body < full {
 			t.Errorf("h=%d: the body scrolls (%d of %d) while a decoration was still afforded",
 				h, lay.body, full)

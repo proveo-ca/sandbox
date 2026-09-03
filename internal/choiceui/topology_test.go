@@ -249,3 +249,26 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 		t.Errorf("the figure moved from row %d to row %d as the help grew", short, tall)
 	}
 }
+
+func simScreen(t *testing.T, w, h int) tcell.SimulationScreen {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSize(w, h)
+	return s
+}
+
+func screenLines(s tcell.SimulationScreen) []string {
+	cells, w, h := s.GetContents()
+	out := make([]string, h)
+	for y := 0; y < h; y++ {
+		var b strings.Builder
+		for x := 0; x < w; x++ {
+			b.WriteString(string(cells[y*w+x].Runes))
+		}
+		out[y] = strings.TrimRight(b.String(), " ")
+	}
+	return out
+}

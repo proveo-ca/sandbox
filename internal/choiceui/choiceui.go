@@ -430,6 +430,14 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	f.scroll = scrollTo(f.scroll, lay.body, lines, cursor)
 	g := newGutter(f.scroll, lay.body, len(lines))
 	named := headingsInWindow(lines, f.scroll, lay.body)
+	// With the pane on, the rows stop short of it. Nothing is clipped to make
+	// room: the origin was chosen AFTER this form's widest row, so the limit only
+	// ever bites on a gated row's inline reason, whose full text is in the help
+	// block below either way.
+	limit := w
+	if lay.strip == stripPane {
+		limit = lay.pane - paneGutter
+	}
 	bodyTop := c.y
 	c.clipTo(bodyTop, bodyTop+lay.body)
 	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
@@ -445,9 +453,25 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		// A divider row hands its name to the heading above it — but that heading
 		// can scroll away, and a group of checkboxes with no name at all is worse
 		// than the duplication. When the heading is off screen the label comes back.
-		f.drawBodyLine(c, p, ln, cursor, w, named[ln.row])
+		f.drawBodyLine(c, p, ln, cursor, limit, named[ln.row])
 	}
 	c.unclip()
+
+	// The figure in the margin, anchored to the body's TOP line rather than
+	// centred against it: everything else in this layout is top-anchored, and a
+	// centred figure would move whenever the body's height changed — re-breaking
+	// the very thing the reserved help slot exists to hold still.
+	//
+	// Its rows are nested inside the body's window by construction, because the
+	// pane is only ever chosen when the body is at least paneRows tall. The guard
+	// is the belt to that pair of braces, mirroring the block's.
+	if lay.strip == stripPane && f.Topology != nil && lay.body >= paneRows &&
+		bodyTop+paneRows <= h && lay.pane+paneCols.width <= w {
+		if fr := f.Topology(f, cursor); fr != nil {
+			drawFigure(s, lay.pane, bodyTop, paneCols, *fr, f.Glyphs, p, tick)
+		}
+	}
+
 	// The blank the rows have always had under them. Dropping it put the hint
 	// flush against the last row AND made the budget over-reserve by one, since
 	// the arithmetic still charged for it.
@@ -494,7 +518,8 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		c.y = helpTop + lay.helpSlot
 	}
 
-	if lay.strip != stripNone && f.Topology != nil {
+	// stripPane was already drawn beside the body and costs the foot nothing.
+	if (lay.strip == stripDigest || lay.strip == stripBlock) && f.Topology != nil {
 		if fr := f.Topology(f, cursor); fr != nil {
 			switch {
 			case lay.strip == stripDigest:
@@ -515,7 +540,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 // drawBodyLine paints one enumerated line of the scrolling body. Splitting it
 // out is what lets the body be walked by LINE — the painter no longer decides
 // how many lines a row costs, it is told which one to draw.
-func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, w int, named bool) {
+func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int, named bool) {
 	r := f.Rows[ln.row]
 	switch ln.kind {
 	case lineBlank:
@@ -565,7 +590,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, w int, na
 		x += len(glyph) + len(opt) + 3
 	}
 	if r.Reason != "" && (r.Locked || r.anyOff()) {
-		c.put(x, p.warn, clip("— "+r.Reason, w-x))
+		c.put(x, p.warn, clip("— "+r.Reason, limit-x))
 	}
 }
 

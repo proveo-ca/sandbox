@@ -1,17 +1,22 @@
 @startsalt
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: what is still UNBUILT about the prompt at small terminal sizes
+' purpose: how the prompt's four figure fidelities were chosen, and what each measurement showed
 '
 ' WHAT SHIPPED, and what did not. A (one budget pass, a strict drop ladder) and
 ' B (pinned chrome, a scrolling row viewport) are both built — see
 ' _spec/internal/choiceui/viewport.puml. C's BLOCK and DIGEST shipped with A.
 '
-' ONLY C's PANE remains: the figure beside the rows at w >= 112, costing no
-' height at all. It is a bigger change than the height budget was — draw() paints
-' rows flush from a fixed column with unbounded option widths, and a row's inline
-' reason is already clipped against the right margin the pane would occupy — so
-' it needs a row-WIDTH budget, not just the height one that exists.
-' PLANNED — three answers to one question: the prompt is already taller than a
+' C's PANE has shipped too, with one correction the sheet could not make: its
+' w >= 112 was never achievable at the fidelity drawn below. The narrowest honest
+' figure measures 66 columns, and the budget must clear the widest thing the rows
+' PAINT — options, the row label, a centred divider heading, and a gated row's
+' inline reason IN FULL. Measured on the real forms that is about 150 columns
+' plainly, and past 200 once a locked row carries changeBaselineHint. The
+' breakpoint is therefore DERIVED and appears nowhere as a constant.
+'
+' NOTHING in this sheet is unbuilt. It is kept as the record of how the four
+' fidelities were chosen, and of the measurements that moved the last one.
+' Three answers to one question: the prompt is already taller than a
 ' small terminal, and the topology strip wants five more rows.
 '   the strip's mechanism ....... _spec/internal/choiceui/topology-strip.puml
 '   every drawn combination ..... _spec/internal/choiceui/topology-states.puml
@@ -22,7 +27,7 @@
 ' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
 ' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
 ' tier rather than an approximation of it.
-title PLANNED — the side pane; the scrolling viewport it sits beside has shipped
+title SHIPPED — the four fidelities of one figure, and how each was measured
 
 {
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
@@ -171,7 +176,7 @@ title PLANNED — the side pane; the scrolling viewport it sits beside has shipp
   stage | what ships | why now
   1 | **SHIPPED** A's drop ladder | one budget pass; the strip is dropped first and can evict nothing mandatory
   2 | **SHIPPED** BLOCK + DIGEST | five rows when they exist, one sentence when they do not
-  3 | **SHIPPED** B's three regions | the body scrolls, the foot is never painted over, and the failure below the floor is loud
+  3 | **SHIPPED** B's regions, then C's PANE | the body scrolls, the foot is never painted over, and the figure is free when the columns allow
 }
   .
   Stage 1 is worth doing whether or not the animation is ever built, and it is
@@ -182,7 +187,7 @@ title PLANNED — the side pane; the scrolling viewport it sits beside has shipp
 
 legend bottom
   **▲ ▼ ░** — the scroll gutter: ends of travel, and a proportional thumb
-  **PANE · BLOCK · DIGEST · OMITTED** — the four fidelities of one figure, by breakpoint
+  **PANE · BLOCK · DIGEST · OMITTED** — the four fidelities of one figure; PANE's breakpoint is derived, the rest are heights
   **dropped Nth** — the order the drop ladder spends height, banner first
   **43-44 rows** — the form at full dress; 38-39 of them exist today, before any strip
   **a reserved slot** — space held at its maximum height so the figure below never moves

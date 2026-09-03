@@ -10,7 +10,8 @@
 ' from, and what makes it tick. It owns no pictures.
 '   the pictures, per selection ... _spec/internal/choiceui/topology-states.puml
 '   the regions it is drawn in ... _spec/internal/choiceui/viewport.puml
-'   the side pane, still unbuilt .. _spec/_plans/choiceui-viewport-proposals.puml
+'   the width budget ............ this file, the notes on COLS
+'   how the four were chosen .... _spec/_plans/choiceui-viewport-proposals.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
 '   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
@@ -23,8 +24,9 @@ title Choice-prompt topology strip — one projection, one budget, one clock
 node "internal/choiceui" as PKG <<host>> {
   component "layout(w, h)\nfit budget · drop ladder · body height" as LAYOUT <<app>>
   component "Form.Topology(f, cursor)\nrun/topology.go builds one Frame" as MODEL <<app>>
-  component "drawTopology(s, y, Frame, tick)\nfixed 3-row figure + caption" as PAINT <<app>>
+  component "drawFigure(s, x0, y0, cols, ...)\none painter, block or pane" as PAINT <<app>>
   component "glyphsFor(tier)\nnerd devicons · ascii" as GLYPH <<app>>
+  component "topoCols\nblockCols · paneCols" as COLS <<app>>
 }
 
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
@@ -39,6 +41,7 @@ component "A figure that disagrees with the boxes" as LIE <<error>>
 ROWS ARROW_MAIN MODEL : the same values ""Selection"" returns
 MODEL ARROW_MAIN PAINT : Frame, rebuilt per paint
 GLYPH ARROW_MAIN PAINT
+COLS ARROW_MAIN PAINT : one painter, two column sets
 TTY ARROW_MAIN LAYOUT : width x height, on every resize
 LAYOUT ARROW_MAIN DRAW : which regions are affordable
 DRAW ARROW_OPTIONAL PAINT : only when the strip fits
@@ -95,6 +98,38 @@ note bottom of LAYOUT
   that was refused — which is what stopped the
   figure vanishing as the terminal GREW, back
   when the budget was a best fit.
+end note
+
+note bottom of LAYOUT
+  **The pane is not a rung.** A region that spends
+  no height cannot be refused by a budget it never
+  draws on, so it is decided BEFORE the ladder and
+  the ladder it falls through to is the shipped
+  one, run without the strip rung.
+end note
+
+note bottom of COLS
+  **A fidelity, not a fourth drawing.** It drops
+  the connector runs, review's prose and the
+  caption's gloss — the three things that cost
+  columns and carry least. Every fact survives:
+  the key's home, the labels, the lane counts.
+end note
+
+note top of COLS
+  **The breakpoint is derived, never a constant.**
+  It sits past THIS form's widest row — reasons
+  and labels included — so nothing is cut for a
+  picture. A plain form reaches it near 150; one
+  with a long inline reason, past 200.
+end note
+
+note top of COLS
+  **A short form gets no pane at all.** It is
+  refused unless the body can hold the figure's
+  four rows, so the fidelity that costs no height
+  is still not free of the form: there has to be
+  something for it to sit beside.
 end note
 
 note top of TICK
