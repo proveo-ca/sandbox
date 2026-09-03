@@ -2049,6 +2049,89 @@ configure_claude_lsp() {
   echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }
 
+# configure_opencode_lsp merges the detected servers under `.lsp` in opencode's
+# user config. SETDEFAULT semantics: an entry the operator already wrote wins, so
+# a hand-tuned server survives every run.
+#
+# It lives HERE rather than in defs/opencode/entrypoint.sh because sbx never runs
+# the image entrypoint — `proveo-seed` is the Kit's only startup command — so a
+# wiring step left in the def reached the docker backend alone, and opencode came
+# up on sbx with every language server installed and none of them configured.
+configure_opencode_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
+  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  matched_json="$(detect_workspace_lsps "$scan" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: { command: .[2:-1],
+               extensions: (if (.[-1] | length) > 0 then (.[-1] | split(",")) else [] end) }
+    }) | from_entries
+  ')"
+  [[ -n "$matched_json" ]] || matched_json="{}"
+
+  echo "── Workspace LSP Match ──────────────────────────────"
+  if [[ "$matched_json" == "{}" ]]; then
+    echo "🔎 No installed LSP matched files under $scan"
+    echo "─────────────────────────────────────────────────────"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$config_file")"
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
+       '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
+    mv "$tmp" "$config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not update $config_file (jq failed)" >&2
+  fi
+
+  printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
+    "$(printf '%s' "$matched_json" | jq -r 'keys_unsorted | join(" ")')"
+  echo "Config: $config_file"
+  echo "─────────────────────────────────────────────────────"
+}
+
+# configure_cursor_lsp registers one mcp-language-server per detected language in
+# cursor's user MCP config: cursor has no native LSP client, so code intelligence
+# reaches it as MCP servers. Same backend reason as configure_opencode_lsp.
+#
+# The workspace is the SCAN ROOT rather than a hardcoded /app — on sbx the tree is
+# mounted at its own host path, and an mcp-language-server pointed at /app there
+# would index a directory that does not exist.
+configure_cursor_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  command -v mcp-language-server >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" cursor_home mcp_file tmp base entries
+  cursor_home="${CURSOR_CONFIG_DIR:-$(_proveo_agent_home)/.cursor}"
+  mcp_file="$cursor_home/mcp.json"
+  entries="$(detect_workspace_lsps "$scan" | jq -R -s --arg ws "$scan" '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: {
+        command: "mcp-language-server",
+        args: (["--workspace", $ws, "--lsp", .[2]]
+               + (.[3:-1] | if length > 0 then ["--"] + . else [] end))
+      }
+    }) | from_entries')"
+  [[ -z "$entries" || "$entries" == "{}" ]] && return 0
+
+  mkdir -p "$cursor_home"
+  base='{}'
+  [[ -f "$mcp_file" ]] && jq -e . "$mcp_file" >/dev/null 2>&1 && base="$(cat "$mcp_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$base" | jq --argjson e "$entries" \
+       '.mcpServers = ($e + ((.mcpServers // {}) | if type == "object" then . else {} end))' > "$tmp"; then
+    mv "$tmp" "$mcp_file"
+    echo "🧠 LSP code intelligence via mcp-language-server: $(printf '%s' "$entries" | jq -r 'keys_unsorted | join(" ")')"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+
 # ── 9. Agent Evidence (verbosity) ───────────────────────────
 agent_evidence_verbose() {
  [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
@@ -2428,8 +2511,15 @@ proveo_seed() {
 
  # Written after provisioning, so it records the servers that now exist rather
  # than the ones that did before.
+ #
+ # EVERY harness wires here, not in its def entrypoint: sbx runs `proveo-seed`
+ # alone and never the image ENTRYPOINT, so a wiring step left in the def is a
+ # step the sandbox backend silently skips. Pinned by
+ # internal/contract/lsp_config_parity_test.go.
  case "$target" in
  claudecode) configure_claude_lsp "$(_proveo_scan_root)" ;;
+ opencode) configure_opencode_lsp "$(_proveo_scan_root)" ;;
+ cursor) configure_cursor_lsp "$(_proveo_scan_root)" ;;
  esac
 
  proveo_compose_house_rules "$target"

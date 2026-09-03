@@ -145,45 +145,6 @@ seed_project_agents_md() {
 }
 seed_project_agents_md
 
-configure_workspace_lsps() {
-  local config_file="${HOME}/.config/opencode/opencode.json"
-  local matched_json
-
-  matched_json="$(detect_workspace_lsps "$(pwd)" | jq -R -s '
-    split("\n") | map(select(length > 0) | split("|")) | map({
-      key: .[0],
-      value: { command: .[2:-1],
-               extensions: (if (.[-1] | length) > 0 then (.[-1] | split(",")) else [] end) }
-    }) | from_entries
-  ')"
-  [[ -n "$matched_json" ]] || matched_json="{}"
-
-  echo "── Workspace LSP Match ──────────────────────────────"
-  if [[ "$matched_json" == "{}" ]]; then
-    echo "🔎 No installed LSP matched files under $(pwd)"
-    echo "─────────────────────────────────────────────────────"
-    return 0
-  fi
-
-  # Merge under .lsp with setdefault semantics (existing entries win), tolerating
-  # a missing/invalid config or a non-object / `true` .lsp value.
-  mkdir -p "$(dirname "$config_file")"
-  local existing='{}' tmp
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
-  tmp="$(mktemp)"
-  if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
-       '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
-    mv "$tmp" "$config_file"
-  else
-    rm -f "$tmp"
-    echo "⚠️  Could not update $config_file (jq failed)" >&2
-  fi
-
-  printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
-    "$(printf '%s' "$matched_json" | jq -r 'keys_unsorted | join(" ")')"
-  echo "Config: $config_file"
-  echo "─────────────────────────────────────────────────────"
-}
 command_version() {
   command_version_opencode "$@"
 }
@@ -251,8 +212,8 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   exec sleep infinity
 fi
 
-# Toolchain provisioning moved into proveo_seed (runs on both backends).
-configure_workspace_lsps
+# Toolchain provisioning AND LSP wiring moved into proveo_seed (runs on both
+# backends): sbx never executes this entrypoint.
 
 # ── API key detection ──────────────────────────────────────
 # OPENCODE_API_KEY is OpenCode's own gateway — Zen (pay-as-you-go) and Go (the
