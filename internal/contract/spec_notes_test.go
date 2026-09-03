@@ -33,6 +33,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/choiceui/topology-strip.puml",
 	"_spec/internal/choiceui/viewport.puml",
 	"_spec/_plans/secret-custody.puml",
+	"_spec/_plans/retire-dind.puml",
 }
 
 const (

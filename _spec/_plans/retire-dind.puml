@@ -1,0 +1,131 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: retire the privileged dind sidecar and make sbx the only way an agent gets a daemon
+' session: d2ff9d04-cba3-46b5-87d6-698c921c9ede
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   what dind is today .......... _spec/internal/dind/dind-sidecar.puml
+'   the backend it moves to ..... _spec/internal/sbx/sandbox-backend.puml
+'   what governs egress there ... _spec/internal/sbx/policy-baseline.puml
+'   the tiers this does NOT decide _spec/internal/egress/egress-tiers.puml
+'   the consent flow at stake ... _spec/internal/reviewgate/pty-review-proxy.puml
+'
+' SCOPE. Eliminate the dind sidecar. The fate of mitmproxy and Squid is
+' deliberately NOT decided here — they serve the docker backend, which survives
+' this change as the PROVEO_SBX=0 fallback, and deciding both at once would
+' couple a security win to an observability regression.
+title PLANNED — retire dind: one privileged sidecar, and what goes with it
+
+component "**dind sidecar** — what retires\n""--privileged"", sibling daemon, agent-reachable" as DIND <<error>>
+component "internal/dind\nfive gates, a prompt, a scope scan" as GATE <<app>>
+node "harnesses that must move" as MOVE <<host>> {
+  component "opencode\n""docker: dind"" -> ""docker: sbx""" as OC <<app>>
+  component "cecli\n""docker: dind"" -> ""docker: sbx""" as CE <<app>>
+}
+component "sbx sandbox\na daemon per sandbox, behind a policy" as SBX <<app>>
+
+folder "what this costs, and to whom" as COST <<host>> {
+  component "review tier\nneeds proveo's MITM; sbx has none" as REV <<error>>
+  component "flow-level analytics\nflows.ndjson -> sbx policy log" as OBS <<error>>
+  component "chrome (host browser)\na sandbox VM cannot name the host" as CHR <<error>>
+}
+
+GATE ARROW_MAIN DIND
+OC ARROW_MAIN SBX
+CE ARROW_MAIN SBX
+DIND ARROW_ERROR SBX : deleted, not replaced
+SBX ARROW_ERROR REV
+SBX ARROW_ERROR OBS
+SBX ARROW_ERROR CHR
+
+note bottom of DIND
+  **It is privileged, and it is reachable.** A
+  daemon the agent can call is a way to start a
+  container proveo did not write the argv for —
+  the sidecar's own warning says it may escape to
+  the host. sbx gives a daemon behind a boundary.
+end note
+
+note top of GATE
+  **Five gates say what it costs to keep.**
+  Manifest, tier, credentials, a Dockerfile in
+  scope, and an explicit yes — a lattice that
+  exists only because the thing behind it is
+  dangerous. Retiring it deletes the lattice too.
+end note
+
+note bottom of GATE
+  **It is allowed ONLY on open + forward.** That
+  is the one posture where proveo has already
+  stopped enforcing anything, so dind is a daemon
+  handed out exactly where there is no boundary
+  left for it to breach. sbx inverts that.
+end note
+
+note bottom of REV
+  **Review is the real loss.** It needs the MITM's
+  CONNECT hook and a pty to ask on; sbx runs
+  neither, so the tier has no implementation
+  there. It is already refused on sbx today;
+  this makes that refusal permanent.
+end note
+
+note top of REV
+  **And it stops being proveo's to give.** An
+  ask-before-connect flow inside a sandbox is the
+  sandbox vendor's feature. If sbx offers one it
+  will be on sbx's terms and its subscription,
+  which is a product decision, not a code one.
+end note
+
+note bottom of OBS
+  **The analytics survive, at lower fidelity.**
+  proveo already captures ""sbx policy log"" at
+  teardown and lists it as a run artifact, so
+  "after the sandbox closes" is solved. What
+  changes is what a record contains.
+end note
+
+note top of OBS
+  **Decisions, not requests.** ""flows.ndjson"" is
+  every request the MITM saw; the policy log is
+  per-host outcomes — host, rule, reason, last
+  seen. Enough to answer "what did it reach", not
+  "what it sent". Name the gap before taking it.
+end note
+
+note bottom of CHR
+  **Chrome was already unreachable there.** The
+  bridge needs the docker bridge network to find
+  the host, which an sbx VM cannot name — so this
+  costs nothing new, but it does remove the last
+  backend on which the add-on could ever fire.
+end note
+
+note bottom of SBX
+  **One backend, or two?** Keeping docker as the
+  ""PROVEO_SBX=0"" fallback keeps review, the flow
+  record and Chrome alive for anyone who needs
+  them. Deleting it is a second decision, and why
+  mitmproxy and Squid are out of scope here.
+end note
+
+legend bottom
+  **The order to do it in — each step is reversible until the last**
+  ==
+  **1. Move the manifests.** ""opencode"" and ""cecli"" to ""docker: sbx"". Behaviour changes
+  for those two harnesses only, and PROVEO_SBX=0 still reaches the old path.
+  --
+  **2. Stop offering it.** ""docker (dind)"" leaves the execution row; the row becomes the
+  single compulsory fact it already is on the sbx harnesses. ""PROVEO_DIND"" warns and no-ops.
+  --
+  **3. Delete the lattice.** ""internal/dind"" and its five gates, the interactive prompt,
+  the scope scan, ""ScopeHasDockerfiles"", and the dind arm of ""gateAddons"".
+  --
+  **4. Delete the sidecar plumbing.** The link args, ""DOCKER_HOST"", the readiness wait,
+  and the ""--privileged"" run — the last privileged container proveo starts.
+  ==
+  **Left open on purpose.** Whether mitmproxy and Squid follow; whether the policy log
+  can be raised to per-request fidelity; and whether review is a thing proveo should
+  keep a whole backend alive for, or hand to the sandbox vendor.
+end legend
+@enduml
