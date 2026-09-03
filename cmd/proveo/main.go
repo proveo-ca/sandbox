@@ -1,5 +1,5 @@
 // Command proveo is the harness CLI.
-// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml
+// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/internal/dind/dind-sidecar.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 package main
 
 import (
@@ -166,6 +166,10 @@ func runCmd() *cobra.Command {
 				}
 				image = chosen
 			}
+			proxyImage, proxyLocal := egressProxyImage(os.Getenv, posture.ResolveImageChoice)
+			if proxyLocal {
+				ui.Iconf("📦", "egress proxy: %s (local build — newer than the published tag)", proxyImage)
+			}
 			modeSet := cmd.Flags().Changed("egress-mode")
 			credsSet := cmd.Flags().Changed("credentials")
 			if !egress.ValidMode(egressMode) {
@@ -193,7 +197,9 @@ func runCmd() *cobra.Command {
 				Target: target, Image: image, Mode: egressMode, Credentials: credentials,
 				ModeSet: modeSet, CredsSet: credsSet, LocalModel: localModel,
 				Input: input, Output: output, Scope: scope, DataDir: dataDir,
-				Shell: shellMode, PrintOnly: printOnly, Extra: extra, Clone: cloneMode,
+				Shell: shellMode, PrintOnly: printOnly, Extra: extra,
+				Clone: cloneMode, CloneSet: cmd.Flags().Changed("clone"),
+				ProxyImage: proxyImage,
 			}, runDeps())
 		},
 	}
@@ -207,9 +213,10 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
 	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
-	cmd.Flags().BoolVar(&cloneMode, "clone", false,
-		"run the agent on a private in-container CLONE of the repo (sbx only): the workspace is never written, "+
-			"and changes come back with `git fetch sandbox-<name>`")
+	cmd.Flags().BoolVar(&cloneMode, "clone", run.CloneDefault(os.Getenv),
+		"run the agent on a private in-container CLONE of the repo (sbx backend; default on, PROVEO_CLONE=off flips it): "+
+			"the checkout is never written, host-built dependency trees never cross, and the agent's commits are fetched back "+
+			"at teardown under refs/proveo/<sid>/ — `--clone=false` edits the mounted checkout directly")
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
@@ -370,4 +377,16 @@ func runDeps() run.Deps {
 		SquidConfig:      proveo.SquidConfig,
 		ModelBridges:     proveo.ModelBridges,
 	}
+}
+
+// egressProxyImage settles which egress-proxy sidecar a run launches: the
+// operator's PROVEO_EGRESS_PROXY_IMAGE when set, otherwise the published tag
+// resolved against a local build by recency. resolve is injected so the choice
+// stays testable without docker.
+// SPEC: _spec/internal/egress/teardown-and-signals.puml
+func egressProxyImage(getenv func(string) string, resolve func(string) (string, bool)) (image string, isLocal bool) {
+	if v := strings.TrimSpace(getenv("PROVEO_EGRESS_PROXY_IMAGE")); v != "" {
+		return v, false // an explicit override is a decision, not a default
+	}
+	return resolve("proveo/egress-proxy:latest")
 }

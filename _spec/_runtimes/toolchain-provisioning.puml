@@ -9,6 +9,10 @@ node "proveo/base — the universal floor" as FLOOR <<host>> {
   component "mise" as MISE <<app>>
 }
 
+node "proveo/base-node — the TypeScript floor" as TSFLOOR <<host>> {
+  component "node 22 · pnpm · bun (+ bunx)\none of each, pinned" as TS <<app>>
+}
+
 ' ── What the project PINS, the sandbox honours ───────────────────────────────
 ' node/pnpm come from the project, not the image. The image ships one of each; a
 ' repo pins its own. Measured on the pluvo monorepo: package.json pins
@@ -19,7 +23,11 @@ node "proveo/base — the universal floor" as FLOOR <<host>> {
 ' exactly that and ships with node); mise provisions node only when the running
 ' one FAILS engines.node, since a range is not a pin and reinstalling a
 ' satisfying runtime buys nothing. Python already follows the same rule via
-' _py_requested_version (.python-version, requires-python).
+' _py_requested_version (.python-version, requires-python). Bun follows it too:
+' the floor ships one (defs/base-node, release zip pinned by SHASUMS256 digest),
+' and `packageManager: bun@x.y.z`, engines.bun or .bun-version are honoured
+' through mise — corepack does not manage bun. A bun lockfile alone selects
+' `bun install --frozen-lockfile`; it never triggers a reinstall.
 '
 ' ── Installing dependencies ──────────────────────────────────────────────────
 ' A FOREIGN dependency tree is already unusable in the sandbox, so reinstalling
@@ -47,6 +55,9 @@ component "Blocked egress\nstartup must not hang" as BLOCK <<error>>
 component "Unreachable apt archive\nat BUILD time" as APT <<error>>
 
 CORE ARROW_MAIN BOOT : every harness inherits the floor
+FLOOR ARROW_MAIN TSFLOOR : FROM
+TS ARROW_MAIN BOOT : ""ensure_node_toolchain"" — corepack for pnpm/yarn,\nmise for ""bun@"" pins and engines.node misses
+TS ARROW_OPTIONAL MISE : ""mise use -g bun@<pin>"" only when\nthe shipped bun fails the project's pin
 T4 ARROW_CLOUD G : fetch ""g"", then ""g install -y <version>""
 T1 ARROW_CLOUD NPM
 T2 ARROW_CLOUD NPM
@@ -66,6 +77,15 @@ note right of PUML
 
   Cost: roughly 567MB on every image. Narrowing where it lands is
   open.
+end note
+
+note bottom of TSFLOOR
+  **Bun rides the TypeScript floor, not a harness.** The seed
+  already chose ""bun install --frozen-lockfile"" for a
+  ""bun.lock"" tree and then reported "bun is not on PATH" on every
+  Bun project. One pinned binary in ""base-node"" reaches opencode,
+  claudecode and every ""-browser"" variant; cursor and cecli stay
+  runtime-free by design.
 end note
 
 note right of MISE

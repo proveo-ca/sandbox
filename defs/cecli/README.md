@@ -63,7 +63,11 @@ agents stay under `CECLI_HOME=/app/.cecli` in the workspace.
 
 ## Baked-in Subagents
 
-The image ships default Cecli subagent definitions in `/opt/cecli/defaults/agents/` and seeds them into `$CECLI_HOME/agents/` on startup. The entrypoint also sets a default `CECLI_AGENT_CONFIG` when one is not already provided:
+Subagent bodies are shared across harnesses and baked at `/opt/proveo/subagents/` (one `.md`
+per agent plus cecli's frontmatter under `_frontmatter/cecli/`); the entrypoint composes the
+cecli roster from `_roster.json` into `$CECLI_HOME/agents/` on startup
+(`proveo_seed cecli` → `render_subagents`, see `_spec/defs/agent-definition-sharing.puml`).
+The entrypoint also sets a default `CECLI_AGENT_CONFIG` when one is not already provided:
 
 ```json
 {"large_file_token_threshold":8192,"skip_cli_confirmations":false,"subagent_paths":["$CECLI_HOME/agents","/app/.cecli/agents"]}

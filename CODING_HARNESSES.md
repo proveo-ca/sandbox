@@ -27,6 +27,28 @@ Each harness definition should expose, where applicable:
 
 The README should explicitly mark whether the definition is experimental, candidate, or stable.
 
+## Agent Version
+
+The agent a harness bakes is **pinned to a release resolved at build time, never
+`@latest`**. BuildKit caches a `RUN` layer by its text and its parents, so an unpinned
+install line never changes when upstream publishes: a warm cache reuses last month's
+layer and nothing in the build says so. Every def follows one shape
+(`_spec/_devops/agent-version-pin.puml`, enforced by `internal/contract/agent_pin_test.go`):
+
+- `build.sh` resolves the current release with `proveo_agent_version <ARG> <npm|pypi|cursor> <pkg>`
+  from `defs/lib/docker-build.sh`, prints a `📌 <pkg>@<version>` line, and passes it as
+  `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
+  silent fallback to `latest`.
+- The `Dockerfile` declares the ARG **bare** (no default), guards it with `test -n`, installs
+  exactly that version, verifies the installed CLI reports it, and labels the image with
+  `proveo.agent` and `proveo.agent.version`. A bare `docker build` without the arg fails on
+  purpose.
+- The def's runtime suite checks the label against the agent's own `--version`.
+
+Exporting the ARG pins a specific release or builds offline, e.g.
+`OPENCODE_VERSION=1.18.20 proveo build opencode`. To see what an image carries without
+running it: `docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local`.
+
 ## Runtime Configuration Discovery
 
 Harnesses should load configuration in this order unless the underlying tool requires a stricter precedence:
@@ -127,13 +149,40 @@ may overlay a symlink-resolved `.env` at `/app/.env` for entrypoint autoload con
 
 ## Dependency Bootstrapping
 
-Harnesses may install project dependencies on first run, but should be conservative:
+Dependency trees are never the host's. Every directory a language's tooling materialises
+inside the workspace (`node_modules`, `.venv`, `vendor/bundle`, `target`, `.terraform`, …)
+is table-driven in `internal/workspace.DepLangs` and mirrored by `_dep_lang_dirs` in
+`packages/lib/entrypoint-lib.sh`; a contract test keeps the two identical. On the docker
+backend each such directory is overlaid with a **private overlay** staged under the run's
+state dir — present or not — so the host's platform binaries never cross in and a container
+install never crosses out. Whether the overlay starts as a plain copy of the host tree is
+decided by comparing the host's OS/arch with the image platform the defs build
+(`linux/<arch>`, or `DOCKER_DEFAULT_PLATFORM`): a match copies, since the tree runs as-is; a
+mismatch (macOS, Windows, cross-arch) stages empty, since every native module would be
+foreign and the seed would clear the copy anyway. `PROVEO_DEPS_COPY=always|never` overrides.
+A foreign copy that does arrive (any non-ELF object) is cleared and rebuilt. sbx mirrors the
+checkout at its host path and cannot express the overlay: there, only clone mode keeps host
+trees out — which is why **clone is the default on sbx** (`--clone=false` or `PROVEO_CLONE=off`
+opts out). The default steps aside, and says why, where sbx cannot clone: no git repository,
+a linked worktree, a monorepo sub-scope, or the docker backend. At teardown proveo commits
+whatever the agent left uncommitted and fetches every branch of the clone into
+`refs/proveo/<sid>/`, because `sbx rm` drops the clone and its remote. See
+`_spec/internal/sbx/virtiofs-cwd-invalidation.puml` for the failure the default closes off.
 
-- only install when a project manifest exists and dependencies are missing;
-- prefer lockfile-respecting commands such as `pnpm install` or `npm ci`;
-- do not modify lockfiles unless the underlying task explicitly requires it;
-- make automatic dependency installation visible in startup logs;
-- allow disabling install behavior when the harness supports read-only or audit workflows.
+The seed installs **before the agent starts** (`ensure_dependency_trees`, reached by both
+backends), because a workspace with nothing installed is the most confusing state to hand an
+agent. Rules:
+
+- install when a project manifest exists and its primary tree is absent; a workspace root
+  (pnpm/npm/yarn/bun `workspaces`) installs once, for all members;
+- refresh a present, native tree against its lockfile only with managers for which that is a
+  cheap no-op (`pnpm`, `bun`, `yarn`, `bundle`, `go mod download`, `cargo fetch`,
+  `terraform init`); `npm ci` wipes first, so it runs only for an absent or foreign tree;
+- respect lockfiles (`--frozen-lockfile`, `--immutable`, `ci`, `init` without `-upgrade`);
+  never rewrite one — a drifted lockfile is reported for the agent to reconcile;
+- make every install visible in the startup log, and name the remedy when one fails;
+- `PROVEO_DEPS=off` disables installs; `PROVEO_DEPS=reinstall` additionally allows rewriting
+  a foreign **host** tree in place (sbx with `--clone=false`), which is otherwise refused.
 
 ## Security and Secrets
 

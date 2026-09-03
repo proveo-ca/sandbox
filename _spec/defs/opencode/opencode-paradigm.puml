@@ -50,6 +50,25 @@ note bottom of EP
   Supports ""--local-model"" (Ollama sidecar, litellm-free
   OpenAI-compatible endpoint) and DinD.
 end note
+
+note bottom of EP
+  **Auth happens on the host, before launch — for OpenCode's own gateway
+  too.** Zen (pay-as-you-go, ""opencode/<model>"") and Go (the subscription,
+  ""opencode-go/<model>"") both read ""OPENCODE_API_KEY"", and opencode's
+  provider loader takes environment keys **ahead of** ""auth.json"". So a key
+  exported in the shell rc or a gitignored "".env"" is the whole login: proveo
+  detects it like any provider key (""internal/provider"" entry ""opencode""),
+  brokers it in firewall mode — the agent holds a sentinel, the egress proxy
+  injects the real bearer on "".opencode.ai"" only — and ""proveo --init""
+  offers it.
+
+  The TUI's ""/connect"" (""opencode auth login"") is the wrong place: it writes
+  ""~/.local/share/opencode/auth.json"", which the manifest's share mount
+  **denies** — the proveo home scrubs it on every run so login tokens never
+  persist there. The entrypoint's no-key warning names ""OPENCODE_API_KEY""
+  first and says so. Without any key, opencode still starts: the gateway
+  serves its free models to an unauthenticated caller (""apiKey: public"").
+end note
 note bottom of CLI
   **Narration is split across three switches, and one of them is unsafe on
   the TUI path.** ""--log-level DEBUG"" records what the harness did;

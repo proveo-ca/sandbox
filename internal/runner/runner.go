@@ -18,12 +18,16 @@ type Config struct {
 	Tmpfs       []string // e.g. "/tmp:noexec,nosuid,size=100m"
 	Mounts      []Mount
 	Env         []string // "KEY=VALUE", or bare "KEY" to forward the client env value (keeps secrets off the argv)
-	Workdir     string   // container working dir (-w), e.g. a monorepo sub-scope
-	Entrypoint  string   // override the image entrypoint (--entrypoint), e.g. "bash" for --shell
-	ExtraArgs   []string // pass-through (e.g. egress agent args, --network)
-	Image       string
-	Command     []string // args after the image
-	PidsLimit   int      // --pids-limit; <=0 => ResolvePidsLimit(DetectHost(), IsBrowserImage(Image), …)
+	// ChildEnv is "KEY=VALUE" for the `docker` process itself, never the argv:
+	// DockerRunArgs does not read it, so --print is unaffected.
+	// SPEC: _spec/internal/secretref/secret-references.puml
+	ChildEnv   []string
+	Workdir    string   // container working dir (-w), e.g. a monorepo sub-scope
+	Entrypoint string   // override the image entrypoint (--entrypoint), e.g. "bash" for --shell
+	ExtraArgs  []string // pass-through (e.g. egress agent args, --network)
+	Image      string
+	Command    []string // args after the image
+	PidsLimit  int      // --pids-limit; <=0 => ResolvePidsLimit(DetectHost(), IsBrowserImage(Image), …)
 }
 
 var hardeningStatic = []string{

@@ -1,0 +1,301 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Claude in Chrome from a sandbox — the native host socket, carried across the boundary
+
+' covers: internal/chromebridge/** (ScopeGate), defs/claudecode/mcp/proveo-lib/chrome-bridge.js, packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok), internal/run/choices.go, internal/egress/plan.go (HostBridge)
+'
+' ── WHY A RELAY EXISTS AT ALL ──────────────────────────────────────────────
+' Claude Code's browser integration is two processes on one machine: the
+' claude-in-chrome MCP server inside the CLI, and a native messaging host that
+' Chrome spawns for the extension. They meet on a Unix socket the NATIVE HOST
+' listens on — /tmp/claude-mcp-browser-bridge-<username>/<pid>.sock — which the
+' CLI connects to. Put the CLI in a container and nothing listens there: the
+' native host is on the operator's machine with Chrome. Anthropic's position is
+' that the integration does not cross that boundary
+' (anthropics/claude-code#25506, #21299).
+'
+' The bridge carries the socket across instead. The host half is a TCP listener
+' that, per connection, dials the newest native host socket and pipes bytes both
+' ways; the container half listens where Claude Code looks and dials the relay.
+' Claude Code on either end is unmodified.
+'
+' TCP RATHER THAN A BIND-MOUNTED SOCKET because virtiofs (Docker Desktop,
+' OrbStack) does not carry Unix sockets, and every proveo host that matters is a
+' Mac. The listener is therefore guarded by a per-run token the container relay
+' sends as its first line; a connection that does not present it is closed
+' before a byte reaches the browser.
+'
+' BindAddr: Docker Desktop and OrbStack route host.docker.internal to the host's
+' loopback, so 127.0.0.1 is enough there and exposes nothing to the LAN. Linux's
+' host-gateway is the bridge address, which loopback does not answer on — and
+' there the token is what stands between the LAN and the operator's browser.
+'
+' Available is a MOMENT-IN-TIME answer, which is the honest one for a picker:
+' the native host lives only while Chrome runs with the extension connected.
+'
+' ── THE CREDENTIAL GATE, MIRRORED FROM CLAUDE CODE 2.1.258 ─────────────────
+' Knobs: PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN, both set
+' by `proveo run` when the "claude-in-chrome" add-on is on.
+'
+' ── ENABLED ON sbx 2026-09-03. THE OLD PREMISE WAS FALSE ───────────────────
+' Every "a sandbox VM cannot name the host" claim below was FALSE for sbx 0.39.0
+' on darwin, and the exclusion that rested on it is gone.
+' Measured from inside a throwaway `sbx create shell` sandbox against a host
+' listener on 0.0.0.0:47713:
+'
+'   curl http://host.docker.internal:47713/            -> HOST-REACHED
+'   curl --noproxy '*' http://host.docker.internal/…   -> HOST-REACHED
+'   raw socket to host.docker.internal:47713           -> connected
+'   raw socket to the host's LAN IP 192.168.50.195     -> connected
+'
+' Inside, host.docker.internal resolves to fe80::1 and answers. The
+' --noproxy and raw-socket cases matter: they rule out proxy mediation, so a
+' plain TCP bridge — which is what internal/chromebridge is — has a path.
+'
+' LOOPBACK IS ENOUGH — the one result that corrected the plan. A first probe
+' used a 0.0.0.0 listener, which suggested the sbx path would need the wider
+' bind the Linux docker branch takes. Retested against a 127.0.0.1-ONLY
+' listener: host.docker.internal from inside the sandbox reaches the host's
+' LOOPBACK and answers. So BindAddr needs no change and nothing is exposed to
+' the LAN on either backend.
+'
+' ── WHAT ENABLING IT ACTUALLY TOOK ─────────────────────────────────────────
+'   the host half   ""startChromeBridge"" is now shared by both backends, with the
+'                   tier guard passed IN rather than hardcoded: that constraint
+'                   is the docker backend's, where a non-open tier parks the
+'                   agent behind a sidecar. sbx has no proveo sidecar and the
+'                   tier is inert there, so it passes "".
+'   the Kit env     ""sandbox.Input.BridgeEnv"" carries PROVEO_CHROME_BRIDGE and
+'                   the token into the Kit's env, which is the only way they
+'                   reach a sandbox.
+'   the container   ""proveo_seed"" starts the relay. sbx never runs the image
+'                   entrypoint, so the seed — its startup command — is the only
+'                   place it can come up. The entrypoint's own call was REMOVED:
+'                   both backends run the seed, so two callers meant two relays
+'                   on docker and Claude Code choosing a socket by mtime. A
+'                   PROVEO_CHROME_READY guard is the belt.
+'   the picker      the ""sandboxTicked"" exclusion is gone.
+'
+' THE SURVIVAL QUESTION, MEASURED. proveo_seed runs as the Kit's startup command
+' and EXITS, so a backgrounded relay has to outlive it. It does: setsid detaches
+' it, the process is reparented, and a SEPARATE later exec finds the socket
+' still listening. e2e/chrome_bridge_sbx_test.go asserts exactly that shape —
+' start in one exec, connect from another — plus the five hops end to end and
+' the token refusing an unauthenticated connection.
+'
+' Both chains pass: the docker twin in e2e/chrome_bridge_test.go and the sbx one
+' beside it. Note the image bakes entrypoint-lib.sh, so a seed change is inert
+' until `proveo build claudecode`.
+'
+' ── WHY THE PICKER BOX AND THE SANDBOX BOX ARE EXCLUSIVE ───────────────────
+' HostBridge is what makes host.docker.internal resolve to the REAL host
+' gateway. OFF, the open+forward path pins that name to the container's own
+' loopback on purpose: an agent that can name the host can probe it. Only the
+' open+forward paths honour it, and the picker greys the add-on elsewhere.
+'
+' ── THE SCOPE GATE EXISTS TWICE, AND A TEST RUNS ONE TABLE THROUGH BOTH ────
+' chromebridge.ScopeGate on the host, so the picker can grey the box, and
+' _proveo_chrome_scope_ok in entrypoint-lib.sh, so the container can warn when
+' the box was ticked anyway. Two copies of one rule drift, and the drift is
+' INVISIBLE: each side is silent in exactly the case the other one talks about.
+' So the table is run through both and they must agree, shape for shape. That
+' test also pins bash 3.2 — /bin/bash on macOS is the oldest shell an image
+' entrypoint has to survive, and `case " $scopes "` is the pattern that works.
+'
+' The synthesis, spelled out:
+'   CLAUDE_CODE_OAUTH_TOKEN -> CLAUDE_CODE_OAUTH_SCOPES, else "user:inference"
+'   ...FILE_DESCRIPTOR      -> a default carrying user:ccr_inference
+'   a persisted /login      -> its real scopes, which include user:profile
+' ANTHROPIC_API_KEY does not shadow a login, and is only fatal on its own.
+'
+' A BLANKED credential file is invisible to the gate, and that is its own case:
+' it reasons about the session's SHAPE, and a husk classifies as nothing at
+' all — so the gate fell silent and offered a bridge the container would
+' refuse. The host can fall back to the Keychain; the container cannot, so in
+' there the file IS the credential and an empty one is no login.
+'
+' The bridge is a TCP relay the agent reaches as host.docker.internal — which
+' only the docker backend's bridge network resolves to the host, and only on the
+' open+forward tier (every other tier parks the agent behind a sidecar with no
+' route out but the proxy). This USED to exclude sbx too — see the correction
+' at the top of this file; the two
+' boxes exclude each other and are re-gated on every toggle.
+'
+' The gate is read from the FORM rather than from the row in hand: the sandbox
+' box lives in the execution group and the Chrome box in the interface one, so
+' the two are no longer neighbours in one slice. And from the row's OPTIONS
+' rather than from On — the loop that ticks the compulsory box is what sets On,
+' so asking On answers from the previous pass and leaves the host browser drawn
+' live for one whole paint, long enough to accept.
+'
+' ── THE PREFLIGHT ASKS ABOUT THE AGENT'S ENVIRONMENT, NOT proveo'S ─────────
+' Those differ, and the difference was a live bug. Two ways of being
+' authenticated compete and do not merge, so AuthSuppressor drops every auth var
+' of a provider whose login is already on disk — and the gate, reading the raw
+' host environment, greyed the box over a CLAUDE_CODE_OAUTH_TOKEN proveo was
+' itself about to suppress. The run got the login and Chrome would have worked;
+' the picker said it could not. Both halves come from AuthSuppressor rather than
+' from a second rule that happens to agree, because the two disagreeing is what
+' produced the bug.
+'
+' Reading the credential rule as "env-var sessions are refused" was the other
+' half of the same mistake: it greyed the box for a correctly-scoped token that
+' would have connected, and for an ANTHROPIC_API_KEY set beside a login the key
+' does not displace. Offering the box would sell a bridge to a client that has
+' already decided not to use it; withholding it hides one that works.
+'
+' DOCKER BACKEND ONLY. On sbx every outbound TCP is proxied and the VM "cannot
+' access your host network directly" (Docker Sandboxes security docs), so the
+' run never sets the variable there and the in-container half is a no-op.
+'
+' The launch flag is the ONLY thing that turns Chrome integration on for the
+' session. `claudeInChromeDefaultEnabled` is deliberately NOT written to the
+' operator's ~/.claude.json: it persists in the proveo home, and a later run
+' without the add-on would then load browser tools that cannot connect, on
+' every turn. The one-time onboarding dialog IS marked seen — it blocks on a
+' keypress no automation answers, and it carries no posture.
+'
+' Before the browser integration is wired at all — BEFORE `--chrome` and before
+' CLAUDE_CODE_ENABLE_CFC, so neither overrides it — Claude Code asks whether the
+' session's OAuth scopes contain any of BrowserScopes, and logs
+'
+'   [Claude in Chrome] Disabled: OAuth token has no scope accepted by
+'   /api/oauth/validate (needs user:profile, user:office, or user:ccr_inference;
+'   env-var and setup-token sessions default to user:inference only)
+'
+' The endpoint is NAMED in the message but never called: the scopes are
+' SYNTHESISED on the client from where the credential arrived. That is the whole
+' rule, and it is why "an env-var session gets no Chrome" was too broad a
+' reading — Anthropic's own cloud launcher passes CLAUDE_CODE_OAUTH_TOKEN and
+' gets Chrome, because it sets CLAUDE_CODE_OAUTH_SCOPES beside it.
+'
+' The env-token fallback is inference-only, which accepts nothing. `claude
+' setup-token` mints exactly that shape, which is where the "setup-token
+' sessions cannot use Chrome" folklore comes from — true, but as a consequence
+' rather than as a rule.
+'
+' A persisted /login in the home this run mounts passes because its real scopes
+' include user:profile; proveo cannot read them (macOS moves the token to the
+' Keychain and blanks the file) and does not need to. A shape ScopeGate cannot
+' classify returns "": the gate exists to spare the operator a bridge Claude
+' Code has already decided not to use, not to invent refusals.
+
+node "Operator's machine" as HOSTM <<host>> {
+  component "Chrome + Claude in Chrome extension\n(the operator's logins, the extension's site permissions)" as CHROME <<cloud>>
+  component "native messaging host\n""claude --chrome-native-host""" as NMH <<app>>
+  database "LISTENS\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""" as HSOCK <<db>>
+  component "proveo run — ""internal/chromebridge""\nTCP relay, per-run token" as RELAY <<app>>
+  component "picker add-on\n""claude-in-chrome"" — off by default" as PICK <<app>>
+}
+
+node "Agent container (docker backend)" as CONT <<host>> {
+  component "chrome-bridge.js\n""proveo_chrome_bridge"" starts it before ""exec claude""" as CRELAY <<app>>
+  database "LISTENS, same rule for <user>\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""\n0700 dir · 0600 socket" as CSOCK <<db>>
+  component "Claude Code ""--chrome""\nclaude-in-chrome MCP server (CONNECTS)" as CC <<app>>
+}
+
+component "sandbox VM (sbx)\nno route to the host" as SBX <<error>>
+component "session with no accepted scope\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
+component "connection without the token\nclosed before a byte flows" as BAD <<error>>
+
+CHROME ARROW_MAIN NMH : spawns, native messaging (stdio)
+NMH    ARROW_MAIN HSOCK : creates, listens
+CC     ARROW_MAIN CSOCK : newest ""*.sock"" in its dir
+CSOCK  ARROW_MAIN CRELAY
+CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\nfirst line ""PROVEO-CHROME-BRIDGE <token>""
+RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
+PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
+PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked —\nand on an sbx harness that box is now COMPULSORY,\nso ""PROVEO_SBX=0"" is the only way to reach this add-on
+PICK   ARROW_ERROR SCOPE : greyed when the session's scopes\nname none of the three (""chromebridge.ScopeGate"")
+RELAY  ARROW_ERROR BAD
+
+note right of NMH
+  **Who listens, who connects.** The native
+  host is the server; Claude Code's MCP
+  server is the client and picks the newest
+  socket. Both halves of the bridge keep
+  that shape, so neither Claude Code changes.
+end note
+
+note bottom of RELAY
+  **TCP, because virtiofs drops sockets.** A
+  bind mount cannot carry a Unix socket into
+  Docker Desktop or OrbStack. The listener is
+  loopback on macOS; the token is what guards
+  Linux's bridge-facing address.
+end note
+
+note bottom of CRELAY
+  **Same username rule as Claude Code.**
+  ""os.userInfo().username"", else ""$USER"",
+  ""$USERNAME"", ""default"". An arbitrary run-as
+  uid lands on the fallback; guessing from
+  the shell would miss the directory.
+end note
+
+note bottom of CC
+  **--chrome is the only switch.**
+  ""claudeInChromeDefaultEnabled"" is never
+  persisted: the home outlives the run, and a
+  later run would load browser tools that
+  cannot connect. Onboarding IS marked seen.
+end note
+
+note right of SBX
+  **Docker backend only.** Every outbound TCP
+  of a sandbox is proxied on the host and the
+  VM "cannot access your host network
+  directly" (Docker Sandboxes security docs).
+  Fallback prints why, never silently.
+end note
+
+note right of SCOPE
+  **A rule about scopes, not variables.** The
+  gate wants one of ""user:profile"",
+  ""user:office"" or ""user:ccr_inference"", and it
+  runs BEFORE ""--chrome"" and
+  ""CLAUDE_CODE_ENABLE_CFC"" — neither overrides
+  it. But ""/api/oauth/validate"" is only NAMED
+  in the message: the scopes are synthesised
+  on the client from where the credential came.
+
+  ""CLAUDE_CODE_OAUTH_TOKEN"" → whatever
+  ""CLAUDE_CODE_OAUTH_SCOPES"" says, else the
+  literal ""user:inference"" — which is what
+  ""claude setup-token"" mints. File-descriptor
+  delivery → a default carrying
+  ""user:ccr_inference"". A ""/login"" store → its
+  real scopes. Two of the three paths pass;
+  Anthropic's own cloud launcher sets both env
+  vars and gets Chrome.
+
+  ""CLAUDE_CODE_OAUTH_TOKEN"" SHADOWS the store.
+  ""ANTHROPIC_API_KEY"" does not.
+
+  **The gate asks what the AGENT will see, not
+  what proveo was launched in.** Two ways of being
+  authenticated compete and do not merge, so
+  ""AuthSuppressor"" drops every auth var of a
+  provider whose login is already on disk. Reading
+  the raw host environment instead greyed the box
+  over a token proveo was itself about to suppress:
+  the run got the login and the bridge would have
+  worked, while the picker said it could not. Both
+  halves come from ""AuthSuppressor"" now, rather
+  than from a second rule that happens to agree.
+end note
+
+note as SbxViewport #F4F9FB
+  **The sandbox backend takes the other route.** This bridge points OUTWARD: the
+  agent reaches the operator's own Chrome through a relay on the host, named as
+  ""host.docker.internal"" — which only the docker backend's bridge network
+  resolves, and which a sandbox VM cannot name at all. sbx publishes ports the
+  other way (host → sandbox), so it can never serve this direction.
+
+  What it can serve is the mirror image: the agent's OWN Chromium, published to
+  host loopback so the operator attaches DevTools or Playwright to it. That is
+  the browser add-on's viewport — _spec/internal/sbx/browser-viewport.puml.
+end note
+
+@enduml

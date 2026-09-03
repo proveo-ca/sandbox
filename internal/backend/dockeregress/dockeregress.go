@@ -66,9 +66,11 @@ type Input struct {
 	UID, GID                            string
 	ModelsDir, BrokerFile               string
 	HostOllama, OllamaGPU               bool
+	HostBridge                          bool // a `proveo run` relay is listening on the host (Claude in Chrome bridge)
 	Mounts                              []runner.Mount
 	Workdir                             string
 	Env                                 []string // declared env var names to forward (bare -e)
+	ChildEnv                            []string // "KEY=VALUE" for the docker process, never the argv
 	ProviderDomains                     string
 	SquidImage, ProxyImage, OllamaImage string
 	PidsLimit                           int      // host/tier-resolved --pids-limit
@@ -84,6 +86,7 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		SessionID: in.Sid, AgentName: in.Target, UID: in.UID, GID: in.GID,
 		LocalModel: in.LocalModel, ModelsDir: in.ModelsDir, Providers: in.Providers, BrokerEnvFile: in.BrokerFile,
 		HostOllama: in.HostOllama, OllamaGPU: in.OllamaGPU,
+		HostBridge:      in.HostBridge,
 		ProviderDomains: in.ProviderDomains,
 		ReviewSocket:    in.ReviewSocket,
 		AuthVar:         in.AuthVar,
@@ -103,6 +106,7 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		Mounts:    in.Mounts,
 		Workdir:   in.Workdir,
 		Env:       in.Env,
+		ChildEnv:  in.ChildEnv,
 		ExtraArgs: plan.AgentArgs, Image: in.Image, Command: in.Extra,
 		PidsLimit: in.PidsLimit,
 	}
@@ -206,6 +210,10 @@ func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, prov
 
 func ExecAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 	c := exec.Command("docker", runner.DockerRunArgs(agent)...)
+	// The values behind every bare `-e NAME`, for THIS process only.
+	if len(agent.ChildEnv) > 0 {
+		c.Env = append(os.Environ(), agent.ChildEnv...)
+	}
 	var err error
 	if proxy != nil {
 		err = proxy.Run(c)

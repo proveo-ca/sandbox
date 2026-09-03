@@ -357,6 +357,22 @@ _normalize_model() {
  esac
 }
 
+# _model_provider prints the provider a model id belongs to, or nothing when it
+# cannot be resolved. Built on _normalize_model so the prefix table lives in ONE
+# place in this file; internal/contract pins it against provider.ModelProvider.
+_model_provider() {
+ local n
+ n="$(_normalize_model "$1")"
+ case "$n" in
+ # Local and shim endpoints serve arbitrary ids, so their prefix classifies
+ # nothing. ModelProvider returns "" for exactly these three, and the two must
+ # agree — internal/contract runs one table through both.
+ ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
+ */*) printf '%s' "${n%%/*}" ;;
+ *) printf '' ;;
+ esac
+}
+
 _apply_env_bridge() {
  local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
  printenv "$to" >/dev/null 2>&1 && return 0
@@ -387,8 +403,8 @@ apply_env_bridges() {
 # Shell has to be the executor: proveo-entrypoint prep cannot export into its parent
 # (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
 _apply_model_bridge() {
- local targets="$1" roles="$2" default="$3" transform="$4"
- local val="" r t
+ local targets="$1" roles="$2" default="$3" transform="$4" want="$5"
+ local val="" r t got
  local -a role_list target_list
  IFS=',' read -ra role_list <<< "$roles"
  for r in "${role_list[@]}"; do
@@ -402,6 +418,16 @@ _apply_model_bridge() {
   esac
  fi
  [[ -n "$val" ]] || return 0
+ # A vendor-locked slot refuses a model from another provider, BEFORE the
+ # transform. An unresolvable provider is accepted.
+ # SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
+ if [[ -n "$want" && "$want" != "-" ]]; then
+  got="$(_model_provider "$val")"
+  if [[ -n "$got" && "$got" != "$want" ]]; then
+   echo "⚠️  model: $targets takes models from $want only — refusing $val, which resolves to $got. The slot is left unset, so the agent falls back to its own default; name a model from $want, or run a harness that accepts $got." >&2
+   return 0
+  fi
+ fi
  case "$transform" in
  normalize) val="$(_normalize_model "$val")" ;;
  bare) val="${val##*/}" ;;
@@ -418,11 +444,11 @@ apply_model_bridges() {
  local harness="$1"
  local file="${PROVEO_BRIDGES_DIR:-/opt/proveo/bridges}/$harness.tsv"
  [[ -f "$file" ]] || return 0
- local slot targets roles default transform
+ local slot targets roles default transform want
  # Row order is load-bearing: a "$VAR" default must run after the row that sets VAR.
- while IFS=$'\t' read -r slot targets roles default transform; do
+ while IFS=$'\t' read -r slot targets roles default transform want; do
   [[ -n "$slot" && "$slot" != \#* ]] || continue
-  _apply_model_bridge "$targets" "$roles" "$default" "$transform"
+  _apply_model_bridge "$targets" "$roles" "$default" "$transform" "$want"
  done < "$file"
 }
 
@@ -809,16 +835,18 @@ _py_activate() {
 # differs per language is not whether the tree crosses the boundary but what it
 # COSTS when it does, and that is what the table below encodes.
 #
+# Per project the walk finds: make a HOST-BUILT tree usable, then INSTALL
+# before the agent runs. See _spec/packages/lib/dependency-trees.puml.
+#
 # Python is the extreme: a venv ALWAYS holds a platform interpreter, so it can
 # never be inherited and ensure_python_env provisions unconditionally, outside
-# the workspace. Everything else is a mixture, and the mixture is the trap —
-# the portable majority loads fine and the failure surfaces later, at the first
-# call into a platform binary, in a message that names the tool rather than the
-# platform.
+# the workspace. Its in-tree ".venv" is still isolated by the mount plan, so the
+# host's interpreter never crosses either way.
 
 # _dep_lang_class decides the remedy, so every supported language gets an
 # explicit entry — including the ones with nothing to do, because an absent row
-# is indistinguishable from an oversight.
+# is indistinguishable from an oversight. internal/contract pins this list to the
+# language registry, and the markers/dirs rows to internal/workspace.DepLangs.
 #
 #   addons      mostly-portable tree punctuated by platform binaries; the
 #               package manager can rebuild it, given a reachable registry
@@ -828,28 +856,39 @@ _py_activate() {
 #   portable    nothing host-specific lands in-tree: Go modules and vendor/ are
 #               source; Java/Kotlin resolve to bytecode JARs; Nix keeps its
 #               closure in /nix/store, which is never mounted
+#   none        markup and configuration; no toolchain writes anything in-tree
 _dep_lang_class() { case "$1" in
   typescript|ruby|lua|terraform) REPLY=addons ;;
   rust|cpp|zig)                  REPLY=artifacts ;;
   python)                        REPLY=provisioned ;;
   go|java|kotlin|nix)            REPLY=portable ;;
+  bash|css|docker|html|json|markdown|mermaid|plantuml|toml|yaml) REPLY=none ;;
   *)                             REPLY="" ;;
 esac; }
+
+# _dep_langs is the order the walk visits languages in: every class row except
+# `none`, which has neither markers nor an install.
+_dep_langs() { echo "typescript python ruby lua terraform rust cpp zig go java kotlin nix"; }
 
 # Markers that say "a project of this language is rooted here".
 _dep_lang_markers() { case "$1" in
   typescript) echo "package.json" ;;
+  python)     echo "pyproject.toml requirements*.txt Pipfile uv.lock poetry.lock environment.yml environment.yaml" ;;
   ruby)       echo "Gemfile" ;;
   lua)        echo "*.rockspec" ;;
   terraform)  echo ".terraform.lock.hcl" ;;
   rust)       echo "Cargo.toml" ;;
   cpp)        echo "CMakeLists.txt meson.build" ;;
   zig)        echo "build.zig" ;;
+  go)         echo "go.mod" ;;
 esac; }
 
 # The directories that language's tooling materialises inside the project.
+# The first listed is the PRIMARY: its absence means "nothing is installed"; the
+# rest are secondary caches whose absence says nothing.
 _dep_lang_dirs() { case "$1" in
   typescript) echo "node_modules" ;;
+  python)     echo ".venv venv" ;;
   ruby)       echo "vendor/bundle" ;;
   lua)        echo "lua_modules" ;;
   terraform)  echo ".terraform" ;;
@@ -869,8 +908,9 @@ _dep_lang_binaries() { case "$1" in
   rust|cpp|zig) echo "*.o *.so *.dylib" ;;
 esac; }
 
-# The command that rebuilds an `addons` tree, chosen by the project's own lockfile.
-_dep_install_cmd() { local lang="$1" d="$2"; case "$lang" in
+# The command that installs a project's dependencies, chosen by its own lockfile
+# and RESPECTING it. Languages with no row install nothing here.
+_dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
   typescript)
     [[ -f "$d/pnpm-lock.yaml" ]] && { echo "pnpm install --frozen-lockfile"; return 0; }
     [[ -f "$d/bun.lockb" || -f "$d/bun.lock" ]] && { echo "bun install --frozen-lockfile"; return 0; }
@@ -878,9 +918,37 @@ _dep_install_cmd() { local lang="$1" d="$2"; case "$lang" in
     [[ -f "$d/package-lock.json" ]] && { echo "npm ci"; return 0; }
     echo "npm install" ;;
   ruby)      echo "bundle install" ;;
-  lua)       echo "luarocks install --only-deps" ;;
-  terraform) echo "terraform init -upgrade" ;;
-esac; }
+  lua)
+    # luarocks installs INTO the project tree named by _dep_lang_dirs, from the
+    # rockspec that roots it — bare `--only-deps` with no rockspec is an error.
+    spec="$(ls "$d"/*.rockspec 2>/dev/null | head -n1)"
+    [[ -n "$spec" ]] && echo "luarocks --tree lua_modules install --only-deps ${spec##*/}" ;;
+  terraform) echo "terraform init -input=false" ;;   # honours .terraform.lock.hcl; -upgrade would rewrite it
+  rust)      echo "cargo fetch" ;;                    # crates land in CARGO_HOME, outside the tree
+  go)        echo "go mod download" ;;                # modules land in GOMODCACHE; gopls needs them present
+esac; return 0; }
+
+# _dep_install_idempotent says whether re-running the install on a tree that is
+# already present and native is a cheap no-op. `npm ci` is the exception.
+_dep_install_idempotent() { case "$1" in "npm ci"*) return 1 ;; esac; return 0; }
+
+# _proveo_dep_is_isolated reports whether DIR is proveo's private copy rather than
+# the host's tree, by asking whether it is its own mount point. Where /proc is
+# unreadable the answer is "not isolated".
+_proveo_dep_is_isolated() {
+  local real
+  real="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  [[ -r /proc/self/mountinfo ]] || return 1
+  awk -v p="$real" '$5 == p { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+# _dep_clear_tree empties a private copy in place. The directory itself is a
+# mount point and cannot be removed; its contents can.
+_dep_clear_tree() {
+  local dir="$1"
+  find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
+  return 0
+}
 
 # ELF is the only object format this container can execute, so anything else —
 # Mach-O from macOS, PE from Windows — came from the host. Four bytes settle it:
@@ -943,61 +1011,106 @@ _dep_probe() {
   return 0
 }
 
-# Why the repair is opt-in, on two counts. It writes into the mounted tree,
-# which IS the operator's checkout — a sandbox that silently rewrites the host's
-# dependencies has defeated its own purpose. And under any egress tier but open
-# the registry is off the allowlist, so the install fails partway and leaves the
-# tree PARTIAL: strictly worse than the host-built one it replaced, which at
-# least carried everything portable.
-_dep_reinstall() {
-  local lang="$1" root="$2" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
+# _dep_install runs the language's install command in ROOT, bounded, and reports
+# the outcome without ever failing the seed: a workspace whose install cannot
+# complete still gets an agent, just a warned one.
+_dep_install() {
+  local lang="$1" root="$2" why="$3" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
   cmd="$(_dep_install_cmd "$lang" "$root")"
   [[ -n "$cmd" ]] || return 0
   if ! command -v "${cmd%% *}" >/dev/null 2>&1; then
-    echo "    ⚠️  ${cmd%% *} is not on PATH; cannot reinstall"
+    echo "    ⚠️  ${cmd%% *} is not on PATH; cannot install ${lang} dependencies for ${root#"$(_proveo_scan_root)"/}"
     return 0
   fi
-  echo "    ♻️  ${cmd} — rebuilding for this platform; this rewrites the mounted tree,"
-  echo "        which is the operator's checkout (PROVEO_DEPS=off to skip)..."
+  echo "    📦 ${cmd} — ${why}"
   ( cd "$root" && _proveo_bounded "$bounded" $cmd ) || rc=$?
   if [[ $rc -eq 0 ]]; then
-    echo "    ✅ ${lang} dependencies rebuilt for this platform"
+    echo "    ✅ ${lang} dependencies ready in ${root#"$(_proveo_scan_root)"/}"
   else
-    echo "    ⚠️  Reinstall failed (rc=${rc}). Under any egress tier but open the registry is"
-    echo "        off the allowlist, so the fetch cannot complete; the tree is now PARTIAL."
-    echo "        Rerun with --egress-mode open, or restore it on the host."
+    echo "    ⚠️  ${cmd} failed (rc=${rc}). If the registry is not reachable under this egress tier,"
+    echo "        rerun with --egress-mode open; a lockfile that disagrees with its manifest is"
+    echo "        reported rather than rewritten — reconcile it and rerun."
   fi
   return 0
 }
 
-_dep_report_addons() {
-  local lang="$1" root="$2" dir="$3" mode="$4" foreign names count
+# _dep_addons_tree handles a PRESENT addons tree: foreign → rebuild (where that
+# is safe), native → refresh against the lockfile.
+_dep_addons_tree() {
+  local lang="$1" root="$2" dir="$3" mode="$4" foreign names count cmd
   foreign="$(_dep_probe "$dir" "$lang" | sort -u)"
-  [[ -n "$foreign" ]] || return 0
-  count="$(printf '%s\n' "$foreign" | grep -c .)"
-  names="$(printf '%s\n' "$foreign" | head -n 5 | paste -sd' ' -)"
-  echo "⚠️  ${dir#"$root"/} was built on the host: ${count} ${lang} package(s) carry binaries"
-  echo "    this platform cannot load (${names})."
-  echo "    The portable majority still loads, so the failure arrives later, at the first"
-  echo "    call into one of them, naming the TOOL rather than the platform."
-  # A FOREIGN tree is already unusable here, so reinstalling costs the sandbox
-  # nothing and is the only way the agent can run anything. It does rewrite the
-  # mounted tree — which is the operator's checkout — so it is confined to exactly
-  # this case: a tree that is native, or absent, is never silently replaced.
-  case "$mode" in
-    off) ;;
-    reinstall|auto) _dep_reinstall "$lang" "$root" ;;
-  esac
+  if [[ -n "$foreign" ]]; then
+    count="$(printf '%s\n' "$foreign" | grep -c .)"
+    names="$(printf '%s\n' "$foreign" | head -n 5 | paste -sd' ' -)"
+    echo "⚠️  ${dir#"$root"/} was built on the host: ${count} ${lang} package(s) carry binaries"
+    echo "    this platform cannot load (${names})."
+    echo "    The portable majority still loads, so the failure arrives later, at the first"
+    echo "    call into one of them, naming the TOOL rather than the platform."
+    if _proveo_dep_is_isolated "$dir"; then
+      # The copy is proveo's, so clearing it costs the operator nothing — and a
+      # package manager handed an existing tree would keep the foreign binaries
+      # it finds there, which is why the rebuild starts from empty.
+      echo "    ♻️  this is proveo's private copy; the host checkout is untouched — clearing it"
+      _dep_clear_tree "$dir"
+      _dep_install "$lang" "$root" "rebuilding ${dir#"$root"/} for this platform"
+    else
+      case "$mode" in
+        reinstall) _dep_install "$lang" "$root" "rebuilding ${dir#"$root"/} IN PLACE — this rewrites the operator's checkout (PROVEO_DEPS=reinstall)" ;;
+        *)
+          echo "    ℹ️  this tree is the host's own (sbx mirrors the checkout): PROVEO_DEPS=reinstall rewrites it"
+          echo "        in place, or run with --clone so untracked trees stay behind and the seed installs fresh" ;;
+      esac
+    fi
+    return 0
+  fi
+  cmd="$(_dep_install_cmd "$lang" "$root")"
+  [[ -n "$cmd" ]] && _dep_install_idempotent "$cmd" || return 0
+  _dep_install "$lang" "$root" "refreshing ${dir#"$root"/} against its lockfile"
 }
 
-# Build output needs no registry — the toolchain regenerates it. The only advice
-# that helps is to get the stale tree out of the way, so this never offers an
-# install and never touches the operator's files.
-_dep_report_artifacts() {
+# Build output needs no registry — the toolchain regenerates it. A foreign copy
+# is simply cleared out of the way; a foreign HOST tree is named, since removing
+# the operator's build output is not proveo's call.
+_dep_artifacts_tree() {
   local lang="$1" root="$2" dir="$3"
   [[ -n "$(_dep_probe "$dir" "$lang" | head -n1)" ]] || return 0
-  echo "ℹ️  ${dir#"$root"/} holds ${lang} build output from the host and cannot be reused here."
-  echo "    The toolchain rebuilds it; remove that directory if a build reads the stale one."
+  if _proveo_dep_is_isolated "$dir"; then
+    echo "♻️  ${dir#"$root"/} holds ${lang} build output from the host; clearing proveo's private copy so the toolchain rebuilds it here"
+    _dep_clear_tree "$dir"
+  else
+    echo "ℹ️  ${dir#"$root"/} holds ${lang} build output from the host and cannot be reused here."
+    echo "    The toolchain rebuilds it; remove that directory if a build reads the stale one."
+  fi
+  return 0
+}
+
+# _ts_is_workspace_root: a workspace installs every member from ITS root, so
+# members are collapsed into their root.
+_ts_is_workspace_root() {
+  local d="$1"
+  [[ -f "$d/pnpm-workspace.yaml" ]] && return 0
+  [[ -f "$d/package.json" ]] && grep -q '"workspaces"' "$d/package.json" 2>/dev/null
+}
+
+# _dep_collapse_workspaces reads project roots (shallowest first, as
+# _proveo_project_roots emits them) and drops every root that sits under a
+# workspace root already seen.
+_dep_collapse_workspaces() {
+  local root w skip
+  local ws=()
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    skip=0
+    if [[ ${#ws[@]} -gt 0 ]]; then
+      for w in "${ws[@]}"; do
+        case "$root" in "$w"/*) skip=1; break ;; esac
+      done
+    fi
+    [[ $skip -eq 1 ]] && continue
+    _ts_is_workspace_root "$root" && ws+=("$root")
+    printf '%s\n' "$root"
+  done
+  return 0
 }
 
 ensure_dependency_trees() {
@@ -1006,33 +1119,35 @@ ensure_dependency_trees() {
   mode="$(printf '%s' "${PROVEO_DEPS:-auto}" | tr '[:upper:]' '[:lower:]')"
   case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
 
-  for lang in typescript ruby lua terraform rust cpp zig; do
+  for lang in $(_dep_langs); do
     _dep_lang_class "$lang"; class="$REPLY"
-    markers="$(_dep_lang_markers "$lang")"; dirs="$(_dep_lang_dirs "$lang")"
-    [[ -n "$markers" && -n "$dirs" ]] || continue
-    # The first listed directory is the one whose absence means "nothing is
-    # installed"; the rest are secondary caches whose absence says nothing.
-    primary="${dirs%% *}"
+    markers="$(_dep_lang_markers "$lang")"
+    [[ -n "$markers" ]] || continue
+    dirs="$(_dep_lang_dirs "$lang")"; primary="${dirs%% *}"
     roots="$(_proveo_project_roots "$scan" "${PROVEO_DEP_SCAN_DEPTH:-4}" $markers)"
     [[ -n "$roots" ]] || continue
+    [[ "$lang" == typescript ]] && roots="$(printf '%s\n' "$roots" | _dep_collapse_workspaces)"
     while IFS= read -r root; do
       [[ -n "$root" ]] || continue
-      for dir in $dirs; do
-        if [[ ! -d "$root/$dir" ]]; then
-          # Only an `addons` tree is REQUIRED to exist: absent build output is
-          # the normal state of a clean checkout, absent dependencies are not.
-          if [[ "$class" == addons && "$dir" == "$primary" ]]; then
-            echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${dir} — nothing is installed here"
-            # Nothing to replace, so installing destroys nothing.
-            [[ "$mode" != off ]] && _dep_reinstall "$lang" "$root"
-          fi
-          continue
-        fi
-        case "$class" in
-          addons)    _dep_report_addons "$lang" "$root" "$root/$dir" "$mode" ;;
-          artifacts) _dep_report_artifacts "$lang" "$root" "$root/$dir" ;;
-        esac
-      done
+      case "$class" in
+        addons)
+          if [[ ! -d "$root/$primary" ]]; then
+            echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${primary} — nothing is installed here"
+            _dep_install "$lang" "$root" "installing ${primary} before the agent starts"
+          else
+            for dir in $dirs; do
+              [[ -d "$root/$dir" ]] && _dep_addons_tree "$lang" "$root" "$root/$dir" "$mode"
+            done
+          fi ;;
+        artifacts)
+          for dir in $dirs; do
+            [[ -d "$root/$dir" ]] && _dep_artifacts_tree "$lang" "$root" "$root/$dir"
+          done
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+        portable)
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+        provisioned|none|"") ;;
+      esac
     done <<< "$roots"
   done
   return 0
@@ -1200,7 +1315,9 @@ ensure_node_toolchain() {
   # for this container; the standalone pnpm the image ships would otherwise win
   # on PATH and quietly use a different major.
   pm="$(_node_json_field "$pkg" packageManager)"
-  if [[ -n "$pm" ]] && command -v corepack >/dev/null 2>&1; then
+  # corepack knows npm, pnpm and yarn. A `bun@…` pin is mise's (ensure_bun_pin,
+  # below); handing it to corepack only buys a "could not activate" warning.
+  if [[ -n "$pm" && "$pm" != bun@* ]] && command -v corepack >/dev/null 2>&1; then
     if _proveo_bounded "${PROVEO_NODE_TIMEOUT:-180}" corepack prepare "$pm" --activate >/dev/null 2>&1 \
        && _proveo_bounded 30 corepack enable >/dev/null 2>&1; then
       echo "📦 package manager: ${pm} (corepack, from $(basename "$(dirname "$pkg")")/package.json)"
@@ -1208,6 +1325,8 @@ ensure_node_toolchain() {
       echo "⚠️  could not activate ${pm}; continuing with $(pnpm --version 2>/dev/null || echo 'the image default')"
     fi
   fi
+
+  ensure_bun_pin "$pkg" "$scan"
 
   # engines.node is a RANGE, not a pin, so it is only acted on when the running
   # node fails it — reinstalling a satisfying runtime buys nothing and costs a
@@ -1223,6 +1342,58 @@ ensure_node_toolchain() {
   command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — keeping node ${have}"; return 0; }
   _mise_install "node@${want_node%%.x*}" "$(_proveo_github_token)" >/dev/null 2>&1 \
     && _proveo_tool_path || echo "⚠️  could not provision node ${want_node}; keeping ${have}"
+}
+
+# ── Bun: the same rule, through mise ──
+# packageManager (exact pin), engines.bun (a range) or .bun-version asks for a
+# bun; corepack does not manage bun, so the pin goes through mise.
+_bun_wanted() {
+  local pkg="$1" scan="$2" pm want
+  pm="$(_node_json_field "$pkg" packageManager)"
+  case "$pm" in bun@?*) printf '%s' "${pm#bun@}"; return 0 ;; esac
+  want="$(_node_json_field "$pkg" engines.bun)"
+  [[ -n "$want" ]] && { printf '%s' "$want"; return 0; }
+  [[ -f "$scan/.bun-version" ]] && head -n1 "$scan/.bun-version" | tr -d ' v\t'
+  return 0
+}
+
+# _bun_satisfies: an exact X.Y.Z is matched exactly (that is what a pin means);
+# anything else is a range and follows _node_satisfies (major agreement).
+_bun_satisfies() {
+  local have="$1" want="$2"
+  [[ -n "$have" ]] || return 1
+  case "$want" in
+    [0-9]*.[0-9]*.[0-9]*) [[ "${want%%[^0-9.]*}" == "$want" ]] && { [[ "$have" == "$want" ]]; return $?; } ;;
+  esac
+  _node_satisfies "$have" "$want"
+}
+
+# _bun_mise_spec turns what the project wrote into what mise installs: an exact
+# pin verbatim, a range down to its leading version prefix ("^1.4" → 1.4).
+_bun_mise_spec() {
+  local want="$1" v
+  v="$(printf '%s' "$want" | sed -n 's/^[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+  v="${v%.x}"; v="${v%.}"
+  printf '%s' "${v:-latest}"
+}
+
+ensure_bun_pin() {
+  local pkg="$1" scan="$2" want have
+  want="$(_bun_wanted "$pkg" "$scan")"
+  [[ -n "$want" ]] || return 0
+  have="$(bun --version 2>/dev/null)"
+  if _bun_satisfies "$have" "$want"; then
+    return 0
+  fi
+  echo "🥟 bun ${have:-none} does not satisfy ${want}; provisioning via mise..."
+  command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — keeping bun ${have:-none}"; return 0; }
+  if _mise_install "bun@$(_bun_mise_spec "$want")" "$(_proveo_github_token)" >/dev/null 2>&1; then
+    _proveo_tool_path
+    echo "📦 bun: $(bun --version 2>/dev/null || echo "$want") (mise, from $(basename "$(dirname "$pkg")")/package.json)"
+  else
+    echo "⚠️  could not provision bun ${want}; keeping ${have:-none}"
+  fi
+  return 0
 }
 
 _node_version_file() {
@@ -1292,6 +1463,266 @@ proveo_apply_ui_defaults() {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
   ' 2>/dev/null || true
+}
+
+# ── 7h. Claude Code hooks — the cwd guard ──
+# SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+# Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (path; tests point it elsewhere).
+proveo_install_claude_hooks() {
+  local target="${1:-}" home hook
+  case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ "$target" == claudecode ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  hook="${PROVEO_CWD_GUARD_HOOK:-/opt/claudecode/defaults/hooks/cwd-guard.sh}"
+  [[ -s "$hook" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_AGENT_HOME="$home" PROVEO_HOOK="$hook" node -e '
+    const fs = require("fs");
+    const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
+    const path = dir + "/settings.json";
+    const cmd = "bash " + process.env.PROVEO_HOOK;
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (typeof j.hooks !== "object" || j.hooks === null) j.hooks = {};
+    if (!Array.isArray(j.hooks.PreToolUse)) j.hooks.PreToolUse = [];
+    const present = j.hooks.PreToolUse.some(g => g && Array.isArray(g.hooks)
+      && g.hooks.some(h => h && h.command === cmd));
+    if (!present) j.hooks.PreToolUse.push({ matcher: "Bash", hooks: [{ type: "command", command: cmd, timeout: 5 }] });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null && echo "🛡️  cwd guard: PreToolUse(Bash) hook names a vanished working directory instead of a silent exit 1"
+  return 0
+}
+
+# ── 7i. Claude Code code-intelligence plugins — seeded by the image, enabled here ──
+# SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
+# Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (set by the image).
+# The rule is the binary. Pinned to the Dockerfile's install list by internal/contract.
+_claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
+_claude_lsp_plugin_binary() { case "$1" in
+  typescript-lsp)    echo "typescript-language-server" ;;
+  pyright-lsp)       echo "pyright-langserver" ;;
+  gopls-lsp)         echo "gopls" ;;
+  rust-analyzer-lsp) echo "rust-analyzer" ;;
+  clangd-lsp)        echo "clangd" ;;
+  jdtls-lsp)         echo "jdtls" ;;
+  lua-lsp)           echo "lua-language-server" ;;
+esac; }
+# The proveo-lsp language each official plugin supersedes.
+_claude_lsp_plugin_lang() { case "$1" in
+  typescript-lsp)    echo "typescript" ;;
+  pyright-lsp)       echo "python" ;;
+  gopls-lsp)         echo "go" ;;
+  rust-analyzer-lsp) echo "rust" ;;
+  clangd-lsp)        echo "cpp" ;;
+  jdtls-lsp)         echo "java" ;;
+  lua-lsp)           echo "lua" ;;
+esac; }
+
+# proveo_enable_claude_lsp_plugins turns on every seeded official plugin whose
+# binary is present, MERGED into the agent's user settings, and writes the two
+# records Claude Code installs by (installed_plugins.json, known_marketplaces.json).
+# Exports PROVEO_CLAUDE_LSP_OFFICIAL.
+proveo_enable_claude_lsp_plugins() {
+  local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
+  export PROVEO_CLAUDE_LSP_OFFICIAL=""
+  case "$(printf '%s' "${PROVEO_CLAUDE_LSP_PLUGINS:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  [[ "$target" == claudecode ]] || return 0
+  seed="${CLAUDE_CODE_PLUGIN_SEED_DIR:-}"
+  [[ -n "$seed" && -d "$seed/cache/claude-plugins-official" ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  for p in $(_claude_lsp_plugins); do
+    [[ -d "$seed/cache/claude-plugins-official/$p" ]] || continue
+    bin="$(_claude_lsp_plugin_binary "$p")"
+    command -v "$bin" >/dev/null 2>&1 || continue
+    candidates="${candidates:+$candidates }$p"
+  done
+  [[ -n "$candidates" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  # node merges the three files and REPORTS what is on afterwards: a plugin the
+  # operator set to false stays off, and its language goes back to proveo-lsp.
+  enabled="$(PROVEO_AGENT_HOME="$home" PROVEO_SEED="$seed" PROVEO_PLUGINS="$candidates" node -e '
+    const fs = require("fs"), path = require("path");
+    const home = process.env.PROVEO_AGENT_HOME + "/.claude", seed = process.env.PROVEO_SEED;
+    const MKT = "claude-plugins-official";
+    const read = (p, fallback) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) || fallback; } catch (e) { return fallback; } };
+    const write = (p, j) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); };
+    // 1. the marketplace, at the seed clone, unless the operator has one already
+    const known = read(home + "/plugins/known_marketplaces.json", {});
+    const seedKnown = read(seed + "/known_marketplaces.json", {});
+    if (!known[MKT]) {
+      known[MKT] = seedKnown[MKT] || { source: { source: "github", repo: "anthropics/" + MKT } };
+      known[MKT].installLocation = seed + "/marketplaces/" + MKT;
+      write(home + "/plugins/known_marketplaces.json", known);
+    }
+    // 2. the install records, at the seed cache, unless already installed
+    const inst = read(home + "/plugins/installed_plugins.json", { version: 2, plugins: {} });
+    if (typeof inst.plugins !== "object" || inst.plugins === null) inst.plugins = {};
+    const seedInst = read(seed + "/installed_plugins.json", { plugins: {} }).plugins || {};
+    const now = new Date().toISOString();
+    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
+      const key = p + "@" + MKT;
+      if (inst.plugins[key]) continue;
+      const cache = seed + "/cache/" + MKT + "/" + p;
+      let version = "", installPath = "";
+      const fromSeed = (seedInst[key] || [])[0];
+      if (fromSeed && fromSeed.installPath && fs.existsSync(fromSeed.installPath)) { version = fromSeed.version; installPath = fromSeed.installPath; }
+      else { const vs = fs.existsSync(cache) ? fs.readdirSync(cache).filter(d => !d.startsWith(".")) : []; if (vs.length) { version = vs[0]; installPath = cache + "/" + vs[0]; } }
+      if (!installPath) continue;
+      inst.plugins[key] = [{ scope: "user", installPath, version, installedAt: now, lastUpdated: now }];
+    }
+    write(home + "/plugins/installed_plugins.json", inst);
+    // 3. enablement, respecting an explicit false
+    const settingsPath = home + "/settings.json";
+    const j = read(settingsPath, {});
+    if (typeof j.enabledPlugins !== "object" || j.enabledPlugins === null) j.enabledPlugins = {};
+    const on = [];
+    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
+      const key = p + "@" + MKT;
+      if (!inst.plugins[key]) continue;
+      if (j.enabledPlugins[key] === undefined) j.enabledPlugins[key] = true;
+      if (j.enabledPlugins[key] === true) on.push(p);
+    }
+    write(settingsPath, j);
+    process.stdout.write(on.join(" "));
+  ' 2>/dev/null)" || return 0
+  [[ -n "$enabled" ]] || return 0
+  for p in $enabled; do langs="${langs:+$langs }$(_claude_lsp_plugin_lang "$p")"; done
+  export PROVEO_CLAUDE_LSP_OFFICIAL="$langs"
+  echo "🧠 code intelligence plugins (seeded in the image, no install prompt): ${enabled}"
+  return 0
+}
+
+# ── 7j. Browser layer — the agent-browser skill, and the Claude in Chrome bridge ──
+# SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
+# Knobs: PROVEO_BROWSER_SKILL=off · PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN
+#        (both set by `proveo run` when the claude-in-chrome add-on is on).
+# Gated on the BINARY, not the image name.
+_browser_skill_dir() { case "$1" in
+  claudecode) echo ".claude/skills" ;;
+  cursor)     echo ".cursor/skills" ;;
+  opencode)   echo ".config/opencode/skills" ;;
+  cecli|*)    echo "" ;;
+esac; }
+
+readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
+
+proveo_seed_browser_skills() {
+  local target="${1:-}" home dir dst ver
+  case "$(printf '%s' "${PROVEO_BROWSER_SKILL:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  command -v agent-browser >/dev/null 2>&1 || return 0
+  [[ -s "$PROVEO_BROWSER_SKILL_SRC" ]] || return 0
+  dir="$(_browser_skill_dir "$target")"
+  [[ -n "$dir" ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  dst="$home/$dir/agent-browser"
+  mkdir -p "$dst" 2>/dev/null || return 0
+  # proveo's file, so it is refreshed in place; an operator's own skills beside it
+  # are never touched. (sha256sum, not cmp: diffutils is not on the slim floor.)
+  if [[ "$(sha256sum < "$PROVEO_BROWSER_SKILL_SRC")" != "$(sha256sum < "$dst/SKILL.md" 2>/dev/null)" ]]; then
+    cp -f "$PROVEO_BROWSER_SKILL_SRC" "$dst/SKILL.md" 2>/dev/null || return 0
+  fi
+  ver="$(agent-browser --version 2>/dev/null | awk '{print $NF}')"
+  echo "🕸️  browser: agent-browser ${ver:-?} + Playwright Chromium (headless) — skill at ~/${dir}/agent-browser"
+  return 0
+}
+
+# SPEC: _spec/defs/claudecode/chrome-bridge.puml
+#
+# Two relays carry the native-host socket across the boundary; this is the
+# in-container half. PROVEO_CHROME_BRIDGE names the host end. Docker backend
+# only — the run never sets the variable on sbx.
+readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
+PROVEO_CHROME_READY=""
+
+# Claude Code's own credential gate, mirrored so the warning below is true
+# rather than merely cautious. Kept in lockstep with chromebridge.ScopeGate by
+# internal/entrypoint/parity_test.go.
+# SPEC: _spec/defs/claudecode/chrome-bridge.puml
+_proveo_chrome_scope_ok() {
+  local scopes home
+  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    scopes="${CLAUDE_CODE_OAUTH_SCOPES:-user:inference}"
+    case " $scopes " in
+      *" user:profile "*|*" user:office "*|*" user:ccr_inference "*) return 0 ;;
+    esac
+    return 1
+  fi
+  [[ -n "${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:-}" ]] && return 0
+  home="$(_proveo_agent_home)"
+  # A login whose accessToken is present and non-empty. The blanked shape is what
+  # a macOS host leaves behind when it moves the token to the Keychain; in here
+  # the file is the credential, so an empty token means there is no login.
+  if [[ -n "$home" ]] && grep -q '"accessToken":"[^"]' "$home/.claude/.credentials.json" 2>/dev/null; then
+    return 0
+  fi
+  [[ -n "${ANTHROPIC_API_KEY:-}" ]] && return 1
+  return 0  # nothing we can classify: not ours to warn about
+}
+
+proveo_chrome_bridge() {
+  local target="${1:-}" home log out sock i
+  [[ "$target" == claudecode ]] || return 0
+  [[ -n "${PROVEO_CHROME_BRIDGE:-}" ]] || return 0
+  if [[ -z "${PROVEO_CHROME_BRIDGE_TOKEN:-}" ]]; then
+    echo "⚠️  chrome: PROVEO_CHROME_BRIDGE is set without PROVEO_CHROME_BRIDGE_TOKEN — the relay will not run unauthenticated; Claude in Chrome stays off" >&2
+    return 0
+  fi
+  command -v node >/dev/null 2>&1 || return 0
+  # Once per container: the seed owns the call, and a second relay would leave
+  # Claude Code choosing between two sockets by mtime.
+  if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then
+    return 0
+  fi
+  if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
+    echo "⚠️  chrome: $PROVEO_CHROME_BRIDGE_JS is not in this image; Claude in Chrome stays off" >&2
+    return 0
+  fi
+  log="${TMPDIR:-/tmp}/proveo-chrome-bridge.log"
+  out="${TMPDIR:-/tmp}/proveo-chrome-bridge.sock-path"
+  : > "$out"
+  # Detached from this shell: the entrypoint execs into the agent, and the relay
+  # has to outlive that hand-over for as long as the agent does.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
+  else
+    node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
+  fi
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    sock="$(head -n1 "$out" 2>/dev/null)"
+    [[ -n "$sock" && -S "$sock" ]] && break
+    sleep 0.3
+  done
+  if [[ -z "$sock" || ! -S "$sock" ]]; then
+    echo "⚠️  chrome: relay did not come up (see $log); Claude in Chrome stays off" >&2
+    return 0
+  fi
+  home="$(_proveo_agent_home)"
+  if [[ -n "$home" ]]; then
+    PROVEO_AGENT_HOME="$home" node -e '
+      const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
+      let j = {};
+      try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+      if (j.hasCompletedClaudeInChromeOnboarding === undefined) j.hasCompletedClaudeInChromeOnboarding = true;
+      fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+    ' 2>/dev/null || true
+  fi
+  # shellcheck disable=SC2034  # read by defs/claudecode/mcp/entrypoint.sh after this returns
+  PROVEO_CHROME_READY=1
+  echo "🧭 chrome: Claude in Chrome via the host browser — relay ${sock} → ${PROVEO_CHROME_BRIDGE} (the agent drives YOUR Chrome, with your logins)"
+  if ! _proveo_chrome_scope_ok; then
+    echo "⚠️  chrome: this session's OAuth scopes name none of user:profile / user:office / user:ccr_inference, so Claude Code turns Chrome integration off; set CLAUDE_CODE_OAUTH_SCOPES to the scopes the token was issued with, or sign in with /login" >&2
+  fi
+  return 0
 }
 
 # ── 8. Workspace LSP Detection (shared) ─────────────────────
@@ -1603,6 +2034,12 @@ configure_claude_lsp() {
       }
     }) | from_entries')"
   [ -z "$lsp_json" ] && lsp_json="{}"
+  # Languages an enabled official plugin already serves are left to it: two
+  # servers on one extension means one never starts and /plugin warns about it.
+  if [[ -n "${PROVEO_CLAUDE_LSP_OFFICIAL:-}" ]]; then
+    lsp_json="$(printf '%s' "$lsp_json" | jq --arg drop "$PROVEO_CLAUDE_LSP_OFFICIAL" \
+      'with_entries(select(.key as $k | ($drop | split(" ") | index($k)) == null))')"
+  fi
   [ "$lsp_json" = "{}" ] && return 0
 
   mkdir -p "$plugdir/.claude-plugin"
@@ -1976,13 +2413,18 @@ proveo_seed() {
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
- cecli) render_subagents cecli "$home/agents" "${CECLI_RESEED:-0}" ;;
+ # cecli reads subagents from CECLI_HOME (/app/.cecli in the image, the workspace
+ # by design — see defs/cecli/README.md), and its entrypoint lists exactly that
+ # dir in CECLI_AGENT_CONFIG's subagent_paths. "$home/agents" was seeded where
+ # nothing looked: the banner never listed them and Delegate never saw them.
+ cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
  accept_workspace_trust "$(_proveo_scan_root)"
 
  proveo_provision_toolchain
+ proveo_enable_claude_lsp_plugins "$target"
 
  # Written after provisioning, so it records the servers that now exist rather
  # than the ones that did before.
@@ -1992,4 +2434,11 @@ proveo_seed() {
 
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
+ proveo_install_claude_hooks "$target"
+ proveo_seed_browser_skills "$target"
+
+ # The Claude in Chrome bridge. Started HERE because sbx never runs the image
+ # entrypoint and the seed is its startup command. No-op without
+ # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_chrome_bridge "$target"
 }

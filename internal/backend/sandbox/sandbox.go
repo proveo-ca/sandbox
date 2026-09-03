@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,6 +175,190 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
+// PreserveClone lifts a clone-mode sandbox's work into the host repository before
+// the sandbox goes: a snapshot commit, then a fetch of every branch into
+// refs/proveo/<name>/. No-op when the run was not a clone.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func PreserveClone(in Input, cfg sbx.RunConfig) {
+	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
+		return
+	}
+	if wd := FirstHost(cfg.Mounts); wd != "" {
+		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
+			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
+		}
+	}
+	// Deliverables first, commits second: the output dir is what an operator
+	// looks for the moment the run ends, and it is not in any branch.
+	liftClonedOutput(in, cfg, liftViaSbx)
+	fetch := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...)
+	if out, err := fetch.CombinedOutput(); err != nil {
+		ui.Warnf("clone: fetch from %s failed (%v): %s — if the sandbox still exists, `git fetch %s` by hand",
+			sbx.CloneRemote(cfg.Name), err, strings.TrimSpace(string(out)), sbx.CloneRemote(cfg.Name))
+		return
+	}
+	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref", "--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
+	names := strings.Fields(string(refs))
+	if len(names) == 0 {
+		ui.Notef("clone: the agent left no branches to fetch")
+		return
+	}
+	ui.Iconf("\U0001f5c2", "clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
+	ui.Notef("    review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
+}
+
+// liftClonedOutput copies the output dir out of the clone into the host output
+// dir, as a tar stream unpacked under the host repo root. Failure warns and
+// names the sandbox.
+func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
+	rel, ok := nestedRel(in.RepoRoot, in.OutputDir)
+	wd := FirstHost(cfg.Mounts)
+	if !ok || wd == "" {
+		return
+	}
+	code, out, err := lift(sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
+	switch {
+	case err == nil:
+		ui.Iconf("\U0001f5c2", "clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
+	case code == sbx.CloneLiftNothing:
+		ui.Notef("clone: the agent wrote nothing under %s/", rel)
+	default:
+		ui.Warnf("clone: could not lift %s/ out of the sandbox (%v): %s — while %s exists: `sbx exec -w / %s -- tar -C %s -cf - %s | tar -xf - -C %s`",
+			rel, err, strings.TrimSpace(out), cfg.Name, cfg.Name, wd, rel, in.RepoRoot)
+	}
+}
+
+// liftViaSbx runs the lift argv and unpacks its stdout under into. It returns the
+// sandbox-side exit status so the caller can tell "nothing there" from a failure.
+func liftViaSbx(args []string, into string) (int, string, error) {
+	src := exec.Command(sbx.Binary, args...)
+	var srcErr strings.Builder
+	src.Stderr = &srcErr
+	stdout, err := src.StdoutPipe()
+	if err != nil {
+		return -1, "", err
+	}
+	untar := exec.Command("tar", "-xf", "-", "-C", into)
+	untar.Stdin = stdout
+	var untarOut strings.Builder
+	untar.Stdout, untar.Stderr = &untarOut, &untarOut
+	if err := src.Start(); err != nil {
+		return -1, srcErr.String(), err
+	}
+	untarErr := untar.Run()
+	srcRun := src.Wait()
+	if srcRun != nil {
+		code := -1
+		var ee *exec.ExitError
+		if errors.As(srcRun, &ee) {
+			code = ee.ExitCode()
+		}
+		return code, srcErr.String() + untarOut.String(), srcRun
+	}
+	if untarErr != nil {
+		return 0, untarOut.String(), untarErr
+	}
+	return 0, "", nil
+}
+
+// FreeLoopbackPort reserves a host port by binding it and letting it go.
+// Impure, which is why it is the caller's job and not Spec's.
+func FreeLoopbackPort() int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
+}
+
+// StartCDPViewport publishes the agent's own Chromium to the host and holds the
+// relay open for the run's life, returning the stop function. Guarded on
+// Running, never merely on Exists: `sbx exec` RESTARTS a stopped sandbox.
+func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
+	if len(cfg.Publish) == 0 {
+		return func() {}
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d", in.CDPHostPort)
+	ui.Iconf("🕸", "browser viewport: %s — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium", url)
+	ui.Notef("    %s/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback", url)
+
+	stop := make(chan struct{})
+	go func() {
+		for {
+			if !sbx.Running(cfg.Name) {
+				select {
+				case <-stop:
+					return
+				case <-time.After(3 * time.Second):
+				}
+				continue
+			}
+			c := exec.Command(sbx.Binary, sbx.CDPRelayArgs(cfg.Name)...)
+			// Discarded on purpose: this shares the agent's terminal, and a relay
+			// that narrated itself would draw over the TUI.
+			c.Stdout, c.Stderr = io.Discard, io.Discard
+			if err := c.Start(); err != nil {
+				select {
+				case <-stop:
+					return
+				case <-time.After(3 * time.Second):
+				}
+				continue
+			}
+			done := make(chan struct{})
+			go func() { _ = c.Wait(); close(done) }()
+			select {
+			case <-stop:
+				_ = c.Process.Kill()
+				return
+			case <-done:
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// cdpPublish is the port mapping that carries the browser viewport, or nil when
+// this run has no browser to show.
+func cdpPublish(in Input) []string {
+	if !in.Browser || in.CDPHostPort <= 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("%d:%d", in.CDPHostPort, sbx.CDPRelayPort)}
+}
+
+// SplitNested separates the mounts that sit UNDER root from the rest. The root
+// itself is not nested. It is what keeps a clone-mode workspace list flat: sbx
+// mounts each positional at its own host path, so a bind inside the repository is
+// a bind inside the clone target, and sbx clones only into an empty one.
+func SplitNested(root string, mounts []sbx.Mount) (kept, nested []sbx.Mount) {
+	for _, m := range mounts {
+		if _, ok := nestedRel(root, m.Host); ok {
+			nested = append(nested, m)
+			continue
+		}
+		kept = append(kept, m)
+	}
+	return kept, nested
+}
+
+// nestedRel reports path's location relative to root when path lies strictly
+// inside root — never for root itself, never for a sibling that merely shares a
+// prefix ("/repo2" is not under "/repo").
+func nestedRel(root, path string) (string, bool) {
+	root, path = strings.TrimSpace(root), strings.TrimSpace(path)
+	if root == "" || path == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
 // KeptLines is what proveo says about a failed run after the evidence
 // channels have had their turn: how to look inside the sandbox, how to clean it up,
 // and where the run's own transcript is.
@@ -303,24 +489,38 @@ type Input struct {
 	// read — resolved by the caller, exactly as move 6 will resolve the rest.
 	Target, Image, AuthVar string
 	Shell, Clone           bool
-	Extra                  []string
-	Roles                  provider.Roles
-	Bridges                provider.BridgeTable
-	Evidence               string // was params.evidenceOrDefault()
-	Forwards               bool   // was params.forwards()
-	SandboxAddonOn         bool   // was params.sandboxAddonOn()
-	Man                    manifest.Manifest
-	Sid, EgDir             string
-	Mounts                 []runner.Mount
-	Workdir                string
-	Lookup                 func(string) string
-	Detected               []string
-	GitEnv                 []string
-	HomeEnv                []string
-	ScopeRel               string
-	WorktreeFallback       bool
-	WorktreeEnv            []string
-	DataDir                string
+	RepoRoot               string // host repository root: where a clone's commits are fetched back to
+	// OutputDir is the host output dir (the harness's deliverables). Nested under
+	// RepoRoot it cannot be a live workspace in clone mode — see SplitNested — so
+	// PreserveClone lifts it out of the clone at teardown instead.
+	OutputDir string
+	// Browser is the browser add-on: this run takes the -browser image, whose
+	// Chromium the operator can watch or drive from the host over CDPHostPort.
+	Browser bool
+	// CDPHostPort is the host loopback port the browser viewport is published on,
+	// chosen by the caller BEFORE launch so the URL can be printed up front and so
+	// --print renders the argv the run executes. Zero disables the viewport.
+	CDPHostPort int
+	Extra       []string
+	Roles       provider.Roles
+	Bridges     provider.BridgeTable
+	Evidence    string // was params.evidenceOrDefault()
+	Forwards    bool   // was params.forwards()
+	Man         manifest.Manifest
+	Sid, EgDir  string
+	Mounts      []runner.Mount
+	Workdir     string
+	Lookup      func(string) string
+	Detected    []string
+	GitEnv      []string
+	HomeEnv     []string
+	// BridgeEnv names the host Claude in Chrome relay to the agent, through the
+	// Kit's env — the only route into a sandbox.
+	BridgeEnv        []string
+	ScopeRel         string
+	WorktreeFallback bool
+	WorktreeEnv      []string
+	DataDir          string
 	// Memory is the -m limit for the sandbox, resolved by the caller so that
 	// Spec stays pure and --print renders the same argv the run executes.
 	Memory string
@@ -447,8 +647,25 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
+	// proveo's own defaults for the agent (manifest agentEnv). HERE and not in the
+	// image entrypoint alone: sbx launches the agent through its own kit, so an
+	// export in the entrypoint never reaches it on this backend — claudecode came
+	// up in whatever renderer its saved `tui` setting named.
+	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
+	env = append(env, in.BridgeEnv...)
+	// The browser viewport. AGENT_BROWSER_ARGS travels as run environment rather
+	// than as an image default because sbx launches the agent through its own kit
+	// and never runs the entrypoint, so an export there reaches the docker backend
+	// alone.
+	if in.Browser && in.CDPHostPort > 0 {
+		existing := ""
+		if in.Lookup != nil {
+			existing = in.Lookup("AGENT_BROWSER_ARGS")
+		}
+		env = append(env, "AGENT_BROWSER_ARGS="+sbx.BrowserCDPArgs(existing))
+	}
 	if in.ScopeRel != "" {
 		env = append(env, "PROVEO_SCOPE_REL="+in.ScopeRel)
 	}
@@ -462,6 +679,21 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	if in.DataDir != "" {
 		mounts = append(mounts, sbx.Mount{Host: in.DataDir, Container: "/workspace/data", ReadOnly: true})
+	}
+	// In clone mode nothing may be mounted UNDER the repository: sbx clones only
+	// into an empty workspace, and a nested mount arriving first skips the clone
+	// silently. The output dir is lifted back at teardown instead.
+	if in.Clone && in.RepoRoot != "" {
+		var nested []sbx.Mount
+		mounts, nested = SplitNested(in.RepoRoot, mounts)
+		for _, m := range nested {
+			if _, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
+				ui.Iconf("\U0001f5c2", "clone: %s is inside the repository, so it is not mounted live — sbx clones only into an "+
+					"empty workspace; the agent writes it inside the clone and proveo lifts it back here at teardown", m.Host)
+				continue
+			}
+			ui.Warnf("clone: %s is inside the repository and cannot be mounted into a clone — read it from the clone instead", m.Host)
+		}
 	}
 
 	// --shell selects sbx's OWN shell agent rather than substituting a command: the
@@ -489,7 +721,8 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		// arrives, the seed installs Linux deps into the clone, and the operator's
 		// checkout is never written. Measured: origin points at
 		// /run/sandbox/source and node_modules is absent from the workspace.
-		Clone: in.Clone,
+		Clone:   in.Clone,
+		Publish: cdpPublish(in),
 		// A kind: sandbox Kit DEFINES an agent, and sbx requires the positional to
 		// match its name — "agent name X does not match agent kit name Y". So the
 		// two are one value, and there is no separate agent to declare: an earlier
@@ -633,9 +866,12 @@ func Run(in Input) error {
 	}); err != nil {
 		return err
 	}
+	// The values behind every bare `-e NAME` in the Kit's env, for the `sbx` exec
+	// below and nowhere else.
+	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") {
-			credentials.HydrateProcessEnv(e, in.Lookup)
+			child.Add(e, in.Lookup)
 		}
 	}
 	for _, kv := range secrets {
@@ -652,6 +888,9 @@ func Run(in Input) error {
 	if len(secrets) > 0 {
 		ui.Notef("    sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
+	// Before the launch, so the URL is on screen ahead of the agent's TUI rather
+	// than lost behind it.
+	defer StartCDPViewport(in, cfg)()
 	args := sbx.RunArgs(cfg)
 	// sbx has no `logs` command and the sandbox may be gone by the time anyone
 	// asks, so the only reliable copy of what the agent said is the one taken as
@@ -686,6 +925,7 @@ func Run(in Input) error {
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
 	run := func() error {
 		c := exec.Command(sbx.Binary, args...)
+		c.Env = child.Apply(os.Environ())
 		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered
@@ -771,6 +1011,7 @@ func Run(in Input) error {
 			// Whether the harvest had to wake a stopped sandbox is worth saying out
 			// loud: it is why the home holds files newer than the run.
 			restarted := !sbx.Running(cfg.Name)
+			PreserveClone(in, cfg)
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
 			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
 				said = true
@@ -799,10 +1040,12 @@ func Run(in Input) error {
 			}
 			return
 		}
-		// Resume state lives in per-sandbox volumes that the next line destroys, so
-		// it has to come out FIRST. Best-effort by design: a sandbox that never
+		// A clone lives in the VM that `sbx rm` is about to destroy, so its commits
+		// come out FIRST — before the resume state, which lives in per-sandbox
+		// volumes the same line destroys. Best-effort by design: a sandbox that never
 		// started has nothing to copy, and losing yesterday's transcripts is not a
 		// reason to leave a VM running.
+		PreserveClone(in, cfg)
 		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}

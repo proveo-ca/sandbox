@@ -1,6 +1,7 @@
 package sbx
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -103,8 +104,12 @@ type RunConfig struct {
 	// (--clone) rather than on the mounted tree itself. Creation-time only: sbx
 	// ignores it when re-attaching, which is why it belongs in the run config
 	// rather than being toggled later.
-	Clone   bool
-	Mounts  []Mount  // workspace binds, passed POSITIONALLY
+	Clone  bool
+	Mounts []Mount // workspace binds, passed POSITIONALLY
+	// Publish is -p/--publish: sandbox ports mapped onto host loopback. Applied
+	// when the sandbox is CREATED — sbx ignores it on a re-attach — which is why
+	// it belongs here beside Clone rather than being added later.
+	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	Command []string // trailing agent command (after "--")
 }
@@ -154,6 +159,9 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.Clone {
 		args = append(args, "--clone")
 	}
+	for _, p := range cfg.Publish {
+		args = append(args, "-p", p)
+	}
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)
 	}
@@ -174,14 +182,117 @@ func RunArgs(cfg RunConfig) []string {
 	return args
 }
 
-// StateHomeVar names the host directory that resume state is copied to and from.
-//
-// It is deliberately NOT HOME. Redirecting HOME on this backend orphans the
-// credential sbx's proxy writes into the image's home, which is what made the
-// agent report "Not logged in" on ladder rung 3. This variable moves only the
-// state, and only by copy.
+// CloneRemote is the git remote sbx adds to the host repository for a clone-mode
+// sandbox: the in-VM clone, reachable for fetch while the sandbox exists.
+func CloneRemote(name string) string { return "sandbox-" + name }
+
+// CloneRefs is where a clone's branches are kept on the host after the sandbox is
+// gone. NOT refs/remotes/<remote>/: removing the remote removes those, and `sbx rm`
+// is exactly the moment they are needed. refs/proveo/<name>/<branch> survives it.
+func CloneRefs(name string) string { return "refs/proveo/" + name }
+
+// CloneSnapshotArgs commits whatever the agent left UNCOMMITTED in the clone, so
+// the fetch that follows carries it. Only when the tree is dirty.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func CloneSnapshotArgs(name, workdir string) []string {
+	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
+		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"commit -q -m 'proveo: uncommitted work at teardown (left in the clone by the agent)')"}
+}
+
+// CloneFetchArgs is the host-side git argv that lifts every branch of the clone
+// into CloneRefs. --no-tags: the clone's tags are the host's own, fetched back.
+func CloneFetchArgs(repoRoot, name string) []string {
+	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(name),
+		"+refs/heads/*:" + CloneRefs(name) + "/*"}
+}
+
+// The browser viewport: the operator watching, or driving, the Chromium the
+// agent is using — from the host, over the sandbox boundary. Two ports, because
+// Chromium's DevTools endpoint refuses every non-loopback peer.
+const (
+	CDPRelayPort   = 9222 // the relay listens here, on every interface; this is what is published
+	CDPBrowserPort = 9223 // Chromium's own DevTools port, loopback only
+)
+
+// BrowserCDPArgs is the AGENT_BROWSER_ARGS value that makes the agent's own
+// Chromium expose CDP on a fixed port, preserving what the operator already set.
+// Measured against agent-browser 0.36.0.
+func BrowserCDPArgs(existing string) string {
+	flag := fmt.Sprintf("--remote-debugging-port=%d", CDPBrowserPort)
+	existing = strings.TrimSpace(existing)
+	switch {
+	case existing == "":
+		return "--no-sandbox," + flag
+	case strings.Contains(existing, "--remote-debugging-port="):
+		return existing // the operator pinned their own; theirs wins
+	}
+	return existing + "," + flag
+}
+
+// cdpRelay is the loopback relay, as a python3 -c program: accept on every
+// interface, dial Chromium on loopback, pipe both ways. python3 is in the base
+// image and this is stdlib only, so it needs nothing installed and no image
+// change — which is why it travels as an argv rather than as a file.
+const cdpRelay = `
+import socket,sys,threading
+L,T=int(sys.argv[1]),int(sys.argv[2])
+def pipe(a,b):
+    try:
+        while True:
+            d=a.recv(65536)
+            if not d: break
+            b.sendall(d)
+    except Exception: pass
+    finally:
+        for s in (a,b):
+            try: s.close()
+            except Exception: pass
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(("0.0.0.0",L)); s.listen(64)
+while True:
+    c,_=s.accept()
+    try: u=socket.create_connection(("127.0.0.1",T))
+    except Exception:
+        c.close(); continue
+    for a,b in ((c,u),(u,c)):
+        threading.Thread(target=pipe,args=(a,b),daemon=True).start()
+`
+
+// CDPRelayArgs runs the relay inside the sandbox, in the FOREGROUND so the run
+// owns its lifetime. `-w /` for the reason SaveStateArgs pins it.
+func CDPRelayArgs(name string) []string {
+	return []string{"exec", "-w", "/", name, "--", "python3", "-c", cdpRelay,
+		strconv.Itoa(CDPRelayPort), strconv.Itoa(CDPBrowserPort)}
+}
+
+// CloneLiftNothing is the exit status CloneLiftArgs reserves for "the agent wrote
+// nothing there": the directory does not exist in the clone, so there is nothing
+// to unpack and nothing went wrong. Every other non-zero status is a failure.
+const CloneLiftNothing = 3
+
+// CloneLiftArgs streams a directory the agent wrote INSIDE the clone out of the
+// sandbox as a tar archive on stdout, for the host to unpack under repoRoot. It
+// exists because clone mode cannot mount that directory live. `-w /` for the
+// same reason SaveStateArgs pins it; rel is relative to the clone root.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func CloneLiftArgs(name, workdir, rel string) []string {
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " && { [ -d " + bashQuote(rel) + " ] || exit " +
+			strconv.Itoa(CloneLiftNothing) + "; } && tar -cf - " + bashQuote(rel)}
+}
+
+// bashQuote single-quotes s for a bash -c script: host paths carry spaces.
+func bashQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared
+// sync inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
+// load-bearing.
+// SPEC: _spec/internal/sbx/state-sync.puml
 func SaveStateArgs(name string) []string {
-	return []string{"exec", name, "--", "bash", "-c",
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		". /entrypoint-lib.sh && proveo_sync_state save"}
 }
 
@@ -200,4 +311,23 @@ func RemoveArgs(name string) []string {
 // wrong thing entirely.
 func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
+}
+
+// authLoginArgs is the in-sandbox sign-in each sbx agent performs. sbx's own
+// docs name this as what populates its oauth slot; nothing else does.
+// SPEC: _spec/internal/sbx/oauth-provisioning.puml
+var authLoginArgs = map[string][]string{
+	"claude": {"auth", "login"},
+}
+
+// AuthLoginArgs renders the sign-in sbx captures into its own credential store,
+// or nil when this agent has no such flow. An argv only: running it needs a
+// terminal, so the caller owns that.
+func AuthLoginArgs(agent, workspace string) []string {
+	sub, ok := authLoginArgs[agent]
+	if !ok || agent == "" || workspace == "" {
+		return nil
+	}
+	args := []string{"run", agent, workspace, "--"}
+	return append(args, sub...)
 }

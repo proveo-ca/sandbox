@@ -26,12 +26,16 @@ SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
 
 note right of SEL
-  **Auto w/ fallback, one operator override.** Harnesses with
+  **Auto w/ fallback, and the override is an env var.** Harnesses with
   ""docker: sbx"" (""claudecode"", ""cursor"") take the sandbox backend
-  whenever the host supports it. The choice prompt carries it as the
-  CHECKED add-on ""docker (sandbox)"" — unchecking is the one way to send
-  such a run down docker+egress instead, and the answer is remembered
-  per harness like every other axis. Unsupported hosts
+  whenever the host supports it. The choice prompt carries it as a
+  COMPULSORY ""docker (sandbox)"" — greyed AND ticked, so no box is left
+  to untick and ""PROVEO_SBX=0"" is the one way to send such a run down
+  docker+egress instead. A remembered 'off' no longer survives the
+  prompt: the gate re-ticks the box and still reports it as selected,
+  because the weaker backend must not be reachable by clearing
+  something that looks like an add-on
+  (""_spec/internal/choiceui/choice-prompt-render\.puml""). Unsupported hosts
   (no sbx on PATH, or no Apple Silicon / KVM) fall back to docker+egress
   with a single warn naming the reason. ""--print"" renders whichever
   backend was selected (""sbx run …"" vs ""docker run ..."").

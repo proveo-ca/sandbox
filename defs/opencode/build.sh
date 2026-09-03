@@ -61,6 +61,11 @@ else
   "$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 fi
 
+# Pin the agent to the current release (or OPENCODE_VERSION when exported); see
+# proveo_agent_version for why `@latest` in the Dockerfile is not a pin.
+OPENCODE_VERSION="$(proveo_agent_version OPENCODE_VERSION npm opencode-ai)"
+
 proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \
   --build-arg BASE_IMAGE="$BASE_IMAGE" \
+  --build-arg OPENCODE_VERSION="$OPENCODE_VERSION" \
   -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR/../.."

@@ -1,6 +1,82 @@
 #!/usr/bin/env bash
-# SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/image-lineage-and-publish.puml
+# SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-version-pin.puml
 # Shared docker buildx helper for defs/*/build.sh.
+
+# _proveo_json_field prints one top-level-ish field out of JSON on stdin, by
+# jq path ("info.version"), with python3 as the fallback so a host without jq
+# still resolves. Prints nothing when neither is present or the path is absent.
+_proveo_json_field() {
+  local path="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r ".${path} // empty" 2>/dev/null
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import json, sys
+try:
+    v = json.load(sys.stdin)
+    for k in sys.argv[1].split("."):
+        v = v[k]
+    if v is not None:
+        print(v)
+except Exception:
+    pass
+' "$path" 2>/dev/null
+    return 0
+  fi
+  cat >/dev/null
+}
+
+# proveo_agent_version prints the version of the agent package a harness bakes,
+# so build.sh can pin the install to an exact release instead of `@latest`.
+#
+#   proveo_agent_version <OVERRIDE_VAR> <ecosystem> <package>
+#
+# ecosystem is npm, pypi or cursor. An exported OVERRIDE_VAR wins outright. The
+# bare version goes to stdout, the 📌 note to stderr.
+# SPEC: _spec/_devops/agent-version-pin.puml
+proveo_agent_version() {
+  local override_var="$1" eco="$2" pkg="$3" v=""
+  if [[ -n "${!override_var:-}" ]]; then
+    echo "📌 ${pkg}@${!override_var} (from ${override_var})" >&2
+    printf '%s' "${!override_var}"
+    return 0
+  fi
+  case "$eco" in
+    npm)
+      if command -v npm >/dev/null 2>&1; then
+        v="$(npm view "$pkg" version 2>/dev/null || true)"
+      fi
+      if [[ -z "$v" ]]; then
+        v="$(curl -fsSL "https://registry.npmjs.org/${pkg}/latest" 2>/dev/null | _proveo_json_field version)"
+      fi
+      ;;
+    pypi)
+      v="$(curl -fsSL "https://pypi.org/pypi/${pkg}/json" 2>/dev/null | _proveo_json_field info.version)"
+      ;;
+    cursor)
+      v="$(curl -fsSL "$pkg" 2>/dev/null \
+        | sed -n 's|.*/versions/\([0-9][0-9.]*-[0-9a-f]\{1,\}\)/.*|\1|p' | head -1)"
+      ;;
+    *)
+      echo "proveo_agent_version: unknown ecosystem '${eco}' (want npm|pypi|cursor)" >&2
+      return 1
+      ;;
+  esac
+  v="${v//[[:space:]]/}"
+  if [[ -z "$v" ]]; then
+    {
+      echo "❌ could not resolve the current ${pkg} release (${eco})."
+      echo "   The agent install is pinned by version, so a rebuild is reproducible and a"
+      echo "   cached layer cannot hide an upstream release. Offline or behind a proxy, name"
+      echo "   the version yourself:   ${override_var}=<x.y.z> proveo build <target>"
+    } >&2
+    return 1
+  fi
+  echo "📌 ${pkg}@${v} (resolved upstream; override with ${override_var}=<version>)" >&2
+  printf '%s' "$v"
+}
 
 # proveo_docker_host_platform prints the linux/<arch> matching this machine.
 proveo_docker_host_platform() {

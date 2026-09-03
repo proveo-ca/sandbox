@@ -119,8 +119,63 @@ RUN npm install -g --no-optional \
     eslint \
     && npm cache clean --force
 
-# Install Claude Code
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+# Install Claude Code — pinned by version, never the bare package (= `@latest`):
+# BuildKit caches this layer by its text, so an unpinned line re-runs only when
+# something ABOVE it changes, and a warm cache keeps last month's agent with
+# nothing in the build saying so. build.sh resolves the current release
+# (proveo_agent_version) and passes it in, which moves the cache key exactly when
+# upstream moves; the version check makes the pin a fact about the image. No
+# default on purpose — a bare `docker build` must fail here, not bake whatever
+# is newest.
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG CLAUDE_CODE_VERSION
+RUN test -n "${CLAUDE_CODE_VERSION}" \
+      || { echo "CLAUDE_CODE_VERSION build-arg is required — defs/claudecode/build.sh resolves it" >&2; exit 1; } \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force \
+    && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
+
+# ── Code-intelligence plugins, pre-seeded ───────────────────────────────────
+# SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
+#
+# Claude Code offers to install an official `*-lsp` plugin whenever it finds that
+# plugin's language-server binary on PATH with the plugin absent ("If you already
+# have a language server installed, Claude may prompt you to install the
+# corresponding plugin when you open a project" — Discover and install plugins,
+# Code intelligence). This image bakes the binaries, so every session opened with
+# an install prompt for a plugin nobody asked for, and a sandbox home could never
+# keep the answer. The documented remedy is a SEED: a read-only mirror of
+# ~/.claude/plugins that Claude Code reads in place — marketplace registration
+# and plugin caches, no network at run time, valid for whatever HOME a run uses
+# (CLAUDE_CODE_PLUGIN_SEED_DIR). Whether a seeded plugin is ENABLED is a settings
+# matter, decided by the seed step per binary actually present
+# (proveo_enable_claude_lsp_plugins), so a plugin whose server this floor lacks
+# never surfaces as "Executable not found". Measured on 2.1.251: the seed alone is
+# NOT registered at startup ("marketplace not registered", 0 plugins), so the seed
+# step also writes installed_plugins.json / known_marketplaces.json records into
+# the home that point here. World-writable because Claude Code drops `.in_use/<pid>`
+# markers beside a loaded plugin and the runtime uid is the operator's, not 1000;
+# those writes land in the container's own layer.
+#
+# The list is pinned to _claude_lsp_plugins in packages/lib/entrypoint-lib.sh by
+# internal/contract. kotlin-lsp is deliberately absent: it expects a `kotlin-lsp`
+# binary this floor does not ship — proveo provisions fwcd's
+# kotlin-language-server and covers Kotlin through proveo-lsp instead.
+# Measured on proveo/claudecode:local, 2026-09-01: the marketplace clone takes
+# ~16s and the whole seed is 9.9 MB.
+ARG CLAUDE_PLUGIN_SEED=/opt/proveo/claude-plugins
+ENV CLAUDE_CODE_PLUGIN_SEED_DIR=${CLAUDE_PLUGIN_SEED}
+RUN set -e; \
+    export HOME=/tmp/claude-build DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+           CLAUDE_CODE_PLUGIN_CACHE_DIR="${CLAUDE_PLUGIN_SEED}"; \
+    mkdir -p "$HOME" "${CLAUDE_PLUGIN_SEED}" \
+    && claude plugin marketplace add anthropics/claude-plugins-official \
+    && for p in typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp; do \
+         claude plugin install "${p}@claude-plugins-official"; \
+       done \
+    && test -f "${CLAUDE_PLUGIN_SEED}/known_marketplaces.json" \
+    && test -d "${CLAUDE_PLUGIN_SEED}/cache/claude-plugins-official/typescript-lsp" \
+    && chmod -R a+rwX "${CLAUDE_PLUGIN_SEED}" \
+    && rm -rf /tmp/claude-build
 
 # Setup secure workspace with proper permissions.
 #
@@ -185,10 +240,13 @@ WORKDIR /app
 # project's own .env set it if it wants one (load_env exports .env with `set -a`).
 ENV YAMA_PTRACE_SCOPE=1
 
-# Add security labels
+# Security labels, plus what agent the image carries — readable without running it:
+#   docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/claudecode:local
 LABEL security.non-root=true \
       security.hardened=true \
-      security.version="1.0"
+      security.version="1.0" \
+      proveo.agent="@anthropic-ai/claude-code" \
+      proveo.agent.version="${CLAUDE_CODE_VERSION}"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \

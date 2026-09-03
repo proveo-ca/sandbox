@@ -328,3 +328,99 @@ func TestHouseRulesNeverWriteIntoTheWorkspace(t *testing.T) {
 		}
 	}
 }
+
+// A vendor-locked slot is enforced twice — host and shell — so one table is run
+// through BOTH. SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
+func TestVendorLockedSlotsAgreeAcrossShellAndGo(t *testing.T) {
+	t.Parallel()
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash unavailable: %v", err)
+	}
+	lib := filepath.Join(repoRoot(t), "packages/lib/entrypoint-lib.sh")
+
+	for _, model := range []string{
+		"anthropic/claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5",
+		"openai/gpt-5", "gpt-5", "grok-4", "xai/grok-4", "gemini-2.5-pro",
+		"ollama/llama3", "ollama_chat/qwen", "openai-compatible/whatever",
+		"llama-3.3-70b", "some-unknown-id",
+	} {
+		b := provider.Bridge{Provider: "anthropic"}
+		goAccepts := b.Accepts(model)
+
+		// The shell's answer, read off the same predicate the applier uses.
+		script := `source "$1" >/dev/null 2>&1
+got="$(_model_provider "$2")"
+if [[ -z "$got" || "$got" == anthropic ]]; then echo accept; else echo refuse; fi`
+		out, err := exec.Command(bash, "-c", script, "sh", lib, model).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: shell probe: %v\n%s", model, err, out)
+		}
+		shAccepts := strings.TrimSpace(string(out)) == "accept"
+		if shAccepts != goAccepts {
+			t.Errorf("%s: shell accepts=%v, Go accepts=%v — the two copies of the rule have drifted",
+				model, shAccepts, goAccepts)
+		}
+	}
+}
+
+// The declared provider must be a real registry name, or the slot refuses
+// everything and the reason names a vendor that does not exist.
+func TestDeclaredSlotProvidersAreRegistryNames(t *testing.T) {
+	t.Parallel()
+	tbl := bridgeTable(t)
+	if len(tbl) == 0 {
+		t.Fatal("no bridge tables loaded — this test would pass vacuously")
+	}
+	known := map[string]bool{}
+	for _, n := range provider.Names() {
+		known[n] = true
+	}
+	for harness, rows := range tbl {
+		for _, r := range rows {
+			if r.Provider == "" {
+				continue
+			}
+			if !known[r.Provider] {
+				t.Errorf("%s slot %q declares provider %q, which is not in the registry",
+					harness, r.Slot, r.Provider)
+			}
+		}
+	}
+}
+
+// The REAL table, not a synthetic one. The first version of the test above
+// loaded an empty table and passed vacuously, which is the failure mode a
+// contract test has to be built against: assert the shipped rows.
+func TestClaudecodeSlotsTakeAnthropicModelsOnly(t *testing.T) {
+	t.Parallel()
+	tbl := bridgeTable(t)
+	if len(tbl["claudecode"]) == 0 {
+		t.Fatal("claudecode rows not loaded — this test would pass vacuously")
+	}
+	for _, tc := range []struct {
+		model string
+		want  bool
+	}{
+		{"anthropic/claude-opus-5", true},
+		{"claude-sonnet-5", true},
+		{"claude-haiku-4-5", true},
+		{"claude-fable-5", true}, // anthropic, outside opus/sonnet/haiku
+		{"openai/gpt-5", false},
+		{"gpt-5", false},
+		{"grok-4", false},
+		{"google/gemini-2.5-pro", false},
+		{"ollama/llama3", true}, // --local-model must keep working
+	} {
+		roles := provider.Roles{"ARCHITECT_MODEL": tc.model, "SMALL_MODEL": tc.model}
+		env := tbl.ResolvedEnv("claudecode", roles)
+		for _, v := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {
+			if got := env[v] != ""; got != tc.want {
+				t.Errorf("%s: %s=%q, want set=%v", tc.model, v, env[v], tc.want)
+			}
+		}
+		if got := len(tbl.RefusedSlots("claudecode", roles)) == 0; got != tc.want {
+			t.Errorf("%s: refusals reported=%v, want accepted=%v", tc.model, !got, tc.want)
+		}
+	}
+}

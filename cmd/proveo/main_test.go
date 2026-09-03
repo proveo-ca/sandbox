@@ -287,6 +287,36 @@ func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
 	}
 }
 
+// The egress sidecar gets the same recency rule as the harness image.
+func TestEgressProxyImagePrefersANewerLocalBuildUnlessOverridden(t *testing.T) {
+	t.Parallel()
+	resolve := func(ref string) (string, bool) {
+		if ref != "proveo/egress-proxy:latest" {
+			t.Errorf("resolved %q, want the published sidecar reference", ref)
+		}
+		return "proveo/egress-proxy:local", true
+	}
+	env := func(map[string]string) func(string) string {
+		return func(string) string { return "" }
+	}
+	if got, local := egressProxyImage(env(nil), resolve); got != "proveo/egress-proxy:local" || !local {
+		t.Errorf("no override: got (%q, %v), want the newer local build", got, local)
+	}
+	override := func(k string) string {
+		if k == "PROVEO_EGRESS_PROXY_IMAGE" {
+			return " ghcr.io/acme/egress:pinned "
+		}
+		return ""
+	}
+	notCalled := func(string) (string, bool) {
+		t.Error("an explicit override must not consult the local image store")
+		return "", false
+	}
+	if got, local := egressProxyImage(override, notCalled); got != "ghcr.io/acme/egress:pinned" || local {
+		t.Errorf("override: got (%q, %v), want the trimmed override and not-local", got, local)
+	}
+}
+
 func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	t.Parallel()
 	none := func(string) string { return "" }
@@ -331,15 +361,14 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	// that are not (the project .env arrives as a file bind and sbx refuses it).
 	dataDir := t.TempDir()
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Shell:          true,
-		Forwards:       false,
-		SandboxAddonOn: true,
-		Man:            manifest.Manifest{Name: "claudecode"},
-		Lookup:         func(string) string { return "" },
-		Workdir:        "/app",
-		DataDir:        dataDir,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Shell:    true,
+		Forwards: false,
+		Man:      manifest.Manifest{Name: "claudecode"},
+		Lookup:   func(string) string { return "" },
+		Workdir:  "/app",
+		DataDir:  dataDir,
 	}
 	cfg, _, secrets := sandbox.Spec(in)
 	// --shell selects sbx's OWN shell agent; it does not pass a command. Launch-shaped
@@ -480,9 +509,9 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
 	}
 	base := sandbox.Input{
-		Target:         "claudecode",
-		Forwards:       false,
-		SandboxAddonOn: true, Man: man, Sid: "s", Lookup: lookup}
+		Target:   "claudecode",
+		Forwards: false,
+		Man:      man, Sid: "s", Lookup: lookup}
 
 	names := func(in sandbox.Input) map[string]bool {
 		_, _, secrets := sandbox.Spec(in)
@@ -565,6 +594,12 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(strings.Join(got, " "), "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
+	// `-w /` is not decoration: a virtiofs-invalidated workspace kills the exec at
+	// chdir. SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+	w := slices.Index(got, "-w")
+	if w < 0 || w+1 >= len(got) || got[w+1] != "/" || w > slices.Index(got, "s1") {
+		t.Errorf("save must exec from / (an sbx exec flag, before the sandbox name), not from the workspace cwd: %v", got)
+	}
 }
 
 // With no proveo home among the mounts there is nothing to strip against, and the
@@ -624,10 +659,9 @@ func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:local",
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:local",
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode", Subscription: true,
 			Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
@@ -786,5 +820,42 @@ func TestStoreHoldsMatchesOnlyTheHarnessOwnCredentials(t *testing.T) {
 	}
 	if got := credentials.StoreHolds(man, []string{"PROVEO_AGENT_EVIDENCE"}); len(got) != 0 {
 		t.Errorf("a non-secret var counted as a credential: %v", got)
+	}
+}
+
+// agentEnv is proveo's opinion about the agent, delivered on the backend whose
+// agent never runs the image entrypoint. The default lands when the operator is
+// silent, gives way when they are not, and reaches both the -e argv and the Kit's
+// environment block — the posture proveo publishes.
+func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", AgentEnv: map[string]string{
+		"CLAUDE_CODE_NO_FLICKER":               "0",
+		"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1",
+	}}
+	for _, tc := range []struct {
+		why  string
+		set  map[string]string
+		want []string
+	}{
+		{"operator silent", nil,
+			[]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1", "CLAUDE_CODE_NO_FLICKER=0"}},
+		{"operator overrides one", map[string]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "0"},
+			[]string{"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=0", "CLAUDE_CODE_NO_FLICKER=0"}},
+	} {
+		in := sandbox.Input{
+			Target: "claudecode", Image: "proveo/claudecode:local", Man: man, Sid: "proveo-1-2",
+			Lookup: func(k string) string { return tc.set[k] },
+		}
+		cfg, kit, _ := sandbox.Spec(in)
+		for _, w := range tc.want {
+			if !slices.Contains(cfg.Env, w) {
+				t.Errorf("%s: -e argv lacks %s: %v", tc.why, w, cfg.Env)
+			}
+			k, v, _ := strings.Cut(w, "=")
+			if kit.Environment == nil || kit.Environment.Variables[k] != v {
+				t.Errorf("%s: Kit environment lacks %s", tc.why, w)
+			}
+		}
 	}
 }

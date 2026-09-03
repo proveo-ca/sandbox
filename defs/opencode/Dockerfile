@@ -26,7 +26,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 # plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    unzip xclip \
+    xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
@@ -43,7 +43,20 @@ RUN DOCKER_VERSION=29.7.2 \
 
 # The workspace language servers now live in proveo/base-node-lsp (shared with
 # claudecode). Only the opencode agent itself is installed here.
-RUN npm install -g opencode-ai@latest && npm cache clean --force
+#
+# Pinned by version, never `@latest`: BuildKit caches this layer by its text, so
+# an `@latest` line re-runs only when something ABOVE it changes, and a warm cache
+# keeps last month's agent with nothing in the build saying so. build.sh resolves
+# the current release (proveo_agent_version) and passes it in, which moves the
+# cache key exactly when upstream moves; the version check makes the pin a fact
+# about the image rather than a request to npm. No default on purpose — a bare
+# `docker build` must fail here instead of silently baking whatever is newest.
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG OPENCODE_VERSION
+RUN test -n "${OPENCODE_VERSION}" \
+      || { echo "OPENCODE_VERSION build-arg is required — defs/opencode/build.sh resolves it" >&2; exit 1; } \
+    && npm install -g "opencode-ai@${OPENCODE_VERSION}" && npm cache clean --force \
+    && test "$(opencode --version)" = "${OPENCODE_VERSION}"
 
 RUN mkdir -p /workspace \
              /home/${USER_NAME}/.config/opencode \
@@ -76,9 +89,13 @@ WORKDIR /workspace
 ENV OPENCODE_AUTO_UPDATE=false \
     PATH="/usr/local/bin:${PATH}"
 
+# proveo.agent.* is what the image carries, readable without running it:
+#   docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local
 LABEL security.non-root=true \
       security.hardened=true \
-      security.version="1.0"
+      security.version="1.0" \
+      proveo.agent="opencode-ai" \
+      proveo.agent.version="${OPENCODE_VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD opencode --version >/dev/null 2>&1 || exit 1

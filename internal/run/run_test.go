@@ -1,10 +1,14 @@
 package run
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -21,7 +25,7 @@ func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx, manifest.DockerDind} {
 		man := manifest.Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
-		opts := addonOptions(man)
+		opts := addonOptions(man, rowExecution)
 		if slices.Contains(opts, addonSandbox) && slices.Contains(opts, addonDind) {
 			t.Errorf("docker %q offered both daemons: %v", mode, opts)
 		}
@@ -35,26 +39,89 @@ func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
 				t.Errorf("docker: dind must offer %q, got %v", addonDind, opts)
 			}
 		default:
-			if len(opts) != 0 {
-				t.Errorf("a harness with no docker mode must be offered none, got %v", opts)
+			// "host" alone: the plane still states what it excludes, and there is no
+			// daemon to offer beside it.
+			if !slices.Equal(opts, []string{addonHost}) {
+				t.Errorf("a harness with no docker mode must be offered no daemon, got %v", opts)
 			}
 		}
+	}
+}
+
+// The two planes answer different questions, and every box belongs to exactly
+// one of them: an undifferentiated row put a Docker daemon beside a browser as
+// though they were the same kind of choice.
+func TestEachPlaneOffersOnlyItsOwnKindOfChoice(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name: "claudecode", Docker: manifest.DockerSbx,
+		Images:       map[string]string{"claudecode": "i", "claudecode-browser": "i"},
+		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
+	}
+	exec := addonOptions(man, rowExecution)
+	iface := addonOptions(man, rowInterface)
+	if !slices.Equal(exec, []string{addonHost, addonSandbox}) {
+		t.Errorf("execution = %v, want the excluded host then the declared daemon", exec)
+	}
+	if !slices.Equal(iface, []string{addonTUI, addonBrowser, addonChrome}) {
+		t.Errorf("interface = %v, want the tui then each browser it can drive", iface)
+	}
+	for _, o := range append(append([]string{}, exec...), iface...) {
+		if addonHelp[o] == "" {
+			t.Errorf("%q is offered with no description — the gap this grouping exists to close", o)
+		}
+	}
+}
+
+// The fixed boxes state a fact: greyed, left in the state they state, and absent
+// from the row's inline reason, which is reserved for constraints that MOVE.
+func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true}},
+		{Label: rowInterface, Options: []string{addonTUI, addonBrowser}, Multi: true, On: []bool{false, true}},
+	}}
+	gateAddons(f, "open", "forward", "", "")
+
+	exec, iface := f.Rows[0], f.Rows[1]
+	if !exec.Off[0] || exec.On[0] {
+		t.Error("host must be greyed and unticked — proveo never runs an agent there")
+	}
+	if !iface.Off[0] || !iface.On[0] {
+		t.Error("the tui must be greyed and TICKED: it is compulsory, not unavailable")
+	}
+	if exec.Reason != "" || iface.Reason != "" {
+		t.Errorf("a box greyed on every run must not fill the inline reason: %q / %q", exec.Reason, iface.Reason)
+	}
+	for _, o := range []string{addonHost, addonTUI} {
+		if exec.OffWhy[o] == "" && iface.OffWhy[o] == "" {
+			t.Errorf("%q is greyed with no explanation", o)
+		}
+	}
+	// "host" and the TUI state facts, so neither is reported as a run option. The
+	// sandbox is greyed for the opposite reason — it is compulsory — and dropping
+	// it here would report the run as taking the weaker backend.
+	if !exec.Off[1] || !exec.On[1] {
+		t.Error("an available sandbox must be greyed and TICKED: it is compulsory, not optional")
+	}
+	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox, addonBrowser}) {
+		t.Errorf("selectedAddons = %v, want the real toggles plus the compulsory sandbox", got)
 	}
 }
 
 func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{addonDind}, Multi: true, On: []bool{false},
+		Label: rowExecution, Options: []string{addonDind}, Multi: true, On: []bool{false},
 	}}}
-	gateAddons(f, "firewall", "inject", "")
+	gateAddons(f, "firewall", "inject", "", "")
 	if !f.Rows[0].Off[0] {
 		t.Fatal("firewall+inject must still disable dind")
 	}
 	if f.Rows[0].Reason != addonDind+" needs egress open + credentials forward" {
 		t.Errorf("reason = %q", f.Rows[0].Reason)
 	}
-	gateAddons(f, "open", "forward", "")
+	gateAddons(f, "open", "forward", "", "")
 	if f.Rows[0].Off[0] {
 		t.Error("open+forward on a docker: dind harness must leave the add-on enabled")
 	}
@@ -63,51 +130,47 @@ func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
 func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
 	t.Parallel()
 	r := evidenceRow((Params{}).evidenceOrDefault())
-	if r.Label != evidenceLabel || !r.Multi {
-		t.Fatalf("row = %+v, want a checkbox row labelled %q", r, evidenceLabel)
+	if r.Label != evidenceLabel || r.Multi {
+		t.Fatalf("row = %+v, want a RADIO row labelled %q", r, evidenceLabel)
 	}
 	if len(r.Options) != 2 || r.Options[0] != EvidenceDefault || r.Options[1] != EvidenceVerbose {
 		t.Fatalf("options = %v, want [%s %s]", r.Options, EvidenceDefault, EvidenceVerbose)
 	}
-	if r.On[0] || !r.On[1] {
-		t.Errorf("On = %v, want verbose ticked and default clear", r.On)
-	}
-	if got := evidenceRow(EvidenceDefault); !got.On[0] || got.On[1] {
-		t.Errorf("a remembered 'default' must tick default only, got %v", got.On)
+	if r.Options[r.Selected] != EvidenceVerbose {
+		t.Errorf("selected = %q, want verbose to be the default answer", r.Options[r.Selected])
 	}
 }
 
-// The two boxes are one answer wearing checkbox glyphs: ticking one clears the
-// other, and clearing both reads as default rather than as a third state.
-func TestGateEvidenceKeepsTheLevelsExclusive(t *testing.T) {
+// The two levels are one answer, so they are one radio. They used to be a
+// checkbox pair kept exclusive by a gate, which left "neither ticked" reachable
+// and quietly meaning default — a state the picker could not explain.
+func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	t.Parallel()
+	r := evidenceRow(EvidenceVerbose)
+	if r.Multi {
+		t.Error("evidence is one-of, so it must not be a checkbox row")
+	}
+	if r.Options[r.Selected] != EvidenceVerbose {
+		t.Errorf("a remembered verbose must come back selected, got %q", r.Options[r.Selected])
+	}
+	if got := evidenceRow(EvidenceDefault); got.Options[got.Selected] != EvidenceDefault {
+		t.Errorf("default must come back selected, got %q", got.Options[got.Selected])
+	}
+	// Cycling reaches the other level and nothing else: there is no third state.
 	f := &choiceui.Form{Rows: []choiceui.Row{
-		{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{true}},
-		evidenceRow(EvidenceVerbose),
+		{Label: rowInterface, Options: []string{addonBrowser}, Multi: true, On: []bool{true}},
+		evidenceRow(EvidenceDefault),
 	}}
-	// Ticking "default" (index 0) must clear the verbose box.
-	f.Rows[1].Selected, f.Rows[1].On[0] = 0, true
-	gateEvidence(f)
-	if f.Rows[1].On[1] {
-		t.Errorf("verbose survived a tick on default: %v", f.Rows[1].On)
+	seen := map[string]bool{}
+	for i := 0; i < 4; i++ {
+		seen[f.Selection(evidenceLabel)] = true
+		f.Rows[1].Selected = (f.Rows[1].Selected + 1) % len(f.Rows[1].Options)
 	}
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceDefault {
-		t.Errorf("evidence = %q, want %q", got, EvidenceDefault)
-	}
-	// Un-ticking the only box leaves nothing selected, which is still default.
-	f.Rows[1].On[0] = false
-	gateEvidence(f)
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceDefault {
-		t.Errorf("empty row = %q, want %q", got, EvidenceDefault)
-	}
-	// Back to verbose, and the other row must be untouched throughout.
-	f.Rows[1].Selected, f.Rows[1].On[1] = 1, true
-	gateEvidence(f)
-	if got := evidenceFrom(f.Selections(evidenceLabel)); got != EvidenceVerbose {
-		t.Errorf("evidence = %q, want %q", got, EvidenceVerbose)
+	if len(seen) != 2 || !seen[EvidenceDefault] || !seen[EvidenceVerbose] {
+		t.Errorf("the row reaches %v, want exactly the two levels", seen)
 	}
 	if !f.Rows[0].On[0] {
-		t.Error("gateEvidence must not reach into the add-ons row")
+		t.Error("the evidence row must not reach into the add-ons row")
 	}
 }
 
@@ -137,12 +200,11 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}[k]
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Extra:          []string{"--verbose"},
-		Evidence:       EvidenceDefault,
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Extra:    []string{"--verbose"},
+		Evidence: EvidenceDefault,
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode",
 			Capabilities: manifest.Capabilities{
@@ -261,11 +323,10 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:         "cursor",
-		Image:          "proveo/cursor:latest",
-		Evidence:       EvidenceDefault,
-		Forwards:       true,
-		SandboxAddonOn: true,
+		Target:   "cursor",
+		Image:    "proveo/cursor:latest",
+		Evidence: EvidenceDefault,
+		Forwards: true,
 		Man: manifest.Manifest{
 			Name: "cursor",
 			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
@@ -309,11 +370,10 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:         "claudecode",
-		Image:          "proveo/claudecode:latest",
-		Evidence:       EvidenceDefault,
-		Forwards:       false,
-		SandboxAddonOn: true,
+		Target:   "claudecode",
+		Image:    "proveo/claudecode:latest",
+		Evidence: EvidenceDefault,
+		Forwards: false,
 		Man: manifest.Manifest{
 			Name: "claudecode",
 			Env:  []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
@@ -351,38 +411,238 @@ func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
 		Docker: manifest.DockerSbx,
 		Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
 	}
-	got := addonOptions(man)
-	want := []string{"browser", addonSandbox}
+	got := addonOptions(man, rowExecution)
+	want := []string{addonHost, addonSandbox}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("addonOptions() mismatch (-want +got):\n%s", diff)
+		t.Errorf("execution options mismatch (-want +got):\n%s", diff)
 	}
-	if opts := addonOptions(manifest.Manifest{Name: "opencode", Docker: manifest.DockerDind}); !slices.Contains(opts, addonDind) || slices.Contains(opts, addonSandbox) {
+	if opts := addonOptions(manifest.Manifest{Name: "opencode", Docker: manifest.DockerDind}, rowExecution); !slices.Contains(opts, addonDind) || slices.Contains(opts, addonSandbox) {
 		t.Errorf("a docker: dind harness must not be offered the sandbox: %v", opts)
 	}
 }
 
-func TestSandboxAddonIsOnUntilAnAnswerSaysOtherwise(t *testing.T) {
+// The two browsers are different things — a Chromium inside the sandbox versus
+// the operator's own Chrome over the bridge — so a harness that has both is
+// offered both, and one that declares no host-browser client is never sold a
+// bridge it cannot use.
+func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T) {
 	t.Parallel()
-	if !(&Params{}).sandboxAddonOn() {
-		t.Error("a first run must take the sandbox backend without being asked")
+	man := manifest.Manifest{
+		Name:         "claudecode",
+		Docker:       manifest.DockerSbx,
+		Images:       map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
+		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
 	}
-	if !(&Params{Addons: []string{addonSandbox}, AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("a remembered yes must keep the sandbox on")
+	want := []string{addonTUI, addonBrowser, addonChrome}
+	if diff := cmp.Diff(want, addonOptions(man, rowInterface)); diff != "" {
+		t.Errorf("interface options mismatch (-want +got):\n%s", diff)
 	}
-	if (&Params{Addons: []string{"browser"}, AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("a remembered answer WITHOUT the add-on means the operator turned it off")
+	if opts := addonOptions(manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}, rowInterface); slices.Contains(opts, addonChrome) {
+		t.Errorf("no hostBrowser capability, yet offered %q: %v", addonChrome, opts)
 	}
-	if (&Params{AddonsAnswered: true}).sandboxAddonOn() {
-		t.Error("an empty remembered answer is still an answer — the sandbox stays off")
+	// Off by default: the picker never pre-ticks a box that hands the agent the
+	// operator's logged-in browser.
+	p := &Params{}
+	if on := p.addonDefaults(want); on[2] {
+		t.Errorf("%q must start unticked, got %v", addonChrome, on)
+	}
+	if on := (&Params{Addons: []string{addonChrome}, AddonsAnswered: true}).addonDefaults(want); !on[2] {
+		t.Errorf("a remembered %q must come back ticked, got %v", addonChrome, on)
+	}
+}
+
+// The host-browser box is gated three ways, each re-evaluated on every toggle:
+// the host preflight (Chrome + native host, a /login session), the tier (open +
+// forward is the only one with a route to the host), and the sandbox box (a VM
+// cannot name the host). The reason on the row names the one that applied.
+func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
+	t.Parallel()
+	// The two boxes live in DIFFERENT groups now — the daemon is an execution
+	// choice and the browser an interface one — so the exclusion between them is
+	// read across the form rather than along one slice. chrome() and sandbox()
+	// name the rows so the assertions below say which plane they are about.
+	row := func(sandboxOn bool) *choiceui.Form {
+		return &choiceui.Form{Rows: []choiceui.Row{
+			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{sandboxOn}},
+			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+		}}
+	}
+	chrome := func(f *choiceui.Form) *choiceui.Row { return &f.Rows[1] }
+	sandbox := func(f *choiceui.Form) *choiceui.Row { return &f.Rows[0] }
+	f := row(false)
+	gateAddons(f, "open", "forward", "", "no Claude in Chrome native host on this machine")
+	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "native host") {
+		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	}
+
+	// A ticked sandbox no longer excludes it: a sandbox reaches the host's
+	// loopback through host.docker.internal on every baseline, so the bridge has
+	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
+	f = row(true)
+	gateAddons(f, "open", "forward", "", "")
+	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
+		t.Errorf("a ticked sandbox must leave the bridge available: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	}
+	// The escape the reason names is the env var, not the checkbox: an available
+	// sandbox is greyed AND ticked, so there is no box left to untick.
+	if sb := sandbox(f); !sb.Off[0] || !sb.On[0] {
+		t.Errorf("the sandbox box itself must be greyed and ticked: off=%v on=%v", sb.Off, sb.On)
+	}
+
+	// The tier gate is the DOCKER backend's, so it only applies with no sandbox:
+	// there an intercepting tier puts the agent behind a sidecar with no route out.
+	f = row(false)
+	gateAddons(f, "allowlist", "forward", "no sbx", "")
+	if c := chrome(f); !c.Off[0] || !strings.Contains(c.Reason, "egress open + credentials forward") {
+		t.Errorf("an intercepting tier must grey the host browser on docker: off=%v reason=%q", c.Off, c.Reason)
+	}
+	// ...and NOT on sbx, where the tier is inert.
+	f = row(true)
+	gateAddons(f, "allowlist", "forward", "", "")
+	if c := chrome(f); c.Off[0] || !c.On[0] {
+		t.Errorf("an intercepting tier must not gate the bridge on sbx: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	}
+
+	f = row(false)
+	gateAddons(f, "open", "forward", "no sbx", "")
+	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
+		t.Errorf("open + forward, no sandbox to exclude it, host ready: the box must be live: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	}
+
+	// A sandbox the host cannot run is unticked by its own gate, so it must not
+	// count as "ticked" against the host browser.
+	f = row(true)
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
+	if c := chrome(f); c.Off[0] || !c.On[0] {
+		t.Errorf("an unavailable sandbox must not grey the host browser: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	}
+	// And its own reason stays on its own row: the groups explain themselves
+	// separately now.
+	if sb := sandbox(f); !strings.Contains(sb.Reason, "docker sandbox: sbx CLI not found") {
+		t.Errorf("the sandbox reason must be on the execution row: %q", sb.Reason)
+	}
+}
+
+// What this pins is that the preflight asks chromebridge's scope table, and
+// asks it WITH the proveo home — the login that answers is a file in there.
+func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
+	t.Parallel()
+	lookup := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-…"
+		}
+		return ""
+	}
+	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", "")
+	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(why, "/login") {
+		t.Errorf("why = %q", why)
+	}
+}
+
+// The credential half must consult the proveo home, not just the environment: an
+// ANTHROPIC_API_KEY exported beside a persisted /login does not displace it, and
+// Claude Code reads the store either way. Only the credential half is asserted —
+// whether a native host is listening is the operator's Chrome, not this test's.
+func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(k string) string {
+		if k == "ANTHROPIC_API_KEY" {
+			return "sk-ant-api03-…"
+		}
+		return ""
+	}
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home); strings.Contains(why, "ANTHROPIC_API_KEY") {
+		t.Errorf("the login in the home must outrank the key beside it: %q", why)
+	}
+	// Same key, no login: now the refusal is the honest one.
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "ANTHROPIC_API_KEY") {
+		t.Errorf("why = %q", why)
+	}
+}
+
+// The sandbox stopped being an add-on decision: a harness that declares sbx runs
+// there whenever the host allows it. A remembered answer written before the lock
+// — or one with the box cleared — must no longer be able to route the run to the
+// weaker docker backend, so every Params below has to agree with the host test.
+func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", Docker: manifest.DockerSbx}
+	want := sandbox.Selected(man)
+	for _, p := range []*Params{
+		{},
+		{Addons: []string{addonSandbox}, AddonsAnswered: true},
+		{Addons: []string{addonBrowser}, AddonsAnswered: true},
+		{AddonsAnswered: true},
+	} {
+		if got := p.willSandbox(man); got != want {
+			t.Errorf("Addons=%v answered=%v: willSandbox = %v, want the host test %v",
+				p.Addons, p.AddonsAnswered, got, want)
+		}
+	}
+	if (&Params{}).willSandbox(manifest.Manifest{Docker: manifest.DockerDind}) {
+		t.Error("a harness that does not declare sbx never takes the sandbox backend")
+	}
+}
+
+// The compulsory tick happens INSIDE gateAddons, so anything gating on it must
+// read the row's options rather than On — or the first paint, the one an Enter
+// can accept outright, is computed from a state that no longer exists.
+func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
+	t.Parallel()
+	form := func() *choiceui.Form {
+		return &choiceui.Form{Rows: []choiceui.Row{
+			// On=false is what a cache answered before the lock looks like.
+			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{false}},
+			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+		}}
+	}
+	first := form()
+	gateAddons(first, "open", "forward", "", "")
+	second := form()
+	gateAddons(second, "open", "forward", "", "")
+	gateAddons(second, "open", "forward", "", "")
+	for _, tc := range []struct {
+		name string
+		f    *choiceui.Form
+	}{{"first pass", first}, {"second pass", second}} {
+		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
+			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
+		}
+		if c := tc.f.Rows[1]; c.Off[0] || !c.On[0] {
+			t.Errorf("%s: a sandboxed run must leave the bridge available, got off=%v on=%v",
+				tc.name, c.Off, c.On)
+		}
+	}
+}
+
+// A dind harness carries no sandbox box at all, so nothing may read it as one.
+func TestGateAddonsLeavesTheHostBrowserAloneOnADindHarness(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: rowExecution, Options: []string{addonDind}, Multi: true, On: []bool{true}},
+		{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+	}}
+	gateAddons(f, "open", "forward", "", "")
+	if c := f.Rows[1]; c.Off[0] || !c.On[0] {
+		t.Errorf("no sandbox in the execution row means no exclusion: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 }
 
 func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Options: []string{"browser", addonSandbox}, Multi: true, On: []bool{false, true},
+		Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true},
 	}}}
-	gateAddons(f, "open", "forward", "sbx CLI not found on PATH")
+	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
 	r := f.Rows[0]
 	if !r.Off[1] {
 		t.Fatal("the sandbox add-on must be greyed out when sbx is unavailable")
@@ -390,13 +650,23 @@ func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
 	if !strings.Contains(r.Reason, "sbx CLI not found on PATH") {
 		t.Errorf("reason = %q, want the availability reason", r.Reason)
 	}
-	if got := f.Selections("add-ons"); len(got) != 0 {
+	if got := selectedAddons(f); len(got) != 0 {
 		t.Errorf("a greyed add-on must not count as selected, got %v", got)
 	}
 	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
-	gateAddons(f, "open", "forward", "")
-	if f.Rows[0].Off[1] {
-		t.Error("an available sbx must leave the add-on checkable")
+	gateAddons(f, "open", "forward", "", "")
+	r = f.Rows[0]
+	if !r.Off[1] || !r.On[1] {
+		t.Errorf("an available sbx is compulsory: greyed and ticked, got off=%v on=%v", r.Off, r.On)
+	}
+	if r.Reason != "" {
+		t.Errorf("a box greyed on every run must stay out of the inline reason, got %q", r.Reason)
+	}
+	if !strings.Contains(r.OffWhy[addonSandbox], "PROVEO_SBX=0") {
+		t.Errorf("the compulsory sandbox must name its escape hatch, got %q", r.OffWhy[addonSandbox])
+	}
+	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox}) {
+		t.Errorf("a compulsory sandbox must still be reported as selected, got %v", got)
 	}
 }
 
@@ -606,13 +876,13 @@ func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 	t.Parallel()
 	row := choiceui.Row{
-		Label: "add-ons", Multi: true,
-		Options: []string{"browser", addonSandbox},
+		Label: rowExecution, Multi: true,
+		Options: []string{addonHost, addonSandbox},
 		On:      []bool{true, true}, // as addonDefaults leaves it: sandbox pre-ticked
 	}
 	f := &choiceui.Form{Rows: []choiceui.Row{row}}
 
-	gateAddons(f, "open", "forward", "PROVEO_SBX is off")
+	gateAddons(f, "open", "forward", "PROVEO_SBX is off", "")
 
 	got := f.Rows[0]
 	var i int
@@ -632,12 +902,12 @@ func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
 	}
 	// An available backend leaves the operator's choice alone.
 	f2 := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "add-ons", Multi: true,
+		Label: rowExecution, Multi: true,
 		Options: []string{addonSandbox}, On: []bool{true},
 	}}}
-	gateAddons(f2, "open", "forward", "")
-	if f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
-		t.Error("an available sandbox add-on must stay selectable and ticked")
+	gateAddons(f2, "open", "forward", "", "")
+	if !f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
+		t.Error("an available sandbox add-on must be greyed and ticked — it is compulsory")
 	}
 }
 
@@ -674,10 +944,10 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 			because: "a store proveo cannot reach cannot be the reason to launch"},
 		{name: "PROVEO_SBX=off", man: sbxMan, sbxOK: true, sbxOff: true, want: false,
 			because: "the knob pins docker+egress; the backend decides the store"},
-		{name: "sandbox add-on unchecked", man: sbxMan,
+		{name: "a remembered answer without the add-on", man: sbxMan,
 			p:     Params{Addons: []string{}, AddonsAnswered: true},
-			sbxOK: true, want: false,
-			because: "an answered picker that turned the sandbox off runs on docker"},
+			sbxOK: true, want: true,
+			because: "the add-on no longer votes: an sbx harness runs on sbx, so the store is still the source"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.sbxOff {
@@ -690,5 +960,144 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 				t.Errorf("sbxSuppliesCredential = %v, want %v (%s)", got, c.want, c.because)
 			}
 		})
+	}
+}
+
+// claudecodeMan is the harness shape the Chrome gate reasons about: a
+// subscription harness whose declared secrets are the two anthropic auth vars,
+// which is what AuthSuppressor scopes the login's suppression to.
+func claudecodeMan() manifest.Manifest {
+	return manifest.Manifest{
+		Name: "claudecode", Subscription: true, Docker: manifest.DockerSbx,
+		Env: []manifest.EnvVar{
+			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
+			{Name: "ANTHROPIC_API_KEY", Secret: true},
+		},
+	}
+}
+
+// A CLAUDE_CODE_OAUTH_TOKEN exported on the host is NOT the session's
+// credential when a usable login is mounted beside it. Both halves come from
+// AuthSuppressor, so they cannot disagree.
+func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A bare setup-token on the host — the shape Claude Code calls inference-only.
+	lookup := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-…"
+		}
+		return ""
+	}
+	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home)
+	if strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
+		t.Errorf("the token is suppressed in favour of the mounted login, so the gate "+
+			"must not refuse over it: %q", why)
+	}
+	// And with no login to suppress it, the refusal is the honest one again.
+	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
+		t.Errorf("without a login the token IS the credential, so the gate must refuse: %q", why)
+	}
+	// The operator naming the token explicitly is their answer, and it stands.
+	why = chromeUnavailable(claudecodeMan(), lookup, "CLAUDE_CODE_OAUTH_TOKEN", "claudecode", home)
+	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
+		t.Errorf("a token the operator CHOSE is the credential even beside a login: %q", why)
+	}
+}
+
+// A blanked credential file is the ordinary state of the proveo home on macOS,
+// and ScopeGate cannot see it — it reasons about the session's SHAPE.
+func TestChromeGateWarnsAboutABlankedLogin(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blanked := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","refreshTokenExpiresAt":%d}}`,
+		time.Now().Add(20*24*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(blanked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	none := func(string) string { return "" }
+	why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home)
+	if !strings.Contains(why, "Keychain") || !strings.Contains(why, "/login") {
+		t.Errorf("a blanked login must be named, with the action that fixes it: %q", why)
+	}
+	if len(why) > 150 {
+		t.Errorf("the warning is %d chars; it must stay one line: %q", len(why), why)
+	}
+	// A real login is not warned about.
+	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
+		time.Now().Add(8*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home); strings.Contains(why, "Keychain") {
+		t.Errorf("a usable login must not be reported as blanked: %q", why)
+	}
+}
+
+// blankedHome writes the macOS husk: tokens cleared, stamps intact.
+func blankedHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	husk := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`,
+		time.Now().Add(20*24*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(husk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// A husk decides nothing when an env token is carrying the session: the token's
+// scopes are the whole answer, and greying the box over the file refused a
+// bridge that works.
+func TestChromeGateIgnoresABlankedHomeWhenTheEnvTokenCarriesTheSession(t *testing.T) {
+	t.Parallel()
+	home := blankedHome(t)
+	scoped := func(k string) string {
+		switch k {
+		case "CLAUDE_CODE_OAUTH_TOKEN":
+			return "sk-ant-oat01-x"
+		case "CLAUDE_CODE_OAUTH_SCOPES":
+			return "user:inference user:profile"
+		}
+		return ""
+	}
+	if why := chromeUnavailable(claudecodeMan(), scoped, "", "claudecode", home); strings.Contains(why, "Keychain") {
+		t.Errorf("a well-scoped env token carries the session; the husk is irrelevant: %q", why)
+	}
+}
+
+// The remedy has to name WHERE. On macOS `/login` on the HOST writes to the
+// Keychain, which the container cannot read — so following that advice leaves
+// the operator with no credential of any kind.
+func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
+	t.Parallel()
+	unscoped := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-x"
+		}
+		return ""
+	}
+	for _, home := range []string{blankedHome(t), t.TempDir()} {
+		why := chromeUnavailable(claudecodeMan(), unscoped, "", "claudecode", home)
+		if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
+			t.Fatalf("an unscoped env token must be named: %q", why)
+		}
+		if !strings.Contains(why, "INSIDE the run") {
+			t.Errorf("the remedy must say where /login has to happen: %q", why)
+		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
@@ -27,6 +28,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -95,7 +97,49 @@ func Do(p Params, d Deps) error {
 	if done, err := selectBackend(&rs, &p, d); err != nil || done {
 		return err
 	}
+	defer stageDeps(&rs, &p)()
 	return execute(&rs, &p, d)
+}
+
+// stageDeps materialises the dependency-tree copies the mount plan named, and
+// returns the function that removes them once the run is over. Docker only,
+// and never for --print.
+func stageDeps(rs *Spec, p *Params) func() {
+	none := func() {}
+	if p.PrintOnly {
+		return none
+	}
+	copies := rs.Workspace.WS.DepCopies()
+	if len(copies) == 0 {
+		return none
+	}
+	// Copy only when the tree can run here; on a platform mismatch the overlays
+	// start empty and the install IS the plan.
+	reuse, why := workspace.DepCopyPolicy(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
+	made, err := workspace.MaterializeDeps(copies, reuse)
+	if err != nil {
+		ui.Warnf("dependency trees: %v", err)
+	}
+	copied := map[string]bool{}
+	for _, c := range made {
+		copied[c.Container] = true
+	}
+	var parts []string
+	for _, c := range copies {
+		if copied[c.Container] {
+			parts = append(parts, c.Container+" (copied)")
+		} else {
+			parts = append(parts, c.Container+" (empty)")
+		}
+	}
+	ui.Iconf("📦", "dependency trees isolated, host untouched: %s", why)
+	ui.Iconf("📦", "  %s", strings.Join(parts, ", "))
+	stage := rs.Workspace.WS.DepStage
+	return func() {
+		if stage != "" {
+			_ = os.RemoveAll(stage)
+		}
+	}
 }
 
 // resolveWorkspace settles WHERE the run happens: the input dir, the repo it sits
@@ -135,6 +179,9 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	rs.Workspace.WS = workspace.MountSpec{
 		Workspace: rs.Man.Workspace, OutputDir: p.Output, EgressMode: p.Mode, Credentials: p.Credentials,
 		MountRootDeps: mountRootDeps(os.Getenv),
+		// Under the per-run state dir: reclaimed with the run, and by `proveo clean`
+		// for anything a crash leaves behind.
+		DepStage: filepath.Join(rs.EgDir, "deps"),
 	}
 	{ // one layout: the scope dir drives the /app mount path
 		if rs.Workspace.SubScope != "" {
@@ -263,6 +310,91 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// startChromeBridge holds a host relay open for the life of the run and returns
+// the env pairs that name it to the agent. Skipped and SAID, never fatal.
+// tierBlocked is the caller's: that constraint is the docker backend's.
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
+func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
+	if !hasAddon(p.Addons, addonChrome) {
+		return nil, nil
+	}
+	switch {
+	case p.PrintOnly:
+		ui.Iconf("🧭", "%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
+			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
+		return nil, nil
+	case tierBlocked != "":
+		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
+		return nil, nil
+	}
+	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
+		ui.Warnf("%s: skipped — %s", addonChrome, why)
+		return nil, nil
+	}
+	// Loopback, on every host. host.docker.internal from inside a sandbox lands
+	// on the host's loopback, so nothing has to be exposed to the LAN for the sbx
+	// backend either — measured 2026-09-03 against a 127.0.0.1-only listener.
+	r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
+	if err != nil {
+		ui.Warnf("%s: skipped — %v", addonChrome, err)
+		return nil, nil
+	}
+	if err := r.SetTokenEnv(); err != nil {
+		ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
+	}
+	ui.Iconf("🧭", "chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
+		"The agent gets your logged-in sessions; site permissions stay the extension's",
+		r.Addr(), chromebridge.HostSocketDir())
+	return r, r.Env()
+}
+
+// hostStoreResolver reads the host secret store: one bounded exec, announced
+// before it can block.
+func hostStoreResolver() *secretref.Resolver {
+	return &secretref.Resolver{
+		Getenv: os.Getenv,
+		Announce: func(string) {
+			ui.Iconf("🔐", "reading the host secret store — approve the prompt if one appears")
+		},
+	}
+}
+
+// reportSandboxLogin names the one remedy that works when the sbx backend has no
+// credential of its own. It renders the argv rather than running it.
+// SPEC: _spec/internal/sbx/oauth-provisioning.puml
+func reportSandboxLogin(rs *Spec, p *Params) {
+	if !credentials.NeedsSandboxLogin(rs.Man, p.willSandbox(rs.Man),
+		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
+		return
+	}
+	argv := ""
+	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(p.Target), rs.Workspace.WS.InputDir); a != nil {
+		argv = sbx.Binary + " " + strings.Join(a, " ")
+	}
+	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
+	ui.Iconf("🔑", "%s", lines[0])
+	for _, l := range lines[1:] {
+		ui.Notef("%s", l)
+	}
+}
+
+// reportKeychain says what the host store holds and what THIS backend can do
+// with it — both halves, always together.
+func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
+	if line := k.Report(); line != "" {
+		ui.Iconf("🔐", "%s", line)
+		if advice := k.KeychainAdvice(sbxBackend, fileLogin); advice != "" {
+			ui.Notef("    %s", advice)
+		}
+		return
+	}
+	// Every failure is a warning and a no-op. A host that never logged in with
+	// `claude` says nothing.
+	if advice := k.KeychainFailureAdvice(); advice != "" {
+		ui.Warnf("%s", advice)
+	}
+}
+
 // resolveCredentials settles WHAT the agent may authenticate with: the persisted
 // login, sbx's stored names, the env the manifest asks for, and the mounts that
 // carry them. It reports what is missing rather than refusing — except where the
@@ -272,6 +404,14 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	rs.Creds.FileLogin, rs.Creds.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
 	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man, p)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
+	// The HOST secret store, read as a peer of the two above. Skipped on --print:
+	// this can raise a modal, and a dry run must ask the operator nothing.
+	if !p.PrintOnly {
+		rs.Creds.Keychain = credentials.ReadKeychainLogin(
+			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
+		reportKeychain(rs.Creds.Keychain, p.willSandbox(rs.Man), rs.Creds.FileLogin)
+		reportSandboxLogin(rs, p)
+	}
 	// The agent renews a stale access token itself, but its FIRST turn reports
 	// "Login expired · Please run /login" while it does — which reads as a dead
 	// credential to the operator, who then goes looking for an auth problem that
@@ -358,6 +498,12 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
 	}
+	// A vendor-locked slot that refuses a model must SAY so. Left silent, the slot
+	// stays unset and the agent runs on its own built-in default — a working run on
+	// a model the operator did not choose.
+	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
+		ui.Warnf("%s", r.Reason())
+	}
 	// ONE value, rendered twice — see internal/posture. The rows used to be
 	// assembled here and the header assembled elsewhere, which is how the two
 	// could disagree about the same run.
@@ -386,9 +532,68 @@ func buildPosture(rs *Spec, p *Params) {
 		ModelRoles:     posture.RolesLine(p.Bridges, p.Target, p.Roles),
 		RoleProviders:  strings.Join(p.Roles.Providers(), ","),
 		MCPGateway:     posture.MCPGateway(p.willSandbox(rs.Man), sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
-		Workspace:      posture.Workspace(p.Clone),
+		// Predicted from the manifest here, settled against the real backend in
+		// selectBackend; the two agree except when sbx turns out unavailable, and
+		// that fallback is announced where it happens.
+		Workspace: posture.Workspace(predictClone(p, p.willSandbox(rs.Man), rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
+}
+
+// decideClone settles whether the agent edits a private in-VM clone or the
+// mounted checkout, and why not when it cannot. Clone is the DEFAULT on sbx;
+// where it cannot apply the run falls back and says why, and an EXPLICIT
+// --clone there is an error rather than a fallback.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, whyOff string, err error) {
+	if !p.Clone {
+		return false, "", nil // --clone=false or PROVEO_CLONE=off: the mounted checkout, by choice
+	}
+	switch {
+	case !sbxBackend:
+		// --clone is creation-time and sbx-only. Accepting it silently on the docker
+		// backend would hand back a run that edited the checkout after promising not
+		// to, which is the one failure mode the flag exists to prevent.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
+				"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
+				"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
+		}
+		return false, "", nil // docker has no clone; nothing to announce
+	case ws.RepoRoot == "":
+		// sbx clones with git, so without a repository there is nothing to clone and
+		// the failure would surface inside the sandbox rather than here.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
+				"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
+				"  Run it from a checkout, or drop --clone to work on the mounted directory",
+				ws.InputDir)
+		}
+		return false, "not a git repository — sbx clones with git", nil
+	case workspace.LinkedWorktree(ws.InputDir):
+		// sbx documents clone mode for the main worktree only.
+		if p.CloneSet {
+			return false, "", fmt.Errorf("--clone cannot clone a linked git worktree (%s):\n"+
+				"  sbx clones the MAIN worktree only. Run from the main checkout, or drop --clone",
+				ws.InputDir)
+		}
+		return false, "linked git worktree — sbx clones only the main worktree", nil
+	case ws.ScopeRel() != "":
+		// The primary workspace is the sub-scope, and sbx clones the primary. An
+		// explicit ask is honoured and left to sbx; the default stays conservative.
+		if p.CloneSet {
+			return true, "", nil
+		}
+		return false, "monorepo sub-scope — the primary workspace has to be the repository root", nil
+	}
+	return true, "", nil
+}
+
+// predictClone is decideClone for the posture row, before the backend is
+// settled: errors are the flag's business later, not the posture's.
+func predictClone(p *Params, sbxBackend bool, ws workspace.MountSpec) bool {
+	on, _, err := decideClone(p, sbxBackend, ws)
+	return err == nil && on
 }
 
 // assembleEnv turns the resolved credentials into the container's environment:
@@ -426,7 +631,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 			}
 			if p.forwards() {
 				rs.Creds.Env = append(rs.Creds.Env, e.Name)
-				credentials.HydrateProcessEnv(e.Name, rs.Creds.Lookup)
+				rs.Creds.Child.Add(e.Name, rs.Creds.Lookup)
 			} else {
 				rs.Creds.Env = append(rs.Creds.Env, e.Name+"="+entrypoint.DefaultSentinel)
 				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, e.Name)
@@ -463,6 +668,10 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 	rs.Creds.Env = append(rs.Creds.Env, EvidenceVar+"="+p.evidenceOrDefault())
+	// proveo's own defaults for the agent (manifest agentEnv), the operator's value
+	// winning. The image entrypoint repeats the same defaults for a bare `docker
+	// run`; forwarding them here keeps both backends reading one declaration.
+	rs.Creds.Env = append(rs.Creds.Env, rs.Man.AgentEnvPairs(rs.Creds.Lookup)...)
 	rs.Creds.Env = append(rs.Creds.Env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
 	rs.Creds.Env = append(rs.Creds.Env, rs.Creds.HomePlan.Env...)
 	if rel := rs.Workspace.WS.ScopeRel(); rel != "" {
@@ -490,14 +699,17 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	rs.Backend.Sbx = false
 	if rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled() {
 		switch ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); {
-		case !p.sandboxAddonOn():
-			ui.Iconf("🐳", "docker sandbox: off (add-on unchecked) — running on docker+egress")
 		case !ok:
 			sandbox.ReportUnavailable(why)
 		default:
 			rs.Backend.Sbx = true
 			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
 			sandbox.WarnBaseline()
+			if hasAddon(p.Addons, addonChrome) {
+				// The picker greys this pair; a cached or scripted answer can still
+				// carry both, so the run says which one it is not honouring.
+				ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
+			}
 		}
 	}
 	// Both backends reach here. This used to live in execute(), which is the docker
@@ -511,40 +723,60 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
 	// hello-world` succeeds. Nothing to warn about any more; the warning that used
 	// to live here told the operator docker would fail, which is now false.
-	// --clone is creation-time and sbx-only. Accepting it silently on the docker
-	// backend would hand back a run that edited the checkout after promising not
-	// to, which is the one failure mode this flag exists to prevent.
-	if p.Clone && !rs.Backend.Sbx {
-		return false, fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
-			"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
-			"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
-	}
-	// sbx clones with git, so without a repository there is nothing to clone and
-	// the failure surfaces inside the sandbox rather than here.
-	if p.Clone && rs.Workspace.WS.RepoRoot == "" {
-		return false, fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
-			"  sbx builds the sandbox workspace by cloning the host repo over a git daemon.\n"+
-			"  Run it from a checkout, or drop --clone to work on the mounted directory",
-			rs.Workspace.WS.InputDir)
-	}
-	if rs.Backend.Sbx && p.Clone {
-		ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
-			"Retrieve the agent's commits afterwards with `git fetch sandbox-%s`", rs.Sid)
+	var err error
+	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
+	if err != nil {
+		return false, err
 	}
 	if rs.Backend.Sbx {
+		switch {
+		case rs.Backend.Clone:
+			ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
+				"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
+		case rs.Backend.CloneOff != "":
+			ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
+		}
+	}
+	// The posture row was predicted from the manifest; the backend is now known.
+	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
+	if rs.Backend.Sbx {
+		// The private dependency-tree copies have no expression on sbx, which
+		// mounts every path at its own HOST path. Drop them, and say what that
+		// means: only --clone keeps host-built trees out of the sandbox.
+		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
+		if dropped > 0 && !rs.Backend.Clone {
+			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
+				"  the seed rebuilds a foreign tree only with PROVEO_DEPS=reinstall (it rewrites your checkout) — `--clone` keeps untracked trees out and installs fresh", dropped)
+		}
+		// The browser viewport is offered only where there is a browser to show and
+		// a port to show it on. Chosen here, before the plan is assembled, so the
+		// argv carries it and --print renders the same run.
+		browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
+		cdpPort := 0
+		if browserOn && !p.PrintOnly {
+			cdpPort = sandbox.FreeLoopbackPort()
+		}
+		// No tier guard on this backend: the egress tier is inert here, and a
+		// sandbox reaches the host's loopback on every baseline.
+		sbxBridge, sbxBridgeEnv := startChromeBridge(rs, p, "")
+		if sbxBridge != nil {
+			defer func() { _ = sbxBridge.Close() }()
+		}
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
-			Shell: p.Shell, Clone: p.Clone, Extra: p.Extra,
+			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
+			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
+			Browser: browserOn, CDPHostPort: cdpPort,
 			Roles: p.Roles, Bridges: p.Bridges,
-			Evidence:       p.evidenceOrDefault(),
-			Forwards:       p.forwards(),
-			SandboxAddonOn: p.sandboxAddonOn(),
-			Man:            rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-			Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir,
+			Evidence: p.evidenceOrDefault(),
+			Forwards: p.forwards(),
+			Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
+			Mounts: mounts, Workdir: rs.Workspace.Workdir,
 			Lookup:           rs.Creds.Lookup,
 			Detected:         rs.Creds.Detected,
 			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
 			HomeEnv:          rs.Creds.HomePlan.Env,
+			BridgeEnv:        sbxBridgeEnv,
 			ScopeRel:         rs.Workspace.WS.ScopeRel(),
 			WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
 			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
@@ -644,6 +876,20 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Docker.PidsLimit = runner.ResolvePidsLimit(rs.Docker.Host, rs.Docker.Browser, ov, ovSet)
 
+	// Claude in Chrome through the operator's browser: a relay held open on the
+	// host for the life of the run, named to the agent by environment. Skipped —
+	// and said so — rather than failed: the add-on is a convenience over the run,
+	// and the run must not die because Chrome was closed after the prompt.
+	tierBlocked := ""
+	if !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()) {
+		tierBlocked = "needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)"
+	}
+	bridge, bridgeEnv := startChromeBridge(rs, p, tierBlocked)
+	if bridge != nil {
+		defer func() { _ = bridge.Close() }()
+	}
+	rs.Creds.Env = append(rs.Creds.Env, bridgeEnv...)
+
 	consent, reviewProxy := reviewConsent(p.Mode)
 	reviewGate, stopReview := dockeregress.StartReviewGate(p.Mode, rs.EgDir, consent)
 	defer stopReview()
@@ -663,10 +909,12 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		ProviderHosts: policyProviderHosts(rs.Creds.Detected, rs.Man.Capabilities),
 		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
 		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
-		Mounts: rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
+		HostBridge: bridge != nil,
+		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
+		ChildEnv:        rs.Creds.Child.Pairs(),
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
-		ProxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
+		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),
 		OllamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
 		PidsLimit:       rs.Docker.PidsLimit,
 	})

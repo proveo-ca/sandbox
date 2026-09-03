@@ -22,7 +22,15 @@ type Params struct {
 	Evidence                                                                    string
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
-	Clone                                                                       bool
+	// ProxyImage is the egress-proxy sidecar image the launcher settled on, in
+	// cmd/proveo rather than here.
+	// SPEC: _spec/internal/egress/teardown-and-signals.puml
+	ProxyImage string
+	// Clone is the REQUEST: --clone / PROVEO_CLONE. Whether the run actually
+	// clones is Spec.Backend.Clone, settled by decideClone once the backend and
+	// the workspace shape are known. CloneSet records an explicit flag, which
+	// turns "cannot clone here" from a fallback into an error.
+	Clone, CloneSet bool
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }
@@ -92,10 +100,6 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	p.Roles = posture.MergeRoles(provider.RolesFrom(lookup), cached.Models)
 }
 
-func (p *Params) sandboxAddonOn() bool {
-	return hasAddon(p.Addons, addonSandbox) || !p.AddonsAnswered
-}
-
 // addonDefaults is the picker's initial checkbox state: a remembered answer
 // wins, and absent one BOTH docker add-ons start checked — the run is going to
 // use them, so the box that says so is ticked before the operator is asked.
@@ -108,10 +112,10 @@ func (p *Params) addonDefaults(opts []string) []bool {
 	return on
 }
 
-// normalizeAddons upgrades the names a previous version remembered, so a cached
-// choice keeps meaning what the operator picked.
+// willSandbox reports whether this run takes the sandbox backend, and is the
+// value every posture line is rendered from.
 func (p *Params) willSandbox(man manifest.Manifest) bool {
-	return sandbox.Selected(man) && p.sandboxAddonOn()
+	return sandbox.Selected(man)
 }
 
 // reviewConsent builds the terminal half of the review tier: a pty overlay that

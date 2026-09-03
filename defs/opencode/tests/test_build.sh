@@ -39,3 +39,26 @@ assert_inspect \
   "$IMAGE" \
   '{{json .Config.Entrypoint}}' \
   "dumb-init"
+
+# The image says which agent it carries, and the label is the truth: the version
+# build.sh pinned is the one the installed CLI reports. An image without the label
+# predates the pin — rebuild it (proveo build opencode) rather than trusting it.
+# SPEC: _spec/_devops/agent-version-pin.puml
+assert_inspect \
+  "proveo.agent label names the agent package" \
+  "$IMAGE" \
+  '{{index .Config.Labels "proveo.agent"}}' \
+  "opencode-ai"
+AGENT_VERSION_LABEL="$(docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' "$IMAGE" 2>/dev/null)"
+if [[ -n "$AGENT_VERSION_LABEL" ]]; then
+  assert_output_contains \
+    "opencode --version matches proveo.agent.version=$AGENT_VERSION_LABEL" \
+    "$IMAGE" \
+    "opencode --version" \
+    "$AGENT_VERSION_LABEL"
+else
+  TESTS_RUN=$((TESTS_RUN + 1))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("proveo.agent.version label is set")
+  printf "${RED}FAIL${NC} [%d] proveo.agent.version label is set (image predates the pin — proveo build opencode)\n" "$TESTS_RUN"
+fi

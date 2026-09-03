@@ -9,7 +9,7 @@ node "Host repo" as HOST <<host>> {
   component "root .git" as GIT <<app>>
   component "rootFiles — FILES\nAGENTS.md · package.json · turbo.json …" as RF <<app>>
   component "rootDirs — DIRECTORIES\n""_spec"" · ""vendor""" as RD <<app>>
-  component "rootDepDirs\n""node_modules""" as RDD <<app>>
+  component "DepLangs at the repo root\n""node_modules"" · ""target"" · "".venv"" …" as RDD <<app>>
 }
 
 node "Container /app" as APP <<host>> {
@@ -17,7 +17,7 @@ node "Container /app" as APP <<host>> {
   component "/app/.git  ro|rw" as M2 <<app>>
   component "/app/<file>  ro" as M3 <<app>>
   component "/app/_spec  rw" as M4 <<app>>
-  component "/app/node_modules  rw" as M5 <<app>>
+  component "/app/<dep dir>  rw\nprivate copy" as M5 <<app>>
 }
 
 component "dotenv mask\n""/dev/null"":ro" as MASK <<app>>
@@ -27,7 +27,7 @@ SCOPE ARROW_MAIN M1
 GIT   ARROW_MAIN M2
 RF    ARROW_MAIN M3
 RD    ARROW_MAIN M4
-RDD   ARROW_OPTIONAL M5 : PROVEO_MOUNT_ROOT_DEPS
+RDD   ARROW_OPTIONAL M5 : present trees only, plain-copied\n""PROVEO_MOUNT_ROOT_DEPS=0"" omits them
 M4    ARROW_QUEUE MASK : walked for secrets
 M5    ARROW_ERROR ARCH
 
@@ -61,11 +61,12 @@ note bottom of MASK
 end note
 
 note right of ARCH
-  A dependency tree installed on the HOST holds binaries built for the host
-  OS/arch — esbuild, sharp, better-sqlite3 — and those do not run in the Linux
-  container. Mounting it still pays off for module RESOLUTION in a workspace
-  monorepo, which is why it is on by default and switched off with
-  ""PROVEO_MOUNT_ROOT_DEPS=0"" when the mismatch bites.
+  **Never a bind of the host tree.** Each dependency dir
+  the table names — at the root here, and under the scope
+  at ""/app/<rel>/<dir>"" — is a private plain copy staged
+  under the run's state dir. Same OS/arch: the copy is
+  reused. Foreign: the seed clears and rebuilds it, host
+  untouched. ""_spec/packages/lib/dependency-trees.puml"".
 end note
 
 note right of M2

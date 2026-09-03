@@ -29,6 +29,19 @@ env:
   - name: CLAUDE_CODE_OAUTH_TOKEN
     description: Claude Code OAuth token — generate one with `claude setup-token`
     secret: true
+# proveo's own defaults for the agent, on every backend; an operator who sets the
+# variable keeps their value. The classic renderer is part of agent evidence —
+# fullscreen draws on the alternate screen and leaves nothing in scrollback for
+# the transcript tee — and only an env var out-ranks a `tui` setting a mounted
+# home may carry. DISABLE_ALTERNATE_SCREEN is the documented opt-out (Claude
+# Code 2.1.132+); NO_FLICKER=0 is the older switch and covers images pinned
+# before it. See _spec/defs/claudecode/claudecode-paradigm.puml.
+agentEnv:
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"
+  CLAUDE_CODE_NO_FLICKER: "0"
 
 capabilities:
   providers: [anthropic]
+  # Claude in Chrome: the agent drives the OPERATOR's Chrome through proveo's
+  # bridge — add-on "claude-in-chrome", off by default, on both backends.
+  hostBrowser: claude-in-chrome

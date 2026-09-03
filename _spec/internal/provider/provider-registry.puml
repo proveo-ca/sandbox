@@ -6,6 +6,7 @@ node "internal/provider" as PKG <<host>> {
   component "registry entry\nName · Detect · ACL · Hosts · Auth" as ENTRY <<app>>
   component "bareIDPrefixes\nmodel id → provider" as BARE <<app>>
   component "ambiguousBareIDs\nopen-weights: refuse to pin" as AMBIG <<app>>
+  component "providerAliases\nupstream id → registry entry\n(opencode-go → opencode)" as ALIAS <<app>>
 }
 
 folder "The four places a provider must exist" as FOUR <<host>> {
@@ -21,8 +22,26 @@ component "Advertised but unregistered\n→ silent 401/403" as GHOST <<error>>
 DOCS ARROW_CLOUD ENTRY : sync-providers skill
 ENTRY ARROW_MAIN FOUR
 BARE ARROW_MAIN P3
+ALIAS ARROW_MAIN P3 : prefix folded before lookup
 AMBIG ARROW_ERROR P3 : returns "" rather than guess
 ENTRY ARROW_ERROR GHOST : any of the four missing
+
+note bottom of ALIAS
+  **One route, two upstream ids.** models.dev lists OpenCode's gateway as
+  ""opencode"" (Zen, pay-as-you-go, ""/zen/v1"") and ""opencode-go"" (Go, the
+  subscription, ""/zen/go/v1""), each with its own model list — but both read
+  ""OPENCODE_API_KEY"" and both live on "".opencode.ai"". Detection, reach and
+  injection see one provider, so the registry holds ONE entry and
+  ""ModelProvider"" folds the ""opencode-go/"" prefix onto it; otherwise
+  ""ARCHITECT_MODEL=opencode-go/…"" pinned a name ""Lookup"" could not find and
+  ""MissingKeys"" named no credential for it.
+
+  The key is a plain bearer opencode reads from its environment **ahead of**
+  ""auth.json"", so the login is complete before launch — no ""/connect"" inside
+  a sandbox whose ""auth.json"" the proveo home scrubs every run. opencode is
+  not a ""subscription: true"" harness for that reason: nothing is minted
+  inside, and the credential is detectable host-side like any other key.
+end note
 
 note right of ENTRY
   **A gap in any one of the four is silent.** The operator sets a key,
@@ -59,7 +78,7 @@ note bottom of P2
 end note
 
 note bottom of DOCS
-  **Scope: first-class only.** The registry carries 29 providers — those
+  **Scope: first-class only.** The registry carries 30 providers — those
   a harness names first-class in its own docs, or that directly vendor a
   model family an operator would put in ""ARCHITECT_MODEL"". OpenCode
   alone lists ~48 and cecli's LiteLLM surface many more; that long tail

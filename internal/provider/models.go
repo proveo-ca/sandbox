@@ -28,10 +28,20 @@ func ModelProvider(model string) string {
 		case "ollama", "ollama_chat", "openai-compatible":
 			return "" // local / shim endpoints serve arbitrary ids
 		default:
+			if canonical, ok := providerAliases[p]; ok {
+				return canonical
+			}
 			return p
 		}
 	}
 	return bareModelProvider(strings.ToLower(model))
+}
+
+// providerAliases folds upstream provider ids that share ONE registry entry, so
+// a model id spelled the catalog's way still pins the same route and names the
+// same credential.
+var providerAliases = map[string]string{
+	"opencode-go": "opencode",
 }
 
 var bareIDPrefixes = []struct{ prefix, provider string }{

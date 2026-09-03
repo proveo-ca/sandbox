@@ -49,6 +49,24 @@ note bottom of BUILD
   invokes its base's ""ensure.sh"" first, so
   ""base-node-lsp"" exists before claudecode/opencode
   build ""FROM"" it.
+
+  **The agent inside is pinned, not ""@latest"".** Each build.sh
+  resolves the current release (""proveo_agent_version"") and
+  passes it as a build-arg the Dockerfile installs and
+  verifies, so a warm cache cannot keep a stale agent and
+  the image labels what it carries
+  (_spec/_devops/agent-version-pin.puml).
+
+  **A newer "":local"" beats "":latest"" for the egress-proxy
+  sidecar too** (""egressProxyImage"" in cmd/proveo, same
+  ""ResolveImage"" rule as the harness image). The sidecar
+  compiles ""internal/provider"" into its binary, so a provider
+  added in Go is not brokered until ""proveo build egress-proxy""
+  — and a plan that named "":latest"" outright kept launching
+  the stale published sidecar over that build: the run
+  detected the key, sentinel-injected it, allowlisted the
+  host, and the vendor answered 401 as if the key were bad.
+  ""PROVEO_EGRESS_PROXY_IMAGE"" still overrides outright.
 end note
 
 note bottom of TEST

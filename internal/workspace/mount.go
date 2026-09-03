@@ -23,13 +23,11 @@ var rootFiles = []string{
 }
 
 // SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml
+//
+// vendor is here as SOURCE: Go's vendor/ is checked-in module code and portable.
 var rootDirs = []string{
 	"_spec",
 	"vendor",
-}
-
-var rootDepDirs = []string{
-	"node_modules",
 }
 
 type MountSpec struct {
@@ -39,7 +37,13 @@ type MountSpec struct {
 	OutputDir          string
 	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
-	MountRootDeps      bool
+	// MountRootDeps copies a subdir scope's repo-root dependency trees to /app.
+	// PROVEO_MOUNT_ROOT_DEPS=0 turns it off.
+	MountRootDeps bool
+	// DepStage is the directory dependency-tree copies are staged under (see
+	// DepCopies / MaterializeDeps). The run points it inside its per-run state
+	// dir so `proveo clean` reclaims it; empty falls back to a per-pid temp dir.
+	DepStage string
 	// WorktreeLinkDir holds the container-only pointer files written by
 	// PrepareWorktreeLinks. Empty disables the overlay (see worktreeMounts).
 	WorktreeLinkDir string
@@ -86,9 +90,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 			}
 		}
 		dirs := rootDirs
-		if w.MountRootDeps {
-			dirs = append(append([]string{}, rootDirs...), rootDepDirs...)
-		}
 		for _, d := range dirs {
 			host := filepath.Join(w.RepoRoot, d)
 			if !isDir(host) || exists(filepath.Join(w.InputDir, d)) {
@@ -99,6 +100,8 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 				mounts = append(mounts, maskEnvMounts(host, "/app/"+d)...)
 			}
 		}
+		// Root dependency trees (the hoisted node_modules a workspace member
+		// resolves through) arrive as plain copies too — see depMounts below.
 		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
@@ -108,6 +111,11 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
+	// Dependency trees are never the host's: every directory DepLangs names is
+	// overlaid with a private copy. Plan only NAMES them.
+	// SPEC: _spec/packages/lib/dependency-trees.puml
+	mounts = append(mounts, w.depMounts()...)
+
 	mounts = append(mounts, w.worktreeMounts()...)
 	mounts = append(mounts, w.envOverlay()...)
 	if w.Output && w.OutputDir != "" {
@@ -202,6 +210,15 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 		return gitWorktree{}, false
 	}
 	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir)}, true
+}
+
+// LinkedWorktree reports whether dir is a LINKED git worktree — its .git is a
+// pointer file into another checkout's .git/worktrees/ — as opposed to the main
+// worktree or no repository at all. sbx's clone mode can clone only the main
+// worktree, so the clone default has to step aside here.
+func LinkedWorktree(dir string) bool {
+	_, ok := readGitWorktree(dir)
+	return ok
 }
 
 // WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil. The

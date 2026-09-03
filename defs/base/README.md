@@ -23,13 +23,17 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
   to multiple GB, so it is not universal. Browser-capable Node harnesses build FROM
   the opt-in `proveo/base-node-browser` layer (`defs/base-node-browser`:
   base-node-lsp + Playwright + a Chromium browser under a world-readable
-  `PLAYWRIGHT_BROWSERS_PATH`) as `<harness>-browser` variants
+  `PLAYWRIGHT_BROWSERS_PATH`, plus [agent-browser](https://github.com/vercel-labs/agent-browser)
+  pointed at that same Chromium and a skill stub the seed drops into each harness's
+  user skills dir) as `<harness>-browser` variants
   (`opencode-browser`, `claudecode-browser`, `cursor-browser`), selected at run
   time from the `proveo run` capability picker (Tab to add, Enter continues). Default
   images stay
   slim; Chromium is downloaded once in `base-node-browser` and shared by every
-  variant. (cecli/Python remains install-on-demand: `python -m playwright install
-  chromium` into a mounted cache dir.)
+  variant and both clients. (cecli/Python remains install-on-demand: `python -m playwright install
+  chromium` into a mounted cache dir.) The operator's OWN browser is a different
+  add-on — `chrome (host browser)`, claudecode only, via the Claude in Chrome bridge
+  (`defs/claudecode/README.md`).
 
 ## FROM tree
 
@@ -38,11 +42,11 @@ debian:bookworm-slim
 └── proveo/base                    git/gh/jq/curl/dumb-init/bash/tmux/proveo-entrypoint/harden
      ├── cursor                    cursor-agent binary; no runtime
      ├── cecli                     + python3-venv (aider fork)
-     └── proveo/base-node          + Node 22 LTS + pnpm
+     └── proveo/base-node          + Node 22 LTS + pnpm + Bun
           └── proveo/base-node-lsp        + workspace language servers
                ├── opencode
                ├── claudecode (mcp)   └── claudecode-solidity
-               └── proveo/base-node-browser   + Playwright + Chromium  (opt-in)
+               └── proveo/base-node-browser   + Playwright + Chromium + agent-browser  (opt-in)
                     ├── opencode-browser
                     ├── claudecode-browser
                     └── cursor-browser        (cursor-agent atop the browser floor)

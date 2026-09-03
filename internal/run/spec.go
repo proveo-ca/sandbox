@@ -6,6 +6,7 @@ import (
 	"io/fs"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -67,18 +68,25 @@ type WorkspaceSpec struct {
 
 // CredentialSpec is WHAT the agent may authenticate with, and what carries it.
 type CredentialSpec struct {
-	HostEnvFile        string
-	Lookup             func(string) string // env-then-file; the ONLY credential read in a run
-	Detected           []string
-	Brokered           []string
-	BrokerFile         string
-	BrokerKeyNames     []string
-	Env                []string
+	HostEnvFile    string
+	Lookup         func(string) string // env-then-file; the ONLY credential read in a run
+	Detected       []string
+	Brokered       []string
+	BrokerFile     string
+	BrokerKeyNames []string
+	Env            []string
+	// Child holds the VALUES behind every bare `-e NAME` in Env, for the launch
+	// exec alone. Never printed, never in argv: --print renders Env, and Child is
+	// the half that only the child process ever sees.
+	Child              credentials.ChildEnv
 	FileLogin          bool
 	LoginNeedsRefresh  bool
 	StoreHeld          []string // names sbx's store holds; proveo sees that they exist, not what they hold
 	LoggedIn           bool
 	AuthMissingAtStart []manifest.EnvVar
+	// Keychain is what the HOST secret store holds — metadata only, and it feeds
+	// no decision. See _spec/internal/secretref/secret-references.puml.
+	Keychain credentials.KeychainLogin
 
 	HomePlan proveohome.Plan
 }
@@ -93,7 +101,12 @@ type ChoiceSpec struct {
 
 // BackendSpec is which backend won, and the add-ons that decision enables.
 type BackendSpec struct {
-	Sbx           bool
+	Sbx bool
+	// Clone is the EFFECTIVE workspace mode: true when the agent edits a private
+	// in-VM clone, false when it edits the mounted checkout. CloneOff says why the
+	// clone default did not apply ("" when it did, or when nothing asked for it).
+	Clone         bool
+	CloneOff      string
 	WantDind      bool
 	DindScope     string
 	DindOfferable bool

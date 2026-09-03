@@ -1,0 +1,126 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title sbx virtiofs drops the agent's cwd — a silent Bash tool, and the two answers
+
+' covers: defs/claudecode/mcp/defaults/hooks/cwd-guard.sh, packages/lib/entrypoint-lib.sh,
+'
+' ── WHY A HOOK IS THE ONLY CHANNEL LEFT ────────────────────────────────────
+' Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (tests point it elsewhere).
+'
+' In an sbx sandbox the workspace is a virtiofs passthrough, and its directory
+' entry has been measured vanishing inside the VM under a running agent while
+' the host directory stayed put. Claude Code then holds a cwd of "<path>
+' (deleted)" and every Bash call exits 1 with no output — but HOOKS STILL
+' SPAWN, because Claude Code falls back to the session start dir for them. So
+' a PreToolUse(Bash) hook is the one channel that can tell the MODEL what
+' happened and what to do about it.
+'
+' Registered in the agent's user-level settings and MERGED, the same way
+' proveo_apply_ui_defaults is: the file is the operator's, and the hook is
+' added once, never duplicated.
+'         internal/run/run.go, internal/run/helpers.go, internal/backend/sandbox/sandbox.go,
+'         internal/sbx/run.go, cmd/proveo/main.go, internal/workspace/mount.go,
+'         cmd/proveo/main_test.go, e2e/resume_test.go
+'
+' Measured 2026-09-01 on proveo-1787956302-22788 (proveo/claudecode, Claude Code
+' 2.1.251), see the memory sbx-virtiofs-unlinks-agent-cwd for the full forensics.
+
+participant "Host checkout\nsame inode throughout" as HOST <<host>>
+participant "sbx microVM\nvirtiofs passthrough" as VFS <<cloud>>
+participant "Claude Code\ncwd = workspace root" as CC <<app>>
+participant "Bash tool spawn" as BASH <<error>>
+participant "cwd-guard.sh\nPreToolUse(Bash)" as HOOK <<app>>
+participant "proveo run\nclone by default" as RUN <<app>>
+
+HOST ARROW_CLOUD VFS : workspace shared at its host path
+VFS ARROW_ERROR CC : guest dentry unlinked;\nhost directory unchanged
+CC ARROW_MAIN CC : cwd recorded as\n""<ws> (deleted)""
+CC ARROW_ERROR BASH : every spawn: exit 1, no output\n(""true"" too, subagents too)
+CC ARROW_OPTIONAL HOOK : hooks still spawn — Claude Code\nfalls back to the session start dir
+HOOK ARROW_MAIN CC : exit 2: names the cause, forbids\nretries, asks for a restart
+RUN ARROW_MAIN VFS : clone mode — the workspace lives\non the VM disk, not on virtiofs
+RUN ARROW_MAIN HOST : teardown: snapshot + fetch to\n""refs/proveo/<sid>/*"" before ""sbx rm""
+RUN ARROW_MAIN VFS : teardown save: ""sbx exec -w /"" —\nnever the container WorkingDir
+
+note over HOST, VFS
+  **The host did nothing.** Birth time and inode of the
+  directory never changed; ""stat -L /proc/<pid>/cwd""
+  still reached that inode. Only the guest's name for
+  it was gone. No mount row in the audit log either:
+  ""sbx exec"" re-evaluates policy, it does not remount.
+end note
+
+note over CC
+  **Read/Edit/Write survive, Bash does not.** File tools
+  take absolute paths; the Bash tool takes the cwd, and
+  Claude Code ≥ 2.1.119 rejects a vanished one instead
+  of falling back (anthropics/claude-code#52747). The
+  model then blames the harness — which is what it saw.
+end note
+
+note over HOOK
+  **Why a hook can speak when Bash cannot.** Claude Code
+  spawns hooks from the session start dir when the cwd
+  is gone, so ""PreToolUse(Bash)"" runs exactly when the
+  tool would fail. Exit 2 puts stderr in front of the
+  model. Silent on a healthy shell; ""PROVEO_CWD_GUARD=off"".
+end note
+
+note over RUN
+  **Clone is the default, with named fallbacks.** sbx
+  clones only a repository's MAIN worktree offered as
+  the primary workspace: no repo, a linked worktree, a
+  monorepo sub-scope, or the docker backend fall back to
+  the mounted checkout and say why. Explicit ""--clone""
+  there is an error; ""--clone=false"" / ""PROVEO_CLONE=off"" opt out.
+end note
+
+note over RUN, HOST
+  **A clone dies with its VM.** ""sbx rm"" drops the in-VM
+  clone and its ""sandbox-<name>"" remote, and removing a
+  remote deletes ""refs/remotes/<remote>/*"". Teardown
+  therefore commits what the agent left uncommitted,
+  then fetches every branch into ""refs/proveo/<sid>/*"".
+end note
+
+note over RUN, VFS
+  **Nothing may be mounted UNDER the repository in clone
+  mode.** sbx mounts each positional workspace at its own
+  host path and clones only into an EMPTY workspace. The
+  harness's output dir (""<repo>/reports"") went to sbx as a
+  second positional, landed inside the clone target first,
+  and sbx skipped the clone without a word: the agent started
+  in a root-owned directory holding nothing but ""reports/"",
+  with the checkout read-only at ""/run/sandbox/source""
+  (proveo-1788366117-41470, 2026-09-02; reproduced with a
+  throwaway repo). ""SplitNested"" drops every nested bind and
+  says so; the output dir is **lifted at teardown** instead —
+  ""CloneLiftArgs"" tars it out of the clone over ""sbx exec""
+  (stdio is forwarded) and the host unpacks it under the
+  repo root, before the commit fetch. The ""--print"" plan
+  never showed the nested positional because it does not
+  create the output dir and non-existent hosts are dropped;
+  ""e2e/clone_output_test.go"" drives ""proveo run"" itself.
+end note
+
+note over RUN
+  **Teardown is an exec too.** ""SaveStateArgs"" pins ""-w /"":
+  without it the copy-out inherits the dead WorkingDir and
+  dies with the same ""getcwd"" error, exit 127, before a byte
+  moves — "resume state not preserved" — and ""sbx rm"" then
+  takes the volumes. Measured on 22788 at the end of a
+  four-day session; the transcripts never reached the host.
+  Reproduced on demand by replacing the workspace directory's
+  inode on the host (""mv"" + ""mkdir""); putting it back does
+  not heal the guest, only a restart does.
+end note
+
+note over BASH
+  **Forensics.** ""sbx exec -w / <sb> -- readlink /proc/<pid>/cwd""
+  — the ""-w /"" is load-bearing, the default workdir IS
+  the broken directory and dies with
+  ""getcwd: Operation not permitted"". The transcript's
+  own ""cwd"" field carries the same "(deleted)" string.
+end note
+@enduml

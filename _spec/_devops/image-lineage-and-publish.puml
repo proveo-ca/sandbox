@@ -91,9 +91,9 @@ note right of CHAIN
 
   | layer | holds | why not lower |
   | ""proveo/base"" | git · gh · ca-certs · curl · jq · dumb-init · bash · tmux · ""proveo-entrypoint"" · the harden pass | the universally-shared floor, and **no language runtime** |
-  | ""proveo/base-node"" | Node + pnpm | cursor and cecli would otherwise carry a Node runtime they never call |
+  | ""proveo/base-node"" | Node + pnpm + Bun | cursor and cecli would otherwise carry a Node runtime they never call |
   | ""proveo/base-node-lsp"" | the language servers ""_lsp_server()"" can run | a non-LSP Node consumer should not pay for them |
-  | ""proveo/base-node-browser"" | Playwright + Chromium + ~150 apt libs | only browser-capable harnesses need it |
+  | ""proveo/base-node-browser"" | Playwright + Chromium + agent-browser + ~150 apt libs | only browser-capable harnesses need it |
   | ""claudecode-solidity"" | Foundry · solc-select · solhint · semgrep | ~1.5 GB of toolchain, on the one harness that audits contracts |
 
   **Two size lessons are baked into the shape.** The Solidity toolchain was
@@ -108,7 +108,10 @@ note right of CHAIN
   store is shared and world-readable because the harness never runs as
   root: an arbitrary run-as uid has to be able to launch Chromium, and a
   repo-local Playwright honours the same variable, so a project's own
-  ""npx playwright install"" lands in the same place.
+  ""npx playwright install"" lands in the same place. agent-browser is
+  pinned the same way (version + tarball digest) and pointed at that
+  store through a revision-stable symlink, so the layer holds ONE
+  Chromium for two clients (_spec/defs/browser-layer.puml).
 
   Every layer that runs apt or npm re-runs the harden pass over the
   prefixes it touched, because a new package can reintroduce a setuid

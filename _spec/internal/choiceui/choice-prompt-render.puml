@@ -6,7 +6,142 @@
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
 ' Why review needs a pty: _spec/internal/reviewgate/pty-review-proxy.puml.
+' Why the sandbox box is compulsory and what the escape is:
+' _spec/internal/sbx/sandbox-backend.puml.
+' The topology strip drawn under the help block: _spec/internal/choiceui/topology-strip.puml.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY HELP EXISTS, AND WHY IT IS KEYED ───────────────────────────────────
+' ── A GREYED BOX THAT STATES A FACT, AND WHY IT KEEPS ITS STATE ────────────
+' addonFixed are the boxes that state a FACT rather than offer a choice: their
+' state is never the operator's to change, and drawing them is how the plane
+' says what it EXCLUDES. "host" is the alternative an operator might otherwise
+' assume unticking the daemon selects — it never is, because proveo
+' containerises every run — and the TUI is the interface for the whole session
+' whether or not a browser joins it.
+'
+' They are greyed but keep their TRUE state: a ticked greyed box reads as
+' compulsory, which is what it is, and the help line says "always on" rather
+' than "off" for one.
+'
+' Naming the ALTERNATIVE is half of what a help line is for, and the half that
+' was missing. An unticked box is a posture too, and "docker (sandbox)" said
+' nothing about what unticking it selects — not the host, which proveo never
+' runs an agent on, but the docker backend behind egress sidecars.
+'
+' The egress axis is chosen by AVAILABILITY alone, not by the add-on: a harness
+' that declares sbx runs there whenever the host can. Consulting the remembered
+' answer offered the docker tiers — open/allowlist/review — for a run that was
+' going to sbx and read the host baseline instead, hiding changeBaselineHint,
+' the one true statement about what governs egress there.
+'
+' Help is what an option DOES, keyed by the option itself rather than indexed:
+' callers assemble Options conditionally — a harness without a -browser variant
+' is never offered one — and a parallel slice would then describe the wrong box.
+'
+' It exists because the picker could only ever explain what it had taken AWAY.
+' Reason is written when something is gated off, so the two add-ons that were
+' available and ticked carried no text at all, and the operator was left to
+' infer "browser" and "docker (sandbox)" from their names.
+'
+' The block is drawn BELOW the row, never appended to it: the row is already ~70
+' columns of checkboxes, so text after them runs off the terminal — which is how
+' the one description the picker did have, a gated option's reason, came to end
+' mid-sentence. It is WRAPPED rather than clipped, because these are sentences
+' the operator is meant to read; the row's own Reason stays clipped, being a
+' glance signal for a row the cursor is not on, with the full words below.
+'
+' ── RADIO VERSUS CHECKBOX IS A STATEMENT ABOUT REACHABLE STATES ────────────
+' Brackets say "any number of these"; parentheses say "one of these". The
+' execution plane is one of these, since a run has exactly one place it runs.
+' Storage stays a checkbox set because "neither" is REACHABLE there — a dind
+' harness with the daemon unticked reaches the agent with no daemon at all — and
+' a radio cannot express it; that state draws as two empty marks, which is what
+' it is. Divider is declared rather than inferred: it used to be "the first
+' multi-select row", which silently meant only one group could ever be named.
+'
+' ── WHERE THE CURSOR MAY REST ──────────────────────────────────────────────
+' A single-select row's Selected IS the choice, so it may never rest on a gated
+' option. On a MULTI row it is only the cursor — the checkbox is the choice, and
+' toggle refuses a gated one on its own — so the cursor may stop there. That is
+' what makes a greyed box's explanation readable: it is the one whose reason the
+' operator most needs, and it was the one option the cursor could never reach.
+'
+' ── A LOCKED ROW IS HOVERABLE, AND Hover IS WHY ────────────────────────────
+' A locked row reports a fact the operator cannot change, and its OPTIONS are
+' the only statement of what that fact implies — what allow-all admits that
+' deny-all does not. The cursor used to skip the row entirely, so those
+' sentences existed and could not be read.
+'
+' Hover is a separate index from Selected, and the separation is the whole
+' mechanism: on a locked row Selected is a FACT being shown, so moving it would
+' rewrite the answer while pretending to explain it. The arrows move Hover,
+' nothing reports as changed, and Selection() returns the baseline untouched.
+'
+' `move` admits a locked row; `firstSelectable` still does not. The first thing
+' the operator meets should be something they can answer.
+'
+' The UNDERLINE is the cursor mark and must survive the unavailable style, so it
+' is applied after it — which also fixes an off option the cursor legitimately
+' rests on in a MULTI row, where the warn style used to erase it.
+'
+' ── THE REASON HAS ONE HOME, AND IT IS THE HELP BLOCK ──────────────────────
+' It is no longer drawn on the row at all. Inline it trailed the options clipped
+' to whatever width was left, which is how the locked sbx egress row's runnable
+' command — the one statement of how to change a host-wide baseline — came to
+' exist nowhere in full.
+'
+' The block wraps instead of clipping, and the cursor can now reach every row
+' that has a reason, locked ones included. A locked row always states its
+' reason there; any other row shows the hovered option's OffWhy, falling back to
+' the row's reason when that option had nothing of its own to say — so hovering
+' never shows LESS than the inline copy did.
+'
+' Three things fell out. ""anyOff"" lost its only caller and is gone. The width
+' budget no longer reserves for the reason, so ""rightEdge"" is the label and the
+' options and nothing else, and the pane's breakpoint stops depending on how
+' long a sentence is. And the pane can no longer clip a fact, because there is
+' no fact on the row to clip — which retires the constraint that shaped it.
+'
+' ON A SCREEN TOO SMALL TO DRAW THE FORM, ONLY LEAVING IS ALLOWED. This prompt
+' exists to confirm a credential and network posture, and silently CHANGING a
+' posture nobody can see is worse than the truncation the viewport replaced —
+' accepting one unseen is bad enough, and esc is always the answer to that.
+'
+' ── THE PAINT ORDER THE REGIONS DEPEND ON ──────────────────────────────────
+' Topology is called at PAINT time on every frame, so it tracks the cursor —
+' which `move` deliberately does not report through OnChange. It must be pure:
+' it reads rows and never mutates the form it is handed, and a nil Topology
+' means no strip, which is what every caller that does not want one gets free.
+'
+' The foot's count rides on the hint rather than taking a body line of its own:
+' the rows are the scarce thing, and a region that exists to say the rows ran
+' out must not be the reason one more of them did. The hint is clipped BEFORE
+' the count is appended, so the count is not the first thing a narrow terminal
+' cuts — on exactly the terminals where scrolling happens.
+'
+' The help block is drawn at y+2, not y+1: the hint sits at y and the block has
+' always opened with a blank line under it. Under its own row the block shoved
+' every row beneath it as the cursor moved; unreserved down here it shoved the
+' figure instead, which is why the slot is reserved at its MAXIMUM height.
+'
+' drawTopology paints through its own pen rather than the canvas, so it has no
+' window to be dropped by. The budget already guarantees the room; the guard is
+' the belt to that pair of braces, because the one region outside the canvas is
+' the one that could overrun it unnoticed. The pane is likewise anchored to the
+' body's TOP line rather than centred: everything else here is top-anchored, and
+' a centred figure would move whenever the body's height changed — re-breaking
+' the thing the reserved help slot exists to hold still.
+'
+' headingsInWindow is the set of rows whose divider heading is on screen. Only
+' those rows may drop their own label; every other row keeps it, because its
+' label is the only place its name was ever going to appear. Built once per
+' frame rather than rescanned per line: the body repaints at the ticker's rate.
+'
+' minHeight takes the WIDTH because the help slot's height depends on it. Asking
+' at width zero measured the help wrapped to wrap()'s 20-column floor and
+' reported a number far larger than the one layout actually tested — in the one
+' region whose entire job is naming the right size.
 title Choice prompt render — radio axes above the divider, checkboxes below
 
 node "internal/choiceui" as PKG <<host>> {
@@ -72,6 +207,30 @@ note top of GATE
   ticked, and clearing both is allowed because
   ""evidenceFrom"" only asks whether verbose was
   selected.
+end note
+
+note bottom of GATE
+  **A greyed box means one of two opposite
+  things.** Unavailable is greyed AND unticked;
+  compulsory is greyed AND ticked, which is the
+  execution plane's sandbox — and only the
+  second is read back as a selected add-on.
+end note
+
+note bottom of GATE
+  **Greyed in both directions, and outside
+  ""addonFixed"".** That table declares constant
+  boxes, whereas an available sandbox is settled
+  per run by ""sbx.Available"" — which is why the
+  gate greys it, and not the declaration.
+end note
+
+note bottom of READ
+  **""Selections"" drops every greyed box, so the
+  compulsory one is re-added deliberately.**
+  Reporting the sandbox as unselected would
+  route the run to the docker backend, the exact
+  posture this lock removes.
 end note
 
 note top of SOON

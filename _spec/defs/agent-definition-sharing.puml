@@ -7,6 +7,17 @@
 ' covers: internal/contract/agents_shared_test.go
 ' covers: defs/*/defaults/agents/**
 ' covers: defs/*/*/defaults/agents/**
+'
+' ── SUBAGENTS ARE NOT BAKED AS FILES ───────────────────────────────────────
+' One body per agent lives in /opt/proveo/subagents, and the entrypoint
+' composes them per harness at start (proveo_seed <harness> → render_subagents)
+' into the harness's own agents directory — for cecli, $CECLI_HOME/agents,
+' which is where its subagent_paths point.
+'
+' So the image test goes THROUGH the entrypoint and asks the harness's own
+' registry to load what it seeded, requiring exactly the roster _roster.json
+' declares — READ FROM THE IMAGE rather than restated in the test, so a roster
+' change cannot leave the assertion stale again.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Subagent definition sharing — composed at container start, never duplicated
 

@@ -3,6 +3,8 @@ package credentials
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -230,12 +233,86 @@ func TestCursorBrokerWithMultiProviderDotEnv(t *testing.T) {
 	}
 }
 
-func TestHydrateProcessEnvFromLookup(t *testing.T) {
+// TestChildEnvKeepsValueOutOfProveoEnviron is the (c) neighbour: the value
+// reaches the launch exec and never proveo's own environment.
+func TestChildEnvKeepsValueOutOfProveoEnviron(t *testing.T) {
 	t.Setenv("CURSOR_API_KEY", "")
-	lookup := func(string) string { return "from-file" }
-	HydrateProcessEnv("CURSOR_API_KEY", lookup)
-	if got := os.Getenv("CURSOR_API_KEY"); got != "from-file" {
-		t.Fatalf("CURSOR_API_KEY = %q, want from-file", got)
+	var c ChildEnv
+	c.Add("CURSOR_API_KEY", func(string) string { return "from-file" })
+
+	if got := os.Getenv("CURSOR_API_KEY"); got != "" {
+		t.Fatalf("proveo's own environ was mutated: CURSOR_API_KEY = %q", got)
+	}
+	if got := c.Pairs(); len(got) != 1 || got[0] != "CURSOR_API_KEY=from-file" {
+		t.Fatalf("Pairs = %v", got)
+	}
+	if got := c.Names(); len(got) != 1 || got[0] != "CURSOR_API_KEY" {
+		t.Errorf("Names = %v", got)
+	}
+	// The pair lands after base, so it wins over a stale same-named value.
+	env := c.Apply([]string{"CURSOR_API_KEY=stale", "PATH=/bin"})
+	if env[len(env)-1] != "CURSOR_API_KEY=from-file" {
+		t.Errorf("Apply = %v, want the pair last", env)
+	}
+}
+
+// TestChildEnvSkipsWhatTheChildAlreadyInherits: restating an exported value
+// would put the secret somewhere it already was.
+func TestChildEnvSkipsWhatTheChildAlreadyInherits(t *testing.T) {
+	t.Setenv("CURSOR_API_KEY", "exported")
+	var c ChildEnv
+	c.Add("CURSOR_API_KEY", func(string) string { return "from-file" })
+	c.Add("MISSING_KEY", func(string) string { return "" })
+	if got := c.Pairs(); len(got) != 0 {
+		t.Fatalf("Pairs = %v, want none", got)
+	}
+	// Nothing to add means nil, which leaves os/exec passing the environment
+	// through rather than rebuilding it.
+	if got := c.Apply([]string{"PATH=/bin"}); got != nil {
+		t.Errorf("Apply = %v, want nil", got)
+	}
+}
+
+// TestProviderLookupResolvesReferences: a stored reference resolves; an
+// unresolvable one warns once and yields "", never the reference text.
+func TestProviderLookupResolvesReferences(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "keychain:Some Service")
+	t.Setenv("OPENAI_API_KEY", "keychain:Missing Service")
+	t.Setenv("XAI_API_KEY", "sk-xai-literal:with-colon")
+
+	var warnings []string
+	r := &secretref.Resolver{
+		GOOS: "darwin",
+		Exec: func(_ context.Context, _ string, args ...string) ([]byte, []byte, error) {
+			for i, a := range args {
+				if a == "-s" && i+1 < len(args) && args[i+1] == "Some Service" {
+					return []byte("sk-ant-resolved\n"), nil, nil
+				}
+			}
+			return nil, []byte("security: SecKeychainSearchCopyNext: " +
+				"The specified item could not be found in the keychain."), errors.New("exit status 44")
+		},
+	}
+	lookup := ProviderLookupWith("", r, func(f string, a ...any) {
+		warnings = append(warnings, fmt.Sprintf(f, a...))
+	})
+
+	if got := lookup("ANTHROPIC_API_KEY"); got != "sk-ant-resolved" {
+		t.Errorf("resolved value = %q", got)
+	}
+	if got := lookup("XAI_API_KEY"); got != "sk-xai-literal:with-colon" {
+		t.Errorf("literal with a colon = %q, want it untouched", got)
+	}
+	for range 3 {
+		if got := lookup("OPENAI_API_KEY"); got != "" {
+			t.Fatalf("unresolvable reference = %q, want empty", got)
+		}
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want exactly one", warnings)
+	}
+	if !strings.Contains(warnings[0], "OPENAI_API_KEY") || !strings.Contains(warnings[0], "Missing Service") {
+		t.Errorf("warning = %q", warnings[0])
 	}
 }
 

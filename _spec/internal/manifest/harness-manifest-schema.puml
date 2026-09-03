@@ -1,4 +1,17 @@
 @startuml
+' ── agentEnv IS A THIRD KIND OF VARIABLE, AND THE DISTINCTION MATTERS ──────
+' NAME: value pairs handed to the agent on EVERY backend unless the operator
+' sets NAME themselves. It is neither `env` — variables the OPERATOR supplies,
+' prompted for when missing and hinted about when auth fails — nor `config`,
+' which forwards a host preference only when one exists.
+'
+' It exists because a default exported by the image entrypoint reached only the
+' docker backend: sbx launches the agent through its own kit and never runs the
+' entrypoint. Delivered as an ARGV on both backends, and the pairs come out in
+' NAME ORDER because the plan goldens read that argv. The field cannot
+' double-declare a name `env` or `config` already claims, and nothing may
+' default to empty.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title harness.manifest — the single registration point (schema)
 
@@ -47,11 +60,18 @@ class "config[]" as C <<app>> {
   forwarded by value (-e NAME=value)
 }
 
+class "agentEnv\nagentEnv:" as AE <<app>> {
+  NAME : value  (proveo's defaults for the agent)
+  forwarded on EVERY backend (-e NAME=value)
+  the operator's own value wins
+}
+
 M *-- W
 M *-- H
 H *-- HM
 M *-- E
 M *-- C
+M *-- AE
 
 note right of M
   **Adding a harness = dropping a def dir + this file.**
@@ -152,6 +172,21 @@ note bottom of C
   ""Validate"" rejects a manifest that lists a name already
   declared in ""env"" — a secret must stay on the broker
   path, never here.
+end note
+
+note bottom of AE
+  **proveo's opinion, not the operator's input.** ""env"" is what the
+  operator supplies and is prompted for when missing; ""config"" forwards
+  a host preference only when one exists; ""agentEnv"" lands a value the
+  harness should run with unless the operator says otherwise, in name
+  order so the plan argv is stable.
+
+  It exists because a default exported by the image entrypoint reaches
+  only the docker backend: sbx launches the agent through its own kit
+  and never runs the entrypoint, so claudecode came up in whatever
+  renderer its saved ""tui"" setting named. ""Validate"" rejects a name
+  also declared in ""env"" or ""config"", and an empty value — that is the
+  unset state, not a default.
 end note
 
 class "Capabilities\ncapabilities:" as CAP <<app>> {

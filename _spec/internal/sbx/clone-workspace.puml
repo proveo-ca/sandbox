@@ -1,0 +1,138 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the sandbox edits a private clone by default, and how the work gets back
+' covers: internal/run/run.go (decideClone, predictClone)
+' covers: internal/sbx/run.go (CloneSnapshotArgs, CloneFetchArgs, CloneLiftArgs)
+' covers: internal/backend/sandbox/sandbox.go (PreserveClone, liftClonedOutput)
+' covers: internal/run/clone_test.go, internal/sbx/clone_test.go, e2e/clone_test.go
+'   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+'   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
+'   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY CLONE IS THE DEFAULT ───────────────────────────────────────────────
+' On, unless PROVEO_CLONE turns it off — and an explicit `--clone=false` still
+' wins over the environment, flag over env being the rule everywhere else.
+'
+' It is the only shape in which the checkout is never written, no host-built
+' dependency tree crosses into the sandbox, and — the reason it BECAME the
+' default — the workspace lives on the VM's own disk instead of the virtiofs
+' passthrough, whose directory entries have been measured vanishing under a
+' running agent and taking every Bash call with them.
+'
+' sbx can only clone what git can: the MAIN worktree of a repository, offered
+' as the primary workspace. Where the default cannot apply, the run falls back
+' to the mounted checkout and SAYS WHY. An explicit --clone in those shapes is
+' an error rather than a fallback, because it asked for a promise that cannot
+' be kept.
+'
+' ── NOTHING MAY BE MOUNTED UNDER THE REPOSITORY IN CLONE MODE ──────────────
+' sbx clones only into an EMPTY workspace, and it mounts every positional
+' workspace at its own host path. So an output dir nested under the repository
+' (<repo>/reports) was mounted INTO the clone target before the clone ran, the
+' target was no longer empty, and sbx skipped the clone WITHOUT A WORD. The
+' agent then sat in a root-owned directory holding nothing but `reports/`, with
+' the real checkout read-only at /run/sandbox/source — measured 2026-09-02 on
+' proveo-1788366117-41470 and reproduced with a throwaway repo.
+'
+' The nested bind is therefore dropped in clone mode. The output dir is lifted
+' back at teardown; anything else nested is simply not mounted, and both are
+' said out loud.
+'
+' ── HOW THE WORK GETS BACK ─────────────────────────────────────────────────
+' A snapshot commit first, of whatever the agent left UNCOMMITTED, so the fetch
+' that follows carries it — only when there is something to commit, since a
+' clean tree earns no empty commit, and under an author that says who made it.
+' `sbx rm` drops the clone with the VM and sbx's own guidance is to fetch or
+' push before removing; an agent that stopped mid-edit has nothing to push.
+'
+' Then every branch is fetched into refs/proveo/<name>/. REFS, not a
+' remote-tracking namespace: sbx removes its sandbox-<name> remote with the
+' sandbox, and `git remote remove` deletes refs/remotes/<remote>/* with it.
+' refs/proveo/ is proveo's own and outlives both.
+'
+' The output dir is copied out separately, as a tar stream on stdout. Untracked
+' and usually gitignored, deliverables are exactly what the ref fetch leaves
+' behind. The archive's members are relative to the clone root, so unpacking
+' under the host repo root recreates the same path, and tar refuses absolute
+' members and `..` on its own. Failure is a WARNING naming the sandbox, so the
+' operator can still `sbx exec` the files out before removing it.
+'
+' Both copy-outs pass `-w /`: the container WorkingDir can stop resolving
+' mid-run, and an exec that inherits it dies at chdir before a byte moves.
+title sbx clone mode — a private workspace, and the two paths home
+
+actor "operator" as OP
+
+node "host repository" as REPO <<host>> {
+  database "the checkout\nNEVER written in clone mode" as SRC <<db>>
+  database "refs/proveo/<sid>/*\nproveo's own namespace, outlives the remote" as REFS <<db>>
+  database "<repo>/reports\nthe output dir, unpacked from a tar stream" as OUT <<db>>
+}
+
+node "sbx sandbox" as BOX <<app>> {
+  component "git clone\ninto an EMPTY workspace, on the VM's own disk" as CLONE <<app>>
+  component "the agent" as AGENT <<app>>
+  component "snapshot commit\nonly when the tree is dirty" as SNAP <<app>>
+}
+
+component "virtiofs passthrough\ndirectory entry vanishes under a running agent" as VFS <<error>>
+component "a nested bind under the repo\nleaves the clone target non-empty" as NESTED <<error>>
+component "host-built dependency trees\ncannot execute in the container" as TREES <<error>>
+
+OP ARROW_MAIN CLONE : ""--clone"", the default since 2026-09-01
+SRC ARROW_MAIN CLONE : read once
+CLONE ARROW_MAIN AGENT : a workspace on the VM's disk
+AGENT ARROW_MAIN SNAP : at teardown, if dirty
+SNAP ARROW_MAIN REFS : fetch every branch
+AGENT ARROW_QUEUE OUT : tar on stdout, unpacked host-side
+CLONE ARROW_ERROR VFS : what clone avoids
+CLONE ARROW_ERROR TREES : what clone keeps out
+NESTED ARROW_ERROR CLONE : silently skips the clone
+
+note bottom of CLONE
+  **Only what git can clone.** The MAIN worktree
+  of a repository, as the primary workspace.
+  Elsewhere the run falls back to the mounted
+  checkout and says why; an explicit ""--clone""
+  there is an error, not a fallback.
+end note
+
+note bottom of NESTED
+  **It failed SILENTLY, which is why the bind is
+  dropped.** sbx clones only into an empty dir,
+  so a nested mount arriving first left the agent
+  in a root-owned directory holding nothing but
+  ""reports/"" and no clone at all.
+end note
+
+note bottom of SNAP
+  **A clean tree earns no empty commit.** ""sbx rm""
+  drops the clone with the VM, and an agent that
+  stopped mid-edit has nothing to push — so the
+  snapshot is what makes the fetch carry the work.
+end note
+
+note bottom of REFS
+  **Refs, not remote-tracking.** ""git remote
+  remove"" deletes ""refs/remotes/<remote>/*"" with
+  the remote sbx tears down. ""refs/proveo/"" is
+  proveo's own and survives it.
+end note
+
+note bottom of OUT
+  **Lifted, because it could not be mounted.**
+  Deliverables are untracked and gitignored, so
+  the ref fetch leaves them behind. A failure
+  warns and names the sandbox, so the operator
+  can still ""sbx exec"" them out.
+end note
+
+note bottom of VFS
+  **The reason clone became the default.** A
+  directory entry measured vanishing inside the
+  VM while the host directory stayed put; every
+  Bash call then exits 1 with no output.
+end note
+@enduml

@@ -99,6 +99,11 @@ var entries = []Entry{
 		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
 	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
 		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
+	// OpenCode's own gateway. models.dev lists it as TWO providers (Zen and Go) but
+	// they share the host and the key, so for detection, reach and injection they
+	// are one route. The key is a plain bearer read ahead of auth.json.
+	{Name: "opencode", Detect: []string{"OPENCODE_API_KEY"},
+		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"}, Auth: bearer("OPENCODE_API_KEY")},
 	// Signed-request providers: detectable + Squid-pinned, but NOT broker-injectable.
 	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"},
 		ACL: `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`},

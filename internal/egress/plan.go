@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
 package egress
 
 import (
@@ -63,6 +63,10 @@ type Options struct {
 	// OllamaGPU adds `--gpus all` to the Ollama sidecar so it is GPU-accelerated
 	// (Linux + NVIDIA container runtime). Without it the sidecar runs on CPU.
 	OllamaGPU bool
+	// HostBridge makes host.docker.internal resolve to the REAL host gateway, so
+	// the agent can reach a relay `proveo run` holds open. Only the open+forward
+	// paths honour it.
+	HostBridge bool
 }
 
 const (
@@ -74,6 +78,10 @@ const (
 	sidecarOllamaBase = "http://ollama:11434"
 	hostOllamaBase    = "http://host.docker.internal:11434"
 	dnsBlackhole      = "0.0.0.0"
+	// host.docker.internal, pinned either to the container's own loopback (the
+	// name resolves, the host does not answer) or to the real host gateway.
+	hostLoopbackAlias = "--add-host=host.docker.internal:127.0.0.1"
+	hostGatewayAlias  = "--add-host=host.docker.internal:host-gateway"
 )
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -89,6 +97,14 @@ func (o Options) user() string {
 	return o.UID + ":" + o.gid()
 }
 func (o Options) safeAgent() string { return nonAlnum.ReplaceAllString(o.AgentName, "-") }
+
+// hostAlias is the host.docker.internal mapping for a bridge-network agent.
+func (o Options) hostAlias() string {
+	if o.HostBridge {
+		return hostGatewayAlias
+	}
+	return hostLoopbackAlias
+}
 
 var modeBuilders = []struct {
 	name  string
@@ -199,16 +215,21 @@ func (o Options) forwardsCredentials() bool { return o.Credentials == "forward" 
 func buildOpen(o Options) Plan {
 	if o.forwardsCredentials() {
 		if o.LocalModel == "" {
-			return Plan{AgentArgs: []string{"--network=bridge", "--add-host=host.docker.internal:127.0.0.1"}}
+			return Plan{AgentArgs: []string{"--network=bridge", o.hostAlias()}}
 		}
 		if o.HostOllama {
-			args := []string{"--network=bridge", "--add-host=host.docker.internal:host-gateway"}
+			args := []string{"--network=bridge", hostGatewayAlias}
 			return Plan{AgentArgs: append(args, localModelArgs(o.LocalModel, hostOllamaBase)...)}
 		}
 		b := newBuilder(o)
 		net := o.SessionID + "-" + o.safeAgent() + "-open-net"
 		b.network(net, false)
 		b.p.AgentArgs = []string{"--network", net}
+		if o.HostBridge {
+			// A user-defined network gets no host.docker.internal on Linux unless
+			// asked; Docker Desktop adds it anyway, so this is harmless there.
+			b.p.AgentArgs = append(b.p.AgentArgs, hostGatewayAlias)
+		}
 		b.p.AgentNetwork = net
 		b.attachLocalModel(net)
 		return b.done()

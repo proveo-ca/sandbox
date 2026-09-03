@@ -1,0 +1,196 @@
+@startsalt
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the prompt's four figure fidelities were chosen, and what each measurement showed
+'
+' WHAT SHIPPED, and what did not. A (one budget pass, a strict drop ladder) and
+' B (pinned chrome, a scrolling row viewport) are both built — see
+' _spec/internal/choiceui/viewport.puml. C's BLOCK and DIGEST shipped with A.
+'
+' C's PANE has shipped too, with one correction the sheet could not make: its
+' w >= 112 was never achievable at the fidelity drawn below. The narrowest honest
+' figure measures 66 columns, and the budget must clear the widest thing the rows
+' PAINT — options, the row label, a centred divider heading, and a gated row's
+' inline reason IN FULL. Measured on the real forms that is about 150 columns
+' plainly, and past 200 once a locked row carries changeBaselineHint. The
+' breakpoint is therefore DERIVED and appears nowhere as a constant.
+'
+' NOTHING in this sheet is unbuilt. It is kept as the record of how the four
+' fidelities were chosen, and of the measurements that moved the last one.
+' Three answers to one question: the prompt is already taller than a
+' small terminal, and the topology strip wants five more rows.
+'   the strip's mechanism ....... _spec/internal/choiceui/topology-strip.puml
+'   every drawn combination ..... _spec/internal/choiceui/topology-states.puml
+'   the layout as it ships today  _spec/internal/choiceui/wireframe.puml
+'   help pinned last, grows ..... _spec/internal/choiceui/choice-prompt-render.puml
+'   why the sbx row is locked ... _spec/internal/sbx/policy-baseline.puml
+' Salt has no conditional construct, so each size is drawn as its own frame.
+' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
+' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
+' tier rather than an approximation of it.
+title SHIPPED — the four fidelities of one figure, and how each was measured
+
+{
+{^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
+{#
+  region | rows | A · fit-or-omit | B · scrolling rows | C · responsive panes
+  banner + blank | 8 | **dropped 1st** | dropped 1st | dropped 1st
+  the run title + blank | 2 | kept | kept | kept
+  the env header + blank | 8 | dropped 3rd | dropped 3rd | dropped 3rd
+  riskier/safer legend | 2 | dropped 4th | dropped 4th | dropped 4th
+  the rows themselves | 11-12 | never dropped | scrolled | scrolled
+  the hint + blank | 2 | never dropped | pinned foot | pinned foot
+  help slot, reserved | 5 | never dropped | pinned foot | pinned foot
+  **topology strip** | **5** | **dropped 2nd** | **dropped 2nd** | **moves, then shrinks, then drops**
+  **total** | **43-44** | . | . | .
+}
+  .
+  Today the form is 38-39 rows before the strip and 43-44 after it — the auth row
+  exists only when a harness offers more than one auth var. A 24-row terminal is
+  short by about 20 and says nothing: the paint runs past the last row and tcell
+  discards the overflow, so the hint and the help the operator is meant to read
+  are the first things to disappear — silently, and on the smallest screens.
+}
+..
+{^"A · fit-or-omit — one budget pass, one drop ladder, nothing ever scrolls"
+{
+{^"120x50 — everything is affordable"
+  banner — 7 rows
+  ==run claudecode — confirm or change this run
+  git: | monorepo on rs-295 | keys: ANTHROPIC_API_KEY
+  --
+  . | ◀ riskier | . | safer ▶
+  ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all
+  credentials | ( ) forward | (X) broker | .
+  . | ———— execution ———— | . | .
+  . | [ ] host | [X] docker (sandbox) — locked | .
+  agent evidence | [ ] default | [X] verbose | .
+  --
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
+  .
+  . | . | . | - - -▸ <:cloud:>
+  () host  ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ () sbx proxy <:key:> | - - -▸ <:cloud:>
+  ▴ | ◂── | ( ) interface | ◂── | - - -▸ <:cloud:>
+  allow-all · broker — nothing is filtered; sbx injects the key at its proxy
+}
+{^"100x30 — banner gone, header trimmed, strip survives"
+  ==run claudecode — confirm or change this run
+  git: | monorepo on rs-295
+  --
+  ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all
+  credentials | ( ) forward | (X) broker | .
+  . | [ ] host | [X] docker (sandbox) — locked | .
+  agent evidence | [ ] default | [X] verbose | .
+  --
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
+  .
+  () host ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ () sbx proxy <:key:> - - -▸ <:cloud:><:cloud:><:cloud:>
+  allow-all · broker — nothing is filtered
+}
+}
+  .
+  One pass over the height before anything is painted, and a section is dropped
+  WHOLE — never clipped mid-figure, which is the one thing a diagram cannot
+  survive. Cheapest to build: no viewport, no scroll state, no change to the
+  event loop beyond the resize it already handles.
+  .
+  What it cannot do: below about 30 rows the strip is simply never seen, and
+  below 20 the form still overflows once every optional region is gone. It
+  improves the common case and leaves the broken case broken.
+}
+..
+{^"B · pinned chrome, scrolling row viewport — the strip becomes footer furniture"
+{
+{^"80x24 — head and foot pinned, the rows scroll between them"
+  ==run claudecode — confirm or change this run
+  --
+  ▲ | ▸ egress | (X) allow-all | ( ) balanced
+  ░ | credentials | ( ) forward | (X) broker
+  ░ | . | [ ] host | [X] docker (sandbox)
+  ▼ | 2 more rows below | . | .
+  --
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
+  .
+  () host ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ () sbx proxy <:key:> - - -▸ <:cloud:>
+  allow-all · broker — nothing is filtered
+}
+{^"80x12 — still usable, which is the whole point"
+  ▲ | ▸ egress | (X) allow-all | ( ) balanced
+  ▼ | credentials | ( ) forward | (X) broker
+  --
+  ↑↓ row · enter accept · esc cancel
+  › allow-all — the host baseline, reported not chosen
+}
+}
+  .
+  Three regions instead of one fall: a droppable head, a scrolling body of rows,
+  and a pinned foot of hint, reserved help slot and strip. The body follows the
+  cursor with a one-row margin and carries a gutter — ▲ ▼ at the ends, a
+  proportional ░ thumb beside them — so a row below the fold is visible as a fact.
+  .
+  The catch is that a pinned foot INVERTS the priority on a tiny screen: five of
+  twelve rows spent on a figure while the form scrolls is the wrong trade. B is
+  therefore A's drop ladder plus a scrolling body, never a replacement for it.
+  .
+  It also fixes a bug that exists today, with or without any animation: the form
+  currently truncates in silence on every terminal shorter than about 39 rows.
+}
+..
+{^"C · responsive panes — one figure, three fidelities, chosen by breakpoint"
+{
+{^"w >= 112 · PANE — beside the rows, costing zero rows"
+  ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | . | . | . | - - ▸ <:cloud:>
+  credentials | ( ) forward | (X) broker | . | () host | [ <:speech_balloon:> claudecode ] | () sbx proxy <:key:> | - - ▸ <:cloud:>
+  . | [ ] host | [X] docker (sandbox) — locked | . | ▴ ◂─ | ( ) interface | . | - - ▸ <:cloud:>
+  agent evidence | [ ] default | [X] verbose | . | open · broker | . | . | .
+}
+{^"72 <= w < 112 · BLOCK — under the help, five rows"
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
+  .
+  () host ══▸ | [ <:speech_balloon:> claudecode ] | ══▸ () sbx proxy <:key:> - - ▸ <:cloud:><:cloud:><:cloud:>
+  allow-all · broker — nothing is filtered
+}
+{^"too short for five rows · DIGEST — the caption alone, one row"
+  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  <:key:> host ▸ claudecode ▸ <:key:> egress ▸ 3 <:cloud:> — allow-all · broker, nothing filtered
+}
+{^"w < 72 · OMITTED — no figure, and no apology for it"
+  ↑↓ row · ↔ move · enter accept · esc cancel
+}
+}
+  .
+  The pane is the payoff: at 112 columns the figure sits in the margin the rows
+  never use, so it costs no height at all and the fullscreen case needs no
+  budget. Below that it falls back to B's footer block.
+  .
+  The digest is what makes the ladder honest. A one-row sentence carries the
+  same four facts as the figure — where the key sleeps, which tier, how many
+  lanes survive — so a short terminal loses the picture, not the information.
+}
+..
+{^"Recommendation — they are one design in three stages, not three candidates"
+{#
+  stage | what ships | why now
+  1 | **SHIPPED** A's drop ladder | one budget pass; the strip is dropped first and can evict nothing mandatory
+  2 | **SHIPPED** BLOCK + DIGEST | five rows when they exist, one sentence when they do not
+  3 | **SHIPPED** B's regions, then C's PANE | the body scrolls, the foot is never painted over, and the figure is free when the columns allow
+}
+  .
+  Stage 1 is worth doing whether or not the animation is ever built, and it is
+  the thing that makes stages 2 and 3 safe to add: once the height is budgeted,
+  a new region cannot push the hint off the screen.
+}
+}
+
+legend bottom
+  **▲ ▼ ░** — the scroll gutter: ends of travel, and a proportional thumb
+  **PANE · BLOCK · DIGEST · OMITTED** — the four fidelities of one figure; PANE's breakpoint is derived, the rest are heights
+  **dropped Nth** — the order the drop ladder spends height, banner first
+  **43-44 rows** — the form at full dress; 38-39 of them exist today, before any strip
+  **a reserved slot** — space held at its maximum height so the figure below never moves
+  a "." cell — element absent, column position preserved for the survivors
+end legend
+@endsalt

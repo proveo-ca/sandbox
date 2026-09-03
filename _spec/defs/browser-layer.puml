@@ -1,0 +1,112 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Browser layer — Playwright and agent-browser share one Chromium, and every harness is told
+
+' covers: defs/base-node-browser/**, defs/base-node-browser/skills/agent-browser/SKILL.md, packages/lib/entrypoint-lib.sh (proveo_seed_browser_skills)
+'
+' ── WHY A DISCOVERY STUB RATHER THAN A COPIED GUIDE ────────────────────────
+' The layer pins agent-browser the way it pins Playwright: by VERSION and by
+' DIGEST of the tarball it unpacks, and it points the binary at the Chromium
+' Playwright already installed rather than letting `agent-browser install` fetch
+' a second one. A layer that drifts on any of these rebuilds into something the
+' floor probe and the seed no longer describe.
+'
+' Knob: PROVEO_BROWSER_SKILL=off.
+'
+' The `-browser` image variants (FROM proveo/base-node-browser) carry
+' Playwright's Chromium and vercel-labs/agent-browser pointed at it. The binary
+' alone is not discoverable by an agent, so the seed drops agent-browser's
+' discovery STUB into the harness's USER-level skills directory — the one place
+' every harness reads without a project edit. The stub only tells the agent to
+' run `agent-browser skills get core`, which serves the guide matching the
+' INSTALLED version, so nothing here goes stale when the binary moves.
+'
+'   claudecode  ~/.claude/skills/<name>/SKILL.md
+'   cursor      ~/.cursor/skills/<name>/SKILL.md  (also reads ~/.agents/skills)
+'   opencode    ~/.config/opencode/skills/<name>/SKILL.md
+'               (also reads ~/.claude/skills)
+'   cecli       NONE — no browser variant and no skills directory. A decision,
+'               so the case is spelled out rather than falling through.
+'
+' Gated on the BINARY, not the image name: a non-browser image has no
+' agent-browser and gets no skill, so the agent is never handed a tool it lacks.
+
+cloud "registry.npmjs.org\n""agent-browser-<v>.tgz""" as NPM <<cloud>>
+
+node "Image build — defs/base-node-browser/Dockerfile" as BUILD <<host>> {
+  component "Playwright ""<v>""\n""playwright install --with-deps chromium""" as PW <<app>>
+  database "browser store\n""/opt/ms-playwright/chromium-<rev>/chrome-linux/chrome""" as STORE <<db>>
+  component "agent-browser (native Rust)\n""/usr/local/bin/agent-browser""" as AB <<app>>
+  database "skill-data\n""AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data""" as SKD <<db>>
+  component "revision-stable symlink\n""AGENT_BROWSER_EXECUTABLE_PATH=/opt/proveo/chromium/chrome""" as LINK <<app>>
+  component "discovery stub\n""/opt/proveo/skills/agent-browser/SKILL.md""" as STUB <<db>>
+}
+
+node "Seed — ""proveo_seed <target>"" (both backends)" as SEED <<host>> {
+  component "proveo_seed_browser_skills\ngated on ""command -v agent-browser""" as SEEDFN <<app>>
+}
+
+node "Agent home (user level)" as HOME <<host>> {
+  component "claudecode ""~/.claude/skills/""" as H1 <<app>>
+  component "cursor ""~/.cursor/skills/""" as H2 <<app>>
+  component "opencode ""~/.config/opencode/skills/""" as H3 <<app>>
+}
+
+component "agent, any harness\n""agent-browser skills get core"" → ""open"" · ""snapshot"" · ""click""" as AGENT <<app>>
+component "headless Chromium (CDP)" as CHROME <<app>>
+
+component "a SECOND Chromium\n""agent-browser install"" · Chrome for Testing" as DUP <<error>>
+component "'Skills directory not found'\nbinary without the npm skill tree" as NOSK <<error>>
+
+NPM   ARROW_CLOUD AB : pinned version + sha256,\none arch's binary kept
+NPM   ARROW_CLOUD SKD : the same tarball
+PW    ARROW_MAIN STORE
+STORE ARROW_MAIN LINK : ""find chromium-*/…/chrome"" at build
+LINK  ARROW_MAIN AB : the browser it launches
+SKD   ARROW_MAIN AB
+STUB  ARROW_MAIN SEEDFN
+SEEDFN ARROW_MAIN H1
+SEEDFN ARROW_MAIN H2
+SEEDFN ARROW_MAIN H3
+H1    ARROW_MAIN AGENT
+H2    ARROW_MAIN AGENT
+H3    ARROW_MAIN AGENT
+AGENT ARROW_MAIN AB
+AB    ARROW_MAIN CHROME : ""--no-sandbox"" auto in containers,\nany run-as uid, HOME writable
+AB    ARROW_ERROR DUP : never — the executable\npath is already set
+AB    ARROW_ERROR NOSK : never — the tree ships\nbeside the binary
+
+note right of BUILD
+  **Two clients, one browser.** Playwright is
+  the project's test runner and library;
+  agent-browser is the agent's interactive
+  tool. Both launch the Chromium Playwright
+  installed, so the layer pays for it once.
+end note
+
+note bottom of NPM
+  **The tarball, not ""npm install -g"".** The
+  package wants Node ≥ 24 on a Node 22 floor;
+  its JS launcher only execs the native
+  binary. Pinning the digest makes the layer
+  reproducible and the floor probe honest.
+end note
+
+note bottom of SEED
+  **Discoverability is the seed's job.** A
+  binary on PATH is invisible to an agent;
+  the stub in the user skills dir is what it
+  reads. It says only ""skills get core"", so
+  the guide always matches the binary.
+end note
+
+note right of HOME
+  **User level, never the workspace.** The
+  checkout is the operator's; a skill seeded
+  there would mutate it. Every harness reads
+  a home directory, and the table names
+  cecli's (empty) case on purpose.
+end note
+
+@enduml

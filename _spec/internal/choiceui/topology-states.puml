@@ -1,0 +1,337 @@
+@startsalt
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: every frame the topology strip can draw, per backend, and what each element means
+' covers: internal/run/topology.go
+' covers: internal/choiceui/topology.go
+'   the mechanism behind it .... _spec/internal/choiceui/topology-strip.puml
+'   scrolling, panes: unbuilt .. _spec/_plans/choiceui-viewport-proposals.puml
+'   the form it hangs under .... _spec/internal/choiceui/wireframe.puml
+'   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
+'   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
+'   what the Kit allowlists ..... internal/backend/sandbox/sandbox.go Spec()
+'   the key on sbx ............. _spec/internal/sbx/credential-path.puml
+'   the docker tiers ........... _spec/internal/egress/egress-tiers.puml
+'   who the '?' actually asks .. _spec/internal/reviewgate/pty-review-proxy.puml
+'   the key on docker .......... _spec/_paradigms/credential-boundary.puml
+'
+' THE CORRECTION THIS FILE EXISTS TO CARRY: there is no single egress axis. The
+' picker shows sbx's host BASELINE on a sbx harness and proveo's TIERS on a docker
+' one, and the two are different questions with different answers and a different
+' hop behind them. An earlier draft glossed allow-all/balanced/deny-all as nicer
+' names for open/allowlist/review; they are a separate, host-wide axis that proveo
+' reports and never sets. Every frame below therefore names its backend.
+'
+'
+' THE GLYPHS BELOW ARE THE DIAGRAM'S, NOT THE TERMINAL'S. Salt draws a node as
+' its radio widget and the container as its button; the terminal draws them in
+' the BANNER's vocabulary instead — a filled dot for a node and the mark's own
+' wall for the container, so the figure reads as the same drawing as the logo
+' above it, and so that "()" keeps meaning "a radio" everywhere on the screen.
+' Emoji read well here and
+' badly in a grid: the speaking head is two runes that go-runewidth measures as one
+' column and terminals draw as two, and the cloud is ambiguous-width. The strip
+' therefore ships with Nerd Font devicons (one rune, one column) and an ASCII tier,
+' and PROVEO_GLYPHS=off draws the ASCII figure rather than none. Read every emoji
+' below as "the key", "the cloud", "the bubble" — a role, not a codepoint.
+'
+' Salt has no conditional construct, so every state is a separate frame. Lanes use
+' '-' and '=' because the diagram font carries no box-drawing set — which makes
+' these sheets a literal picture of the PROVEO_GLYPHS=ascii tier.
+title The topology strip in every selectable state, on both backends
+
+{
+{^"Anatomy — six columns, three rows, one caption. Nothing here ever moves."
+  . | . | . | . | . | - - ▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () egress <:key:> | - - ▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
+  the caption — the same four facts as the figure, in one sentence
+  .
+  **() host** your machine · **the square** the container the agent runs in ·
+  **() interface** what it drives, hanging off the square and returning to you ·
+  **() egress** the hop, whoever owns it · **<:cloud:>** one per surviving lane
+}
+..
+{^"Which axis you are on is decided by the harness, not by the operator"
+{#
+  backend | harnesses | the egress row shows | the hop in the strip is | the row is
+  **sbx** | claudecode · cursor | allow-all · balanced · deny-all | sbx's own proxy; the Kit allowlist rides on top | **LOCKED** — reported, never set
+  **docker** | opencode · cecli | open · allowlist · review | proveo's mitmproxy, plus Squid on the enforced tiers | a choice
+}
+  .
+  The sandbox add-on is now compulsory, so a harness that declares sbx is ALWAYS
+  on the first row and never sees a tier. The docker row is reached by declaring
+  dind, or on a sbx harness by PROVEO_SBX=0 or --egress-mode review.
+  .
+  On sbx the baseline is host-wide and shared by sandboxes proveo never started,
+  which is why the row is locked. The strip is REPORTING there — it draws a fact
+  about the machine, and its caption carries the change hint, not a choice.
+  .
+  **deny-all is the tightest posture, NOT a dead one.** It is classified by the
+  ABSENCE of a network allow rule, not by an explicit deny — and the Kit can only
+  add allows, never subtract. So the Kit's list is the only one standing, and it
+  is built from the harness's declared hosts plus the API hosts of the providers
+  proveo actually detected. The agent reaches its model, and nothing else.
+  .
+  That is also why the lane count falls 3 -> 2 -> 1 across the row rather than
+  3 -> 2 -> 0: the axis runs riskier to safer, and the safest end still has to
+  let the run work. A frame with no lane at all would say the agent cannot think.
+}
+..
+{^"Variant S · the sbx backend — the baseline, and sbx as the broker"
+{
+{^"allow-all · broker"
+  . | . | . | . | . | - - ▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | - - ▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
+  allow-all — everything is reachable, so the Kit ADDS reach instead of limiting it
+}
+{^"allow-all · forward"
+  . | . | . | . | . | - - ▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | - - ▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
+  allow-all · forward — a bare -e NAME: the agent process holds the real value
+}
+}
+{
+{^"balanced · broker"
+  . | . | . | ───▸ | . | ───▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ───▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
+  balanced — the host's own allows, plus proveo's; sbx injects the key
+}
+{^"balanced · forward"
+  . | . | . | ───▸ | . | ───▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ───▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
+  balanced · forward — the host's allows plus proveo's; the value is inside
+}
+}
+{
+{^"deny-all · broker — the Kit lane survives, and it is the only one that does"
+  . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ──×
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
+  deny-all — only the Kit allowlist gets out: your provider, and nothing else
+}
+{^"deny-all · forward"
+  . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ──×
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
+  deny-all · forward — one lane out, and the real key rides inside the square
+}
+}
+  .
+  'broker' names a different party here than it does on docker: there is no
+  proveo egress layer at all, so proveo steps aside and SBX brokers — the value
+  never reaches the agent either way, but the hop in the picture is sbx's.
+  .
+  cursor declares credentials [forward] alone, so its credentials row has one
+  option and applicableRows drops it. On cursor only the left column exists, and
+  the key is inside the square on every frame.
+}
+..
+{^"Variant D · the docker backend — proveo's tiers, and proveo's mitmproxy"
+{
+{^"open · broker"
+  . | . | . | . | . | - - ▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> opencode ] | ───▸ | () mitm <:key:> | - - ▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
+  open — the MITM is still in the path; only the allowlist and the budget are off
+}
+{^"open · forward — the deliberate bypass, and the only frame with no hop"
+  . | . | . | . | - - ▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> opencode ] | ═══════▸ | - - ▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | - - ▸ <:cloud:>
+  **open · forward — BYPASS: no MITM at all, and the real key in the container**
+}
+}
+{
+{^"allowlist · broker"
+  . | . | . | ───▸ | . | ───▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> opencode ] | ───▸ | () mitm + squid <:key:> | ───▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
+  allowlist — screened at the hop, the unlisted refused; the key never goes inside
+}
+{^"allowlist · forward"
+  . | . | . | ───▸ | . | ───▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> opencode ] | ───▸ | () mitm + squid | ───▸ <:cloud:>
+  ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
+  allowlist · forward — screened at the hop; the real key rides inside the square
+}
+}
+{
+{^"review · broker — the '?' comes back to YOU, which is what makes it review"
+  **?** ▴ | ◂─ ─ ─ | ◂─ ─ ─ | ◂─ ─ ─ | **?** the hop asks | .
+  () host | . | [ <:speech_balloon:> opencode ] | ───▸ | () mitm + squid <:key:> | <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | .
+  review — 'Allow connection to <host>?' over your suspended agent TUI
+}
+{^"review · forward"
+  **?** ▴ | ◂─ ─ ─ | ◂─ ─ ─ | ◂─ ─ ─ | **?** the hop asks | .
+  () host | . | [ <:key:> <:speech_balloon:> opencode ] | ───▸ | () mitm + squid | <:cloud:>
+  ▴ | ◂── | () interface ↑ | . | . | .
+  review · forward — you answer each host; the key is inside regardless
+}
+}
+  .
+  **Drawing review with no lanes is a licence, not a measurement.** Its sidecars
+  are byte-for-byte allowlist's — only PROVEO_EGRESS_REVIEW=1 differs — so the
+  empty lanes say 'nothing has been consented YET', not 'nothing is wired'.
+  .
+  'open · forward' is the one cell with no hop to draw: buildOpen returns a bridge
+  network with no MITM the moment credentials are forwarded. Add --local-model
+  without host Ollama and it builds a network plus an Ollama sidecar — still no hop.
+}
+..
+{^"...times agent evidence, which swaps one glyph and changes nothing else"
+{
+{^"default"
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () egress <:key:>
+  the bubble is quiet — the agent narrates what it did
+}
+{^"verbose"
+  () host | . | [ <:speaking_head:> claudecode ] | ───▸ | () egress <:key:>
+  the head speaks — the agent narrates what it is doing, and why
+}
+}
+  .
+  The evidence axis is orthogonal to every other: it re-draws one rune inside the
+  square and touches no lane, no dot and no key. Twelve frames above times these
+  two is the complete set of twenty-four, without twenty-four near-identical pictures.
+}
+..
+{^"The key has three homes, and the strip is where the operator sees which"
+{
+{^"at rest — the credentials row not yet touched"
+  <:key:> () host | . | [ claudecode ] | ───▸ | () egress
+  the key is yours, on your machine, and has not been handed anywhere
+}
+{^"forward — it moves INTO the square"
+  () host | . | [ <:key:> claudecode ] | ───▸ | () egress
+  the container holds the real value for the whole run, on either backend
+}
+{^"broker — it stops AT the hop"
+  () host | . | [ claudecode ] | ───▸ | () egress <:key:>
+  injected at the hop — proveo's MITM on docker, sbx's own proxy on sbx
+}
+}
+  .
+  The key starts beside the host because that is where the secret actually is,
+  and the answer to the credentials row is drawn as the place it travels TO. The
+  slide from host to its home is the motion that row owns.
+}
+..
+{^"Highlight — the cursor picks what is bright, never what is drawn"
+{
+{^"cursor on egress — on sbx this row is LOCKED, so the caption says so"
+  <color:#9a9a9a>() host</color> | . | <color:#9a9a9a>[ claudecode ]</color> | **───▸** | **() egress** | **───▸ <:cloud:> <:cloud:>**
+}
+{^"cursor on credentials or auth"
+  <color:#9a9a9a>() host</color> | . | <color:#9a9a9a>[ claudecode ]</color> | <color:#9a9a9a>───▸</color> | **() egress <:key:>**
+}
+{^"cursor on execution — greyed AND ticked, so the strip says compulsory"
+  <color:#9a9a9a>() host</color> | . | **[ sbx · claudecode ]** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
+}
+{^"cursor on interface"
+  **▴** | **◂──** | **() interface ↑** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
+}
+{^"cursor on agent evidence"
+  <color:#9a9a9a>() host</color> | . | **[ <:speaking_head:> claudecode ]** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
+}
+}
+  .
+  Every element is present in every frame; the focused row raises its own to bold
+  and dims the rest. Nothing appears or vanishes as the operator walks the form,
+  so the figure never re-flows under a cursor that is only moving.
+  .
+  **The dim here is not the form's grey.** In the form, grey means gated off; in
+  the strip it means 'not the row you are on'. Two meanings one glyph apart, so
+  the strip dims by INTENSITY and keeps colour for the gated case alone.
+}
+..
+{^"The axes that only re-label — same topology, different words in the same cells"
+{#
+  row | selection | what changes in the strip
+  the def being run | claudecode · cursor · opencode · cecli | the square's label, and which variant above applies
+  execution | docker (sandbox) — compulsory wherever the harness declares sbx | the square reads 'sbx · <def>'
+  execution | docker (dind) — a real toggle, only on a dind harness | the square reads 'dind · <def>', and a daemon glyph joins it
+  interface | tui (this session) — always on | the interface dot, always drawn
+  interface | + browser | the dot reads 'interface: tui + browser'
+  interface | + claude-in-chrome | the return arrow reaches PAST the host dot, to your own Chrome
+}
+  .
+  These re-label; they do not re-shape. Keeping them out of the matrix is what
+  holds it at twelve frames, and the strip stays a picture of the three questions
+  that actually change the drawing: the backend, the row it puts there, and the key.
+  .
+  **The lane counts are illustrative, never measured.** A real "how many hosts
+  survive" would mean reading the Kit allowlist or Squid's config at prompt time,
+  which costs more than the picture is worth — so the counts fall 3, 2, 1 to show
+  the axis tightening, and every caption says what the tier DOES rather than
+  claiming a number. One lane always survives, because the run has to work.
+}
+..
+{^"Motion — three frames per shape, and the pulse is what carries the meaning"
+{
+{^"nothing filtered — allow-all, and open — the pulse never slows at the hop"
+  f1 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:>
+  f2 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:> (2nd lane)
+  f3 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:> (3rd lane)
+}
+{^"screened — balanced, and allowlist — one beat at the hop, one lane of three dies"
+  f1 | () host | . | [ def ] | •───▸ | () egress | ───▸ <:cloud:>
+  f2 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:>
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ───×
+}
+{^"asked — review — the question walks back up the wire and the agent waits"
+  f1 | () host | . | [ def ] | •───▸ | () egress | <:cloud:>
+  f2 | () host | . | [ def ] | ══▸ | (?) egress | <:cloud:>
+  f3 | (?) host ◂─ ─ | ─ ─ | ─ ─ [ def ] | ─ ─ | (?) egress | <:cloud:>
+  f4 | () host | . | [ def ] | ───▸ | () egress | ──▸ <:cloud:>  (you said yes)
+}
+{^"refused — deny-all — no question, because there is nobody to ask"
+  f1 | () host | . | [ def ] | •───▸ | () egress | ───▸ <:cloud:> Kit
+  f2 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:> Kit
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ──× the rest
+}
+}
+  .
+  Motion is bound to change, not to time: a keystroke runs the filmstrip for
+  about 1.2 seconds and the strip then rests on its still frame. An idle prompt
+  costs nothing, and any movement means the form just moved.
+  .
+  **'?' and '×' are different events, so they are different glyphs.** review's
+  '?' is a question with somebody to ask: the MITM's CONNECT hook calls the
+  reviewgate daemon, which raises a full-screen overlay on the real terminal —
+  the same terminal the agent is drawing on, which is why the agent is suspended
+  while you answer. That return lane is the whole point of the tier.
+  .
+  deny-all's '×' has no return lane because there is nothing to ask. It is a
+  host-wide baseline with no consent mechanism at all, so a refusal there is the
+  end of the story rather than the start of a question — and it refuses
+  everything EXCEPT the Kit lane, which is what keeps the provider reachable.
+  .
+  Two more facts the return lane carries: a decision is CACHED per host for the
+  session, so a repeat host never re-asks — and with no tty, or past the
+  deadline, the answer defaults to DENY without the overlay ever appearing.
+}
+}
+
+legend bottom
+  **() host · () interface · () egress** — dots: the machine, what the agent drives, the hop
+  **the hop is not one thing** — proveo's mitmproxy on docker, sbx's own proxy on sbx
+  **a square** — the container boundary; the def name inside it is a label, never a shape
+  **<:key:>** — the credential, drawn at the one place it actually rests for the run
+  **<:speech_balloon:> / <:speaking_head:>** — agent evidence: default, or verbose
+  **<:cloud:>** — the internet: one cloud per lane that survives
+  **───▸ into the hop** the session's traffic reaching it — SOLID on every tier, because
+  the agent always reaches the hop. The host needs no rule of its own: the bottom bracket
+  already says it contains the square.
+  **after the hop** the lane kind, which is the one thing the tier names do not say:
+  **───** terminated and re-originated · **- - -** only watched · **═══** asked first
+  **───×** a lane the policy refuses · **×** — refused, and nobody was asked
+  **?** at the hop, with a lane back to () host — review asking YOU, agent suspended
+  **bold / dim** — what the cursor's row owns, and everything it does not; NOT the form's gated grey
+  a "." cell — element absent, column position preserved for the survivors
+end legend
+@endsalt

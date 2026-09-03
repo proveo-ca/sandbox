@@ -30,6 +30,12 @@ var specNotesEnforced = []string{
 	"_spec/internal/choiceui/choice-prompt-render.puml",
 	"_spec/internal/entrypoint/model-alias-bridges.puml",
 	"_spec/internal/sbx/sbx-kit-contract.puml",
+	"_spec/internal/choiceui/topology-strip.puml",
+	"_spec/internal/choiceui/viewport.puml",
+	"_spec/_plans/secret-custody.puml",
+	"_spec/internal/secretref/secret-references.puml",
+	"_spec/internal/sbx/oauth-provisioning.puml",
+	"_spec/_plans/retire-dind.puml",
 }
 
 const (

@@ -25,6 +25,8 @@ func TestDetect(t *testing.T) {
 		{name: "moonshot api key", env: map[string]string{"MOONSHOT_API_KEY": "m"}, want: []string{"moonshot"}},
 		{name: "bedrock via AWS creds", env: map[string]string{"AWS_ACCESS_KEY_ID": "a"}, want: []string{"bedrock"}},
 		{name: "vertex via app creds", env: map[string]string{"GOOGLE_APPLICATION_CREDENTIALS": "/p"}, want: []string{"vertex"}},
+		// One key for both OpenCode plans (Zen and Go): one detected provider.
+		{name: "opencode zen/go key", env: map[string]string{"OPENCODE_API_KEY": "oc"}, want: []string{"opencode"}},
 		{
 			name: "union preserves registry order",
 			env:  map[string]string{"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "y", "GROQ_API_KEY": "z"},
@@ -90,6 +92,14 @@ func TestResolve(t *testing.T) {
 			name: "known but no key: hosts set, value empty", provider: "anthropic",
 			env: nil, wantOK: true,
 			want: Resolved{Hosts: []string{".anthropic.com"}},
+		},
+		{
+			// Zen (/zen/v1) and Go (/zen/go/v1) live on the same host, so one
+			// route carries both plans; the key is a plain bearer on both.
+			name: "opencode is bearer on .opencode.ai", provider: "opencode",
+			env:    map[string]string{"OPENCODE_API_KEY": "oc-key"},
+			wantOK: true,
+			want:   Resolved{Hosts: []string{".opencode.ai"}, Header: "authorization", Value: "Bearer oc-key", EnvVar: "OPENCODE_API_KEY"},
 		},
 	}
 	for _, tc := range tests {

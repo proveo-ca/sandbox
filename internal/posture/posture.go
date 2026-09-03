@@ -86,9 +86,9 @@ var lspMarkers = []wsscan.Marker{
 type GlyphMode int
 
 const (
-	glyphsNerd GlyphMode = iota // default
-	glyphsASCII
-	glyphsOff
+	GlyphsNerd GlyphMode = iota // default
+	GlyphsASCII
+	GlyphsOff
 )
 
 // lspNerd maps an LSP server to its Nerd Font devicon — per-language identity, since
@@ -125,11 +125,11 @@ var lspASCII = map[string]string{
 func GlyphModeFrom(lookup func(string) string) GlyphMode {
 	switch strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))) {
 	case "ascii":
-		return glyphsASCII
+		return GlyphsASCII
 	case "off", "0", "false", "no", "none":
-		return glyphsOff
+		return GlyphsOff
 	}
-	return glyphsNerd
+	return GlyphsNerd
 }
 
 // WithGlyphs prefixes each label with its glyph. Nerd mode falls back to the ASCII
@@ -137,13 +137,13 @@ func GlyphModeFrom(lookup func(string) string) GlyphMode {
 // degrades to a category rather than to a ragged column. A server in neither table is
 // left bare: an invented placeholder would read as a language nobody has.
 func WithGlyphs(labels []string, mode GlyphMode) []string {
-	if mode == glyphsOff {
+	if mode == GlyphsOff {
 		return labels
 	}
 	out := make([]string, 0, len(labels))
 	for _, l := range labels {
 		g, ok := "", false
-		if mode == glyphsNerd {
+		if mode == GlyphsNerd {
 			g, ok = lspNerd[l]
 		}
 		if !ok {
@@ -227,7 +227,7 @@ func DetectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
 // lands, which is the one thing an operator must not have to guess.
 func Workspace(clone bool) string {
 	if clone {
-		return "in-container clone (--clone) — the checkout is never written; changes come back with `git fetch`"
+		return "in-container clone (default on sbx; --clone=false opts out) — the checkout is never written; the agent's commits are `git fetch`ed back at teardown under refs/proveo/<sid>/"
 	}
 	return "mounted checkout — the agent edits it directly"
 }

@@ -1,4 +1,27 @@
 @startuml
+' ── THE SIDECAR IMAGE GETS THE HARNESS'S RECENCY RULE ──────────────────────
+' Settled in cmd/proveo rather than in the run spec, so a --print plan rendered
+' by a test never depends on what the host happens to have built.
+'
+' willSandbox is the value every posture line is rendered from. It used to AND
+' in the add-on, so a remembered answer with the box cleared reported "enforced
+' by sbx" for a run on docker+egress; the box is no longer a choice, so the host
+' test is the whole answer and the two can no longer disagree.
+'
+' egressProxyImage settles which egress-proxy sidecar a run launches: the
+' operator's PROVEO_EGRESS_PROXY_IMAGE when set, otherwise the published tag
+' resolved against a local build BY RECENCY — the same rule the harness image
+' gets. The resolver is injected so the choice stays testable without docker.
+'
+' The sidecar deserves that rule as much as the harness does, and for a sharper
+' reason: proveo-egress compiles the provider registry into its OWN binary, so
+' a provider added to internal/provider is not brokered until the sidecar is
+' rebuilt — and `proveo build egress-proxy` writes :local while a plan naming
+' :latest outright never launched it. The result was a run that detected the new
+' key, sentinel-injected it, allowlisted the host, and then let the request
+' reach the vendor with nothing attached: a 401 that read as a bad key, from a
+' build sitting right there.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' SPEC source: cmd/proveo/main.go (execWithEgress · cleanup · onSignalCleanup ·
 ' captureSidecarLogs · the Squid log-dir chmod) and internal/egress/exec.go.

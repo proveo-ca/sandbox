@@ -66,6 +66,43 @@ func withBroker(o Options, p, f string) Options {
 	return o
 }
 
+// TestHostBridgeResolvesTheHostGateway covers the Claude in Chrome bridge: with
+// it on, host.docker.internal names the REAL host so the agent can reach the
+// `proveo run` relay; off, the open+forward path keeps pinning the name to the
+// container's own loopback, and no other tier grows a route to the host.
+func TestHostBridgeResolvesTheHostGateway(t *testing.T) {
+	t.Parallel()
+	args := func(o Options) string {
+		p, err := BuildPlan(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(p.AgentArgs, " ")
+	}
+	off := args(fwd(baseOpts("open")))
+	if !strings.Contains(off, "--add-host=host.docker.internal:127.0.0.1") {
+		t.Errorf("bridge off must keep the loopback pin: %s", off)
+	}
+	o := fwd(baseOpts("open"))
+	o.HostBridge = true
+	on := args(o)
+	if !strings.Contains(on, "--add-host=host.docker.internal:host-gateway") || strings.Contains(on, ":127.0.0.1") {
+		t.Errorf("bridge on must map the host gateway and drop the loopback pin: %s", on)
+	}
+	// Local model on a session network: the bridge adds the gateway alias there too.
+	o = withModel(fwd(baseOpts("open")), "gemma4")
+	o.HostBridge = true
+	if got := args(o); !strings.Contains(got, "--add-host=host.docker.internal:host-gateway") {
+		t.Errorf("bridge + sidecar model must still name the host: %s", got)
+	}
+	// Broker mode parks the agent behind a proxy; the bridge must not punch a hole.
+	o = baseOpts("open")
+	o.HostBridge = true
+	if got := args(o); strings.Contains(got, "host-gateway") {
+		t.Errorf("broker tier must ignore HostBridge: %s", got)
+	}
+}
+
 // TestLocalModelRouting covers where --local-model inference runs: the host's
 // Ollama (macOS, broker) vs an in-network sidecar, GPU-accelerated or not.
 func TestLocalModelRouting(t *testing.T) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
 # Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
 set -e
 
@@ -89,6 +89,9 @@ seed_claude_proveo_home
 # Bodies are shared across harnesses; only the frontmatter is Claude Code's.
 proveo_seed claudecode
 
+# ── Claude in Chrome — add-on "claude-in-chrome" ──
+# Started by proveo_seed above, which sets PROVEO_CHROME_READY=1 in this shell.
+
 # Surface available subagents (user + project)
 agent_files=()
 [[ -d "${HOME}/.claude/agents" ]] && \
@@ -135,7 +138,17 @@ else
   report_agent_evidence
 fi
 
+# Two names for one intent, kept together: the older off switch and the
+# documented 2.1.132+ opt-out that forces the classic renderer. The manifest's
+# agentEnv is the delivery on both backends; these repeat it for a bare
+# `docker run`. SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"
+
+# --chrome is the only switch for this session; nothing is persisted (see
+# proveo_chrome_bridge for why claudeInChromeDefaultEnabled stays untouched).
+CLAUDE_CHROME_ARGS=()
+[[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
 
 echo "🚀 Launching Claude Code..."
-proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" -- "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" -- "$@"
