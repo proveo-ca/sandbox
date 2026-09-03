@@ -7,7 +7,6 @@ docker run -it --rm --user 1000:1000 --cap-drop=ALL --security-opt=no-new-privil
 == images ==
 == flags ==
 usesSquid=false
-agentNetwork=
 proxyContainer=
 squidContainer=
 ollamaContainer=

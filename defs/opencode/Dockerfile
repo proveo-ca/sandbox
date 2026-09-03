@@ -21,15 +21,41 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
+
+# sbx's built-in agent kits are authored against their own template, whose runtime
+# user is `agent` with HOME=/home/agent: their setup.install chowns agent:agent and
+# the kit mounts block volumes underneath it. /home/agent must therefore be a REAL
+# directory and the actual home — a mount target cannot resolve through a symlink,
+# so containerd materialises it as a fresh directory and shadows the link.
+#
+# So the REAL home is /home/agent and the harness name is the alias. The same
+# reversal cursor needed; opencode joins it because `docker: sbx` puts it on the
+# same backend, under sbx's own `opencode` agent.
+RUN usermod -d /home/agent -m "${USER_NAME}" \
+ && if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
+ && if ! getent passwd agent >/dev/null; then \
+      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d /home/agent -s /bin/bash agent; \
+    fi \
+ && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
+ && chown -R "${USER_ID}:${USER_ID}" /home/agent
+
 # Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
 # the hardening pass live there); re-run the harden pass after installing.
 # plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
+# iptables is dockerd's, not opencode's: the per-sandbox daemon builds its own NAT
+# chain at start and cannot without it.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     xclip \
+    iptables \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
+# The whole static tarball, not just the client. Retiring the privileged dind
+# sidecar (_spec/_plans/retire-dind.puml) leaves sbx's per-sandbox daemon as the
+# only way this harness gets one, and that daemon runs INSIDE the sandbox — so the
+# image has to ship dockerd, containerd, runc and docker-proxy, which this download
+# already carried and threw away.
 RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
@@ -38,8 +64,21 @@ RUN DOCKER_VERSION=29.7.2 \
        esac \
     && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
     && tar -xzf /tmp/docker.tgz -C /tmp \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
+    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
     && rm -rf /tmp/docker /tmp/docker.tgz
+
+# ── Docker-in-sandbox ───────────────────────────────────────────────────────
+#
+# sbx decides whether to start the sandbox's own daemon from an IMAGE LABEL —
+# `com.docker.sandboxes.start-docker`. Without it sbx records `dind: false` at
+# container creation and never starts one, so `docker version` answers "Cannot
+# connect to the Docker daemon" beside Compose files the agent can plainly read.
+# The socket is created root:docker, so the runtime user needs the group.
+RUN groupadd -f docker \
+ && usermod -aG docker "${USER_NAME}" \
+ && usermod -aG docker agent
+LABEL com.docker.sandboxes.start-docker="true"
 
 # The workspace language servers now live in proveo/base-node-lsp (shared with
 # claudecode). Only the opencode agent itself is installed here.

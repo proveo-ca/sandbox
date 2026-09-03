@@ -101,13 +101,12 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 }
 
 // addonDefaults is the picker's initial checkbox state: a remembered answer
-// wins, and absent one BOTH docker add-ons start checked — the run is going to
-// use them, so the box that says so is ticked before the operator is asked.
+// wins, and absent one the docker add-on starts checked — the run is going to
+// use it, so the box that says so is ticked before the operator is asked.
 func (p *Params) addonDefaults(opts []string) []bool {
 	on := make([]bool, len(opts))
 	for i, a := range opts {
-		on[i] = hasAddon(p.Addons, a) ||
-			((a == addonSandbox || a == addonDind) && !p.AddonsAnswered)
+		on[i] = hasAddon(p.Addons, a) || (a == addonSandbox && !p.AddonsAnswered)
 	}
 	return on
 }

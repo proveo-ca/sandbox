@@ -124,28 +124,28 @@ func TestLockedRowNeverStartsTheCursorAndCannotChange(t *testing.T) {
 func TestMultiRowTogglesIndependently(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: make([]bool, 2)},
+		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, On: make([]bool, 2)},
 	}}
 	if got := f.Selections("add-ons"); len(got) != 0 {
 		t.Fatalf("nothing should start checked, got %v", got)
 	}
 	f.toggle(0) // browser
 	f.cycle(0, +1)
-	f.toggle(0) // dind
+	f.toggle(0) // sandbox
 	got := f.Selections("add-ons")
-	if len(got) != 2 || got[0] != "browser" || got[1] != "dind" {
+	if len(got) != 2 || got[0] != "browser" || got[1] != "sandbox" {
 		t.Errorf("both add-ons should be checked, got %v", got)
 	}
-	f.toggle(0) // dind off
+	f.toggle(0) // sandbox off
 	if got := f.Selections("add-ons"); len(got) != 1 || got[0] != "browser" {
-		t.Errorf("toggling dind off must leave browser on, got %v", got)
+		t.Errorf("toggling the sandbox off must leave browser on, got %v", got)
 	}
 }
 
 func TestDisabledAddonIsNeitherCheckableNorReported(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: []bool{false, true}, Off: []bool{false, true}},
+		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, On: []bool{false, true}, Off: []bool{false, true}},
 	}}
 	if got := f.Selections("add-ons"); len(got) != 0 {
 		t.Errorf("a disabled option must not be reported even if On, got %v", got)
@@ -173,11 +173,11 @@ func TestOnChangeFiresSoConstraintsStayLive(t *testing.T) {
 func TestGatedOptionRendersItsReason(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
-		Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true,
+		Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true,
 		On: make([]bool, 2), Off: []bool{false, true},
-		Reason: "dind needs egress open + credentials forward",
+		Reason: "sandbox needs egress open + credentials forward",
 	}}}
-	if !strings.Contains(joined(t, f), "dind needs egress open") {
+	if !strings.Contains(joined(t, f), "sandbox needs egress open") {
 		t.Errorf("a gated option must render its reason\n--- rendered ---\n%s", joined(t, f))
 	}
 	// A MULTI row's Selected is the cursor, not the choice, so it may rest on a
@@ -247,7 +247,7 @@ func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
 		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, Divider: true, On: make([]bool, 2)},
+		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true, On: make([]bool, 2)},
 	}}
 	lines := render(t, f)
 	out := strings.Join(lines, "\n")
@@ -284,7 +284,7 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 	f := &Form{
 		Title:  "run cursor",
 		Header: []string{"git:      sandbox on main", "keys:     CURSOR_API_KEY"},
-		Rows:   []Row{{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, On: []bool{true, false}}},
+		Rows:   []Row{{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, On: []bool{true, false}}},
 	}
 	s := tcell.NewSimulationScreen("UTF-8")
 	if err := s.Init(); err != nil {
@@ -323,7 +323,7 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "dind"}, Multi: true, Divider: true, On: make([]bool, 2)},
+		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true, On: make([]bool, 2)},
 		{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true, On: []bool{false, true}},
 	}}
 	lines := render(t, f)

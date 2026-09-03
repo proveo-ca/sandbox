@@ -20,7 +20,9 @@ func TestBuildPlanRoutineSkipsLive(t *testing.T) {
 			{Name: "live-squid", Session: "live", Running: true},
 			{Name: "live-egress", Session: "live", Running: true},
 		},
-		Dind: []Container{
+		// Left by a proveo from before the sidecar was retired: nothing starts one
+		// now, and the sweep is what removes the --privileged leftover anyway.
+		LegacyDind: []Container{
 			{Name: "proveo-dind-opencode", Running: false},
 			{Name: "proveo-dind-cursor", Running: true},
 		},
@@ -34,7 +36,7 @@ func TestBuildPlanRoutineSkipsLive(t *testing.T) {
 	p := BuildPlan(inv, Options{})
 
 	if got := joined(p.Containers); got != "dead-squid,proveo-dind-opencode" {
-		t.Errorf("containers = %q, want the dead egress + exited dind only", got)
+		t.Errorf("containers = %q, want the dead egress + the exited legacy sidecar only", got)
 	}
 	if got := joined(p.Networks); got != "dead-net" {
 		t.Errorf("networks = %q, want dead-net only (live has endpoints)", got)
@@ -106,9 +108,9 @@ func TestBuildPlanToolchainsHeldBackByAnyRunningContainer(t *testing.T) {
 			Egress:   []Container{{Name: "eg", Running: true, Session: "s1"}},
 			ToolDirs: dirs,
 		}},
-		{"running dind", Inventory{
-			Dind:     []Container{{Name: "proveo-dind-1", Running: true}},
-			ToolDirs: dirs,
+		{"running legacy dind", Inventory{
+			LegacyDind: []Container{{Name: "proveo-dind-1", Running: true}},
+			ToolDirs:   dirs,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

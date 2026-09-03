@@ -20,7 +20,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   description : string
   --
   egress : bool
-  docker : sbx|dind|(absent)
+  docker : sbx|(absent)   ('dind' is REFUSED)
   provider : string
   subscription : bool
   stability : experimental|candidate|stable
@@ -76,50 +76,52 @@ M *-- AE
 note right of M
   **Adding a harness = dropping a def dir + this file.**
   Everything else enumerates from it: runnable targets,
-  image refs, mount model, egress lifecycle, DinD
+  image refs, mount model, egress lifecycle, the daemon
   offer, auth prompts, build/test/deploy registry.
-  **""docker:"" is an ENUM, not two booleans.** It names how a
-  harness's containerisation need is met, and the two answers
-  are opposite stories: ""dind"" links a privileged sibling
-  daemon, while ""sbx"" hands over NO daemon — the microVM IS the
-  isolation one would have been asked for. So a harness declares ONE
-  (""IsSbx"" / ""IsDind"" / ""WantsDocker""). The overlap that let a
-  manifest claim both is unrepresentable rather than merely
-  discouraged, and the picker shows the single checked add-on
-  it implies: ""docker (sandbox)"" or ""docker (dind)"".
-  The retired ""dind:"" / ""sandbox_docker:"" keys are still
-  PARSED, so a stale manifest fails loudly at load instead of
-  losing its docker story to the unknown-key rule.
+  **""docker:"" is an ENUM with one value left.** It names how a
+  harness's containerisation need is met, and after
+  _spec/_plans/retire-dind.puml there is one way to meet it:
+  ""sbx"", where the microVM IS the isolation and the daemon runs
+  inside it. Absent means no daemon reaches the agent.
+  ""dind"" — a privileged sibling the agent could call — is not
+  merely unknown but REFUSED by ""Validate"", naming ""docker: sbx""
+  as the repair: a manifest still declaring it is asking for an
+  isolation story proveo no longer implements, and silence would
+  read as a typo. The retired ""dind:"" / ""sandbox_docker:"" boolean
+  keys are still PARSED for the same reason.
 
   **The promise is asserted for EVERY def that makes it, and
-  asserted //the way that def makes it//.** The e2e matrix
+  there is now one way to assert it.** The e2e matrix
   (""TestEveryHarnessGetsTheDockerAccessItPromises"") is derived
-  from the manifests and dispatches on the mode, with an
-  INVERSE verdict on each side: ""IsDind"" defs must reach a
-  daemon through the privileged sidecar, on the only posture
-  that offers it (open + forward); ""IsSbx"" defs must reach
-  NONE — no socket, no ""DOCKER_HOST"", no server version — because
-  a daemon answering inside the sandbox means either the def
-  belongs on ""dind"" or a socket leaked through the boundary the
-  backend was chosen for.
+  from the manifests and runs one probe: an ""IsSbx"" def must
+  REACH a daemon inside its sandbox. That verdict is INVERTED
+  from the one it replaces, which required the sandbox to reach
+  none — true while no proveo image carried
+  ""com.docker.sandboxes.start-docker"" and false since.
 
-  Measured, not assumed: neither sbx def reaches a daemon, and
-  ""docker version"" answers "Cannot connect to the Docker daemon"
-  in both. The docker CLIENT is asserted on only for ""dind""
-  (""TestDindHarnessesShipADockerClient""); under ""sbx"" its
-  survival is an sbx implementation detail that differs between
-  our own two images, so pinning it either way would encode that
-  detail as a proveo contract
-  (""_spec/_experiments/docker-sandbox\.puml"").
+  The boundary half moved rather than vanished:
+  ""e2e/sbx_egress_test\.go"" fails when a pull from inside the
+  sandbox reaches a registry no Kit allowlists, which is the
+  property the five dind gates used to buy by refusing the
+  daemon outright.
+
+  The docker CLIENT is no longer asserted up front on either
+  side: its survival is an sbx implementation detail that
+  differs between our own two images
+  (""_spec/_experiments/docker-sandbox\.puml""), so pinning it
+  would encode that detail as a proveo contract. A missing one
+  is still named when it bites, because
+  ""assertDockerServerReachable"" separates "command not found"
+  from "cannot connect".
 
   Splitting it into two tests over two hardcoded lists is what
   hid the gap this replaced: the sbx half silently SKIPPED on
   every host without the CLI, so ""docker: sbx"" was an unasserted
   claim for as long as it took someone to install ""sbx"".
-  ""TestDockerAccessMatrixPartitionsEveryPromise"" now asserts the
-  partition itself — every promising def in exactly one branch,
-  neither branch empty — so an empty matrix cannot report success
-  by testing nothing.
+  ""TestEveryDaemonPromiseIsCoveredBySbx"" keeps that guard with
+  one branch instead of two — every promising def covered, and
+  the branch not empty — so an empty matrix cannot report
+  success by testing nothing.
 
   Validated by ""Manifest.Validate"" at load; ""Targets""
   flattens ""images"" across defs and rejects a duplicate

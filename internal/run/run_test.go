@@ -1,7 +1,9 @@
 package run
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,27 +18,25 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-func TestAddonOptionsNeverOffersBothDaemons(t *testing.T) {
+// The execution row offers ONE daemon or none — after retire-dind there is no
+// second one to offer, so the row states the single fact rather than presenting a
+// choice. SPEC: _spec/_plans/retire-dind.puml
+func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx, manifest.DockerDind} {
+	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx} {
 		man := manifest.Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
 		opts := addonOptions(man, rowExecution)
-		if slices.Contains(opts, addonSandbox) && slices.Contains(opts, addonDind) {
-			t.Errorf("docker %q offered both daemons: %v", mode, opts)
-		}
 		switch mode {
 		case manifest.DockerSbx:
-			if !slices.Contains(opts, addonSandbox) {
-				t.Errorf("docker: sbx must offer %q, got %v", addonSandbox, opts)
-			}
-		case manifest.DockerDind:
-			if !slices.Contains(opts, addonDind) {
-				t.Errorf("docker: dind must offer %q, got %v", addonDind, opts)
+			if !slices.Equal(opts, []string{addonHost, addonSandbox}) {
+				t.Errorf("docker: sbx must offer exactly the host and %q, got %v", addonSandbox, opts)
 			}
 		default:
 			// "host" alone: the plane still states what it excludes, and there is no
@@ -109,21 +109,25 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 	}
 }
 
-func TestGateAddonsEgressStillGatesWithoutSandbox(t *testing.T) {
+// The tier gate outlived the sidecar it was written for: the Claude in Chrome
+// bridge is now the only add-on it governs, and it governs it on the DOCKER
+// backend, where an intercepting tier leaves the agent no route to the host.
+// SPEC: _spec/_plans/retire-dind.puml
+func TestGateAddonsEgressStillGatesTheHostBridge(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: rowExecution, Options: []string{addonDind}, Multi: true, On: []bool{false},
+		Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true},
 	}}}
-	gateAddons(f, "firewall", "inject", "", "")
+	gateAddons(f, "firewall", "inject", "no sandbox here", "")
 	if !f.Rows[0].Off[0] {
-		t.Fatal("firewall+inject must still disable dind")
+		t.Fatal("firewall+inject must still disable the host bridge")
 	}
-	if f.Rows[0].Reason != addonDind+" needs egress open + credentials forward" {
+	if f.Rows[0].Reason != addonChrome+": "+chromebridge.TierWhy {
 		t.Errorf("reason = %q", f.Rows[0].Reason)
 	}
-	gateAddons(f, "open", "forward", "", "")
+	gateAddons(f, "open", "forward", "no sandbox here", "")
 	if f.Rows[0].Off[0] {
-		t.Error("open+forward on a docker: dind harness must leave the add-on enabled")
+		t.Error("open+forward must leave the host bridge enabled")
 	}
 }
 
@@ -416,8 +420,8 @@ func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("execution options mismatch (-want +got):\n%s", diff)
 	}
-	if opts := addonOptions(manifest.Manifest{Name: "opencode", Docker: manifest.DockerDind}, rowExecution); !slices.Contains(opts, addonDind) || slices.Contains(opts, addonSandbox) {
-		t.Errorf("a docker: dind harness must not be offered the sandbox: %v", opts)
+	if opts := addonOptions(manifest.Manifest{Name: "nodaemon"}, rowExecution); slices.Contains(opts, addonSandbox) {
+		t.Errorf("a harness with no docker mode must not be offered the sandbox: %v", opts)
 	}
 }
 
@@ -588,7 +592,7 @@ func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
 				p.Addons, p.AddonsAnswered, got, want)
 		}
 	}
-	if (&Params{}).willSandbox(manifest.Manifest{Docker: manifest.DockerDind}) {
+	if (&Params{}).willSandbox(manifest.Manifest{}) {
 		t.Error("a harness that does not declare sbx never takes the sandbox backend")
 	}
 }
@@ -624,11 +628,12 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 	}
 }
 
-// A dind harness carries no sandbox box at all, so nothing may read it as one.
-func TestGateAddonsLeavesTheHostBrowserAloneOnADindHarness(t *testing.T) {
+// A harness with no sandbox box carries nothing that may be read as one — the
+// exclusion is the sandbox's, not the row's.
+func TestGateAddonsLeavesTheHostBrowserAloneWithoutASandboxBox(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{
-		{Label: rowExecution, Options: []string{addonDind}, Multi: true, On: []bool{true}},
+		{Label: rowExecution, Options: []string{addonHost}, Multi: true, On: []bool{false}},
 		{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
 	}}
 	gateAddons(f, "open", "forward", "", "")
@@ -690,24 +695,28 @@ func TestGateReviewFollowsTheSandboxAddon(t *testing.T) {
 	}
 }
 
-func TestBothDockerAddonsStartChecked(t *testing.T) {
+func TestTheDockerAddonStartsChecked(t *testing.T) {
 	t.Parallel()
-	opts := []string{"browser", addonSandbox, addonDind}
+	opts := []string{"browser", addonSandbox}
 	got := (&Params{}).addonDefaults(opts)
-	if diff := cmp.Diff([]bool{false, true, true}, got); diff != "" {
+	if diff := cmp.Diff([]bool{false, true}, got); diff != "" {
 		t.Errorf("first-run defaults mismatch (-want +got):\n%s", diff)
 	}
 	// A remembered answer is authoritative in both directions.
 	remembered := &Params{Addons: []string{"browser"}, AddonsAnswered: true}
-	if diff := cmp.Diff([]bool{true, false, false}, remembered.addonDefaults(opts)); diff != "" {
+	if diff := cmp.Diff([]bool{true, false}, remembered.addonDefaults(opts)); diff != "" {
 		t.Errorf("remembered choice mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestNormalizeAddonsUpgradesTheRememberedDindName(t *testing.T) {
+// A cached choice from before retire-dind may still name the privileged sidecar,
+// in either of its two spellings. Both are DROPPED rather than translated: there
+// is no equivalent offer to carry them to, and the sandbox box is re-ticked by the
+// gate on every run anyway. SPEC: _spec/_plans/retire-dind.puml
+func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	t.Parallel()
-	got := normalizeAddons([]string{"browser", "dind"})
-	if diff := cmp.Diff([]string{"browser", addonDind}, got); diff != "" {
+	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox})
+	if diff := cmp.Diff([]string{"browser", addonSandbox}, got); diff != "" {
 		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -919,7 +928,7 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
 	}
 	dockerMan := sbxMan
-	dockerMan.Docker = manifest.DockerDind
+	dockerMan.Docker = manifest.DockerNone
 	apiMan := sbxMan
 	apiMan.Subscription = false
 
@@ -1098,6 +1107,40 @@ func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
 		}
 		if !strings.Contains(why, "INSIDE the run") {
 			t.Errorf("the remedy must say where /login has to happen: %q", why)
+		}
+	}
+}
+
+// PROVEO_DIND is retired and its whole remaining job is to SAY so. A no-op that
+// stays silent tells an operator who exported it in a shell rc months ago
+// nothing, and they read the missing sidecar as a broken run.
+// SPEC: _spec/_plans/retire-dind.puml
+func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
+	for _, c := range []struct {
+		value string
+		warns bool
+	}{
+		{"", false},
+		{"0", false},
+		{"off", false},
+		{"false", false},
+		{"1", true},
+		{"true", true},
+		{"yes", true},
+	} {
+		t.Setenv("PROVEO_DIND", c.value)
+		var buf bytes.Buffer
+		prev := ui.Default
+		ui.Default = ui.New(struct{ io.Writer }{&buf})
+		warnDindRetired()
+		ui.Default = prev
+
+		said := strings.Contains(buf.String(), "PROVEO_DIND is retired")
+		if said != c.warns {
+			t.Errorf("PROVEO_DIND=%q warned = %v, want %v (output %q)", c.value, said, c.warns, buf.String())
+		}
+		if c.warns && !strings.Contains(buf.String(), "docker: sbx") {
+			t.Errorf("PROVEO_DIND=%q must name the replacement, got %q", c.value, buf.String())
 		}
 	}
 }

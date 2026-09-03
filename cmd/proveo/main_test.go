@@ -352,10 +352,6 @@ func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
 	}
 }
 
-// TestAddonOptionsNeverOffersBothDaemons is the overlap this enum retired: a
-// harness declares ONE docker mode, so the picker can never show both
-// "docker (sandbox)" and "docker (dind)" — there is no locked-but-visible state
-// left to explain, because the second option does not exist.
 func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	// A real directory: an sbx workspace must BE one, so the spec drops binds
 	// that are not (the project .env arrives as a file bind and sbx refuses it).

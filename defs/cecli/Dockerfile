@@ -23,18 +23,35 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
+# sbx's own templates run as `agent` with HOME=/home/agent, and anything a kit
+# mounts lands under that path — which a symlink cannot serve, because a mount
+# target does not resolve through one. So the REAL home is /home/agent and the
+# harness name is the alias, the same reversal cursor and opencode needed.
+# cecli joins them because `docker: sbx` is now the only backend that hands this
+# harness a Docker daemon (_spec/_plans/retire-dind.puml).
+RUN usermod -d /home/agent -m "${USER_NAME}" \
+ && if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
+ && if ! getent passwd agent >/dev/null; then \
+      useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d /home/agent -s /bin/bash agent; \
+    fi \
+ && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
+ && chown -R "${USER_ID}:${USER_ID}" /home/agent
+
 # cecli-specific env; the common floor lives in proveo/base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
+# iptables is dockerd's, not cecli's: the per-sandbox daemon builds its own NAT
+# chain at start and cannot without it.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
     build-essential \
+    iptables \
     less \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
@@ -59,6 +76,11 @@ RUN test -n "${CECLI_VERSION}" \
 
 ENV PATH="/opt/cecli/bin:${PATH}"
 
+# The whole static tarball, not just the client. With the privileged dind sidecar
+# retired (_spec/_plans/retire-dind.puml), the only daemon this harness can reach
+# is sbx's per-sandbox one, and that daemon runs INSIDE the sandbox — so the image
+# ships dockerd, containerd, runc and docker-proxy, which this same download
+# already carried and threw away.
 RUN DOCKER_VERSION=29.7.2 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
@@ -67,8 +89,20 @@ RUN DOCKER_VERSION=29.7.2 \
        esac \
     && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
     && tar -xzf /tmp/docker.tgz -C /tmp \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
+    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
     && rm -rf /tmp/docker /tmp/docker.tgz
+
+# ── Docker-in-sandbox ───────────────────────────────────────────────────────
+#
+# sbx starts the sandbox's own daemon only when the IMAGE carries
+# `com.docker.sandboxes.start-docker`; without it sbx records `dind: false` at
+# container creation and never starts one. The socket is root:docker, so the
+# runtime user needs the group.
+RUN groupadd -f docker \
+ && usermod -aG docker "${USER_NAME}" \
+ && usermod -aG docker agent
+LABEL com.docker.sandboxes.start-docker="true"
 
 WORKDIR /app
 

@@ -44,7 +44,6 @@ package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "workspace\nscope + mount plan" as Workspace <<app>>
  component "egress\nBuildPlan · lifecycle" as EgressPkg <<app>>
  component "egressproxy · egresspolicy\nMITM · read-allow/write-deny/DLP" as PolicyPkg <<app>>
- component "dind\nsibling docker:dind" as DindPkg <<app>>
  component "provider · broker\nregistry + inject/strip" as CredPkg <<app>>
  component "gitidentity\nGIT_* forwarding" as GitId <<app>>
  component "entrypoint\n.env · bridges · sentinel" as EPPkg <<app>>
@@ -72,7 +71,6 @@ package "Definitions\ndefs/" as Defs {
  component "squid-proxy config" as DefSquid <<definition>>
  component "egress-proxy image\n(proveo-egress)" as DefEgressImg <<definition>>
  component "mitmproxy (legacy)" as DefMitm <<definition>>
- component "dind (public docker:dind)" as DefDind <<definition>>
  }
  component "defaults · agents · samples" as DefAssets <<config>>
 }
@@ -140,7 +138,6 @@ ProveoCLI --> Runner : docker run argv
 ProveoCLI --> EgressPkg : plan + apply
 ProveoCLI --> CredPkg : detect provider
 ProveoCLI --> GitId : forward identity
-ProveoCLI --> DindPkg : optional sidecar
 ProveoCLI --> ProveoEgress : inspector binary
 ProveoEgress ..> CredPkg : inject / strip
 ProveoEP --> EPPkg : prep / exec
@@ -168,7 +165,7 @@ TestingSpec ..> Internals
 note right of ProveoCLI
 **Single host orchestrator.**
 Hardened docker argv, egress topology,
-DinD, mounts, and env wizard live here.
+mounts, and env wizard live here.
 Consumer install is the static binary only
 — not a curl|bash of live shell libs.
 end note

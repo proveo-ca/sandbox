@@ -2,8 +2,68 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: retire the privileged dind sidecar and make sbx the only way an agent gets a daemon
 ' session: d2ff9d04-cba3-46b5-87d6-698c921c9ede
-' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
-'   what dind is today .......... _spec/internal/dind/dind-sidecar.puml
+' APPLIED — all four steps landed. _spec/_plans/ is exempt from the SPEC-reference rule.
+'
+' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
+' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images
+'    grew the layers that makes that true — the whole static docker tarball
+'    (dockerd, containerd, runc, docker-proxy, not just the client), `iptables`
+'    for the daemon's NAT chain, a `docker` group for the root:docker socket, a
+'    real /home/agent, and `com.docker.sandboxes.start-docker`.
+' 2. The offer is gone. `docker (dind)` left the execution row, which now carries
+'    the one greyed-and-ticked fact every sbx harness already had. `PROVEO_DIND`
+'    warns and no-ops rather than being silently unread.
+' 3. The lattice is deleted: `internal/dind` whole, its five gates, the
+'    interactive prompt, `ScopeHasDockerfiles`, and the dind arm of `gateAddons`.
+' 4. The plumbing is deleted: the `--link` args, `DOCKER_HOST`, `WaitReady`,
+'    `ConnectNetwork`, and the `--privileged` run. proveo starts no privileged
+'    container any more.
+'
+' THING ONE THE PLAN DID NOT KNOW: sbx's agent list is CLOSED, and cecli is not
+' on it. `sbx run --help` prints claude, codex, copilot, cursor, docker-agent,
+' droid, gemini, kiro, opencode, shell; a Kit cannot extend it. opencode maps
+' straight across. cecli is aider and nothing on that list is aider, so
+' `docker: sbx` would have sent it to a backend that could not launch it —
+' `sbx.BuiltinAgent("cecli")` returned "" and sbx reads the first workspace path
+' as an agent name. `sbx.AgentFor` now resolves an unmapped target to the SHELL
+' agent carrying the target's own launch command, which is what makes
+' `docker: sbx` mean "runs in a sandbox" for every harness rather than only the
+' ones sbx ships an agent for. UNVERIFIED against a real sbx: whether the shell
+' agent execs a trailing command is the one claim here nobody measured.
+'
+' THING TWO: the e2e verdict had to be INVERTED, not moved.
+' `assertSandboxReplacesDocker` asserted that a `docker: sbx` sandbox reaches NO
+' daemon — true when written, because sbx starts one only for an image carrying
+' `com.docker.sandboxes.start-docker` and no proveo image did. With the label a
+' daemon answers (Server 29.7.2, measured). Since retiring the sidecar makes
+' that daemon the only one a harness gets, a sandbox reaching none is now the
+' failure. The boundary half of the old claim moved rather than vanished:
+' e2e/sbx_egress_test.go fails when a pull from inside the sandbox reaches a
+' registry no Kit allowlists, which is the property the five gates used to buy
+' by refusing the daemon outright.
+'
+' `egress.Plan.AgentNetwork` WENT WITH THE SIDECAR. It recorded the user-defined
+' bridge so the sidecar could attach under the alias `docker`, and nothing else
+' ever read it. Keeping it was considered and rejected on the question "could a
+' network traffic report be produced from it after the run exits?" — it cannot:
+' `teardown` emits `network rm` for that network, Docker keeps no per-network
+' traffic accounting, this tree captures no packets anywhere, and the ONE posture
+' that set the field (open + forward + a local model) is the one whose own posture
+' line already reads "none — plain bridge, no MITM, no Squid". Every committed plan
+' golden rendered it EMPTY. The topology it described is still asserted, through
+' `AgentArgs` and the `--internal` flag on the created network, which is the
+' property the old invariant was really protecting.
+'
+' WHAT DID NOT HAPPEN, ON PURPOSE. mitmproxy and Squid still stand, the docker
+' backend still answers `PROVEO_SBX=0` and `--egress-mode review`, and the review
+' tier is therefore still implemented. `clean` still sweeps `proveo-dind-*`: a
+' `--privileged` container an older proveo left running is the last thing to
+' strand on a host with nothing left that knows its name.
+' And secret-custody's (d) is NOT closed: it needed the BACKEND deleted, not the
+' sidecar, so its prerequisite moved one step further out.
+'
+'   what dind WAS ............... deleted with the package; the record is here
+'                                 and in _spec/_experiments/docker-sandbox.puml
 '   the backend it moves to ..... _spec/internal/sbx/sandbox-backend.puml
 '   what governs egress there ... _spec/internal/sbx/policy-baseline.puml
 '   the tiers this does NOT decide _spec/internal/egress/egress-tiers.puml
@@ -29,7 +89,7 @@
 ' the PROVEO_SBX=0 fallback keeps review, the flow record and Chrome alive AND
 ' keeps (d) open. That trade is the "one backend, or two?" question below, and
 ' secret-custody is a third voice in it.
-title PLANNED — retire dind: one privileged sidecar, and what goes with it
+title APPLIED — retire dind: one privileged sidecar, and what went with it
 
 component "**dind sidecar** — what retires\n""--privileged"", sibling daemon, agent-reachable" as DIND <<error>>
 component "internal/dind\nfive gates, a prompt, a scope scan" as GATE <<app>>
@@ -102,11 +162,27 @@ note bottom of OBS
 end note
 
 note top of OBS
-  **Decisions, not requests.** ""flows.ndjson"" is
-  every request the MITM saw; the policy log is
-  per-host outcomes — host, rule, reason, last
-  seen. Enough to answer "what did it reach", not
-  "what it sent". Name the gap before taking it.
+  **Decisions and COUNTS, not requests.** Docker
+  documents host, matching rule, proxy type and
+  request count, with ""--limit"" and ""--type"".
+  Enough for "what did it reach, how often" —
+  never "what it sent".
+end note
+
+note top of OBS
+  **And the proxy sees more than it logs.**
+  Measured in-sandbox: ""github.com"" and
+  ""api.anthropic.com"" present the Sandboxes
+  Proxy CA, so those are TERMINATED — the request
+  detail exists, it is just not exposed.
+end note
+
+note bottom of OBS
+  **Loopback is outside all of it.**
+  ""no_proxy"" holds localhost · 127.0.0.1 · ::1,
+  and sandbox-internal loopback never leaves the
+  netns anyway. No proxy placement can report it,
+  so that gap is structural, not a setting.
 end note
 
 note bottom of CHR
@@ -148,8 +224,16 @@ legend bottom
   **4. Delete the sidecar plumbing.** The link args, ""DOCKER_HOST"", the readiness wait,
   and the ""--privileged"" run — the last privileged container proveo starts.
   ==
-  **Left open on purpose.** Whether mitmproxy and Squid follow; whether the policy log
-  can be raised to per-request fidelity; and whether review is a thing proveo should
-  keep a whole backend alive for, or hand to the sandbox vendor.
+  **Left open on purpose.** Whether mitmproxy and Squid follow; and whether review is a
+  thing proveo should keep a whole backend alive for, or hand to the sandbox vendor.
+  --
+  **ANSWERED since, by measurement.** "Can the policy log be raised to per-request
+  fidelity?" — not the log itself, but the fidelity is reachable another way. sbx's
+  own proxy is the ONLY route out of a sandbox (""HTTP_PROXY"" ·
+  ""gateway.docker.internal:3128""), so proveo can put its inspector IN that path via the
+  Kit's ""environment.variables"" and chain upstream to sbx (""PROVEO_EGRESS_UPSTREAM""
+  already exists). Costs: proveo's CA must be trusted inside the sandbox too, sbx's
+  credential injection happens at ITS proxy so the chain order matters, and the
+  ""NO_PROXY""-as-regex hazard is live. Loopback stays invisible either way.
 end legend
 @enduml

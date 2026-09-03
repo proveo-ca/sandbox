@@ -54,10 +54,11 @@
 ' ── RADIO VERSUS CHECKBOX IS A STATEMENT ABOUT REACHABLE STATES ────────────
 ' Brackets say "any number of these"; parentheses say "one of these". The
 ' execution plane is one of these, since a run has exactly one place it runs.
-' Storage stays a checkbox set because "neither" is REACHABLE there — a dind
-' harness with the daemon unticked reaches the agent with no daemon at all — and
-' a radio cannot express it; that state draws as two empty marks, which is what
-' it is. Divider is declared rather than inferred: it used to be "the first
+' Storage stays a checkbox set because "neither" is REACHABLE there. Execution
+' keeps the checkbox model for a weaker reason now: retiring the privileged
+' sidecar (_spec/_plans/retire-dind.puml) left it with one box, greyed and
+' ticked, so it states a fact rather than offering a choice — and a radio of one
+' would read as a question. Divider is declared rather than inferred: it used to be "the first
 ' multi-select row", which silently meant only one group could ever be named.
 '
 ' ── WHERE THE CURSOR MAY REST ──────────────────────────────────────────────

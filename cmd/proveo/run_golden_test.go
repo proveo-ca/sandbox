@@ -75,6 +75,8 @@ func renderRun(t *testing.T, target, image, mode, creds, sbx string) string {
 	}
 	for k, v := range map[string]string{
 		"PROVEO_HOME": home, "PROVEO_WIZARD": "off", "PROVEO_SBX": sbx,
+		// PROVEO_DIND is retired and warns when set; pinned off so an operator's own
+		// exported value cannot add a line to these goldens.
 		"PROVEO_EGRESS_ENV_FILE": envFile, "PROVEO_DIND": "off",
 		"PROVEO_AGENT_EVIDENCE": "", "PROVEO_SBX_MCP": "", "PROVEO_PIDS_LIMIT": "",
 		"PROVEO_SQUID_PROXY_IMAGE": "", "PROVEO_EGRESS_PROXY_IMAGE": "", "PROVEO_OLLAMA_IMAGE": "",

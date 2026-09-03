@@ -10,7 +10,7 @@ node "Host" as HOST <<host>> {
 
   frame "Inventory" as INV <<host>> {
     component "egress session containers\n(mitm · squid · ollama)" as C <<app>>
-    component "leaked DinD sidecars\n(not session-labeled)" as D <<app>>
+    component "legacy DinD sidecars\n(retired; never session-labeled)" as D <<app>>
     component "egress networks\n+ HasEndpoints" as N <<app>>
     database "<stateDir>/egress/<sid>\nholds injected broker.env" as ST <<error>>
     database "proveo/* images" as IMG <<db>>
@@ -67,9 +67,8 @@ end note
 note bottom of PH
   Deliberately excluded from both routine and ""--deep"":
   it is the user's durable session history, not run
-  ephemera. Upstream sidecar bases (squid, ollama,
-  docker:dind) are likewise left — shared and cheap to
-  re-pull. See _spec/internal/proveohome/proveo-home-components.puml
+  ephemera. Upstream sidecar bases (squid, ollama) are
+  likewise left — shared and cheap to re-pull. See _spec/internal/proveohome/proveo-home-components.puml
 end note
 note bottom of CORE
   **The decision core is pure: an inventory in, a removal set out.** That is
@@ -84,9 +83,13 @@ note bottom of CORE
   not happen.
 
   Routine covers per-run ephemera left by a crashed or killed run — egress
-  session containers and networks, leaked DinD sidecars, session state
-  dirs. The deeper tier is opt-in because it reaches images the next run
-  would otherwise reuse.
+  session containers and networks, session state dirs, and
+  ""proveo-dind-*"" sidecars from before that sidecar was retired
+  (_spec/_plans/retire-dind.puml). Nothing starts one now, and the sweep
+  is kept precisely for that reason: a ""--privileged"" container an older
+  proveo left running is the last thing to strand on a host with nothing
+  left that knows its name. The deeper tier is opt-in because it reaches
+  images the next run would otherwise reuse.
 end note
 
 

@@ -124,12 +124,11 @@ func hostPlatform() string {
 }
 
 // squareOf labels the container the agent runs in with the daemon behind it.
+// One daemon left to name: the privileged sidecar is retired, so a harness
+// either declares `docker: sbx` or gets no daemon at all.
 func squareOf(man manifest.Manifest, target string) string {
-	switch man.Docker {
-	case manifest.DockerSbx:
+	if man.Docker == manifest.DockerSbx {
 		return "sbx · " + target
-	case manifest.DockerDind:
-		return "dind · " + target
 	}
 	return target
 }

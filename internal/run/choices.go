@@ -14,7 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -186,21 +185,14 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 				// Greyed AND ticked: compulsory, and out of `reasons`.
 				r.On[j] = true
 				r.OffWhy[opt] = "this harness runs in the sandbox and nowhere else; PROVEO_SBX=0 or --egress-mode review fall back to docker + egress sidecars"
-			case addonDind:
-				if !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds) {
-					r.Off[j] = true
-					r.On[j] = false
-					reasons = append(reasons, addonDind+" needs egress open + credentials forward")
-					r.OffWhy[opt] = "needs egress open + credentials forward"
-				}
 			case addonChrome:
 				// The tier constraint is the DOCKER backend's; sbx no longer excludes this.
 				why := chromeWhy
 				switch {
 				case why != "":
 				case sandboxTicked: // sbx: no tier gate, the tier is inert there
-				case !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds):
-					why = "needs egress open + credentials forward"
+				case !chromebridge.TierSupported(tier, creds):
+					why = chromebridge.TierWhy
 				}
 				if why != "" {
 					r.Off[j] = true
@@ -407,12 +399,10 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	return out
 }
 
-// The docker add-ons: one row entry per way a harness can hand the agent a
-// Docker daemon. Both are CHECKED by default wherever the manifest declares
-// them — the picker shows what the run is about to do, and unchecking is how an
-// operator opts out (sandbox → docker+egress; dind → no sidecar). Each is still
-// subject to its own gate, so an entry can be checked and greyed at once, with
-// the reason on the row.
+// The docker add-on: the one way a harness can hand the agent a Docker daemon.
+// It is CHECKED by default wherever the manifest declares it — the picker shows
+// what the run is about to do — and greyed, because after retire-dind there is
+// nothing to choose between: `PROVEO_SBX=0` is the only way to a weaker backend.
 const (
 	// The two planes the checkboxes are grouped into: WHERE the agent runs, and
 	// WHAT it can drive. One undifferentiated "add-ons" row put a Docker daemon
@@ -424,7 +414,6 @@ const (
 	addonTUI     = "tui (this session)"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
-	addonDind    = "docker (dind)"
 	addonChrome  = chromebridge.Addon
 )
 
@@ -451,19 +440,17 @@ var addonHelp = map[string]string{
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
-	addonDind:    "a privileged sibling Docker daemon; unticked: no daemon reaches the agent",
 }
 
-// executionOptions is WHERE the agent runs: the excluded host, then the daemon
-// this harness declares. One entry, never two — the manifest's docker mode IS
-// the choice, so the picker cannot offer a harness both daemons.
+// executionOptions is WHERE the agent runs: the excluded host, then the sandbox,
+// on a harness that declares one. One entry, never two — retiring the privileged
+// sidecar left `docker: sbx` as the only way a harness gets a daemon, so this row
+// no longer chooses BETWEEN daemons; it states the single one there is.
+// SPEC: _spec/_plans/retire-dind.puml
 func executionOptions(man manifest.Manifest) []string {
 	opts := []string{addonHost}
-	switch man.Docker {
-	case manifest.DockerSbx:
+	if man.Docker == manifest.DockerSbx {
 		opts = append(opts, addonSandbox)
-	case manifest.DockerDind:
-		opts = append(opts, addonDind)
 	}
 	return opts
 }
@@ -528,7 +515,8 @@ func compulsory(f *choiceui.Form, label string) []string {
 
 // rowOffers reports whether a group lists an option at all, which is a different
 // question from whether it is ticked: the execution row carries the sandbox only
-// on a harness that declares it, and a dind harness must not be read as one.
+// on a harness that declares it, and a harness with no docker mode at all must
+// not be read as one.
 func rowOffers(f *choiceui.Form, label, option string) bool {
 	for i := range f.Rows {
 		if f.Rows[i].Label != label {
@@ -557,13 +545,20 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// normalizeAddons upgrades the names a previous version remembered, so a cached
-// choice keeps meaning what the operator picked.
+// normalizeAddons reconciles the names a previous version remembered with the
+// ones that still exist, so a cached choice keeps meaning what the operator
+// picked — or is dropped when it no longer means anything.
+//
+// The privileged sidecar's two spellings ("dind", then "docker (dind)") are
+// DROPPED rather than translated. Nothing they could map to is the same offer:
+// the sandbox box is compulsory and re-ticked by the gate on every run, so
+// carrying a remembered sidecar answer forward would only put a dead name in the
+// selection. SPEC: _spec/_plans/retire-dind.puml
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {
-		if a == "dind" {
-			a = addonDind
+		if a == "dind" || a == "docker (dind)" {
+			continue
 		}
 		out = append(out, a)
 	}

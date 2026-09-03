@@ -21,7 +21,6 @@ ubuntu/squid:latest
 proveo/egress-proxy:latest
 == flags ==
 usesSquid=true
-agentNetwork=
 proxyContainer=sid-egress
 squidContainer=sid-squid
 ollamaContainer=

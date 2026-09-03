@@ -247,33 +247,38 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	}
 }
 
-func TestDockerModeAcceptsOnlyTheTwoDaemons(t *testing.T) {
+// One daemon and the absence of one are the only two answers left. `dind` gets
+// its own case because it must be REFUSED rather than merely unknown: a manifest
+// carrying it is asking for the retired privileged sidecar, and the error has to
+// say so instead of reading like a typo. SPEC: _spec/_plans/retire-dind.puml
+func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
 	t.Parallel()
 	base := func(mode DockerMode) Manifest {
 		return Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
 	}
-	for _, mode := range []DockerMode{DockerNone, DockerSbx, DockerDind} {
+	for _, mode := range []DockerMode{DockerNone, DockerSbx} {
 		if err := base(mode).Validate(); err != nil {
 			t.Errorf("docker %q must validate: %v", mode, err)
 		}
 	}
-	err := base("podman").Validate()
+	err := base("dind").Validate()
+	if err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Errorf("docker: dind must be refused as RETIRED, got %v", err)
+	}
+	err = base("podman").Validate()
 	if err == nil || !strings.Contains(err.Error(), "invalid docker") {
 		t.Errorf("an unknown docker mode must be rejected, got %v", err)
 	}
 }
 
-func TestDockerModePredicatesAreMutuallyExclusive(t *testing.T) {
+func TestDockerModePredicatesAreExhaustive(t *testing.T) {
 	t.Parallel()
 	sbx := Manifest{Docker: DockerSbx}
-	dind := Manifest{Docker: DockerDind}
 	none := Manifest{}
 	switch {
-	case !sbx.IsSbx() || sbx.IsDind() || !sbx.WantsDocker():
-		t.Errorf("docker: sbx predicates wrong: sbx=%v dind=%v wants=%v", sbx.IsSbx(), sbx.IsDind(), sbx.WantsDocker())
-	case !dind.IsDind() || dind.IsSbx() || !dind.WantsDocker():
-		t.Errorf("docker: dind predicates wrong: sbx=%v dind=%v wants=%v", dind.IsSbx(), dind.IsDind(), dind.WantsDocker())
-	case none.IsSbx() || none.IsDind() || none.WantsDocker():
+	case !sbx.IsSbx() || !sbx.WantsDocker():
+		t.Errorf("docker: sbx predicates wrong: sbx=%v wants=%v", sbx.IsSbx(), sbx.WantsDocker())
+	case none.IsSbx() || none.WantsDocker():
 		t.Error("a harness with no docker mode must promise no daemon")
 	}
 }

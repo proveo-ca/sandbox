@@ -141,9 +141,6 @@ func printOnlyRun(t *testing.T, workdir string, extraEnv []string, target string
 // daemon must not be able to drift out of this suite's coverage silently.
 var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
 
-// dindHarnesses are the targets whose manifest declares docker: dind.
-var dindHarnesses = dockerTargets(manifest.Manifest.IsDind)
-
 // dockerTargets lists every target whose manifest satisfies pick, in def order.
 // It runs at package init, so a defs/ tree it cannot read is a panic rather than
 // a silently empty matrix that reports success by testing nothing.
@@ -224,41 +221,18 @@ func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
 	}
 }
 
-// TestDindHarnessesShipADockerClient guards the half of the contract the
-// manifest cannot state on its own: `docker: dind` promises the AGENT a daemon,
-// and a daemon it has no client for is a promise the image breaks — not a
-// failure, just `docker: command not found` at the moment the agent tries to use
-// it.
+// The docker CLIENT is no longer asserted up front. Whether the binary survives
+// into the sandbox is not proveo's to promise and not stable: cursor's sandbox has
+// it and claudecode's does not, from images that both install it, because
+// `sbx create` re-bakes the template (see _spec/_experiments/docker-sandbox.puml)
+// and the claude-flavoured bake drops it. Pinning it either way would encode an
+// sbx implementation detail as a proveo contract.
 //
-// Only the dind branch is held to this. `docker: sbx` promises the opposite (see
-// sandboxBoundaryProbe), and sbx strips the client from the image anyway, so
-// requiring one there would demand a binary the sandbox deletes.
-func TestDindHarnessesShipADockerClient(t *testing.T) {
-	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
-	var targets []string
-	for _, m := range ms {
-		if m.IsDind() {
-			targets = append(targets, m.Name)
-		}
-	}
-	if len(targets) == 0 {
-		t.Fatal("no harness declares docker: dind — the invariant has nothing to guard")
-	}
-	for _, target := range targets {
-		t.Run(target, func(t *testing.T) {
-			img := harnessImage(t, target)
-			out, err := exec.Command("docker", "run", "--rm", "--entrypoint", "docker", img, "--version").CombinedOutput()
-			if err != nil {
-				t.Errorf("%s promises the agent a Docker daemon but its image ships no docker client "+
-					"(rebuild after adding the static-client layer: proveo build %s): %v\n%s",
-					target, target, err, out)
-			}
-		})
-	}
-}
+// It is still NAMED when it bites: assertDockerServerReachable separates "command
+// not found" from "cannot connect", because the two need different repairs.
+// TestDindHarnessesShipADockerClient asserted it for the privileged-sidecar
+// branch, where the image alone decided the answer; that branch is retired.
+// SPEC: _spec/_plans/retire-dind.puml
 
 // ── the live sandbox: does the backend actually deliver what it promises? ────
 //
@@ -273,7 +247,9 @@ func TestDindHarnessesShipADockerClient(t *testing.T) {
 //
 //  1. the run took the sandbox backend (not the docker+egress fallback)
 //  2. the workspace mount carries writes back to the host
-//  3. the sandbox REPLACES docker — no client, no socket (the promise itself)
+//  3. the sandbox SUPPLIES docker — a daemon answers inside it (the promise
+//     itself, and the inverse of what this line claimed before the sidecar was
+//     retired; see assertSandboxSuppliesDocker)
 //  4. the sandbox is gone afterwards, VM and all
 //
 // It drives `--shell`, not the agent: the claim under test is the backend's,
@@ -281,10 +257,10 @@ func TestDindHarnessesShipADockerClient(t *testing.T) {
 // unless the host can run sbx, which is also why it is the test that closes the
 // "confirmed on Linux only" gap — run it on the Mac and the gap is closed or
 // the failure names which of the four claims is false.
-// The dispatch above is only as honest as the two lists it dispatches on, and
-// both are derived. An empty or overlapping matrix would report success by
-// testing nothing, so the partition itself is asserted: every def that promises a
-// daemon lands in exactly one branch.
+// There is one branch now, and it is only as honest as the list it is derived
+// from. An empty matrix would report success by testing nothing, so the coverage
+// itself is asserted: every def that promises a daemon is in it, and it is not
+// empty.
 // Every sbx defect this suite exists to catch was found by hand first: `-w` and
 // `-v` rejected, an image in the agent positional, a Kit schema sbx would not
 // parse, an agent name that had to match the Kit's, a stale template silently
@@ -578,51 +554,51 @@ func renderKit(t *testing.T, target string) string {
 	return filepath.Dir(matches[0])
 }
 
-func TestDockerAccessMatrixPartitionsEveryPromise(t *testing.T) {
+// This used to PARTITION two branches — the privileged sidecar and the sandbox —
+// because an empty branch could report success by testing nothing. Retiring the
+// sidecar collapses it to one, so the guard becomes the simpler and stronger
+// claim: every def that promises a daemon is covered here, and the branch is not
+// empty. SPEC: _spec/_plans/retire-dind.puml
+func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
 	if err != nil {
 		t.Fatalf("load manifests: %v", err)
 	}
-	if len(sandboxHarnesses) == 0 || len(dindHarnesses) == 0 {
-		t.Fatalf("both branches must have targets: sbx=%v dind=%v", sandboxHarnesses, dindHarnesses)
+	if len(sandboxHarnesses) == 0 {
+		t.Fatal("no def declares docker: sbx — the only daemon branch is empty, so this suite tests nothing")
 	}
 	for _, m := range ms {
 		if !m.WantsDocker() {
 			continue
 		}
-		inSbx, inDind := contains(sandboxHarnesses, m.Name), contains(dindHarnesses, m.Name)
-		if inSbx == inDind {
-			t.Errorf("%s declares docker: %s but is in %d branches, want exactly 1 "+
-				"(sbx=%v dind=%v)", m.Name, m.Docker, map[bool]int{true: 2, false: 0}[inSbx],
-				inSbx, inDind)
+		if !contains(sandboxHarnesses, m.Name) {
+			t.Errorf("%s declares docker: %s but is not in the sbx branch, and there is no other branch left "+
+				"(sbx=%v)", m.Name, m.Docker, sandboxHarnesses)
 		}
 	}
-	t.Logf("docker access matrix: sbx=%v dind=%v", sandboxHarnesses, dindHarnesses)
+	t.Logf("docker access coverage: sbx=%v", sandboxHarnesses)
 }
 
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 	requireTmux(t)
 
-	targets := append(append([]string{}, dindHarnesses...), sandboxHarnesses...)
+	targets := append([]string{}, sandboxHarnesses...)
 	if len(targets) == 0 {
 		t.Fatal("no def promises a docker daemon — the matrix cannot be empty")
 	}
 	sort.Strings(targets)
 
+	// One branch, one probe. The dispatch this replaces existed because the two
+	// ways of getting a daemon were measured differently — a privileged sibling on
+	// the docker backend versus a per-sandbox engine — and only one survives.
 	sbxOK, sbxWhy := sbx.Available()
 	for _, target := range targets {
 		t.Run(target, func(t *testing.T) {
-			switch {
-			case contains(sandboxHarnesses, target):
-				if !sbxOK {
-					t.Skipf("sbx not available on this host: %s", sbxWhy)
-				}
-				sandboxBoundaryProbe(t, target)
-			default:
-				requireDocker(t)
-				dindDockerProbe(t, target)
+			if !sbxOK {
+				t.Skipf("sbx not available on this host: %s", sbxWhy)
 			}
+			sandboxBoundaryProbe(t, target)
 		})
 	}
 }
@@ -636,111 +612,10 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
-// dindDockerProbe is the dind half of the same promise: the daemon arrives as a
-// privileged SIBLING sidecar rather than a per-sandbox engine inside a microVM.
-// The claim is identical — `docker` reaches a daemon — so the probe is, too; only
-// the posture that gets one differs, and it is narrow: the sidecar is offered
-// solely on the plain-bridge tier with credentials forwarded (dind.ModeSupported
-// / dind.CredentialsSupported), because exposing a Docker socket through an
-// intercepting tier would defeat the egress enforcement it sits behind.
-func dindDockerProbe(t *testing.T, target string) {
-	t.Helper()
-	proveoBin := buildProveo(t)
-
-	work := t.TempDir()
-	mustRun(t, work, "git", "init", "-q", ".")
-	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
-	mustRun(t, work, "git", "config", "user.name", "proveo e2e")
-	// dind.ShouldStart only offers the sidecar for a scope that actually builds
-	// containers, so the workspace has to carry a Dockerfile or the sidecar this
-	// test exists to exercise is never started.
-	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	sess := tmux.New(fmt.Sprintf("proveo-dind-%s-%d", target, os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
-
-	cmd := []string{"env"}
-	cmd = append(cmd, childEnvArgs(t)...)
-	cmd = append(cmd,
-		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		"PROVEO_DIND=1", // the sidecar is opt-in; this is the opt
-		proveoBin, "run", target,
-		"--egress-mode", "open", "--credentials", "forward",
-		"--shell", "--input", work,
-	)
-	if err := sess.Start(220, 50, cmd...); err != nil {
-		t.Fatalf("start dind session: %v", err)
-	}
-
-	w := newWatcher(t, sess)
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
-
-	// The sidecar announces itself, so the test never infers the posture: a run
-	// that silently declined to start it would satisfy the daemon probe from some
-	// OTHER socket and prove nothing about `docker: dind`.
-	//
-	// Two phrasings, because there are two legitimate ways in and they print
-	// different lines: an explicitly CHECKED add-on says "sidecar: DinD (same
-	// image)" from cmd/proveo, while PROVEO_DIND=1 goes through dind.ShouldStart
-	// and says "Starting sibling Docker-in-Docker". Keying on only the first is
-	// what made this wait time out against a sidecar that was already running.
-	w.until("the dind sidecar line", 3*time.Minute, func() bool {
-		scr := w.Screen()
-		return strings.Contains(scr, "sidecar: DinD") ||
-			strings.Contains(scr, "Starting sibling Docker-in-Docker")
-	})
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
-
-	const mark = "DIND-MOUNT-OK"
-	// The probe RETRIES, because `docker:dind` starts its daemon asynchronously —
-	// several seconds after the container is up — while proveo hands the agent its
-	// shell immediately. A one-shot probe therefore raced the daemon and recorded
-	// "Cannot connect" as if the posture were broken. Each attempt overwrites the
-	// file, so the last write is either a version or the error worth reporting.
-	probe := "printf %s " + mark + " > " + probeMount + "; " +
-		"for i in $(seq 1 45); do " +
-		"if docker version --format '{{.Server.Version}}' > " + probeDocker + " 2>&1; then break; fi; " +
-		"sleep 2; done"
-	if err := sess.SendText(probe); err != nil {
-		t.Fatalf("send probe: %v", err)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("send probe newline: %v", err)
-	}
-	w.until("the agent to write through the workspace mount", 3*time.Minute, func() bool {
-		return strings.Contains(readIn(work, probeMount), mark)
-	})
-
-	// Poll rather than assert once: the loop above is still retrying, so the first
-	// content the file holds may be a connection error that a later attempt fixes.
-	deadline := time.Now().Add(2 * time.Minute)
-	var got string
-	for {
-		got = strings.TrimSpace(readIn(work, probeDocker))
-		if dockerVersionish(got) || time.Now().After(deadline) {
-			break
-		}
-		if !w.tick() {
-			break
-		}
-		time.Sleep(3 * time.Second)
-	}
-	assertDockerServerReachable(t, target, "dind", got)
-
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	if _, exited := waitSessionExit(sess, 3*time.Minute); !exited {
-		t.Errorf("%s: the dind session did not exit after `exit`", target)
-	}
-}
-
-// assertDockerServerReachable is the verdict on what `docker: dind` promises.
-// It fails three ways, and each names a different repair — a missing client is an
-// image problem, a refused connection is a topology problem, and prose where a
-// version belongs is neither.
+// assertDockerServerReachable is the verdict on what `docker: sbx` promises: a
+// daemon the agent can actually reach. It fails three ways, and each names a
+// different repair — a missing client is an image problem, a refused connection is
+// a posture problem, and prose where a version belongs is neither.
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Helper()
 	low := strings.ToLower(got)
@@ -758,40 +633,32 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Logf("%s: docker server reached via %s = %s", target, how, got)
 }
 
-// assertSandboxReplacesDocker is the verdict on what `docker: sbx` promises, and
-// it is the inverse of the dind one. sbx hands the workload no daemon: the
-// microVM IS the isolation a daemon would otherwise be asked for, so it binds no
-// socket and sets no DOCKER_HOST, and `docker version` inside it answers
-// "Cannot connect to the Docker daemon" on both defs.
+// assertSandboxSuppliesDocker is the verdict on what `docker: sbx` promises now
+// that it is the ONLY way a harness gets a daemon: one the agent can reach,
+// running INSIDE the sandbox rather than as a privileged sibling on the host.
 //
-// The CLIENT is deliberately not asserted on, in either direction. Whether the
-// binary survives into the sandbox is not proveo's to promise and not stable:
-// cursor's sandbox has it and claudecode's does not, from images that both
-// install it, because `sbx create` re-bakes the template (see
-// _spec/_experiments/docker-sandbox.puml) and the claude-flavoured bake drops it.
-// Asserting either way would encode an sbx implementation detail as a proveo
-// contract and break on the next sbx release.
+// This assertion is INVERTED from the one it replaces, and the inversion is the
+// whole point of the change. The old one asserted that nothing reached a daemon —
+// true when written, because sbx starts a per-sandbox daemon only for an image
+// carrying `com.docker.sandboxes.start-docker` and no proveo image did. With the
+// label the daemon answers: Server 29.7.2 measured inside a proveo sandbox, and
+// `docker run hello-world` succeeding. Retiring the privileged sidecar
+// (_spec/_plans/retire-dind.puml) makes that daemon the only one there is, so a
+// sandbox reaching none is now the failure rather than the contract.
 //
-// What IS the contract is that nothing reaches a daemon. A socket appearing
-// inside the sandbox would punch through the boundary the backend was chosen for.
-func assertSandboxReplacesDocker(t *testing.T, target, got string) {
+// A socket inside the sandbox is therefore EXPECTED, and is not an escape: it is
+// the sandbox's own, reachable only from within the microVM, and its egress is
+// confined by the Kit allowlist. e2e/sbx_egress_test.go asserts that half by
+// failing on a pull from a registry no Kit permits; this one asserts reachability.
+func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Helper()
-	if !strings.Contains(got, "NO-SOCKET") {
-		t.Errorf("%s declares docker: sbx but a docker socket is exposed inside the sandbox: %q\n"+
-			"that punches through the isolation boundary the sandbox backend was chosen for", target, got)
-	}
-	if _, server, ok := strings.Cut(got, "SERVER:"); ok {
-		if v := strings.TrimSpace(strings.SplitN(server, "\n", 2)[0]); dockerVersionish(v) {
-			t.Errorf("%s declares docker: sbx, which promises the sandbox REPLACES docker, "+
-				"but a daemon answered inside it with server version %q\n"+
-				"the sandbox is meant to BE the isolation — reaching a daemon from inside it "+
-				"means the def belongs on docker: dind, or a socket leaked in", target, v)
-		}
-	} else {
+	_, server, ok := strings.Cut(got, "SERVER:")
+	if !ok {
 		t.Errorf("%s: the docker probe wrote no SERVER: line, so nothing was actually tested: %q", target, got)
+		return
 	}
-	t.Logf("%s: the sandbox replaces docker (no socket, no daemon): %s", target,
-		strings.Join(strings.Fields(got), " · "))
+	assertDockerServerReachable(t, target, "sbx", strings.TrimSpace(strings.SplitN(server, "\n", 2)[0]))
+	t.Logf("%s: the sandbox supplies docker: %s", target, strings.Join(strings.Fields(got), " · "))
 }
 
 // sbxShellHoldsInADetachedPane reports whether sbx's own shell agent survives being
@@ -944,8 +811,9 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 			strings.TrimSpace(readIn(work, probeDocker)) != ""
 	})
 
-	// Claim 3 — the boundary. This is the whole point of `docker: sbx`.
-	assertSandboxReplacesDocker(t, target, strings.TrimSpace(readIn(work, probeDocker)))
+	// Claim 3 — the daemon. This is the whole point of `docker: sbx` now that it is
+	// the only way a harness gets one.
+	assertSandboxSuppliesDocker(t, target, strings.TrimSpace(readIn(work, probeDocker)))
 
 	// Claim 4 — teardown. Exit the shell rather than killing the pane, so the
 	// run's own `sbx rm` (VM + images + volumes) is what gets exercised.

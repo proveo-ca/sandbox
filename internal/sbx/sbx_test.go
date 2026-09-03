@@ -809,9 +809,60 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 			t.Errorf("target %q names an agent of our own (%q); that is the bug this replaces", target, agent)
 		}
 	}
-	// A target with no sbx counterpart returns "", which callers read as "docker only".
+	// A target with no sbx counterpart returns "" here — and is NOT thereby off the
+	// backend. AgentFor puts it on sbx's own shell agent instead, which is what lets
+	// `docker: sbx` mean "runs in a sandbox" for every harness rather than only for
+	// the ones sbx happens to ship an agent for.
 	if got := BuiltinAgent("cecli"); got != "" {
-		t.Errorf("cecli has no sbx agent; got %q", got)
+		t.Errorf("cecli has no built-in sbx agent; got %q", got)
+	}
+}
+
+// Every harness must reach a sandbox, including the ones sbx has no name for.
+// cecli is aider and nothing on the closed list is aider, so it runs under the
+// shell agent carrying its own launch command. Before this, such a target
+// resolved to the empty agent name and sbx read the first workspace path as an
+// agent — "is not a sandbox or known agent". SPEC: _spec/_plans/retire-dind.puml
+func TestAgentForSandboxesEveryTarget(t *testing.T) {
+	t.Parallel()
+	sbxKnows := map[string]bool{
+		"claude": true, "codex": true, "copilot": true, "cursor": true,
+		"docker-agent": true, "droid": true, "gemini": true, "kiro": true,
+		"opencode": true, "shell": true,
+	}
+	for _, c := range []struct {
+		target  string
+		agent   string
+		command []string
+	}{
+		{"claudecode", "claude", nil},
+		{"cursor", "cursor", nil},
+		{"opencode", "opencode", nil},
+		{"cecli", ShellAgent, []string{"cecli"}},
+		{"some-future-harness", ShellAgent, []string{"some-future-harness"}},
+	} {
+		agent, command := AgentFor(c.target)
+		if agent != c.agent {
+			t.Errorf("AgentFor(%q) agent = %q, want %q", c.target, agent, c.agent)
+		}
+		if !sbxKnows[agent] {
+			t.Errorf("AgentFor(%q) resolved %q, which sbx does not ship", c.target, agent)
+		}
+		if strings.Join(command, " ") != strings.Join(c.command, " ") {
+			t.Errorf("AgentFor(%q) command = %v, want %v", c.target, command, c.command)
+		}
+	}
+	// A built-in owns its own launch: handing it a command would put our word in
+	// its argv, which is the bug --shell exists to avoid.
+	for _, target := range SbxTargets() {
+		if _, command := AgentFor(target); command != nil {
+			t.Errorf("AgentFor(%q) must leave the launch to the built-in agent, got %v", target, command)
+		}
+	}
+	// No target, no agent — never the shell agent with an empty command, which sbx
+	// would read as a workspace path.
+	if agent, command := AgentFor(""); agent != "" || command != nil {
+		t.Errorf(`AgentFor("") = %q, %v; want no agent at all`, agent, command)
 	}
 }
 

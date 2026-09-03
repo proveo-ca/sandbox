@@ -8,18 +8,16 @@ node "internal/wsscan" as PKG <<host>> {
   component "gitignoreNames(dir)\nplain basenames only" as GI <<app>>
 }
 
-folder "Consumers — one answer, two callers" as USE <<host>> {
-  component "dind.ScopeHasDockerfiles\nthe DinD offer gate" as DIND <<app>>
+folder "Consumers" as USE <<host>> {
   component "choice prompt header\ntooling · lsp prediction" as HDR <<app>>
 }
 
 database "workspace tree\ndepth <= MaxDepth (7)" as TREE <<db>>
-component "unpruned dependency tree\n→ false-positive DinD offer" as BAD <<error>>
+component "unpruned dependency tree\n→ a dependency's files read as the project's" as BAD <<error>>
 
 SCAN ARROW_MAIN HARD : always applied
 SCAN ARROW_OPTIONAL GI : scope AND repo root, additive
 SCAN ARROW_MAIN TREE : walk, budgeted
-DIND ARROW_MAIN SCAN
 HDR ARROW_MAIN SCAN
 GI ARROW_ERROR BAD : gitignore alone is not enough
 
@@ -41,10 +39,14 @@ note right of GI
 end note
 
 note bottom of BAD
-  **Not merely wasteful — wrong.** ""ScopeHasDockerfiles"" feeds the DinD
-  offer, and npm packages ship Dockerfiles. A repo with none of its own
-  could be offered a ""--privileged"" sidecar because of a dependency.
-  That is why the deny set is hardcoded rather than discovered.
+  **Not merely wasteful — wrong, and it once decided a posture.**
+  ""dind.ScopeHasDockerfiles"" fed the privileged sidecar's offer, and npm
+  packages ship Dockerfiles: a repo with none of its own could be offered a
+  ""--privileged"" sibling because of a dependency. That gate is gone with the
+  sidecar (_spec/_plans/retire-dind.puml) and the walker's remaining caller
+  only labels a prompt — but the deny set stays hardcoded rather than
+  discovered, because a scan that reports a dependency's files as the
+  project's is wrong whatever reads it.
 end note
 
 note bottom of TREE

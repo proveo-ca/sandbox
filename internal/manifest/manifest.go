@@ -56,7 +56,7 @@ type Manifest struct {
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
 	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
-	Docker       DockerMode        `yaml:"docker"`       // how the agent gets a Docker daemon: sbx | dind | (absent)
+	Docker       DockerMode        `yaml:"docker"`       // how the agent gets a Docker daemon: sbx | (absent)
 	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
@@ -79,24 +79,30 @@ type Manifest struct {
 	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
 }
 
-// DockerMode is how a harness hands its agent a Docker daemon. The two ways are
-// mutually exclusive by construction: sbx runs the agent in a sandbox VM that
-// has its own daemon, dind links a privileged sibling. A harness that shipped
-// both would be claiming two daemons and two isolation stories at once, so the
-// manifest carries ONE value rather than two booleans that have to agree.
+// DockerMode is how a harness hands its agent a Docker daemon, and after
+// retiring the privileged sidecar there is exactly one way: `sbx` runs the agent
+// in a sandbox VM that has its own daemon, behind a boundary. Absent means no
+// daemon reaches the agent at all.
+//
+// `dind` was the other value — a privileged sibling the agent could call, which
+// is a way to start a container proveo did not write the argv for, and which was
+// only ever offered on the one posture where proveo had already stopped enforcing
+// anything. It is now REFUSED at load rather than silently ignored, because a
+// manifest that still declares it is asking for an isolation story proveo no
+// longer implements. SPEC: _spec/_plans/retire-dind.puml
 type DockerMode string
 
 const (
-	DockerNone DockerMode = ""     // no daemon reaches the agent
-	DockerSbx  DockerMode = "sbx"  // docker sandboxes (internal/sbx)
-	DockerDind DockerMode = "dind" // privileged sibling sidecar (internal/dind)
+	DockerNone DockerMode = ""    // no daemon reaches the agent
+	DockerSbx  DockerMode = "sbx" // docker sandboxes (internal/sbx)
+
+	// retiredDockerDind is not a mode a manifest may declare. It exists so
+	// Validate can name it in the refusal.
+	retiredDockerDind DockerMode = "dind"
 )
 
 // IsSbx reports whether this harness runs on the sandbox backend.
 func (m Manifest) IsSbx() bool { return m.Docker == DockerSbx }
-
-// IsDind reports whether this harness can get the privileged sidecar.
-func (m Manifest) IsDind() bool { return m.Docker == DockerDind }
 
 // WantsDocker reports whether the agent is promised a daemon at all — the half
 // of the contract the image must honour by shipping a docker client.
@@ -183,13 +189,17 @@ func (m Manifest) Validate() error {
 		}
 	}
 	switch m.Docker {
-	case DockerNone, DockerSbx, DockerDind:
+	case DockerNone, DockerSbx:
+	case retiredDockerDind:
+		return fmt.Errorf("manifest %q: docker: %s is retired — the privileged sibling daemon is gone.\n"+
+			"  Declare `docker: %s` (the sandbox has its own daemon) or drop the key (no daemon reaches the agent)",
+			m.Name, retiredDockerDind, DockerSbx)
 	default:
-		return fmt.Errorf("manifest %q: invalid docker %q (want %q or %q)", m.Name, m.Docker, DockerSbx, DockerDind)
+		return fmt.Errorf("manifest %q: invalid docker %q (want %q, or omit the key)", m.Name, m.Docker, DockerSbx)
 	}
 	if m.RetiredDind || m.RetiredSandboxDocker {
-		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare one docker mode instead (docker: %s or docker: %s)",
-			m.Name, DockerDind, DockerSbx)
+		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare the docker mode instead (docker: %s)",
+			m.Name, DockerSbx)
 	}
 	switch m.Stability {
 	case "", "experimental", "candidate", "stable":

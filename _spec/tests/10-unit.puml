@@ -18,7 +18,6 @@ package "Go packages (internal/*) + *_test.go" as Pkgs {
  component "runner\nhardened docker argv" as Runner <<app>>
  component "manifest\nharness.manifest loader" as Manifest <<app>>
  component "workspace\nscope · mount plan · EnvFileSource" as Workspace <<app>>
- component "dind\nsibling sidecar decide/start" as Dind <<app>>
  component "gitidentity\nGIT_* env forwarding" as GitId <<app>>
  component "entrypoint\nsentinel · bridges · .env" as Entrypoint <<app>>
  component "shell\nPATH install per shell" as Shell <<app>>

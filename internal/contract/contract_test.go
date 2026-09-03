@@ -241,44 +241,76 @@ func TestSubscriptionHarnesses(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManifestEnablesDind(t *testing.T) {
+// TestEveryDaemonPromiseIsTheSandbox is what retiring the privileged sidecar
+// leaves behind: one way to get a daemon, so a harness that promises one promises
+// the sandbox. Every def is checked, not a tracked subset — the failure this
+// replaces was a list that could go stale while the manifests moved.
+// SPEC: _spec/_plans/retire-dind.puml
+func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
 	if err != nil {
 		t.Fatal(err)
 	}
+	promising := 0
 	for _, m := range ms {
-		if m.Name == "opencode" && m.Docker != manifest.DockerDind {
-			t.Errorf("opencode docker = %q, want %q", m.Docker, manifest.DockerDind)
+		if !m.WantsDocker() {
+			continue
+		}
+		promising++
+		if !m.IsSbx() {
+			t.Errorf("%s declares docker: %q — the only daemon left is %q, and the privileged "+
+				"sidecar it used to name is retired", m.Name, m.Docker, manifest.DockerSbx)
+		}
+	}
+	if promising == 0 {
+		t.Fatal("no def promises a daemon — this invariant has nothing to guard")
+	}
+}
+
+// TestEveryHarnessRunsInTheSandbox pins the move itself: all four defs took
+// `docker: sbx`, so no harness is left on the docker+egress path by declaration.
+// The weaker backend is reachable only by PROVEO_SBX=0 or --egress-mode review.
+func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"cecli": false, "opencode": false, "cursor": false, "claudecode": false}
+	for _, m := range ms {
+		if _, tracked := want[m.Name]; !tracked {
+			continue
+		}
+		want[m.Name] = true
+		if !m.IsSbx() {
+			t.Errorf("%s docker = %q, want %q", m.Name, m.Docker, manifest.DockerSbx)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("missing harness %q in embedded manifests", name)
 		}
 	}
 }
 
-// TestDockerModeIsOneChoicePerHarness pins the split the enum exists to make
-// unrepresentable: the sidecar is for harnesses with no sandbox backend, the
-// sandbox is for the ones that have it, and no harness ships both.
-func TestDockerModeIsOneChoicePerHarness(t *testing.T) {
+// TestRetiredDockerDindIsRefused pins the refusal rather than the silence. A
+// manifest still carrying the old value is asking for an isolation story proveo
+// no longer implements, and the whole point of an enum is that it says so.
+func TestRetiredDockerDindIsRefused(t *testing.T) {
 	t.Parallel()
-	ms, err := manifest.LoadFS(proveo.Manifests)
-	if err != nil {
-		t.Fatal(err)
+	err := manifest.Manifest{
+		Name:      "stale",
+		Docker:    manifest.DockerMode("dind"),
+		Images:    map[string]string{"stale": "proveo/stale:latest"},
+		Workspace: manifest.Workspace{Layout: "app"},
+	}.Validate()
+	if err == nil {
+		t.Fatal("docker: dind must be refused at load, not ignored")
 	}
-	want := map[string]manifest.DockerMode{
-		"cecli":      manifest.DockerDind,
-		"opencode":   manifest.DockerDind,
-		"cursor":     manifest.DockerSbx,
-		"claudecode": manifest.DockerSbx,
-	}
-	for _, m := range ms {
-		w, tracked := want[m.Name]
-		if !tracked {
-			continue
-		}
-		if m.Docker != w {
-			t.Errorf("%s docker = %q, want %q", m.Name, m.Docker, w)
-		}
-		if m.IsSbx() && m.IsDind() {
-			t.Errorf("%s claims both daemons — the enum must make that unrepresentable", m.Name)
+	for _, want := range []string{"retired", "docker: sbx"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name %q so the repair is in the message, got: %v", want, err)
 		}
 	}
 }
@@ -291,16 +323,16 @@ func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 	}
 	want := map[string]bool{"claudecode": true, "cursor": true}
 	for _, m := range ms {
-		if m.Subscription {
-			if !m.IsSbx() {
-				t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
-			}
-			continue
-		}
-		if m.IsSbx() {
-			t.Errorf("%s must not set docker: sbx (egress layer reserved for non-subscription harnesses)", m.Name)
+		if m.Subscription && !m.IsSbx() {
+			t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
 		}
 	}
+	// The inverse arm is deliberately GONE. It used to assert that a
+	// non-subscription harness must NOT set docker: sbx, which reserved the sandbox
+	// for the two vendor harnesses and left opencode and cecli on the privileged
+	// sidecar. Retiring the sidecar inverts the reservation: sbx is where every
+	// harness runs, and subscription only decides how a credential gets there.
+	// SPEC: _spec/_plans/retire-dind.puml
 	for name := range want {
 		found := false
 		for _, m := range ms {
@@ -344,7 +376,7 @@ func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
 	manifestYAML := `name: x
 description: future-key test
 egress: true
-docker: dind
+docker: sbx
 provider: cursor
 future_flag: true
 images:

@@ -76,9 +76,10 @@ note bottom of ENS
 end note
 
 note bottom of WEN
-  **The wizard follows the DinD-prompt pattern deliberately**: detect the
+  **The wizard follows the shape the DinD prompt established**: detect the
   need, honour an env short-circuit, prompt only on a TTY, default to the
-  safe path. Only an explicit yes is a yes; ""Enter"" skips a variable and a
+  safe path. That prompt is gone with its sidecar
+  (_spec/_plans/retire-dind.puml); the shape it proved is what survives. Only an explicit yes is a yes; ""Enter"" skips a variable and a
   skipped variable stays missing, so the caller still warns about it —
   identical to non-interactive behaviour rather than a second code path.
 

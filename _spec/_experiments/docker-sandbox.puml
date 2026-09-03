@@ -20,7 +20,7 @@
 '   internal/egressproxy/*                 — TLS-MITM proxy + per-session CA + NDJSON flows
 '   internal/broker/broker.go              — credential inject / strip
 '   internal/egresspolicy/*                — DLP secret scanner (regex + base64/hex + entropy + sink denylist)
-'   internal/dind/dind.go + defs/sidecars/dind    — privileged docker:dind sidecar
+'   internal/dind/dind.go + defs/sidecars/dind    — privileged docker:dind sidecar (RETIRED, _spec/_plans/retire-dind.puml)
 '   internal/runner/runner.go + defs/base/proveo-harden — cap-drop/no-new-priv/pids-limit + setuid strip
 '   packages/lib/entrypoint-lib.sh         — arbitrary run-as-uid + HOME/passwd synth
 '   internal/egress/exec.go + cmd/proveo/clean.go — teardown + leaked-artifact reaper
@@ -37,7 +37,7 @@ package "TODAY — proveo bespoke isolation\n~2,800 LOC Go · 10 pkgs · 5 sidec
   component "MITM proxy + per-session CA\ninternal/egressproxy" as p_mitm
   component "credential broker\ninternal/broker\ninject on-provider · strip off-provider" as p_broker
   component "DLP secret scanner\ninternal/egresspolicy\nregex · base64/hex · entropy · sink denylist" as p_dlp
-  component "privileged DinD sidecar\ninternal/dind + docker:dind" as p_dind
+  component "privileged DinD sidecar\ninternal/dind + docker:dind — DELETED" as p_dind
   component "hardening\ninternal/runner + defs/base/proveo-harden\ncap-drop · no-new-priv · setuid strip" as p_harden
   component "run-as-uid + HOME/passwd synth\npackages/lib/entrypoint-lib.sh" as p_uid
   component "ephemeral lifecycle + leak reaper\nexec.go teardown + clean.go" as p_life
@@ -56,7 +56,7 @@ p_egress ..> s_egress : collapses to a declarative allowlist
 p_mitm   ..> s_egress : no MITM CA to mint / mount / trust
 p_broker ..> s_cred   : same principle — inject, never expose
 p_dlp    ..> s_kit    : deny-by-default ⇒ no non-allowlisted sink
-p_dind   ..> s_engine : kills the privileged sidecar
+p_dind   ..> s_engine : killed the privileged sidecar — done
 p_harden ..> s_vm     : hypervisor is the boundary
 p_uid    ..> s_vm     : sandbox-managed user
 p_life   ..> s_vm     : sbx rm deletes the VM
@@ -66,7 +66,7 @@ note right of sbx #E7F0FF
   • one ""sbx run"" replaces the ""run.Do""/""execWithEgress"" orchestration
   • a declarative allowlist replaces the ""plan.go"" multi-net + MITM topology
   • host-side credential injection already matches proveo's broker (convergent design)
-  • a private Docker Engine per sandbox removes privileged DinD + its consent gating
+  • a private Docker Engine per sandbox REMOVED privileged DinD + its consent gating (shipped)
   • deletes ~5 sidecar images and the per-session CA mint/mount/trust machinery
   • the hypervisor boundary makes the in-guest hardening no longer load-bearing
 end note
@@ -89,13 +89,13 @@ note top of today #E7F0FF
 end note
 
 note left of sbx #FFF3F0
-  **Also unlocked (secondary): claudecode container work**
-  claudecode stays ""dind: false"" — DinD is broker-only and a privileged
-  escape hatch (""docker run -v /:/host --privileged""). A per-sandbox
-  Docker Engine inside the microVM (no host socket, no privilege) would
-  unlock container work without that downgrade. Demoted: Cursor egress
-  owns this experiment; claudecode DinD is an aside, not the driver.
-  claudecode still cares most about the DLP content-scan gap below.
+  **Also unlocked (secondary): claudecode container work — DONE**
+  claudecode never took DinD: it was broker-only and a privileged escape
+  hatch (""docker run -v /:/host --privileged""). The per-sandbox Docker
+  Engine inside the microVM (no host socket, no privilege) unlocked
+  container work without that downgrade, and then replaced the sidecar
+  outright (_spec/_plans/retire-dind.puml). claudecode still cares most
+  about the DLP content-scan gap below.
 end note
 
 note bottom of sbx #F3F0FB
@@ -173,12 +173,15 @@ note bottom of m_rot #FFF3F0
 end note
 
 note right of m_nodocker #FFF3F0
-  **""docker: sbx"" means the microVM REPLACES docker.** Neither def reaches a
-  daemon from inside the sandbox: no ""/var/run/docker.sock"", no ""DOCKER_HOST"",
-  and ""docker version"" answers "Cannot connect to the Docker daemon". There is no
-  nested-docker feature in the CLI and no socket flag on ""create"" — sbx IS the
-  isolation a daemon would otherwise be asked for, so the promise is the boundary,
-  not a daemon. ""docker: dind"" remains the posture for a harness that needs one.
+  **SUPERSEDED — the daemon is a LABEL away, and the label is now set.** This box
+  recorded a real measurement: neither def reached a daemon, no
+  ""/var/run/docker.sock"", no ""DOCKER_HOST"", ""docker version"" answering "Cannot
+  connect to the Docker daemon". The cause was not the absence of a feature but a
+  missing image label — sbx starts a per-sandbox daemon only for an image carrying
+  ""com.docker.sandboxes.start-docker"" (_spec/internal/sbx/sbx-kit-contract.puml).
+  With it: Server 29.7.2 inside a proveo sandbox. So ""docker: sbx"" now means the
+  sandbox SUPPLIES docker, behind the boundary — which is what let ""docker: dind""
+  be retired rather than kept for harnesses that need one.
 
   **The docker CLIENT is deliberately NOT asserted on, in either direction.**
   Its survival is an sbx implementation detail and it is not uniform: from images

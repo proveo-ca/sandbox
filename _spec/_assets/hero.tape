@@ -26,7 +26,7 @@ Show
 Type "proveo run cursor --scope ."
 Sleep 500ms
 Enter
-Sleep 3s          # capability picker renders (cursor: browser + DinD)
+Sleep 3s          # capability picker renders (cursor: browser + claude-in-chrome)
 Up
 Sleep 900ms       # move: continue -> browser
 Tab

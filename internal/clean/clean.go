@@ -2,7 +2,7 @@
 package clean
 
 // Container is a proveo-managed container. Session is the egress session id
-// ("" for a DinD sidecar, which is not session-labeled).
+// ("" for a legacy DinD sidecar, which was never session-labeled).
 type Container struct {
 	Name    string
 	Session string
@@ -24,12 +24,17 @@ type ToolDir struct {
 
 // Inventory is everything cmd/proveo found that clean might act on.
 type Inventory struct {
-	Egress    []Container // containers labeled proveo.egress.session
-	Dind      []Container // proveo-dind-* sidecars
-	Networks  []Net       // networks labeled proveo.egress.session
-	StateDirs []string    // session ids present under <stateDir>/egress/
-	Images    []string    // proveo/* image refs (populated only for --deep)
-	ToolDirs  []ToolDir
+	Egress   []Container // containers labeled proveo.egress.session
+	Networks []Net       // networks labeled proveo.egress.session
+	// LegacyDind are proveo-dind-* sidecars from BEFORE the privileged sidecar was
+	// retired (_spec/_plans/retire-dind.puml). proveo no longer starts one, and the
+	// sweep is kept precisely because of that: a --privileged container an older
+	// proveo left running is the last thing to strand on an operator's host with
+	// nothing left that knows its name.
+	LegacyDind []Container
+	StateDirs  []string // session ids present under <stateDir>/egress/
+	Images     []string // proveo/* image refs (populated only for --deep)
+	ToolDirs   []ToolDir
 }
 
 // Options tunes the plan.
@@ -67,7 +72,7 @@ func BuildPlan(inv Inventory, o Options) Plan {
 	for _, c := range inv.Egress {
 		sweepContainer(c)
 	}
-	for _, c := range inv.Dind {
+	for _, c := range inv.LegacyDind {
 		sweepContainer(c)
 	}
 
@@ -98,7 +103,7 @@ func BuildPlan(inv Inventory, o Options) Plan {
 				running = true
 			}
 		}
-		for _, c := range inv.Dind {
+		for _, c := range inv.LegacyDind {
 			if c.Running {
 				running = true
 			}
