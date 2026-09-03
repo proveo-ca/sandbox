@@ -135,10 +135,11 @@ func interfaceOf(f *choiceui.Form) string {
 	if rowTicked(f, rowInterface, addonChrome) {
 		driven = append(driven, "chrome")
 	}
-	if len(driven) == 1 {
-		return "interface"
-	}
-	return "interface: " + strings.Join(driven, " + ")
+	// Just the surfaces. The figure draws this INSIDE the container with a node
+	// dot in front of it, so the frame and the dot already say "the interface
+	// the agent drives" — repeating the word costs eleven columns of a box whose
+	// width sets the whole figure's.
+	return strings.Join(driven, " + ")
 }
 
 // focusOf maps the cursor's row onto the element that row owns.

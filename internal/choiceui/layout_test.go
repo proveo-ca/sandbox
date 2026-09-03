@@ -211,7 +211,7 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 			// distinguishes a help line from the row the cursor is on.
 			case hint >= 0 && y > hint && strings.HasPrefix(line, "  › ") && help < 0:
 				help = y
-			case strings.Contains(line, "● host"):
+			case strings.Contains(line, figureMark()):
 				figure = y
 			}
 		}
@@ -221,8 +221,8 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 		if help >= 0 && help != hint+2 {
 			t.Errorf("h=%d: help at %d, want one blank line under the hint at %d", h, help, hint+2)
 		}
-		// hint, blank, the reserved slot, the figure's own leading blank, then its
-		// first lane row — the spine carrying "● host" is the SECOND figure row.
+		// hint, blank, the reserved slot, the strip's own leading blank, then the
+		// container's lid — the first thing the figure draws, on its second row.
 		if want := hint + 2 + lay.helpSlot + 2; figure != want {
 			t.Errorf("h=%d: the figure painted at %d but the budget reserved %d", h, figure, want)
 		}

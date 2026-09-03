@@ -538,7 +538,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			// room; this is the belt to that pair of braces, because the one region
 			// outside the canvas is the one that could overrun it unnoticed.
 			case c.y+stripRows <= h:
-				drawTopology(s, c.y, *fr, f.Glyphs, p, tick)
+				drawTopology(s, c.y+1, *fr, f.Glyphs, p, tick)
 			}
 		}
 	}

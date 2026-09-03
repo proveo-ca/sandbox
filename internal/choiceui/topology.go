@@ -96,16 +96,23 @@ type glyphSet struct {
 	// the same idea applied to a run. It also ends a collision — "()" is the
 	// form's radio glyph three rows above, and it meant something else there.
 	node, wallL, wallR string
+	// The container's frame, in the banner's own set: the mark is a bracketed
+	// frame with dots interrupting its rules, and the figure encloses the agent
+	// the same way.
+	cornerTL, cornerTR, cornerBL, cornerBR, tee, cross, rule string
 }
 
 func glyphsFor(t GlyphTier) glyphSet {
 	if t == GlyphsASCII {
 		return glyphSet{
-			cloud: "(~)", key: "o-", quiet: "\"", speaking: "\"!",
+			// "K", not "o-": the node glyph is "o", so "o-" is indistinguishable
+			// from a dot sitting on a rule — which is most of this figure.
+			cloud: "(~)", key: "K", quiet: "\"", speaking: "\"!",
 			spine: "=", screened: "-", watched: ".",
 			refused: "x", asking: "?",
 			east: ">", west: "<", north: "^", up: "^", pulse: "*",
 			node: "o", wallL: "|", wallR: "|",
+			cornerTL: "+", cornerTR: "+", cornerBL: "+", cornerBR: "+", tee: "+", cross: "+", rule: "-",
 		}
 	}
 	return glyphSet{
@@ -114,6 +121,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 		refused: "×", asking: "?",
 		east: "▸", west: "◂", north: "▴", up: "↑", pulse: "•",
 		node: "●", wallL: "│", wallR: "│",
+		cornerTL: "┌", cornerTR: "┐", cornerBL: "└", cornerBR: "┘", tee: "┬", cross: "┼", rule: "─",
 	}
 }
 
@@ -130,52 +138,49 @@ func (g glyphSet) lane(k LaneKind) string {
 
 // topoCols is the figure's column set, relative to its origin.
 //
-// A struct rather than four parameters because the columns must move TOGETHER:
-// a hop column moved without the lanes column behind it draws the hop under the
-// lanes, which is the one failure the fit budget exists to prevent.
+// A struct rather than a handful of parameters because the columns must move
+// TOGETHER: a hop column moved without the lanes column behind it draws the hop
+// under the lanes, which is the one failure the fit budget exists to prevent.
 type topoCols struct {
-	host, square, hop, lanes int
-	width                    int  // columns the whole figure occupies
-	lead                     int  // blank rows before the figure: 1 block, 0 pane
-	runLen                   int  // rule characters in a connector run
-	asksLabel                bool // whether review spells out "asks you"
-	headCaption              bool // caption's leading clause only
+	host, box, hop, lanes int
+	boxW                  int  // the container's inner width, walls excluded
+	iface                 int  // where the interface dot sits on the return
+	width                 int  // columns the whole figure occupies
+	runLen                int  // rule characters in a connector run
+	asksLabel             bool // whether review spells out "asks you"
+	headCaption           bool // caption's leading clause only
 }
 
 var blockCols = topoCols{
-	host: 2, square: 14, hop: 42, lanes: 62, width: stripCols,
-	lead: 1, runLen: 3, asksLabel: true,
+	host: 2, box: 13, boxW: 26, hop: 46, lanes: 57,
+	width: stripCols, runLen: 3, asksLabel: true,
 }
 
-// paneCols is the same figure in the margin beside the rows. It drops the three
+// paneCols is the same figure in the margin beside the rows. It drops the two
 // things that cost columns and carry least: the connector RUNS shrink to a
 // single rule (the arrowhead carries the direction, the length carries
-// nothing), review's "asks you" prose goes while its '?' stays, and the caption
-// keeps only its leading clause. Everything that says what the run DOES — the
-// key's home, the labels, the lane and refusal counts — survives intact.
-// The lane column is sized to the WORST case rather than the typical one: the
-// longest hop label ("mitm + squid", 12) beside the widest key (the ASCII "o- ",
-// one column wider than a devicon). A hop clipped to "sbx pro" still reads, but
-// the hop's identity is one of the four facts the figure exists to carry, and a
-// few columns on a terminal this wide is a cheap price for keeping it whole.
+// nothing), and the caption keeps only its leading clause.
 var paneCols = topoCols{
-	host: 0, square: 11, hop: 34, lanes: 59, width: 66,
-	lead: 0, runLen: 1, headCaption: true,
+	host: 1, box: 11, boxW: 26, hop: 44, lanes: 55,
+	width: 62, runLen: 1, headCaption: true,
 }
 
-const paneRows = 4 // three figure rows and a caption, with no leading blank
+// The figure is seven rows: the question, the container's four, the return, and
+// the caption. Every node outside the container names itself on the row beneath
+// its dot, so a node costs two rows and the tallest column sets the height.
+const (
+	figureRows = 7
+	paneRows   = figureRows
+)
 
-// drawTopology paints the block figure at y0. It always occupies exactly
-// stripRows, because the caller has already reserved them: a figure whose
-// height moved with its content would shove whatever came after it.
+// drawTopology paints the block figure at y0.
 func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, tick int) {
 	drawFigure(s, 0, y0, blockCols, fr, tier, p, tick)
 }
 
 // captionHead is the caption's leading clause — "allow-all · broker" — which is
 // the pane's whole caption. The block prints the sentence; the pane has room
-// only for the two facts it opens with. A caption with no clause to cut on is
-// left to the caller's clip, so a caption of any shape still says something.
+// only for the two facts it opens with.
 func captionHead(caption string) string {
 	if i := strings.Index(caption, " — "); i > 0 {
 		return caption[:i]
@@ -184,9 +189,12 @@ func captionHead(caption string) string {
 }
 
 // drawFigure paints the figure with its origin at (x0, y0), in one of the two
-// column sets. One painter and one assembly, so the twenty-four states in
-// _spec/internal/choiceui/topology-states.puml are verified once rather than
-// twice.
+// column sets.
+//
+// The shape is the mark's: a bracketed frame with dots interrupting rules. The
+// agent's container is fully enclosed, and what runs INSIDE it — the harness and
+// the interface it drives — is drawn inside the frame rather than beside it,
+// which is both where they are and one row cheaper than labelling them outside.
 func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p palette, tick int) {
 	g := glyphsFor(tier)
 	dim, lit := p.body, p.brand
@@ -200,123 +208,122 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		return dim
 	}
 
-	colHost, colSquare := x0+cs.host, x0+cs.square
+	colHost, boxL := x0+cs.host, x0+cs.box
 	colHop, colLanes := x0+cs.hop, x0+cs.lanes
-	run := func(k LaneKind) string { return strings.Repeat(g.lane(k), cs.runLen) }
-	spine := strings.Repeat(g.spine, cs.runLen)
+	boxR := boxL + cs.boxW + 1
+	boxMid := boxL + (boxR-boxL)/2
 
-	// gap pads to a column but never butts two runs together: the labels inside
-	// the figure are of unknown length, so a fixed column is a floor rather than
-	// a promise, and one space is what keeps a long harness name legible.
-	// Named `pn` rather than `p`: the palette is also `p` in this scope, and a
-	// shadow one edit from being silently wrong is not worth the shorter name.
-	gap := func(pn *pen, col int) *pen {
-		if pn.col() >= col {
-			return pn.write(tcell.StyleDefault, " ")
+	// at centres text on a column — how every node outside the frame names
+	// itself. Clamped to the figure's origin: a label wider than twice its
+	// column would otherwise start left of the figure and paint into its
+	// neighbour.
+	at := func(row, col, floor int, style tcell.Style, text string) *pen {
+		x := col - textWidth(text)/2
+		if x < floor {
+			x = floor
 		}
-		return pn.padTo(col)
+		return newPen(s, x, y0+row).write(style, text)
 	}
-	// The columns are a floor, not a ceiling: `gap` only ever moves right, so a
-	// long harness name or hop label would run under the lanes and overwrite
-	// them. Clipping keeps the figure legible where corruption would not, and
-	// the caption carries the same facts for whatever gets cut.
-	//
-	// It is measured in DISPLAY columns rather than runes because a devicon is
-	// ambiguous-width: the same glyph is one column in a Latin locale and two in
-	// a CJK one, so the budget has to be asked, never assumed.
-	fit := func(text string, from, until int) string {
-		room := until - from
-		if room <= 0 {
-			return ""
-		}
-		for textWidth(text) > room {
+	fit := func(text string, room int) string {
+		for room > 0 && textWidth(text) > room {
 			r := []rune(text)
 			if len(r) <= 1 {
 				return ""
 			}
 			text = string(r[:len(r)-1])
 		}
+		if room <= 0 {
+			return ""
+		}
 		return text
 	}
+	// row centres one line of the container's inside: a node dot, then its name,
+	// padded out to the wall so the frame is square whatever the name's length.
+	inside := func(row int, dot, text, key string, dotStyle, textStyle tcell.Style) {
+		pn := newPen(s, boxL, y0+row).write(on(FocusSquare), g.wallL+" ")
+		pn.write(dotStyle, dot).write(textStyle, " ")
+		pn.write(keyStyle(fr, KeyInSquare, on), key)
+		pn.write(textStyle, fit(text, boxR-pn.col()-1))
+		pn.padTo(boxR).write(on(FocusSquare), g.wallR)
+	}
 
-	top := y0 + cs.lead
-
-	// Row 1 — the question walking back to the operator, above the traffic. Only
-	// review has one: it is the tier that has somebody to ask.
+	// r0 — the question walking back to the operator. Only review has one: it is
+	// the tier with somebody to ask.
 	if fr.Lane == LaneAsked {
-		pn := newPen(s, colHost, top)
-		pn.write(on(FocusHop), g.asking+" "+g.north)
-		gap(pn, colSquare).write(dim, g.west+strings.Repeat(g.screened, colHop-colSquare-2))
-		gap(pn, colHop).write(on(FocusHop), g.asking)
+		pn := newPen(s, colHost, y0).write(on(FocusHop), g.asking+" "+g.north)
+		pn.padTo(boxL).write(dim, g.west+strings.Repeat(g.screened, colHop-boxL-2))
+		pn.padTo(colHop).write(on(FocusHop), g.asking)
 		if cs.asksLabel {
 			pn.write(on(FocusHop), " asks you")
 		}
 	}
 
-	// Row 2 — the spine: host, the square, the hop, the lanes.
-	pn := newPen(s, colHost, top+1)
-	pn.write(keyStyle(fr, KeyAtHost, on), keyIf(g, fr, KeyAtHost))
-	pn.write(on(FocusNone), g.node+" host")
-	gap(pn, colSquare-cs.runLen-1).write(dim, spine+g.east)
+	// r1 — the lid.
+	newPen(s, boxL, y0+1).write(on(FocusSquare),
+		g.cornerTL+strings.Repeat(g.rule, boxR-boxL-1)+g.cornerTR)
 
-	gap(pn, colSquare).write(on(FocusSquare), g.wallL+" ")
-	pn.write(keyStyle(fr, KeyInSquare, on), keyIf(g, fr, KeyInSquare))
+	// r2 — the spine: the host dot, the harness inside its frame, the hop dot.
+	pn := newPen(s, colHost, y0+2)
+	pn.write(keyStyle(fr, KeyAtHost, on), keyIf(g, fr, KeyAtHost))
+	pn.write(on(FocusNone), g.node).write(dim, " ")
+	pn.write(dim, strings.Repeat(g.spine, boxL-pn.col()))
 	say := g.quiet
 	if fr.Speaking {
 		say = g.speaking
 	}
-	pn.write(on(FocusSay), say+" ")
-	// Measured from where the pen actually is, and clipped against the LANES
-	// rather than the hop column: the columns are a floor, so a long harness
-	// name pushes the hop right rather than being cut to fit a slot. The only
-	// thing that must never happen is running under the lanes, because that
-	// corrupts the figure instead of shortening a label.
-	pn.write(on(FocusSquare), fit(fr.Square, pn.col(), colLanes-14)+" "+g.wallR)
+	inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
 
+	spine := newPen(s, boxR+1, y0+2)
 	if fr.Hop == "" {
 		// The one shape with nothing in the path. The columns are held open
-		// rather than closed up, so the figure does not shift sideways between
-		// one tier and the next — the spine simply runs through where a hop
-		// would have been.
-		start := pn.col() + 1
-		gap(pn, colSquare).write(dim, strings.Repeat(g.spine, maxInt(cs.runLen, colLanes-start-2))+g.east)
+		// rather than closed up, so the figure does not shift between tiers.
+		spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-2))
 	} else {
-		gap(pn, colHop-cs.runLen-1).write(dim, run(fr.Lane)+g.east)
-		// The key is budgeted BEFORE the label is clipped, not written after it.
-		// Writing it afterwards left it unaccounted for, and the ASCII key — one
-		// column wider than a devicon — ran into the lanes.
-		k := keyIf(g, fr, KeyAtHop)
-		room := colLanes - textWidth(k)
-		if k != "" {
-			room-- // the space between the label and the key
-		}
-		gap(pn, colHop).write(on(FocusHop), g.node+" "+fit(fr.Hop, pn.col()+3, room))
-		if k != "" {
-			pn.write(tcell.StyleDefault, " ").write(keyStyle(fr, KeyAtHop, on), k)
+		spine.write(dim, strings.Repeat(g.lane(fr.Lane), colHop-boxR-1))
+		spine.padTo(colHop).write(on(FocusHop), g.node)
+		// ...and on to the fan, so the lanes are visibly the hop's rather than
+		// three runs floating off to its right. Only when there ARE lanes: review
+		// has none yet, and a rule running to an empty margin would draw a route
+		// that is exactly what the tier is withholding.
+		if fr.Open+fr.Refused > 0 {
+			spine.write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-spine.col()))
 		}
 	}
 
-	// Row 3 — the interface hanging off the square and returning to the host.
-	rt := newPen(s, colHost, top+2)
-	rt.write(on(FocusReturn), g.north).padTo(colHost+3).
-		write(on(FocusReturn), g.west+strings.Repeat(g.screened, colSquare-colHost-4))
-	gap(rt, colSquare).
-		write(on(FocusReturn), g.node+" "+fit(fr.Interface, rt.col()+3, colLanes-2)+" "+g.up)
+	// r3 — what the agent drives, inside the frame with it; and the two outside
+	// nodes naming themselves under their dots.
+	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
+	at(3, colHost, x0, on(FocusNone), "host")
+	if fr.Hop != "" {
+		// Floored past the frame's right wall: a hop label long enough to centre
+		// on top of the wall would erase it, and the wall is the thing saying
+		// where the container ends.
+		label := fit(fr.Hop, colLanes-boxR-3)
+		p3 := at(3, colHop, boxR+2, on(FocusHop), label)
+		if k := keyIf(g, fr, KeyAtHop); k != "" {
+			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on), k)
+		}
+	}
 
-	// The lanes, stacked so the spine's own lane is the middle one.
-	drawLanes(s, top-1, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen)
+	// r4 — the floor, with the tee the return leaves by, and the host's stem.
+	newPen(s, colHost, y0+4).write(on(FocusReturn), g.wallL)
+	floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
+	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
+	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)
 
-	// The caption, last, clipped rather than wrapped: it is one sentence by
-	// construction and a second line would cost a row nobody reserved.
-	// Both branches yield a WIDTH, never an absolute column: mixing the two
-	// silently clipped the block's caption two columns short of what it drew
-	// before the pane existed.
+	// r5 — the return: an elbow up to the host and up into the frame's tee.
+	newPen(s, colHost, y0+5).write(on(FocusReturn),
+		g.cornerBL+strings.Repeat(g.rule, boxMid-colHost-1)+g.cornerBR)
+
+	// The lanes branch off the hop rather than floating beside it.
+	drawLanes(s, y0, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen)
+
 	w, _ := s.Size()
 	caption, room := fr.Caption, w-colHost-1
 	if cs.headCaption {
 		caption, room = captionHead(caption), cs.width
 	}
-	newPen(s, colHost, top+3).write(p.aside, clip(caption, room))
+	newPen(s, colHost, y0+6).write(p.aside, clip(caption, room))
 }
 
 // drawLanes stacks the surviving lanes and the refused ones around the spine.
@@ -326,8 +333,15 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 	rule := g.lane(fr.Lane)
 	rows := []int{y0 + 1, y0 + 2, y0 + 3}
 	total := fr.Open + fr.Refused
+	// The fan is ATTACHED to the hop it leaves — a tee on the dot's own row and
+	// corners above and below it — rather than three runs floating beside it.
+	branch := []string{g.cornerTL, g.cross, g.cornerBL}
+	if total == 1 {
+		branch = []string{g.rule, g.rule, g.rule}
+	}
 	for i := 0; i < total && i < len(rows); i++ {
 		pn := newPen(s, col, rows[i])
+		pn.write(dim, branch[i])
 		run := strings.Repeat(rule, runLen)
 		if tick > 0 && (tick/2)%3 == i && g.pulse != "" {
 			// The mote replaces a rule rather than joining the run, so a lane is

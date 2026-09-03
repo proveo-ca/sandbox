@@ -215,10 +215,10 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 		browser, chrome bool
 		want            string
 	}{
-		{false, false, "interface"},
-		{true, false, "interface: tui + browser"},
-		{false, true, "interface: tui + chrome"},
-		{true, true, "interface: tui + browser + chrome"},
+		{false, false, "tui"},
+		{true, false, "tui + browser"},
+		{false, true, "tui + chrome"},
+		{true, true, "tui + browser + chrome"},
 	} {
 		f := &choiceui.Form{Rows: []choiceui.Row{{Label: rowInterface, Multi: true,
 			Options: []string{addonTUI, addonBrowser, addonChrome},

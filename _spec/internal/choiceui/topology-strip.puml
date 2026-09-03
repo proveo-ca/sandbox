@@ -116,6 +116,30 @@ note bottom of COLS
   the key's home, the labels, the lane counts.
 end note
 
+note bottom of COLS
+  **The figure is the mark's own shape.** Dots
+  interrupting rules inside a bracketed frame is
+  what the banner is; the run is drawn the same
+  way, so the two read as one drawing and "()"
+  keeps meaning "a radio" everywhere else.
+end note
+
+note top of PAINT
+  **What runs INSIDE the agent is drawn inside
+  the frame.** The harness and the interface it
+  drives are not peers of the host — they are
+  what the container holds — and drawing them
+  there costs a row less than labelling them out.
+end note
+
+note bottom of PAINT
+  **A node outside the frame names itself on the
+  row beneath its dot.** That is what makes the
+  figure seven rows rather than five, and it is
+  why the return to the host is an elbow: the
+  label sits between the dot and the line.
+end note
+
 note top of COLS
   **The breakpoint is derived, never a constant.**
   It sits past THIS form's widest row — reasons

@@ -49,18 +49,15 @@ func TestTopologyFitsItsReservedRows(t *testing.T) {
 		func() Frame { f := base(); f.Hop = ""; f.Key = KeyInSquare; return f }(),
 	} {
 		rows := paint(t, fr, GlyphsNerd, 0)
-		if rows[0] != "" {
-			t.Errorf("row 0 must stay blank, got %q", rows[0])
-		}
 		// Load-bearing: without this the assertions below pass on a blank screen.
-		for _, y := range []int{2, 3, 4} {
+		for _, y := range []int{1, 2, 3, 4, 5} {
 			if rows[y] == "" {
 				t.Fatalf("row %d of the figure is empty; nothing was drawn", y)
 			}
 		}
-		for y := stripRows; y < len(rows); y++ {
+		for y := figureRows; y < len(rows); y++ {
 			if rows[y] != "" {
-				t.Errorf("the figure painted past its %d reserved rows, at y=%d: %q", stripRows, y, rows[y])
+				t.Errorf("the figure painted past its %d rows, at y=%d: %q", figureRows, y, rows[y])
 			}
 		}
 	}
@@ -75,7 +72,9 @@ func TestKeyAppearsAtExactlyOneHome(t *testing.T) {
 		home KeyHome
 		near string
 	}{
-		{KeyAtHost, "host"},
+		// The host's key rides beside its DOT on the spine; the host's name is on
+		// the row beneath, as every node's now is.
+		{KeyAtHost, g.node},
 		{KeyInSquare, "claudecode"},
 		{KeyAtHop, "sbx proxy"},
 	} {
@@ -104,15 +103,15 @@ func TestOnlyReviewRoutesTheQuestionBackToTheHost(t *testing.T) {
 	asked := base()
 	asked.Lane, asked.Open, asked.Refused = LaneAsked, 0, 0
 	rows := paint(t, asked, GlyphsNerd, 0)
-	if !strings.Contains(rows[1], "?") || !strings.Contains(rows[1], "▴") {
-		t.Errorf("review must draw the question returning to the host, got %q", rows[1])
+	if !strings.Contains(rows[0], "?") || !strings.Contains(rows[0], "▴") {
+		t.Errorf("review must draw the question returning to the host, got %q", rows[0])
 	}
-	if !strings.Contains(rows[1], "asks you") {
-		t.Errorf("the return lane must name who is being asked, got %q", rows[1])
+	if !strings.Contains(rows[0], "asks you") {
+		t.Errorf("the return lane must name who is being asked, got %q", rows[0])
 	}
 	quiet := paint(t, base(), GlyphsNerd, 0)
-	if strings.Contains(quiet[1], "?") {
-		t.Errorf("a tier with nobody to ask must draw no question, got %q", quiet[1])
+	if strings.Contains(quiet[0], "?") {
+		t.Errorf("a tier with nobody to ask must draw no question, got %q", quiet[0])
 	}
 }
 
@@ -172,7 +171,7 @@ func TestNerdTierGlyphsAreSingleRuneSingleColumn(t *testing.T) {
 func TestFocusChangesEmphasisNotContent(t *testing.T) {
 	t.Parallel()
 	want := strings.Join(paint(t, base(), GlyphsNerd, 0), "\n")
-	if !strings.Contains(want, "● host") {
+	if !strings.Contains(want, "host") || !strings.Contains(want, glyphsFor(GlyphsNerd).cornerTL) {
 		t.Fatal("nothing was drawn, so comparing two blank renders proves nothing")
 	}
 	for _, f := range []Focus{FocusHop, FocusKey, FocusSquare, FocusReturn, FocusSay} {
@@ -188,15 +187,16 @@ func TestFocusChangesEmphasisNotContent(t *testing.T) {
 // closing them up, so the figure does not shift sideways between tiers.
 func TestTheHoplessFrameKeepsItsColumns(t *testing.T) {
 	t.Parallel()
+	g := glyphsFor(GlyphsNerd)
 	fr := base()
 	fr.Hop, fr.Key = "", KeyInSquare
 	rows := paint(t, fr, GlyphsNerd, 0)
-	if strings.Contains(rows[2], "()  ") || strings.Contains(rows[2], "proxy") {
-		t.Errorf("a hopless frame must draw no hop, got %q", rows[2])
+	if strings.Contains(strings.Join(rows, "\n"), "proxy") {
+		t.Errorf("a hopless frame must draw no hop:\n%s", strings.Join(rows, "\n"))
 	}
 	withHop := paint(t, base(), GlyphsNerd, 0)
-	if a, b := indexOf(rows[2], "["), indexOf(withHop[2], "["); a != b {
-		t.Errorf("the square moved between hop and no-hop: col %d vs %d", a, b)
+	if a, b := indexOf(rows[1], g.cornerTL), indexOf(withHop[1], g.cornerTL); a != b {
+		t.Errorf("the container moved between hop and no-hop: col %d vs %d", a, b)
 	}
 }
 
@@ -235,7 +235,7 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 			for x := 0; x < w; x++ {
 				row += string(cells[y*w+x].Runes)
 			}
-			if strings.Contains(row, "● host") {
+			if strings.Contains(row, figureMark()) {
 				return y
 			}
 		}

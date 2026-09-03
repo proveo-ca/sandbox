@@ -13,7 +13,7 @@ import (
 func paneFrame() Frame {
 	return Frame{
 		Square: "dind · claudecode", Hop: "mitm + squid",
-		Interface: "interface: tui + browser + chrome",
+		Interface: "tui + browser + chrome",
 		Key:       KeyAtHop, Lane: LaneScreened, Open: 1, Refused: 2, Speaking: true,
 		Caption: "deny-all · broker — only proveo's allowlist gets out; the key stops at the hop",
 	}
@@ -31,15 +31,19 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 		joined := strings.Join(screenLines(s), "\n")
 		s.Fini()
 
-		for _, want := range []string{g.node + " host", "dind · claudecode", "mitm + squid",
-			"interface: tui + browser + chrome"} {
+		for _, want := range []string{"host", "dind · claudecode", "mitm + squid",
+			"tui + browser + chrome"} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("tier %v: the pane dropped %q, which is a fact and not decoration:\n%s",
 					tier, want, joined)
 			}
 		}
-		if n := strings.Count(joined, g.key); n != 1 {
-			t.Errorf("tier %v: the key is drawn %d times, want exactly 1", tier, n)
+		// Located, not counted. A one- or two-column glyph turns up inside labels
+		// and inside other glyphs — "x" lives in "sbx", "o-" is a node on a rule —
+		// so the honest question is whether the key is where the frame says the
+		// credential rests, and nowhere else it could be mistaken for.
+		if !strings.Contains(hopRow(joined, g.cornerTL), g.key) {
+			t.Errorf("tier %v: the key is not beside the hop:\n%s", tier, joined)
 		}
 		// Counted as the END OF A LANE, not as a bare glyph: the ASCII refusal is
 		// "x", and "sbx · claudecode" contains one — a naive count made the test
@@ -102,8 +106,12 @@ func TestPaneOwnsExactlyItsRows(t *testing.T) {
 	s.Show()
 	lines := screenLines(s)
 	s.Fini()
-	if lines[0] == "" {
-		t.Error("the pane has no leading blank; its first row must carry the figure")
+	// Row 0 is the question row, blank on every tier but review. The figure
+	// proper starts on row 1 with the container's lid.
+	for _, y := range []int{1, 2, 3, 4, 5} {
+		if lines[y] == "" {
+			t.Errorf("row %d of the figure is empty; nothing was drawn", y)
+		}
 	}
 	for y := paneRows; y < len(lines); y++ {
 		if lines[y] != "" {
@@ -184,7 +192,7 @@ func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 func gutterBreaches(rows []string, pane int) []int {
 	spine := -1
 	for y, line := range rows {
-		if strings.Contains(line, "● host") {
+		if strings.Contains(line, figureMark()) {
 			spine = y
 		}
 	}
@@ -287,7 +295,7 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 		if strings.Contains(line, "enter accept") {
 			hint = y
 		}
-		if strings.Contains(line, "● host") {
+		if strings.Contains(line, figureMark()) {
 			figure = y
 		}
 	}
@@ -364,11 +372,14 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 	} {
 		f := &Form{
 			Title: "t",
-			// Four rows at least: the pane is refused when the body cannot hold it.
+			// The pane is refused unless the body can hold the figure's rows.
 			Rows: []Row{c.row,
 				{Label: "egress", Options: []string{"open", "allowlist"}},
 				{Label: "credentials", Options: []string{"forward", "broker"}},
-				{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true}},
+				{Label: "auth", Options: []string{"A", "B"}},
+				{Label: "one", Options: []string{"a", "b"}},
+				{Label: "two", Options: []string{"a", "b"}},
+				{Label: "agent evidence", Options: []string{"default", "verbose"}}},
 			Topology: func(*Form, int) *Frame {
 				return &Frame{Square: "sbx · x", Hop: "mitm", Interface: "interface",
 					Caption: "cap", Lane: LaneWatched, Open: 1}
@@ -384,4 +395,20 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 			t.Errorf("%s: row %d reached into the pane's gutter:\n%q", c.name, y, rows[y])
 		}
 	}
+}
+
+// figureMark is the container's top-left corner — the one glyph every frame
+// draws and nothing else on the screen does, so it is how a test finds the
+// figure's first row without depending on a label that may be clipped.
+func figureMark() string { return glyphsFor(GlyphsNerd).cornerTL }
+
+// hopRow is the figure's third row, where the two outside nodes name themselves.
+func hopRow(joined, corner string) string {
+	lines := strings.Split(joined, "\n")
+	for i, l := range lines {
+		if strings.Contains(l, corner) && i+2 < len(lines) {
+			return lines[i+2]
+		}
+	}
+	return ""
 }

@@ -6,9 +6,9 @@ package choiceui
 // already the width the add-on divider centres on — so carrying the strip gives
 // the form no new minimum width.
 const (
-	stripRows  = 5  // one blank, three figure rows, one caption
-	stripCols  = 72 // the narrowest terminal the figure is drawn on
-	digestRows = 2  // one blank, the caption alone
+	stripRows  = figureRows + 1 // the figure, plus a blank separating it from the help
+	stripCols  = 72             // the narrowest terminal the figure is drawn on
+	digestRows = 2              // one blank, the caption alone
 )
 
 // stripFit is how much of the figure this terminal can afford.
