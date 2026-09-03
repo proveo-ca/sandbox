@@ -38,7 +38,7 @@ func reportLinks(links []workspace.Link) {
 	for _, l := range links {
 		switch l.Action {
 		case workspace.LinkMounted:
-			ui.Iconf("🔗", "%s → %s (symlink leaves the workspace; target mounted)", l.Rel, l.Target)
+			ui.Storef("%s → %s (symlink leaves the workspace; target mounted)", l.Rel, l.Target)
 		case workspace.LinkRefused:
 			target := l.Target
 			if target == "" {

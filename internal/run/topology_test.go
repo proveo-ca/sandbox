@@ -143,9 +143,12 @@ func TestFocusMapsRowsToElements(t *testing.T) {
 	}
 }
 
-// "off" means the terminal cannot render decoration, not that the operator
-// wants less information — so it draws the ASCII figure rather than none.
-func TestGlyphsOffStillDrawsTheFigure(t *testing.T) {
+// The tier crosses from posture to choiceui with no translation, because the
+// two names denote ONE type. stripGlyphs used to sit here doing the conversion
+// and collapsing "off" to ASCII on the way; the collapse now lives in
+// choiceui.glyphsFor, asserted by TestGlyphsOffDrawsTheASCIISet, and this is
+// the guard that the two vocabularies have not drifted back apart.
+func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		in   posture.GlyphMode
@@ -153,10 +156,10 @@ func TestGlyphsOffStillDrawsTheFigure(t *testing.T) {
 	}{
 		{posture.GlyphsNerd, choiceui.GlyphsNerd},
 		{posture.GlyphsASCII, choiceui.GlyphsASCII},
-		{posture.GlyphsOff, choiceui.GlyphsASCII},
+		{posture.GlyphsOff, choiceui.GlyphsOff},
 	} {
-		if got := stripGlyphs(c.in); got != c.want {
-			t.Errorf("%v: tier %v, want %v", c.in, got, c.want)
+		if c.in != c.want {
+			t.Errorf("%v: posture and choiceui disagree, got %v want %v", c.in, c.in, c.want)
 		}
 	}
 }

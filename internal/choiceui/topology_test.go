@@ -272,3 +272,30 @@ func screenLines(s tcell.SimulationScreen) []string {
 	}
 	return out
 }
+
+// The tier arrives from ui, which has three values where the figure has two
+// rune sets. "off" says the terminal cannot render decoration, not that the
+// operator wants less information — the figure carries facts the checkboxes
+// cannot — so it draws the ASCII set rather than nothing.
+//
+// This is the guard on the direction of the test in glyphsFor. Asking whether
+// the tier IS ascii sent every unknown tier to the decorated set, which is the
+// one answer a terminal that declared it cannot render decoration must not get.
+func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
+	t.Parallel()
+	if glyphsFor(GlyphsOff) != glyphsFor(GlyphsASCII) {
+		t.Error("GlyphsOff must draw the ASCII figure, not the nerd one")
+	}
+	if glyphsFor(GlyphsNerd) == glyphsFor(GlyphsASCII) {
+		t.Error("nerd and ascii must differ, or there is only one tier")
+	}
+	// And through a paint, not only through the table: the figure must contain
+	// no private-use rune when the operator has said the font has none.
+	for _, row := range paint(t, Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Open: 2}, GlyphsOff, 0) {
+		for _, r := range row {
+			if r >= 0xE000 && r <= 0xF8FF {
+				t.Errorf("GlyphsOff painted a private-use rune U+%04X in %q", r, row)
+			}
+		}
+	}
+}

@@ -83,7 +83,7 @@ func reviewConnect() func(host, port string) bool {
 	if sock == "" || !envTruthy("PROVEO_EGRESS_REVIEW") {
 		return nil
 	}
-	ui.Iconf("🛂", "review tier: connections gated by the operator via %s", sock)
+	ui.Hostf("review tier: connections gated by the operator via %s", sock)
 	return func(host, port string) bool {
 		return reviewgate.AskOverSocket(sock, host, port, reviewgate.DefaultDeadline+5*time.Second)
 	}

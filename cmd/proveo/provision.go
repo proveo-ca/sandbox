@@ -46,7 +46,7 @@ func (pv provisioner) Ensure(deps []imageDep) error {
 		if pv.Present(d.Name) {
 			continue
 		}
-		pv.UI.Iconf("📥", "pulling image: %s", d.Name)
+		pv.UI.Cloudf("pulling image: %s", d.Name)
 		pullErr := pv.Pull(d.Name)
 		if pullErr == nil {
 			continue
@@ -58,7 +58,7 @@ func (pv provisioner) Ensure(deps []imageDep) error {
 		if !pv.Confirm(fmt.Sprintf("%s is not available. Build it now via %s?", d.Name, d.BuildScript)) {
 			return fmt.Errorf("image unavailable: %s — pull failed and build declined; run %s, or set PROVEO_AUTO_PROVISION=1 to build without prompting", d.Name, d.BuildScript)
 		}
-		pv.UI.Iconf("🔨", "building %s", d.Name)
+		pv.UI.Appf("building %s", d.Name)
 		if err := pv.Build(d.BuildScript); err != nil {
 			return fmt.Errorf("build failed for %s: %w", d.Name, err)
 		}
@@ -145,7 +145,7 @@ func provisionConfirm(question string) bool {
 	if !agentio.IsStdinTTY() || !run.WizardEnabled() {
 		return false
 	}
-	return promptYesNo("🔨 "+question, true, os.Stdin, os.Stderr)
+	return promptYesNo(question, true, os.Stdin, os.Stderr)
 }
 
 func sourceDefsDir() string {

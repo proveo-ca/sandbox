@@ -1,0 +1,259 @@
+@startuml TuiDesignLanguage
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the one design language every proveo terminal surface renders in, and why the status stream had to join it
+' covers: internal/ui/**, internal/posture/posture.go, internal/choiceui/topology.go
+'   the prompt that already obeyed it .. _spec/internal/choiceui/choice-prompt-render.puml
+'   its glyph + width rules ............ _spec/internal/choiceui/topology-strip.puml
+'   its region budget .................. _spec/internal/choiceui/viewport.puml
+'   the stream that now obeys it ....... _spec/internal/ui/output-vocabulary.puml
+'   the palette these roles come from .. _spec/_conventions/spec-conventions.puml
+'   surfaces deliberately left out ..... _spec/_plans/tui-style-deferred-surfaces.puml
+'
+' ── WHY THIS FILE EXISTS ───────────────────────────────────────────────────
+' proveo had TWO terminal designs. internal/choiceui — the full-screen prompt —
+' paints through a five-role palette, measures every rune it writes, wraps and
+' marks its own truncation, and drops a whole region rather than clipping one.
+' internal/ui — the streaming status output, which is MOST of what an operator
+' reads — emitted no colour whatsoever and decorated each line with an emoji
+' chosen at the call site: 23 distinct glyphs over 57 sites.
+'
+' The two sat side by side in one run. The prompt looked designed; the prelude
+' under it looked like debug logging that had been decorated after the fact.
+' This file is the single language, and the stream is now one of its speakers
+' rather than a second design.
+'
+' ── ROLE IS A CLOSED SET, NOT A PICTURE PER LINE ───────────────────────────
+' A call site names WHAT A LINE IS ABOUT and the language decides how that
+' looks. It never chooses a glyph. That is the whole difference between the two
+' halves as they were: choiceui has ONE glyphSet whose every rune is declared in
+' one struct, so a new element cannot invent a rune; ui.Iconf took the rune as
+' an ARGUMENT, so all 57 sites were free to, and did.
+'
+' The six roles are the identity's own — the same names, the same colours the
+' diagrams in this tree are drawn with, so a component that is <<host>> on a
+' diagram prints host-cyan in a terminal. Two of the six carry no verb yet
+' (cloud has three sites, async has one); the role exists because the identity
+' has six, and a role with no caller is documented rather than invented.
+'
+' ── SEVERITY IS A GLYPH, ROLE IS A COLOUR ─────────────────────────────────
+' Both, so neither is load-bearing alone. spec-conventions requires edge intent
+' to survive greyscale; the same applies here. A status line read with NO_COLOUR
+' still distinguishes ok from warn from failure by its mark, and a line read at
+' a glance in colour still says which layer it came from without being parsed.
+'
+' Severity has a colour too, and it is the identity's own pair: $SUCCESS #009532
+' and $ERROR #CB2000, the green and red proveo.puml already exposes as
+' successLabel() and errorLabel(). internal/ui had never declared the green — it
+' mirrored the six ROLE colours and stopped — so the ok mark was painted teal
+' with ColorApp for want of one. That absence is precisely what pulls a codebase
+' towards U+2705 and U+274C: an emoji that is already green, already red, and
+' already the wrong width. Declaring the colour removes the reason to reach.
+'
+' So: a plain text glyph, painted. U+2713 in success green, U+26A0 in attention
+' lime, U+00D7 in error red. Nothing in the mark table carries its own colour,
+' which is the same rule as "no emoji" seen from the other side.
+'
+' ── NO EMOJI, AND THE REASON IS WIDTH — NOT TASTE ─────────────────────────
+' topology-strip already banned them from the figure. The ban generalises here
+' unchanged: an emoji is one to two columns depending on the font, and three of
+' the glyphs in use carried U+FE0F, the variation selector that go-runewidth
+' measures as ONE column and every terminal draws as TWO. A stream that cannot
+' predict its own column count cannot wrap, and the screenshot that prompted
+' this file proves it — every long line broke mid-word ("limitin/g it",
+' "l/oopback") because nothing measured anything.
+'
+' Box-drawing and geometric glyphs stay in. They are ambiguous-width too, but
+' they are ASKED rather than assumed — measured the way the writer will paint
+' them — and they are the BANNER's vocabulary: dots interrupting rules. The
+' figure already draws the run that way; the stream now marks its lines that way.
+'
+' ── THE STREAM IS GROUPED THE WAY THE FORM IS ─────────────────────────────
+' A divider names the concern the lines under it belong to, and the names are the
+' CHOICE FORM's own wherever the form has one: egress and credentials are its
+' rows, execution and interface its two plane dividers. An operator answers a
+' question called "egress" and then reads what happened under a heading called
+' "egress". A parallel vocabulary — "network", "creds" — would make the two
+' surfaces describe one run in two languages.
+'
+' THE HEADING IS LAZY, AND THAT IS THE WHOLE MECHANISM. Nearly every line in a
+' prelude is conditional: no gh session, no symlinks, no broker, no sub-scope.
+' A stage that declared a section and then found nothing to say would leave a
+' heading with nothing under it. So declaring is cheap and DRAWING is deferred to
+' the first line that actually arrives, which means no caller ever has to ask
+' whether it is about to print something. Re-declaring the heading already on
+' screen is a no-op, so a stage may announce itself without checking what the
+' previous one did — and that is what lets a later stage CONTINUE a block rather
+' than reopen it.
+'
+' ── TWO PASSES, BECAUSE A RUN HAS TWO MOMENTS ─────────────────────────────
+' A run reports what it resolved, then starts. Three concerns appear in both
+' halves — credentials are read and then injected, execution is chosen and then
+' begun — and reusing one name would make the second heading read as a repeat
+' rather than as a different moment. So the live half has its own names:
+'
+'   resolved ... scope · run · credentials · workspace · egress · execution
+'   live ....... starting · secrets · interface · results
+'
+' Every divider in a run therefore appears exactly ONCE. Getting there took one
+' reordering, in run.selectBackend: the sbx baseline warning and the .env warning
+' now print before the "backend:" line, so they land in the egress block the
+' broker line opened instead of splitting execution in two. Deciding was
+' separated from reporting to make that safe — nothing about which backend runs
+' moved, only the order of two report calls.
+'
+' ── THE DIVIDER IS CHOICEUI'S, RE-ANCHORED ────────────────────────────────
+' Same construction and same secondary colour: rules, the label spaced, rules.
+' choiceui CENTRES its heading on 72 columns and is right to — the rows beneath
+' it are a column grid, so a centred label sits over the middle of the options it
+' names. This stream is left-aligned prose, and centring here floated the label
+' at column 32 above text starting at column 2, reading as a caption for nothing.
+' So it is anchored at the text column with the trailing run out to the MEASURED
+' width. An unmeasurable writer — a log, a pipe, CI — gets choiceui's short form
+' instead, because a hundred dashes per section is noise in a transcript and the
+' width would be a constant pretending to be a measurement.
+'
+' ── THE TIER IS ONE TYPE NOW ──────────────────────────────────────────────
+' Three packages had their own idea of how decorated a terminal is:
+' posture.GlyphMode (three values, read from PROVEO_GLYPHS), choiceui.GlyphTier
+' (two), and nothing at all in ui, which had only a boolean Plain. A design
+' language with three notions of its own tier is not one language, so ui owns
+' the type and the other two alias it. run/topology.go's stripGlyphs — the
+' function that translated between two of them — is gone.
+
+title TUI design language — one palette, one closed glyph set, two speakers
+
+package "the language — internal/ui" as LANG <<app>> {
+  component "Role\nhost · app · async\ncloud · store · error" as ROLE <<app>>
+  component "GlyphTier\nNerd · ASCII · Off\nPROVEO_GLYPHS, once per session" as TIER <<host>>
+  component "marks[tier][severity]\nok · warn · fail · dot" as MARK <<app>>
+  component "palette\nColorHost · ColorApp · ColorAsync\nColorCloud · ColorDB · ColorError" as PAL <<db>>
+  component "wrap · clip · textWidth\nmeasured, hanging indent" as FIT <<app>>
+  component "Section*\nten names, closed\nlazy heading" as SEC <<app>>
+}
+
+component "internal/choiceui\nfull-screen prompt\nglyphSet · pen · canvas · ladder" as CUI <<app>>
+component "internal/ui Printer\nstreaming status\nHostf · Appf · Storef · Cloudf\nOkf · Warnf · Failf · Notef\nSection(ui.Section*)" as PRN <<app>>
+component "internal/posture\nGlyphMode = ui.GlyphTier\nlsp: row devicons" as POST <<app>>
+
+database "terminal\nrole colour + tiered mark\nwrapped to width" as TERM <<db>>
+database "run log · pipe · CI\nok: · warn: · error:\nno colour, no glyph" as LOG <<db>>
+
+component "emoji\n23 glyphs, 57 call sites\n3 carrying U+FE0F" as EMOJI <<error>>
+
+ROLE ARROW_MAIN PAL : colour
+ROLE ARROW_MAIN MARK : dot
+TIER ARROW_MAIN MARK : which rune
+CUI ARROW_MAIN ROLE
+PRN ARROW_MAIN ROLE
+POST ARROW_MAIN TIER
+PRN ARROW_MAIN SEC : declare, draw on first line
+SEC ARROW_MAIN FIT : rule runs to width
+CUI ARROW_MAIN SEC : the label vocabulary
+PRN ARROW_MAIN FIT : measure, then wrap
+CUI ARROW_MAIN FIT
+PRN ARROW_MAIN TERM : fancy
+PRN ARROW_OPTIONAL LOG : plain — a degradation
+MARK ARROW_ERROR EMOJI : withdrawn
+
+note right of ROLE
+  **Six roles, and a call site picks one — never a rune.**
+  ""ui\.Appf("image: %s", img)"" says what the line is
+  about; the language decides that this is teal with a
+  ""●"" in front of it. ""Iconf(icon, …)"" — which took the
+  decoration as an argument — is gone, and with it the
+  23-glyph vocabulary no single file ever held.
+end note
+
+note bottom of MARK
+  **Severity is the mark, role is the colour.**
+
+  |= |= nerd |= ascii |= plain |= colour |
+  | ok   | ""✓"" | ""+"" | ""ok: ""    | <color:#009532>#009532 green</color> |
+  | warn | ""⚠"" | ""!"" | ""warn: ""  | <color:#818D00>#CBDB2A lime</color> |
+  | fail | ""×"" | ""x"" | ""error: "" | <color:#CB2000>#CB2000 red</color> |
+  | role | ""●"" | ""o"" | (none)  | the role's own |
+  | note | (two spaces — a continuation) |||
+
+  Every mark is ONE column plus one space, so the text
+  column is the same on every line whatever the tier,
+  and a wrapped line's hanging indent lands under it.
+end note
+
+note bottom of TIER
+  **The tier is a capability of the session, so it is read
+  once and never re-decided.** A terminal offers no way to
+  ask whether its font carries a codepoint, so this is the
+  operator's declaration — ""PROVEO_GLYPHS=ascii"" — not a
+  probe. ""off"" strips the marks and keeps the colour.
+
+  ""Off"" used to reach ""choiceui\.glyphsFor"" and come back
+  with the NERD set, because the switch tested for ASCII
+  rather than against Nerd. Aliasing the three types onto
+  one made that reachable, so it is fixed here.
+end note
+
+note right of PRN
+  **Plain stays greppable, and that is why it is not
+  a second design.** No TTY, ""NO_COLOR"", ""TERM=dumb"",
+  or the tee's copy on its way to the run log: a SEVERITY
+  mark becomes a word and the colour is dropped, so
+  ""grep -c 'warn:'"" over a transcript counts what a
+  human saw on screen. A role's dot is dropped rather
+  than worded — ""host: image: …"" reads worse than the
+  fact alone, and a layer is not an event to grep for. ""Notef"" carries no marker in either
+  rendering — it is the continuation under a preceding
+  verb, indented to that verb's text column.
+end note
+
+note right of SEC
+  **Ten names, and a call site may not invent one.** Six
+  come from the form — ""egress"", ""credentials"",
+  ""execution"", ""interface"" are its rows and dividers —
+  so a run is narrated under the headings the operator
+  was asked about. The other four name the live phase,
+  which the form has no row for.
+
+  Lazy, because nearly every prelude line is
+  conditional. Declaring costs nothing; the first line
+  that follows draws the heading. A stage that reports
+  nothing leaves no divider, and re-declaring the
+  current heading continues its block rather than
+  reopening it.
+
+  A contract test refuses a literal argument and fails
+  on a constant no call site names — a heading that can
+  never appear is as much a defect as a missing one.
+end note
+
+note bottom of FIT
+  **A stream that cannot measure itself cannot wrap.**
+  Width comes from the writer's own ioctl, once per line,
+  and falls back to 80 for anything that is not a
+  terminal. Continuations are indented to the text column,
+  never to zero, so one status line reads as one thing.
+  Truncation — where a line must be one row — is MARKED
+  with ""…"", exactly as ""choiceui\.clip"" marks it.
+end note
+
+note right of EMOJI
+  **The ban is width, not taste.** Three of the marks in
+  use carried U+FE0F. ""go-runewidth"" reports the variation
+  selector as one column; terminals draw the pair as two.
+  Four sites had even written theirs as a Go escape,
+  ""\\U0001f5c2"", which no reader can see.
+
+  The tempting ones are U+2705 and U+274C — a green tick
+  and a red cross with no selector to give them away.
+  They are refused for the same reason and replaced the
+  same way: a text glyph in ""ColorSuccess"" or
+  ""ColorFailure"". A rune that carries its own colour is
+  buying with columns what the palette gives away.
+
+  A contract test parses every print site AND every
+  comment, keyed on Emoji_Presentation rather than a
+  hand-picked list, so the vocabulary cannot quietly
+  reopen — and the codepoint is always nameable, so no
+  comment needs the glyph to make its point.
+end note
+
+@enduml

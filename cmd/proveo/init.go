@@ -68,9 +68,9 @@ func doInit() error {
 	}
 	if len(found) == 0 {
 		ui.Failf("No LLM API provider keys found in the current environment.")
-		fmt.Fprintln(os.Stderr, "Set one of these before running 'proveo --init':")
+		ui.Notef("Set one of these before running 'proveo --init':")
 		for _, k := range initProviderKeys {
-			fmt.Fprintf(os.Stderr, "  %s\n", k)
+			ui.Notef("  %s", k)
 		}
 		return fmt.Errorf("no provider keys in environment")
 	}

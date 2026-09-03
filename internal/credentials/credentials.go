@@ -665,7 +665,7 @@ func ProviderLookup(envFile string) func(string) string {
 	return ProviderLookupWith(envFile, &secretref.Resolver{
 		Getenv: os.Getenv,
 		Announce: func(scheme string) {
-			ui.Iconf("🔐", "resolving a %s: secret reference on the host — approve the prompt if one appears", scheme)
+			ui.Hostf("resolving a %s: secret reference on the host — approve the prompt if one appears", scheme)
 		},
 	}, ui.Warnf)
 }

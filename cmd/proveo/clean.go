@@ -108,7 +108,7 @@ func cleanProveoHomes(dryRun bool) error {
 		ui.Okf("no proveo home at %s", root)
 		return nil
 	}
-	ui.Iconf("🗑️", "%s proveo home %s (sessions + seeded config)", verb, root)
+	ui.Dangerf("%s proveo home %s (sessions + seeded config)", verb, root)
 	if dryRun {
 		return nil
 	}
@@ -183,26 +183,26 @@ func runClean(p clean.Plan, dryRun bool) error {
 		verb = "would remove"
 	}
 	for _, c := range p.Containers {
-		ui.Iconf("🗑️", "%s container %s", verb, c)
+		ui.Dangerf("%s container %s", verb, c)
 		if !dryRun {
 			_ = exec.Command("docker", "rm", "-f", c).Run()
 		}
 	}
 	for _, n := range p.Networks {
-		ui.Iconf("🗑️", "%s network %s", verb, n)
+		ui.Dangerf("%s network %s", verb, n)
 		if !dryRun {
 			_ = exec.Command("docker", "network", "rm", n).Run()
 		}
 	}
 	for _, sid := range p.StateDirs {
 		dir := filepath.Join(run.StateDir(), "egress", sid)
-		ui.Iconf("🗑️", "%s state %s (incl. any injected broker secret)", verb, dir)
+		ui.Dangerf("%s state %s (incl. any injected broker secret)", verb, dir)
 		if !dryRun {
 			_ = os.RemoveAll(dir)
 		}
 	}
 	for _, img := range p.Images {
-		ui.Iconf("🗑️", "%s image %s", verb, img)
+		ui.Dangerf("%s image %s", verb, img)
 		if !dryRun {
 			_ = exec.Command("docker", "image", "rm", img).Run()
 		}
@@ -211,7 +211,7 @@ func runClean(p clean.Plan, dryRun bool) error {
 	for _, dir := range p.ToolDirs {
 		size := dirSize(dir)
 		reclaimed += size
-		ui.Iconf("🗑️", "%s toolchain %s (%s)", verb, dir, humanBytes(size))
+		ui.Dangerf("%s toolchain %s (%s)", verb, dir, humanBytes(size))
 		if !dryRun {
 			_ = os.RemoveAll(dir)
 		}

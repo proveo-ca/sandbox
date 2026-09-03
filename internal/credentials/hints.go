@@ -162,7 +162,7 @@ func PrintSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar
 	}
 	p := ui.New(out)
 	p.Notef("")
-	p.Iconf("🔑", "No auth was set for %s — persist a key for the next run:", man.Name)
+	p.Hostf("No auth was set for %s — persist a key for the next run:", man.Name)
 
 	sh, ok := shell.Detect(os.Getenv("SHELL"))
 	if !ok {

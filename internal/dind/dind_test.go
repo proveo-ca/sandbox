@@ -141,8 +141,15 @@ func TestStartAndAgentArgs(t *testing.T) {
 	if last[0] != "run" || last[len(last)-1] != "docker:dind" {
 		t.Fatalf("unexpected start call: %v", last)
 	}
-	if !strings.Contains(warn.String(), "Security warning") {
-		t.Fatal("expected security warning on stderr")
+	// The severity, not a phrase inside the sentence: the design language puts
+	// it in the mark, and "warn: " is the mark plain mode degrades to. The
+	// substance is asserted separately, because a warning that does not name
+	// --privileged is not the warning this sidecar needs.
+	if !strings.Contains(warn.String(), "warn: ") {
+		t.Errorf("the privileged-sidecar warning lost its severity:\n%s", warn.String())
+	}
+	if !strings.Contains(warn.String(), "--privileged") {
+		t.Errorf("the warning does not name --privileged:\n%s", warn.String())
 	}
 	s.Cleanup(r)
 	if s.Name != "" {

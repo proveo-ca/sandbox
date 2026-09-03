@@ -50,8 +50,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:  fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header: buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
 		// The same lookup buildHeader uses, so one project .env governs the
-		// header's devicons and the strip's together.
-		Glyphs:   stripGlyphs(posture.GlyphModeFrom(lookup)),
+		// header's devicons and the strip's together. No translation on the way:
+		// posture, choiceui and ui name ONE tier type, so "off" reaches the
+		// figure as "off" and glyphsFor collapses it to ASCII there.
+		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
 			egressRow(man, p.Mode, sandboxOn),

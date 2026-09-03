@@ -1,54 +1,161 @@
 @startuml UiOutputVocabulary
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: the fixed status vocabulary proveo prints, and why it degrades rather than decorates
+' purpose: the fixed status vocabulary proveo prints — six roles, three severities, one measured writer
 ' covers: internal/ui/**
-title Output vocabulary — one printer, five verbs, two renderings
+'   the language this obeys ....... _spec/_conventions/tui-design-language.puml
+'   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
+'   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
+'   the glyph tier's other consumer  _spec/internal/posture/one-value-two-renderings.puml
+'
+' ── WHAT CHANGED, AND WHY THE OLD NOTES HERE WERE WRONG ────────────────────
+' This file used to describe five verbs and defend the emoji as deliberate:
+' "the icon is replaced by a word, never dropped", with Iconf as the one
+' exception whose decoration plain mode could discard. That was an accurate
+' description of a design that did not match the rest of proveo.
+'
+' Two claims in particular did not survive contact with a screenshot of a real
+' run. First, "Plain is a degradation, never a second design" was true of the
+' three severity verbs and false of Iconf, which was the majority: 57 of the
+' call sites, carrying 23 different emoji, and plain mode DROPPED that
+' decoration rather than degrading it — so a log lost the only thing
+' distinguishing an image line from a credential line. Second, the fancy
+' rendering was never a rendering: line() emitted no ANSI at all. The palette
+' had been sitting in this package since the banner needed it, consumed only by
+' choiceui and WriteBrandBanner, while the stream that carries most of what an
+' operator reads printed monochrome.
+'
+' ── THE VERB SET IS NOW TWO AXES, NOT ONE LIST ─────────────────────────────
+' Severity — is this fine, worth attention, or broken — and role — which layer
+' is speaking. They are independent, so they are not one enumeration: Okf and
+' Failf answer the first and say nothing about the second; Hostf and Appf answer
+' the second and assert nothing about the first. Iconf tried to be the second
+' axis by handing the call site a picture, which is why there were 23 of them.
+'
+' Notef is unchanged in meaning and changed in rendering: it is the continuation
+' line under a preceding verb, and it now indents to that verb's TEXT column
+' instead of to zero, so a warning's detail reads as part of the warning.
 
-component "Printer{W, Plain}\nline(icon, tag, format)" as P <<app>>
-component "Okf · Warnf · Failf\nNotef · Iconf" as VERBS <<app>>
-component "isFancy(w)\nTTY probe" as FANCY <<app>>
+title Output vocabulary — six roles, three severities, ten sections, one measured writer
+
+component "Printer{W, Plain, Tier}" as P <<app>>
+component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
+component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
+component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
+component "Section(ui.Section*)\nten closed names\nheading drawn LAZILY" as SEC <<app>>
+component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
+component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
+component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
+component "termWidth(w)\nioctl, else 80" as WIDTH <<host>>
+component "GlyphTier\nPROVEO_GLYPHS\nNerd · ASCII · Off" as TIER <<host>>
 component "stripANSI" as STRIP <<app>>
 component "Default → os.Stderr" as DEF <<app>>
 component "TeeTo(w)\nrun log" as TEE <<app>>
-database "terminal\n✓ · ⚠️ · ❌ · 📦" as TERM <<db>>
-database "log file / pipe\nok: · warn: · error:" as LOG <<db>>
 
-VERBS ARROW_MAIN P
-P ARROW_MAIN FANCY : which rendering
+database "terminal\n● role colour · ✓ ⚠ ×\nwrapped to width" as TERM <<db>>
+database "log file · pipe · CI\nok: · warn: · error:\nno colour, no glyph" as LOG <<db>>
+
+ROLES ARROW_MAIN LINE
+SEV   ARROW_MAIN LINE
+NOTE  ARROW_MAIN LINE
+SEC   ARROW_OPTIONAL LINE : pending until a line arrives
+LINE ARROW_MAIN FANCY : which rendering
+LINE ARROW_MAIN TIER : which rune
+LINE ARROW_MAIN WRAP
+WRAP ARROW_MAIN WIDTH
 FANCY ARROW_MAIN TERM : fancy
-FANCY ARROW_QUEUE LOG : plain
-DEF ARROW_MAIN P
+FANCY ARROW_OPTIONAL LOG : plain
+DEF ARROW_MAIN LINE
 TEE ARROW_MAIN STRIP
 STRIP ARROW_MAIN LOG
 
-note right of VERBS
-  **A fixed vocabulary, not free-form printing.** Every status line proveo
-  emits goes through one of five verbs, so the shape of output is a property of
-  the package rather than of each call site. ""Notef"" carries no prefix in
-  either rendering — it is the continuation line under a preceding verb, which
-  is how a warning attaches its detail without repeating the marker.
+note right of ROLES
+  **A role is named; a glyph never is.** Six roles, the
+  identity's own — so a component drawn ""<<host>>"" in
+  this tree prints host-cyan in a terminal. The mark is
+  the role's dot, ""●"", in every case: what varies is
+  the colour, because a second geometric shape per role
+  would be a code the reader has to learn.
+
+  ""Dangerf"" is the ""<<error>>"" role WITHOUT a failure —
+  ""proveo clean"" removing an image, a credential
+  crossing a boundary. Red because it is destructive or
+  security-sensitive, ""●"" because nothing went wrong.
 end note
 
-note bottom of FANCY
-  **Plain is a degradation, never a second design.** The same call renders
-  ""✓ added /bin to PATH"" on a terminal and ""ok: added /bin to PATH"" elsewhere:
-  the icon is replaced by a word, never dropped, so a grep over a log finds the
-  same events a human read on screen. ""Iconf"" is the one exception — its icon
-  is decoration attached to an already-complete sentence, so plain mode drops
-  it rather than inventing a tag for it.
+note bottom of SEV
+  **Three severities: one-column glyph, theme colour.**
+  ""✓"" · ""⚠"" · ""×"" on the nerd tier, ""+"" · ""!"" · ""x"" on
+  ASCII, ""ok: "" · ""warn: "" · ""error: "" in plain — painted
+  <color:#009532>#009532</color> · <color:#818D00>#CBDB2A</color> · <color:#CB2000>#CB2000</color>, the identity's own
+  success green, attention lime and error red.
+
+  The green arrived with this pass. This package had
+  mirrored the six ROLE colours and no others, so the ok
+  mark was teal for want of a green, and a codebase with
+  no green in reach reaches for U+2705 instead — already
+  coloured, already the wrong width. The colour is the
+  fix; the glyph never needed to carry it.
+
+  The U+FE0F that used to ride the warn mark is gone:
+  go-runewidth measures the variation selector as one
+  column and terminals draw the pair as two, which is
+  the whole reason this stream could not wrap itself.
+end note
+
+note right of SEC
+  **A divider names the concern, and the concern is the
+  form's.** ""egress"", ""credentials"", ""execution"" and
+  ""interface"" are the choice prompt's own rows and
+  plane dividers, so an operator answers a question and
+  then reads what happened under the same heading.
+
+  Drawn by the first line that FOLLOWS it, never by the
+  call that declares it — a prelude is almost all
+  conditional lines, and a stage with nothing to say
+  must leave no heading behind. Re-declaring the current
+  heading continues its block, which is what lets
+  ""selectBackend"" add the sbx baseline warning to the
+  egress block the broker line opened.
+
+  A run's live phase carries its own four names —
+  ""starting"", ""secrets"", ""interface"", ""results"" — so
+  a second heading is a different moment rather than a
+  repeat, and every divider appears exactly once.
+end note
+
+note bottom of WRAP
+  **The text column is fixed at two, so continuations line
+  up under their own line.** A mark is one column plus a
+  space in every tier; ""Notef"" and every wrapped
+  continuation indent to that same column. The old
+  behaviour let the terminal break lines wherever it
+  liked, mid-word, at column zero.
 end note
 
 note bottom of STRIP
-  **The tee strips ANSI on the way to the log, not at the source.** Colour is
-  chosen once for the terminal; the log copy is sanitised as it is written, so
-  a run transcript stays greppable without the print sites having to know a
-  file is listening. See ""_spec/internal/runlog/run-transcript\.puml"".
+  **The tee strips ANSI on the way to the log, not at the
+  source.** Colour is chosen once for the terminal; the
+  log copy is sanitised as it is written, so the print
+  sites never learn a file is listening.
+
+  Plain is what makes that copy greppable, and only the
+  SEVERITY half degrades: ""✓"" becomes ""ok: "", so a
+  count of warnings in a transcript matches what a human
+  saw. A role's dot is DROPPED, because a role
+  classifies a layer rather than an event and there is
+  nothing there worth grepping for — which is what
+  Iconf's decoration did too, and the one thing about it
+  that was right.
+  See ""_spec/internal/runlog/run-transcript\.puml"".
 end note
 
 note bottom of DEF
-  **Status goes to stderr so stdout stays machine-clean.** A caller piping
-  ""proveo run --print"" gets argv and nothing else; the narration lands beside
-  it on the other stream.
+  **Status goes to stderr so stdout stays machine-clean.**
+  A caller piping ""proveo run --print"" gets argv and
+  nothing else; the narration lands beside it on the
+  other stream. ""Logf"" writes to the transcript only —
+  facts worth having when troubleshooting and too noisy
+  to print every run.
 end note
 
 @enduml
