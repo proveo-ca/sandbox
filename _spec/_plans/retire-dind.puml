@@ -42,7 +42,7 @@ component "sbx sandbox\na daemon per sandbox, behind a policy" as SBX <<app>>
 folder "what this costs, and to whom" as COST <<host>> {
   component "review tier\nneeds proveo's MITM; sbx has none" as REV <<error>>
   component "flow-level analytics\nflows.ndjson -> sbx policy log" as OBS <<error>>
-  component "chrome (host browser)\na sandbox VM cannot name the host" as CHR <<error>>
+  component "claude-in-chrome\nWORKS on sbx since 2026-09-03" as CHR <<app>>
 }
 
 GATE ARROW_MAIN DIND
@@ -51,7 +51,7 @@ CE ARROW_MAIN SBX
 DIND ARROW_ERROR SBX : deleted, not replaced
 SBX ARROW_ERROR REV
 SBX ARROW_ERROR OBS
-SBX ARROW_ERROR CHR
+SBX ARROW_MAIN CHR : no longer a cost
 
 note bottom of DIND
   **It is privileged, and it is reachable.** A
@@ -110,11 +110,11 @@ note top of OBS
 end note
 
 note bottom of CHR
-  **Chrome was already unreachable there.** The
-  bridge needs the docker bridge network to find
-  the host, which an sbx VM cannot name — so this
-  costs nothing new, but it does remove the last
-  backend on which the add-on could ever fire.
+  **No longer a cost.** The bridge was thought to
+  need the docker bridge network. Measured false:
+  host.docker.internal reaches the host's loopback
+  from inside a sandbox, so the add-on works there
+  and retiring docker takes nothing from it.
 end note
 
 note bottom of SBX

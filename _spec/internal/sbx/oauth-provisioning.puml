@@ -1,0 +1,157 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why a host OAuth credential cannot be provisioned into sbx, and the one remedy that can
+' covers: internal/sbx/run.go (AuthLoginArgs)
+' covers: internal/credentials/keychain.go (NeedsSandboxLogin, SandboxLoginHint)
+' covers: internal/run/run.go (reportSandboxLogin)
+'   what proveo can read ........ _spec/internal/secretref/secret-references.puml
+'   the credential path it joins . _spec/internal/sbx/credential-path.puml
+'   the exposure it does NOT close _spec/_plans/secret-custody.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── UPSTREAM, VERBATIM ─────────────────────────────────────────────────────
+' docs.docker.com/ai/sandboxes/security/credentials/ (read 2026-09-03):
+'   "there is no supported way to import an existing OAuth token"
+'   "You sign in on the host, and the proxy handles token refresh and routing."
+'   "Proxy-managed OAuth isn't supported for third-party sandbox agents,
+'    including kits that extend a built-in agent."
+' `sbx secret import --help` names the producer: services "that already have an
+' OAuth token configured (e.g. anthropic after `sbx run claude … -- auth login`)
+' are skipped".
+'
+' So the oauth slot has exactly one writer, and it is sbx itself, capturing an
+' in-sandbox sign-in at its proxy. proveo is a third-party kit extending a
+' built-in agent — the sentence above names that case directly.
+'
+' ── WHAT THIS MEANS FOR THE macOS KEYCHAIN ─────────────────────────────────
+' proveo CAN read the host Keychain, and does, on every darwin run. What it
+' reads is the subscription OAuth blob — the whole credential, access and
+' refresh tokens with both stamps. That is the right unit and the wrong
+' destination: there is no slot to put it in.
+'
+' Measured on this host: no API-key item exists either. `anthropic-api`,
+' `ANTHROPIC_API_KEY` and `anthropic` all return exit 44, "The specified item
+' could not be found in the keychain". So the Keychain holds exactly one
+' credential and sbx accepts exactly the other kind.
+'
+' The remedy is therefore not a better resolver. It is a sign-in performed
+' where sbx can see it, after which the token lives in sbx's own store — which
+' on darwin IS the login Keychain, service group com.docker.sandboxes. The
+' credential ends up in the same keychain either way; what differs is who owns
+' the entry, and only sbx's own entry is wired to its proxy.
+'
+' ── WHY proveo RENDERS THE ARGV AND DOES NOT RUN IT ────────────────────────
+' The sign-in needs a browser and a terminal. A run that launched the flow on
+' its own would hang waiting for a person who may not be there, and unattended
+' runs are the ones that most need a clear failure. So AuthLoginArgs builds the
+' command, NeedsSandboxLogin decides whether saying anything is warranted, and
+' the operator runs it once.
+'
+' NeedsSandboxLogin is a stack of reasons to stay SILENT, because the offer
+' costs a terminal: not the sbx backend, not a subscription harness, a usable
+' file login, something already in sbx's store, or an env credential carrying
+' the session — any one of those and proveo says nothing.
+'
+' ── AN UNVERIFIED FINDING, RECORDED RATHER THAN ACTED ON ───────────────────
+' proveo writes `sbx secret set --force <ENV_VAR_NAME>` — ANTHROPIC_API_KEY,
+' CLAUDE_CODE_OAUTH_TOKEN, CURSOR_API_KEY. sbx keys injection on SERVICE names
+' (anthropic, openai, …), and upstream says "Built-in agents declare a fixed
+' set of services. Custom kits can declare their own." proveo's Kit
+' deliberately declares none (credential-path.puml), so those entries match no
+' declaration and are probably never injected.
+'
+' Three things are measured, one is not:
+'   MEASURED  sbx validates nothing. `sbx secret set proveo-probe-not-a-service`
+'             stored happily, listed as TYPE "service".
+'   MEASURED  the built-in anthropic service declares apiKey.name
+'             ANTHROPIC_API_KEY — the env var is the FIELD, not the key.
+'   MEASURED  `set-custom` exists for credentials that "don't fit the
+'             service-identifier model", which is what an arbitrary name is.
+'   NOT MEASURED  whether the proxy injects such an entry. Proving it needs a
+'             run with the store holding only the mis-named entry, and this
+'             host's store also holds a working `anthropic` oauth credential —
+'             so the isolating test means removing the operator's own entry.
+'
+' NOT FIXED, deliberately. Correcting the name would make proveo's writes take
+' EFFECT, and upstream says "the API key takes precedence and OAuth acts as the
+' fallback" — so a correctly-named anthropic API key would displace a working
+' subscription login and bill per token. That is the exact failure
+' credential-path.puml already records. The fix belongs behind the auth row,
+' not in a rename.
+title sbx OAuth provisioning — one writer, and it is not proveo
+
+actor "operator" as OP
+
+node "host" as HOST <<host>> {
+  database "login Keychain\n""Claude Code-credentials"" — the whole blob" as KC <<db>>
+  component "proveo\nreads it, reports it, drops it" as PV <<app>>
+  database "sbx's own store\ncom.docker.sandboxes — the SAME keychain" as SBXSTORE <<db>>
+  component "sbx proxy\nholds the tokens, owns the refresh" as PROXY <<app>>
+}
+
+node "sandbox" as BOX <<app>> {
+  component "claude auth login\nthe one writer sbx recognises" as LOGIN <<app>>
+  component "the agent\nsees sentinels, never a token" as AGENT <<app>>
+}
+
+component "an API key written under an ENV VAR name\nmatches no service declaration" as MISNAMED <<error>>
+component "writing sbx's keychain entry directly\nundocumented, breaks on the next release" as DIRECT <<error>>
+
+KC ARROW_MAIN PV : read at RUN TIME
+PV ARROW_OPTIONAL OP : names what exists, and the argv that fixes it
+OP ARROW_MAIN LOGIN : ""sbx run claude <ws> -- auth login""
+LOGIN ARROW_MAIN PROXY : the proxy captures the exchange
+PROXY ARROW_MAIN SBXSTORE : stored host-side
+SBXSTORE ARROW_MAIN PROXY : read per request
+PROXY ARROW_MAIN AGENT : sentinels in, real tokens never
+PV ARROW_ERROR SBXSTORE : no import path — upstream, verbatim
+PV ARROW_ERROR MISNAMED : what proveo writes today
+PV ARROW_ERROR DIRECT : refused
+
+note bottom of KC
+  **The right unit, the wrong destination.**
+  The blob is the whole credential — both tokens,
+  both stamps — which is exactly what sbx's oauth
+  slot holds. There is simply no way to put it
+  there.
+end note
+
+note bottom of PV
+  **It renders the argv, never runs it.** The
+  sign-in needs a browser and a terminal, so a
+  run that started one would hang waiting for
+  somebody who may not be there.
+end note
+
+note top of PV
+  **And it says nothing five ways.** Not sbx, not
+  a subscription harness, a usable file login,
+  something already stored, or an env credential
+  carrying the session — any one and it is quiet.
+end note
+
+note bottom of SBXSTORE
+  **The same keychain, a different owner.** On
+  darwin sbx stores its secrets in the login
+  Keychain too. Only ITS entry is wired to the
+  proxy, which is why the credential has to
+  arrive through the sign-in.
+end note
+
+note bottom of MISNAMED
+  **Recorded, not fixed.** Renaming it would make
+  the write take effect — and an API key
+  outranks OAuth upstream, so a working
+  subscription would start billing per token.
+  The fix belongs behind the auth row.
+end note
+
+note bottom of DIRECT
+  **The one option that looks like a shortcut.**
+  Reverse-engineering ""docker/sandbox/default/
+  anthropic"" would fail silently the first time
+  sbx changed its storage shape, and fail on the
+  operator's next run rather than ours.
+end note
+@enduml

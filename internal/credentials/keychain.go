@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/secretref"
 )
 
@@ -267,4 +268,40 @@ func (k KeychainLogin) KeychainFailureAdvice() string {
 		detail = "no output"
 	}
 	return "host Keychain: could not read it — " + detail
+}
+
+// NeedsSandboxLogin reports whether this run has no credential the sbx backend
+// can use. Every clause below is a reason to stay silent.
+// SPEC: _spec/internal/sbx/oauth-provisioning.puml
+func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored []string, lookup func(string) string) bool {
+	if !sbxBackend || !man.Subscription || fileLogin {
+		return false
+	}
+	if len(StoreHolds(man, stored)) > 0 {
+		return false
+	}
+	for _, e := range man.Env {
+		if e.Secret && lookup != nil && strings.TrimSpace(lookup(e.Name)) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// SandboxLoginHint is what proveo says when the host store holds a login the
+// sandbox cannot reach. It names the credential that exists, so the operator is
+// not told to authenticate something they already did.
+func (k KeychainLogin) SandboxLoginHint(argv string) []string {
+	lines := []string{
+		"the sandbox has no credential of its own, and sbx's OAuth slot has no import path",
+	}
+	if k.Found && k.Usable {
+		lines = append(lines,
+			"  your host Keychain DOES hold a live login — it just cannot cross into the sandbox")
+	}
+	if argv != "" {
+		lines = append(lines, "  sign in once inside a sandbox; sbx's proxy keeps the token host-side:",
+			"      "+argv)
+	}
+	return lines
 }

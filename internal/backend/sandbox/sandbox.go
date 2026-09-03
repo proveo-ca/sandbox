@@ -500,20 +500,23 @@ type Input struct {
 	// CDPHostPort is the host loopback port the browser viewport is published on,
 	// chosen by the caller BEFORE launch so the URL can be printed up front and so
 	// --print renders the argv the run executes. Zero disables the viewport.
-	CDPHostPort      int
-	Extra            []string
-	Roles            provider.Roles
-	Bridges          provider.BridgeTable
-	Evidence         string // was params.evidenceOrDefault()
-	Forwards         bool   // was params.forwards()
-	Man              manifest.Manifest
-	Sid, EgDir       string
-	Mounts           []runner.Mount
-	Workdir          string
-	Lookup           func(string) string
-	Detected         []string
-	GitEnv           []string
-	HomeEnv          []string
+	CDPHostPort int
+	Extra       []string
+	Roles       provider.Roles
+	Bridges     provider.BridgeTable
+	Evidence    string // was params.evidenceOrDefault()
+	Forwards    bool   // was params.forwards()
+	Man         manifest.Manifest
+	Sid, EgDir  string
+	Mounts      []runner.Mount
+	Workdir     string
+	Lookup      func(string) string
+	Detected    []string
+	GitEnv      []string
+	HomeEnv     []string
+	// BridgeEnv names the host Claude in Chrome relay to the agent, through the
+	// Kit's env — the only route into a sandbox.
+	BridgeEnv        []string
 	ScopeRel         string
 	WorktreeFallback bool
 	WorktreeEnv      []string
@@ -651,6 +654,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
+	env = append(env, in.BridgeEnv...)
 	// The browser viewport. AGENT_BROWSER_ARGS travels as run environment rather
 	// than as an image default because sbx launches the agent through its own kit
 	// and never runs the entrypoint, so an export there reaches the docker backend

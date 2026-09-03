@@ -192,13 +192,11 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 					r.OffWhy[opt] = "needs egress open + credentials forward"
 				}
 			case addonChrome:
-				// A sandbox VM cannot name the host at all, so the sbx box and this one are
-				// exclusive, and re-gated on every toggle.
+				// The tier constraint is the DOCKER backend's; sbx no longer excludes this.
 				why := chromeWhy
 				switch {
 				case why != "":
-				case sandboxTicked:
-					why = "docker backend only — set PROVEO_SBX=0"
+				case sandboxTicked: // sbx: no tier gate, the tier is inert there
 				case !dind.ModeSupported(tier) || !dind.CredentialsSupported(creds):
 					why = "needs egress open + credentials forward"
 				}
@@ -228,14 +226,16 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 		}
 		return lookup(k)
 	}
+	// A blanked file only decides anything when the FILE was going to be the
+	// credential, so this is answered only when nothing in the env carries it.
+	if effective(chromebridge.EnvOAuthToken) == "" &&
+		effective(chromebridge.EnvOAuthTokenFD) == "" &&
+		credentials.LoginBlanked(target, homeRoot) {
+		return "the login in the proveo home is empty (macOS keeps it in the Keychain, " +
+			"which the container cannot read) — /login INSIDE the run to put one there"
+	}
 	if why := chromebridge.ScopeGate(effective, suppressed(chromebridge.EnvOAuthToken)); why != "" {
 		return why
-	}
-	// The container has no Keychain to fall back to, so a blanked file is no login
-	// in there however well `claude` works out here. ScopeGate cannot see this: it
-	// reasons about the session's SHAPE, and this shape classifies as nothing.
-	if credentials.LoginBlanked(target, homeRoot) {
-		return "the login in the proveo home is empty (macOS keeps it in the Keychain) — run /login once inside a proveo run"
 	}
 	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
 		return why
@@ -447,7 +447,7 @@ var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
-	addonChrome:  "your own Chrome, with your profile and logins, driven through proveo's bridge",
+	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 	addonDind:    "a privileged sibling Docker daemon; unticked: no daemon reaches the agent",
 }
@@ -467,7 +467,7 @@ func executionOptions(man manifest.Manifest) []string {
 }
 
 // interfaceOptions is WHAT the agent can drive. "browser" is a Chromium INSIDE
-// the sandbox (the -browser image variant); "chrome (host browser)" is the
+// the sandbox (the -browser image variant); the claude-in-chrome add-on is the
 // operator's own Chrome, reached through the Claude in Chrome bridge. Different
 // things, so both can be offered at once.
 func interfaceOptions(man manifest.Manifest) []string {

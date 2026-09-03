@@ -393,3 +393,70 @@ func TestKeychainNeverFeedsSuppression(t *testing.T) {
 		t.Error("the host store suppressed an API key")
 	}
 }
+
+// TestNeedsSandboxLogin: every clause is a reason to stay silent, because the
+// offer costs the operator a terminal and a browser.
+func TestNeedsSandboxLogin(t *testing.T) {
+	t.Parallel()
+	sub := manifest.Manifest{
+		Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+	}
+	none := func(string) string { return "" }
+	tests := []struct {
+		name      string
+		man       manifest.Manifest
+		sbx, file bool
+		stored    []string
+		lookup    func(string) string
+		want      bool
+	}{
+		{name: "sbx, subscription, nothing anywhere", man: sub, sbx: true, lookup: none, want: true},
+		{name: "docker backend has its own paths", man: sub, sbx: false, lookup: none},
+		{name: "a usable file login authenticates the run", man: sub, sbx: true, file: true, lookup: none},
+		{
+			name: "sbx's store already holds something",
+			man:  sub, sbx: true, stored: []string{"CLAUDE_CODE_OAUTH_TOKEN"}, lookup: none,
+		},
+		{
+			name: "an env credential carries the session",
+			man:  sub, sbx: true, lookup: func(k string) string {
+				if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+					return "sk-ant-oat01-x"
+				}
+				return ""
+			},
+		},
+		{
+			name: "a key-authenticated harness has a key path",
+			man:  manifest.Manifest{Env: sub.Env}, sbx: true, lookup: none,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := NeedsSandboxLogin(tc.man, tc.sbx, tc.file, tc.stored, tc.lookup)
+			if got != tc.want {
+				t.Errorf("NeedsSandboxLogin = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The hint must name the credential that DOES exist, or it tells an operator to
+// authenticate something they already did.
+func TestSandboxLoginHintNamesTheHostLogin(t *testing.T) {
+	t.Parallel()
+	live := KeychainLogin{Found: true, Usable: true, Service: "Claude Code-credentials"}
+	lines := strings.Join(live.SandboxLoginHint("sbx run claude /w -- auth login"), "\n")
+	for _, want := range []string{"no import path", "DOES hold a live login", "sbx run claude /w -- auth login"} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("hint %q lacks %q", lines, want)
+		}
+	}
+	// With nothing in the Keychain the reassurance must not be invented.
+	bare := strings.Join(KeychainLogin{}.SandboxLoginHint("sbx run claude /w -- auth login"), "\n")
+	if strings.Contains(bare, "DOES hold") {
+		t.Errorf("claimed a host login that was never found: %q", bare)
+	}
+}

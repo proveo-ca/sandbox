@@ -30,7 +30,7 @@ import (
 const (
 	// Addon is the picker label. Kept beside docker's "(sandbox)" / "(dind)"
 	// spelling so the row reads as one family of things the run can hand the agent.
-	Addon = "chrome (host browser)"
+	Addon = "claude-in-chrome"
 
 	// EnvAddr is what the container relay dials: host:port, from the container's
 	// point of view (host.docker.internal:<port> on the docker backend).
@@ -121,13 +121,14 @@ func ScopeGate(lookup func(string) string, hasPersistedLogin bool) string {
 			return EnvOAuthScopes + " names none of " + scopeList() + " — add one"
 		}
 		return EnvOAuthToken + " has no " + EnvOAuthScopes +
-			" — set it to " + strings.Join(BrowserScopes, "/") + ", or unset it and use /login"
+			" — set it to " + strings.Join(BrowserScopes, "/") +
+			", or /login INSIDE the run"
 	case get(EnvOAuthTokenFD) != "":
 		return "" // scope default carries user:ccr_inference
 	case hasPersistedLogin:
 		return "" // real /login scopes include user:profile
 	case get(EnvAPIKey) != "":
-		return EnvAPIKey + " is not an OAuth account — sign in with /login"
+		return EnvAPIKey + " is not an OAuth account — /login INSIDE the run"
 	}
 	return ""
 }

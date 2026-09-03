@@ -36,7 +36,57 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 '
 ' ── THE CREDENTIAL GATE, MIRRORED FROM CLAUDE CODE 2.1.258 ─────────────────
 ' Knobs: PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN, both set
-' by `proveo run` when the "chrome (host browser)" add-on is on.
+' by `proveo run` when the "claude-in-chrome" add-on is on.
+'
+' ── ENABLED ON sbx 2026-09-03. THE OLD PREMISE WAS FALSE ───────────────────
+' Every "a sandbox VM cannot name the host" claim below was FALSE for sbx 0.39.0
+' on darwin, and the exclusion that rested on it is gone.
+' Measured from inside a throwaway `sbx create shell` sandbox against a host
+' listener on 0.0.0.0:47713:
+'
+'   curl http://host.docker.internal:47713/            -> HOST-REACHED
+'   curl --noproxy '*' http://host.docker.internal/…   -> HOST-REACHED
+'   raw socket to host.docker.internal:47713           -> connected
+'   raw socket to the host's LAN IP 192.168.50.195     -> connected
+'
+' Inside, host.docker.internal resolves to fe80::1 and answers. The
+' --noproxy and raw-socket cases matter: they rule out proxy mediation, so a
+' plain TCP bridge — which is what internal/chromebridge is — has a path.
+'
+' LOOPBACK IS ENOUGH — the one result that corrected the plan. A first probe
+' used a 0.0.0.0 listener, which suggested the sbx path would need the wider
+' bind the Linux docker branch takes. Retested against a 127.0.0.1-ONLY
+' listener: host.docker.internal from inside the sandbox reaches the host's
+' LOOPBACK and answers. So BindAddr needs no change and nothing is exposed to
+' the LAN on either backend.
+'
+' ── WHAT ENABLING IT ACTUALLY TOOK ─────────────────────────────────────────
+'   the host half   ""startChromeBridge"" is now shared by both backends, with the
+'                   tier guard passed IN rather than hardcoded: that constraint
+'                   is the docker backend's, where a non-open tier parks the
+'                   agent behind a sidecar. sbx has no proveo sidecar and the
+'                   tier is inert there, so it passes "".
+'   the Kit env     ""sandbox.Input.BridgeEnv"" carries PROVEO_CHROME_BRIDGE and
+'                   the token into the Kit's env, which is the only way they
+'                   reach a sandbox.
+'   the container   ""proveo_seed"" starts the relay. sbx never runs the image
+'                   entrypoint, so the seed — its startup command — is the only
+'                   place it can come up. The entrypoint's own call was REMOVED:
+'                   both backends run the seed, so two callers meant two relays
+'                   on docker and Claude Code choosing a socket by mtime. A
+'                   PROVEO_CHROME_READY guard is the belt.
+'   the picker      the ""sandboxTicked"" exclusion is gone.
+'
+' THE SURVIVAL QUESTION, MEASURED. proveo_seed runs as the Kit's startup command
+' and EXITS, so a backgrounded relay has to outlive it. It does: setsid detaches
+' it, the process is reparented, and a SEPARATE later exec finds the socket
+' still listening. e2e/chrome_bridge_sbx_test.go asserts exactly that shape —
+' start in one exec, connect from another — plus the five hops end to end and
+' the token refusing an unauthenticated connection.
+'
+' Both chains pass: the docker twin in e2e/chrome_bridge_test.go and the sbx one
+' beside it. Note the image bakes entrypoint-lib.sh, so a seed change is inert
+' until `proveo build claudecode`.
 '
 ' ── WHY THE PICKER BOX AND THE SANDBOX BOX ARE EXCLUSIVE ───────────────────
 ' HostBridge is what makes host.docker.internal resolve to the REAL host
@@ -68,7 +118,8 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' The bridge is a TCP relay the agent reaches as host.docker.internal — which
 ' only the docker backend's bridge network resolves to the host, and only on the
 ' open+forward tier (every other tier parks the agent behind a sidecar with no
-' route out but the proxy). A sandbox VM cannot name the host at all, so the two
+' route out but the proxy). This USED to exclude sbx too — see the correction
+' at the top of this file; the two
 ' boxes exclude each other and are re-gated on every toggle.
 '
 ' The gate is read from the FORM rather than from the row in hand: the sandbox
@@ -135,7 +186,7 @@ node "Operator's machine" as HOSTM <<host>> {
   component "native messaging host\n""claude --chrome-native-host""" as NMH <<app>>
   database "LISTENS\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""" as HSOCK <<db>>
   component "proveo run — ""internal/chromebridge""\nTCP relay, per-run token" as RELAY <<app>>
-  component "picker add-on\n""chrome (host browser)"" — off by default" as PICK <<app>>
+  component "picker add-on\n""claude-in-chrome"" — off by default" as PICK <<app>>
 }
 
 node "Agent container (docker backend)" as CONT <<host>> {

@@ -245,7 +245,7 @@ Preconditions, each named in the picker when it fails:
   and the one shape that really is refused. `ANTHROPIC_API_KEY` is fatal only on its own; it
   does not displace a login. The check runs before `--chrome`, so no flag overrides it.
 - `--egress-mode open --credentials forward` and the docker backend: the bridge network is
-  the only one with a route to the host, and a sandbox VM cannot reach it (Docker Sandboxes
+  the docker path; the sandbox reaches the host through host.docker.internal (measured,
   proxies every outbound TCP). claudecode declares `docker: sbx`, so it runs in the sandbox
   and the picker greys this add-on on every run — reach the docker backend with `PROVEO_SBX=0`
   (or `--egress-mode review`, which has no sbx transport either) if you want the bridge.

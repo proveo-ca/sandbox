@@ -67,6 +67,42 @@
 ' what makes a greyed box's explanation readable: it is the one whose reason the
 ' operator most needs, and it was the one option the cursor could never reach.
 '
+' ── A LOCKED ROW IS HOVERABLE, AND Hover IS WHY ────────────────────────────
+' A locked row reports a fact the operator cannot change, and its OPTIONS are
+' the only statement of what that fact implies — what allow-all admits that
+' deny-all does not. The cursor used to skip the row entirely, so those
+' sentences existed and could not be read.
+'
+' Hover is a separate index from Selected, and the separation is the whole
+' mechanism: on a locked row Selected is a FACT being shown, so moving it would
+' rewrite the answer while pretending to explain it. The arrows move Hover,
+' nothing reports as changed, and Selection() returns the baseline untouched.
+'
+' `move` admits a locked row; `firstSelectable` still does not. The first thing
+' the operator meets should be something they can answer.
+'
+' The UNDERLINE is the cursor mark and must survive the unavailable style, so it
+' is applied after it — which also fixes an off option the cursor legitimately
+' rests on in a MULTI row, where the warn style used to erase it.
+'
+' ── THE REASON HAS ONE HOME, AND IT IS THE HELP BLOCK ──────────────────────
+' It is no longer drawn on the row at all. Inline it trailed the options clipped
+' to whatever width was left, which is how the locked sbx egress row's runnable
+' command — the one statement of how to change a host-wide baseline — came to
+' exist nowhere in full.
+'
+' The block wraps instead of clipping, and the cursor can now reach every row
+' that has a reason, locked ones included. A locked row always states its
+' reason there; any other row shows the hovered option's OffWhy, falling back to
+' the row's reason when that option had nothing of its own to say — so hovering
+' never shows LESS than the inline copy did.
+'
+' Three things fell out. ""anyOff"" lost its only caller and is gone. The width
+' budget no longer reserves for the reason, so ""rightEdge"" is the label and the
+' options and nothing else, and the pane's breakpoint stops depending on how
+' long a sentence is. And the pane can no longer clip a fact, because there is
+' no fact on the row to clip — which retires the constraint that shaped it.
+'
 ' ON A SCREEN TOO SMALL TO DRAW THE FORM, ONLY LEAVING IS ALLOWED. This prompt
 ' exists to confirm a credential and network posture, and silently CHANGING a
 ' posture nobody can see is worse than the truncation the viewport replaced —

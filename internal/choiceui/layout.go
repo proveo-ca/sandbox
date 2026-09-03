@@ -54,6 +54,7 @@ func (f *Form) maxHelpLines(width int) int {
 			for _, on := range []bool{false, true} {
 				probe := r
 				probe.Selected = j
+				probe.Hover = j
 				probe.On = append(append([]bool(nil), r.On...), make([]bool, len(r.Options))...)[:len(r.Options)]
 				probe.On[j] = on
 				if n := len(probe.helpLines(width)); n > most {
@@ -65,9 +66,14 @@ func (f *Form) maxHelpLines(width int) int {
 	return most
 }
 
-// layout runs the height ladder, first asking the one question the ladder
-// cannot: whether the figure can be had for nothing. The pane is not a rung.
+// layout runs the height ladder. The pane is not a rung and not a preference:
+// it is the FALLBACK for a terminal the block figure will not fit in.
 func (f *Form) layout(w, h int) layout {
+	// The full figure first, priced against the height budget.
+	if lay := f.ladder(w, h, true); lay.strip == stripBlock {
+		return lay
+	}
+	// It did not fit; the pane costs no height, so it can still carry one.
 	if col := f.paneOrigin(w); col >= 0 {
 		if lay := f.ladder(w, h, false); !lay.tooSmall && lay.body >= paneRows {
 			lay.strip, lay.pane = stripPane, col
@@ -152,10 +158,6 @@ func (r *Row) rightEdge() int {
 	}
 	if opts > x {
 		x = opts
-	}
-	// The inline reason IN FULL, never clipped to a floor.
-	if r.Reason != "" && (r.Locked || r.anyOff()) {
-		x += len("— ") + len(r.Reason)
 	}
 	return x
 }

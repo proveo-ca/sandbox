@@ -109,7 +109,7 @@ type Capabilities struct {
 	Hosts       []string `yaml:"hosts"`
 	// HostBrowser names the integration through which the agent can drive the
 	// OPERATOR's browser (claude-in-chrome). It is what makes `proveo run` offer
-	// the "chrome (host browser)" add-on; a harness without one is never offered
+	// the "claude-in-chrome" add-on; a harness without one is
 	// a bridge it has no client for. See _spec/defs/claudecode/chrome-bridge.puml.
 	HostBrowser string `yaml:"hostBrowser"`
 }

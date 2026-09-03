@@ -137,8 +137,20 @@ func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
 	if strings.Contains(lib, `j.claudeInChromeDefaultEnabled = true`) {
 		t.Error("claudeInChromeDefaultEnabled must not be persisted into the operator's ~/.claude.json (see proveo_chrome_bridge)")
 	}
+	// The relay is started by proveo_seed, which BOTH backends run — sbx never
+	// reaches the image entrypoint, so the seed is the only place it can come up
+	// on that path. One caller, and the guard below keeps it one relay.
+	if !strings.Contains(lib, `proveo_chrome_bridge "$target"`) {
+		t.Error("proveo_seed must start the bridge, or the sbx backend never gets one")
+	}
+	if !strings.Contains(lib, `if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then`) {
+		t.Error("proveo_chrome_bridge must be idempotent: two relays leave Claude Code choosing by mtime")
+	}
 	ep := readRepoFile(t, "defs/claudecode/mcp/entrypoint.sh")
-	for _, want := range []string{"proveo_chrome_bridge claudecode", `CLAUDE_CHROME_ARGS=(--chrome)`, `"${CLAUDE_CHROME_ARGS[@]}"`} {
+	if strings.Contains(ep, "proveo_chrome_bridge claudecode") {
+		t.Error("the entrypoint must NOT start the bridge as well — proveo_seed owns it")
+	}
+	for _, want := range []string{`CLAUDE_CHROME_ARGS=(--chrome)`, `"${CLAUDE_CHROME_ARGS[@]}"`} {
 		if !strings.Contains(ep, want) {
 			t.Errorf("claudecode entrypoint lacks %q", want)
 		}

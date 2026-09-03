@@ -310,6 +310,44 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// startChromeBridge holds a host relay open for the life of the run and returns
+// the env pairs that name it to the agent. Skipped and SAID, never fatal.
+// tierBlocked is the caller's: that constraint is the docker backend's.
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
+func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
+	if !hasAddon(p.Addons, addonChrome) {
+		return nil, nil
+	}
+	switch {
+	case p.PrintOnly:
+		ui.Iconf("🧭", "%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
+			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
+		return nil, nil
+	case tierBlocked != "":
+		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
+		return nil, nil
+	}
+	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
+		ui.Warnf("%s: skipped — %s", addonChrome, why)
+		return nil, nil
+	}
+	// Loopback, on every host. host.docker.internal from inside a sandbox lands
+	// on the host's loopback, so nothing has to be exposed to the LAN for the sbx
+	// backend either — measured 2026-09-03 against a 127.0.0.1-only listener.
+	r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
+	if err != nil {
+		ui.Warnf("%s: skipped — %v", addonChrome, err)
+		return nil, nil
+	}
+	if err := r.SetTokenEnv(); err != nil {
+		ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
+	}
+	ui.Iconf("🧭", "chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
+		"The agent gets your logged-in sessions; site permissions stay the extension's",
+		r.Addr(), chromebridge.HostSocketDir())
+	return r, r.Env()
+}
+
 // hostStoreResolver reads the host secret store: one bounded exec, announced
 // before it can block.
 func hostStoreResolver() *secretref.Resolver {
@@ -318,6 +356,25 @@ func hostStoreResolver() *secretref.Resolver {
 		Announce: func(string) {
 			ui.Iconf("🔐", "reading the host secret store — approve the prompt if one appears")
 		},
+	}
+}
+
+// reportSandboxLogin names the one remedy that works when the sbx backend has no
+// credential of its own. It renders the argv rather than running it.
+// SPEC: _spec/internal/sbx/oauth-provisioning.puml
+func reportSandboxLogin(rs *Spec, p *Params) {
+	if !credentials.NeedsSandboxLogin(rs.Man, p.willSandbox(rs.Man),
+		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
+		return
+	}
+	argv := ""
+	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(p.Target), rs.Workspace.WS.InputDir); a != nil {
+		argv = sbx.Binary + " " + strings.Join(a, " ")
+	}
+	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
+	ui.Iconf("🔑", "%s", lines[0])
+	for _, l := range lines[1:] {
+		ui.Notef("%s", l)
 	}
 }
 
@@ -353,6 +410,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 		rs.Creds.Keychain = credentials.ReadKeychainLogin(
 			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
 		reportKeychain(rs.Creds.Keychain, p.willSandbox(rs.Man), rs.Creds.FileLogin)
+		reportSandboxLogin(rs, p)
 	}
 	// The agent renews a stale access token itself, but its FIRST turn reports
 	// "Login expired · Please run /login" while it does — which reads as a dead
@@ -439,6 +497,12 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
+	}
+	// A vendor-locked slot that refuses a model must SAY so. Left silent, the slot
+	// stays unset and the agent runs on its own built-in default — a working run on
+	// a model the operator did not choose.
+	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
+		ui.Warnf("%s", r.Reason())
 	}
 	// ONE value, rendered twice — see internal/posture. The rows used to be
 	// assembled here and the header assembled elsewhere, which is how the two
@@ -692,6 +756,12 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if browserOn && !p.PrintOnly {
 			cdpPort = sandbox.FreeLoopbackPort()
 		}
+		// No tier guard on this backend: the egress tier is inert here, and a
+		// sandbox reaches the host's loopback on every baseline.
+		sbxBridge, sbxBridgeEnv := startChromeBridge(rs, p, "")
+		if sbxBridge != nil {
+			defer func() { _ = sbxBridge.Close() }()
+		}
 		in := sandbox.Input{
 			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
@@ -706,6 +776,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Detected:         rs.Creds.Detected,
 			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
 			HomeEnv:          rs.Creds.HomePlan.Env,
+			BridgeEnv:        sbxBridgeEnv,
 			ScopeRel:         rs.Workspace.WS.ScopeRel(),
 			WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
 			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
@@ -809,32 +880,15 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	// host for the life of the run, named to the agent by environment. Skipped —
 	// and said so — rather than failed: the add-on is a convenience over the run,
 	// and the run must not die because Chrome was closed after the prompt.
-	var bridge *chromebridge.Relay
-	if hasAddon(p.Addons, addonChrome) {
-		switch {
-		case p.PrintOnly:
-			ui.Iconf("🧭", "%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)", addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
-		case !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()):
-			ui.Warnf("%s: skipped — needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)", addonChrome)
-		default:
-			if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
-				ui.Warnf("%s: skipped — %s", addonChrome, why)
-				break
-			}
-			r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
-			if err != nil {
-				ui.Warnf("%s: skipped — %v", addonChrome, err)
-				break
-			}
-			bridge = r
-			defer func() { _ = bridge.Close() }()
-			if err := bridge.SetTokenEnv(); err != nil {
-				ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
-			}
-			rs.Creds.Env = append(rs.Creds.Env, bridge.Env()...)
-			ui.Iconf("🧭", "chrome: Claude in Chrome through YOUR browser — host relay %s → %s. The agent gets your logged-in sessions; site permissions stay the extension's", bridge.Addr(), chromebridge.HostSocketDir())
-		}
+	tierBlocked := ""
+	if !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()) {
+		tierBlocked = "needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)"
 	}
+	bridge, bridgeEnv := startChromeBridge(rs, p, tierBlocked)
+	if bridge != nil {
+		defer func() { _ = bridge.Close() }()
+	}
+	rs.Creds.Env = append(rs.Creds.Env, bridgeEnv...)
 
 	consent, reviewProxy := reviewConsent(p.Mode)
 	reviewGate, stopReview := dockeregress.StartReviewGate(p.Mode, rs.EgDir, consent)

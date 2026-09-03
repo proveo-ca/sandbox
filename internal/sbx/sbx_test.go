@@ -1057,3 +1057,21 @@ func TestCreateArgsIsRunArgsWithoutAttaching(t *testing.T) {
 		t.Error("CreateArgs mutated the shared config and broke RunArgs")
 	}
 }
+
+// AuthLoginArgs is sbx's own documented producer for its oauth slot; nothing
+// else populates it, so the argv has to match what sbx accepts.
+func TestAuthLoginArgs(t *testing.T) {
+	t.Parallel()
+	got := AuthLoginArgs("claude", "/w")
+	want := []string{"run", "claude", "/w", "--", "auth", "login"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("AuthLoginArgs = %v, want %v", got, want)
+	}
+	// An agent with no known sign-in, and the two empty shapes, render nothing
+	// rather than a command that would fail in front of the operator.
+	for _, tc := range [][2]string{{"cursor", "/w"}, {"", "/w"}, {"claude", ""}} {
+		if a := AuthLoginArgs(tc[0], tc[1]); a != nil {
+			t.Errorf("AuthLoginArgs(%q, %q) = %v, want nil", tc[0], tc[1], a)
+		}
+	}
+}

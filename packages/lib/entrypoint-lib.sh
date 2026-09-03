@@ -357,6 +357,22 @@ _normalize_model() {
  esac
 }
 
+# _model_provider prints the provider a model id belongs to, or nothing when it
+# cannot be resolved. Built on _normalize_model so the prefix table lives in ONE
+# place in this file; internal/contract pins it against provider.ModelProvider.
+_model_provider() {
+ local n
+ n="$(_normalize_model "$1")"
+ case "$n" in
+ # Local and shim endpoints serve arbitrary ids, so their prefix classifies
+ # nothing. ModelProvider returns "" for exactly these three, and the two must
+ # agree — internal/contract runs one table through both.
+ ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
+ */*) printf '%s' "${n%%/*}" ;;
+ *) printf '' ;;
+ esac
+}
+
 _apply_env_bridge() {
  local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
  printenv "$to" >/dev/null 2>&1 && return 0
@@ -387,8 +403,8 @@ apply_env_bridges() {
 # Shell has to be the executor: proveo-entrypoint prep cannot export into its parent
 # (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
 _apply_model_bridge() {
- local targets="$1" roles="$2" default="$3" transform="$4"
- local val="" r t
+ local targets="$1" roles="$2" default="$3" transform="$4" want="$5"
+ local val="" r t got
  local -a role_list target_list
  IFS=',' read -ra role_list <<< "$roles"
  for r in "${role_list[@]}"; do
@@ -402,6 +418,16 @@ _apply_model_bridge() {
   esac
  fi
  [[ -n "$val" ]] || return 0
+ # A vendor-locked slot refuses a model from another provider, BEFORE the
+ # transform. An unresolvable provider is accepted.
+ # SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
+ if [[ -n "$want" && "$want" != "-" ]]; then
+  got="$(_model_provider "$val")"
+  if [[ -n "$got" && "$got" != "$want" ]]; then
+   echo "⚠️  model: $targets takes models from $want only — refusing $val, which resolves to $got. The slot is left unset, so the agent falls back to its own default; name a model from $want, or run a harness that accepts $got." >&2
+   return 0
+  fi
+ fi
  case "$transform" in
  normalize) val="$(_normalize_model "$val")" ;;
  bare) val="${val##*/}" ;;
@@ -418,11 +444,11 @@ apply_model_bridges() {
  local harness="$1"
  local file="${PROVEO_BRIDGES_DIR:-/opt/proveo/bridges}/$harness.tsv"
  [[ -f "$file" ]] || return 0
- local slot targets roles default transform
+ local slot targets roles default transform want
  # Row order is load-bearing: a "$VAR" default must run after the row that sets VAR.
- while IFS=$'\t' read -r slot targets roles default transform; do
+ while IFS=$'\t' read -r slot targets roles default transform want; do
   [[ -n "$slot" && "$slot" != \#* ]] || continue
-  _apply_model_bridge "$targets" "$roles" "$default" "$transform"
+  _apply_model_bridge "$targets" "$roles" "$default" "$transform" "$want"
  done < "$file"
 }
 
@@ -1576,7 +1602,7 @@ proveo_enable_claude_lsp_plugins() {
 # ── 7j. Browser layer — the agent-browser skill, and the Claude in Chrome bridge ──
 # SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
 # Knobs: PROVEO_BROWSER_SKILL=off · PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN
-#        (both set by `proveo run` when the "chrome (host browser)" add-on is on).
+#        (both set by `proveo run` when the claude-in-chrome add-on is on).
 # Gated on the BINARY, not the image name.
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
@@ -1652,6 +1678,11 @@ proveo_chrome_bridge() {
     return 0
   fi
   command -v node >/dev/null 2>&1 || return 0
+  # Once per container: the seed owns the call, and a second relay would leave
+  # Claude Code choosing between two sockets by mtime.
+  if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then
+    return 0
+  fi
   if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
     echo "⚠️  chrome: $PROVEO_CHROME_BRIDGE_JS is not in this image; Claude in Chrome stays off" >&2
     return 0
@@ -2405,4 +2436,9 @@ proveo_seed() {
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_seed_browser_skills "$target"
+
+ # The Claude in Chrome bridge. Started HERE because sbx never runs the image
+ # entrypoint and the seed is its startup command. No-op without
+ # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_chrome_bridge "$target"
 }

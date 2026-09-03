@@ -475,10 +475,13 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 
+	// A ticked sandbox no longer excludes it: a sandbox reaches the host's
+	// loopback through host.docker.internal on every baseline, so the bridge has
+	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
 	f = row(true)
 	gateAddons(f, "open", "forward", "", "")
-	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "PROVEO_SBX=0") {
-		t.Errorf("a ticked sandbox must grey the host browser: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
+		t.Errorf("a ticked sandbox must leave the bridge available: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 	// The escape the reason names is the env var, not the checkbox: an available
 	// sandbox is greyed AND ticked, so there is no box left to untick.
@@ -486,13 +489,18 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 		t.Errorf("the sandbox box itself must be greyed and ticked: off=%v on=%v", sb.Off, sb.On)
 	}
 
+	// The tier gate is the DOCKER backend's, so it only applies with no sandbox:
+	// there an intercepting tier puts the agent behind a sidecar with no route out.
 	f = row(false)
 	gateAddons(f, "allowlist", "forward", "no sbx", "")
-	// sbxWhy != "" above is a host that cannot run sbx at all — the only way the
-	// box is unticked. With sbx available the box is force-ticked by this very
-	// call, and the host browser must be excluded on that same pass.
 	if c := chrome(f); !c.Off[0] || !strings.Contains(c.Reason, "egress open + credentials forward") {
-		t.Errorf("an intercepting tier must grey the host browser: off=%v reason=%q", c.Off, c.Reason)
+		t.Errorf("an intercepting tier must grey the host browser on docker: off=%v reason=%q", c.Off, c.Reason)
+	}
+	// ...and NOT on sbx, where the tier is inert.
+	f = row(true)
+	gateAddons(f, "allowlist", "forward", "", "")
+	if c := chrome(f); c.Off[0] || !c.On[0] {
+		t.Errorf("an intercepting tier must not gate the bridge on sbx: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 
 	f = row(false)
@@ -609,8 +617,8 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
 			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
 		}
-		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] {
-			t.Errorf("%s: a sandboxed run must grey and untick the host browser, got off=%v on=%v",
+		if c := tc.f.Rows[1]; c.Off[0] || !c.On[0] {
+			t.Errorf("%s: a sandboxed run must leave the bridge available, got off=%v on=%v",
 				tc.name, c.Off, c.On)
 		}
 	}
@@ -1034,5 +1042,62 @@ func TestChromeGateWarnsAboutABlankedLogin(t *testing.T) {
 	}
 	if why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home); strings.Contains(why, "Keychain") {
 		t.Errorf("a usable login must not be reported as blanked: %q", why)
+	}
+}
+
+// blankedHome writes the macOS husk: tokens cleared, stamps intact.
+func blankedHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	husk := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`,
+		time.Now().Add(20*24*time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(husk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// A husk decides nothing when an env token is carrying the session: the token's
+// scopes are the whole answer, and greying the box over the file refused a
+// bridge that works.
+func TestChromeGateIgnoresABlankedHomeWhenTheEnvTokenCarriesTheSession(t *testing.T) {
+	t.Parallel()
+	home := blankedHome(t)
+	scoped := func(k string) string {
+		switch k {
+		case "CLAUDE_CODE_OAUTH_TOKEN":
+			return "sk-ant-oat01-x"
+		case "CLAUDE_CODE_OAUTH_SCOPES":
+			return "user:inference user:profile"
+		}
+		return ""
+	}
+	if why := chromeUnavailable(claudecodeMan(), scoped, "", "claudecode", home); strings.Contains(why, "Keychain") {
+		t.Errorf("a well-scoped env token carries the session; the husk is irrelevant: %q", why)
+	}
+}
+
+// The remedy has to name WHERE. On macOS `/login` on the HOST writes to the
+// Keychain, which the container cannot read — so following that advice leaves
+// the operator with no credential of any kind.
+func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
+	t.Parallel()
+	unscoped := func(k string) string {
+		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
+			return "sk-ant-oat01-x"
+		}
+		return ""
+	}
+	for _, home := range []string{blankedHome(t), t.TempDir()} {
+		why := chromeUnavailable(claudecodeMan(), unscoped, "", "claudecode", home)
+		if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
+			t.Fatalf("an unscoped env token must be named: %q", why)
+		}
+		if !strings.Contains(why, "INSIDE the run") {
+			t.Errorf("the remedy must say where /login has to happen: %q", why)
+		}
 	}
 }

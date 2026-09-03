@@ -102,7 +102,7 @@ func TestSingleSelectRowsCycleAndReportSelection(t *testing.T) {
 	}
 }
 
-func TestLockedRowIsSkippedAndCannotChange(t *testing.T) {
+func TestLockedRowNeverStartsTheCursorAndCannotChange(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open"}, Locked: true, Reason: "only tier"},
@@ -115,8 +115,9 @@ func TestLockedRowIsSkippedAndCannotChange(t *testing.T) {
 	if got := f.Selection("egress"); got != "open" {
 		t.Errorf("a locked row must not change, got %q", got)
 	}
-	if !strings.Contains(joined(t, f), "only tier") {
-		t.Error("a locked row must render its reason rather than hide the row")
+	// The reason lives in the help block, reachable because the row is hoverable.
+	if !strings.Contains(strings.Join(renderAt(t, f, 0, 120, 30), "\n"), "only tier") {
+		t.Error("hovering a locked row must reveal its reason rather than hide the row")
 	}
 }
 
@@ -525,14 +526,14 @@ func TestHelpIsDrawnForTheCursorRowAlone(t *testing.T) {
 func TestGreyedOptionExplainsItselfUnderTheRow(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
-		Label: "add-ons", Options: []string{"chrome (host browser)"}, Multi: true,
+		Label: "add-ons", Options: []string{"claude-in-chrome"}, Multi: true,
 		On: []bool{false}, Off: []bool{true},
-		Help:   map[string]string{"chrome (host browser)": "your own Chrome, driven through proveo's bridge"},
-		OffWhy: map[string]string{"chrome (host browser)": "Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions"},
+		Help:   map[string]string{"claude-in-chrome": "your own Chrome, driven through proveo's bridge"},
+		OffWhy: map[string]string{"claude-in-chrome": "Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions"},
 	}}}
 	got := joined(t, f)
 	for _, want := range []string{
-		"› chrome (host browser) — your own Chrome, driven through proveo's bridge",
+		"› claude-in-chrome — your own Chrome, driven through proveo's bridge",
 		"off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions",
 	} {
 		if !strings.Contains(got, want) {
@@ -541,17 +542,21 @@ func TestGreyedOptionExplainsItselfUnderTheRow(t *testing.T) {
 	}
 }
 
-// tcell drops runes past the last column in silence, so an over-long reason
-// stopped mid-word with nothing saying it had been cut.
-func TestOverlongReasonIsMarkedAsTruncated(t *testing.T) {
+// A long reason is WRAPPED in the help block, never clipped on the row: it is
+// not drawn on the row at all any more.
+func TestOverlongReasonWrapsInTheHelpBlock(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("reason ", 40)
 	f := &Form{Rows: []Row{{
 		Label: "add-ons", Options: []string{"a"}, Multi: true,
 		On: []bool{false}, Off: []bool{true}, Reason: long,
 	}}}
-	if !strings.Contains(joined(t, f), "…") {
-		t.Errorf("a clipped reason must say so\n--- rendered ---\n%s", joined(t, f))
+	out := joined(t, f)
+	if strings.Contains(out, "…") {
+		t.Errorf("nothing on the row should be clipped any more\n--- rendered ---\n%s", out)
+	}
+	if n := len(f.Rows[0].helpLines(60)); n < 4 {
+		t.Errorf("a long reason must wrap in the block, got %d lines", n)
 	}
 	if got := clip("abcdef", 4); got != "abc…" {
 		t.Errorf("clip(abcdef, 4) = %q, want abc…", got)

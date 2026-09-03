@@ -241,7 +241,9 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	pn := newPen(s, colHost, y0+2)
 	pn.write(keyStyle(fr, KeyAtHost, on), keyIf(g, fr, KeyAtHost))
 	pn.write(on(FocusNone), g.node).write(dim, " ")
-	pn.write(dim, strings.Repeat(g.spine, boxL-pn.col()))
+	// The columns are held open, not drawn: the bottom bracket already says the
+	// host reaches the square, so a rule here restated it.
+	pn.padTo(boxL)
 	say := g.quiet
 	if fr.Speaking {
 		say = g.speaking
@@ -254,7 +256,10 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		// rather than closed up, so the figure does not shift between tiers.
 		spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-2))
 	} else {
-		spine.write(dim, strings.Repeat(g.lane(fr.Lane), colHop-boxR-1))
+		// Solid INTO the hop whatever the tier: the agent's traffic always reaches
+		// it. What the hop then DOES to that traffic is the lane kind, and it is
+		// drawn on the far side — on the run to the fan, and on the lanes.
+		spine.write(dim, strings.Repeat(g.screened, colHop-boxR-1))
 		spine.padTo(colHop).write(on(FocusHop), g.node)
 		// ...and on to the fan, but only when there ARE lanes: a rule to an empty
 		// margin would draw the route the tier is withholding.

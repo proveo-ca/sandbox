@@ -21,6 +21,9 @@ type Bridge struct {
 	Roles     []string // fallback chain, first non-empty wins
 	Default   string   // literal, "$OTHER" to copy a target, or "" for none
 	Transform string   // "normalize", "bare", or ""
+	// Provider vendor-locks the slot: only a model resolving to it may be
+	// assigned. Empty takes any provider. Declared, never derived.
+	Provider string
 }
 
 // Slot is one model assignment a harness actually reads. Harnesses do not agree on
@@ -74,8 +77,8 @@ func parseBridges(src string) ([]Bridge, error) {
 			continue
 		}
 		f := strings.Split(text, "\t")
-		if len(f) != 5 {
-			return nil, fmt.Errorf("line %d: want 5 tab-separated columns, got %d", line, len(f))
+		if len(f) != 6 {
+			return nil, fmt.Errorf("line %d: want 6 tab-separated columns, got %d", line, len(f))
 		}
 		b := Bridge{Slot: f[0], Targets: splitList(f[1]), Roles: splitList(f[2])}
 		if f[3] != "-" {
@@ -83,6 +86,9 @@ func parseBridges(src string) ([]Bridge, error) {
 		}
 		if f[4] != "-" {
 			b.Transform = f[4]
+		}
+		if f[5] != "-" {
+			b.Provider = f[5]
 		}
 		if len(b.Targets) == 0 || len(b.Roles) == 0 {
 			return nil, fmt.Errorf("line %d: targets and roles are both required", line)
@@ -136,13 +142,67 @@ func (t BridgeTable) EffectiveSlots(harness string, r Roles) []Slot {
 			continue // internal back-fill, never shown
 		}
 		for _, role := range row.Roles {
-			if v := r[role]; v != "" {
-				out = append(out, Slot{Name: row.Slot, Role: role, Model: applyTransform(row.Transform, v)})
-				break
+			v := r[role]
+			if v == "" {
+				continue
 			}
+			// Refused, not shown: the header states what the run will use, and a
+			// slot the bridge will not fill is not an assignment.
+			if row.Accepts(v) {
+				out = append(out, Slot{Name: row.Slot, Role: role, Model: applyTransform(row.Transform, v)})
+			}
+			break
 		}
 	}
 	return out
+}
+
+// Accepts reports whether model may fill this slot. An unresolvable provider is
+// accepted — local and shim endpoints serve arbitrary ids.
+func (b Bridge) Accepts(model string) bool {
+	if b.Provider == "" || strings.TrimSpace(model) == "" {
+		return true
+	}
+	got := ModelProvider(model)
+	return got == "" || got == b.Provider
+}
+
+// RefusedSlots names the assignments a harness's table will NOT make, and why —
+// reported, never merely applied.
+func (t BridgeTable) RefusedSlots(harness string, r Roles) []Refusal {
+	var out []Refusal
+	for _, row := range t[harness] {
+		for _, role := range row.Roles {
+			v := r[role]
+			if v == "" {
+				continue
+			}
+			if !row.Accepts(v) {
+				out = append(out, Refusal{
+					Slot: row.Slot, Role: role, Model: v,
+					Want: row.Provider, Got: ModelProvider(v),
+					Targets: append([]string(nil), row.Targets...),
+				})
+			}
+			break // the first non-empty role wins, refused or not
+		}
+	}
+	return out
+}
+
+// Refusal is one assignment a vendor-locked slot would not take.
+type Refusal struct {
+	Slot, Role, Model string
+	Want, Got         string
+	Targets           []string
+}
+
+// Reason is the one line proveo prints, naming the variable, the vendor it takes
+// and the vendor it was handed.
+func (r Refusal) Reason() string {
+	return fmt.Sprintf("%s=%s resolves to %s, and %s takes models from %s only — the slot is left "+
+		"unset, so the agent falls back to its own default",
+		r.Role, r.Model, r.Got, strings.Join(r.Targets, "/"), r.Want)
 }
 
 // applyTransform mirrors the shell so the header shows the value the harness will
@@ -181,7 +241,7 @@ func (t BridgeTable) ResolvedEnv(harness string, r Roles) map[string]string {
 				break
 			}
 		}
-		if val == "" {
+		if val == "" || !row.Accepts(val) {
 			continue
 		}
 		val = applyTransform(row.Transform, val)

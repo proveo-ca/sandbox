@@ -155,6 +155,9 @@ func lastPaintedCol(s tcell.SimulationScreen) []int {
 // blockWidth the widest at which it still draws the block. Derived for the same
 // reason scrollingHeight is: the breakpoint is a property of the form's own
 // rows, and a literal would only record whatever the columns were that day.
+// paneHeight is too short for the block figure and tall enough for the pane.
+const paneHeight = 18
+
 func paneWidth(f *Form) int  { return f.bodyRight() + paneGutter + paneCols.width }
 func blockWidth(f *Form) int { return paneWidth(f) - 1 }
 
@@ -240,14 +243,15 @@ func TestThePaneCostsNoHeight(t *testing.T) {
 	}
 }
 
-// Widening a terminal never takes the figure away.
+// Widening a terminal never takes the figure away. Swept at paneHeight, where
+// the block does not fit and the pane is therefore the outcome.
 func TestThePaneIsMonotonicInWidth(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
-	prev := f.layout(60, 40)
+	prev := f.layout(60, paneHeight)
 	reached := false
 	for w := 61; w <= 260; w++ {
-		lay := f.layout(w, 40)
+		lay := f.layout(w, paneHeight)
 		if prev.strip > lay.strip {
 			t.Errorf("w=%d: the figure shrank when the terminal WIDENED (%v -> %v)",
 				w, prev.strip, lay.strip)
@@ -302,27 +306,32 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	}
 }
 
-// The pane may never cost a FACT: the locked sbx egress row's inline hint is
-// the only copy of that text. SPEC: _spec/internal/choiceui/topology-strip.puml
-func TestThePaneWaitsForTheInlineReason(t *testing.T) {
+// The pane no longer waits for a reason: the row does not draw one, so its
+// width is its label and its options.
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
+func TestALongReasonNoLongerWidensTheRow(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
 	f.Rows[0].Locked = true
 	f.Rows[0].Reason = "change it with `sbx policy reset && sbx policy init --deny-all`"
 
 	bare := tallForm()
-	if paneWidth(f) <= paneWidth(bare) {
-		t.Fatalf("a long inline reason must push the pane wider: %d vs %d",
-			paneWidth(f), paneWidth(bare))
+	if got, want := paneWidth(f), paneWidth(bare); got != want {
+		t.Errorf("the reason still influences the pane breakpoint: %d vs %d", got, want)
 	}
-	// At the width where the pane appears, the reason is still drawn whole.
+	// And it is nowhere on the row, at any width the pane appears at.
 	w := paneWidth(f)
 	if f.layout(w, 30).strip != stripPane {
 		t.Fatalf("the fixture must draw the pane at %d", w)
 	}
-	joined := strings.Join(renderAt(t, f, 1, w, 30), "\n")
-	if !strings.Contains(joined, f.Rows[0].Reason) {
-		t.Errorf("the pane clipped the row's only copy of its reason:\n%s", joined)
+	onOtherRow := strings.Join(renderAt(t, f, 1, w, 30), "\n")
+	if strings.Contains(onOtherRow, "sbx policy reset") {
+		t.Errorf("the reason must not be drawn inline:\n%s", onOtherRow)
+	}
+	// Hovering it is what shows it, in full.
+	onRow := strings.Join(renderAt(t, f, 0, w, 30), "\n")
+	if !strings.Contains(onRow, "sbx policy reset") {
+		t.Errorf("hovering must reveal the reason:\n%s", onRow)
 	}
 }
 
@@ -372,11 +381,13 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 			},
 		}
 		w := paneWidth(f)
-		lay := f.layout(w, 40)
+		// paneHeight, not a tall terminal: the pane is what a form falls back to
+		// when the block will not fit, so a tall fixture draws the block instead.
+		lay := f.layout(w, paneHeight)
 		if lay.strip != stripPane {
 			t.Fatalf("%s: the fixture must draw the pane at %d", c.name, w)
 		}
-		rows := renderAt(t, f, 1, w, 40)
+		rows := renderAt(t, f, 1, w, paneHeight)
 		for _, y := range gutterBreaches(rows, lay.pane) {
 			t.Errorf("%s: row %d reached into the pane's gutter:\n%q", c.name, y, rows[y])
 		}
@@ -397,4 +408,37 @@ func hopRow(joined, corner string) string {
 		}
 	}
 	return ""
+}
+
+// The pane is a HEIGHT fallback, never a preference.
+// SPEC: _spec/internal/choiceui/topology-strip.puml
+func TestTheBlockWinsWheneverItFits(t *testing.T) {
+	t.Parallel()
+	f := tallForm()
+	f.Rows[0].Locked = true
+	f.Rows[0].Reason = "host-wide, not per-run — to change, run on the host: `sbx policy reset && sbx policy init deny-all`"
+
+	w := paneWidth(f) + 60 // ample margin: the pane would fit at every height
+	if got := f.layout(w, paneHeight).strip; got != stripPane {
+		t.Fatalf("at h=%d the block cannot fit, so the pane should carry it; got strip=%d", paneHeight, got)
+	}
+	for _, h := range []int{40, 50, 60} {
+		if got := f.layout(w, h).strip; got != stripBlock {
+			t.Errorf("h=%d: the full figure fits, so it must be the block; got strip=%d", h, got)
+		}
+	}
+	// And the figure really is below the form there, not beside it.
+	rows := renderAt(t, f, 1, w, 44)
+	hint, figure := -1, -1
+	for i, l := range rows {
+		switch {
+		case strings.Contains(l, "enter accept"):
+			hint = i
+		case strings.Contains(l, "sbx · claudecode"):
+			figure = i
+		}
+	}
+	if hint < 0 || figure < 0 || figure < hint {
+		t.Errorf("the figure must be drawn below the hint (hint=%d figure=%d)", hint, figure)
+	}
 }

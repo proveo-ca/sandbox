@@ -46,9 +46,13 @@
 ' posture and captioning it "the host allows every destination" would state as
 ' fact the one thing nobody measured. An unknown boundary is the tightest one.
 '
-' focusOf never focuses a LOCKED row, because `move` skips it — so on an sbx
-' harness the hop is simply never the highlighted element. That is honest: the
-' row is locked precisely because there is nothing there to choose.
+' focusOf keys on the row LABEL, so a locked row lights its element like any
+' other. It used to be unreachable — `move` skipped locked rows, so on an sbx
+' harness the hop was never the highlighted element. That was defended as
+' honest ("the row is locked precisely because there is nothing to choose"),
+' and it was wrong: the row reports a FACT, and its options are the only
+' statement of what that fact implies. Hovering now reads them, and lights the
+' hop while doing so.
 '
 ' A keystroke runs the filmstrip for animWindow and the strip then rests on its
 ' still frame, so any movement on screen means something in the form actually
@@ -119,6 +123,48 @@
 ' and the figure is that idea applied to a run. It also ends a collision — "()"
 ' is the form's radio glyph three rows above, where it means something else.
 '
+' ── THE FIGURE IS THE LAST REGION, AND THAT IS ASSERTED ────────────────────
+' hint, then the help block, then the strip. The help block GREW when the row's
+' Reason moved into it, and a region that grows is the one that can push the
+' figure off — maxHelpLines already reserves for it, but nothing asserted the
+' ordering until it did. A test pins hint < help < figure at both cursor
+' positions, on the locked row and on a row with per-option OffWhy.
+'
+' A fixture that wants a PANE has to be short. Once the block wins wherever the
+' block fits, a tall test terminal draws the block — so the pane's own tests
+' sweep at a height too short for the block and tall enough for the pane, which
+' is the only shape in which the pane is chosen at all.
+'
+' ── THE PANE IS A HEIGHT FALLBACK, AND THE ORDER IS THE WHOLE RULE ────────
+' The block figure is the full drawing. paneCols shrinks every connector run to
+' a single rule and keeps only the caption's leading clause, so the pane is a
+' FIDELITY TRADE. layout used to short-circuit to it whenever paneOrigin was
+' available — i.e. whenever it fit horizontally — which handed a wide, tall
+' terminal the truncated figure in the margin while the whole picture would have
+' fitted below the form.
+'
+' Height is the only thing the pane actually buys, so it may only win where
+' height is what ran out: the ladder is priced WITH the strip rung first, and the
+' pane is tried only when that came back without a block. Measured on the tall
+' fixture: pane from h=13, block from h=32, unchanged across widths.
+'
+' This surfaced as a regression the moment the row stopped reserving width for
+' its reason — bodyRight fell from ~134 to 78, paneOrigin became available ~70
+' columns earlier, and a terminal that had always drawn the block started
+' drawing the pane. The width change was right; the preference was the bug.
+'
+' ── THE TWO CONNECTORS, AND WHY ONE OF THEM IS GONE ───────────────────────
+' The host had a rule of its own to the square's left wall. It was redundant:
+' the bottom bracket already runs from the host column to the square's bottom
+' tee, so the rule restated a relationship the frame was drawing anyway. The
+' column is held OPEN rather than closed up, so the figure does not shift.
+'
+' The run INTO the hop is solid on every tier, because the agent's traffic
+' always reaches it — that segment carries no tier information. What the hop
+' DOES to that traffic is the lane kind, and it is drawn on the far side: the
+' run to the fan, and the lanes themselves. Drawing the kind on both sides said
+' one thing twice and made the inbound segment look like a tier statement.
+'
 ' ── WHY THE COLUMNS TRAVEL AS ONE STRUCT ───────────────────────────────────
 ' topoCols is a struct rather than a handful of parameters because the columns
 ' must move TOGETHER: a hop column moved without the lanes column behind it
@@ -181,12 +227,12 @@
 ' writes 6 rules, the padded label and 6 more from a pad of (72-L)/2, so a
 ' label past ~48 reaches beyond 72 — and the heading branch ignores the limit.
 '
-' THE INLINE REASON IS MEASURED IN FULL, never clipped to a floor. A floor was
-' worse than no budget: the locked sbx egress row carries changeBaselineHint —
-' the one runnable command for changing the host baseline — with no Help and no
-' OffWhy, and a locked row can never hold the cursor, so the help block never
-' shows it either. Clipping destroyed the only copy of that text to make room
-' for a picture, which is precisely the trade the pane may not make.
+' THE INLINE REASON IS GONE, and with it this whole constraint. It used to be
+' measured IN FULL because a floor destroyed the only copy of changeBaselineHint
+' — the one runnable command for changing the host baseline — which had no Help,
+' no OffWhy, and sat on a row the cursor could not reach. The row is hoverable
+' now and the help block carries the reason unclipped, so nothing on the row is
+' at risk from the pane and ""rightEdge"" stops measuring it.
 '
 ' ── THE PANE IS PLACED, NEVER CLIPPED INTO PLACE ───────────────────────────
 ' paneOrigin is chosen AFTER the widest row this form has, so no option is ever
@@ -274,6 +320,14 @@ note bottom of LAYOUT
   that was refused — which is what stopped the
   figure vanishing as the terminal GREW, back
   when the budget was a best fit.
+end note
+
+note bottom of LAYOUT
+  **The pane is a FALLBACK, not a preference.**
+  It used to win whenever it merely FIT, so a
+  wide, tall terminal got the truncated figure in
+  the margin. Height is all it buys, so the block
+  wins wherever the block fits.
 end note
 
 note bottom of LAYOUT

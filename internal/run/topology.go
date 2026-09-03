@@ -152,8 +152,8 @@ func interfaceOf(f *choiceui.Form) string {
 	return strings.Join(driven, " + ")
 }
 
-// focusOf maps the cursor's row onto the element that row owns. A locked row is
-// never focused, because `move` skips it.
+// focusOf maps the cursor's row onto the element that row owns, keyed on the
+// LABEL — so a locked row the cursor can now hover lights its element too.
 func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	if cursor < 0 || cursor >= len(f.Rows) {
 		return choiceui.FocusNone

@@ -1,4 +1,38 @@
 @startuml
+' ── VENDOR-LOCKED SLOTS: WHY A FILTER, AND WHY DECLARED ────────────────────
+' A slot may name the only provider it accepts (column 6 of the TSV). Today that
+' is claudecode's two: ANTHROPIC_MODEL and ANTHROPIC_SMALL_FAST_MODEL.
+'
+' The transform is what makes it necessary rather than tidy. Those rows carry
+' ""bare"", which STRIPS the provider/ prefix — so ARCHITECT_MODEL=openai/gpt-5
+' reaches the agent as ANTHROPIC_MODEL=gpt-5: the one token identifying the
+' vendor discarded, and an id api.anthropic.com has never heard of left looking
+' plausible. The operator reads a model name in the header, the agent sends it,
+' and the 404 names neither the model nor the mistake.
+'
+' DECLARED, NOT DERIVED. ANTHROPIC_MODEL looks derivable from its own name, but
+' OPENCODE_MODEL does not: ""opencode"" is a provider in the registry AND a
+' harness, and that slot's default is ""anthropic/claude-sonnet-4-5"" — deriving
+' the lock from the variable name would refuse the default it ships with.
+'
+' UNRESOLVABLE IS ACCEPTED. ModelProvider returns "" for ollama, ollama_chat and
+' openai-compatible, because those endpoints serve arbitrary ids. Refusing what
+' cannot be classified would break --local-model, which points a role at an
+' ollama id on purpose. The shell agreed only after a fix: it resolved
+' ollama/llama3 to "ollama" and would have refused it from a locked slot while
+' the host header showed it accepted — caught by the parity test, not by review.
+'
+' THE PROVIDER IS THE RULE, NOT THE FAMILY. opus/sonnet/haiku are what an
+' operator names, but the check asks ModelProvider — so claude-fable-5 and any
+' future Anthropic family pass without a table edit, and the registry stays the
+' one place a model's vendor is decided.
+'
+' REFUSAL IS REPORTED. A locked slot that silently stays unset leaves the agent
+' on its own built-in default: a working run producing work on a model nobody
+' chose, which is the quietest kind of wrong. RefusedSlots names the variable,
+' both vendors and the consequence, before launch on the host and again in the
+' container.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Model aliases — one declared table, four harness dialects
 ' purpose: how ARCHITECT/EDITOR/SMALL_MODEL become each harness's own env vars

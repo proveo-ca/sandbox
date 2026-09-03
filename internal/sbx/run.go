@@ -312,3 +312,22 @@ func RemoveArgs(name string) []string {
 func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
 }
+
+// authLoginArgs is the in-sandbox sign-in each sbx agent performs. sbx's own
+// docs name this as what populates its oauth slot; nothing else does.
+// SPEC: _spec/internal/sbx/oauth-provisioning.puml
+var authLoginArgs = map[string][]string{
+	"claude": {"auth", "login"},
+}
+
+// AuthLoginArgs renders the sign-in sbx captures into its own credential store,
+// or nil when this agent has no such flow. An argv only: running it needs a
+// terminal, so the caller owns that.
+func AuthLoginArgs(agent, workspace string) []string {
+	sub, ok := authLoginArgs[agent]
+	if !ok || agent == "" || workspace == "" {
+		return nil
+	}
+	args := []string{"run", agent, workspace, "--"}
+	return append(args, sub...)
+}

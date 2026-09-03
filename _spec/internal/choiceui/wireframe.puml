@@ -55,7 +55,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
-    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser) | <color:#9a9a9a>— chrome (host browser): docker backend only — set…
+    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome | <color:#9a9a9a>— claude-in-chrome: docker backend only — set…
     agent evidence | ( ) default | (X) verbose | . | .
   }
   --
@@ -115,9 +115,9 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   because a half-highlighted row reads as one model mattering more than another.
 }
 {^"7 · described — the cursor's option explains itself, BELOW the hint"
-  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>chrome (host browser)</color>
+  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome</color>
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel | . | . | .
-  <color:#00BAC6>› chrome (host browser) — your own Chrome, with your profile and logins,</color> | . | . | .
+  <color:#00BAC6>› claude-in-chrome — your own Chrome, with your profile and logins,</color> | . | . | .
   <color:#9a9a9a>off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions</color> | . | . | .
   .
   The picker could only ever explain what it had taken AWAY: ""Reason"" is written

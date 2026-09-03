@@ -17,10 +17,13 @@ type Row struct {
 	Options  []string
 	Selected int
 	Locked   bool
-	Reason   string
-	Multi    bool
-	On       []bool
-	Off      []bool
+	// Hover is the option the cursor is on while the row is LOCKED, separate from
+	// Selected because there Selected is a fact, not a choice.
+	Hover  int
+	Reason string
+	Multi  bool
+	On     []bool
+	Off    []bool
 	// Help is what an option DOES, keyed by the option itself rather than indexed:
 	// callers assemble Options conditionally.
 	Help map[string]string
@@ -36,6 +39,19 @@ type Row struct {
 	Divider bool
 }
 
+// cursorAt is the option the cursor is on: Selected where the operator can
+// change it, Hover where the row is locked.
+func (r *Row) cursorAt() int {
+	if r.Locked {
+		return r.Hover
+	}
+	return r.Selected
+}
+
+// hoverable reports whether the cursor may REST on this row without being able
+// to change it.
+func (r *Row) hoverable() bool { return r.Locked && len(r.Options) > 0 }
+
 // helpLine is one line under the cursor's row: what the option the cursor is on
 // means, and why it cannot be picked.
 type helpLine struct {
@@ -46,11 +62,20 @@ type helpLine struct {
 // helpLines describes the option the cursor is on, wrapped to width and drawn
 // BELOW the row rather than appended to it.
 func (r *Row) helpLines(width int) []helpLine {
-	if r.Selected < 0 || r.Selected >= len(r.Options) {
+	idx := r.cursorAt()
+	if idx < 0 || idx >= len(r.Options) {
 		return nil
 	}
-	opt := r.Options[r.Selected]
+	opt := r.Options[idx]
 	var out []helpLine
+	// A locked row's Reason is the whole point of stopping on it, and inline it is
+	// CLIPPED to the row's width — which used to destroy the only copy of the one
+	// runnable command for changing a host-wide baseline. Here it is unclipped.
+	if r.Locked && r.Reason != "" {
+		for _, l := range wrap(r.Reason, width, 2) {
+			out = append(out, helpLine{text: l, warn: true})
+		}
+	}
 	// Guarded on the description: an option with none must stay silent, or the
 	// block reads "› allowlist —" and explains nothing.
 	if h := r.Help[opt]; h != "" {
@@ -64,10 +89,18 @@ func (r *Row) helpLines(width int) []helpLine {
 		// A greyed box that is TICKED is not unavailable, it is compulsory, and
 		// labelling it "off:" would say the opposite of what the checkbox shows.
 		label := "off: "
-		if r.onAt(r.Selected) {
+		if r.onAt(idx) {
 			label = "always on: "
 		}
 		for _, l := range wrap(label+why, width, len([]rune(label))) {
+			out = append(out, helpLine{text: l, warn: true})
+		}
+	}
+	// The block must never show LESS than the inline copy it replaces. When the
+	// hovered option had nothing of its own to say, the row's reason stands in —
+	// unclipped, which the inline copy never was.
+	if len(out) == 0 && r.Reason != "" {
+		for _, l := range wrap(r.Reason, width, 2) {
 			out = append(out, helpLine{text: l, warn: true})
 		}
 	}
@@ -118,15 +151,6 @@ func clip(text string, width int) string {
 func (r *Row) offAt(i int) bool { return i < len(r.Off) && r.Off[i] }
 
 func (r *Row) onAt(i int) bool { return i < len(r.On) && r.On[i] }
-
-func (r *Row) anyOff() bool {
-	for _, off := range r.Off {
-		if off {
-			return true
-		}
-	}
-	return false
-}
 
 type Form struct {
 	Banner   []string
@@ -284,7 +308,7 @@ func (f *Form) firstSelectable() int {
 
 func (f *Form) move(cursor, delta int) int {
 	for i := cursor + delta; i >= 0 && i < len(f.Rows); i += delta {
-		if !f.Rows[i].Locked {
+		if !f.Rows[i].Locked || f.Rows[i].hoverable() {
 			return i
 		}
 	}
@@ -296,10 +320,16 @@ func (f *Form) cycle(cursor, delta int) {
 		return
 	}
 	r := &f.Rows[cursor]
-	if r.Locked || len(r.Options) == 0 {
+	if len(r.Options) == 0 {
 		return
 	}
 	n := len(r.Options)
+	if r.Locked {
+		// Reading, not choosing: every option is off, so nothing is skipped and
+		// nothing is reported as changed.
+		r.Hover = ((r.Hover+delta)%n + n) % n
+		return
+	}
 	for step := 1; step <= n; step++ {
 		next := ((r.Selected+delta*step)%n + n) % n
 		// A single-select row's Selected IS the choice, so it may never rest on a
@@ -543,18 +573,16 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		default:
 			glyph = "( ) "
 		}
-		if ln.row == cursor && j == r.Selected {
-			st = st.Underline(true)
-		}
 		if r.Locked || r.offAt(j) {
 			st = p.warn
+		}
+		if ln.row == cursor && j == r.cursorAt() {
+			st = st.Underline(true)
 		}
 		c.put(x, st, glyph+opt)
 		x += len(glyph) + len(opt) + 3
 	}
-	if r.Reason != "" && (r.Locked || r.anyOff()) {
-		c.put(x, p.warn, clip("— "+r.Reason, limit-x))
-	}
+	// The row's Reason is NOT drawn here — the help block is its one home.
 }
 
 // headingsInWindow is the set of rows whose divider heading is on screen; only

@@ -82,7 +82,7 @@ note bottom of EP
   mcp FROM base-node-browser (Playwright + Chromium +
   agent-browser, _spec/defs/browser-layer.puml). Every
   variant also carries the Claude in Chrome bridge for the
-  ""chrome (host browser)"" add-on (chrome-bridge.puml).
+  ""claude-in-chrome"" add-on (chrome-bridge.puml).
 
   Subscription harness: proveo warns rather than prompts
   when ""CLAUDE_CODE_OAUTH_TOKEN"" is absent and lets the

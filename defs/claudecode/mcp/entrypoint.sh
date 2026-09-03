@@ -89,10 +89,8 @@ seed_claude_proveo_home
 # Bodies are shared across harnesses; only the frontmatter is Claude Code's.
 proveo_seed claudecode
 
-# ── Claude in Chrome (host browser) — docker backend, add-on "chrome (host browser)" ──
-# No-op unless `proveo run` set PROVEO_CHROME_BRIDGE; sets PROVEO_CHROME_READY=1
-# when the container relay is listening where Claude Code looks.
-proveo_chrome_bridge claudecode
+# ── Claude in Chrome — add-on "claude-in-chrome" ──
+# Started by proveo_seed above, which sets PROVEO_CHROME_READY=1 in this shell.
 
 # Surface available subagents (user + project)
 agent_files=()
