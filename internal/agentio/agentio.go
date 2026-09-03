@@ -109,7 +109,7 @@ func Tracer(path string) (func([]byte, bool), func()) {
 		ui.Warnf("stdin trace: cannot open %s (%v); continuing untraced", path, err)
 		return nil, func() {}
 	}
-	ui.Iconf("🔎", "stdin trace → %s (every byte the agent is sent)", path)
+	ui.Storef("stdin trace → %s (every byte the agent is sent)", path)
 	fmt.Fprintf(f, "=== trace opened %s ===\n", time.Now().Format(time.RFC3339Nano))
 	var mu sync.Mutex
 	tap := func(b []byte, forwarded bool) {

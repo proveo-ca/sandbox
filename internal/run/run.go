@@ -64,7 +64,8 @@ func Do(p Params, d Deps) error {
 	} else {
 		ui.TeeTo(rs.Log.Writer())
 		defer rs.Log.Close()
-		ui.Iconf("📝", "run log: %s", rs.Log.Path())
+		ui.Section(ui.SectionRun)
+		ui.Storef("run log: %s", rs.Log.Path())
 	}
 
 	var err error
@@ -132,8 +133,8 @@ func stageDeps(rs *Spec, p *Params) func() {
 			parts = append(parts, c.Container+" (empty)")
 		}
 	}
-	ui.Iconf("📦", "dependency trees isolated, host untouched: %s", why)
-	ui.Iconf("📦", "  %s", strings.Join(parts, ", "))
+	ui.Appf("dependency trees isolated, host untouched: %s", why)
+	ui.Notef("%s", strings.Join(parts, ", "))
 	stage := rs.Workspace.WS.DepStage
 	return func() {
 		if stage != "" {
@@ -173,7 +174,8 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 	if rs.Workspace.SubScope != "" {
-		ui.Iconf("📂", "scope: %s", rs.Workspace.SubScope)
+		ui.Section(ui.SectionScope)
+		ui.Storef("scope: %s", rs.Workspace.SubScope)
 	}
 
 	rs.Workspace.WS = workspace.MountSpec{
@@ -291,14 +293,15 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
 		chosen, isLocal := posture.ResolveImageChoice(rs.Backend.BrowserImage)
 		if isLocal {
-			ui.Iconf("📦", "image: %s (local build — newer than the published tag)", chosen)
+			ui.Section(ui.SectionRun)
+			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
 		}
 		p.Image = chosen
-		ui.Iconf("🌐", "variant: browser → %s", p.Image)
+		ui.Appf("variant: browser → %s", p.Image)
 	}
 	if hasAddon(p.Addons, addonDind) && rs.Backend.DindOfferable {
 		rs.Backend.WantDind = true
-		ui.Iconf("🐳", "sidecar: DinD (same image)")
+		ui.Appf("sidecar: DinD (same image)")
 	}
 	if len(p.Addons) == 0 && !p.PrintOnly {
 		rs.Backend.WantDind = rs.Backend.DindOfferable && dind.ShouldStart(rs.Man.IsDind(), rs.Backend.DindScope, false, nil)
@@ -315,12 +318,16 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 // tierBlocked is the caller's: that constraint is the docker backend's.
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
+	// The only interface add-on reported during resolution. The browser viewport
+	// is reported live, under the same heading — and the two cannot both appear,
+	// because a sandbox VM has no route to the host's Chrome socket.
+	ui.Section(ui.SectionInterface)
 	if !hasAddon(p.Addons, addonChrome) {
 		return nil, nil
 	}
 	switch {
 	case p.PrintOnly:
-		ui.Iconf("🧭", "%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
+		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
 			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
 		return nil, nil
 	case tierBlocked != "":
@@ -342,7 +349,7 @@ func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.R
 	if err := r.SetTokenEnv(); err != nil {
 		ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
 	}
-	ui.Iconf("🧭", "chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
+	ui.Hostf("chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
 		"The agent gets your logged-in sessions; site permissions stay the extension's",
 		r.Addr(), chromebridge.HostSocketDir())
 	return r, r.Env()
@@ -354,7 +361,8 @@ func hostStoreResolver() *secretref.Resolver {
 	return &secretref.Resolver{
 		Getenv: os.Getenv,
 		Announce: func(string) {
-			ui.Iconf("🔐", "reading the host secret store — approve the prompt if one appears")
+			ui.Section(ui.SectionCredentials)
+			ui.Hostf("reading the host secret store — approve the prompt if one appears")
 		},
 	}
 }
@@ -363,6 +371,7 @@ func hostStoreResolver() *secretref.Resolver {
 // credential of its own. It renders the argv rather than running it.
 // SPEC: _spec/internal/sbx/oauth-provisioning.puml
 func reportSandboxLogin(rs *Spec, p *Params) {
+	ui.Section(ui.SectionCredentials)
 	if !credentials.NeedsSandboxLogin(rs.Man, p.willSandbox(rs.Man),
 		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
 		return
@@ -372,7 +381,7 @@ func reportSandboxLogin(rs *Spec, p *Params) {
 		argv = sbx.Binary + " " + strings.Join(a, " ")
 	}
 	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
-	ui.Iconf("🔑", "%s", lines[0])
+	ui.Hostf("%s", lines[0])
 	for _, l := range lines[1:] {
 		ui.Notef("%s", l)
 	}
@@ -381,10 +390,11 @@ func reportSandboxLogin(rs *Spec, p *Params) {
 // reportKeychain says what the host store holds and what THIS backend can do
 // with it — both halves, always together.
 func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
+	ui.Section(ui.SectionCredentials)
 	if line := k.Report(); line != "" {
-		ui.Iconf("🔐", "%s", line)
+		ui.Hostf("%s", line)
 		if advice := k.KeychainAdvice(sbxBackend, fileLogin); advice != "" {
-			ui.Notef("    %s", advice)
+			ui.Notef("%s", advice)
 		}
 		return
 	}
@@ -417,16 +427,17 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	// credential to the operator, who then goes looking for an auth problem that
 	// resolved itself a second later. Saying it up front costs one line.
 	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
-		ui.Iconf("🔑", "the login in the proveo home needs a refresh — the agent may report "+
-			"\"Login expired\" on its first turn, and can only carry on if the renewal reaches the "+
+		ui.Hostf("the login in the proveo home needs a refresh — the agent may report " +
+			"\"Login expired\" on its first turn, and can only carry on if the renewal reaches the " +
 			"provider from where it runs")
 	}
-	// Say so when a token IS exported and is being left out. The 🔓 line below only
-	// fires when auth is missing, so the case that actually misbills — a token set,
-	// silently overriding the mounted login — was the one nothing reported.
+	// Say so when a token IS exported and is being left out. The MissingEnv block
+	// below only fires when auth is missing, so the case that actually misbills —
+	// a token set, silently overriding the mounted login — was the one nothing
+	// reported.
 	if rs.Creds.FileLogin && !p.PrintOnly && strings.TrimSpace(p.AuthVar) == "" {
 		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(rs.Creds.Lookup(av)) != "" {
-			ui.Iconf("🔓", "%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
+			ui.Hostf("%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
 	if missing := rs.Man.MissingEnv(rs.Creds.Lookup); len(missing) > 0 && !p.PrintOnly {
@@ -435,9 +446,9 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 			// MissingEnv only reads env vars, so a completed login sitting in the
 			// proveo home read as "no auth" and produced a warning that sent an
 			// operator after a token they did not need.
-			ui.Iconf("🔓", "%s: using the login persisted in the proveo home", rs.Man.Name)
+			ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
 		case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
-			ui.Iconf("🔓", "%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
+			ui.Hostf("%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
@@ -470,6 +481,10 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	if planWorkdir != "" {
 		rs.Workspace.Workdir = planWorkdir
 	}
+	// The mount plan is only a plan at this point, which is why these three sit
+	// inside the credentials stage rather than the workspace one. The divider is
+	// what makes them read as workspace facts anyway.
+	ui.Section(ui.SectionWorkspace)
 	reportLinks(rs.Workspace.Links)
 
 	rs.Creds.HomePlan, err = proveohome.Prepare(rs.Man.Home, os.Getenv)
@@ -478,21 +493,22 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	if rs.Creds.HomePlan.Root != "" {
 		rs.Workspace.Mounts = append(rs.Workspace.Mounts, rs.Creds.HomePlan.Mounts...)
-		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", rs.Creds.HomePlan.Root, proveohome.ContainerHome)
+		ui.Storef("proveo home: %s (mounted at %s)", rs.Creds.HomePlan.Root, proveohome.ContainerHome)
 	}
 
 	if m, ok := credentials.GhConfigMount(os.Getenv); ok {
 		rs.Workspace.Mounts = append(rs.Workspace.Mounts, m)
-		ui.Iconf("🔑", "gh session: %s mounted read-only", m.Host)
+		ui.Hostf("gh session: %s mounted read-only", m.Host)
 	}
 
+	ui.Section(ui.SectionEgress)
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
 	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man, rs.Creds.Detected, rs.Creds.Lookup, brokerEnabled())
 	if reason := credentials.BrokerOffReason(p.forwards(), rs.Creds.Brokered, rs.Creds.Detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
 	if len(rs.Creds.Brokered) > 1 {
-		ui.Iconf("🔐", "broker: %d providers injected at the egress layer (%s)",
+		ui.Hostf("broker: %d providers injected at the egress layer (%s)",
 			len(rs.Creds.Brokered), strings.Join(rs.Creds.Brokered, ", "))
 	}
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
@@ -696,26 +712,44 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 // it: the sbx path has no sidecars to assemble, so there is nothing left to do
 // after the decision. It returns done=true when it has handled the run.
 func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
+	// DECIDING is separated from REPORTING here so the two reports can be grouped
+	// by what they are about rather than by the order the decision happened to
+	// need. Nothing below changes which backend runs.
 	rs.Backend.Sbx = false
+	sbxUnavailable := ""
 	if rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled() {
-		switch ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); {
-		case !ok:
-			sandbox.ReportUnavailable(why)
-		default:
+		if ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); ok {
 			rs.Backend.Sbx = true
-			ui.Iconf("📦", "backend: docker sandboxes (sbx)")
-			sandbox.WarnBaseline()
-			if hasAddon(p.Addons, addonChrome) {
-				// The picker greys this pair; a cached or scripted answer can still
-				// carry both, so the run says which one it is not honouring.
-				ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
-			}
+		} else {
+			sbxUnavailable = why
 		}
+	}
+
+	// The tier's caveats first, so they land in the egress block the broker line
+	// opened rather than splitting the execution block in two. Section() is a
+	// no-op when egress is already the heading on screen, so this continues that
+	// block instead of drawing a second divider.
+	ui.Section(ui.SectionEgress)
+	if rs.Backend.Sbx {
+		sandbox.WarnBaseline()
 	}
 	// Both backends reach here. This used to live in execute(), which is the docker
 	// path only — so the backend that actually READS the .env was the one that said
 	// nothing, while the backend that masks it warned.
 	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, p.Mode, rs.Backend.Sbx, rs.Creds.Lookup)
+
+	ui.Section(ui.SectionExecution)
+	switch {
+	case sbxUnavailable != "":
+		sandbox.ReportUnavailable(sbxUnavailable)
+	case rs.Backend.Sbx:
+		ui.Appf("backend: docker sandboxes (sbx)")
+		if hasAddon(p.Addons, addonChrome) {
+			// The picker greys this pair; a cached or scripted answer can still
+			// carry both, so the run says which one it is not honouring.
+			ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
+		}
+	}
 	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
 	// one entry, never two) — and it does not need one. sbx gives each sandbox its
 	// OWN daemon, gated on the image label `com.docker.sandboxes.start-docker`,
@@ -731,7 +765,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	if rs.Backend.Sbx {
 		switch {
 		case rs.Backend.Clone:
-			ui.Iconf("\U0001f5c2", "workspace: private clone — your checkout is NOT written. "+
+			ui.Storef("workspace: private clone — your checkout is NOT written. "+
 				"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
 		case rs.Backend.CloneOff != "":
 			ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
@@ -799,7 +833,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
 				return false, fmt.Errorf("write sandbox kit: %w", err)
 			}
-			ui.Iconf("📄", "sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
+			ui.Storef("sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
 			if len(secrets) > 0 {
 				names := make([]string, 0, len(secrets))
 				for _, kv := range secrets {

@@ -67,17 +67,18 @@ func Enabled() bool {
 
 // ReportUnavailable warns that the run fell back, naming the host engine.
 func ReportUnavailable(why string) {
+	ui.Section(ui.SectionExecution)
 	ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
 	if eng := engine.Detect(); eng.Kind != engine.Unknown {
-		ui.Notef("    engine: %s (%s)", eng.Label(), eng.Isolation())
+		ui.Notef("engine: %s (%s)", eng.Label(), eng.Isolation())
 	}
 	if cmd := sbx.InstallCmd(sbx.Installed()); cmd != "" {
 		if sbx.Installed() {
-			ui.Notef("    proveo targets sbx %s or newer:", sbx.MinVersion)
+			ui.Notef("proveo targets sbx %s or newer:", sbx.MinVersion)
 		} else {
-			ui.Notef("    sbx is standalone and does not need Docker Desktop:")
+			ui.Notef("sbx is standalone and does not need Docker Desktop:")
 		}
-		ui.Notef("      %s", cmd)
+		ui.Notef("  %s", cmd)
 	}
 }
 
@@ -105,7 +106,8 @@ func Ensure(confirm func(string) bool) (bool, string) {
 	if !confirm(fmt.Sprintf("%s the docker sandboxes CLI (%s)?", verb, install)) {
 		return false, why
 	}
-	ui.Iconf("📦", "%sing sbx: %s", verb, install)
+	ui.Section(ui.SectionStarting)
+	ui.Appf("%sing sbx: %s", verb, install)
 	c := exec.Command("bash", "-lc", install)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
 	if err := c.Run(); err != nil {
@@ -203,8 +205,9 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 		ui.Notef("clone: the agent left no branches to fetch")
 		return
 	}
-	ui.Iconf("\U0001f5c2", "clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
-	ui.Notef("    review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
+	ui.Section(ui.SectionResults)
+	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
+	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
 }
 
 // liftClonedOutput copies the output dir out of the clone into the host output
@@ -219,7 +222,7 @@ func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into
 	code, out, err := lift(sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
 	switch {
 	case err == nil:
-		ui.Iconf("\U0001f5c2", "clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
+		ui.Storef("clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
 	case code == sbx.CloneLiftNothing:
 		ui.Notef("clone: the agent wrote nothing under %s/", rel)
 	default:
@@ -281,8 +284,9 @@ func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
 		return func() {}
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", in.CDPHostPort)
-	ui.Iconf("🕸", "browser viewport: %s — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium", url)
-	ui.Notef("    %s/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback", url)
+	ui.Section(ui.SectionInterface)
+	ui.Hostf("browser viewport: %s — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium", url)
+	ui.Notef("%s/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback", url)
 
 	stop := make(chan struct{})
 	go func() {
@@ -688,7 +692,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		mounts, nested = SplitNested(in.RepoRoot, mounts)
 		for _, m := range nested {
 			if _, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
-				ui.Iconf("\U0001f5c2", "clone: %s is inside the repository, so it is not mounted live — sbx clones only into an "+
+				ui.Storef("clone: %s is inside the repository, so it is not mounted live — sbx clones only into an "+
 					"empty workspace; the agent writes it inside the clone and proveo lifts it back here at teardown", m.Host)
 				continue
 			}
@@ -861,8 +865,9 @@ func Run(in Input) error {
 	// be handed over before the Kit can name it. Local and per-user on purpose:
 	// each operator has their own docker login and their own sbx config, so this
 	// stays a pipe between the two stores rather than a registry round-trip.
+	ui.Section(ui.SectionStarting)
 	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
-		ui.Iconf("📦", f, a...)
+		ui.Appf(f, a...)
 	}); err != nil {
 		return err
 	}
@@ -875,7 +880,8 @@ func Run(in Input) error {
 		}
 	}
 	for _, kv := range secrets {
-		ui.Iconf("🔐", "sandbox secret: %s (host-side injection)", kv[0])
+		ui.Section(ui.SectionSecrets)
+		ui.Hostf("sandbox secret: %s (host-side injection)", kv[0])
 		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
 			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
 		}
@@ -886,7 +892,7 @@ func Run(in Input) error {
 	// able to authenticate a later one that never chose it — which reads as proveo
 	// picking a credential the operator did not, somewhere they cannot see.
 	if len(secrets) > 0 {
-		ui.Notef("    sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
+		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
 	// Before the launch, so the URL is on screen ahead of the agent's TUI rather
 	// than lost behind it.
@@ -962,10 +968,11 @@ func Run(in Input) error {
 		// The template sbx holds has gone bad. Hand the image over again and try
 		// once more; if it fails the same way the second time, it is not the
 		// template and the original error stands.
+		ui.Section(ui.SectionStarting)
 		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
-			ui.Iconf("📦", f, a...)
+			ui.Appf(f, a...)
 		}); err == nil {
-			ui.Iconf("↻", "the sandbox did not start — retrying once on a freshly loaded template")
+			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
 			runErr = run()
 			endedAt = time.Now()
 		}
@@ -1015,9 +1022,9 @@ func Run(in Input) error {
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
 			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
 				said = true
-				ui.Iconf("📄", "what the agent actually said is in %s", t)
+				ui.Storef("what the agent actually said is in %s", t)
 			} else if restarted && sbx.Exists(cfg.Name) {
-				ui.Iconf("📄", "no transcript from this run — the sandbox had already stopped, "+
+				ui.Storef("no transcript from this run — the sandbox had already stopped, " +
 					"so state was copied out after it ended and anything newer than the run is the harvest's own")
 			}
 			// Both evidence channels came up empty, which is its own diagnosis: the
@@ -1027,16 +1034,17 @@ func Run(in Input) error {
 			if !said {
 				if hint := credentials.NoCredentialHint(in.Man, in.Target, in.HomeRoot, cfg.Env, secrets,
 					sbx.StoredSecretNames(), in.Lookup); len(hint) > 0 {
-					ui.Iconf("🔑", "%s", hint[0])
+					ui.Hostf("%s", hint[0])
 					for _, l := range hint[1:] {
-						fmt.Fprintf(os.Stderr, "%s\n", l)
+						ui.Notef("%s", l)
 					}
 				}
 			}
+			ui.Section(ui.SectionResults)
 			kept := KeptLines(cfg.Name, in.RunLog)
 			ui.Warnf("%s", kept[0])
 			for _, l := range kept[1:] {
-				ui.Iconf("📝", "%s", l)
+				ui.Notef("%s", l)
 			}
 			return
 		}
@@ -1065,17 +1073,18 @@ func Run(in Input) error {
 }
 
 func WarnBaseline() {
+	ui.Section(ui.SectionEgress)
 	allowed, known := sbx.NetworkAllowed(unallowlistedProbe)
 	if !known {
-		ui.Notef("    sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
+		ui.Notef("sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
 		return
 	}
 	if !allowed {
 		return
 	}
 	ui.Warnf("sbx's global network policy allows every host, so this run's Kit allowlist adds reach rather than limiting it")
-	ui.Notef("    the tier below describes proveo's intent, not what sandboxd will enforce")
-	ui.Notef("    make it bind once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
+	ui.Notef("the tier below describes proveo's intent, not what sandboxd will enforce")
+	ui.Notef("make it bind once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
 }
 
 func CapturePolicyLog(egDir, name string) {
@@ -1094,7 +1103,8 @@ func CapturePolicyLog(egDir, name string) {
 	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return
 	}
-	ui.Iconf("📄", "egress record: %s", path)
+	ui.Section(ui.SectionResults)
+	ui.Storef("egress record: %s", path)
 }
 
 // Selected reports whether this run will take the sbx backend, using the same

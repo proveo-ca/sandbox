@@ -1,0 +1,182 @@
+@startuml TuiStyleDeferredSurfaces
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the three terminal surfaces left in the old style on purpose, and what each is waiting on
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   the language they would join .... _spec/_conventions/tui-design-language.puml
+'   what SHIPPED in that pass ....... _spec/internal/ui/output-vocabulary.puml
+'   surface A's boundary ............ _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
+'   surface B's already-styled half . _spec/internal/reviewgate/pty-review-proxy.puml
+'   the decision both wait on ....... _spec/_plans/retire-dind.puml
+'   what replaces A's seeding ....... _spec/internal/sbx/sbx-kit-contract.puml
+'   what replaces B's gate .......... _spec/internal/sbx/policy-baseline.puml
+'
+' ── WHY THESE TWO WERE HELD BACK ───────────────────────────────────────────
+' The host-side status stream joined the design language in one pass because it
+' is unambiguously staying: every backend narrates through it. These two do not
+' have that property. Both are strongly coupled to the docker backend, and sbx
+' is expected to deprecate the mechanism each one decorates. Restyling a surface
+' on its way out spends the effort twice — once now, once when its replacement
+' needs the same treatment — and, worse, it makes the surface look maintained.
+'
+' So the ban on emoji is stated for the whole tree and ENFORCED only where it
+' has been applied. The contract test carries an explicit exemption list naming
+' these files, so the exemption is a fact in the test rather than a gap in it.
+'
+' ── SURFACE A — THE IN-CONTAINER ENTRYPOINT PREAMBLE ───────────────────────
+' cmd/proveo-entrypoint/main.go prints fourteen emoji lines with raw fmt.Printf,
+' bypassing internal/ui entirely, plus one in internal/entrypoint. It is the
+' agent's own prelude: .env loading, git context, gh session, the smoke
+' sentinel. prep-process-boundary calls that the "stdout preamble", and it is
+' the one part of prep whose effect is meant to cross the process boundary.
+'
+' Three things make it a bad first customer. It runs INSIDE the image, so a
+' source edit is inert until `proveo build <harness>` — the loop is a rebuild
+' per iteration rather than a test run. Its tier cannot be read from the
+' operator's PROVEO_GLYPHS unless that variable is deliberately forwarded into
+' the container, which is a plumbing decision this pass did not want to make
+' quietly. And on the sbx backend most of what it reports is already sbx's job:
+' the kit seeds the sandbox, and sbx owns the credential path.
+'
+' THE DECISION IT WAITS ON. Whether prep survives sbx at all. If the kit
+' absorbs the seeding, the preamble does not need a design language — it needs
+' deleting, and the facts it prints move to the host stream that already has one.
+'
+' ── SURFACE C — THE defs/**/*.sh LAYER ─────────────────────────────────────
+' Found while scoping the first pass, and the largest of the three by volume:
+' 105 emoji lines over 21 shell files. It splits almost in half by WHERE it runs,
+' and the halves have different owners.
+'
+' In-container (~69 lines): the four harness entrypoints — opencode 19, cursor
+' 17, claudecode/mcp 11, cecli 10 — plus the mitmproxy and squid sidecar
+' scripts. This is surface A again in another language, and it is deferred for
+' the same reason: sbx's kit is expected to absorb the seeding, and the two
+' sidecars belong to the docker backend that retire-dind shrinks to a fallback.
+'
+' Host-side, build time (~30 lines): defs/lib/docker-build.sh, the five build.sh
+' and four ensure.sh scripts, defs/lib/egress.sh, run_contract_tests.sh. These
+' an operator reads during `proveo build`, so they are squarely in scope by
+' locality — and still deferred, because shell cannot import internal/ui. Doing
+' them properly means a sourced defs/lib/ui.sh carrying the same six roles, the
+' same three tiers and the same marks, which is a vocabulary to design rather
+' than a set of strings to swap.
+'
+' WHAT WAS TRIED AND BACKED OUT. docker-build.sh's pin note was converted to a
+' plain "pin: " tag in the first pass and reverted. One converted script among
+' twenty-one is worse than none: it reads as the style being applied when it is
+' not, and it splits the contract test's exemption list along a line nobody
+' chose. internal/contract/agent_pin_test.go asserts that script's output, so it
+' carries a surface-C exemption and its expectations move when the script does.
+'
+' ── SURFACE B — THE LINE-BASED PROMPTS ─────────────────────────────────────
+' Three prompts still read a line from stdin instead of drawing a form:
+' promptYesNo and promptEnv in cmd/proveo/wizard.go, and provision.go's build
+' question, which prefixes itself with a hammer emoji. Note what is NOT in this
+' list: the review tier's connection consent already draws through
+' choiceui.Consent on a tcell overlay over the suspended PTY, so the hardest
+' one of these is conformant today and is the proof the pattern works.
+'
+' THE DECISION IT WAITS ON. Two, in fact. The review prompts are the docker
+' backend's, and retire-dind leaves that backend alive only as the PROVEO_SBX=0
+' fallback — so their volume is about to fall to near zero. Separately, a form
+' cannot be the only rendering: promptEnv reads SECRETS, and it has to keep
+' working with no TTY, in CI, and under a pipe. That means every converted
+' prompt needs a headless path anyway, which is a contract worth designing once
+' rather than three times.
+
+title PLANNED — three TUI surfaces deferred, and what each waits on
+
+package "joined the language (shipped)" as DONE <<app>> {
+  component "internal/ui\nsix roles · three severities\nmeasured, wrapped" as UI <<app>>
+  component "~90 host call sites\nrun · sandbox · cmd/proveo\ndind · egressproxy · credentials" as SITES <<app>>
+  component "internal/choiceui\nthe original speaker" as CUI <<app>>
+  component "choiceui.Consent\nreview connection prompt\nalready conformant" as CONSENT <<app>>
+}
+
+package "deferred — surface A" as A <<cloud>> {
+  component "cmd/proveo-entrypoint/main.go\n14 raw fmt.Printf\nfour emoji, one variation-selected" as EP <<error>>
+  component "internal/entrypoint\nPROVEO_SMOKE_READY" as EPL <<error>>
+}
+
+package "deferred — surface B" as B <<cloud>> {
+  component "wizard.go promptYesNo\npromptEnv — reads secrets" as WIZ <<error>>
+  component "provision.go\nthe build question" as PROV <<error>>
+}
+
+package "deferred — surface C" as C <<cloud>> {
+  component "4 harness entrypoint.sh\n+ 2 sidecar scripts\n~69 lines, in-container" as SHIN <<error>>
+  component "docker-build.sh · build.sh ×5\nensure.sh ×4 · egress.sh\n~30 lines, host build time" as SHOUT <<error>>
+  component "defs/lib/ui.sh\nsix roles · three tiers\nDOES NOT EXIST" as SHUI <<async>>
+}
+
+component "sbx kit contract\nseeds the sandbox" as KIT <<host>>
+component "sbx policy baseline\nowns egress decisions" as POL <<host>>
+component "retire-dind\ndocker → PROVEO_SBX=0 fallback" as DIND <<host>>
+component "contract test\nexemption list names\nboth surfaces explicitly" as TEST <<async>>
+
+SITES ARROW_MAIN UI
+CUI ARROW_MAIN UI : shares the palette
+CONSENT ARROW_MAIN CUI
+KIT ARROW_ERROR EP : may delete, not restyle
+POL ARROW_ERROR WIZ : may retire the question
+DIND ARROW_OPTIONAL WIZ : volume falls to the fallback
+TEST ARROW_QUEUE A : exempt, by name
+TEST ARROW_QUEUE C : exempt, by name
+EP ARROW_OPTIONAL UI : where the facts would move
+KIT ARROW_ERROR SHIN : may delete, not restyle
+SHOUT ARROW_OPTIONAL SHUI : needs a vocabulary first
+SHIN ARROW_OPTIONAL SHUI
+
+note bottom of EP
+  **Inert until a rebuild.** The images bake the
+  entrypoint, so every iteration on this file costs
+  ""proveo build <harness>"" rather than ""go test"".
+  That alone makes it the wrong surface to iterate a
+  design language on — and the reason to decide its
+  FATE before its styling.
+end note
+
+note bottom of WIZ
+  **A form cannot be the only rendering.** ""promptEnv""
+  reads secrets and must keep working with no TTY, in
+  CI, and under a pipe. Converting three prompts means
+  designing one headless contract, not three — which is
+  the actual work here, and it is not styling.
+end note
+
+note right of TEST
+  **The exemption is a fact in the test, not a gap.**
+  ""TestNoEmojiReachesTheTerminal"" parses every Go
+  string literal under ""internal/"", ""cmd/"" and ""lib/""
+  and fails on a rune whose width a terminal and
+  ""go-runewidth"" can disagree about. Four files are
+  listed by path with the reason each is still allowed
+  to print in the old style, so deleting an entry is how
+  the work gets picked up and nothing drifts back in
+  behind one.
+
+  It does NOT scan shell. Surface C is deferred by
+  ABSENCE rather than by exemption, which is the one
+  soft edge in this plan: a new emoji in a ""defs/*.sh""
+  is caught by nothing. Extending the walk to shell is
+  the first commit of surface C's work, before any
+  string is swapped.
+end note
+
+note bottom of SHUI
+  **Shell cannot import internal/ui, so the language has
+  to be ported rather than called.** Six roles, three
+  tiers, the same marks, and the same rule that severity
+  is the glyph and role is the colour — as a sourced
+  file, so twenty-one scripts share one copy instead of
+  each holding its own ""echo"" prefix. That is the work.
+  Swapping 105 strings without it just moves the problem.
+end note
+
+note bottom of CONSENT
+  **The hard one is already done.** Connection consent
+  draws a centred tcell modal through the proveo palette
+  over a suspended PTY. Whatever replaces the wizard's
+  line prompts has a working precedent to copy.
+end note
+
+@enduml

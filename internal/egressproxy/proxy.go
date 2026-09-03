@@ -20,6 +20,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/broker"
 	"github.com/proveo-ca/proveo/internal/egresspolicy"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // Config is the proxy's runtime configuration (populated from env in main).
@@ -180,7 +181,7 @@ func Run(cfg Config) error {
 	if cfg.EnforcePolicy {
 		policyState = "read-allow/write-deny/dlp"
 	}
-	fmt.Fprintf(os.Stderr, "🚀 proveo-egress on %s → upstream %q (MITM on, broker=%s, policy=%s)\n",
+	ui.Appf("proveo-egress on %s → upstream %q (MITM on, broker=%s, policy=%s)",
 		l.Addr(), cfg.UpstreamURL, brokerState, policyState)
 	return p.Serve(l)
 }

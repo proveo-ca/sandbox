@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
@@ -63,7 +64,8 @@ func ShouldStart(capable bool, scopeDir string, interactive bool, promptYes func
 // PromptYesNo prints the DinD question and returns true only on y/yes.
 // Empty / timeout / other answers are false. in is typically os.Stdin.
 func PromptYesNo(in io.Reader, out io.Writer) bool {
-	fmt.Fprint(out, "\n🐳 Dockerfiles or Compose configurations detected in the project scope.\n")
+	fmt.Fprintln(out)
+	ui.New(out).Appf("Dockerfiles or Compose configurations detected in the project scope.")
 	fmt.Fprint(out, "Do you want to launch a sibling Docker-in-Docker (dind) container for local testing? [y/N] ")
 	// Bounded read so non-interactive pipes don't hang forever.
 	type result struct {
@@ -202,14 +204,18 @@ func Start(r Runner, target, scopeDir string, warn io.Writer) (*Sidecar, error) 
 		warn = os.Stderr
 	}
 	name := "proveo-dind-" + target
-	fmt.Fprintf(warn, "ℹ️ Starting sibling Docker-in-Docker (dind) container: %s\n", name)
-	fmt.Fprint(warn, "⚠️ Security warning: this dind sidecar runs with --privileged and shares the\n")
-	fmt.Fprint(warn, " host kernel. Its Docker daemon is exposed to the harness over an\n")
-	fmt.Fprint(warn, " unauthenticated tcp://docker:2375 socket, so any code the agent runs\n")
-	fmt.Fprint(warn, " can launch further privileged containers and may be able to escape to\n")
-	fmt.Fprint(warn, " the host. It also has read-write access to the shared path: ")
-	fmt.Fprint(warn, scopeDir)
-	fmt.Fprint(warn, "\n Only enable it for project code you trust.\n\n")
+	w := ui.New(warn)
+	w.Appf("Starting sibling Docker-in-Docker (dind) container: %s", name)
+	// Warnf, not Dangerf: this is ATTENTION, and only a severity keeps its
+	// marker in plain mode. Dangerf is for a destructive act being performed —
+	// `proveo clean` removing an image — where the sentence describes itself.
+	w.Warnf("this dind sidecar runs with --privileged and shares the host kernel. Its " +
+		"Docker daemon is exposed to the harness over an unauthenticated tcp://docker:2375 " +
+		"socket, so any code the agent runs can launch further privileged containers and " +
+		"may be able to escape to the host.")
+	w.Notef("read-write access to the shared path: %s", scopeDir)
+	w.Notef("Only enable it for project code you trust.")
+	fmt.Fprintln(warn)
 
 	_ = r.Run("rm", "-f", name)
 	if err := r.Run("run", "--privileged", "-d",

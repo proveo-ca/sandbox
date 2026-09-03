@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // Frame is one still picture of the run the form currently describes: where the
@@ -66,11 +68,17 @@ const (
 
 // GlyphTier is how much decoration the terminal is trusted with. Emoji are
 // deliberately absent — their column counts are ambiguous.
-type GlyphTier int
+//
+// An ALIAS of ui.GlyphTier, which owns the type for every proveo terminal
+// surface. That brings a third value with it, GlyphsOff, so glyphsFor tests
+// AGAINST nerd rather than for ascii: asked for a tier it did not know, it used
+// to hand back the decorated set.
+type GlyphTier = ui.GlyphTier
 
 const (
-	GlyphsNerd GlyphTier = iota
-	GlyphsASCII
+	GlyphsNerd  = ui.GlyphsNerd
+	GlyphsASCII = ui.GlyphsASCII
+	GlyphsOff   = ui.GlyphsOff
 )
 
 // glyphSet is one tier's runes. EVERY rune the figure draws lives here — the
@@ -92,7 +100,7 @@ type glyphSet struct {
 }
 
 func glyphsFor(t GlyphTier) glyphSet {
-	if t == GlyphsASCII {
+	if t != GlyphsNerd {
 		return glyphSet{
 			// "K", not "o-": the node glyph is "o", so "o-" is indistinguishable
 			// from a dot sitting on a rule — which is most of this figure.

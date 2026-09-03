@@ -9,7 +9,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/posture"
 )
 
 // topologyOf builds the projection the strip is painted from — the ONLY place
@@ -207,15 +206,4 @@ func captionOf(fr choiceui.Frame, tier, creds string, sbx bool) string {
 		name = "unreadable"
 	}
 	return name + " · " + creds + " — " + what + "; " + where
-}
-
-// stripGlyphs maps the shared PROVEO_GLYPHS ladder onto the two tiers the strip
-// has. "off" draws the ASCII figure rather than nothing: off says the terminal
-// cannot render decoration, not that the operator wants less information, and
-// the figure carries information the checkboxes cannot.
-func stripGlyphs(m posture.GlyphMode) choiceui.GlyphTier {
-	if m == posture.GlyphsNerd {
-		return choiceui.GlyphsNerd
-	}
-	return choiceui.GlyphsASCII
 }

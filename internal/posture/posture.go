@@ -83,12 +83,16 @@ var lspMarkers = []wsscan.Marker{
 // GlyphMode selects what decorates the lsp: row. Nerd is the default and ASCII is the
 // fallback an operator selects when their font stops at the Powerline range, because a
 // terminal offers no way to ask whether its font carries a codepoint.
-type GlyphMode int
+//
+// An ALIAS of ui.GlyphTier rather than a type of its own. The tier is one decision
+// per session, and three packages each holding their own idea of it is what let
+// PROVEO_GLYPHS=off reach the topology figure and come back with nerd runes.
+type GlyphMode = ui.GlyphTier
 
 const (
-	GlyphsNerd GlyphMode = iota // default
-	GlyphsASCII
-	GlyphsOff
+	GlyphsNerd  = ui.GlyphsNerd // default
+	GlyphsASCII = ui.GlyphsASCII
+	GlyphsOff   = ui.GlyphsOff
 )
 
 // lspNerd maps an LSP server to its Nerd Font devicon — per-language identity, since
@@ -122,15 +126,7 @@ var lspASCII = map[string]string{
 // GlyphModeFrom reads PROVEO_GLYPHS through lookup, so a project .env can set it once
 // per repo. Unset means nerd; an unrecognised value also means nerd rather than off,
 // so a typo degrades to the default rather than silently stripping the row.
-func GlyphModeFrom(lookup func(string) string) GlyphMode {
-	switch strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))) {
-	case "ascii":
-		return GlyphsASCII
-	case "off", "0", "false", "no", "none":
-		return GlyphsOff
-	}
-	return GlyphsNerd
-}
+func GlyphModeFrom(lookup func(string) string) GlyphMode { return ui.GlyphTierFrom(lookup) }
 
 // WithGlyphs prefixes each label with its glyph. Nerd mode falls back to the ASCII
 // category marker for a server with no devicon, so adding a language to lspMarkers

@@ -166,7 +166,7 @@ func buildCmd() *cobra.Command {
 				return err
 			}
 			for _, t := range ts {
-				ui.Iconf("🔨", "building %s (%s:%s)", t.Name, t.Image, tag)
+				ui.Appf("building %s (%s:%s)", t.Name, t.Image, tag)
 				if err := runPlan(t.BuildPlan(tag, noCache), printOnly); err != nil {
 					return fmt.Errorf("build %s: %w", t.Name, err)
 				}
@@ -199,7 +199,7 @@ func deployCmd() *cobra.Command {
 				return err
 			}
 			for _, t := range ts {
-				ui.Iconf("📤", "deploying %s:%s", t.Image, tag)
+				ui.Cloudf("deploying %s:%s", t.Image, tag)
 				if err := runPlan(t.DeployPlan(tag), printOnly); err != nil {
 					return fmt.Errorf("deploy %s: %w", t.Name, err)
 				}
@@ -235,7 +235,7 @@ func testCmd() *cobra.Command {
 					ui.Notef("no test.sh for %s — skipping", t.Name)
 					continue
 				}
-				ui.Iconf("🧪", "testing %s", t.Name)
+				ui.Appf("testing %s", t.Name)
 				if err := runPlan(plan, printOnly); err != nil {
 					return fmt.Errorf("test %s: %w", t.Name, err)
 				}

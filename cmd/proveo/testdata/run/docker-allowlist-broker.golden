@@ -1,4 +1,8 @@
+
+  ------ run ------
 run log: <HOME>/logs/proveo-<SID>.log
+
+  ------ workspace ------
 proveo home: <HOME> (mounted at /proveo-home)
 gh session: <USERHOME>/.config/gh mounted read-only
 # networks

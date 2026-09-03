@@ -162,13 +162,15 @@ func runCmd() *cobra.Command {
 			} else {
 				chosen, isLocal := posture.ResolveImageChoice(image)
 				if isLocal {
-					ui.Iconf("📦", "image: %s (local build — newer than the published tag)", chosen)
+					ui.Section(ui.SectionRun)
+					ui.Appf("image: %s (local build — newer than the published tag)", chosen)
 				}
 				image = chosen
 			}
 			proxyImage, proxyLocal := egressProxyImage(os.Getenv, posture.ResolveImageChoice)
 			if proxyLocal {
-				ui.Iconf("📦", "egress proxy: %s (local build — newer than the published tag)", proxyImage)
+				ui.Section(ui.SectionRun)
+				ui.Appf("egress proxy: %s (local build — newer than the published tag)", proxyImage)
 			}
 			modeSet := cmd.Flags().Changed("egress-mode")
 			credsSet := cmd.Flags().Changed("credentials")

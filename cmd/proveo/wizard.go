@@ -47,7 +47,7 @@ func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Wr
 	if len(missing) == 1 {
 		n = ""
 	}
-	p.Iconf("🔑", "%s reads %d env var%s not set in your environment (Enter to skip):", target, len(missing), n)
+	p.Hostf("%s reads %d env var%s not set in your environment (Enter to skip):", target, len(missing), n)
 	var r *bufio.Reader
 	got := map[string]string{}
 	for _, e := range missing {

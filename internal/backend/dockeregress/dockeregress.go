@@ -256,7 +256,7 @@ func StartReviewGate(mode, egDir string, consent func(host, port string) bool) (
 					denied++
 				}
 			}
-			ui.Iconf("🛂", "review: %d host(s) allowed, %d denied", allowed, denied)
+			ui.Hostf("review: %d host(s) allowed, %d denied", allowed, denied)
 		}
 	}
 }

@@ -81,7 +81,7 @@ func doUpdate(force, checkOnly bool) error {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 	tmp := filepath.Join(tmpDir, asset)
-	ui.Iconf("⬇️", "downloading proveo %s (%s)…", remote, asset)
+	ui.Cloudf("downloading proveo %s (%s)…", remote, asset)
 	if err := cdn.DownloadAsset(nil, man.BaseURL, asset, tmp, sum); err != nil {
 		return err
 	}
