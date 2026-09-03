@@ -42,7 +42,8 @@ note bottom of HZ
   isolation stack. The experiment is owned by Cursor's
   egress gap (pinned TLS + dead Landlock; free-tier local
   ""sbx policy"" — not AI Governance). claudecode's
-  container story remains a secondary unlock versus DinD.
+  container story landed as the per-sandbox daemon, which
+  then replaced DinD outright.
   Open questions (platform gating, the DLP content-scan
   gap, pre-GA status, and whether adoption reframes proveo
   as Kits on ""sbx"") are mapped in

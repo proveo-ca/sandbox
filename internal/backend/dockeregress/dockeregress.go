@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/backend"
-	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/reviewgate"
@@ -139,7 +138,7 @@ func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 // cfgFS carries the embedded squid config. It is passed in rather than imported:
 // the root package embeds it, and an internal package that reaches back up for it
 // breaks the sidecar images, which copy only cmd/ and internal/.
-func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar, reviewProxy *ptyproxy.Proxy) error {
+func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, providers []string, reviewProxy *ptyproxy.Proxy) error {
 	r := egress.ExecRunner{Stderr: true}
 	rq := egress.ExecRunner{}
 	var once sync.Once
@@ -147,7 +146,6 @@ func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, prov
 		once.Do(func() {
 			captureSidecarLogs(rq, egDir, plan)
 			plan.Teardown(rq)
-			dindSidecar.Cleanup(dind.ExecRunner{})
 			_ = os.RemoveAll(filepath.Join(egDir, "inject"))
 		})
 	}
@@ -178,17 +176,6 @@ func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, prov
 
 	if err := plan.Apply(r); err != nil {
 		return err
-	}
-	if dindSidecar != nil && plan.AgentNetwork != "" {
-		if err := dindSidecar.ConnectNetwork(dind.ExecRunner{}, plan.AgentNetwork); err != nil {
-			return fmt.Errorf("attach dind to agent network: %w", err)
-		}
-		// Attached is not the same as ready: the daemon inside the sidecar starts
-		// seconds after the container does, and the agent must not be handed a shell
-		// whose first `docker` call races it.
-		if err := dindSidecar.WaitReady(dind.ExecRunner{}, 90*time.Second, nil, nil); err != nil {
-			return err
-		}
 	}
 	if plan.SquidContainer != "" {
 		if err := egress.WaitSquidReady(rq, plan.SquidContainer, 30*time.Second); err != nil {

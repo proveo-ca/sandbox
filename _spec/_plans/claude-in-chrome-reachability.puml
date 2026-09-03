@@ -1,0 +1,212 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why /claude-in-chrome is absent inside a sandbox, the four preconditions only one of which is proveo's, and the three places this tree disagrees about whether sbx has it
+' session: 6769e470-377b-4b51-98c8-a84637f468f7
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   what proveo built ............ _spec/defs/claudecode/chrome-bridge.puml
+'   the host relay ............... internal/chromebridge (Relay, ScopeGate, TierSupported)
+'   the in-sandbox relay ......... defs/claudecode/mcp/proveo-lib/chrome-bridge.js
+'   who starts it on sbx ......... packages/lib/entrypoint-lib.sh (proveo_chrome_bridge)
+'   the two live e2e chains ...... e2e/chrome_bridge_test.go · e2e/chrome_bridge_sbx_test.go
+'   the picker row it sits in .... _spec/internal/choiceui/topology-states.puml
+'   the sandbox that has no Chrome _spec/internal/sbx/sandbox-backend.puml
+'   the browser that IS in there . defs/base-node-browser (agent-browser, Playwright)
+'
+' ── THE OBSERVATION, AND WHAT IT DOES AND DOES NOT SHOW ────────────────────
+' Probed from inside a proveo claudecode sandbox on 2026-09-03:
+'
+'   ~/.claude/skills, .claude/skills      no claude-in-chrome entry
+'   ~/.claude/commands, .claude/commands  only pr-review.md
+'   MCP tool roster / .mcp.json           no Chrome or browser MCP server
+'   ~/.claude.json                        cachedGrowthBookFeatures only —
+'                                         tengu_chrome_install_upsell=true,
+'                                         tengu_chrome_auto_enable=false,
+'                                         tengu_cowork_chrome_automode_default=true
+'
+' Those flags are an UPSELL surface, not an installed capability, and there is no
+' `/claude-in-chrome` to invoke. What the probe does NOT show is that proveo's
+' bridge is broken, and the distinction matters:
+'
+'   PROVEO_CHROME_BRIDGE        NOT set in this session
+'   PROVEO_CHROME_BRIDGE_TOKEN  NOT set in this session
+'   /tmp/claude-mcp-browser-bridge-*   absent — no native-host end either
+'   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, CLAUDE_CODE_NO_FLICKER=0 — proveo's
+'   own `agentEnv` for claudecode, so this IS a proveo run
+'
+' So the add-on was simply OFF, which is its default. The absence is the correct
+' behaviour of an unselected option, not a defect — and reporting it as "Claude
+' in Chrome is broken on sbx" would chase the wrong thing.
+'
+' ── BUT THE TREE CONTRADICTS ITSELF ABOUT SBX, IN THREE PLACES ─────────────
+' This is the real finding, and it is in the source rather than in the probe.
+'
+'   internal/run/run.go, in selectBackend, on the sbx branch:
+'     "claude-in-chrome: skipped — a sandbox VM cannot reach the host's Claude
+'      in Chrome socket; set PROVEO_SBX=0 to use it"
+'   internal/run/run.go, ~50 lines LATER in the same function:
+'     startChromeBridge(rs, p, "")  → the relay is started, and its env goes
+'     into the Kit as sandbox.Input.BridgeEnv
+'
+' So on one run, with the add-on ticked, proveo says it is skipping the thing it
+' then does. One of those two is dead code and the warn is the stale one:
+' `_spec/defs/claudecode/chrome-bridge.puml` records the enabling work (the tier
+' guard passed in rather than hardcoded, BridgeEnv into the Kit, the relay moved
+' into `proveo_seed` because sbx never runs the image entrypoint) and
+' `e2e/chrome_bridge_sbx_test.go` asserts the five hops end to end.
+'
+' The same spec ALSO still carries a block saying "DOCKER BACKEND ONLY. On sbx
+' every outbound TCP is proxied and the VM cannot access your host network
+' directly, so the run never sets the variable there and the in-container half is
+' a no-op." That was true and is now false — the measurement that replaced it
+' (host.docker.internal reaching the host's loopback from inside a sandbox) is
+' 60 lines above it in the same file, and `_spec/_plans/retire-dind.puml` counts
+' it as a cost the sbx-only move no longer pays.
+'
+' Three positions, one of them right. The picker believes the third: gateAddons
+' stopped excluding the box on sbx.
+'
+' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
+' Even with the bridge on, the slash command appears only when all four hold:
+'
+'   1. the operator's machine   Chrome running, the Claude in Chrome extension
+'                               connected, and the native messaging host alive —
+'                               it exists only while that is true
+'   2. the transport            proveo's relay + PROVEO_CHROME_BRIDGE and its
+'                               token, and the in-sandbox relay started by the
+'                               seed. THIS is the only one proveo can supply
+'   3. the credential's SCOPES  Claude Code synthesises them from where the
+'                               credential came from and needs user:profile,
+'                               user:office or user:ccr_inference. An env token
+'                               or `claude setup-token` is inference-only and is
+'                               refused BEFORE any launch flag is read
+'   4. the launch flag          --chrome / CLAUDE_CODE_ENABLE_CFC for the session
+'
+' Miss any one and there is no command, no skill and no MCP server — exactly the
+' four empty rows the probe found. Only (2) is a proveo bug when it fails; (1),
+' (3) and (4) are facts about the operator's machine and their credential, and a
+' run that stays silent about them sends them looking in proveo.
+title PLANNED — /claude-in-chrome from a sandbox: one transport proveo owns, three preconditions it does not
+
+component "**""/claude-in-chrome""** — absent\nno skill · no command · no MCP server" as ABSENT <<error>>
+component "the upsell flags\n""tengu_chrome_install_upsell"" — a surface, not a capability" as UPSELL <<error>>
+
+node "the operator's machine" as HOST <<host>> {
+  component "Chrome + the extension\nthe native host lives only while this runs" as CHROME <<app>>
+  component """internal/chromebridge""\nTCP relay, per-run token" as RELAY <<app>>
+}
+
+node "the sandbox" as SBXN <<host>> {
+  component "chrome-bridge.js\nstarted by ""proveo_seed"", not the entrypoint" as CRELAY <<app>>
+  component "the credential's SCOPES\nsynthesised, never fetched" as SCOPE <<error>>
+  component "agent-browser + Playwright\na browser that IS here" as AB <<app>>
+}
+
+component "the contradiction\nrun.go warns 'skipped', then starts it" as CONTRA <<error>>
+
+CHROME ARROW_MAIN RELAY
+RELAY ARROW_MAIN CRELAY : PROVEO_CHROME_BRIDGE + token
+CRELAY ARROW_QUEUE ABSENT : the transport is not the gate
+SCOPE ARROW_ERROR ABSENT : inference-only is refused first
+UPSELL ARROW_ERROR ABSENT : what is there instead
+CONTRA ARROW_ERROR RELAY : one of the two is dead code
+AB ARROW_MAIN SBXN : what the agent can drive today
+
+note bottom of ABSENT
+  **Absent is the CORRECT state of an unticked
+  box.** ""PROVEO_CHROME_BRIDGE"" was unset in the
+  session probed, so nothing was carried in.
+  Read as a defect it sends the reader into
+  proveo, which is not where this one lives.
+end note
+
+note top of ABSENT
+  **Four empty rows, four possible causes.** No
+  skill, no command, no MCP server, only upsell
+  flags — the same picture whether the browser,
+  the transport, the scopes or the launch flag is
+  the one missing. That is the design defect.
+end note
+
+note bottom of CONTRA
+  **The run says it is skipping what it does.**
+  ""selectBackend"" warns "a sandbox VM cannot
+  reach the host's socket", then calls
+  ""startChromeBridge"" fifty lines later and puts
+  its env in the Kit. The warn is the stale half.
+end note
+
+note top of CONTRA
+  **And the spec carries both answers.**
+  ""chrome-bridge\.puml"" records the sbx enabling
+  work AND, sixty lines on, still says "DOCKER
+  BACKEND ONLY". A file that states a claim and
+  its negation cannot settle a bug report.
+end note
+
+note bottom of SCOPE
+  **The refusal happens before the flag.** Claude
+  Code checks the session's scopes ahead of
+  ""--chrome"" and ""ENABLE_CFC"", so an env token
+  or a ""setup-token"" session is out before
+  proveo's transport is consulted at all.
+end note
+
+note top of SCOPE
+  **Named endpoint, never called.** The message
+  cites ""/api/oauth/validate"", but scopes are
+  SYNTHESISED client-side from where the
+  credential arrived. proveo cannot read them, so
+  ""ScopeGate"" predicts rather than measures.
+end note
+
+note bottom of CHROME
+  **The one precondition nothing can carry.** The
+  native host exists only while Chrome runs with
+  the extension connected. A headless sandbox has
+  no Chrome of its own to substitute, which is
+  why the bridge reaches OUT rather than in.
+end note
+
+note bottom of AB
+  **What the sandbox actually has.**
+  ""agent-browser"" (headless Chromium) with
+  Playwright, the ""browser"" add-on's -browser
+  image variant, and the uat-driver agent. A
+  different capability, not a worse Chrome.
+end note
+
+note bottom of RELAY
+  **The transport works, and is measured.** Both
+  chains pass — ""e2e/chrome_bridge_test\.go"" and
+  its sbx twin — including the relay surviving
+  the seed exec that backgrounds it and a token
+  refusing an unauthenticated connection.
+end note
+
+legend bottom
+  **The order to do it in — the first step deletes a sentence**
+  ==
+  **1. Delete the stale warn.** ""selectBackend"" must stop announcing that the sbx
+  backend cannot reach the host's Chrome socket, because forty lines later it does.
+  Nothing else in that branch is wrong.
+  --
+  **2. Reconcile the spec with itself.** ""chrome-bridge\.puml"" holds the enabling
+  record and the "DOCKER BACKEND ONLY" block that predates it. Keep one, and mark the
+  other as superseded rather than deleting the measurement that motivated it.
+  --
+  **3. Say WHICH precondition failed.** The run already knows three of the four —
+  whether it set the bridge env, what ""ScopeGate"" predicts about the credential, and
+  whether a native-host socket exists on the host at all. One line naming the missing
+  one turns four identical empty rows into a repair.
+  --
+  **4. Then decide whether to offer the box at all** when the credential's shape
+  cannot carry browser scopes. Greying it is the honest picker; offering it sells a
+  bridge to a client that has already declined to use it.
+  ==
+  **Left open on purpose.** Whether proveo should probe the host for a live native-host
+  socket before offering the add-on (it can, cheaply, and the answer is a fact about
+  the moment rather than the machine); and whether ""agent-browser"" should be the
+  suggested alternative in that same line, or naming it there would read as a downgrade.
+end legend
+@enduml

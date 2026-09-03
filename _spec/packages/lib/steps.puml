@@ -54,7 +54,7 @@ partition "2 · Filesystem mount  «host»" {
 
 partition "3 · Egress provision  «host»" {
   if (open + ""--credentials forward""?) then (yes)
-    :no proxy chain — direct egress (the deliberate bypass:\nDinD / pinned-TLS vendors);
+    :no proxy chain — direct egress (the deliberate bypass:\npinned-TLS vendors / the Claude in Chrome bridge);
   elseif (egress mode == open?) then (yes)
     :agent ""--internal"" -> **proveo-egress** MITM -> internet\n(broker injects; no Squid, no write pin);
   else (allowlist / review)
@@ -67,10 +67,6 @@ partition "3 · Egress provision  «host»" {
       writes deny-by-default / DLP
       (decode-scan + byte budget).
     end note
-  endif
-  if (open + forward AND DinD requested?) then (yes)
-    :start DinD sidecar, attach to agent network;
-  else (no)
   endif
   :pull image (pull-first) -> offer local build only if missing;
 }
@@ -158,7 +154,7 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
 partition "5 · Reports / logging, post-session  «host»" {
   :MITM records ""flows.ndjson"" audit throughout\n(query / headers / body omitted — never logs secrets);
   :agent writes artifacts into reports/ (RW mount);
-  :on exit OR SIGINT/SIGTERM — **Teardown** (quiet runner):\n""rm -f"" sidecars · ""network rm"" · remove inject/broker.env · DinD cleanup;
+  :on exit OR SIGINT/SIGTERM — **Teardown** (quiet runner):\n""rm -f"" sidecars · ""network rm"" · remove inject/broker.env;
 }
 
 stop

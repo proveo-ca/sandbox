@@ -90,14 +90,14 @@ note bottom of EP
 end note
 
 note right of CLI
-  **No DinD.** Alone in the fleet, claudecode ships no
-  docker client and stays ""dind: false"": the privileged
-  sibling is ""broker""-mode only, and this is the harness
-  whose permission posture depends on the boundary that
-  mode removes. Container work stays deferred to the
-  per-sandbox engine in
-  _spec/_experiments/docker-sandbox.puml
-  (Cursor-led experiment; claudecode is secondary).
+  **Docker, but only inside the sandbox.** claudecode
+  never took the privileged sibling — its permission
+  posture depends on the boundary that sidecar's one
+  allowed mode removes — and now nothing does
+  (_spec/_plans/retire-dind.puml). ""docker: sbx"" is the
+  whole story: the image carries
+  ""com.docker.sandboxes.start-docker"" and the daemon runs
+  in the microVM, behind the boundary.
 end note
 note bottom of CLI
   **""--verbose"" is the switch that shows full tool inputs and outputs**

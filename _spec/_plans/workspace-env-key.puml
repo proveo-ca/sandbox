@@ -1,0 +1,205 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: a provider key in the workspace .env — which backend READS it, which merely lets it be read, and the wrong mechanism in the warning about it
+' session: 6769e470-377b-4b51-98c8-a84637f468f7
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   the warning itself ........... internal/credentials/credentials.go (WarnMountedSecrets)
+'   the prelude it blames ........ packages/lib/entrypoint-lib.sh (load_env)
+'   the mask it credits .......... internal/workspace/mount.go (isolateEnv, maskEnvMounts)
+'   the sbx startup command ...... internal/backend/sandbox/sandbox.go (Setup.Startup)
+'   where a key SHOULD rest ...... _spec/_plans/secret-custody.puml
+'   the sbx credential path ...... _spec/internal/sbx/credential-path.puml
+'   what the agent may hold ...... _spec/_paradigms/credential-boundary.puml
+'   the tiers that mask .......... _spec/internal/egress/egress-tiers.puml
+'   why clone mode has tracked-only files _spec/internal/sbx/clone-workspace.puml
+'
+' ── THE WARNING, AND THE ONE CLAIM IN IT THAT DOES NOT HOLD ────────────────
+' On every sbx run whose workspace holds a `.env` and whose environment holds a
+' provider key, proveo says:
+'
+'   "<dir>/.env is inside the sandbox workspace and holds a provider key — the
+'    agent's prelude sources it with `set -a`, so the key becomes agent
+'    environment whatever egress tier you picked"
+'
+' The conclusion is right and the mechanism is wrong. On sbx the prelude never
+' runs: `sbx run` does not execute the image ENTRYPOINT, the Kit's only startup
+' command is `proveo-seed`, and `proveo_seed` calls ten helpers —
+' proveo_sync_state, render_subagents, accept_workspace_trust,
+' proveo_provision_toolchain, proveo_enable_claude_lsp_plugins,
+' proveo_compose_house_rules, proveo_apply_ui_defaults,
+' proveo_install_claude_hooks, proveo_seed_browser_skills, proveo_chrome_bridge
+' — and `load_env` is not among them. The only thing proveo writes into the
+' sandbox's `.bashrc` is _proveo_persist_tool_env's block: PATH, GOROOT, GOPATH,
+' VIRTUAL_ENV. Nothing there sources a dotenv.
+'
+' Two comments in this tree disagree about it, which is how the defect survived:
+'
+'   credentials.go     "with no PROVEO_EGRESS_MODE in the Kit the in-container
+'                       prelude SOURCES the .env with `set -a`"
+'   entrypoint-lib.sh  "sbx never runs the image entrypoint and the seed is its
+'                       startup command"
+'
+' Only one of those can be true, and the second is the one the code shows.
+'
+' What IS true on sbx is plainer and no smaller: the workspace is mounted WHOLE
+' at its own host path, nothing masks `.env*` there, so the file sits in the
+' agent's cwd and `cat .env` reads the key. That distinction is not cosmetic — a
+' wrong mechanism names a wrong fix. "The prelude sources it" invites putting
+' PROVEO_EGRESS_MODE into the Kit's environment block, which would change
+' nothing whatsoever, because no prelude reads it on that backend.
+'
+' ── WHO ACTUALLY READS THE FILE ────────────────────────────────────────────
+' Four postures, and only one of them sources anything:
+'
+'   docker · open|allowlist|review · brokered   `.env*` masked with /dev/null
+'                                               (isolateEnv), AND load_env takes
+'                                               its skip branch. Closed twice.
+'   docker · any tier · --credentials forward   isolateEnv returns false, so the
+'                                               real file is mounted; load_env
+'                                               still skips on those three tiers.
+'                                               READABLE, not sourced.
+'   docker · firewall (or any other tier)       no mask, no skip: load_env sources
+'                                               it with `set -a`. This is the only
+'                                               posture the warning describes.
+'   sbx · every tier                            mounted whole, unmasked, no
+'                                               prelude at all. READABLE.
+'
+' So the sentence proveo prints on sbx describes the one case that is not sbx.
+title PLANNED — a key in the workspace .env: sourced on one posture, readable on most
+
+component "**""<ws>/.env""**\na provider key at rest beside the code" as ENVF <<error>>
+component "the warning\nright conclusion, wrong mechanism" as WARN <<error>>
+
+node "docker + egress" as DOCKER <<host>> {
+  component """maskEnvMounts""\n/dev/null over every ""\.env*""" as MASK <<app>>
+  component """load_env""\n""set -a"", skipped on three tiers" as PRE <<app>>
+}
+
+node "sbx" as SBXN <<host>> {
+  component "the workspace, mounted WHOLE\nat its own host path — no mask exists" as WS <<error>>
+  component "no prelude runs here\nno ENTRYPOINT; startup is ""proveo-seed""" as NOPRE <<app>>
+}
+
+component """--clone""\ncarries TRACKED files only" as CLONE <<app>>
+component """secretref"" -> ""sbx secret set""\nthe key never enters the repo" as STORE <<app>>
+component "the agent" as AGENT <<app>>
+
+ENVF ARROW_MAIN MASK
+ENVF ARROW_MAIN PRE
+ENVF ARROW_MAIN WS
+MASK ARROW_ERROR AGENT : nothing left to read
+PRE ARROW_QUEUE AGENT : sourced only off the masking tiers
+WS ARROW_ERROR AGENT : ""cat .env"" — the whole exposure
+NOPRE ARROW_ERROR WARN : the claim that does not hold
+CLONE ARROW_MAIN WS : a gitignored ""\.env"" never arrives
+STORE ARROW_MAIN AGENT : injected, never mounted
+
+note bottom of WARN
+  **Right conclusion, wrong mechanism.** The key
+  IS reachable on sbx — because the file is
+  mounted and unmasked, not because anything
+  sources it. The difference is the fix.
+end note
+
+note top of WARN
+  **A wrong mechanism names a wrong repair.**
+  "the prelude sources it" invites a
+  ""PROVEO_EGRESS_MODE"" in the Kit, which changes
+  nothing: no prelude reads it there.
+end note
+
+note bottom of PRE
+  **""set -a"" is the docker story, and not all of
+  it.** Sourcing is skipped on open, allowlist
+  and review, so it happens only on the tiers
+  that do not mask — firewall and below.
+end note
+
+note bottom of MASK
+  **Masking is credential-gated, not just
+  tier-gated.** ""isolateEnv"" is false under
+  ""--credentials forward"", so that posture
+  mounts the real file on every tier.
+end note
+
+note bottom of WS
+  **There is no per-file overlay to hang a mask
+  on.** sbx takes DIRECTORY workspaces at their
+  own host paths, so ""\.env"" arrives with
+  everything else or not at all.
+end note
+
+note top of WS
+  **And deleting it inside is not an option.**
+  The mount is the operator's own directory over
+  virtiofs, so a shred in the sandbox shreds
+  their file. The answer has to be upstream.
+end note
+
+note bottom of NOPRE
+  **Read in the tree, not inferred.** The Kit's
+  ""Setup.Startup"" is ""proveo-seed"" alone, and
+  the ten helpers ""proveo_seed"" names do not
+  include ""load_env"".
+end note
+
+note top of NOPRE
+  **The rc block carries no secret either.**
+  ""_proveo_persist_tool_env"" puts PATH, GOROOT,
+  GOPATH and VIRTUAL_ENV in ""\.bashrc"" — a
+  toolchain, not an environment file.
+end note
+
+note bottom of CLONE
+  **The default posture already closes it.** A
+  clone carries TRACKED files only, and a
+  ""\.env"" is gitignored by habit, so it never
+  reaches the sandbox at all.
+end note
+
+note top of CLONE
+  **A default is not a guarantee.**
+  ""--clone=false"", a sub-scope, a non-repo and a
+  linked worktree each fall back to the mounted
+  tree — and a COMMITTED ""\.env"" clones fine.
+end note
+
+note bottom of STORE
+  **The only close that empties the file.**
+  ""keychain:"" resolves host-side and
+  ""sbx secret set"" hands the value in on stdin,
+  so no key is left in the repo to read.
+end note
+
+note bottom of ENVF
+  **The file is itself a posture.** A plaintext
+  key beside the code is what secret-custody
+  calls exposure (a); this plan is only about
+  who can READ it once a run starts.
+end note
+
+legend bottom
+  **The order to do it in — the first step is a sentence**
+  ==
+  **1. Say what is true on sbx.** The file is mounted and unmasked, so the agent
+  can read it. Drop the prelude clause; it describes the docker firewall tier.
+  --
+  **2. Pin which comment is right.** ""WarnMountedSecrets"" and ""entrypoint-lib\.sh""
+  contradict each other about whether a prelude runs under sbx. A contract test
+  over the Kit's startup command would have refused the disagreement.
+  --
+  **3. Name the two escapes where the problem is read.** ""--clone"" keeps a
+  gitignored ""\.env"" out of the sandbox entirely, and a ""keychain:"" reference keeps
+  the key out of the file. Neither appears in the warning today.
+  --
+  **4. Then decide whether sbx warns or refuses.** It cannot mask a file inside a
+  directory mount, so the candidates are: warn harder, refuse the run, or make the
+  host store the documented default and leave the warning as the nudge toward it.
+  ==
+  **Left open on purpose.** Whether a COMMITTED ""\.env"" should block an sbx run
+  outright; whether the docker mask should key on ""--credentials forward"" rather
+  than on the tier; and whether ""load_env"" should stop sourcing dotenvs at all now
+  that a broker and a host store both exist.
+end legend
+@enduml

@@ -6,7 +6,7 @@
 '   what SHIPPED in that pass ....... _spec/internal/ui/output-vocabulary.puml
 '   surface A's boundary ............ _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
 '   surface B's already-styled half . _spec/internal/reviewgate/pty-review-proxy.puml
-'   the decision both wait on ....... _spec/_plans/retire-dind.puml
+'   the decision both waited on ..... _spec/_plans/retire-dind.puml (APPLIED)
 '   what replaces A's seeding ....... _spec/internal/sbx/sbx-kit-contract.puml
 '   what replaces B's gate .......... _spec/internal/sbx/policy-baseline.puml
 '
@@ -50,7 +50,8 @@
 ' 17, claudecode/mcp 11, cecli 10 — plus the mitmproxy and squid sidecar
 ' scripts. This is surface A again in another language, and it is deferred for
 ' the same reason: sbx's kit is expected to absorb the seeding, and the two
-' sidecars belong to the docker backend that retire-dind shrinks to a fallback.
+' sidecars belong to the docker backend that retire-dind has now shrunk to a
+' PROVEO_SBX=0 fallback.
 '
 ' Host-side, build time (~30 lines): defs/lib/docker-build.sh, the five build.sh
 ' and four ensure.sh scripts, defs/lib/egress.sh, run_contract_tests.sh. These
@@ -75,9 +76,9 @@
 ' choiceui.Consent on a tcell overlay over the suspended PTY, so the hardest
 ' one of these is conformant today and is the proof the pattern works.
 '
-' THE DECISION IT WAITS ON. Two, in fact. The review prompts are the docker
-' backend's, and retire-dind leaves that backend alive only as the PROVEO_SBX=0
-' fallback — so their volume is about to fall to near zero. Separately, a form
+' THE DECISION IT WAITED ON. Two, in fact. The review prompts are the docker
+' backend's, and retire-dind — now applied — leaves that backend alive only as
+' the PROVEO_SBX=0 fallback, so their volume has already fallen to near zero. Separately, a form
 ' cannot be the only rendering: promptEnv reads SECRETS, and it has to keep
 ' working with no TTY, in CI, and under a pipe. That means every converted
 ' prompt needs a headless path anyway, which is a contract worth designing once
@@ -87,7 +88,7 @@ title PLANNED — three TUI surfaces deferred, and what each waits on
 
 package "joined the language (shipped)" as DONE <<app>> {
   component "internal/ui\nsix roles · three severities\nmeasured, wrapped" as UI <<app>>
-  component "~90 host call sites\nrun · sandbox · cmd/proveo\ndind · egressproxy · credentials" as SITES <<app>>
+  component "~90 host call sites\nrun · sandbox · cmd/proveo\negress · egressproxy · credentials" as SITES <<app>>
   component "internal/choiceui\nthe original speaker" as CUI <<app>>
   component "choiceui.Consent\nreview connection prompt\nalready conformant" as CONSENT <<app>>
 }
@@ -110,7 +111,7 @@ package "deferred — surface C" as C <<cloud>> {
 
 component "sbx kit contract\nseeds the sandbox" as KIT <<host>>
 component "sbx policy baseline\nowns egress decisions" as POL <<host>>
-component "retire-dind\ndocker → PROVEO_SBX=0 fallback" as DIND <<host>>
+component "retire-dind (APPLIED)\ndocker → PROVEO_SBX=0 fallback" as DIND <<host>>
 component "contract test\nexemption list names\nboth surfaces explicitly" as TEST <<async>>
 
 SITES ARROW_MAIN UI
@@ -118,7 +119,7 @@ CUI ARROW_MAIN UI : shares the palette
 CONSENT ARROW_MAIN CUI
 KIT ARROW_ERROR EP : may delete, not restyle
 POL ARROW_ERROR WIZ : may retire the question
-DIND ARROW_OPTIONAL WIZ : volume falls to the fallback
+DIND ARROW_OPTIONAL WIZ : volume fell to the fallback
 TEST ARROW_QUEUE A : exempt, by name
 TEST ARROW_QUEUE C : exempt, by name
 EP ARROW_OPTIONAL UI : where the facts would move

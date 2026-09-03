@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	// Addon is the picker label. Kept beside docker's "(sandbox)" / "(dind)"
-	// spelling so the row reads as one family of things the run can hand the agent.
+	// Addon is the picker label. Kept beside docker's "(sandbox)" spelling so the
+	// row reads as one family of things the run can hand the agent.
 	Addon = "claude-in-chrome"
 
 	// EnvAddr is what the container relay dials: host:port, from the container's
@@ -54,6 +54,29 @@ const (
 	// is on (egress.Options.HostBridge).
 	ContainerHost = "host.docker.internal"
 )
+
+// TierSupported reports whether the DOCKER backend's egress posture leaves the
+// agent a route to the host's bridge listener: the plain tier, with credentials
+// forwarded. Every other combination puts a TLS-inspecting MITM — and in the
+// enforced tiers a Squid allowlist — between the agent and everything else, with
+// the agent on an `--internal` network that has no host gateway at all. Brokered
+// credentials fail from the other direction: injection is a guarantee only while
+// the injector is the sole egress path.
+//
+// It lives here because the bridge is the only thing this constraint still
+// governs. It used to be dind.ModeSupported / dind.CredentialsSupported, asking
+// the same question about a privileged sidecar; that sidecar is retired
+// (_spec/_plans/retire-dind.puml) and the predicate outlived it. The sbx backend
+// is unaffected — the tier is inert there and the bridge is refused for a
+// different reason (a sandbox VM has no route to a host socket).
+func TierSupported(mode, credentials string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "open") &&
+		strings.EqualFold(strings.TrimSpace(credentials), "forward")
+}
+
+// TierWhy is the one sentence the picker and the run both print when
+// TierSupported says no. One string so the two surfaces cannot drift.
+const TierWhy = "needs egress open + credentials forward"
 
 // Username mirrors Claude Code's rule for the socket directory suffix:
 // os.userInfo().username, else $USER, else $USERNAME, else "default".

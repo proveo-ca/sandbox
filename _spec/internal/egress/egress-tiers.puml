@@ -26,9 +26,10 @@ T3 ARROW_CLOUD NET
 
 note right of CREDS
   **Why the axes had to split.** The modes used to conflate network
-  policy with credential handling, which is why cursor and DinD both
-  had to be carved out as target-name exceptions in ""cmd/proveo"".
-  Modes now name the network tier only; credentials are independent.
+  policy with credential handling, which is why cursor and the
+  privileged sidecar both had to be carved out as target-name
+  exceptions in ""cmd/proveo"". Modes now name the network tier only;
+  credentials are independent.
 
   Every tier brokers — the key stays host-side and is injected at the
   MITM — **except** open + ""forward"", which is the one shape with
@@ -87,11 +88,17 @@ end note
 note bottom of BYPASS
   **Two cases injection cannot serve**, and they are the same case from
   two directions. A vendor pinning its TLS (cursor) cannot be
-  intercepted, so the credential must arrive intact. DinD needs an
-  internet-capable agent network, which reopens a path around the
-  injector — so brokering there would be a guarantee on paper only.
-  Both are declared per def in ""harness.manifest"" ""capabilities"", not
-  special-cased by target name.
+  intercepted, so the credential must arrive intact. The Claude in
+  Chrome bridge needs a route to the HOST, which no intercepting tier
+  leaves open — the agent sits on an ""--internal"" network there.
+  cursor's is declared per def in ""harness.manifest"" ""capabilities"",
+  not special-cased by target name.
+
+  **A third case is gone rather than answered.** The privileged DinD
+  sibling needed an internet-capable agent network, which reopened a
+  path around the injector and made brokering a paper guarantee; it is
+  retired (_spec/_plans/retire-dind.puml), and sbx replaces it with a
+  daemon whose egress the Kit allowlist confines.
 
   **And it is the one posture with no record.** A plain bridge means no
   MITM and no Squid: the real key goes straight to the provider and

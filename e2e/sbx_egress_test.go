@@ -145,8 +145,8 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 	}
 	if strings.Contains(got, "DAEMON:PULLED") {
 		t.Errorf("a container pull inside the sandbox succeeded against a registry no Kit allowlists — "+
-			"the per-sandbox daemon is a path around the Kit policy, which is the property dind gates behind "+
-			"five conditions on the docker backend:\n%s", got)
+			"the per-sandbox daemon is a path around the Kit policy, and confining it is the whole "+
+			"reason the privileged sidecar could be retired in favour of this one:\n%s", got)
 	}
 
 	_ = sess.SendText("exit")

@@ -36,6 +36,8 @@ var specNotesEnforced = []string{
 	"_spec/internal/secretref/secret-references.puml",
 	"_spec/internal/sbx/oauth-provisioning.puml",
 	"_spec/_plans/retire-dind.puml",
+	"_spec/_plans/workspace-env-key.puml",
+	"_spec/_plans/claude-in-chrome-reachability.puml",
 }
 
 const (

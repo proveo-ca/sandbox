@@ -10,7 +10,6 @@ node "Host-orchestrated sidecars" as SIDE <<host>> {
   component "proveo-egress\nTLS MITM · credential broker · flow log" as MITM <<app>>
   component "Squid\nenforcement proxy" as SQUID <<app>>
   component "Ollama sidecar\n--local-model" as OLLAMA <<app>>
-  component "docker:dind\nsibling daemon (privileged)" as DIND <<error>>
 }
 
 cloud "Pinned model provider" as PROV <<cloud>>
@@ -23,7 +22,6 @@ AGENT ARROW_CLOUD WEB : **broker** — direct bridge\n(container boundary only)
 SQUID ARROW_CLOUD PROV : write-allow: pinned provider only
 SQUID ARROW_CLOUD WEB : read-allow: GET-shaped web
 AGENT ARROW_OPTIONAL OLLAMA : NO_PROXY bypass\n(opencode · cecli)
-AGENT ARROW_OPTIONAL DIND : ""dind:true"" + Dockerfiles in scope\n+ PROVEO_DIND=1
 
 note right of MITM
   **Two purposes, both network-level:**
@@ -112,10 +110,12 @@ note bottom of OLLAMA
   ""_spec/internal/entrypoint/model-alias-bridges\.puml"".
 end note
 
-note bottom of DIND
-  Only for modes that can expose a daemon without
-  defeating enforcement; otherwise proveo warns and
-  skips. Lifecycle: ""internal/dind"".
+note bottom of OLLAMA
+  **The one sibling left.** A privileged ""docker:dind""
+  daemon used to hang here too, reachable by the agent
+  and therefore a path around every arrow above. It is
+  retired (_spec/_plans/retire-dind.puml); a sandbox's
+  own daemon sits behind the boundary instead.
 end note
 
 note top of AGENT

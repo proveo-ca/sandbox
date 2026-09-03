@@ -17,7 +17,7 @@ type Frame struct {
 	// the account, then the platform. "host" said only that a host existed.
 	Host      string
 	HostOS    string
-	Square    string // inside the box: "sbx · claudecode", "dind · opencode"
+	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
 	Interface string // the interface dot's label
 	Caption   string // one sentence, the same facts as the figure; clipped, never wrapped

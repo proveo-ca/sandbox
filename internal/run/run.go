@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
@@ -16,7 +15,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
@@ -283,13 +281,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			p.Mode, p.credentialsOrDefault())
 	}
 
-	rs.Backend.DindScope = rs.Workspace.WS.InputDir
-	if rs.Backend.DindScope == "" {
-		rs.Backend.DindScope = rs.Start
-	}
-	rs.Backend.WantDind = false
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
-	rs.Backend.DindOfferable = rs.Man.IsDind() && dind.ModeSupported(p.Mode) && dind.CredentialsSupported(p.Credentials)
 	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
 		chosen, isLocal := posture.ResolveImageChoice(rs.Backend.BrowserImage)
 		if isLocal {
@@ -299,18 +291,30 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
 	}
-	if hasAddon(p.Addons, addonDind) && rs.Backend.DindOfferable {
-		rs.Backend.WantDind = true
-		ui.Appf("sidecar: DinD (same image)")
-	}
-	if len(p.Addons) == 0 && !p.PrintOnly {
-		rs.Backend.WantDind = rs.Backend.DindOfferable && dind.ShouldStart(rs.Man.IsDind(), rs.Backend.DindScope, false, nil)
-	}
-	if rs.Man.IsDind() && !dind.ModeSupported(p.Mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(rs.Backend.DindScope) {
-		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.Mode)
-	}
+	warnDindRetired()
 
 	return nil
+}
+
+// warnDindRetired answers the one thing PROVEO_DIND still does: say that it does
+// nothing. The privileged sibling daemon it used to ask for is gone — a daemon the
+// agent could call was a way to start a container proveo did not write the argv
+// for, and it was offered only on `open` + `forward`, the one posture where proveo
+// had already stopped enforcing anything. `docker: sbx` replaces it with a daemon
+// behind a boundary.
+//
+// A no-op that says so, rather than an unknown-variable silence: an operator who
+// exported it in a shell rc months ago is otherwise told nothing, and would read
+// the missing sidecar as a broken run.
+// SPEC: _spec/_plans/retire-dind.puml
+func warnDindRetired() {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_DIND"))) {
+	case "", "0", "false", "no", "off":
+		return
+	}
+	ui.Warnf("PROVEO_DIND is retired and does nothing: the privileged Docker-in-Docker " +
+		"sidecar is gone. A harness that declares `docker: sbx` gets its own daemon inside " +
+		"the sandbox instead; unset the variable")
 }
 
 // startChromeBridge holds a host relay open for the life of the run and returns
@@ -750,13 +754,14 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
 		}
 	}
-	// A `docker: sbx` harness is never offered the dind sidecar (addonOptions:
-	// one entry, never two) — and it does not need one. sbx gives each sandbox its
-	// OWN daemon, gated on the image label `com.docker.sandboxes.start-docker`,
-	// which proveo's sbx-capable images now carry. Measured inside a sandbox on
-	// proveo/claudecode: `docker version` reports Server 29.7.2 and `docker run
-	// hello-world` succeeds. Nothing to warn about any more; the warning that used
-	// to live here told the operator docker would fail, which is now false.
+	// `docker: sbx` is now the ONLY way a harness gets a daemon, and it needs no
+	// sidecar: sbx gives each sandbox its own, gated on the image label
+	// `com.docker.sandboxes.start-docker`, which every sbx-capable proveo image
+	// carries. Measured inside a sandbox on proveo/claudecode: `docker version`
+	// reports Server 29.7.2 and `docker run hello-world` succeeds. Nothing to warn
+	// about; the warning that used to live here said docker would fail, which is
+	// false, and the privileged alternative it hedged against is retired.
+	// SPEC: _spec/_plans/retire-dind.puml
 	var err error
 	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
 	if err != nil {
@@ -895,8 +900,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 // and the agent itself. Teardown is by defer, so a signal mid-run unwinds the same
 // way a normal exit does.
 func execute(rs *Spec, p *Params, d Deps) error {
-	var dindSidecar *dind.Sidecar
-
 	if !p.PrintOnly {
 		if err := d.PreflightImages(egress.Plan{}, rs.Man, p.Image); err != nil {
 			return err
@@ -915,8 +918,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	// and said so — rather than failed: the add-on is a convenience over the run,
 	// and the run must not die because Chrome was closed after the prompt.
 	tierBlocked := ""
-	if !dind.ModeSupported(p.Mode) || !dind.CredentialsSupported(p.credentialsOrDefault()) {
-		tierBlocked = "needs --egress-mode open --credentials forward (the agent has no route to the host behind a sidecar)"
+	if !chromebridge.TierSupported(p.Mode, p.credentialsOrDefault()) {
+		tierBlocked = "needs --egress-mode open --credentials forward (an intercepting tier puts the agent on an internal network with no route to the host)"
 	}
 	bridge, bridgeEnv := startChromeBridge(rs, p, tierBlocked)
 	if bridge != nil {
@@ -964,37 +967,18 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	if err := d.PreflightImages(plan, rs.Man, p.Image); err != nil {
 		return err
 	}
-	if rs.Backend.WantDind {
-		sc, err := dind.Start(dind.ExecRunner{}, p.Target, rs.Backend.DindScope, os.Stderr)
-		if err != nil {
-			return err
-		}
-		dindSidecar = sc
-		agent.ExtraArgs = append(append([]string(nil), agent.ExtraArgs...), sc.EnvArgs()...)
-		if plan.AgentNetwork == "" {
-			agent.ExtraArgs = append(agent.ExtraArgs, sc.LinkArgs()...)
-		}
-	}
 	if len(rs.Creds.AuthMissingAtStart) > 0 {
 		credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
-			if dindSidecar == nil {
-				return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
-			}
-			var once sync.Once
-			cleanup := func() { once.Do(func() { dindSidecar.Cleanup(dind.ExecRunner{}) }) }
-			defer cleanup()
-			stopSig := dockeregress.OnSignalCleanup(cleanup)
-			defer stopSig()
 			return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
 		}
 		squidProviders := rs.Creds.Detected
 		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Creds.Brokered) == 1 {
 			squidProviders = rs.Creds.Brokered
 		}
-		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, dindSidecar, reviewProxy)
+		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, reviewProxy)
 	}()
 	return runErr
 }

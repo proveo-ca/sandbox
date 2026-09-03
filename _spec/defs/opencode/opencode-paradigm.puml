@@ -48,7 +48,9 @@ note bottom of EP
   (_spec/internal/entrypoint/model-alias-bridges.puml).
 
   Supports ""--local-model"" (Ollama sidecar, litellm-free
-  OpenAI-compatible endpoint) and DinD.
+  OpenAI-compatible endpoint). Docker now arrives as the
+  sandbox's own daemon under ""docker: sbx"", not as the
+  retired privileged sibling.
 end note
 
 note bottom of EP

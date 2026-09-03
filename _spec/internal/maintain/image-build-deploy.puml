@@ -16,7 +16,7 @@ node "Maintainer host" as HOST <<host>> {
 folder "Target kinds" as KINDS <<host>> {
   component "base\nbase · base-node · base-node-lsp\nbase-node-browser" as KB <<app>>
   component "harness\nfrom images{} — incl. variants\n(claudecode-solidity, -browser)" as KH <<app>>
-  component "sidecar\nsquid-proxy · egress-proxy\nmitmproxy · dind" as KS <<app>>
+  component "sidecar\nsquid-proxy · egress-proxy\nmitmproxy" as KS <<app>>
 }
 
 cloud "Registry (docker push)" as REGISTRY <<cloud>>

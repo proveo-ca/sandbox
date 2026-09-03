@@ -398,6 +398,10 @@ func childEnvArgsNoCredential(t *testing.T) []string {
 	return append(args,
 		"PROVEO_WIZARD=off",       // no scope / capability pickers on this PTY
 		"PROVEO_AUTO_PROVISION=1", // build a missing sidecar image instead of asking
+		// PROVEO_DIND is retired and pinning it off is no longer what keeps the
+		// privileged sidecar out of these runs — nothing starts one. Kept at 0 so an
+		// operator's exported value cannot put the retirement warning into a screen
+		// this suite matches on. SPEC: _spec/_plans/retire-dind.puml
 		"PROVEO_DIND=0",
 	)
 }

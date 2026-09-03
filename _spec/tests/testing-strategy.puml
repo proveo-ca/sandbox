@@ -18,7 +18,7 @@ L2 ARROW_QUEUE COV
 note right of L1
   Host orchestration under test is **Go**
   (""cmd/proveo"", ""internal/{runner,workspace,egress,
-  dind,gitidentity,manifest}""). Fat bash runners and the
+  sbx,gitidentity,manifest}""). Fat bash runners and the
   ""defs/lib/egress.sh"" lifecycle are retired.
 end note
 

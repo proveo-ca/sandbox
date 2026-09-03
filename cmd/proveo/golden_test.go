@@ -75,9 +75,13 @@ func renderDockerPlan(plan egress.Plan, agent runner.Config) string {
 	for _, i := range plan.Images {
 		fmt.Fprintln(&b, i)
 	}
+	// agentNetwork= used to sit between usesSquid and proxyContainer. The field it
+	// rendered existed for one reader — the privileged sidecar attaching to the
+	// agent's network — and went with it (_spec/_plans/retire-dind.puml). The
+	// network itself is still visible in the argv and in the networks section.
 	section(&b, "flags")
-	fmt.Fprintf(&b, "usesSquid=%v\nagentNetwork=%s\nproxyContainer=%s\nsquidContainer=%s\nollamaContainer=%s\ncaWaitPath=%s\nneedsLifecycle=%v\n",
-		plan.UsesSquid, plan.AgentNetwork, plan.ProxyContainer, plan.SquidContainer,
+	fmt.Fprintf(&b, "usesSquid=%v\nproxyContainer=%s\nsquidContainer=%s\nollamaContainer=%s\ncaWaitPath=%s\nneedsLifecycle=%v\n",
+		plan.UsesSquid, plan.ProxyContainer, plan.SquidContainer,
 		plan.OllamaContainer, plan.CAWaitPath, dockeregress.NeedsLifecycle(plan))
 	return b.String()
 }

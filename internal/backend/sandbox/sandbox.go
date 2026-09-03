@@ -703,7 +703,16 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	// --shell selects sbx's OWN shell agent rather than substituting a command: the
 	// built-in agent owns the launch, so a trailing "bash" reached the harness's
 	// agent as an argument and the shell never opened.
-	command, agent := in.Extra, sbx.BuiltinAgent(in.Target)
+	//
+	// Otherwise AgentFor decides. A harness sbx has a built-in for launches under
+	// it and owns its own argv, so anything the operator passed rides as the
+	// trailing command; a harness sbx has no name for runs under the shell agent
+	// with its own launch command, and an explicit `--` argument replaces that.
+	agent, launch := sbx.AgentFor(in.Target)
+	command := in.Extra
+	if len(command) == 0 {
+		command = launch
+	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}

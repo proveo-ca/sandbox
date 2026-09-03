@@ -378,24 +378,86 @@ func TestApplyOrder(t *testing.T) {
 	}
 }
 
-func TestBuildPlanAgentNetwork(t *testing.T) {
+// Which network the agent lands on, read from the argv rather than from a field.
+//
+// `Plan.AgentNetwork` used to record the same name so the privileged sidecar
+// could attach itself to it under the alias `docker`. That sidecar is retired
+// (_spec/_plans/retire-dind.puml) and nothing else ever read the field, so it is
+// gone — but the topology it described is still a real decision, and asserting it
+// through AgentArgs keeps the coverage without keeping a claim no code consults.
+func TestBuildPlanAgentLandsOnTheRightNetwork(t *testing.T) {
 	t.Parallel()
-	// Broker + local model: agent is on a user-defined bridge, so AgentNetwork is
-	// exposed for a DinD sidecar to attach to by alias.
-	if p, _ := BuildPlan(withModel(fwd(baseOpts("open")), "gemma4")); p.AgentNetwork == "" {
-		t.Error("broker+local-model should set AgentNetwork (user-defined bridge)")
+	// Forward + local model: a USER-DEFINED bridge, so the agent and the Ollama
+	// sidecar can resolve each other by name.
+	p, _ := BuildPlan(withModel(fwd(baseOpts("open")), "gemma4"))
+	net := argvValue(p.AgentArgs, "--network")
+	if net == "" || net == "bridge" {
+		t.Errorf("forward+local-model should put the agent on a user-defined bridge, got %v", p.AgentArgs)
 	}
-	// Broker without a model: agent is on the default bridge → empty (DinD uses --link).
-	if p, _ := BuildPlan(fwd(baseOpts("open"))); p.AgentNetwork != "" {
-		t.Errorf("broker (no model) should leave AgentNetwork empty, got %q", p.AgentNetwork)
+	if !createsNetwork(p, net) {
+		t.Errorf("the plan must CREATE the network it puts the agent on (%q), got %v", net, p.Networks)
 	}
-	// Enforced-egress modes must NEVER expose an agent network for a DinD attach:
-	// doing so would put an internet-capable daemon on the agent's internal net.
+
+	// Forward without a model: nothing to resolve, so the default bridge — and no
+	// network is created at all.
+	p, _ = BuildPlan(fwd(baseOpts("open")))
+	if got := argvValue(p.AgentArgs, "--network"); got != "" {
+		t.Errorf("forward with no model should stay on the default bridge, got --network %q", got)
+	}
+	if len(p.Networks) != 0 {
+		t.Errorf("forward with no model creates no network, got %v", p.Networks)
+	}
+
+	// The enforced tiers put the agent somewhere with NO route out of its own
+	// accord: the network is created `--internal`. That is the property the old
+	// field's invariant was really protecting — anything reaching the internet from
+	// the agent's network would bypass the proxy chain the tier exists to impose.
 	for _, mode := range []string{"review", "allowlist"} {
-		if p, _ := BuildPlan(baseOpts(mode)); p.AgentNetwork != "" {
-			t.Errorf("%s must not set AgentNetwork (DinD attach would bypass egress), got %q", mode, p.AgentNetwork)
+		p, _ := BuildPlan(baseOpts(mode))
+		net := argvValue(p.AgentArgs, "--network")
+		if net == "" {
+			t.Errorf("%s must put the agent on a named network, got %v", mode, p.AgentArgs)
+			continue
+		}
+		if !createsInternalNetwork(p, net) {
+			t.Errorf("%s must create the agent network as --internal (anything internet-capable on it "+
+				"would bypass egress); got %v", mode, p.Networks)
 		}
 	}
+}
+
+// argvValue returns the value following flag in argv, "" when absent. It also
+// answers "" for the `--network=bridge` spelling, which names no created network.
+func argvValue(argv []string, flag string) string {
+	for i, a := range argv {
+		if a == flag && i+1 < len(argv) {
+			return argv[i+1]
+		}
+	}
+	return ""
+}
+
+func createsNetwork(p Plan, name string) bool {
+	for _, c := range p.Networks {
+		if len(c) > 0 && c[len(c)-1] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func createsInternalNetwork(p Plan, name string) bool {
+	for _, c := range p.Networks {
+		if len(c) == 0 || c[len(c)-1] != name {
+			continue
+		}
+		for _, a := range c {
+			if a == "--internal" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {

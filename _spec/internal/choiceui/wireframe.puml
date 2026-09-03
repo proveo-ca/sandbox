@@ -98,10 +98,10 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   leaving "neither" reachable — is gone.
   .
   Execution is one-of by construction (a run
-  has one place it runs) but keeps a checkbox
-  model, because "neither" IS reachable on a
-  dind harness with the daemon off. That state
-  draws as two empty marks, which is what it is.
+  has one place it runs) and now carries ONE
+  box: the sidecar that made "neither" reachable
+  is retired, so the row is greyed and ticked —
+  a fact, not a question.
 }
 {^"5 · filtered — the bridge never reads it"
   set by operator | <color:#00BAC6>ARCHITECT_MODEL</color> | <color:#9a9a9a><s>EDITOR_MODEL</s></color> | <color:#00BAC6>SMALL_MODEL</color>

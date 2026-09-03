@@ -15,7 +15,6 @@ docker network rm sid-open-egress-net
 proveo/egress-proxy:latest
 == flags ==
 usesSquid=false
-agentNetwork=
 proxyContainer=sid-egress
 squidContainer=
 ollamaContainer=

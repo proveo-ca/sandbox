@@ -171,7 +171,7 @@ func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 func TestBothAxesFallBackWhenTheirRowWasDropped(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{evidenceRow(EvidenceDefault)}}
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerDind}, "cursor", false, "open", "forward")(f, 0)
+	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", false, "open", "forward")(f, 0)
 	if fr.Hop != "" {
 		t.Errorf("open + forward has no hop at all; the strip drew %q", fr.Hop)
 	}

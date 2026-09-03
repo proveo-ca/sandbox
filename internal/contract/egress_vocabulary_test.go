@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/dind"
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 )
@@ -47,14 +47,22 @@ func TestContainerBoundarySpeaksOnlyCanonicalTiers(t *testing.T) {
 		if entrypoint.ApplyBrokerSentinel(legacy, probeVar, "") != nil {
 			t.Errorf("%q reached the sentinel gate unrenamed and was understood", legacy)
 		}
-		if dind.ModeSupported(legacy) {
-			t.Errorf("%q reached the daemon gate unrenamed and was understood", legacy)
+		if chromebridge.TierSupported(legacy, "forward") {
+			t.Errorf("%q reached the host-bridge gate unrenamed and was understood", legacy)
 		}
 	}
 
+	// The host-bridge gate is the last reader of "which tier leaves the agent a
+	// route to the host". It used to be the daemon gate too — dind.ModeSupported,
+	// asking the same question for a privileged sidecar — and the predicate
+	// outlived the sidecar (_spec/_plans/retire-dind.puml). Same vocabulary, same
+	// one tier, so the same assertion still belongs here.
 	for _, tier := range modes {
-		if want := tier == "open"; dind.ModeSupported(tier) != want {
-			t.Errorf("dind.ModeSupported(%q) = %v, want %v", tier, !want, want)
+		if want := tier == "open"; chromebridge.TierSupported(tier, "forward") != want {
+			t.Errorf("chromebridge.TierSupported(%q, forward) = %v, want %v", tier, !want, want)
+		}
+		if chromebridge.TierSupported(tier, "broker") {
+			t.Errorf("%q with brokered credentials must not pass the host-bridge gate", tier)
 		}
 	}
 }

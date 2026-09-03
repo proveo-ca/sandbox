@@ -23,7 +23,6 @@ type Plan struct {
 	ProxyContainer  string    // MITM inspector sidecar, named so its logs can be captured at teardown
 	UsesSquid       bool      // proxy/firewall stage a Squid config + logs dir
 	Images          []string  // every sidecar image, for the preflight (in add order)
-	AgentNetwork    string
 }
 
 // Options parameterizes a Plan. Zero values are sensible: images default to the
@@ -230,7 +229,11 @@ func buildOpen(o Options) Plan {
 			// asked; Docker Desktop adds it anyway, so this is harmless there.
 			b.p.AgentArgs = append(b.p.AgentArgs, hostGatewayAlias)
 		}
-		b.p.AgentNetwork = net
+		// The network is named in AgentArgs and nowhere else. `Plan.AgentNetwork`
+		// used to record it too, so the privileged sidecar could attach itself under
+		// the alias `docker`; with that sidecar retired nothing attaches, and a
+		// field no reader consults is a claim the plan cannot keep.
+		// SPEC: _spec/_plans/retire-dind.puml
 		b.attachLocalModel(net)
 		return b.done()
 	}

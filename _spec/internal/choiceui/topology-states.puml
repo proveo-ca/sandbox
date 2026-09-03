@@ -55,12 +55,13 @@ title The topology strip in every selectable state, on both backends
 {#
   backend | harnesses | the egress row shows | the hop in the strip is | the row is
   **sbx** | claudecode · cursor | allow-all · balanced · deny-all | sbx's own proxy; the Kit allowlist rides on top | **LOCKED** — reported, never set
-  **docker** | opencode · cecli | open · allowlist · review | proveo's mitmproxy, plus Squid on the enforced tiers | a choice
+  **docker** | any def, as a FALLBACK only | open · allowlist · review | proveo's mitmproxy, plus Squid on the enforced tiers | a choice
 }
   .
   The sandbox add-on is now compulsory, so a harness that declares sbx is ALWAYS
-  on the first row and never sees a tier. The docker row is reached by declaring
-  dind, or on a sbx harness by PROVEO_SBX=0 or --egress-mode review.
+  on the first row and never sees a tier. Every def declares it, so the docker row
+  is reached only by PROVEO_SBX=0, --egress-mode review, or a host that cannot run
+  sbx (_spec/_plans/retire-dind.puml).
   .
   On sbx the baseline is host-wide and shared by sandboxes proveo never started,
   which is why the row is locked. The strip is REPORTING there — it draws a fact
@@ -254,7 +255,6 @@ title The topology strip in every selectable state, on both backends
   row | selection | what changes in the strip
   the def being run | claudecode · cursor · opencode · cecli | the square's label, and which variant above applies
   execution | docker (sandbox) — compulsory wherever the harness declares sbx | the square reads 'sbx · <def>'
-  execution | docker (dind) — a real toggle, only on a dind harness | the square reads 'dind · <def>', and a daemon glyph joins it
   interface | tui (this session) — always on | the interface dot, always drawn
   interface | + browser | the dot reads 'interface: tui + browser'
   interface | + claude-in-chrome | the return arrow reaches PAST the host dot, to your own Chrome

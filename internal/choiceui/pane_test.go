@@ -13,7 +13,7 @@ import (
 func paneFrame() Frame {
 	return Frame{
 		Host: "pluvo", HostOS: "(macOS)",
-		Square: "dind · claudecode", Hop: "mitm + squid",
+		Square: "sbx · claudecode", Hop: "mitm + squid",
 		Interface: "tui + browser + chrome",
 		Key:       KeyAtHop, Lane: LaneScreened, Open: 1, Refused: 2, Speaking: true,
 		Caption: "deny-all · broker — only proveo's allowlist gets out; the key stops at the hop",
@@ -32,7 +32,7 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 		joined := strings.Join(screenLines(s), "\n")
 		s.Fini()
 
-		for _, want := range []string{"pluvo", "(macOS)", "dind · claudecode", "mitm + squid",
+		for _, want := range []string{"pluvo", "(macOS)", "sbx · claudecode", "mitm + squid",
 			"tui + browser + chrome"} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("tier %v: the pane dropped %q, which is a fact and not decoration:\n%s",

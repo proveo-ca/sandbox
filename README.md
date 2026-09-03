@@ -43,13 +43,13 @@ package) at [`e2e/samples/`](e2e/samples) — the same workspace the E2E suite d
 ```bash
 cd e2e/samples
 
-proveo run opencode                          # capability picker (Tab: browser / DinD), then boots
+proveo run opencode                          # capability picker (Tab: browser / agent evidence), then boots
 proveo run cursor                            # broker egress (Cursor inference is vendor-pinned)
 proveo run opencode --local-model gemma4     # fully local via an Ollama sidecar — no cloud key
 ```
 
-`proveo run` opens a **capability picker** — *press tab to add an option (browser, DinD, agent
-evidence), or enter to continue* — then launches the agent against your repo with the guarantees
+`proveo run` opens a **capability picker** — *press tab to add an option (browser, Claude in
+Chrome, agent evidence), or enter to continue* — then launches the agent against your repo with the guarantees
 below. Agents run at their most verbose by default: thoughts, tool calls and diffs on screen
 ([`CODING_HARNESSES.md`](CODING_HARNESSES.md#agent-evidence)).
 
@@ -104,8 +104,9 @@ Two independent axes. `--egress-mode` picks the **network tier**, and the tiers 
 
 `--credentials` picks how the agent authenticates. The default `broker` keeps your API key
 **host-side** and injects it at the MITM, so it never enters the agent (the container only ever
-sees a sentinel). `forward` hands the real value to the container, which is required for the two
-cases injection cannot serve: a vendor that pins its TLS (cursor), and DinD.
+sees a sentinel). `forward` hands the real value to the container, which is required for the cases
+injection cannot serve: a vendor that pins its TLS (cursor), and the Claude in Chrome bridge, which
+needs a route to the host that no intercepting tier leaves open.
 
 Every tier brokers credentials except `--egress-mode open --credentials forward`, which is the
 deliberate bypass. Even `open` keeps the exfil-sink denylist and the DLP secret scan — an open

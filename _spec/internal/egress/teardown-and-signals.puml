@@ -43,7 +43,6 @@ node "internal/egress — Plan" as PLAN <<host>> {
 }
 
 component "assemble(dockeregress.Input)\n→ Plan + runner.Config" as ASM <<app>>
-component "dind.Sidecar.Cleanup\nNOT safe to call concurrently" as DIND <<app>>
 database "<egDir>/inject/broker.env\n0600, must not outlive the run" as INJECT <<db>>
 component "Agent container\ndocker run -it" as AGENT <<app>>
 component "Leaked sidecar · network · secret\nsignal skipped every defer" as LEAK <<error>>
@@ -59,7 +58,6 @@ WSQ ARROW_MAIN AGENT : only once ready
 WSQ ARROW_ERROR RACE : without the probe
 AGENT ARROW_QUEUE LOGS : on exit
 LOGS ARROW_MAIN DOWN : order is load-bearing — ""--rm"" discards them
-DOWN ARROW_MAIN DIND
 DOWN ARROW_MAIN INJECT : remove
 SIG ARROW_ERROR LEAK : what this guards against
 
@@ -78,19 +76,18 @@ note right of ONCE
   topology, and a signal-safe branch for the bare path — and exactly one
   of them always runs after a successful start, with no early return
   between. Registering the cleanup //before// any staging is what makes an
-  early failure still tear down what ""run.Do"" already brought up, which in
-  practice means the privileged DinD sidecar.
+  early failure still tear down what ""run.Do"" already brought up.
 
   It must be once-guarded and nil-safe: it can fire from the signal
-  goroutine while the normal-return defer runs it too, and most runs have
-  no DinD sidecar to clean up at all.
+  goroutine while the normal-return defer runs it too.
 
-  **The awkward case is DinD without a topology** — brokered credentials
-  and no local model. There is no lifecycle teardown to hang it on, but a
-  privileged sidecar must still come down on a signal, so the same single
-  guarded function backs both the defer and the handler. ""Cleanup"" is not
-  safe to call concurrently, so //one// guarded entry point is not a
-  stylistic choice.
+  **It used to have an awkward case, and retiring the sidecar removed it.**
+  A privileged DinD sibling could exist with NO egress topology — brokered
+  credentials, no local model — so there was no lifecycle teardown to hang
+  its cleanup on, and the bare path needed a signal handler of its own for
+  it alone. With the sidecar gone (_spec/_plans/retire-dind.puml) the bare
+  path has nothing to tear down and takes ""ExecAgentWithProxy"" directly.
+  The once-guard stays: it is the lifecycle branch's own requirement.
 end note
 
 note bottom of SIG
@@ -170,10 +167,11 @@ note bottom of DOWN
   that ends the run.
 end note
 
-note right of DIND
-  Attached to the agent's user-defined network so the agent resolves
-  ""docker"" by alias — the broker-plus-local-model case. On the default
-  bridge the same reachability is wired with ""--link"" instead. A no-op
-  when the run has no sidecar or no network.
+note right of DOWN
+  **What comes down: sidecars, networks, the inject dir.** The privileged
+  DinD sibling used to be a fourth thing here — attached by ""--link"" or by
+  a network alias, cleaned up through the same once-guarded func. It is
+  retired (_spec/_plans/retire-dind.puml), so this path no longer removes
+  a container proveo started with ""--privileged"".
 end note
 @enduml

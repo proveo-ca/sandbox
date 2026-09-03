@@ -26,9 +26,8 @@ SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
 
 note right of SEL
-  **Auto w/ fallback, and the override is an env var.** Harnesses with
-  ""docker: sbx"" (""claudecode"", ""cursor"") take the sandbox backend
-  whenever the host supports it. The choice prompt carries it as a
+  **Auto w/ fallback, and the override is an env var.** Every harness declares
+  ""docker: sbx"" and takes the sandbox backend whenever the host supports it. The choice prompt carries it as a
   COMPULSORY ""docker (sandbox)"" — greyed AND ticked, so no box is left
   to untick and ""PROVEO_SBX=0"" is the one way to send such a run down
   docker+egress instead. A remembered 'off' no longer survives the
@@ -81,11 +80,11 @@ note bottom of SEL
 end note
 
 note left of FB
-  **Fallback contract:** open-source harnesses (""opencode"", ""cecli"") never set
-  ""docker: sbx"" (they take ""docker: dind"") and always run here. Subscription
-  harnesses land here only
-  when the gate above fails. Def-local shell suites keep covering the fallback
-  images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
+  **Fallback contract:** EVERY harness declares ""docker: sbx"" now
+  (_spec/_plans/retire-dind.puml), so nothing runs here by declaration — a run
+  lands here only when the gate above fails, or when ""PROVEO_SBX=0"" or
+  ""--egress-mode review"" asks for it. Def-local shell suites keep covering the
+  fallback images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
 
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.

@@ -126,11 +126,14 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// DinD sidecars (proveo-dind-*, not session-labeled).
+	// Legacy DinD sidecars (proveo-dind-*, never session-labeled). proveo stopped
+	// starting these when the privileged sidecar was retired; the sweep stays so a
+	// --privileged leftover from an older proveo can still be removed by the tool
+	// that made it. SPEC: _spec/_plans/retire-dind.puml
 	for _, line := range dockerLines("ps", "-a", "--filter", "name=proveo-dind-",
 		"--format", "{{.Names}}\t{{.State}}") {
 		if f := strings.SplitN(line, "\t", 2); len(f) == 2 {
-			inv.Dind = append(inv.Dind, clean.Container{Name: f[0], Running: f[1] == "running"})
+			inv.LegacyDind = append(inv.LegacyDind, clean.Container{Name: f[0], Running: f[1] == "running"})
 		}
 	}
 

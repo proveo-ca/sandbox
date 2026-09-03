@@ -39,14 +39,13 @@ package "Registration" as Reg {
 package "Orchestration packages\ninternal/" as Orch {
  component "workspace mounts\napp (/app)" as Mounts <<logic>>
  component "egress BuildPlan\nopen|allowlist|review\n+ --credentials broker|forward" as Egress <<logic>>
- component "dind (if docker: dind)" as Dind <<logic>>
  component "runner hardened argv" as Runner <<logic>>
 }
 
 package "Runtime" as Runtime {
  component "Docker CLI" as Docker <<runtime>>
  component "proveo/* images" as Images <<image>>
- component "sidecars\nsquid · proveo-egress · ollama · dind" as Sidecars <<runtime>>
+ component "sidecars\nsquid · proveo-egress · ollama" as Sidecars <<runtime>>
  component "workspace + state dir" as Storage <<storage>>
 }
 
@@ -125,8 +124,9 @@ end note
 note right of RunFlags
 ""proveo run <target>"" applies to every
 harness with a manifest (cecli, claudecode*,
-opencode, cursor). Egress and DinD follow
-manifest ""egress:"" / ""dind:"" flags.
+opencode, cursor). Egress follows the
+manifest's ""egress:"" flag; ""docker: sbx"" puts
+the run in a sandbox with its own daemon.
 end note
 
 note bottom of Egress

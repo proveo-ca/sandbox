@@ -24,7 +24,6 @@ proveo/egress-proxy:latest
 ollama/ollama:latest
 == flags ==
 usesSquid=true
-agentNetwork=
 proxyContainer=sid-egress
 squidContainer=sid-squid
 ollamaContainer=sid-ollama
