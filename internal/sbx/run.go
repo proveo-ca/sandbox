@@ -53,6 +53,45 @@ func statusOf(out, name string) string {
 	return ""
 }
 
+// NamePrefix is what proveo calls its own sandboxes (run.go builds the sid as
+// "proveo-<unix>-<pid>"). Used to tell proveo's sandboxes from an operator's own.
+const NamePrefix = "proveo-"
+
+// RunningNames lists proveo's sandboxes that sbx reports as running, and whether
+// the listing could be read at all.
+//
+// It exists for `proveo clean --tools`. That prune's liveness gate saw only the
+// docker egress sidecars, which an sbx run does not have — so on the backend
+// that has no sidecars it always read "nothing is running", and the toolchain
+// tree it prunes is the one a live sandbox copies itself into at teardown.
+// Racing that copy is worse than either outcome alone: the store is left half
+// written, which is a toolchain that satisfies `command -v` and fails to exec.
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+//
+// ok=false means the listing was unreadable while sbx IS installed. The caller
+// must treat that as "may be live": for a destructive prune the safe direction
+// is to hold back and say so, not to guess that nothing is running.
+func RunningNames() (names []string, ok bool) {
+	if _, err := lookPath(Binary); err != nil {
+		return nil, true // sbx absent: there are no sandboxes, and that is a fact
+	}
+	out, err := sh.SandboxList()
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// The header row cannot collide: it is never prefixed like a proveo sid.
+		if len(f) < 3 || !strings.HasPrefix(f[0], NamePrefix) {
+			continue
+		}
+		if strings.ToLower(f[2]) == "running" {
+			names = append(names, f[0])
+		}
+	}
+	return names, true
+}
+
 // secretList reads the credential store listing. Overridable in tests.
 func StoredSecretNames() []string {
 	out, err := sh.SecretList()
@@ -288,12 +327,22 @@ func bashQuote(s string) string {
 }
 
 // SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared
-// sync inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
+// syncs inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
 // load-bearing.
-// SPEC: _spec/internal/sbx/state-sync.puml
+//
+// Three syncs, one exec. Resume state, the harness's configuration and the
+// toolchain tree are copied out the same way and at the same moment, and none
+// may skip the others: they are joined with `;` rather than `&&` so a failed
+// transcript copy still lets the config and the toolchains land, and the exit
+// status is the state sync's — losing yesterday's transcripts is the louder
+// failure, and it is the one the caller already reports on.
+// SPEC: _spec/internal/sbx/state-sync.puml, _spec/_plans/config-seeding-and-persistence.puml
 func SaveStateArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
-		". /entrypoint-lib.sh && proveo_sync_state save"}
+		". /entrypoint-lib.sh" +
+			"; { proveo_sync_config save || true; }" +
+			"; { proveo_sync_tools save || true; }" +
+			"; proveo_sync_state save"}
 }
 
 // RemoveArgs builds the ephemeral teardown invocation (VM + images + volumes).

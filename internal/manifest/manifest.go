@@ -49,6 +49,20 @@ type HomeMount struct {
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
 	Mounts  []HomeMount `yaml:"mounts"`
+	// Files are config files at the ROOT of the agent home rather than inside one
+	// of the declared subtrees — claudecode's ~/.claude.json (workspace trust,
+	// Chrome onboarding, whatever MCP servers the operator registered) and cecli's
+	// ~/.cecli.conf.yml.
+	//
+	// They needed declaring because the two backends carry the home differently.
+	// docker binds the WHOLE proveo home at /proveo-home, so a file at its root
+	// persists without anyone naming it; sbx copies the named set instead, and a
+	// set derived from `mounts` alone is directory-shaped — so these files were
+	// rebuilt from scratch on every sandbox open, silently.
+	//
+	// Bare names only: a path would land outside the home, and Validate refuses it.
+	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+	Files []string `yaml:"files"`
 }
 
 // Manifest describes one harness definition.
@@ -188,6 +202,17 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest %q: empty target or image (%q: %q)", m.Name, target, image)
 		}
 	}
+	// A home file is a bare name at the home root. A path would either escape the
+	// home or name something inside a declared subtree, which `mounts` already
+	// carries — and the sandbox-side copy resolves it against two different roots,
+	// so a wrong shape is a file written where nothing reads it.
+	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+	for _, f := range m.Home.Files {
+		name := strings.TrimSpace(f)
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\|;`) {
+			return fmt.Errorf("manifest %q: home file %q must be a bare name at the home root", m.Name, f)
+		}
+	}
 	switch m.Docker {
 	case DockerNone, DockerSbx:
 	case retiredDockerDind:
@@ -304,7 +329,7 @@ func (h Home) validate(name string) error {
 
 // Active reports whether durable home mounts should be applied.
 func (h Home) Active() bool {
-	return h.Enabled && len(h.Mounts) > 0
+	return h.Enabled && (len(h.Mounts) > 0 || len(h.Files) > 0)
 }
 
 // Parse decodes one manifest from YAML bytes (dir is used only for messages).

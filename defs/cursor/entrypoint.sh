@@ -74,33 +74,6 @@ configure_proxy_compat() {
 }
 configure_proxy_compat
 
-# ── LSP code intelligence via mcp-language-server ──────────
-configure_cursor_lsp_mcp() {
-  command -v mcp-language-server >/dev/null 2>&1 || return 0
-  local mcp_file="$CURSOR_HOME/mcp.json" tmp base entries
-  entries="$(detect_workspace_lsps "$(pwd)" | jq -R -s '
-    split("\n") | map(select(length > 0) | split("|")) | map({
-      key: .[0],
-      value: {
-        command: "mcp-language-server",
-        args: (["--workspace", "/app", "--lsp", .[2]]
-               + (.[3:-1] | if length > 0 then ["--"] + . else [] end))
-      }
-    }) | from_entries')"
-  [[ -z "$entries" || "$entries" == "{}" ]] && return 0
-
-  mkdir -p "$CURSOR_HOME"
-  base='{}'
-  [[ -f "$mcp_file" ]] && jq -e . "$mcp_file" >/dev/null 2>&1 && base="$(cat "$mcp_file")"
-  tmp="$(mktemp)"
-  if printf '%s' "$base" | jq --argjson e "$entries" \
-       '.mcpServers = ($e + ((.mcpServers // {}) | if type == "object" then . else {} end))' > "$tmp"; then
-    mv "$tmp" "$mcp_file"
-    echo "🧠 LSP code intelligence via mcp-language-server: $(printf '%s' "$entries" | jq -r 'keys_unsorted | join(" ")')"
-  else
-    rm -f "$tmp"
-  fi
-}
 command_version() {
   command_version_opencode "$@"
 }
@@ -187,8 +160,8 @@ fi
 # ── Smoke test mode ────────────────────────────────────────
 run_smoke_test "cursor"
 
-# Toolchain provisioning moved into proveo_seed (runs on both backends).
-configure_cursor_lsp_mcp
+# Toolchain provisioning AND LSP wiring moved into proveo_seed (runs on both
+# backends): sbx never executes this entrypoint.
 
 # ── Auth check ─────────────────────────────────────────────
 # All inference transits the Cursor backend; there is no provider-key or

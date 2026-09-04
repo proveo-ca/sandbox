@@ -25,6 +25,11 @@ home:
     - host: .claude
       container: /proveo-home/.claude
       mode: rw
+  # Claude Code keeps this at the home ROOT, not under .claude: accepted workspace
+  # trust, Chrome onboarding, and whatever MCP servers the operator registered.
+  # docker persists it with the whole-home bind; sbx has to be told.
+  files:
+    - .claude.json
 env:
   - name: CLAUDE_CODE_OAUTH_TOKEN
     description: Claude Code OAuth token — generate one with `claude setup-token`

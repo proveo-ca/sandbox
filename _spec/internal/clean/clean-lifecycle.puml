@@ -15,7 +15,7 @@ node "Host" as HOST <<host>> {
     database "<stateDir>/egress/<sid>\nholds injected broker.env" as ST <<error>>
     database "proveo/* images" as IMG <<db>>
     database "PROVEO_HOME (~/.proveo)\nsessions + seeded config" as PH <<db>>
-    database "provisioned toolchains\n""\.local/share/mise"" · ""\.go"" · ""go"" · shims" as TOOLS <<db>>
+    database "provisioned toolchains\n""toolchains/<os>-<arch>/"" per platform\n""\.local/share/mise"" · ""\.go"" · ""go"" · shims" as TOOLS <<db>>
   }
 }
 
@@ -37,10 +37,25 @@ note bottom of TOOLS
   Go toolchain and the jdtls JDK land under PROVEO_HOME, so a warm run installs
   nothing. Nothing else prunes it, and it only grows.
 
+  **One tree per platform, plus the legacy one.** ""_proveo_tool_home"" writes to
+  ""PROVEO_HOME/toolchains/<os>-<arch>"" so the docker backend and the sbx VM can
+  SHARE a tree without an amd64 install answering ""command -v"" for an arm64
+  sandbox. ""toolRoots"" globs those and keeps PROVEO_HOME itself in the list:
+  trees installed before the relocation are still on operators' disks, and a
+  flag that silently stopped reclaiming them would be worse than the growth.
+
   Per-session ephemera belong to exactly one run, so liveness is decided per
   session. This tree is shared by every run on the machine, so ANY running
-  proveo container holds the whole prune back — ""--force"" is the documented
-  escape hatch. Removing it is never destructive: the cost of being wrong is
+  proveo container **or sbx sandbox** holds the whole prune back — ""--force"" is
+  the documented escape hatch. The sandbox arm is not symmetry: an sbx run has
+  no egress sidecar and no dind, so counting only containers read "nothing is
+  running" on that backend every time — while an sbx run copies its toolchains
+  into this very tree at teardown. A prune racing that copy leaves the store half
+  written, which is the worst outcome available: a tree that satisfies
+  ""command -v"" on the next run and fails on first exec. An unreadable ""sbx ls""
+  is undecidable, not quiet, and holds back too.
+
+  Removing it is otherwise never destructive: the cost of being wrong is
   time on the next boot, not lost work, which is why it reports what it
   reclaims and why it is opt-in rather than part of ""--deep"".
 end note

@@ -263,6 +263,14 @@ func TestSandboxPlanGolden(t *testing.T) {
 			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
 			{Name: "ANTHROPIC_BASE_URL"},
 		},
+		// The real manifest declares one, and it is what the config sync is driven
+		// by — so the plan an operator inspects has to show it.
+		// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+		Home: manifest.Home{
+			Enabled: true,
+			Mounts:  []manifest.HomeMount{{Host: ".claude", Container: "/proveo-home/.claude", Mode: "rw"}},
+			Files:   []string{".claude.json"},
+		},
 	}
 	cursor := manifest.Manifest{
 		Name:         "cursor",

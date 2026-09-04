@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/run"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -29,6 +31,7 @@ func cleanCmd() *cobra.Command {
 			}
 			if tools {
 				inv.ToolDirs = gatherToolDirs()
+				inv.Sandboxes, inv.SandboxesUnknown = gatherSandboxes()
 			}
 			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools}), dryRun); err != nil {
 				return err
@@ -57,16 +60,51 @@ var toolSubdirs = []string{
 	"go",
 }
 
+// toolRoots are the directories under PROVEO_HOME that hold toolSubdirs.
+//
+// "" is the LEGACY root: before toolchains were relocated, the seed installed
+// straight into the agent home, which on docker was PROVEO_HOME itself. Those
+// trees are still on operators' disks and `--tools` must still reclaim them, or
+// the relocation quietly strands whatever the previous version installed.
+//
+// toolchains/<os>-<arch> is the current one, one per platform the operator has
+// actually run — globbed rather than tabulated, because the set is whatever
+// _proveo_tool_home created and a hand-written list would go stale the first
+// time someone pins DOCKER_DEFAULT_PLATFORM.
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+func toolRoots(root string) []string {
+	roots := []string{root}
+	matches, err := filepath.Glob(filepath.Join(root, "toolchains", "*"))
+	if err != nil {
+		return roots
+	}
+	sort.Strings(matches)
+	for _, m := range matches {
+		if fi, err := os.Stat(m); err == nil && fi.IsDir() {
+			roots = append(roots, m)
+		}
+	}
+	return roots
+}
+
+// gatherSandboxes reports proveo's running sbx sandboxes for the liveness gate.
+func gatherSandboxes() (names []string, unknown bool) {
+	names, ok := sbx.RunningNames()
+	return names, !ok
+}
+
 func gatherToolDirs() []clean.ToolDir {
 	root := proveohome.Root(os.Getenv)
 	var out []clean.ToolDir
-	for _, sub := range toolSubdirs {
-		p := filepath.Join(root, sub)
-		fi, err := os.Stat(p)
-		if err != nil || !fi.IsDir() {
-			continue
+	for _, base := range toolRoots(root) {
+		for _, sub := range toolSubdirs {
+			p := filepath.Join(base, sub)
+			fi, err := os.Stat(p)
+			if err != nil || !fi.IsDir() {
+				continue
+			}
+			out = append(out, clean.ToolDir{Path: p, Bytes: dirSize(p)})
 		}
-		out = append(out, clean.ToolDir{Path: p, Bytes: dirSize(p)})
 	}
 	return out
 }

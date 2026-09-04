@@ -1,5 +1,5 @@
 == sbx argv ==
-sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/claudecode:latest -m 8192m -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e GIT_AUTHOR_NAME=Executor -e GIT_AUTHOR_EMAIL=executor@proveo.test -e PROVEO_WORKDIR=<WORK> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= claude <WORK> <HOME>
+sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/claudecode:latest -m 8192m -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e GIT_AUTHOR_EMAIL=executor@proveo.test -e PROVEO_WORKDIR=<WORK> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= claude <WORK> <HOME>
 == secret names ==
 CLAUDE_CODE_OAUTH_TOKEN
 ANTHROPIC_API_KEY
@@ -22,6 +22,8 @@ environment:
         GIT_AUTHOR_NAME: Executor
         MCP_GATEWAY_URL: ""
         PROVEO_AGENT_EVIDENCE: verbose
+        PROVEO_CONFIG_DIRS: .claude|.claude|
+        PROVEO_CONFIG_FILES: .claude.json
         PROVEO_STATE_HOME: <HOME>
         PROVEO_WORKDIR: <WORK>
 setup:

@@ -76,6 +76,27 @@ RUN test -n "${CECLI_VERSION}" \
 
 ENV PATH="/opt/cecli/bin:${PATH}"
 
+# Serena MCP server (LSP-backed semantic code tools). cecli has no native LSP
+# client, so its code intelligence arrives as MCP — the same delivery cursor gets
+# from mcp-language-server. Its own venv, because serena-agent and cecli-dev
+# disagree about dependency versions; only the stdio launcher goes on PATH.
+#
+# PINNED for the reason this layer was deleted the first time: an unpinned
+# `pip install serena-agent` shipped a version skew that left the server dead on
+# every boot for weeks. The pin makes the version a fact about the image, and
+# packages/lib/entrypoint-lib.sh (configure_cecli_mcp) refuses to declare a
+# server that will not answer an initialize handshake.
+# SPEC: _spec/_devops/agent-version-pin.puml, _spec/defs/cecli/cecli-paradigm.puml
+ARG SERENA_VERSION
+RUN test -n "${SERENA_VERSION}" \
+      || { echo "SERENA_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
+  && python3 -m venv /opt/serena \
+  && /opt/serena/bin/pip install --no-cache-dir "serena-agent==${SERENA_VERSION}" \
+  && /opt/serena/bin/pip show serena-agent | grep -qx "Version: ${SERENA_VERSION}" \
+  && ln -sf /opt/serena/bin/serena /usr/local/bin/serena \
+  && rm -rf /root/.cache /tmp/* /var/tmp/* \
+  && /usr/local/sbin/proveo-harden /usr /opt
+
 # The whole static tarball, not just the client. With the privileged dind sidecar
 # retired (_spec/_plans/retire-dind.puml), the only daemon this harness can reach
 # is sbx's per-sandbox one, and that daemon runs INSIDE the sandbox — so the image

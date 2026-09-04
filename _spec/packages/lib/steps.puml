@@ -81,7 +81,7 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
   if (agent has native LSP config?) then (yes)
     :render detector output to the agent's config (jq) —\nopencode.json ""lsp"" (opencode) ·\nplugin ""/.lsp.json"" (claudecode);
   else (MCP-capable, no native LSP)
-    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json ·\ncecli: **Serena** MCP toolkit → ""mcp-servers"";
+    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json ·\ncecli: **Serena** MCP toolkit → ""mcp-servers""\n(declared only when ""initialize"" answers);
   endif
   note right
     Servers are BAKED into the image, not

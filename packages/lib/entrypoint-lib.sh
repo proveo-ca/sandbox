@@ -461,15 +461,158 @@ _proveo_auto_install_enabled() {
   return 0
 }
 
+# ── 7a. The durable root, and the toolchain tree under it ───
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+
+# _proveo_durable_home is the root that OUTLIVES the run, on either backend.
+#
+#   docker  the agent home IS the mounted host dir (HOME=/proveo-home), so this
+#           returns exactly today's answer and that backend cannot regress.
+#   sbx     HOME is deliberately NOT redirected — sbx's credential proxy owns
+#           .credentials.json in the image home and pointing HOME elsewhere
+#           orphaned it — so the agent home lives inside the VM and `sbx rm`
+#           destroys it. PROVEO_STATE_HOME carries the HOST path of the same
+#           proveo home, which travels as a workspace bind.
+_proveo_durable_home() {
+  local d="${PROVEO_STATE_HOME:-}"
+  [ -n "$d" ] || d="$(_proveo_agent_home)"
+  printf '%s' "$d"
+}
+
+# _proveo_container_platform names the os-arch a provisioned binary is built
+# for. Folded onto docker's spelling, matching proveo_docker_host_platform in
+# defs/lib/docker-build.sh and normalizeArch in internal/workspace/platform.go.
+#
+# An unrecognised machine keeps its own `uname -m` spelling instead of
+# defaulting to amd64 the way the BUILD-side fold does. The two want opposite
+# fallbacks: there the value picks a published image and a guess is recoverable,
+# here it NAMES A DIRECTORY, and guessing wrong silently shares one toolchain
+# tree between two architectures — the wrong-arch binary that satisfies
+# `command -v` and dies on first exec.
+_proveo_container_platform() {
+  local m
+  m="$(uname -m 2>/dev/null || echo unknown)"
+  [ -n "$m" ] || m=unknown
+  case "$m" in
+    x86_64 | amd64) m=amd64 ;;
+    aarch64 | arm64) m=arm64 ;;
+  esac
+  printf 'linux-%s' "$m"
+}
+
+# _proveo_tool_rel is the toolchain tree's path RELATIVE to a root, shared by
+# the place tools run from and the place they persist to.
+#
+# Namespaced by platform because the persisted tree is shared: the docker
+# backend and the sbx VM on one host save into the same directory, and so does a
+# run pinned with DOCKER_DEFAULT_PLATFORM. Sharing is the point (install once,
+# reuse on the other backend); the namespace is what stops an amd64 install from
+# answering `command -v` for an arm64 sandbox.
+_proveo_tool_rel() { printf 'toolchains/%s' "$(_proveo_container_platform)"; }
+
+# _proveo_tool_home is where toolchains are INSTALLED and EXECUTED — the mise
+# tree, Go, jdtls, the npm --prefix, the install lock. Always under the AGENT's
+# own home, which means the VM's own disk on sbx.
+#
+# Not the durable root, deliberately. The durable root is a virtiofs passthrough
+# on that backend (clone mode moves the WORKSPACE off virtiofs; it cannot move
+# proveo home, which has to stay a host bind or it would not persist at all),
+# and a virtiofs directory whose inode is replaced on the host takes its guest
+# dentry with it permanently — only a restart heals it. Running a toolchain out
+# of that is a bet that nothing on the host ever rewrites the tree.
+# proveo_sync_tools carries it across instead.
+# SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+#
+# Memoised: the answer cannot change inside one run.
+_proveo_tool_home() {
+  if [ -n "${_PROVEO_TOOL_HOME:-}" ]; then printf '%s' "$_PROVEO_TOOL_HOME"; return 0; fi
+  local t
+  t="$(_proveo_agent_home)/$(_proveo_tool_rel)"
+  mkdir -p "$t/.local/bin" 2>/dev/null || true
+  _PROVEO_TOOL_HOME="$t"
+  export _PROVEO_TOOL_HOME
+  printf '%s' "$t"
+}
+
+# _proveo_tool_store is where toolchains PERSIST between runs, or empty when
+# there is nothing to carry.
+#
+# Empty on docker, and that is the whole docker story: there the agent home IS
+# the mounted host dir, so the install location is already durable and a sync
+# would copy a directory onto itself. Empty also when PROVEO_TOOL_SYNC is off,
+# which is how an operator declines to pay the copy.
+_proveo_tool_store() {
+  case "$(printf '%s' "${PROVEO_TOOL_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  local host="${PROVEO_STATE_HOME:-}"
+  [ -n "$host" ] && [ -d "$host" ] || return 0
+  printf '%s/%s' "$host" "$(_proveo_tool_rel)"
+}
+
+# proveo_sync_tools carries the toolchain tree between the durable host root and
+# the disk the agent actually runs from: "restore" on the way in, "save" on the
+# way out. The same shape as proveo_sync_state, and a silent no-op wherever
+# _proveo_tool_store is empty.
+#
+# The asymmetry is the point. Restore into a fresh VM copies the tree once,
+# sequentially; save copies only what this run added, because _proveo_sync_tree
+# is `cp -an` plus an overwrite of genuinely changed files. Compare that with
+# running every `command -v`, every shim and every server exec across virtiofs
+# for the life of the session.
+proveo_sync_tools() {
+  local mode="${1:-}" store home lock src dst rc=0
+  case "$mode" in
+  restore | save) ;;
+  *) return 2 ;;
+  esac
+  store="$(_proveo_tool_store)"
+  [ -n "$store" ] || return 0
+  home="$(_proveo_tool_home)"
+  [ -n "$home" ] || return 0
+
+  case "$mode" in
+  restore) src="$store" dst="$home" ;;
+  save) src="$home" dst="$store" ;;
+  esac
+  [ -d "$src" ] || return 0
+  [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
+
+  # Locked on the AGENT side, like the state sync: it is the restore/save
+  # collision inside one sandbox that was measured, and a lock on the shared
+  # root would compare pids across VM namespaces, where they mean nothing.
+  # Concurrent saves from two sandboxes are safe without it — the tree is
+  # content-identical for one platform, and _proveo_sync_tree replaces each file
+  # through an atomic rename.
+  lock="$(_proveo_agent_home)/.proveo-tools.lock"
+  if ! _proveo_sync_lock "$lock"; then
+    printf 'proveo: toolchain %s skipped — another sync still holds the lock\n' "$mode" >&2
+    return 1
+  fi
+  _proveo_sync_tree "$src" "$dst" || rc=1
+  rm -rf "$lock" 2>/dev/null
+  ((rc == 0)) || printf 'proveo: toolchain %s completed with copy errors\n' "$mode" >&2
+  return "$rc"
+}
+
 _proveo_tool_path() {
-  mkdir -p "${HOME}/.local/bin"
+  local t
+  t="$(_proveo_tool_home)"
+  # mise keeps installs, shims, its global config, state and cache under the
+  # tool home rather than $HOME. Set as a GROUP: a data dir without a config dir
+  # leaves `mise use -g` recording a global config in a home the next run does
+  # not read, so the tools are on disk and nothing knows they are.
+  export MISE_DATA_DIR="$t/.local/share/mise"
+  export MISE_CONFIG_DIR="$t/.config/mise"
+  export MISE_STATE_DIR="$t/.local/state/mise"
+  export MISE_CACHE_DIR="$t/.cache/mise"
   case ":${PATH}:" in
-    *":${HOME}/.local/bin:"*) ;;
-    *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    *":$t/.local/bin:"*) ;;
+    *) export PATH="$t/.local/bin:${PATH}" ;;
   esac
   case ":${PATH}:" in
-    *":${HOME}/.local/share/mise/shims:"*) ;;
-    *) export PATH="${HOME}/.local/share/mise/shims:${PATH}" ;;
+    *":${MISE_DATA_DIR}/shims:"*) ;;
+    *) export PATH="${MISE_DATA_DIR}/shims:${PATH}" ;;
   esac
   export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
 }
@@ -511,12 +654,13 @@ _go_current_version() {
 }
 
 _install_go() {
-  local version="$1"
+  local version="$1" t
+  t="$(_proveo_tool_home)"
   if curl -fsSL --connect-timeout 5 --max-time 120 \
-       -o "${HOME}/.local/bin/g" \
+       -o "$t/.local/bin/g" \
        https://github.com/stefanmaric/g/releases/latest/download/g; then
-    chmod +x "${HOME}/.local/bin/g"
-    "${HOME}/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
+    chmod +x "$t/.local/bin/g"
+    "$t/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
       || echo "WARN: g could not install Go ${version}"
   elif command -v mise >/dev/null 2>&1; then
     mise use -g "go@${version}" >/dev/null 2>&1 \
@@ -528,7 +672,11 @@ _install_go() {
 
 _proveo_lock_installs() {
   command -v flock >/dev/null 2>&1 || return 0
-  local dir="${HOME}/.local/share/proveo"
+  # Under the TOOL home, so the lock covers every run reaching the same tree —
+  # a docker run and an sbx run on one host now share it, which is exactly the
+  # race the lock exists for and could not previously see.
+  local dir
+  dir="$(_proveo_tool_home)/.local/share/proveo"
   mkdir -p "$dir" 2>/dev/null || return 0
   # `exec` with no command makes its redirections PERMANENT for this shell, so
   # `2>/dev/null` here did not scope stderr to the exec — it silenced stderr for
@@ -540,7 +688,7 @@ _proveo_lock_installs() {
   if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
   exec 9>>"${dir}/install.lock"
   if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then
-    echo "⏳ another proveo run is provisioning tools under ${HOME}; skipping installs this run"
+    echo "⏳ another proveo run is provisioning tools under $(_proveo_tool_home); skipping installs this run"
     _proveo_unlock_installs
     return 1
   fi
@@ -559,12 +707,13 @@ ensure_project_tools() {
 
  # Bounded network so a blackholed egress can't hang the container at startup.
  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
+ local tool_home; tool_home="$(_proveo_tool_home)"
 
  # 1. NX Detection & Installation
  if [[ -f nx.json ]]; then
  if ! command -v nx >/dev/null 2>&1; then
  echo "📦 Detected nx.json. Dynamically installing nx..."
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
  fi
  fi
 
@@ -572,7 +721,7 @@ ensure_project_tools() {
  if [[ -f turbo.json ]]; then
  if ! command -v turbo >/dev/null 2>&1; then
  echo "📦 Detected turbo.json. Dynamically installing turbo..."
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
  fi
  fi
 
@@ -585,9 +734,9 @@ ensure_project_tools() {
  local mise_installer
  mise_installer="$(mktemp)"
  if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
- MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
+ MISE_INSTALL_PATH="${tool_home}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
  else
- npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
+ npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
  fi
  rm -f "$mise_installer"
  fi
@@ -595,8 +744,8 @@ ensure_project_tools() {
 
  # 4. Go Detection & Installation
  if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
- export GOROOT="${GOROOT:-${HOME}/.go}"
- export GOPATH="${GOPATH:-${HOME}/go}"
+ export GOROOT="${GOROOT:-${tool_home}/.go}"
+ export GOPATH="${GOPATH:-${tool_home}/go}"
  export PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
 
  local go_version="latest" pinned="" current=""
@@ -1819,7 +1968,9 @@ _lsp_has_custom_install() { case "$1" in
 esac; }
 
 _install_jdtls() {
-  local gh_token="${1:-}" home="${HOME}/.local/share/proveo/jdtls" tarball rc
+  local gh_token="${1:-}" t home tarball rc
+  t="$(_proveo_tool_home)"
+  home="$t/.local/share/proveo/jdtls"
   local url="${PROVEO_JDTLS_URL:-https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz}"
 
   if [ "$(_java_major)" -lt 21 ]; then
@@ -1840,8 +1991,8 @@ _install_jdtls() {
   rm -f "$tarball"
   [ $rc -eq 0 ] || return 1
 
-  mkdir -p "${HOME}/.local/bin"
-  cat > "${HOME}/.local/bin/jdtls" <<PROVEO_JDTLS
+  mkdir -p "$t/.local/bin"
+  cat > "$t/.local/bin/jdtls" <<PROVEO_JDTLS
 #!/bin/sh
 J="${home}"
 case "\$(uname -m)" in
@@ -1863,7 +2014,7 @@ exec java \\
   -jar "\$L" \\
   -data "\${JDTLS_WORKSPACE:-\$HOME/.cache/jdtls-workspace}" "\$@"
 PROVEO_JDTLS
-  chmod +x "${HOME}/.local/bin/jdtls"
+  chmod +x "$t/.local/bin/jdtls"
 }
 
 # _proveo_walk runs find under scan_root with the build-output, cache and
@@ -2049,6 +2200,293 @@ configure_claude_lsp() {
   echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }
 
+# configure_opencode_lsp merges the detected servers under `.lsp` in opencode's
+# user config. SETDEFAULT semantics: an entry the operator already wrote wins, so
+# a hand-tuned server survives every run.
+#
+# It lives HERE rather than in defs/opencode/entrypoint.sh because sbx never runs
+# the image entrypoint — `proveo-seed` is the Kit's only startup command — so a
+# wiring step left in the def reached the docker backend alone, and opencode came
+# up on sbx with every language server installed and none of them configured.
+configure_opencode_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
+  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  matched_json="$(detect_workspace_lsps "$scan" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: { command: .[2:-1],
+               extensions: (if (.[-1] | length) > 0 then (.[-1] | split(",")) else [] end) }
+    }) | from_entries
+  ')"
+  [[ -n "$matched_json" ]] || matched_json="{}"
+
+  echo "── Workspace LSP Match ──────────────────────────────"
+  if [[ "$matched_json" == "{}" ]]; then
+    echo "🔎 No installed LSP matched files under $scan"
+    echo "─────────────────────────────────────────────────────"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$config_file")"
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
+       '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
+    mv "$tmp" "$config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not update $config_file (jq failed)" >&2
+  fi
+
+  printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
+    "$(printf '%s' "$matched_json" | jq -r 'keys_unsorted | join(" ")')"
+  echo "Config: $config_file"
+  echo "─────────────────────────────────────────────────────"
+}
+
+# configure_opencode_formatter turns opencode's formatter registry ON.
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+# Knobs: PROVEO_OPENCODE_FORMATTER=off
+#
+# opencode ships 24 built-in formatters — prettier, oxfmt, gofmt, ruff, rustfmt,
+# biome, shfmt, clang-format, terraform, ktlint, rubocop … — and they are
+# DISABLED BY DEFAULT: omitting the key is the off state, and nothing in the
+# project turns it on. So a workspace with prettier in its package.json and oxfmt
+# on PATH formatted nothing, forever, and looked like a misconfiguration rather
+# than a switch proveo had never flipped.
+#
+# `true` rather than a per-formatter table on purpose. opencode already decides
+# availability per formatter, and better than proveo could: a command on PATH for
+# gofmt and rustfmt, a config file for clang-format and biome, a package.json or
+# composer.json dependency for prettier and pint. Restating that here would be a
+# second detector to keep in step with theirs, so this only answers the question
+# opencode cannot answer for itself — may they run at all.
+#
+# Setdefault, like every other wiring step: an operator who set `formatter`
+# (including to `false`) keeps their answer.
+configure_opencode_formatter() {
+  command -v jq >/dev/null 2>&1 || return 0
+  case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  local config_file existing='{}' tmp
+  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  mkdir -p "$(dirname "$config_file")" 2>/dev/null || return 0
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  if printf '%s' "$existing" | jq -e 'has("formatter")' >/dev/null 2>&1; then
+    return 0
+  fi
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq '.formatter = true' >"$tmp" 2>/dev/null; then
+    mv "$tmp" "$config_file"
+    echo "🧹 formatters enabled (opencode's built-ins, each still gated on its own availability): $config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not enable formatters in $config_file (jq failed)" >&2
+  fi
+}
+
+# configure_cursor_lsp registers one mcp-language-server per detected language in
+# cursor's user MCP config: cursor has no native LSP client, so code intelligence
+# reaches it as MCP servers. Same backend reason as configure_opencode_lsp.
+#
+# The workspace is the SCAN ROOT rather than a hardcoded /app — on sbx the tree is
+# mounted at its own host path, and an mcp-language-server pointed at /app there
+# would index a directory that does not exist.
+configure_cursor_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  command -v mcp-language-server >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" cursor_home mcp_file tmp base entries
+  cursor_home="${CURSOR_CONFIG_DIR:-$(_proveo_agent_home)/.cursor}"
+  mcp_file="$cursor_home/mcp.json"
+  entries="$(detect_workspace_lsps "$scan" | jq -R -s --arg ws "$scan" '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: {
+        command: "mcp-language-server",
+        args: (["--workspace", $ws, "--lsp", .[2]]
+               + (.[3:-1] | if length > 0 then ["--"] + . else [] end))
+      }
+    }) | from_entries')"
+  [[ -z "$entries" || "$entries" == "{}" ]] && return 0
+
+  mkdir -p "$cursor_home"
+  base='{}'
+  [[ -f "$mcp_file" ]] && jq -e . "$mcp_file" >/dev/null 2>&1 && base="$(cat "$mcp_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$base" | jq --argjson e "$entries" \
+       '.mcpServers = ($e + ((.mcpServers // {}) | if type == "object" then . else {} end))' > "$tmp"; then
+    mv "$tmp" "$mcp_file"
+    echo "🧠 LSP code intelligence via mcp-language-server: $(printf '%s' "$entries" | jq -r 'keys_unsorted | join(" ")')"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+
+# ── 8b. The config-class chain ──────────────────────────────
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml,
+#       _spec/packages/lib/language-server-provisioning.puml
+#
+# A harness opens onto a workspace and needs things CONFIGURED before it is
+# useful. They differ only in the file format at the end, so they get one table
+# and one entry point rather than a `case` per class scattered through the seed.
+#
+#   class      detect                 provide           probe             wire
+#   ────────── ────────────────────── ───────────────── ───────────────── ──────────────────
+#   plugin     fixed list             image seed dir    binary presence   configure_claude_plugins
+#   lsp        _lsp_walk (ext+marker) image layer, else none — measured   configure_claude_lsp
+#              ranked by file count   mise / ubi        and refused       configure_opencode_lsp
+#                                                                         configure_cursor_lsp
+#   formatter  the HARNESS's own      image layer +     none — the        configure_opencode_formatter
+#              availability check     project deps      harness gates
+#   mcp        the server's own       image layer       `initialize`      configure_cecli_mcp
+#              precondition           (venv / binary)  handshake
+#
+# The formatter row exists because opencode's registry is DISABLED BY DEFAULT and
+# nothing in a project turns it on — a workspace carrying prettier and oxfmt
+# formatted nothing, which reads as a misconfiguration rather than as a switch
+# proveo never flipped. It is the one class where the harness does its own
+# detection (opencode checks PATH, a config file, or a package.json dependency
+# per formatter), so proveo answers only the question opencode cannot: may they
+# run at all. The other three harnesses have a formatter surface too, and all
+# three are COMMAND hooks rather than registries — see the plan for why they are
+# not wired yet.
+# Order is a dependency, not a preference: the plugin row exports
+# PROVEO_CLAUDE_LSP_OFFICIAL, and the lsp row reads it to decide which languages
+# to YIELD to an official plugin. Wire lsp first and proveo-lsp declares a
+# language a plugin already serves — two servers on one extension, one of which
+# never starts.
+_proveo_config_classes() { echo "plugin lsp formatter mcp"; }
+
+# _proveo_class_wire names the function that writes one class's config for one
+# harness, or nothing when that harness has no surface for it.
+_proveo_class_wire() {
+  case "$1:$2" in
+  lsp:claudecode) echo "configure_claude_lsp" ;;
+  lsp:opencode) echo "configure_opencode_lsp" ;;
+  lsp:cursor) echo "configure_cursor_lsp" ;;
+  formatter:opencode) echo "configure_opencode_formatter" ;;
+  mcp:cecli) echo "configure_cecli_mcp" ;;
+  plugin:claudecode) echo "configure_claude_plugins" ;;
+  esac
+}
+
+# _proveo_class_probe names the function that decides whether a provided thing
+# actually WORKS, or nothing when the class has no decidable probe.
+#
+# The asymmetry is the whole lesson of this table. LSP has no probe and that was
+# measured, not assumed: feeding EOF to healthy servers returns 124, 2, 1 and 0
+# depending on the server, so no exit code separates healthy from broken and any
+# probe would discard working servers. MCP is the opposite — `initialize` answers
+# with a result or the server answers nothing — and MCP is precisely the class
+# that shipped dead for weeks behind a `command -v` gate that only ever proved a
+# launcher existed.
+_proveo_class_probe() {
+  case "$1" in
+  mcp) echo "_proveo_mcp_probe" ;;
+  plugin) echo "_proveo_plugin_probe" ;;
+  # formatter: none, and not for the LSP row's reason. opencode gates each
+  # built-in itself, so a proveo probe would be a second detector answering a
+  # question the harness has already answered better.
+  esac
+}
+
+# _proveo_mcp_probe runs the MCP handshake against a candidate server and
+# succeeds only if it ANSWERS: one `initialize` request on stdin, a JSON-RPC
+# result naming a protocolVersion or a serverInfo on stdout.
+#
+# Bounded, because a server that hangs is a boot that hangs, and the whole point
+# is to reach a verdict without the agent waiting on one.
+_proveo_mcp_probe() {
+  local secs="${PROVEO_MCP_PROBE_TIMEOUT:-10}" out
+  command -v "$1" >/dev/null 2>&1 || return 1
+  out="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proveo","version":"1"}}}' \
+    | _proveo_bounded "$secs" "$@" 2>/dev/null | head -c 65536)" || true
+  case "$out" in
+  *'"result"'*'"protocolVersion"'* | *'"result"'*'"serverInfo"'*) return 0 ;;
+  esac
+  return 1
+}
+
+# _proveo_plugin_probe is the presence of the binary a plugin drives; the
+# enablement step applies it per plugin (_claude_lsp_plugin_binary).
+_proveo_plugin_probe() { command -v "$1" >/dev/null 2>&1; }
+
+# configure_claude_plugins adapts the plugin row to the table's signature.
+# The table calls every wire function as `<fn> <scan_root> <target>`; the
+# enablement step predates the table and keys on the target alone, so the
+# adapter exists rather than changing a function three tests already drive.
+configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
+
+# configure_cecli_mcp declares the Serena MCP server in cecli's home config.
+# SPEC: _spec/defs/cecli/cecli-paradigm.puml
+# Knobs: PROVEO_CECLI_MCP=off · PROVEO_MCP_PROBE_TIMEOUT
+#
+# cecli is the one harness with no native LSP client, so its code intelligence
+# has to arrive as MCP — the same delivery cursor gets from mcp-language-server.
+#
+# This shipped once before and was deleted, and the reason is the whole argument
+# for a probe step. The gate was `command -v serena`, which proved a LAUNCHER
+# existed; a package version skew meant the server then died on every boot for
+# weeks while the e2e side-effect assertion stayed green. `initialize` answers or
+# it does not, so the thing that failed silently is now the thing that cannot.
+configure_cecli_mcp() {
+  local scan="${1:-$(pwd)}" conf probe
+  case "$(printf '%s' "${PROVEO_CECLI_MCP:-auto}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  command -v serena >/dev/null 2>&1 || return 0
+
+  conf="$(_proveo_agent_home)/.cecli.conf.yml"
+  # An existing declaration wins — the operator's, or one this file carried back
+  # from a previous run. Never a second mcp-servers block: cecli reads the first.
+  if [[ -f "$conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$conf"; then
+    echo "🧠 MCP: mcp-servers already declared in $conf; leaving it alone"
+    return 0
+  fi
+
+  probe="$(_proveo_class_probe mcp)"
+  if ! "$probe" serena start-mcp-server --context ide-assistant --project "$scan"; then
+    echo "⚠️  MCP: serena did not answer an initialize handshake within ${PROVEO_MCP_PROBE_TIMEOUT:-10}s;" >&2
+    echo "    code intelligence for cecli stays off rather than declaring a dead server." >&2
+    return 0
+  fi
+
+  # The project is the SCAN ROOT, not /app: sbx mounts the workspace at its own
+  # host path, and a server pointed at /app there indexes nothing.
+  cat >>"$conf" <<YAML
+mcp-servers:
+  mcpServers:
+    serena:
+      command: serena
+      args: [start-mcp-server, --context, ide-assistant, --project, $scan]
+YAML
+  echo "🧠 MCP code intelligence via Serena (initialize handshake answered): $conf"
+}
+
+# proveo_wire_config writes every class this harness has a surface for, in table
+# order, after provisioning. ONE entry point, called from proveo_seed — which is
+# what keeps a wiring step from being left in a def entrypoint, where it reaches
+# the docker backend alone because sbx never runs the image ENTRYPOINT.
+proveo_wire_config() {
+  local target="${1:-}" scan class fn
+  [[ -n "$target" ]] || return 0
+  scan="$(_proveo_scan_root "${2:-}")"
+  for class in $(_proveo_config_classes); do
+    fn="$(_proveo_class_wire "$class" "$target")"
+    [[ -n "$fn" ]] || continue
+    command -v "$fn" >/dev/null 2>&1 || {
+      echo "⚠️  no $class wiring function $fn in this image; skipping" >&2
+      continue
+    }
+    # Every wire function takes <scan_root> <target>; the ones that predate the
+    # table ignore the second, which is why the plugin row has an adapter.
+    "$fn" "$scan" "$target" || true
+  done
+}
+
 # ── 9. Agent Evidence (verbosity) ───────────────────────────
 agent_evidence_verbose() {
  [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
@@ -2164,16 +2602,196 @@ _proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
 # statsig and shell-snapshots are skipped: telemetry and scratch, not resume
 # state, and copying them back would grow the operator's home without ever being
 # read.
-_proveo_volume_state_dirs() {
+# _proveo_volume_mounts is the unfiltered truth: every block-device mount under
+# the agent home, which is exactly the set sbx owns per sandbox. Split out from
+# _proveo_volume_state_dirs because the two callers want opposite halves — the
+# state sync wants the ones worth copying, the config sync wants to skip ALL of
+# them, telemetry included, since a volume is state by definition and a config
+# sync that descended into one would copy transcripts a second time.
+_proveo_volume_mounts() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$home" && -r /proc/mounts ]] || return 0
- awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts |
-  while read -r d; do
-   case "${d##*/}" in
-   statsig | shell-snapshots) continue ;;
-   esac
-   printf '%s\n' "$d"
-  done
+ awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts
+}
+
+_proveo_volume_state_dirs() {
+ local d
+ while read -r d; do
+  [[ -n "$d" ]] || continue
+  case "${d##*/}" in
+  statsig | shell-snapshots) continue ;;
+  esac
+  printf '%s\n' "$d"
+ done < <(_proveo_volume_mounts)
+}
+
+# ── Config persistence: the manifest's own named set ────────
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+#
+# PROVEO_CONFIG_DIRS is the manifest's `home.mounts` resolved HOST-SIDE and
+# handed in as data (proveohome.ConfigSet): ";"-separated entries of
+# "<host-rel>|<agent-rel>|<deny,csv>".
+#
+# It is the same declaration the docker backend turns into bind mounts, not a
+# second list beside it. On docker those mounts ARE the persistence, so nothing
+# here runs; on sbx they cannot be expressed — a bind nested under proveo home
+# has no way to reach its container path — which is why every wired MCP server,
+# every LSP config, every plugin record and every settings merge died with the
+# VM. One declaration, two mechanisms.
+_proveo_config_entries() {
+ [[ -n "${PROVEO_CONFIG_DIRS:-}" ]] || return 0
+ # The trailing newline is load-bearing: `while read` sets the variable and
+ # returns non-zero on an unterminated final line, so the loop condition is
+ # already false and the body never runs for it. Without it the LAST declared
+ # subtree silently never syncs — which is the whole cursor mount.
+ printf '%s\n' "$PROVEO_CONFIG_DIRS" | tr ';' '\n'
+}
+
+# _proveo_config_file_names is the home-ROOT half of the same declaration
+# (proveohome.ConfigFiles): files that sit BESIDE the declared subtrees rather
+# than inside one, so a directory-shaped set never carried them. claudecode's
+# ~/.claude.json — accepted workspace trust, Chrome onboarding, the operator's
+# own MCP servers — was rebuilt from scratch on every sandbox open because of it.
+_proveo_config_file_names() {
+ [[ -n "${PROVEO_CONFIG_FILES:-}" ]] || return 0
+ printf '%s\n' "$PROVEO_CONFIG_FILES" | tr ';' '\n'
+}
+
+# _proveo_config_skips lists the subtree-relative paths one declared root must
+# not carry: every sbx volume inside it (state, moved by proveo_sync_state) and
+# every name the manifest denies (a credential must never ride out on a config
+# copy — the same names proveohome.scrubDeny strips on the host).
+_proveo_config_skips() {
+ local arel="$1" deny="$2" home vol d
+ home="$(_proveo_agent_home)"
+ while read -r vol; do
+  [[ -n "$vol" ]] || continue
+  case "$vol" in
+  "$home/$arel/"*) printf '%s\n' "${vol#"$home/$arel/"}" ;;
+  esac
+ done < <(_proveo_volume_mounts)
+ local oldifs="$IFS"
+ IFS=','
+ for d in $deny; do
+  d="$(printf '%s' "$d" | tr -d '[:space:]')"
+  [[ -n "$d" ]] && printf '%s\n' "$d"
+ done
+ IFS="$oldifs"
+}
+
+# _proveo_config_tree copies one declared subtree, pruning the skips. Files are
+# copied when absent and replaced when the source is NEWER — `-nt` rather than
+# _proveo_changed_files's size+mtime pair, because a config file is small, its
+# mtime is the whole signal, and the walk has to prune (which that helper's
+# unconditional `cp -a .` cannot).
+_proveo_config_tree() {
+ local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub
+ [[ -d "$src" ]] || return 0
+ mkdir -p "$dst" 2>/dev/null || return 1
+
+ local -a prune=()
+ while read -r sub; do
+  [[ -n "$sub" ]] || continue
+  prune+=(-path "./$sub" -prune -o)
+ done < <(_proveo_config_skips "$arel" "$deny")
+
+ while IFS= read -r rel; do
+  rel="${rel#./}"
+  [[ -n "$rel" && "$rel" != "." ]] || continue
+  if [[ -d "$src/$rel" ]]; then
+   mkdir -p "$dst/$rel" 2>/dev/null || failed=1
+   continue
+  fi
+  if [[ ! -e "$dst/$rel" ]]; then
+   mkdir -p "$(dirname "$dst/$rel")" 2>/dev/null
+   cp -a "$src/$rel" "$dst/$rel" 2>/dev/null || failed=1
+   continue
+  fi
+  [[ "$src/$rel" -nt "$dst/$rel" ]] || continue
+  # Replaced through a rename, so a reader never sees a half-written config.
+  tmp="$dst/$rel.proveo-sync.$$"
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
+   continue
+  fi
+  rm -f "$tmp" 2>/dev/null
+  failed=1
+ done < <(cd "$src" 2>/dev/null && find . ${prune[@]+"${prune[@]}"} \
+  \( -type f -o -type d \) -print 2>/dev/null)
+ return "$failed"
+}
+
+# _proveo_config_file copies one home-root config file, newer wins. Separate
+# from _proveo_config_tree because a file has no subtree to prune and no deny
+# list to apply — the manifest names the file itself, so declaring it IS the
+# decision that it may travel.
+_proveo_config_file() {
+ local src="$1" dst="$2" tmp
+ [[ -f "$src" ]] || return 0
+ [[ ! -e "$dst" || "$src" -nt "$dst" ]] || return 0
+ mkdir -p "$(dirname "$dst")" 2>/dev/null || return 1
+ tmp="$dst.proveo-sync.$$"
+ if cp -a "$src" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst" 2>/dev/null; then
+  return 0
+ fi
+ rm -f "$tmp" 2>/dev/null
+ return 1
+}
+
+# proveo_sync_config carries the harness's own configuration between the durable
+# host root and the home the agent actually reads: "restore" on the way in,
+# "save" on the way out. Silent no-op without PROVEO_STATE_HOME (every docker
+# run, where the home already IS the host dir) or with PROVEO_CONFIG_SYNC=off.
+#
+# Unlike the toolchain tree, these files CANNOT be relocated: the agent opens
+# ~/.claude/settings.json, ~/.cursor/mcp.json and ~/.config/opencode/opencode.json
+# by those absolute names, and moving HOME to reach them is what orphaned the
+# credential the sbx proxy writes. So they are copied, by the manifest's own set.
+proveo_sync_config() {
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home entry hrel arel deny src dst lock rc=0
+ case "$mode" in
+ restore | save) ;;
+ *) return 2 ;;
+ esac
+ case "$(printf '%s' "${PROVEO_CONFIG_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
+ off | false | 0 | no | disable | disabled) return 0 ;;
+ esac
+ [[ -n "$host" && -d "$host" ]] || return 0
+ home="$(_proveo_agent_home)"
+ [[ -n "$home" ]] || return 0
+
+ lock="$home/.proveo-config.lock"
+ if ! _proveo_sync_lock "$lock"; then
+  printf 'proveo: config %s skipped — another sync still holds the lock\n' "$mode" >&2
+  return 1
+ fi
+
+ while IFS= read -r entry; do
+  [[ -n "$entry" ]] || continue
+  hrel="${entry%%|*}"
+  arel="${entry#*|}"
+  deny="${arel#*|}"
+  arel="${arel%%|*}"
+  [[ -n "$hrel" && -n "$arel" ]] || continue
+  case "$mode" in
+  restore) src="$host/$hrel" dst="$home/$arel" ;;
+  save) src="$home/$arel" dst="$host/$hrel" ;;
+  esac
+  _proveo_config_tree "$src" "$dst" "$arel" "$deny" || rc=1
+ done < <(_proveo_config_entries)
+
+ # And the home-ROOT files, whose name is the same on both sides.
+ while IFS= read -r entry; do
+  [[ -n "$entry" ]] || continue
+  case "$mode" in
+  restore) src="$host/$entry" dst="$home/$entry" ;;
+  save) src="$home/$entry" dst="$host/$entry" ;;
+  esac
+  _proveo_config_file "$src" "$dst" || rc=1
+ done < <(_proveo_config_file_names)
+
+ rm -rf "$lock" 2>/dev/null
+ ((rc == 0)) || printf 'proveo: config %s completed with copy errors\n' "$mode" >&2
+ return "$rc"
 }
 
 # proveo_sync_state copies resume state between the mounted proveo home and the
@@ -2381,10 +2999,14 @@ _proveo_write_block() {
 # runs is a bash invocation, and bash reads this file. Writing it down is the only
 # way a venv provisioned in one process is on PATH for a `pytest` run in another.
 _proveo_persist_tool_env() {
- local home; home="$(_proveo_agent_home)"
+ local home tool; home="$(_proveo_agent_home)"; tool="$(_proveo_tool_home)"
  [[ -n "$home" ]] || return 0
+ # The rc file lives in the AGENT's home (that is where a shell reads it); the
+ # paths inside it name the TOOL home (that is where the binaries are).
  {
-   printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$home" "$home"
+   printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
+   printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
+   printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
    [[ -n "${GOROOT:-}" ]] && printf 'export GOROOT="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOROOT" "$GOROOT"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
@@ -2410,6 +3032,13 @@ proveo_seed() {
  # start; the function has already said what went wrong on stderr.
  proveo_sync_state restore || true
 
+ # And the harness's own configuration, before render_subagents and every
+ # configure_* step below: they all merge with setdefault semantics, so a config
+ # restored after them is a config whose persisted values lost to this run's
+ # defaults — silently, because a merge that overwrites nothing looks identical
+ # to a merge that had nothing to overwrite.
+ proveo_sync_config restore || true
+
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
@@ -2423,14 +3052,21 @@ proveo_seed() {
 
  accept_workspace_trust "$(_proveo_scan_root)"
 
- proveo_provision_toolchain
- proveo_enable_claude_lsp_plugins "$target"
+ # Before provisioning, not after: _proveo_tool_path puts the tree on PATH and
+ # every installer step gates on `command -v`, so a toolchain restored late is a
+ # toolchain the run reinstalls beside itself.
+ proveo_sync_tools restore || true
 
- # Written after provisioning, so it records the servers that now exist rather
- # than the ones that did before.
- case "$target" in
- claudecode) configure_claude_lsp "$(_proveo_scan_root)" ;;
- esac
+ proveo_provision_toolchain
+
+ # Every config class this harness has a surface for, written AFTER provisioning
+ # so each records what now exists rather than what did before.
+ #
+ # EVERY harness wires here, not in its def entrypoint: sbx runs `proveo-seed`
+ # alone and never the image ENTRYPOINT, so a wiring step left in the def is a
+ # step the sandbox backend silently skips. Pinned by
+ # internal/contract/lsp_config_parity_test.go.
+ proveo_wire_config "$target"
 
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"

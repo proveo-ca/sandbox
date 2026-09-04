@@ -30,12 +30,17 @@ BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$PARENT_TAG")"
 # Pin the agent to the current PyPI release (or CECLI_VERSION when exported); see
 # proveo_agent_version for why a bare `pip install cecli-dev` is not a pin.
 CECLI_VERSION="$(proveo_agent_version CECLI_VERSION pypi cecli-dev)"
+# Serena is the MCP code-intelligence server this harness carries instead of a
+# native LSP client. Pinned by the same resolver, for the same reason: the
+# unpinned layer shipped a version skew that left the server dead on every boot.
+SERENA_VERSION="$(proveo_agent_version SERENA_VERSION pypi serena-agent)"
 
 echo "🔨 building $IMAGE from $BASE_IMAGE (context: $REPO_ROOT)"
 proveo_docker_build ${PUSH:+--push} \
   ${NO_CACHE:+$NO_CACHE} \
   --build-arg BASE_IMAGE="$BASE_IMAGE" \
   --build-arg CECLI_VERSION="$CECLI_VERSION" \
+  --build-arg SERENA_VERSION="$SERENA_VERSION" \
   -f "$SCRIPT_DIR/Dockerfile" \
   -t "$IMAGE" \
   "$REPO_ROOT"

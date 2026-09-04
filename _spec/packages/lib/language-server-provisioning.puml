@@ -2,8 +2,10 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Language-server provisioning — §8 of the shared entrypoint lib
 
-' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
-'         defs/cursor/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp,
+'         configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
+' covers: internal/contract/lsp_config_parity_test.go
+' covers: internal/sbx/kit.go (SeedCommand)
 
 node "One shared lib, four harnesses" as LIB <<host>> {
   component "**detect** — ""_lsp_walk""\nextension + marker maps → lang·count" as WALK <<app>>
@@ -13,6 +15,9 @@ node "One shared lib, four harnesses" as LIB <<host>> {
   component "**install** — ""_mise_install""\nbounded · idempotent" as INST <<app>>
   component "**wire** — ""configure_*_lsp""\nper-harness config format" as WIRE <<app>>
 }
+
+component """proveo_seed""\nthe ONE step both backends run" as SEED <<app>>
+component "docker: image ENTRYPOINT\nsbx: no entrypoint at all" as BACKENDS <<host>>
 
 component """_proveo_lock_installs""\nflock fd 9" as LOCK <<async>>
 database "PROVEO_HOME\n""~/.local/share/mise"" · shims" as HOME <<db>>
@@ -27,6 +32,9 @@ INST ARROW_QUEUE LOCK : serialize across runs
 INST ARROW_CLOUD NET : fetch
 INST ARROW_MAIN HOME : install once
 HOME ARROW_MAIN WIRE : ""command -v"" finds it
+SEED ARROW_MAIN INST : ""proveo_provision_toolchain""
+SEED ARROW_MAIN WIRE : per-target ""case"", AFTER the install
+BACKENDS ARROW_MAIN SEED : ""proveo-seed <target>""
 PRE ARROW_ERROR TRAP : the check that prevents this
 
 note right of WALK
@@ -87,5 +95,26 @@ note bottom of WIRE
   server installed AFTER the config is rendered stays invisible until the next
   run. opencode and cursor once rendered their config before the installers ran,
   which is why Go intelligence only ever appeared on a second run.
+end note
+
+note bottom of SEED
+  **The wiring belongs to the SEED, not to a def.**
+  sbx runs ""proveo-seed"" and never the image
+  ENTRYPOINT, so a ""configure_*_lsp"" left in
+  ""defs/<h>/entrypoint.sh"" reaches docker alone.
+end note
+
+note top of BACKENDS
+  **What that cost.** opencode and cursor opened
+  on sbx with every server installed and none
+  configured — indistinguishable from a harness
+  with no code intelligence at all.
+end note
+
+note right of SEED
+  **Pinned, because docker hides it.**
+  ""lsp_config_parity_test.go"" refuses a wiring
+  function a def defines, and one ""proveo_seed""
+  never calls.
 end note
 @enduml

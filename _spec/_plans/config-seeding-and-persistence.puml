@@ -1,0 +1,385 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Config seeding and persistence — one chain for LSPs, MCPs, formatters and plugins
+
+' purpose: why only LSPs have a detect→provide→wire chain, why nothing that chain writes survives an sbx run, and the one shape that fixes both
+' PARTLY LANDED — steps 1 and 2 of the legend are implemented; 3-5 are not.
+'   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
+'   step 2 · install location ..... packages/lib/entrypoint-lib.sh (_proveo_tool_home,
+'                                   _proveo_container_platform, _proveo_tool_path)
+'   step 2 · the carry ............ packages/lib/entrypoint-lib.sh (_proveo_tool_store,
+'                                   proveo_sync_tools) · internal/sbx/run.go (SaveStateArgs)
+'   step 3 · the named set ........ internal/proveohome/configset.go (ConfigSet)
+'   step 3 · the carry ............ packages/lib/entrypoint-lib.sh (proveo_sync_config,
+'                                   _proveo_config_tree, _proveo_volume_mounts)
+'   step 3b · home-root files ..... internal/manifest (Home.Files) ·
+'                                   internal/proveohome (ConfigFiles) ·
+'                                   packages/lib/entrypoint-lib.sh (_proveo_config_file)
+'   step 4 · the class table ...... packages/lib/entrypoint-lib.sh (_proveo_config_classes,
+'                                   _proveo_class_wire, _proveo_class_probe,
+'                                   _proveo_mcp_probe, proveo_wire_config)
+'   step 5 · the MCP row .......... packages/lib/entrypoint-lib.sh (configure_cecli_mcp) ·
+'                                   defs/cecli/Dockerfile · defs/cecli/build.sh
+'   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
+'   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
+'                                   internal/proveohome/proveohome_test.go
+'   the one chain that exists ...... packages/lib/entrypoint-lib.sh (§8 ensure_language_servers)
+'   where it is wired .............. packages/lib/entrypoint-lib.sh (proveo_seed)
+'   the plugin half ................ packages/lib/entrypoint-lib.sh (proveo_enable_claude_lsp_plugins)
+'   the durable home ............... internal/proveohome/proveohome.go · cmd/proveo/clean.go (toolSubdirs)
+'   the home that is NOT durable ... internal/backend/sandbox/sandbox.go (Home)
+'   the copy that stands in for it . packages/lib/entrypoint-lib.sh (proveo_sync_state)
+'   the Serena attempt ............. git 88cefc47 (removed) · _spec/defs/cecli/cecli-paradigm.puml
+'   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
+'   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
+'   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
+'
+' ── FOUR CONFIG CLASSES, ONE OF THEM IMPLEMENTED ──────────────────────────
+' A harness opens onto a workspace and needs four kinds of thing configured
+' before it is useful. They differ only in the file format at the end:
+'
+'   class       detect                provide             wire
+'   ─────────── ───────────────────── ─────────────────── ─────────────────────
+'   LSP         _lsp_walk (ext+marker image layer, else   configure_claude_lsp
+'               map, ranked by count) mise / ubi          configure_opencode_lsp
+'                                                         configure_cursor_lsp
+'   MCP         —                     —                   —
+'   formatters  —                     —                   —   (opencode's registry
+'                                                              exists and is OFF)
+'   plugins     — (fixed list)        image seed dir      proveo_enable_claude_
+'                                                         lsp_plugins
+'
+' Only the LSP row is a chain. The plugin row is a fixed list against one
+' harness's baked marketplace cache. The MCP and formatter rows are empty, and
+' nothing in the tree says whether that is a decision or an omission.
+'
+' For the formatter row the answer turned out to be neither: opencode ships 24
+' built-in formatters and DISABLES them unless the config says otherwise, so the
+' row was empty on proveo's side while the surface sat there unused. A first pass
+' at this plan concluded "formatters are not a class" from a grep of `defs/` and
+' `_spec/` — which only ever showed that PROVEO does not wire them. See step 4b.
+'
+' ── THE MCP ROW IS EMPTY BECAUSE THE ONE ATTEMPT WAS DELETED ──────────────
+' cecli has no native LSP client, so its code intelligence has to arrive as
+' MCP — the same delivery cursor uses (mcp-language-server), and the reason
+' _spec/packages/lib/steps.puml still names "cecli: Serena MCP toolkit" in the
+' MCP-capable branch of the WIRE step. That branch describes code that is gone.
+'
+' What was there (git 88cefc47 removed it):
+'   defs/cecli/Dockerfile      a second venv, /opt/serena, `pip install
+'                              serena-agent`, launcher symlinked onto PATH
+'   defs/cecli/entrypoint.sh   seed_cecli_serena_mcp — `command -v serena`
+'                              gate, then APPEND an mcp-servers block to
+'                              ~/.cecli.conf.yml unless one is already declared
+'
+' The shape was right and the outcome was not: the harness "shipped for weeks
+' with its Serena MCP server dead on every boot — a package version skew —
+' while the side-effect assertion stayed green" (42-hello-world-e2e.puml). The
+' `command -v serena` gate proved a launcher existed. Nothing proved it SERVED.
+' The whole feature was then deleted rather than probed, because there was no
+' shared chain to hang a probe on: no per-class provide step, no per-class
+' health contract, no test that a wired server answers.
+'
+' ── WHY A HEALTH PROBE IS DECIDABLE HERE AND WAS NOT FOR LSP ──────────────
+' language-server-provisioning.puml records a measured refusal: feeding EOF to
+' healthy servers returns 124, 2, 1 and 0 depending on the server, so no exit
+' code separates healthy from broken and any LSP probe would discard working
+' servers. That finding is about LSP stdio, and it does not carry to MCP.
+'
+' MCP has a handshake with a defined success value: an `initialize` request
+' over stdio answers with a result object naming protocolVersion and
+' serverInfo. A server that cannot start answers nothing. So the class that
+' failed silently is precisely the class that CAN be probed — which is the
+' argument for a per-class contract rather than one rule copied across.
+'
+' ── AND NOTHING ANY OF THEM WRITES SURVIVES AN SBX RUN ────────────────────
+' The chain assumes a durable home. _spec/_runtimes/toolchain-provisioning.puml
+' states it outright — "PROVEO_HOME is durable and GLOBAL" — and cmd/proveo
+' clean.go acts on it, reclaiming `.local/share/mise`, `.local/bin`, `.go` and
+' `go` UNDER proveohome.Root(). That is true on docker and false on sbx:
+'
+'   docker   HOME=/proveo-home, a bind onto ~/.proveo. mise installs into
+'            $HOME/.local/share/mise → on the operator's disk. Wired configs
+'            land in $HOME/.claude, $HOME/.cursor, $HOME/.config/opencode →
+'            same disk. `proveo clean --tools` finds all of it.
+'
+'   sbx      Home() DELETES HOME and PROVEO_HOME from the run environment, on
+'            purpose: sbx runs its own uid-1000 agent and its credential proxy
+'            writes .credentials.json into the IMAGE's home, so redirecting
+'            HOME orphaned the live credential (ladder rung 3, "Not logged
+'            in"). Correct fix, and the cost was never priced: with no
+'            redirect, _proveo_agent_home resolves to the image home inside
+'            the VM. mise installs there. Wired configs land there. `sbx rm`
+'            removes "VM + images + volumes" and takes all of it.
+'
+' proveo_sync_state is not the answer to this. It copies dirs discovered from
+' /proc/mounts — "a block device under $HOME is by definition sandbox-local" —
+' which finds sbx's own per-agent session volumes and nothing else. A config
+' file the seed writes into a plain directory of the image home is not a block
+' device, is never discovered, and is never copied out.
+'
+' Net: every sbx run re-walks the workspace, re-downloads every language
+' server through the GitHub API (60 requests/hour unauthenticated, shared per
+' source IP), re-renders every config, and throws the result away at teardown.
+' The one exception is the plugin row, which persists because it never left
+' the image: the seed dir is baked and the enablement is a merge into files
+' that are themselves ephemeral.
+'
+' ── WHAT CLONE MODE MOVES, AND WHAT IT CANNOT ─────────────────────────────
+' sbx runs default to --clone precisely to keep the WORKSPACE off virtiofs: the
+' guest's directory entry has been measured vanishing under a running agent
+' while the host directory stayed put, after which every Bash spawn exits 1 and
+' only a restart heals it. The trigger is a host-side inode replacement of a
+' mounted directory (reproduced with `mv` + `mkdir`), which ordinary developer
+' tooling does to a checkout constantly.
+'
+' Clone cannot move the proveo home. SplitNested only lifts binds nested UNDER
+' the repository, the home is not one, and it has to stay a host bind or it
+' would not persist at all — persisting is its whole job. So the durable root
+' IS a virtiofs passthrough, on both clone and non-clone runs.
+'
+' Which is why step 2 does NOT run the toolchain out of it. Tools install on the
+' agent's own disk and are copied across at the edges, the same shape resume
+' state already uses — one sequential restore into a fresh VM, a delta save at
+' teardown, and no exec crossing virtiofs at all.
+'
+' One thing on the host still writes that tree: `proveo clean --tools`. Its
+' liveness gate could not see an sbx run, because that backend has no egress
+' sidecar to count, so it would prune the store a live sandbox is about to save
+' into and leave it half written. That gate now counts running sandboxes, and
+' treats an unreadable `sbx ls` as undecidable rather than quiet.
+'
+' ── ONE BUG WORTH KEEPING WRITTEN DOWN ────────────────────────────────────
+' `printf '%s' "$SET" | tr ';' '\n'` feeding a `while read` loop drops the LAST
+' entry, every time: `read` assigns the variable and returns non-zero on an
+' unterminated final line, so the loop condition is already false and the body
+' never runs for it. The set is ordered as the manifest declares it, so what
+' vanished was whichever subtree came last — cursor's whole `.cursor` tree,
+' including the mcp.json step 3 exists to persist. It restored and saved
+' `.claude` perfectly while doing nothing at all for the entry beside it, which
+' is the shape of failure that reads as "persistence is flaky".
+'
+' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
+' Two different problems wearing one word. Relocating both is wrong.
+'
+'   TOOLS    binaries and their registries. Nothing reads them by a fixed
+'            path — they are found through PATH — so they can be MOVED to a
+'            durable location. MISE_DATA_DIR and MISE_INSTALL_PATH already
+'            express exactly that, and PROVEO_STATE_HOME already carries the
+'            host path on the backend that needs it.
+'
+'   CONFIGS  files the agent finds by an absolute path under its own home
+'            (~/.claude/settings.json, ~/.cursor/mcp.json,
+'            ~/.config/opencode/opencode.json, ~/.cecli.conf.yml). These
+'            CANNOT move — moving them is what broke the credential — so they
+'            must be COPIED, by name, in both directions, the way resume
+'            state already is.
+
+node "The chain, generalised" as CHAIN <<app>> {
+  component "**detect** — what this workspace needs\nper class, from the tree" as DET <<app>>
+  component "**provide** — image layer first,\nthen mise/venv, else refuse" as PRO <<app>>
+  component "**probe** — per-class health\nMCP: ""initialize"" · LSP: none" as PRB <<app>>
+  component "**wire** — the harness's own\nconfig format, setdefault merge" as WIRE <<app>>
+}
+
+component """proveo_seed <target>""\nthe only step BOTH backends run" as SEED <<app>>
+
+node "docker backend" as DOCK <<host>> {
+  database """HOME=/proveo-home""\na bind onto ""~/.proveo""" as DHOME <<db>>
+}
+node "sbx backend" as SBX <<host>> {
+  database "image home in the VM\n""sbx rm"" destroys it" as SHOME <<error>>
+  database """PROVEO_STATE_HOME""\nthe host path, already passed" as STATE <<db>>
+}
+
+component "**tools** — move them\n""MISE_DATA_DIR"" → durable" as TOOLS <<app>>
+component "**configs** — copy them\nnamed set, restore + save" as CFGS <<async>>
+cloud "mise registry · ubi → GitHub API\n60 req/h unauthenticated" as NET <<cloud>>
+
+SEED ARROW_MAIN CHAIN : per class, per target
+DET ARROW_MAIN PRO
+PRO ARROW_CLOUD NET : only when the image layer misses
+PRO ARROW_MAIN PRB
+PRB ARROW_MAIN WIRE : wire only what ANSWERED
+PRB ARROW_ERROR NET : refuse, and say which class
+
+DOCK ARROW_MAIN SEED
+SBX ARROW_MAIN SEED
+CHAIN ARROW_MAIN DHOME : durable today
+CHAIN ARROW_ERROR SHOME : discarded today
+TOOLS ARROW_MAIN STATE : relocate
+CFGS ARROW_QUEUE STATE : copy, both directions
+SHOME ARROW_OPTIONAL CFGS : the agent still reads HERE
+
+note bottom of PRB
+  **The step Serena needed and did not have.**
+  ""command -v serena"" proved a launcher existed.
+  It served nothing for weeks, and the e2e
+  side-effect assertion stayed green throughout.
+end note
+
+note right of PRB
+  **Per-class, not one rule.** LSP stdio has no
+  exit code that separates healthy from broken.
+  MCP answers ""initialize"" or it does not.
+end note
+
+note bottom of SHOME
+  **The deletion of HOME was correct.** sbx's
+  credential proxy owns the credential file in
+  the image home; a redirect orphaned it. The
+  cost — an ephemeral root — was never priced.
+end note
+
+note bottom of STATE
+  **The host path is already in the run.**
+  ""Home()"" passes it so teardown can copy resume
+  state out. Nothing else reads it yet.
+end note
+
+note right of TOOLS
+  **Movable: nothing reads them by path.**
+  Binaries are found through PATH, so a durable
+  data dir costs no redirect the agent can see.
+end note
+
+note right of CFGS
+  **Not movable.** The agent opens each one by
+  an absolute name. Copy by a NAMED set: mount
+  discovery finds only sbx's own block-device
+  volumes, never a config file.
+end note
+
+note top of NET
+  **What the discard costs.** Every sbx open
+  re-walks, re-downloads, re-renders. ubi asks
+  the GitHub API, rate-limited per source IP, so
+  a fleet behind one NAT loses intelligence.
+end note
+
+legend bottom
+  **The order to do it in — and what each step must not break**
+  ==
+  **1. Make the durable root explicit, one accessor.** — LANDED.
+  ""_proveo_durable_home"" = ""${PROVEO_STATE_HOME:-$(_proveo_agent_home)}"". On
+  docker it resolves to today's answer, so that backend cannot regress; on sbx
+  it names the host path for the first time. Nothing moves yet.
+  --
+  **1b. And make it resolve on every host proveo ships for.** — LANDED.
+  ""proveohome\.Root"" read ""HOME"" alone and fell through to ""\."" — which is what a
+  PowerShell or cmd proveo got, putting sessions, logs and now toolchains in the
+  operator's repository. ""UserHome"" adds ""USERPROFILE"" and ""HOMEDRIVE""+""HOMEPATH"".
+  Relocating tools onto a CWD-relative root would have multiplied that bug.
+  --
+  **2. Give TOOLS a durable home — install locally, sync at the edges.** — LANDED.
+  ""MISE_DATA_DIR"", ""MISE_CONFIG_DIR"", ""MISE_STATE_DIR"", ""MISE_CACHE_DIR"",
+  ""MISE_INSTALL_PATH"", the ""npm -g --prefix"", ""GOROOT""/""GOPATH"", the jdtls tree and
+  the install lock all hang off ""_proveo_tool_home"" — the AGENT's own home, which
+  is the VM's own disk on sbx. ""_proveo_tool_store"" is the durable half, and
+  ""proveo_sync_tools"" carries the tree between them: restore in ""proveo_seed""
+  before provisioning, save in ""SaveStateArgs"" beside the state sync.
+  Both namespaced ""toolchains/<os>-<arch>"", the fold pinned against
+  ""internal/workspace.normalizeArch"". HOME does not move, so the credential the
+  sbx proxy owns is untouched. ""PROVEO_TOOL_SYNC=off"" declines the copy in both
+  directions. ""proveo clean --tools"" globs the platform trees, keeps the legacy
+  root so nothing already installed strands, and now counts running sandboxes.
+  --
+  **3. Copy CONFIGS by a NAMED set.** — LANDED, and the set was already written.
+  A per-harness list of files would have been a SECOND declaration beside
+  ""home\.mounts"", which already names every durable subtree with its ""deny:"".
+  ""proveohome\.ConfigSet"" encodes that same declaration host-side and hands it in
+  as ""PROVEO_CONFIG_DIRS""; ""proveo_sync_config"" copies it. One declaration, two
+  mechanisms: bind mounts on docker, a copy on sbx where a bind nested under
+  proveo home cannot be expressed at all.
+  --
+  **3b. And the two syncs must not both move the same bytes.** Config prunes every
+  sbx VOLUME inside a declared subtree, discovered from ""/proc/mounts"" rather than
+  named — a volume is state by definition, ""proveo_sync_state"" owns it, and a
+  config sync that descended into one would copy transcripts twice and drag
+  ""statsig"" and ""shell-snapshots"" into the operator's home, which the state sync
+  deliberately skips.
+  --
+  **3b. Home-ROOT config files needed declaring too.** — LANDED.
+  A set derived from ""home\.mounts"" is DIRECTORY-shaped, and two harnesses keep a
+  config file beside those subtrees rather than inside one: claudecode's
+  ""~/\.claude\.json"" (accepted workspace trust, Chrome onboarding, the operator's
+  own MCP servers) and cecli's ""~/\.cecli\.conf\.yml"". docker persists them with
+  the whole-home bind and never had to name them; sbx rebuilt both from scratch
+  on every open. ""Home\.Files"" declares them, ""Validate"" refuses anything but a
+  bare name, and ""PROVEO_CONFIG_FILES"" carries them.
+  --
+  **4. Generalise the chain into one table and one entry point.** — LANDED.
+  ""_proveo_config_classes"" is ""plugin lsp mcp"" — an ORDER, not a preference: the
+  plugin row exports ""PROVEO_CLAUDE_LSP_OFFICIAL"" and the lsp row reads it to
+  decide which languages to yield. ""_proveo_class_wire <class>:<harness>"" names
+  the wiring function, ""_proveo_class_probe <class>"" names the health check, and
+  ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
+  per-class ""case"" that used to sit in the seed is gone.
+  --
+  **4b. Formatters ARE a class — and the earlier answer here was wrong.**
+  It read "no harness has a formatter config format", from a grep of ""defs/"" and
+  ""_spec/"". Absence in proveo's tree is not absence of a surface in the harness.
+  All four have one, in three different shapes, and opencode's is why a workspace
+  carrying ""prettier"" and ""oxfmt"" formatted nothing:
+  --
+  ""opencode"" a REGISTRY: 24 built-ins under the ""formatter"" key, **off unless
+  enabled** — omitting the key is the off state. Each built-in is gated by
+  opencode itself (a command on PATH, a config file, or a package.json /
+  composer.json dependency), so proveo answers only what opencode cannot: may
+  they run at all. ""configure_opencode_formatter"" sets ""formatter: true"". LANDED.
+  --
+  ""claudecode"" a COMMAND HOOK: ""PostToolUse"" with an ""Edit|Write"" matcher in
+  ""~/\.claude/settings\.json"" — the file ""proveo_install_claude_hooks"" already
+  merges into for the cwd guard, so the wiring point exists.
+  --
+  ""cursor"" a COMMAND HOOK: ""afterFileEdit"" in ""\.cursor/hooks\.json"", beside the
+  ""beforeShellExecution"" audit hook proveo already ships.
+  --
+  ""cecli"" LINT COMMANDS: ""auto-lint"" (on by default) plus
+  ""lint-cmd: ['<lang>: <cmd>']"" in the aider-shaped home config.
+  ==
+  **Why only the registry is wired.** A registry asks a yes/no question and the
+  harness resolves the rest. A hook asks proveo to CHOOSE A COMMAND per project —
+  which formatter, with which arguments, over which files — and choosing wrongly
+  rewrites the operator's source on every edit. cecli adds a trap on top: aider
+  treats a non-zero exit as a lint failure, and formatters exit non-zero
+  precisely when they changed something, so a formatter wired as a ""lint-cmd""
+  reports an error every time it works. Those three rows want the
+  dependency-tree chain's knowledge of what the project actually pins, and they
+  are left open rather than guessed at.
+  --
+  **5. Serena, on that chain, as the MCP row's first entry.** — LANDED.
+  ""/opt/serena"" in its own venv (serena-agent and cecli-dev disagree about
+  dependency versions), PINNED by ""SERENA_VERSION"" through the same
+  ""proveo_agent_version"" resolver the agents use — because an unpinned install is
+  precisely what shipped the skew that killed it. ""configure_cecli_mcp"" declares
+  it in ""~/\.cecli\.conf\.yml"" only when the handshake ANSWERS, points
+  ""--project"" at the scan root rather than ""/app"" (which does not exist on sbx),
+  and leaves an existing ""mcp-servers"" block alone — the operator's, or the one
+  step 3b just carried back.
+  ==
+  **Settled on step 2 — install-then-sync, not install-in-place.** Running a
+  toolchain straight off the durable root put every ""command -v"", every shim and
+  every server exec on virtiofs for the life of the session, and bet that nothing
+  on the host would ever replace a directory inode under it. Installing on the
+  VM's own disk and copying at the edges pays one sequential restore into a fresh
+  VM and a delta save (""_proveo_sync_tree"" is ""cp -an"" plus an overwrite of
+  genuinely changed files), and leaves nothing to unlink.
+  ==
+  **One deviation from step 4 as written.** It asked for a Go twin of the table
+  pinned by ""internal/contract"". The table has no Go READER — ""DepLangs"" exists
+  because ""internal/workspace"" computes dep copies host-side, and nothing
+  host-side wires a config — so a Go copy would exist only to be compared
+  against. ""internal/contract"" pins the bash table against the tree instead:
+  every named function defined in the lib, every row reachable from the seed, no
+  def entrypoint owning one, and the plugin row ahead of the lsp row. That is the
+  same shape ""_claude_lsp_plugins"" is already pinned by. If ""--print"" ever reports
+  which classes a run will wire, the table is where that reader goes.
+  ==
+  **Left open on purpose.** Whether the plugin row generalises past claudecode at
+  all, given the seed dir is one vendor's marketplace cache; and whether a wired
+  config should be RE-wired on every open or only when detection changes, once it
+  stops being free.
+end legend
+@enduml

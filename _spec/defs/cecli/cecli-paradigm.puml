@@ -8,7 +8,7 @@ node "cecli container" as CTR <<host>> {
   component "defs/cecli/entrypoint.sh" as EP <<app>>
   component "cecli (aider fork, Python/litellm)" as CLI <<app>>
   folder "seeded subagents\n$CECLI_HOME/agents" as SUB <<app>>
-  component "Serena MCP\ncode intelligence (no native LSP)" as MCP <<app>>
+  component "Serena MCP (pinned in the image)\ncode intelligence (no native LSP)" as MCP <<app>>
   database "/app — repo (rw)\n.git root ro · /app/output rw" as WS <<db>>
   artifact "CONVENTIONS.md" as CONV <<db>>
 }
@@ -16,7 +16,7 @@ node "cecli container" as CTR <<host>> {
 DEV ARROW_MAIN CLI : named files + functions
 EP ARROW_MAIN CLI : " ""CECLI_MODEL"" · ""CECLI_EDITOR_MODEL"" \n""CECLI_WEAK_MODEL"" (+ AIDER_* aliases) "
 EP ARROW_MAIN SUB : seed missing only\n(""CECLI_RESEED=1"" forces)
-EP ARROW_OPTIONAL MCP : wire when ""serena"" is installed
+EP ARROW_OPTIONAL MCP : wire when the ""initialize""\nhandshake ANSWERS
 EP ARROW_OPTIONAL CONV : seed when absent
 CLI ARROW_MAIN WS : small, deliberate edits
 CLI ARROW_OPTIONAL SUB : adversarial review · debugging · spec review
@@ -51,6 +51,14 @@ note bottom of WS
   ""/app/.cecli"" while home config persists in
   ""~/.proveo/.cecli"".
 end note
+note bottom of MCP
+  **Deleted once, and this is what it lacked.**
+  ""command -v serena"" proved a LAUNCHER existed; a
+  version skew left the server dead on every boot
+  for weeks. Now: pinned by ""SERENA_VERSION"", and
+  ""configure_cecli_mcp"" declares nothing unanswered.
+end note
+
 note bottom of CONV
   **cecli auto-loads no conventions file at all.** ""CONVENTIONS\.md"" is a
   naming habit rather than a feature, and ""AGENTS\.md"" is not read either —
