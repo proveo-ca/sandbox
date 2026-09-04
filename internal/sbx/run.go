@@ -62,11 +62,11 @@ const NamePrefix = "proveo-"
 //
 // It exists for `proveo clean --tools`. That prune's liveness gate saw only the
 // docker egress sidecars, which an sbx run does not have — so on the backend
-// that has no sidecars it always read "nothing is running". That was harmless
-// while sbx toolchains lived on the VM's own disk; once they moved to the
-// durable host root the prune removes the tree a LIVE sandbox is executing
-// from, and virtiofs does not heal a replaced directory inode (only a restart
-// does). SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// that has no sidecars it always read "nothing is running", and the toolchain
+// tree it prunes is the one a live sandbox copies itself into at teardown.
+// Racing that copy is worse than either outcome alone: the store is left half
+// written, which is a toolchain that satisfies `command -v` and fails to exec.
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 //
 // ok=false means the listing was unreadable while sbx IS installed. The caller
 // must treat that as "may be live": for a destructive prune the safe direction
@@ -327,12 +327,19 @@ func bashQuote(s string) string {
 }
 
 // SaveStateArgs is the teardown copy-out: one `sbx exec` that runs the shared
-// sync inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
+// syncs inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
 // load-bearing.
-// SPEC: _spec/internal/sbx/state-sync.puml
+//
+// Two syncs, one exec. Resume state and the toolchain tree are copied out the
+// same way and at the same moment, and neither may skip the other: they are
+// joined with `;` rather than `&&` so a failed transcript copy still lets the
+// toolchains land, and the exit status is the state sync's — losing yesterday's
+// transcripts is the louder failure, and it is the one the caller already
+// reports on.
+// SPEC: _spec/internal/sbx/state-sync.puml, _spec/_plans/config-seeding-and-persistence.puml
 func SaveStateArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
-		". /entrypoint-lib.sh && proveo_sync_state save"}
+		". /entrypoint-lib.sh && { proveo_sync_tools save || true; }; proveo_sync_state save"}
 }
 
 // RemoveArgs builds the ephemeral teardown invocation (VM + images + volumes).

@@ -49,10 +49,13 @@ note bottom of TOOLS
   proveo container **or sbx sandbox** holds the whole prune back — ""--force"" is
   the documented escape hatch. The sandbox arm is not symmetry: an sbx run has
   no egress sidecar and no dind, so counting only containers read "nothing is
-  running" on that backend every time, and since the toolchains moved to the
-  durable host root the prune would replace a directory inode that a LIVE
-  sandbox has mounted over virtiofs — which unlinks the guest's dentry for good.
-  An unreadable ""sbx ls"" is undecidable, not quiet, and holds back too. Removing it is never destructive: the cost of being wrong is
+  running" on that backend every time — while an sbx run copies its toolchains
+  into this very tree at teardown. A prune racing that copy leaves the store half
+  written, which is the worst outcome available: a tree that satisfies
+  ""command -v"" on the next run and fails on first exec. An unreadable ""sbx ls""
+  is undecidable, not quiet, and holds back too.
+
+  Removing it is otherwise never destructive: the cost of being wrong is
   time on the next boot, not lost work, which is why it reports what it
   reclaims and why it is opt-in rather than part of ""--deep"".
 end note

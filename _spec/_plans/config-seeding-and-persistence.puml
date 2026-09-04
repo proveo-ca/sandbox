@@ -6,8 +6,10 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' purpose: why only LSPs have a detect→provide→wire chain, why nothing that chain writes survives an sbx run, and the one shape that fixes both
 ' PARTLY LANDED — steps 1 and 2 of the legend are implemented; 3-5 are not.
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
-'   step 2 · the tool relocation .. packages/lib/entrypoint-lib.sh (_proveo_tool_home,
+'   step 2 · install location ..... packages/lib/entrypoint-lib.sh (_proveo_tool_home,
 '                                   _proveo_container_platform, _proveo_tool_path)
+'   step 2 · the carry ............ packages/lib/entrypoint-lib.sh (_proveo_tool_store,
+'                                   proveo_sync_tools) · internal/sbx/run.go (SaveStateArgs)
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
@@ -117,15 +119,18 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' Clone cannot move the proveo home. SplitNested only lifts binds nested UNDER
 ' the repository, the home is not one, and it has to stay a host bind or it
 ' would not persist at all — persisting is its whole job. So the durable root
-' IS a virtiofs passthrough, on both clone and non-clone runs, and step 2 puts
-' the toolchain tree there.
+' IS a virtiofs passthrough, on both clone and non-clone runs.
 '
-' That is a smaller exposure than the workspace, for a reason worth stating
-' rather than assuming: nothing on the HOST rewrites a toolchain tree. No
-' branch switch, no build system, no editor. Exactly one thing does —
-' `proveo clean --tools` — and its liveness gate could not see an sbx run,
-' because that backend has no egress sidecar to count. That gate now counts
-' running sandboxes, and treats an unreadable `sbx ls` as undecidable.
+' Which is why step 2 does NOT run the toolchain out of it. Tools install on the
+' agent's own disk and are copied across at the edges, the same shape resume
+' state already uses — one sequential restore into a fresh VM, a delta save at
+' teardown, and no exec crossing virtiofs at all.
+'
+' One thing on the host still writes that tree: `proveo clean --tools`. Its
+' liveness gate could not see an sbx run, because that backend has no egress
+' sidecar to count, so it would prune the store a live sandbox is about to save
+' into and leave it half written. That gate now counts running sandboxes, and
+' treats an unreadable `sbx ls` as undecidable rather than quiet.
 '
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.
@@ -239,15 +244,18 @@ legend bottom
   operator's repository. ""UserHome"" adds ""USERPROFILE"" and ""HOMEDRIVE""+""HOMEPATH"".
   Relocating tools onto a CWD-relative root would have multiplied that bug.
   --
-  **2. Relocate TOOLS only.** — LANDED.
+  **2. Give TOOLS a durable home — install locally, sync at the edges.** — LANDED.
   ""MISE_DATA_DIR"", ""MISE_CONFIG_DIR"", ""MISE_STATE_DIR"", ""MISE_CACHE_DIR"",
   ""MISE_INSTALL_PATH"", the ""npm -g --prefix"", ""GOROOT""/""GOPATH"", the jdtls tree and
-  the install lock all hang off ""_proveo_tool_home"". HOME does not move, so the
-  credential the sbx proxy owns is untouched. Namespaced ""toolchains/<os>-<arch>""
-  because the tree is now shared by both backends; the fold is pinned against
-  ""internal/workspace.normalizeArch"". An unwritable durable root degrades to the
-  agent home rather than skipping provisioning. ""proveo clean --tools"" globs the
-  platform trees and keeps the legacy root so nothing already installed strands.
+  the install lock all hang off ""_proveo_tool_home"" — the AGENT's own home, which
+  is the VM's own disk on sbx. ""_proveo_tool_store"" is the durable half, and
+  ""proveo_sync_tools"" carries the tree between them: restore in ""proveo_seed""
+  before provisioning, save in ""SaveStateArgs"" beside the state sync.
+  Both namespaced ""toolchains/<os>-<arch>"", the fold pinned against
+  ""internal/workspace.normalizeArch"". HOME does not move, so the credential the
+  sbx proxy owns is untouched. ""PROVEO_TOOL_SYNC=off"" declines the copy in both
+  directions. ""proveo clean --tools"" globs the platform trees, keeps the legacy
+  root so nothing already installed strands, and now counts running sandboxes.
   --
   **3. Copy CONFIGS by a NAMED set.** Extend ""proveo_sync_state"" with a per-harness
   config manifest — ""\.claude/settings\.json"", ""\.claude/skills/proveo-lsp"",
@@ -268,11 +276,13 @@ legend bottom
   the file. cecli is the harness with no native LSP, so this is the row that
   decides whether it has code intelligence at all.
   ==
-  **Still open on step 2.** Whether the toolchain tree should be INSTALLED on the
-  VM disk and synced to the durable root at teardown — ext4 speed and no virtiofs
-  exposure at all — rather than installed directly onto the host bind. The cost
-  is a copy proportional to the tree, per run, against a resume-state copy that is
-  proportional to a transcript. Not taken on a guess; it wants a measurement.
+  **Settled on step 2 — install-then-sync, not install-in-place.** Running a
+  toolchain straight off the durable root put every ""command -v"", every shim and
+  every server exec on virtiofs for the life of the session, and bet that nothing
+  on the host would ever replace a directory inode under it. Installing on the
+  VM's own disk and copying at the edges pays one sequential restore into a fresh
+  VM and a delta save (""_proveo_sync_tree"" is ""cp -an"" plus an overwrite of
+  genuinely changed files), and leaves nothing to unlink.
   ==
   **Left open on purpose.** Whether formatters are a class or belong to the
   dependency-tree chain that already installs the project's own toolchain;

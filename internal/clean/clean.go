@@ -105,13 +105,14 @@ func BuildPlan(inv Inventory, o Options) Plan {
 	}
 
 	if o.Tools {
-		// Every way a run can still be holding the toolchain tree open. The sbx
-		// arms are not symmetry for its own sake: a sandbox run has no egress
-		// sidecar and no dind, so before they were counted this gate read "nothing
-		// is running" on that backend every single time — and the tree it prunes
-		// now lives on the host, mounted into the live sandbox over virtiofs, where
-		// replacing a directory's inode unlinks the guest's dentry for good.
-		// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+		// Every way a run can still be using the toolchain tree. The sbx arms are
+		// not symmetry for its own sake: a sandbox run has no egress sidecar and no
+		// dind, so before they were counted this gate read "nothing is running" on
+		// that backend every single time — while an sbx run copies its toolchains
+		// into this very tree at teardown. A prune racing that copy leaves the store
+		// half written, which is the worst of the three outcomes: a tree that
+		// satisfies `command -v` and fails on first exec.
+		// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 		running := len(inv.Sandboxes) > 0 || inv.SandboxesUnknown
 		for _, c := range inv.Egress {
 			if c.Running {

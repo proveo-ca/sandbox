@@ -500,37 +500,99 @@ _proveo_container_platform() {
   printf 'linux-%s' "$m"
 }
 
-# _proveo_tool_home is where provisioned TOOLCHAINS live — the mise tree, Go,
-# jdtls, the npm --prefix, the install lock.
+# _proveo_tool_rel is the toolchain tree's path RELATIVE to a root, shared by
+# the place tools run from and the place they persist to.
 #
-# Tools are found through PATH rather than opened by a fixed name, which is what
-# makes them relocatable where a config is not: moving ~/.claude would break the
-# agent, moving the mise tree breaks nothing. They MUST be relocated, or an sbx
-# run reinstalls every language server it needs on every single open, through a
-# GitHub API budget of 60 requests an hour shared per source IP.
+# Namespaced by platform because the persisted tree is shared: the docker
+# backend and the sbx VM on one host save into the same directory, and so does a
+# run pinned with DOCKER_DEFAULT_PLATFORM. Sharing is the point (install once,
+# reuse on the other backend); the namespace is what stops an amd64 install from
+# answering `command -v` for an arm64 sandbox.
+_proveo_tool_rel() { printf 'toolchains/%s' "$(_proveo_container_platform)"; }
+
+# _proveo_tool_home is where toolchains are INSTALLED and EXECUTED — the mise
+# tree, Go, jdtls, the npm --prefix, the install lock. Always under the AGENT's
+# own home, which means the VM's own disk on sbx.
 #
-# Namespaced by platform because this tree is now SHARED — the docker backend
-# and the sbx VM on one host reach the same directory, and so does a run pinned
-# with DOCKER_DEFAULT_PLATFORM. Sharing is the point (install once, reuse on the
-# other backend); the namespace is what stops an amd64 install from answering
-# `command -v` for an arm64 sandbox.
+# Not the durable root, deliberately. The durable root is a virtiofs passthrough
+# on that backend (clone mode moves the WORKSPACE off virtiofs; it cannot move
+# proveo home, which has to stay a host bind or it would not persist at all),
+# and a virtiofs directory whose inode is replaced on the host takes its guest
+# dentry with it permanently — only a restart heals it. Running a toolchain out
+# of that is a bet that nothing on the host ever rewrites the tree.
+# proveo_sync_tools carries it across instead.
+# SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 #
-# Memoised: every caller would otherwise re-probe writability, and the answer
-# cannot change inside one run.
+# Memoised: the answer cannot change inside one run.
 _proveo_tool_home() {
   if [ -n "${_PROVEO_TOOL_HOME:-}" ]; then printf '%s' "$_PROVEO_TOOL_HOME"; return 0; fi
   local t
-  t="$(_proveo_durable_home)/toolchains/$(_proveo_container_platform)"
-  if ! { mkdir -p "$t/.local/bin" 2>/dev/null && [ -w "$t" ]; }; then
-    # An absent or read-only durable root is not a reason to skip provisioning.
-    # Fall back to the agent home — today's location — so the run still gets its
-    # tools; it just pays for them again next time.
-    t="$(_proveo_agent_home)"
-    mkdir -p "$t/.local/bin" 2>/dev/null || true
-  fi
+  t="$(_proveo_agent_home)/$(_proveo_tool_rel)"
+  mkdir -p "$t/.local/bin" 2>/dev/null || true
   _PROVEO_TOOL_HOME="$t"
   export _PROVEO_TOOL_HOME
   printf '%s' "$t"
+}
+
+# _proveo_tool_store is where toolchains PERSIST between runs, or empty when
+# there is nothing to carry.
+#
+# Empty on docker, and that is the whole docker story: there the agent home IS
+# the mounted host dir, so the install location is already durable and a sync
+# would copy a directory onto itself. Empty also when PROVEO_TOOL_SYNC is off,
+# which is how an operator declines to pay the copy.
+_proveo_tool_store() {
+  case "$(printf '%s' "${PROVEO_TOOL_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  local host="${PROVEO_STATE_HOME:-}"
+  [ -n "$host" ] && [ -d "$host" ] || return 0
+  printf '%s/%s' "$host" "$(_proveo_tool_rel)"
+}
+
+# proveo_sync_tools carries the toolchain tree between the durable host root and
+# the disk the agent actually runs from: "restore" on the way in, "save" on the
+# way out. The same shape as proveo_sync_state, and a silent no-op wherever
+# _proveo_tool_store is empty.
+#
+# The asymmetry is the point. Restore into a fresh VM copies the tree once,
+# sequentially; save copies only what this run added, because _proveo_sync_tree
+# is `cp -an` plus an overwrite of genuinely changed files. Compare that with
+# running every `command -v`, every shim and every server exec across virtiofs
+# for the life of the session.
+proveo_sync_tools() {
+  local mode="${1:-}" store home lock src dst rc=0
+  case "$mode" in
+  restore | save) ;;
+  *) return 2 ;;
+  esac
+  store="$(_proveo_tool_store)"
+  [ -n "$store" ] || return 0
+  home="$(_proveo_tool_home)"
+  [ -n "$home" ] || return 0
+
+  case "$mode" in
+  restore) src="$store" dst="$home" ;;
+  save) src="$home" dst="$store" ;;
+  esac
+  [ -d "$src" ] || return 0
+  [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
+
+  # Locked on the AGENT side, like the state sync: it is the restore/save
+  # collision inside one sandbox that was measured, and a lock on the shared
+  # root would compare pids across VM namespaces, where they mean nothing.
+  # Concurrent saves from two sandboxes are safe without it — the tree is
+  # content-identical for one platform, and _proveo_sync_tree replaces each file
+  # through an atomic rename.
+  lock="$(_proveo_agent_home)/.proveo-tools.lock"
+  if ! _proveo_sync_lock "$lock"; then
+    printf 'proveo: toolchain %s skipped — another sync still holds the lock\n' "$mode" >&2
+    return 1
+  fi
+  _proveo_sync_tree "$src" "$dst" || rc=1
+  rm -rf "$lock" 2>/dev/null
+  ((rc == 0)) || printf 'proveo: toolchain %s completed with copy errors\n' "$mode" >&2
+  return "$rc"
 }
 
 _proveo_tool_path() {
@@ -2598,6 +2660,11 @@ proveo_seed() {
  esac
 
  accept_workspace_trust "$(_proveo_scan_root)"
+
+ # Before provisioning, not after: _proveo_tool_path puts the tree on PATH and
+ # every installer step gates on `command -v`, so a toolchain restored late is a
+ # toolchain the run reinstalls beside itself.
+ proveo_sync_tools restore || true
 
  proveo_provision_toolchain
  proveo_enable_claude_lsp_plugins "$target"

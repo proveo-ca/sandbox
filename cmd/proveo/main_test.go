@@ -587,8 +587,20 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if got[0] != "exec" || !slices.Contains(got, "s1") {
 		t.Errorf("save must exec inside the named sandbox, got %v", got)
 	}
-	if !strings.Contains(strings.Join(got, " "), "proveo_sync_state save") {
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
+	}
+	// Toolchains are installed on the VM's own disk and only reach the operator
+	// here, so a teardown that forgets them throws away everything the run
+	// provisioned. SPEC: _spec/_plans/config-seeding-and-persistence.puml
+	if !strings.Contains(joined, "proveo_sync_tools save") {
+		t.Errorf("teardown must also carry the toolchain tree out: %v", got)
+	}
+	// Joined with `;`, not `&&`: a failed transcript copy must not take the
+	// toolchains with it.
+	if strings.Contains(joined, "proveo_sync_tools save && proveo_sync_state") {
+		t.Errorf("the two syncs must not be chained on success: %v", got)
 	}
 	// `-w /` is not decoration: a virtiofs-invalidated workspace kills the exec at
 	// chdir. SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml

@@ -82,49 +82,56 @@ func TestDurableHomePrefersTheHostPath(t *testing.T) {
 	}
 }
 
-// Step 2: the toolchain tree hangs off the durable root, namespaced by platform.
-func TestToolHomeIsDurableAndPlatformNamespaced(t *testing.T) {
+// Step 2: tools INSTALL under the agent's own home — the VM's own disk on sbx —
+// and never on the durable root, which is a virtiofs passthrough there.
+func TestToolHomeIsAgentLocalAndPlatformNamespaced(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
-	state := t.TempDir()
+	agent, state := t.TempDir(), t.TempDir()
 
 	got := runToolHome(t, bash, "aarch64",
-		map[string]string{"HOME": t.TempDir(), "PROVEO_STATE_HOME": state}, "_proveo_tool_home")
-	want := filepath.Join(state, "toolchains", "linux-arm64")
+		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state}, "_proveo_tool_home")
+	want := filepath.Join(agent, "toolchains", "linux-arm64")
 	if got != want {
-		t.Fatalf("_proveo_tool_home() = %q, want %q", got, want)
+		t.Fatalf("_proveo_tool_home() = %q, want %q — running a toolchain off the durable "+
+			"root puts every exec on virtiofs", got, want)
+	}
+	if strings.HasPrefix(got, state) {
+		t.Errorf("_proveo_tool_home() = %q is under the durable root", got)
 	}
 	if fi, err := os.Stat(filepath.Join(want, ".local", "bin")); err != nil || !fi.IsDir() {
 		t.Errorf("the tool home was not created: %v", err)
 	}
 
-	// Two architectures on one durable root must not land on one tree.
+	// Two architectures must not land on one tree — the store is shared.
 	amd := runToolHome(t, bash, "x86_64",
-		map[string]string{"HOME": t.TempDir(), "PROVEO_STATE_HOME": state}, "_proveo_tool_home")
+		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state}, "_proveo_tool_home")
 	if amd == got {
 		t.Errorf("arm64 and amd64 both resolved to %q — the namespace is not separating them", got)
 	}
 }
 
-// An absent or read-only durable root must not stop a run from provisioning: it
-// costs the persistence, not the tools.
-func TestToolHomeFallsBackWhenTheDurableRootIsUnwritable(t *testing.T) {
+// The store is the durable half, and it is EMPTY on docker: there the agent home
+// is already the mounted host dir, so a sync would copy a directory onto itself.
+func TestToolStoreIsEmptyWhereNothingNeedsCarrying(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: a read-only directory is still writable")
-	}
-	ro, agent := t.TempDir(), t.TempDir()
-	if err := os.Chmod(ro, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(ro, 0o755) })
+	agent, state := t.TempDir(), t.TempDir()
 
-	got := runToolHome(t, bash, "aarch64",
-		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": ro}, "_proveo_tool_home")
-	if got != agent {
-		t.Errorf("_proveo_tool_home() = %q, want the agent home %q — an unusable durable root "+
-			"must degrade to today's location, not skip provisioning", got, agent)
+	if got := runToolHome(t, bash, "aarch64",
+		map[string]string{"HOME": agent}, "_proveo_tool_store"); got != "" {
+		t.Errorf("_proveo_tool_store() = %q on the docker shape, want empty", got)
+	}
+	if got := runToolHome(t, bash, "aarch64",
+		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_TOOL_SYNC": "off"},
+		"_proveo_tool_store"); got != "" {
+		t.Errorf("_proveo_tool_store() = %q with PROVEO_TOOL_SYNC=off, want empty", got)
+	}
+	want := filepath.Join(state, "toolchains", "linux-arm64")
+	if got := runToolHome(t, bash, "aarch64",
+		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state},
+		"_proveo_tool_store"); got != want {
+		t.Errorf("_proveo_tool_store() = %q, want %q", got, want)
 	}
 }
 
@@ -134,8 +141,8 @@ func TestToolHomeFallsBackWhenTheDurableRootIsUnwritable(t *testing.T) {
 func TestToolPathExportsTheWholeMiseGroup(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
-	state := t.TempDir()
-	tool := filepath.Join(state, "toolchains", "linux-arm64")
+	agent, state := t.TempDir(), t.TempDir()
+	tool := filepath.Join(agent, "toolchains", "linux-arm64")
 
 	for _, v := range []struct{ name, want string }{
 		{"MISE_DATA_DIR", filepath.Join(tool, ".local", "share", "mise")},
@@ -144,7 +151,7 @@ func TestToolPathExportsTheWholeMiseGroup(t *testing.T) {
 		{"MISE_CACHE_DIR", filepath.Join(tool, ".cache", "mise")},
 	} {
 		got := runToolHome(t, bash, "aarch64",
-			map[string]string{"HOME": t.TempDir(), "PROVEO_STATE_HOME": state},
+			map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state},
 			"_proveo_tool_path >/dev/null; printf '%s' \"$"+v.name+"\"")
 		if got != v.want {
 			t.Errorf("%s = %q, want %q", v.name, got, v.want)
@@ -152,7 +159,7 @@ func TestToolPathExportsTheWholeMiseGroup(t *testing.T) {
 	}
 
 	path := runToolHome(t, bash, "aarch64",
-		map[string]string{"HOME": t.TempDir(), "PROVEO_STATE_HOME": state},
+		map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state},
 		"_proveo_tool_path >/dev/null; printf '%s' \"$PATH\"")
 	for _, want := range []string{
 		filepath.Join(tool, ".local", "bin"),
