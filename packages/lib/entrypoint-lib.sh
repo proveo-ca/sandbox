@@ -2398,16 +2398,159 @@ _proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
 # statsig and shell-snapshots are skipped: telemetry and scratch, not resume
 # state, and copying them back would grow the operator's home without ever being
 # read.
-_proveo_volume_state_dirs() {
+# _proveo_volume_mounts is the unfiltered truth: every block-device mount under
+# the agent home, which is exactly the set sbx owns per sandbox. Split out from
+# _proveo_volume_state_dirs because the two callers want opposite halves — the
+# state sync wants the ones worth copying, the config sync wants to skip ALL of
+# them, telemetry included, since a volume is state by definition and a config
+# sync that descended into one would copy transcripts a second time.
+_proveo_volume_mounts() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$home" && -r /proc/mounts ]] || return 0
- awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts |
-  while read -r d; do
-   case "${d##*/}" in
-   statsig | shell-snapshots) continue ;;
-   esac
-   printf '%s\n' "$d"
-  done
+ awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts
+}
+
+_proveo_volume_state_dirs() {
+ local d
+ while read -r d; do
+  [[ -n "$d" ]] || continue
+  case "${d##*/}" in
+  statsig | shell-snapshots) continue ;;
+  esac
+  printf '%s\n' "$d"
+ done < <(_proveo_volume_mounts)
+}
+
+# ── Config persistence: the manifest's own named set ────────
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+#
+# PROVEO_CONFIG_DIRS is the manifest's `home.mounts` resolved HOST-SIDE and
+# handed in as data (proveohome.ConfigSet): ";"-separated entries of
+# "<host-rel>|<agent-rel>|<deny,csv>".
+#
+# It is the same declaration the docker backend turns into bind mounts, not a
+# second list beside it. On docker those mounts ARE the persistence, so nothing
+# here runs; on sbx they cannot be expressed — a bind nested under proveo home
+# has no way to reach its container path — which is why every wired MCP server,
+# every LSP config, every plugin record and every settings merge died with the
+# VM. One declaration, two mechanisms.
+_proveo_config_entries() {
+ [[ -n "${PROVEO_CONFIG_DIRS:-}" ]] || return 0
+ # The trailing newline is load-bearing: `while read` sets the variable and
+ # returns non-zero on an unterminated final line, so the loop condition is
+ # already false and the body never runs for it. Without it the LAST declared
+ # subtree silently never syncs — which is the whole cursor mount.
+ printf '%s\n' "$PROVEO_CONFIG_DIRS" | tr ';' '\n'
+}
+
+# _proveo_config_skips lists the subtree-relative paths one declared root must
+# not carry: every sbx volume inside it (state, moved by proveo_sync_state) and
+# every name the manifest denies (a credential must never ride out on a config
+# copy — the same names proveohome.scrubDeny strips on the host).
+_proveo_config_skips() {
+ local arel="$1" deny="$2" home vol d
+ home="$(_proveo_agent_home)"
+ while read -r vol; do
+  [[ -n "$vol" ]] || continue
+  case "$vol" in
+  "$home/$arel/"*) printf '%s\n' "${vol#"$home/$arel/"}" ;;
+  esac
+ done < <(_proveo_volume_mounts)
+ local oldifs="$IFS"
+ IFS=','
+ for d in $deny; do
+  d="$(printf '%s' "$d" | tr -d '[:space:]')"
+  [[ -n "$d" ]] && printf '%s\n' "$d"
+ done
+ IFS="$oldifs"
+}
+
+# _proveo_config_tree copies one declared subtree, pruning the skips. Files are
+# copied when absent and replaced when the source is NEWER — `-nt` rather than
+# _proveo_changed_files's size+mtime pair, because a config file is small, its
+# mtime is the whole signal, and the walk has to prune (which that helper's
+# unconditional `cp -a .` cannot).
+_proveo_config_tree() {
+ local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub
+ [[ -d "$src" ]] || return 0
+ mkdir -p "$dst" 2>/dev/null || return 1
+
+ local -a prune=()
+ while read -r sub; do
+  [[ -n "$sub" ]] || continue
+  prune+=(-path "./$sub" -prune -o)
+ done < <(_proveo_config_skips "$arel" "$deny")
+
+ while IFS= read -r rel; do
+  rel="${rel#./}"
+  [[ -n "$rel" && "$rel" != "." ]] || continue
+  if [[ -d "$src/$rel" ]]; then
+   mkdir -p "$dst/$rel" 2>/dev/null || failed=1
+   continue
+  fi
+  if [[ ! -e "$dst/$rel" ]]; then
+   mkdir -p "$(dirname "$dst/$rel")" 2>/dev/null
+   cp -a "$src/$rel" "$dst/$rel" 2>/dev/null || failed=1
+   continue
+  fi
+  [[ "$src/$rel" -nt "$dst/$rel" ]] || continue
+  # Replaced through a rename, so a reader never sees a half-written config.
+  tmp="$dst/$rel.proveo-sync.$$"
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
+   continue
+  fi
+  rm -f "$tmp" 2>/dev/null
+  failed=1
+ done < <(cd "$src" 2>/dev/null && find . ${prune[@]+"${prune[@]}"} \
+  \( -type f -o -type d \) -print 2>/dev/null)
+ return "$failed"
+}
+
+# proveo_sync_config carries the harness's own configuration between the durable
+# host root and the home the agent actually reads: "restore" on the way in,
+# "save" on the way out. Silent no-op without PROVEO_STATE_HOME (every docker
+# run, where the home already IS the host dir) or with PROVEO_CONFIG_SYNC=off.
+#
+# Unlike the toolchain tree, these files CANNOT be relocated: the agent opens
+# ~/.claude/settings.json, ~/.cursor/mcp.json and ~/.config/opencode/opencode.json
+# by those absolute names, and moving HOME to reach them is what orphaned the
+# credential the sbx proxy writes. So they are copied, by the manifest's own set.
+proveo_sync_config() {
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home entry hrel arel deny src dst lock rc=0
+ case "$mode" in
+ restore | save) ;;
+ *) return 2 ;;
+ esac
+ case "$(printf '%s' "${PROVEO_CONFIG_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
+ off | false | 0 | no | disable | disabled) return 0 ;;
+ esac
+ [[ -n "$host" && -d "$host" ]] || return 0
+ home="$(_proveo_agent_home)"
+ [[ -n "$home" ]] || return 0
+
+ lock="$home/.proveo-config.lock"
+ if ! _proveo_sync_lock "$lock"; then
+  printf 'proveo: config %s skipped — another sync still holds the lock\n' "$mode" >&2
+  return 1
+ fi
+
+ while IFS= read -r entry; do
+  [[ -n "$entry" ]] || continue
+  hrel="${entry%%|*}"
+  arel="${entry#*|}"
+  deny="${arel#*|}"
+  arel="${arel%%|*}"
+  [[ -n "$hrel" && -n "$arel" ]] || continue
+  case "$mode" in
+  restore) src="$host/$hrel" dst="$home/$arel" ;;
+  save) src="$home/$arel" dst="$host/$hrel" ;;
+  esac
+  _proveo_config_tree "$src" "$dst" "$arel" "$deny" || rc=1
+ done < <(_proveo_config_entries)
+
+ rm -rf "$lock" 2>/dev/null
+ ((rc == 0)) || printf 'proveo: config %s completed with copy errors\n' "$mode" >&2
+ return "$rc"
 }
 
 # proveo_sync_state copies resume state between the mounted proveo home and the
@@ -2647,6 +2790,13 @@ proveo_seed() {
  # at all. Losing yesterday's transcripts must never be the reason today's run cannot
  # start; the function has already said what went wrong on stderr.
  proveo_sync_state restore || true
+
+ # And the harness's own configuration, before render_subagents and every
+ # configure_* step below: they all merge with setdefault semantics, so a config
+ # restored after them is a config whose persisted values lost to this run's
+ # defaults — silently, because a merge that overwrites nothing looks identical
+ # to a merge that had nothing to overwrite.
+ proveo_sync_config restore || true
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;

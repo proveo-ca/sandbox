@@ -651,6 +651,13 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
+	// The manifest's durable home subtrees, as data. Nothing in the sandbox can
+	// read a manifest, and restating the set in the shell would give the two
+	// backends two lists of the same thing.
+	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
+		env = append(env, proveohome.ConfigSetVar+"="+set)
+	}
 	// proveo's own defaults for the agent (manifest agentEnv). HERE and not in the
 	// image entrypoint alone: sbx launches the agent through its own kit, so an
 	// export in the entrypoint never reaches it on this backend — claudecode came

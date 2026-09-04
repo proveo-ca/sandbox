@@ -330,16 +330,19 @@ func bashQuote(s string) string {
 // syncs inside the sandbox before `sbx rm` takes the volumes with it. `-w /` is
 // load-bearing.
 //
-// Two syncs, one exec. Resume state and the toolchain tree are copied out the
-// same way and at the same moment, and neither may skip the other: they are
-// joined with `;` rather than `&&` so a failed transcript copy still lets the
-// toolchains land, and the exit status is the state sync's — losing yesterday's
-// transcripts is the louder failure, and it is the one the caller already
-// reports on.
+// Three syncs, one exec. Resume state, the harness's configuration and the
+// toolchain tree are copied out the same way and at the same moment, and none
+// may skip the others: they are joined with `;` rather than `&&` so a failed
+// transcript copy still lets the config and the toolchains land, and the exit
+// status is the state sync's — losing yesterday's transcripts is the louder
+// failure, and it is the one the caller already reports on.
 // SPEC: _spec/internal/sbx/state-sync.puml, _spec/_plans/config-seeding-and-persistence.puml
 func SaveStateArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
-		". /entrypoint-lib.sh && { proveo_sync_tools save || true; }; proveo_sync_state save"}
+		". /entrypoint-lib.sh" +
+			"; { proveo_sync_config save || true; }" +
+			"; { proveo_sync_tools save || true; }" +
+			"; proveo_sync_state save"}
 }
 
 // RemoveArgs builds the ephemeral teardown invocation (VM + images + volumes).

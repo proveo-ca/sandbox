@@ -10,6 +10,9 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '                                   _proveo_container_platform, _proveo_tool_path)
 '   step 2 · the carry ............ packages/lib/entrypoint-lib.sh (_proveo_tool_store,
 '                                   proveo_sync_tools) · internal/sbx/run.go (SaveStateArgs)
+'   step 3 · the named set ........ internal/proveohome/configset.go (ConfigSet)
+'   step 3 · the carry ............ packages/lib/entrypoint-lib.sh (proveo_sync_config,
+'                                   _proveo_config_tree, _proveo_volume_mounts)
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
@@ -131,6 +134,16 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' sidecar to count, so it would prune the store a live sandbox is about to save
 ' into and leave it half written. That gate now counts running sandboxes, and
 ' treats an unreadable `sbx ls` as undecidable rather than quiet.
+'
+' ── ONE BUG WORTH KEEPING WRITTEN DOWN ────────────────────────────────────
+' `printf '%s' "$SET" | tr ';' '\n'` feeding a `while read` loop drops the LAST
+' entry, every time: `read` assigns the variable and returns non-zero on an
+' unterminated final line, so the loop condition is already false and the body
+' never runs for it. The set is ordered as the manifest declares it, so what
+' vanished was whichever subtree came last — cursor's whole `.cursor` tree,
+' including the mcp.json step 3 exists to persist. It restored and saved
+' `.claude` perfectly while doing nothing at all for the entry beside it, which
+' is the shape of failure that reads as "persistence is flaky".
 '
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.
@@ -257,12 +270,20 @@ legend bottom
   directions. ""proveo clean --tools"" globs the platform trees, keeps the legacy
   root so nothing already installed strands, and now counts running sandboxes.
   --
-  **3. Copy CONFIGS by a NAMED set.** Extend ""proveo_sync_state"" with a per-harness
-  config manifest — ""\.claude/settings\.json"", ""\.claude/skills/proveo-lsp"",
-  ""\.cursor/mcp\.json"", ""\.cursor/cli-config\.json"",
-  ""\.config/opencode/opencode\.json"", ""\.cecli\.conf\.yml"" — restored before the
-  agent reads and saved at teardown. Keep the ""deny:"" lists the manifests already
-  declare: a credential must not ride out on a config copy.
+  **3. Copy CONFIGS by a NAMED set.** — LANDED, and the set was already written.
+  A per-harness list of files would have been a SECOND declaration beside
+  ""home\.mounts"", which already names every durable subtree with its ""deny:"".
+  ""proveohome\.ConfigSet"" encodes that same declaration host-side and hands it in
+  as ""PROVEO_CONFIG_DIRS""; ""proveo_sync_config"" copies it. One declaration, two
+  mechanisms: bind mounts on docker, a copy on sbx where a bind nested under
+  proveo home cannot be expressed at all.
+  --
+  **3b. And the two syncs must not both move the same bytes.** Config prunes every
+  sbx VOLUME inside a declared subtree, discovered from ""/proc/mounts"" rather than
+  named — a volume is state by definition, ""proveo_sync_state"" owns it, and a
+  config sync that descended into one would copy transcripts twice and drag
+  ""statsig"" and ""shell-snapshots"" into the operator's home, which the state sync
+  deliberately skips.
   --
   **4. THEN generalise the chain, one class at a time.** Give ""detect"", ""provide"",
   ""probe"" and ""wire"" a per-class table the way ""DepLangs"" does for dependency
