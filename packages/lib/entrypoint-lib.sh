@@ -2283,6 +2283,158 @@ configure_cursor_lsp() {
 }
 
 
+# ── 8b. The config-class chain ──────────────────────────────
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml,
+#       _spec/packages/lib/language-server-provisioning.puml
+#
+# A harness opens onto a workspace and needs things CONFIGURED before it is
+# useful. They differ only in the file format at the end, so they get one table
+# and one entry point rather than a `case` per class scattered through the seed.
+#
+#   class   detect                 provide              probe              wire
+#   ─────── ────────────────────── ──────────────────── ────────────────── ──────────────────
+#   lsp     _lsp_walk (ext+marker) image layer, else    none — measured    configure_claude_lsp
+#           ranked by file count   mise / ubi           and refused        configure_opencode_lsp
+#                                                                          configure_cursor_lsp
+#   mcp     the server's own       image layer          `initialize`       configure_cecli_mcp
+#           precondition           (venv / binary)      handshake
+#   plugin  fixed list             image seed dir       binary presence    proveo_enable_claude_lsp_plugins
+#
+# FORMATTERS ARE NOT A CLASS, and that is a finding rather than an omission.
+# The images bake them (prettier in claudecode's), but no harness has a formatter
+# CONFIG FORMAT — nothing to wire, so there is no wire step to write. A formatter
+# is a binary the project's own tooling invokes, which is the dependency-tree
+# chain's job (ensure_dependency_trees, ensure_project_tools), not this one.
+# Order is a dependency, not a preference: the plugin row exports
+# PROVEO_CLAUDE_LSP_OFFICIAL, and the lsp row reads it to decide which languages
+# to YIELD to an official plugin. Wire lsp first and proveo-lsp declares a
+# language a plugin already serves — two servers on one extension, one of which
+# never starts.
+_proveo_config_classes() { echo "plugin lsp mcp"; }
+
+# _proveo_class_wire names the function that writes one class's config for one
+# harness, or nothing when that harness has no surface for it.
+_proveo_class_wire() {
+  case "$1:$2" in
+  lsp:claudecode) echo "configure_claude_lsp" ;;
+  lsp:opencode) echo "configure_opencode_lsp" ;;
+  lsp:cursor) echo "configure_cursor_lsp" ;;
+  mcp:cecli) echo "configure_cecli_mcp" ;;
+  plugin:claudecode) echo "configure_claude_plugins" ;;
+  esac
+}
+
+# _proveo_class_probe names the function that decides whether a provided thing
+# actually WORKS, or nothing when the class has no decidable probe.
+#
+# The asymmetry is the whole lesson of this table. LSP has no probe and that was
+# measured, not assumed: feeding EOF to healthy servers returns 124, 2, 1 and 0
+# depending on the server, so no exit code separates healthy from broken and any
+# probe would discard working servers. MCP is the opposite — `initialize` answers
+# with a result or the server answers nothing — and MCP is precisely the class
+# that shipped dead for weeks behind a `command -v` gate that only ever proved a
+# launcher existed.
+_proveo_class_probe() {
+  case "$1" in
+  mcp) echo "_proveo_mcp_probe" ;;
+  plugin) echo "_proveo_plugin_probe" ;;
+  esac
+}
+
+# _proveo_mcp_probe runs the MCP handshake against a candidate server and
+# succeeds only if it ANSWERS: one `initialize` request on stdin, a JSON-RPC
+# result naming a protocolVersion or a serverInfo on stdout.
+#
+# Bounded, because a server that hangs is a boot that hangs, and the whole point
+# is to reach a verdict without the agent waiting on one.
+_proveo_mcp_probe() {
+  local secs="${PROVEO_MCP_PROBE_TIMEOUT:-10}" out
+  command -v "$1" >/dev/null 2>&1 || return 1
+  out="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proveo","version":"1"}}}' \
+    | _proveo_bounded "$secs" "$@" 2>/dev/null | head -c 65536)" || true
+  case "$out" in
+  *'"result"'*'"protocolVersion"'* | *'"result"'*'"serverInfo"'*) return 0 ;;
+  esac
+  return 1
+}
+
+# _proveo_plugin_probe is the presence of the binary a plugin drives; the
+# enablement step applies it per plugin (_claude_lsp_plugin_binary).
+_proveo_plugin_probe() { command -v "$1" >/dev/null 2>&1; }
+
+# configure_claude_plugins adapts the plugin row to the table's signature.
+# The table calls every wire function as `<fn> <scan_root> <target>`; the
+# enablement step predates the table and keys on the target alone, so the
+# adapter exists rather than changing a function three tests already drive.
+configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
+
+# configure_cecli_mcp declares the Serena MCP server in cecli's home config.
+# SPEC: _spec/defs/cecli/cecli-paradigm.puml
+# Knobs: PROVEO_CECLI_MCP=off · PROVEO_MCP_PROBE_TIMEOUT
+#
+# cecli is the one harness with no native LSP client, so its code intelligence
+# has to arrive as MCP — the same delivery cursor gets from mcp-language-server.
+#
+# This shipped once before and was deleted, and the reason is the whole argument
+# for a probe step. The gate was `command -v serena`, which proved a LAUNCHER
+# existed; a package version skew meant the server then died on every boot for
+# weeks while the e2e side-effect assertion stayed green. `initialize` answers or
+# it does not, so the thing that failed silently is now the thing that cannot.
+configure_cecli_mcp() {
+  local scan="${1:-$(pwd)}" conf probe
+  case "$(printf '%s' "${PROVEO_CECLI_MCP:-auto}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  command -v serena >/dev/null 2>&1 || return 0
+
+  conf="$(_proveo_agent_home)/.cecli.conf.yml"
+  # An existing declaration wins — the operator's, or one this file carried back
+  # from a previous run. Never a second mcp-servers block: cecli reads the first.
+  if [[ -f "$conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$conf"; then
+    echo "🧠 MCP: mcp-servers already declared in $conf; leaving it alone"
+    return 0
+  fi
+
+  probe="$(_proveo_class_probe mcp)"
+  if ! "$probe" serena start-mcp-server --context ide-assistant --project "$scan"; then
+    echo "⚠️  MCP: serena did not answer an initialize handshake within ${PROVEO_MCP_PROBE_TIMEOUT:-10}s;" >&2
+    echo "    code intelligence for cecli stays off rather than declaring a dead server." >&2
+    return 0
+  fi
+
+  # The project is the SCAN ROOT, not /app: sbx mounts the workspace at its own
+  # host path, and a server pointed at /app there indexes nothing.
+  cat >>"$conf" <<YAML
+mcp-servers:
+  mcpServers:
+    serena:
+      command: serena
+      args: [start-mcp-server, --context, ide-assistant, --project, $scan]
+YAML
+  echo "🧠 MCP code intelligence via Serena (initialize handshake answered): $conf"
+}
+
+# proveo_wire_config writes every class this harness has a surface for, in table
+# order, after provisioning. ONE entry point, called from proveo_seed — which is
+# what keeps a wiring step from being left in a def entrypoint, where it reaches
+# the docker backend alone because sbx never runs the image ENTRYPOINT.
+proveo_wire_config() {
+  local target="${1:-}" scan class fn
+  [[ -n "$target" ]] || return 0
+  scan="$(_proveo_scan_root "${2:-}")"
+  for class in $(_proveo_config_classes); do
+    fn="$(_proveo_class_wire "$class" "$target")"
+    [[ -n "$fn" ]] || continue
+    command -v "$fn" >/dev/null 2>&1 || {
+      echo "⚠️  no $class wiring function $fn in this image; skipping" >&2
+      continue
+    }
+    # Every wire function takes <scan_root> <target>; the ones that predate the
+    # table ignore the second, which is why the plugin row has an adapter.
+    "$fn" "$scan" "$target" || true
+  done
+}
+
 # ── 9. Agent Evidence (verbosity) ───────────────────────────
 agent_evidence_verbose() {
  [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
@@ -2443,6 +2595,16 @@ _proveo_config_entries() {
  printf '%s\n' "$PROVEO_CONFIG_DIRS" | tr ';' '\n'
 }
 
+# _proveo_config_file_names is the home-ROOT half of the same declaration
+# (proveohome.ConfigFiles): files that sit BESIDE the declared subtrees rather
+# than inside one, so a directory-shaped set never carried them. claudecode's
+# ~/.claude.json — accepted workspace trust, Chrome onboarding, the operator's
+# own MCP servers — was rebuilt from scratch on every sandbox open because of it.
+_proveo_config_file_names() {
+ [[ -n "${PROVEO_CONFIG_FILES:-}" ]] || return 0
+ printf '%s\n' "$PROVEO_CONFIG_FILES" | tr ';' '\n'
+}
+
 # _proveo_config_skips lists the subtree-relative paths one declared root must
 # not carry: every sbx volume inside it (state, moved by proveo_sync_state) and
 # every name the manifest denies (a credential must never ride out on a config
@@ -2506,6 +2668,23 @@ _proveo_config_tree() {
  return "$failed"
 }
 
+# _proveo_config_file copies one home-root config file, newer wins. Separate
+# from _proveo_config_tree because a file has no subtree to prune and no deny
+# list to apply — the manifest names the file itself, so declaring it IS the
+# decision that it may travel.
+_proveo_config_file() {
+ local src="$1" dst="$2" tmp
+ [[ -f "$src" ]] || return 0
+ [[ ! -e "$dst" || "$src" -nt "$dst" ]] || return 0
+ mkdir -p "$(dirname "$dst")" 2>/dev/null || return 1
+ tmp="$dst.proveo-sync.$$"
+ if cp -a "$src" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst" 2>/dev/null; then
+  return 0
+ fi
+ rm -f "$tmp" 2>/dev/null
+ return 1
+}
+
 # proveo_sync_config carries the harness's own configuration between the durable
 # host root and the home the agent actually reads: "restore" on the way in,
 # "save" on the way out. Silent no-op without PROVEO_STATE_HOME (every docker
@@ -2547,6 +2726,16 @@ proveo_sync_config() {
   esac
   _proveo_config_tree "$src" "$dst" "$arel" "$deny" || rc=1
  done < <(_proveo_config_entries)
+
+ # And the home-ROOT files, whose name is the same on both sides.
+ while IFS= read -r entry; do
+  [[ -n "$entry" ]] || continue
+  case "$mode" in
+  restore) src="$host/$entry" dst="$home/$entry" ;;
+  save) src="$home/$entry" dst="$host/$entry" ;;
+  esac
+  _proveo_config_file "$src" "$dst" || rc=1
+ done < <(_proveo_config_file_names)
 
  rm -rf "$lock" 2>/dev/null
  ((rc == 0)) || printf 'proveo: config %s completed with copy errors\n' "$mode" >&2
@@ -2817,20 +3006,15 @@ proveo_seed() {
  proveo_sync_tools restore || true
 
  proveo_provision_toolchain
- proveo_enable_claude_lsp_plugins "$target"
 
- # Written after provisioning, so it records the servers that now exist rather
- # than the ones that did before.
+ # Every config class this harness has a surface for, written AFTER provisioning
+ # so each records what now exists rather than what did before.
  #
  # EVERY harness wires here, not in its def entrypoint: sbx runs `proveo-seed`
  # alone and never the image ENTRYPOINT, so a wiring step left in the def is a
  # step the sandbox backend silently skips. Pinned by
  # internal/contract/lsp_config_parity_test.go.
- case "$target" in
- claudecode) configure_claude_lsp "$(_proveo_scan_root)" ;;
- opencode) configure_opencode_lsp "$(_proveo_scan_root)" ;;
- cursor) configure_cursor_lsp "$(_proveo_scan_root)" ;;
- esac
+ proveo_wire_config "$target"
 
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"

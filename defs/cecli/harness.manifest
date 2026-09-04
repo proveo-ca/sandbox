@@ -17,3 +17,7 @@ home:
     - host: .cecli
       container: /proveo-home/.cecli
       mode: rw
+  # cecli is an aider fork and reads its home config as a FILE at the home root,
+  # which is where the Serena MCP declaration lands.
+  files:
+    - .cecli.conf.yml

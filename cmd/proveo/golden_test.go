@@ -269,6 +269,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 		Home: manifest.Home{
 			Enabled: true,
 			Mounts:  []manifest.HomeMount{{Host: ".claude", Container: "/proveo-home/.claude", Mode: "rw"}},
+			Files:   []string{".claude.json"},
 		},
 	}
 	cursor := manifest.Manifest{

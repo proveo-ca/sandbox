@@ -13,6 +13,14 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '   step 3 · the named set ........ internal/proveohome/configset.go (ConfigSet)
 '   step 3 · the carry ............ packages/lib/entrypoint-lib.sh (proveo_sync_config,
 '                                   _proveo_config_tree, _proveo_volume_mounts)
+'   step 3b · home-root files ..... internal/manifest (Home.Files) ·
+'                                   internal/proveohome (ConfigFiles) ·
+'                                   packages/lib/entrypoint-lib.sh (_proveo_config_file)
+'   step 4 · the class table ...... packages/lib/entrypoint-lib.sh (_proveo_config_classes,
+'                                   _proveo_class_wire, _proveo_class_probe,
+'                                   _proveo_mcp_probe, proveo_wire_config)
+'   step 5 · the MCP row .......... packages/lib/entrypoint-lib.sh (configure_cecli_mcp) ·
+'                                   defs/cecli/Dockerfile · defs/cecli/build.sh
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
@@ -285,17 +293,38 @@ legend bottom
   ""statsig"" and ""shell-snapshots"" into the operator's home, which the state sync
   deliberately skips.
   --
-  **4. THEN generalise the chain, one class at a time.** Give ""detect"", ""provide"",
-  ""probe"" and ""wire"" a per-class table the way ""DepLangs"" does for dependency
-  trees, with the Go twin pinned by ""internal/contract"". Order matters: a class
-  added before step 2 and 3 is a class that reinstalls itself forever.
+  **3b. Home-ROOT config files needed declaring too.** — LANDED.
+  A set derived from ""home\.mounts"" is DIRECTORY-shaped, and two harnesses keep a
+  config file beside those subtrees rather than inside one: claudecode's
+  ""~/\.claude\.json"" (accepted workspace trust, Chrome onboarding, the operator's
+  own MCP servers) and cecli's ""~/\.cecli\.conf\.yml"". docker persists them with
+  the whole-home bind and never had to name them; sbx rebuilt both from scratch
+  on every open. ""Home\.Files"" declares them, ""Validate"" refuses anything but a
+  bare name, and ""PROVEO_CONFIG_FILES"" carries them.
   --
-  **5. Re-land Serena on that chain, as the MCP row's first entry.** Baked into
-  the cecli image in its own venv exactly as before; wired into ""~/\.cecli\.conf\.yml""
-  under ""mcp-servers""; and — the part that was missing — gated on an
-  ""initialize"" handshake, with the e2e boot scan asserting the answer rather than
-  the file. cecli is the harness with no native LSP, so this is the row that
-  decides whether it has code intelligence at all.
+  **4. Generalise the chain into one table and one entry point.** — LANDED.
+  ""_proveo_config_classes"" is ""plugin lsp mcp"" — an ORDER, not a preference: the
+  plugin row exports ""PROVEO_CLAUDE_LSP_OFFICIAL"" and the lsp row reads it to
+  decide which languages to yield. ""_proveo_class_wire <class>:<harness>"" names
+  the wiring function, ""_proveo_class_probe <class>"" names the health check, and
+  ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
+  per-class ""case"" that used to sit in the seed is gone.
+  --
+  **4b. Formatters are NOT a class.** Resolved by looking rather than deciding:
+  the images bake them (""prettier"" in claudecode's) but NO harness has a
+  formatter config format, so there is nothing to wire and no wire step to write.
+  A formatter is a binary the project's own tooling invokes, which is the
+  dependency-tree chain's job. The row is closed, not empty.
+  --
+  **5. Serena, on that chain, as the MCP row's first entry.** — LANDED.
+  ""/opt/serena"" in its own venv (serena-agent and cecli-dev disagree about
+  dependency versions), PINNED by ""SERENA_VERSION"" through the same
+  ""proveo_agent_version"" resolver the agents use — because an unpinned install is
+  precisely what shipped the skew that killed it. ""configure_cecli_mcp"" declares
+  it in ""~/\.cecli\.conf\.yml"" only when the handshake ANSWERS, points
+  ""--project"" at the scan root rather than ""/app"" (which does not exist on sbx),
+  and leaves an existing ""mcp-servers"" block alone — the operator's, or the one
+  step 3b just carried back.
   ==
   **Settled on step 2 — install-then-sync, not install-in-place.** Running a
   toolchain straight off the durable root put every ""command -v"", every shim and
@@ -305,11 +334,19 @@ legend bottom
   VM and a delta save (""_proveo_sync_tree"" is ""cp -an"" plus an overwrite of
   genuinely changed files), and leaves nothing to unlink.
   ==
-  **Left open on purpose.** Whether formatters are a class or belong to the
-  dependency-tree chain that already installs the project's own toolchain;
-  whether the plugin row generalises past claudecode at all, given the seed dir
-  is one vendor's marketplace cache; and whether a wired config should be
-  RE-wired on every open or only when detection changes, once it stops being
-  free.
+  **One deviation from step 4 as written.** It asked for a Go twin of the table
+  pinned by ""internal/contract"". The table has no Go READER — ""DepLangs"" exists
+  because ""internal/workspace"" computes dep copies host-side, and nothing
+  host-side wires a config — so a Go copy would exist only to be compared
+  against. ""internal/contract"" pins the bash table against the tree instead:
+  every named function defined in the lib, every row reachable from the seed, no
+  def entrypoint owning one, and the plugin row ahead of the lsp row. That is the
+  same shape ""_claude_lsp_plugins"" is already pinned by. If ""--print"" ever reports
+  which classes a run will wire, the table is where that reader goes.
+  ==
+  **Left open on purpose.** Whether the plugin row generalises past claudecode at
+  all, given the seed dir is one vendor's marketplace cache; and whether a wired
+  config should be RE-wired on every open or only when detection changes, once it
+  stops being free.
 end legend
 @enduml

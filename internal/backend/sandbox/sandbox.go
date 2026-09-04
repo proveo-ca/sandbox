@@ -658,6 +658,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
 		env = append(env, proveohome.ConfigSetVar+"="+set)
 	}
+	if files := proveohome.ConfigFiles(in.Man.Home); files != "" {
+		env = append(env, proveohome.ConfigFilesVar+"="+files)
+	}
 	// proveo's own defaults for the agent (manifest agentEnv). HERE and not in the
 	// image entrypoint alone: sbx launches the agent through its own kit, so an
 	// export in the entrypoint never reaches it on this backend — claudecode came

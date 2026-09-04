@@ -11,20 +11,21 @@ import (
 	"testing"
 )
 
-// lspWiring is the table: every harness that has a config format for language
-// servers, and the shared-lib function that writes it.
+// configWiring is the table, mirrored: every (class, harness) pair that has a
+// config surface, and the shared-lib function that writes it.
 //
-// The WIRE step is the last one in the provisioning chain (detect → rank →
-// eligibility → recipe → install → wire) and the only one that knows a harness's
-// config format. It is also the one that was easiest to leave in a def, because
-// on the docker backend a def entrypoint runs and nothing looks wrong.
-var lspWiring = []struct {
-	target string
-	fn     string
+// The WIRE step is the last one in the provisioning chain (detect → provide →
+// probe → wire) and the only one that knows a harness's config format. It is
+// also the one easiest to leave in a def, because on the docker backend a def
+// entrypoint runs and nothing looks wrong.
+var configWiring = []struct {
+	class, target, fn string
 }{
-	{"claudecode", "configure_claude_lsp"},
-	{"opencode", "configure_opencode_lsp"},
-	{"cursor", "configure_cursor_lsp"},
+	{"lsp", "claudecode", "configure_claude_lsp"},
+	{"lsp", "opencode", "configure_opencode_lsp"},
+	{"lsp", "cursor", "configure_cursor_lsp"},
+	{"mcp", "cecli", "configure_cecli_mcp"},
+	{"plugin", "claudecode", "configure_claude_plugins"},
 }
 
 // On sbx the Kit's only startup command is `proveo-seed <target>` and the image
@@ -33,21 +34,102 @@ var lspWiring = []struct {
 // backend alone: opencode and cursor came up on the sandbox backend with every
 // language server installed by proveo_provision_toolchain and none of them
 // configured, which looks exactly like "no code intelligence in this harness".
-func TestLspWiringIsReachableFromTheSeed(t *testing.T) {
+//
+// Reachability now runs through the class table, so this follows the same
+// indirection the seed does: the seed calls one entry point, the table names the
+// function, and the lib defines it. A break anywhere on that path is a class
+// that silently stops being wired.
+func TestConfigWiringIsReachableFromTheSeed(t *testing.T) {
 	t.Parallel()
 	src := entrypointLib(t)
 	seed := seedBody(t, src)
-	for _, w := range lspWiring {
+
+	if !strings.Contains(seed, "proveo_wire_config") {
+		t.Fatal("proveo_seed no longer calls proveo_wire_config — nothing wires any class")
+	}
+	table := caseArms(t, src, "_proveo_class_wire")
+
+	for _, w := range configWiring {
+		key := w.class + ":" + w.target
+		if got := table[key]; got != w.fn {
+			t.Errorf("_proveo_class_wire %s = %q, want %q", key, got, w.fn)
+		}
 		if !regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(w.fn) + `\(\)\s*\{`).MatchString(src) {
 			t.Errorf("%s is not defined in packages/lib/entrypoint-lib.sh — a wiring step "+
 				"outside the shared lib cannot run on the sbx backend", w.fn)
-			continue
-		}
-		if !strings.Contains(seed, w.fn) {
-			t.Errorf("proveo_seed never calls %s, so %s gets language servers installed and "+
-				"never configured on the sbx backend", w.fn, w.target)
 		}
 	}
+	// And nothing in the table is unaccounted for: a row added here without a row
+	// above is a class nobody reviewed.
+	for key := range table {
+		found := false
+		for _, w := range configWiring {
+			if w.class+":"+w.target == key {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("_proveo_class_wire declares %q, which this table does not cover", key)
+		}
+	}
+}
+
+// The plugin row exports PROVEO_CLAUDE_LSP_OFFICIAL and the lsp row reads it to
+// decide which languages to yield. Wire lsp first and proveo-lsp declares a
+// language an official plugin already serves — two servers on one extension, and
+// one of them never starts.
+func TestPluginClassIsWiredBeforeLsp(t *testing.T) {
+	t.Parallel()
+	classes := classOrder(t, entrypointLib(t))
+	plugin, lsp := indexOf(classes, "plugin"), indexOf(classes, "lsp")
+	if plugin < 0 || lsp < 0 {
+		t.Fatalf("_proveo_config_classes = %v, want it to name both plugin and lsp", classes)
+	}
+	if plugin > lsp {
+		t.Errorf("_proveo_config_classes = %v — plugin must precede lsp, or proveo-lsp claims "+
+			"a language an enabled official plugin already serves", classes)
+	}
+}
+
+// caseArms reads a `case "$1:$2" in <key>) echo "<value>" ;;` table.
+func caseArms(t *testing.T, src, fn string) map[string]string {
+	t.Helper()
+	start := strings.Index(src, fn+"() {")
+	if start < 0 {
+		t.Fatalf("%s not found in entrypoint-lib.sh", fn)
+	}
+	rest := src[start:]
+	end := strings.Index(rest, "\n}")
+	if end < 0 {
+		t.Fatalf("%s has no closing brace", fn)
+	}
+	out := map[string]string{}
+	arm := regexp.MustCompile(`(?m)^\s*([a-z]+:[a-z]+]?)\)\s+echo\s+"([^"]+)"`)
+	for _, m := range arm.FindAllStringSubmatch(rest[:end], -1) {
+		out[strings.TrimSuffix(m[1], "]")] = m[2]
+	}
+	if len(out) == 0 {
+		t.Fatalf("parsed zero arms from %s — the parser has drifted", fn)
+	}
+	return out
+}
+
+func classOrder(t *testing.T, src string) []string {
+	t.Helper()
+	m := regexp.MustCompile(`_proveo_config_classes\(\)\s*\{\s*echo\s+"([^"]+)"`).FindStringSubmatch(src)
+	if m == nil {
+		t.Fatal("_proveo_config_classes not found in entrypoint-lib.sh")
+	}
+	return strings.Fields(m[1])
+}
+
+func indexOf(ss []string, want string) int {
+	for i, s := range ss {
+		if s == want {
+			return i
+		}
+	}
+	return -1
 }
 
 // The same rule from the other side: a def entrypoint may not own a wiring step.

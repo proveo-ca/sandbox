@@ -172,8 +172,13 @@ func TestSeedRestoresConfigBeforeAnythingWritesIt(t *testing.T) {
 	if restore < 0 {
 		t.Fatal("proveo_seed never restores the harness configuration")
 	}
+	// Everything in proveo_seed that WRITES into the agent home. The per-class
+	// wiring is behind proveo_wire_config now, so that entry point stands in for
+	// configure_claude_lsp / configure_opencode_lsp / configure_cursor_lsp /
+	// configure_cecli_mcp / configure_claude_plugins — see
+	// TestConfigWiringIsReachableFromTheSeed for the rest of that path.
 	for _, writer := range []string{
-		"render_subagents", "proveo_enable_claude_lsp_plugins", "configure_claude_lsp",
+		"render_subagents", "proveo_wire_config",
 		"proveo_compose_house_rules", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",
 	} {
 		at := strings.Index(seed, writer)

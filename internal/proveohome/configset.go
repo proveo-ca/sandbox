@@ -8,8 +8,31 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-// ConfigSetVar is the variable proveo_sync_config reads.
-const ConfigSetVar = "PROVEO_CONFIG_DIRS"
+// ConfigSetVar and ConfigFilesVar are the variables proveo_sync_config reads.
+const (
+	ConfigSetVar   = "PROVEO_CONFIG_DIRS"
+	ConfigFilesVar = "PROVEO_CONFIG_FILES"
+)
+
+// ConfigFiles encodes the manifest's home-root config files as a ";"-separated
+// list of bare names. One name serves both sides: these sit at the root of the
+// durable home AND at the root of the agent's home, so the relative path is the
+// same in either direction — which is exactly why they needed no mount and got
+// no persistence on the backend that copies instead of binding.
+func ConfigFiles(h manifest.Home) string {
+	if !h.Active() {
+		return ""
+	}
+	var names []string
+	for _, f := range h.Files {
+		name := strings.TrimSpace(f)
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\|;`) {
+			continue // Validate already refuses these; belt and braces
+		}
+		names = append(names, name)
+	}
+	return strings.Join(names, ";")
+}
 
 // ConfigSet encodes a manifest's durable home subtrees for the in-container
 // config sync: ";"-separated "<host-rel>|<agent-rel>|<deny,csv>" entries.
