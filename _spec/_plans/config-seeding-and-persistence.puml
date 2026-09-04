@@ -45,13 +45,20 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '               map, ranked by count) mise / ubi          configure_opencode_lsp
 '                                                         configure_cursor_lsp
 '   MCP         —                     —                   —
-'   formatters  —                     —                   —
+'   formatters  —                     —                   —   (opencode's registry
+'                                                              exists and is OFF)
 '   plugins     — (fixed list)        image seed dir      proveo_enable_claude_
 '                                                         lsp_plugins
 '
 ' Only the LSP row is a chain. The plugin row is a fixed list against one
 ' harness's baked marketplace cache. The MCP and formatter rows are empty, and
 ' nothing in the tree says whether that is a decision or an omission.
+'
+' For the formatter row the answer turned out to be neither: opencode ships 24
+' built-in formatters and DISABLES them unless the config says otherwise, so the
+' row was empty on proveo's side while the surface sat there unused. A first pass
+' at this plan concluded "formatters are not a class" from a grep of `defs/` and
+' `_spec/` — which only ever showed that PROVEO does not wire them. See step 4b.
 '
 ' ── THE MCP ROW IS EMPTY BECAUSE THE ONE ATTEMPT WAS DELETED ──────────────
 ' cecli has no native LSP client, so its code intelligence has to arrive as
@@ -310,11 +317,37 @@ legend bottom
   ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
   per-class ""case"" that used to sit in the seed is gone.
   --
-  **4b. Formatters are NOT a class.** Resolved by looking rather than deciding:
-  the images bake them (""prettier"" in claudecode's) but NO harness has a
-  formatter config format, so there is nothing to wire and no wire step to write.
-  A formatter is a binary the project's own tooling invokes, which is the
-  dependency-tree chain's job. The row is closed, not empty.
+  **4b. Formatters ARE a class — and the earlier answer here was wrong.**
+  It read "no harness has a formatter config format", from a grep of ""defs/"" and
+  ""_spec/"". Absence in proveo's tree is not absence of a surface in the harness.
+  All four have one, in three different shapes, and opencode's is why a workspace
+  carrying ""prettier"" and ""oxfmt"" formatted nothing:
+  --
+  ""opencode"" a REGISTRY: 24 built-ins under the ""formatter"" key, **off unless
+  enabled** — omitting the key is the off state. Each built-in is gated by
+  opencode itself (a command on PATH, a config file, or a package.json /
+  composer.json dependency), so proveo answers only what opencode cannot: may
+  they run at all. ""configure_opencode_formatter"" sets ""formatter: true"". LANDED.
+  --
+  ""claudecode"" a COMMAND HOOK: ""PostToolUse"" with an ""Edit|Write"" matcher in
+  ""~/\.claude/settings\.json"" — the file ""proveo_install_claude_hooks"" already
+  merges into for the cwd guard, so the wiring point exists.
+  --
+  ""cursor"" a COMMAND HOOK: ""afterFileEdit"" in ""\.cursor/hooks\.json"", beside the
+  ""beforeShellExecution"" audit hook proveo already ships.
+  --
+  ""cecli"" LINT COMMANDS: ""auto-lint"" (on by default) plus
+  ""lint-cmd: ['<lang>: <cmd>']"" in the aider-shaped home config.
+  ==
+  **Why only the registry is wired.** A registry asks a yes/no question and the
+  harness resolves the rest. A hook asks proveo to CHOOSE A COMMAND per project —
+  which formatter, with which arguments, over which files — and choosing wrongly
+  rewrites the operator's source on every edit. cecli adds a trap on top: aider
+  treats a non-zero exit as a lint failure, and formatters exit non-zero
+  precisely when they changed something, so a formatter wired as a ""lint-cmd""
+  reports an error every time it works. Those three rows want the
+  dependency-tree chain's knowledge of what the project actually pins, and they
+  are left open rather than guessed at.
   --
   **5. Serena, on that chain, as the MCP row's first entry.** — LANDED.
   ""/opt/serena"" in its own venv (serena-agent and cecli-dev disagree about

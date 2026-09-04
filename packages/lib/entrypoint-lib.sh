@@ -2245,6 +2245,48 @@ configure_opencode_lsp() {
   echo "─────────────────────────────────────────────────────"
 }
 
+# configure_opencode_formatter turns opencode's formatter registry ON.
+# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+# Knobs: PROVEO_OPENCODE_FORMATTER=off
+#
+# opencode ships 24 built-in formatters — prettier, oxfmt, gofmt, ruff, rustfmt,
+# biome, shfmt, clang-format, terraform, ktlint, rubocop … — and they are
+# DISABLED BY DEFAULT: omitting the key is the off state, and nothing in the
+# project turns it on. So a workspace with prettier in its package.json and oxfmt
+# on PATH formatted nothing, forever, and looked like a misconfiguration rather
+# than a switch proveo had never flipped.
+#
+# `true` rather than a per-formatter table on purpose. opencode already decides
+# availability per formatter, and better than proveo could: a command on PATH for
+# gofmt and rustfmt, a config file for clang-format and biome, a package.json or
+# composer.json dependency for prettier and pint. Restating that here would be a
+# second detector to keep in step with theirs, so this only answers the question
+# opencode cannot answer for itself — may they run at all.
+#
+# Setdefault, like every other wiring step: an operator who set `formatter`
+# (including to `false`) keeps their answer.
+configure_opencode_formatter() {
+  command -v jq >/dev/null 2>&1 || return 0
+  case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
+  off | false | 0 | no | disable | disabled) return 0 ;;
+  esac
+  local config_file existing='{}' tmp
+  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  mkdir -p "$(dirname "$config_file")" 2>/dev/null || return 0
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  if printf '%s' "$existing" | jq -e 'has("formatter")' >/dev/null 2>&1; then
+    return 0
+  fi
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq '.formatter = true' >"$tmp" 2>/dev/null; then
+    mv "$tmp" "$config_file"
+    echo "🧹 formatters enabled (opencode's built-ins, each still gated on its own availability): $config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not enable formatters in $config_file (jq failed)" >&2
+  fi
+}
+
 # configure_cursor_lsp registers one mcp-language-server per detected language in
 # cursor's user MCP config: cursor has no native LSP client, so code intelligence
 # reaches it as MCP servers. Same backend reason as configure_opencode_lsp.
@@ -2291,26 +2333,32 @@ configure_cursor_lsp() {
 # useful. They differ only in the file format at the end, so they get one table
 # and one entry point rather than a `case` per class scattered through the seed.
 #
-#   class   detect                 provide              probe              wire
-#   ─────── ────────────────────── ──────────────────── ────────────────── ──────────────────
-#   lsp     _lsp_walk (ext+marker) image layer, else    none — measured    configure_claude_lsp
-#           ranked by file count   mise / ubi           and refused        configure_opencode_lsp
-#                                                                          configure_cursor_lsp
-#   mcp     the server's own       image layer          `initialize`       configure_cecli_mcp
-#           precondition           (venv / binary)      handshake
-#   plugin  fixed list             image seed dir       binary presence    proveo_enable_claude_lsp_plugins
+#   class      detect                 provide           probe             wire
+#   ────────── ────────────────────── ───────────────── ───────────────── ──────────────────
+#   plugin     fixed list             image seed dir    binary presence   configure_claude_plugins
+#   lsp        _lsp_walk (ext+marker) image layer, else none — measured   configure_claude_lsp
+#              ranked by file count   mise / ubi        and refused       configure_opencode_lsp
+#                                                                         configure_cursor_lsp
+#   formatter  the HARNESS's own      image layer +     none — the        configure_opencode_formatter
+#              availability check     project deps      harness gates
+#   mcp        the server's own       image layer       `initialize`      configure_cecli_mcp
+#              precondition           (venv / binary)  handshake
 #
-# FORMATTERS ARE NOT A CLASS, and that is a finding rather than an omission.
-# The images bake them (prettier in claudecode's), but no harness has a formatter
-# CONFIG FORMAT — nothing to wire, so there is no wire step to write. A formatter
-# is a binary the project's own tooling invokes, which is the dependency-tree
-# chain's job (ensure_dependency_trees, ensure_project_tools), not this one.
+# The formatter row exists because opencode's registry is DISABLED BY DEFAULT and
+# nothing in a project turns it on — a workspace carrying prettier and oxfmt
+# formatted nothing, which reads as a misconfiguration rather than as a switch
+# proveo never flipped. It is the one class where the harness does its own
+# detection (opencode checks PATH, a config file, or a package.json dependency
+# per formatter), so proveo answers only the question opencode cannot: may they
+# run at all. The other three harnesses have a formatter surface too, and all
+# three are COMMAND hooks rather than registries — see the plan for why they are
+# not wired yet.
 # Order is a dependency, not a preference: the plugin row exports
 # PROVEO_CLAUDE_LSP_OFFICIAL, and the lsp row reads it to decide which languages
 # to YIELD to an official plugin. Wire lsp first and proveo-lsp declares a
 # language a plugin already serves — two servers on one extension, one of which
 # never starts.
-_proveo_config_classes() { echo "plugin lsp mcp"; }
+_proveo_config_classes() { echo "plugin lsp formatter mcp"; }
 
 # _proveo_class_wire names the function that writes one class's config for one
 # harness, or nothing when that harness has no surface for it.
@@ -2319,6 +2367,7 @@ _proveo_class_wire() {
   lsp:claudecode) echo "configure_claude_lsp" ;;
   lsp:opencode) echo "configure_opencode_lsp" ;;
   lsp:cursor) echo "configure_cursor_lsp" ;;
+  formatter:opencode) echo "configure_opencode_formatter" ;;
   mcp:cecli) echo "configure_cecli_mcp" ;;
   plugin:claudecode) echo "configure_claude_plugins" ;;
   esac
@@ -2338,6 +2387,9 @@ _proveo_class_probe() {
   case "$1" in
   mcp) echo "_proveo_mcp_probe" ;;
   plugin) echo "_proveo_plugin_probe" ;;
+  # formatter: none, and not for the LSP row's reason. opencode gates each
+  # built-in itself, so a proveo probe would be a second detector answering a
+  # question the harness has already answered better.
   esac
 }
 

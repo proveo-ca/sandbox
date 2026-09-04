@@ -24,6 +24,7 @@ var configWiring = []struct {
 	{"lsp", "claudecode", "configure_claude_lsp"},
 	{"lsp", "opencode", "configure_opencode_lsp"},
 	{"lsp", "cursor", "configure_cursor_lsp"},
+	{"formatter", "opencode", "configure_opencode_formatter"},
 	{"mcp", "cecli", "configure_cecli_mcp"},
 	{"plugin", "claudecode", "configure_claude_plugins"},
 }
