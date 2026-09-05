@@ -132,9 +132,8 @@ RUN mkdir -p /etc/cursor \
 COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY packages/lib/proveo-seed /usr/local/bin/proveo-seed
-COPY defs/cursor/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 defs/cursor/entrypoint.sh /entrypoint.sh
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).

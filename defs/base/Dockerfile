@@ -49,11 +49,15 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
 
 FROM debian:trixie-slim
 
-COPY defs/base/proveo-harden /usr/local/sbin/proveo-harden
-COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
+COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
+COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 
-RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint /usr/local/bin/plantuml-lsp \
-    && apt-get update -o APT::Update::Error-Mode=any \
+# The COPYs above carry --chmod, so the mode arrives with the file. Setting it in
+# a later RUN copied each binary UP into that layer in full — overlayfs has no
+# other way to record a metadata change — storing proveo-entrypoint and
+# plantuml-lsp twice, and two of the three chmods were no-ops anyway because
+# `go build` already writes 0755.
+RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
          -o /usr/share/keyrings/githubcli-archive-keyring.gpg \

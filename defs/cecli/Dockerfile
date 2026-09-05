@@ -38,11 +38,34 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
 # cecli-specific env; the common floor lives in proveo/base
-ENV PYTHONDONTWRITEBYTECODE=1 \
+# PYTHONPYCACHEPREFIX, not PYTHONDONTWRITEBYTECODE.
+#
+# pip byte-compiles at install time regardless of that variable — it is a RUNTIME
+# switch — so both venvs shipped .py AND .pyc: 153 MB measured. `--no-compile`
+# above removes them, and the naive pairing (keep DONTWRITEBYTECODE) would then
+# re-parse every module on every launch forever: `cecli --version` measured
+# 876 ms -> 1850 ms.
+#
+# So bytecode is written instead, to a prefix OUTSIDE the read-only venv that any
+# run-as uid can create. Measured at uid 4242: first launch 2258 ms, then 711 ms —
+# faster than the 876 ms baseline, because the cache holds only what was imported.
+# /tmp is the right home for it: per-sandbox, world-writable, and nothing needs it
+# to survive the sandbox.
+# SPEC: _spec/_plans/image-size-reduction.puml
+ENV PYTHONPYCACHEPREFIX=/tmp/proveo-pycache \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
+# build-essential is NOT here, and the venvs below still build. It used to be, so
+# pip could compile sdists — measured: of cecli-dev's and serena-agent's entire
+# dependency closures exactly ONE arrives as an sdist (proxy_tools 0.1.0) and it is
+# pure Python, so setuptools alone builds its wheel. gcc-14, g++-14, cpp-14,
+# binutils, libstdc++-dev, libgcc-dev and linux-libc-dev were ~190 MB shipped to an
+# agent image for a compiler nothing invoked. Verified by building both venvs on a
+# base with no compiler at all before this landed.
+# SPEC: _spec/_plans/image-size-reduction.puml
+#
 # iptables is the daemon's, not cecli's: sbx's per-sandbox daemon builds its own
 # NAT chain at start and cannot without it. It stays even though this image no
 # longer ships dockerd — a NAT chain needs iptables whoever builds it.
@@ -51,7 +74,6 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     python3 \
     python3-pip \
     python3-venv \
-    build-essential \
     iptables \
     less \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
@@ -69,8 +91,8 @@ ARG CECLI_VERSION
 RUN test -n "${CECLI_VERSION}" \
       || { echo "CECLI_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/cecli \
-  && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
-  && /opt/cecli/bin/pip install "cecli-dev==${CECLI_VERSION}" boto3 botocore \
+  && /opt/cecli/bin/pip install --no-compile --upgrade pip setuptools wheel \
+  && /opt/cecli/bin/pip install --no-compile "cecli-dev==${CECLI_VERSION}" boto3 botocore \
   && /opt/cecli/bin/pip show cecli-dev | grep -qx "Version: ${CECLI_VERSION}" \
   && rm -rf /root/.cache /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
@@ -92,7 +114,7 @@ ARG SERENA_VERSION
 RUN test -n "${SERENA_VERSION}" \
       || { echo "SERENA_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/serena \
-  && /opt/serena/bin/pip install --no-cache-dir "serena-agent==${SERENA_VERSION}" \
+  && /opt/serena/bin/pip install --no-cache-dir --no-compile "serena-agent==${SERENA_VERSION}" \
   && /opt/serena/bin/pip show serena-agent | grep -qx "Version: ${SERENA_VERSION}" \
   && ln -sf /opt/serena/bin/serena /usr/local/bin/serena \
   && rm -rf /root/.cache /tmp/* /var/tmp/* \
@@ -124,13 +146,12 @@ LABEL com.docker.sandboxes.start-docker="true"
 WORKDIR /app
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
+COPY --chmod=0755 defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
 COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
-RUN chmod +x /usr/local/bin/cecli-entrypoint \
-  && chown "${USER_NAME}:${USER_NAME}" /app
+RUN chown "${USER_NAME}:${USER_NAME}" /app
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).

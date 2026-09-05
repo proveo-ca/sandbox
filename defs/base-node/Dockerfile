@@ -6,10 +6,17 @@ ARG NODE_MAJOR=22
 
 # unzip is Bun's one documented prerequisite on Linux; it lands here so every
 # Node consumer inherits it (opencode used to install its own copy).
+#
+# `rm -rf /usr/include/node` in this SAME RUN: nodesource's deb ships 65 MB of C++
+# headers for building native addons, and node-gyp fetches its own into
+# ~/.cache/node-gyp anyway — only an explicit `--nodedir` reads these. A later RUN
+# would delete the path and keep the bytes, so it has to be here.
+# SPEC: _spec/_plans/image-size-reduction.puml
 RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
     && apt-get install -y --no-install-recommends nodejs unzip \
     && npm install -g pnpm@10.33.0 \
     && npm cache clean --force \
+    && rm -rf /usr/include/node \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 

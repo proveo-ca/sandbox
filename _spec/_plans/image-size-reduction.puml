@@ -3,7 +3,7 @@
 ' purpose: cut the fleet's image weight where it actually is, and settle whether
 '          the `-browser` variants should invert to layers on the harness images
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
-' PARTLY APPLIED — cuts 1, 2, 3 and 4 landed 2026-09-05. 5-13 are open.
+' PARTLY APPLIED — cuts 1-11 landed 2026-09-05. 12, 13 and the inversion are open.
 ' _spec/_plans/ is exempt from the SPEC-reference rule.
 '
 ' ── WHAT LANDED, AND WHAT THE REBUILD MEASURED ─────────────────────────────
@@ -74,6 +74,71 @@
 '   TestNoHarnessImageShipsDockerBinaries
 '   TestDockerInSandboxKeepsTheLabelTheGroupAndIptables
 '
+' ── CUTS 5-11 APPLIED ────────────────────────────────────────────────────
+' `mise run build all` from a COLD cache, 14/14 targets, no failures.
+'
+'   image                      before   cuts 1-4  cuts 1-11   total delta
+'   proveo/base                938 MB   782 MB    782 MB      -156 MB
+'   proveo/base-node           1.42 GB  1.26 GB   1.18 GB     -240 MB
+'   proveo/base-node-lsp       1.63 GB  1.47 GB   1.38 GB     -250 MB
+'   proveo/base-node-browser   3.42 GB  2.80 GB   2.72 GB     -700 MB
+'   proveo/cecli               2.88 GB  2.43 GB   1.86 GB     **-1.02 GB**
+'   proveo/claudecode          2.38 GB  1.92 GB   1.76 GB     -620 MB
+'   proveo/claudecode-browser  4.17 GB  3.25 GB   3.09 GB     **-1.08 GB**
+'   proveo/claudecode-solidity 3.31 GB  2.86 GB   2.69 GB     -620 MB
+'   proveo/cursor              2.04 GB  1.59 GB   1.59 GB     -450 MB
+'   proveo/cursor-browser      4.53 GB  3.61 GB   3.52 GB     **-1.01 GB**
+'   proveo/opencode            2.19 GB  1.74 GB   1.65 GB     -540 MB
+'   proveo/opencode-browser    3.98 GB  3.07 GB   2.98 GB     **-1.00 GB**
+'
+'   sum of the size column   33.31 GB -> 25.62 GB   **-7.69 GB, -23.1%**
+'   deduped local disk       10.80 GB ->  7.66 GB   -3.14 GB
+'
+' WHAT EACH ONE ACTUALLY RETURNED, against what this plan predicted:
+'   5  node headers          -80 MB per node image  (predicted 65 MB of diffs)
+'   6  COPY --chmod          ~0 in the size column; the win is that a mode change
+'                            no longer copies each Go binary up into a second layer
+'   7  xclip                 folded into opencode's -90 MB with cut 5
+'   8  cecli build-essential  } together **-570 MB** on cecli, the largest single
+'   9  cecli --no-compile     } image win in the whole plan
+'   10 claudecode dev tools  -160 MB with cut 5
+'   11 node_modules prune    smaller than predicted: maps went to ZERO but the
+'                            tree only fell 219 -> 203 MB, so the 18 MB of docs
+'                            estimate was optimistic. Kept: it costs nothing.
+'
+' TWO MEASUREMENTS THAT CHANGED A DECISION:
+' 1. Cut 8 needed no multi-stage. Of cecli-dev's and serena-agent's entire
+'    dependency closures exactly ONE arrives as an sdist (proxy_tools 0.1.0) and it
+'    is pure Python, so setuptools alone builds its wheel. Both venvs were built on
+'    a base with NO compiler before the change landed — so `build-essential` could
+'    simply be deleted rather than moved to a builder stage.
+' 2. Cut 9's naive form was rejected on a measurement. `--no-compile` alone, with
+'    PYTHONDONTWRITEBYTECODE=1 left in place, took `cecli --version` from 876 ms to
+'    1850 ms — every launch, forever. Replacing that variable with
+'    PYTHONPYCACHEPREFIX=/tmp/proveo-pycache instead gives, at uid 4242:
+'      first launch 2315 ms · then 679 ms and 712 ms
+'    i.e. FASTER than the 876 ms baseline in steady state, because the cache holds
+'    only what was imported, and 153 MB still leaves the image.
+'
+' VERIFIED after the rebuild: no /usr/include/node; proveo-harden, proveo-entrypoint
+' and plantuml-lsp all still executable (cut 6 removed the chmod that made them so);
+' zero `*.map` under /usr/lib/node_modules and all six LSP servers still resolve;
+' no compiler and zero shipped `.pyc` in cecli, whose venvs are 681 + 96 MB; no tsc,
+' ts-node, prettier or eslint in claudecode while `claude` and
+' typescript-language-server remain; no xclip in opencode.
+' Def suites: cursor 0 failures, opencode 0, cecli 0, claudecode only the arm64
+' `[sol] solc` failure described above. lint 0 issues, `go vet -tags e2e` clean.
+'
+' NOTE ON THE FLEET AFTER CUT 8: there is now NO C compiler in ANY image — base,
+' base-node-lsp, claudecode, cursor, opencode and cecli all answer nothing for
+' gcc/cc/g++/make. cecli was the only one that ever had one, incidentally, for its
+' own venv. So a WORKSPACE Python project whose dependency has no linux-arm64 wheel
+' and must build a C extension now fails everywhere rather than in five of six
+' images, and `_py_build_env` reports it only as
+' "Python dependency install did not complete; the environment may be partial".
+' Making that message name the missing toolchain is the cheapest honest fix and is
+' NOT done here.
+'
 ' ── CUT 4 APPLIED: NO DOCKER BINARIES IN ANY HARNESS IMAGE ────────────────
 ' Decided by the operator, 2026-09-05: "since we migrated to sbx, everything that
 ' either overlaps or gets on its way." All eight binaries of the static tarball
@@ -143,12 +208,12 @@
 ' this plan was opened to evaluate. Cut 4 shrank exactly the thing inversion
 ' deduplicates — the harness delta:
 '
-'   duplicated harness bytes   2.41 GB -> **1.52 GB**
+'   duplicated harness bytes   2.41 GB -> 1.52 GB -> **1.44 GB** after cuts 5-11
 '     opencode 262 MB twice · cursor 806 MB twice · claudecode 449 MB (in -browser)
 '   browser payload (unchanged, still stored once)      1.33 GB
 '   inverting now              -1.52 GB reclaimed, +2.66 GB spent = **+1.14 GB worse**
 '
-'   deduped local disk         10.80 GB -> **8.40 GB** across cuts 1-4
+'   deduped local disk         10.80 GB -> 8.40 GB -> **7.66 GB** across cuts 1-11
 '
 ' claudecode's own unique size is 29 kB, because claudecode-solidity shares all of
 ' it. cecli's 1.65 GB is the largest single unique payload in the fleet now, which
@@ -282,28 +347,28 @@
 '     question second.
 '     cecli:105 · opencode:59 · cursor:63 · claudecode/mcp:80
 '
-'  5. NODE HEADERS SHIPPED TO RUNTIME. `/usr/include/node` is 65 MB in every node
+'  5. [APPLIED] NODE HEADERS SHIPPED TO RUNTIME. `/usr/include/node` is 65 MB in every node
 '     image. node-gyp fetches its own headers by default, so the exposure is a
 '     native-addon build that cannot reach the network. Must be removed in the SAME
 '     RUN as the nodesource install. defs/base-node/Dockerfile:10 · 65 MB
 '
-'  6. COPY-THEN-CHMOD DUPLICATES THE BINARY. `COPY` at :15-16 then `chmod +x` at
+'  6. [APPLIED] COPY-THEN-CHMOD DUPLICATES THE BINARY. `COPY` at :15-16 then `chmod +x` at
 '     :18 stores proveo-entrypoint and plantuml-lsp twice (overlayfs copies a file
 '     up in full on a metadata change), and two of the three chmods are no-ops —
 '     `go build` output is already 0755. `COPY --chmod=0755`. Repeated in six files.
 '     defs/base/Dockerfile:15-18 · ~25-35 MB
 '
-'  7. `xclip` IN A HEADLESS CONTAINER, dragging libx11/libxmu/libxt/libxext for a
+'  7. [APPLIED] `xclip` IN A HEADLESS CONTAINER, dragging libx11/libxmu/libxt/libxext for a
 '     clipboard that cannot exist. defs/opencode/Dockerfile:49 · ~15-20 MB
 '
-'  8. A C COMPILER SHIPPED TO AN AGENT IMAGE. cecli installs `build-essential`
+'  8. [APPLIED] A C COMPILER SHIPPED TO AN AGENT IMAGE. cecli installs `build-essential`
 '     permanently so pip can compile sdists at build time. Measured survivors:
 '     gcc-14 61 + g++-14 33 + cpp-14 31 + libstdc++-dev 22 + binutils 16 +
 '     libgcc-dev 15 + linux-libc-dev 11 = **~190 MB**, in a sandbox that also hands
 '     the agent a compiler. `--only-binary=:all:` or a builder-stage venv.
 '     defs/cecli/Dockerfile:53 · ~190 MB
 '
-'  9. `.pyc` BESIDE `.py`. `PYTHONDONTWRITEBYTECODE=1` is a RUNTIME variable; pip
+'  9. [APPLIED] `.pyc` BESIDE `.py`. `PYTHONDONTWRITEBYTECODE=1` is a RUNTIME variable; pip
 '     byte-compiles at install time regardless. Measured **140 MB** across
 '     /opt/cecli and /opt/serena. `pip install --no-compile` — but note the pairing:
 '     with PYTHONDONTWRITEBYTECODE set they are never regenerated either, so this
@@ -381,7 +446,7 @@
 '   what the browser layer is .... _spec/defs/browser-layer.puml
 '   why pins exist ............... _spec/_devops/agent-version-pin.puml
 '   what mise now owns ........... _spec/_runtimes/toolchain-provisioning.puml
-title PARTLY APPLIED — image size: cuts 1-4 landed (-6.11 GB), and why the variant inversion is not next
+title PARTLY APPLIED — image size: cuts 1-11 landed (-7.69 GB), and why the variant inversion is still not next
 
 folder "the floor, measured" as FLOOR <<host>> {
   component "proveo/base 938 MB\nJRE **194 MB** · mise 97 MB · jar 29 MB" as B <<app>>

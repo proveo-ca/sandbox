@@ -11,8 +11,7 @@ ARG MITMPROXY_VERSION
 USER root
 
 COPY addons/ndjson_dump.py /addons/ndjson_dump.py
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 
 VOLUME ["/flows", "/mitmproxy-confdir"]
 EXPOSE 8888

@@ -17,10 +17,6 @@ TOOLS=(
   "curl:curl --version"
   "wget:wget --version"
   "dumb-init:dumb-init --version"
-  "tsc:tsc --version"
-  "ts-node:ts-node --version"
-  "prettier:prettier --version"
-  "eslint:eslint --version"
 )
 
 # Solidity/security toolchain: lives only in the sol variant (defs/claudecode/sol).

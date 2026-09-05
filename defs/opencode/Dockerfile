@@ -39,6 +39,10 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
+# xclip is NOT here: it needs an X display, this container has none and sets no
+# DISPLAY, and it drags libx11/libxmu/libxt/libxext along for a clipboard that
+# cannot exist. Nothing in the tree invoked it.
+#
 # Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
 # the hardening pass live there); re-run the harden pass after installing.
 # plantuml + plantuml-lsp now come from proveo/base-node-lsp, not from here.
@@ -47,7 +51,6 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
 # longer ships dockerd — a NAT chain needs iptables whoever builds it.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    xclip \
     iptables \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
@@ -125,8 +128,7 @@ COPY defs/lib/ /opt/proveo/lib/
 # on both backends and cannot be edited from inside the sandbox.
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY defs/opencode/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=0755 defs/opencode/entrypoint.sh /entrypoint.sh
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).

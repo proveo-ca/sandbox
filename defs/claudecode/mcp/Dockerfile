@@ -87,13 +87,16 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     requests \
     python-dotenv
 
-# Install Node.js tools
-RUN npm install -g --no-optional \
-    typescript \
-    ts-node \
-    prettier \
-    eslint \
-    && npm cache clean --force
+# No global typescript / ts-node / prettier / eslint.
+#
+# 65 MB measured, unpinned (so a warm cache could serve last year's), and a fifth
+# copy of typescript in an image whose three LSP servers each bundle their own.
+# This file already argues the case against them further down, where it explains
+# why NODE_ENV is deliberately not baked: devDependencies "are exactly the tools
+# the agent needs", and every real repository pins them itself. The language
+# SERVERS stay — they come from proveo/base-node-lsp and are what the LSP plugin
+# seed keys on.
+# SPEC: _spec/_plans/image-size-reduction.puml
 
 # Install Claude Code — pinned by version, never the bare package (= `@latest`):
 # BuildKit caches this layer by its text, so an unpinned line re-runs only when
@@ -200,9 +203,8 @@ COPY --chown=${USER_NAME}:${USER_NAME} defs/bridges/ /opt/proveo/bridges/
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY AGENTS.md /etc/claude-code/CLAUDE.md
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
-COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
