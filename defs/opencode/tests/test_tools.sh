@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_tools.sh - Verify expected tools/runtimes are installed
 
 TOOLS=(
   "opencode:opencode --version"
@@ -20,30 +19,24 @@ for tool_entry in "${TOOLS[@]}"; do
   assert_success "$name is installed" "$IMAGE" "$cmd"
 done
 
-# Node major version: proveo/base-node ships Node 22 LTS
 assert_output_matches \
   "node version is v22.x" \
   "$IMAGE" \
   "node --version" \
   "^v22\."
 
-# Bun runs TypeScript directly — the TS toolkit's second runtime (proveo/base-node).
 assert_output_contains \
   "bun executes a TypeScript file without a build step" \
   "$IMAGE" \
   "printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts" \
   "42"
 
-# opencode CLI exposes the `run` subcommand
 assert_output_contains \
   "opencode CLI exposes 'run' subcommand" \
   "$IMAGE" \
   "opencode --help 2>&1" \
   "run"
 
-# Browser variant (proveo/opencode-browser, FROM proveo/base-node-browser):
-# Playwright's Chromium plus vercel-labs/agent-browser pointed at that same binary,
-# and the discovery stub the seed drops into ~/.config/opencode/skills.
 OPENCODE_BROWSER_IMAGE="$(proveo_resolve_image "${OPENCODE_BROWSER_IMAGE:-proveo/opencode-browser:latest}")"
 if docker image inspect "$OPENCODE_BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$OPENCODE_BROWSER_IMAGE" "playwright --version"

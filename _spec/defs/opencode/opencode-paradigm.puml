@@ -2,6 +2,36 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title opencode paradigm — subagent crew with HITL oversight
 
+' covers: defs/opencode/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+'
+' ── HOW THE GLOBAL CONFIG IS SEEDED WHEN ABSENT ────────────────────────────
+' seed_opencode_config prefers a sample shipped by opencode itself, trying five
+' paths in order — ~/.config/opencode/sample_opencode.json, the macOS
+' Library/Application Support path, /opt/opencode, and the two Homebrew/
+' usr-local share dirs — so the seed tracks upstream's own defaults wherever
+' the install put them. Only when none exists does it write a MINIMAL config of
+' proveo's own.
+'
+' That minimal config is deliberately small: the schema url, an empty
+' `provider` map, model/small_model as "{env:OPENCODE_MODEL}" placeholders
+' (opencode resolves those at read time, so the model bridges stay the single
+' source of truth), autoupdate false, and the two primary agents this paradigm
+' is about — `plan`, read-only with edit and bash both denied, and `build`,
+' edit allowed with bash set to `ask`.
+'
+' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1, and the same flag re-seeds
+' the project AGENTS.md. Everything else the seed writes goes through
+' proveo_seed (_spec/packages/lib/seed-and-launch.puml).
+'
+' ── THE LOCAL MODEL IS A PROVIDER ENTRY, NOT A MODEL STRING ────────────────
+' configure_opencode_local_model writes a whole `provider.ollama` block into the
+' user config: npm "@ai-sdk/openai-compatible", options.baseURL pointing at
+' "<OLLAMA_API_BASE>/v1" (default http://ollama:11434), apiKey "ollama", and one
+' entry under `models` for PROVEO_LOCAL_MODEL. So opencode reaches Ollama the
+' same OpenAI-compatible way cecli does, but declaratively — which is why this
+' harness needs no model-string workaround.
+'
 actor "Developer\nreviews between loops" as DEV
 
 node "opencode container" as CTR <<host>> {

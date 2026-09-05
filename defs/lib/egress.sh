@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Thin tools for provider detection / allowlist generation via proveo-egress.
-# Host orchestration (networks/sidecars) lives in Go (internal/egress). .
 # SPEC: _spec/components.puml
 
 proveo_egress_defs_dir() {

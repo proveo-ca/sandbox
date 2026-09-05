@@ -2,6 +2,37 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title cursor paradigm — policy-gated autonomous loop (layered enforcement)
 
+' covers: defs/cursor/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+'
+' ── THREE ENTRYPOINT DETAILS WORTH KEEPING ─────────────────────────────────
+' PROXY COMPATIBILITY is two changes, not one. Beside the nested
+' `network.useHttp1ForAgent` written into cli-config.json, the entrypoint also
+' exports NODE_USE_ENV_PROXY=1 — the config tells cursor-agent HOW to speak, the
+' env var is what makes node honour HTTP_PROXY/HTTPS_PROXY at all. Both are
+' applied only when one of the four proxy variables is actually set.
+'
+' A CALLER'S OWN --output-format WINS. It is a parse contract, not a preference:
+' something downstream is reading that stream, so the evidence step adds
+' `--output-format stream-json --stream-partial-output` only in headless mode
+' AND only when the caller named no format of its own. In interactive mode the
+' step says so out loud — cursor-agent exposes no verbosity flag there — rather
+' than silently doing nothing.
+'
+' HEADLESS RUNS NEED --trust UP FRONT, because there is no prompt to answer.
+' Headless is detected by scanning argv for `-p` / `--print`.
+'
+' AUTH IS CURSOR-ONLY. All inference transits the Cursor backend, so there is no
+' provider-key or local-model alternative and the no-key warning names the one
+' path that works: CURSOR_API_KEY from cursor.com/dashboard → API Keys, or
+' `agent login` interactively (NO_OPEN_BROWSER=1 prints the URL instead of
+' trying to open one). CURSOR_API_KEY is PREFERRED because login tokens are
+' scrubbed from the durable cache, so an interactive login does not persist.
+'
+' Utility subcommands (login, logout, status, whoami, ls, resume, update,
+' upgrade, mcp, create-chat, uninstall, help, -v/--version, -h/--help) exec
+' straight through with none of the autonomy flags attached.
+'
 actor "Developer" as DEV
 
 node "cursor container" as CTR <<host>> {

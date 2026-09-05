@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/seed-node-version-abort.puml
-# Shared entrypoint functions for Proveo coding harnesses
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml
 
-# ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
-# Wrappers launch containers with `--user $(id -u):$(id -g)`; give that uid a
-# passwd entry and a writable HOME without root. Call first in every entrypoint.
 ensure_runtime_user() {
  local uid gid
  uid="$(id -u)"; gid="$(id -g)"
 
- # Synthesize a passwd entry so getpwuid-based tooling doesn't choke on
- # "I have no name!"; only possible when /etc/passwd is writable.
  if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
  printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
  fi
 
- # Guarantee a writable HOME. The baked home (owned by the build user) is not
- # writable by a different uid until the deferred chmod lands, so fall back.
  if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
  fi
@@ -26,14 +18,6 @@ if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
 
-# ── 1. Set Working Directory ────────────────────────────────
-# PROVEO_WORKDIR wins over the caller's default, because on the sbx backend the
-# workspace is mounted at its OWN host path and /app holds nothing. Launching the
-# agent there made it report "not a git repository" and then block on a trust
-# dialog for a folder that is not the project — a prompt no automation answers, and
-# the run died with the sandbox 30s later. proveo-entrypoint chdirs correctly but
-# cannot move its parent shell (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml),
-# so the shell has to make the same choice for itself.
 set_working_directory() {
  local default_dir="${1:-/app}"
  local wd="${PROVEO_WORKDIR:-}"
@@ -46,11 +30,6 @@ set_working_directory() {
  fi
 }
 
-# Claude Code asks the operator to confirm a folder it has not seen before. That
-# prompt cannot be answered by a run that is not being watched, so the workspace is
-# marked trusted up front — the same thing sbx's own claude kit does from
-# setup.install. The file is MERGED, never rewritten: it is the operator's real
-# ~/.claude.json, mounted in from the proveo home.
 accept_workspace_trust() {
  local dir="${1:-$PWD}" home
  home="$(_proveo_agent_home)"
@@ -67,15 +46,12 @@ accept_workspace_trust() {
  ' 2>/dev/null || true
 }
 
-# ── 2. Find and Load .env ───────────────────────────────────
 find_env_file() {
- # 1. Check current working directory
  if [[ -f .env ]]; then
  printf '%s/.env' "$(pwd)"
  return 0
  fi
 
- # 2. Check git root via git command (if available)
  if command -v git >/dev/null 2>&1; then
  local git_root
  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -85,7 +61,6 @@ find_env_file() {
  fi
  fi
 
- # 3. Check git root via directory traversal (pure Bash fallback)
  local dir; dir="$(pwd)"
  while [[ "$dir" != "/" ]]; do
  if [[ -d "$dir/.git" && -f "$dir/.env" ]]; then
@@ -95,7 +70,6 @@ find_env_file() {
  dir="$(dirname "$dir")"
  done
 
- # 4. Check for any .env inside any subdirectories (maxdepth 5)
  local sub_env
  sub_env=$(find . -maxdepth 5 -name .env -not -path '*/node_modules/*' -not -path '*/.*/*' -print -quit 2>/dev/null)
  if [[ -n "$sub_env" && -f "$sub_env" ]]; then
@@ -133,7 +107,6 @@ load_env() {
  fi
  unset -f say
 
- # Bridge Google/Gemini API key aliases
  if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
  if [[ -n "${GEMINI_API_KEY:-}" ]]; then
  export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
@@ -142,7 +115,6 @@ load_env() {
  fi
  fi
 
- # Reverse bridge for tools expecting GEMINI_API_KEY or GOOGLE_API_KEY
  if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
  export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
  export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
@@ -151,8 +123,6 @@ load_env() {
  apply_broker_sentinel
 }
 
-# Rewrite brokered credential env vars to a sentinel so the agent process never
-# holds the real key (the inspector injects it on-route).
 apply_broker_sentinel() {
  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
  open|allowlist|review) ;;
@@ -172,9 +142,6 @@ apply_broker_sentinel() {
  echo "🔒 Broker sentinel applied to: $keys"
 }
 
-# ── 2b. Git Identity from Environment ───────────────────────
-# Bridge GIT_AUTHOR_*/GIT_COMMITTER_* env into git's config-env (GIT_CONFIG_*) so
-# config reads resolve file-free; existing identity wins. Optional arg: repo dir.
 bridge_git_identity() {
  command -v git >/dev/null 2>&1 || return 0
 
@@ -199,9 +166,6 @@ bridge_git_identity() {
  fi
 }
 
-# ── 2c. Git Context Report ──────────────────────────────────
-# Read-only startup report: repo/remote status, commit identity, gh session.
-# Call after load_env/bridge_git_identity. Optional arg: directory to inspect.
 report_git_context() {
  command -v git >/dev/null 2>&1 || return 0
 
@@ -229,8 +193,6 @@ report_git_context() {
  fi
 
  if command -v gh >/dev/null 2>&1; then
- # `gh auth status` validates GH_TOKEN/config sessions over the network;
- # cap it so locked-down egress modes can't stall startup.
  if timeout 5s gh auth status >/dev/null 2>&1; then
  echo "✅ gh session authenticated"
  else
@@ -239,14 +201,7 @@ report_git_context() {
  fi
 }
 
-# ── 2d. Git Access (safe.directory + scoped worktree) ───────
 # SPEC: _spec/internal/workspace/git-mount-by-scope.puml
-# Both run in the ENTRYPOINT SHELL, not the Go prelude: `proveo-entrypoint prep`
-# is a subprocess, so anything it exports dies with it. Only the shell that execs
-# the agent can hand it environment.
-#
-# Under a subdir scope /app is the image's own directory, so its owner differs
-# from the run-as uid and git refuses everything with "dubious ownership".
 ensure_git_safe_directory() {
   command -v git >/dev/null 2>&1 || return 0
   local dir="${1:-$(pwd)}" idx
@@ -262,10 +217,6 @@ ensure_git_safe_directory() {
   fi
 }
 
-# Only under a subdir scope (PROVEO_SCOPE_REL): the container's worktree root is
-# /app but only part of the repo is mounted there, so git measures the whole-repo
-# index against a partial tree. Point git at a COPY of the index and mark the
-# unmounted paths skip-worktree, so nothing is written into the host's .git.
 scope_git_worktree() {
   [[ -n "${PROVEO_SCOPE_REL:-}" ]] || return 0
   command -v git >/dev/null 2>&1 || return 0
@@ -280,8 +231,6 @@ scope_git_worktree() {
   cp "$real" "$idx" 2>/dev/null || return 0
   export GIT_INDEX_FILE="$idx"
 
-  # Absent-at-STARTUP means "not mounted", never "the agent deleted it" — the
-  # agent has not run yet. Deletions it makes later still show normally.
   local missing
   missing="$(cd "$dir" && git ls-files -z | while IFS= read -r -d '' f; do
     [[ -e "$f" ]] || printf '%s\0' "$f"
@@ -297,7 +246,6 @@ scope_git_worktree() {
   echo "🔭 git scoped to ${PROVEO_SCOPE_REL} (${missing} unmounted path(s) hidden; host .git untouched)"
 }
 
-# ── 3. Attach RTK Repository ────────────────────────────────
 attach_rtk() {
  if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
  if [[ ! -w . ]]; then
@@ -309,7 +257,6 @@ attach_rtk() {
  fi
 }
 
-# ── 4. Smoke Test Mode ──────────────────────────────────────
 run_smoke_test() {
  local target_name="$1"
  if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
@@ -318,15 +265,11 @@ run_smoke_test() {
  fi
 }
 
-
-# ── 5. Tool Sourcing & Command Version Helpers ──────────────
-# Cecli style command version check (fallback cmd [args])
 command_version_cecli() {
  local fallback="$1"; shift
  timeout 5s "$@" 2>/dev/null || echo "$fallback"
 }
 
-# Opencode style command version check (cmd fallback [args])
 command_version_opencode() {
  local name="$1"; shift
  local fallback="${1:-n/a}"; shift || true
@@ -337,16 +280,11 @@ command_version_opencode() {
  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
 }
 
-# ── 6. Declarative Env Var Bridges Mapping ──────────────────
-
-# _normalize_model prefixes a bare model id with its provider (mirrors the
-# opencode model registry); an id that already contains "/" is returned as-is.
 _normalize_model() {
  local m="$1" lower
  [[ -n "$m" ]] || return 0
  case "$m" in */*) printf '%s' "$m"; return 0 ;; esac
  lower="$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')"
- # OpenAI reasoning ids are "o" followed by a digit (o1, o3, o4-mini, …).
  case "$lower" in
  gpt-* | chatgpt-* | o[0-9]*) printf 'openai/%s' "$m" ;;
  claude-*) printf 'anthropic/%s' "$m" ;;
@@ -357,16 +295,10 @@ _normalize_model() {
  esac
 }
 
-# _model_provider prints the provider a model id belongs to, or nothing when it
-# cannot be resolved. Built on _normalize_model so the prefix table lives in ONE
-# place in this file; internal/contract pins it against provider.ModelProvider.
 _model_provider() {
  local n
  n="$(_normalize_model "$1")"
  case "$n" in
- # Local and shim endpoints serve arbitrary ids, so their prefix classifies
- # nothing. ModelProvider returns "" for exactly these three, and the two must
- # agree — internal/contract runs one table through both.
  ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
  */*) printf '%s' "${n%%/*}" ;;
  *) printf '' ;;
@@ -390,18 +322,10 @@ _apply_env_bridge() {
 }
 
 apply_env_bridges() {
- # Provider key aliases only. Model bridges are declared in defs/bridges/<harness>.tsv
- # and applied by apply_model_bridges; keeping them here too is what let the opencode
- # mapping drift between this file and internal/entrypoint.
  _apply_env_bridge GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
  _apply_env_bridge GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
 }
 
-# ── Model bridges — declared once in defs/bridges/<harness>.tsv ──────────────
-# The same table drives the prompt header on the host (internal/provider reads it
-# embedded), so what an operator is shown before launch is what the container sets.
-# Shell has to be the executor: proveo-entrypoint prep cannot export into its parent
-# (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
 _apply_model_bridge() {
  local targets="$1" roles="$2" default="$3" transform="$4" want="$5"
  local val="" r t got
@@ -418,8 +342,6 @@ _apply_model_bridge() {
   esac
  fi
  [[ -n "$val" ]] || return 0
- # A vendor-locked slot refuses a model from another provider, BEFORE the
- # transform. An unresolvable provider is accepted.
  # SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
  if [[ -n "$want" && "$want" != "-" ]]; then
   got="$(_model_provider "$val")"
@@ -434,7 +356,6 @@ _apply_model_bridge() {
  esac
  IFS=',' read -ra target_list <<< "$targets"
  for t in "${target_list[@]}"; do
-  # An explicit tool-specific value already in the environment always wins.
   printenv "$t" >/dev/null 2>&1 && continue
   export "$t=$val"
  done
@@ -445,14 +366,11 @@ apply_model_bridges() {
  local file="${PROVEO_BRIDGES_DIR:-/opt/proveo/bridges}/$harness.tsv"
  [[ -f "$file" ]] || return 0
  local slot targets roles default transform want
- # Row order is load-bearing: a "$VAR" default must run after the row that sets VAR.
  while IFS=$'\t' read -r slot targets roles default transform want; do
   [[ -n "$slot" && "$slot" != \#* ]] || continue
   _apply_model_bridge "$targets" "$roles" "$default" "$transform" "$want"
  done < "$file"
 }
-
-# ── 7. Automatic Project-Level Tools Installer ──────────────
 
 _proveo_auto_install_enabled() {
   case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
@@ -461,34 +379,14 @@ _proveo_auto_install_enabled() {
   return 0
 }
 
-# ── 7a. The durable root, and the toolchain tree under it ───
 # SPEC: _spec/_plans/config-seeding-and-persistence.puml
 
-# _proveo_durable_home is the root that OUTLIVES the run, on either backend.
-#
-#   docker  the agent home IS the mounted host dir (HOME=/proveo-home), so this
-#           returns exactly today's answer and that backend cannot regress.
-#   sbx     HOME is deliberately NOT redirected — sbx's credential proxy owns
-#           .credentials.json in the image home and pointing HOME elsewhere
-#           orphaned it — so the agent home lives inside the VM and `sbx rm`
-#           destroys it. PROVEO_STATE_HOME carries the HOST path of the same
-#           proveo home, which travels as a workspace bind.
 _proveo_durable_home() {
   local d="${PROVEO_STATE_HOME:-}"
   [ -n "$d" ] || d="$(_proveo_agent_home)"
   printf '%s' "$d"
 }
 
-# _proveo_container_platform names the os-arch a provisioned binary is built
-# for. Folded onto docker's spelling, matching proveo_docker_host_platform in
-# defs/lib/docker-build.sh and normalizeArch in internal/workspace/platform.go.
-#
-# An unrecognised machine keeps its own `uname -m` spelling instead of
-# defaulting to amd64 the way the BUILD-side fold does. The two want opposite
-# fallbacks: there the value picks a published image and a guess is recoverable,
-# here it NAMES A DIRECTORY, and guessing wrong silently shares one toolchain
-# tree between two architectures — the wrong-arch binary that satisfies
-# `command -v` and dies on first exec.
 _proveo_container_platform() {
   local m
   m="$(uname -m 2>/dev/null || echo unknown)"
@@ -500,30 +398,9 @@ _proveo_container_platform() {
   printf 'linux-%s' "$m"
 }
 
-# _proveo_tool_rel is the toolchain tree's path RELATIVE to a root, shared by
-# the place tools run from and the place they persist to.
-#
-# Namespaced by platform because the persisted tree is shared: the docker
-# backend and the sbx VM on one host save into the same directory, and so does a
-# run pinned with DOCKER_DEFAULT_PLATFORM. Sharing is the point (install once,
-# reuse on the other backend); the namespace is what stops an amd64 install from
-# answering `command -v` for an arm64 sandbox.
 _proveo_tool_rel() { printf 'toolchains/%s' "$(_proveo_container_platform)"; }
 
-# _proveo_tool_home is where toolchains are INSTALLED and EXECUTED — the mise
-# tree, Go, jdtls, the npm --prefix, the install lock. Always under the AGENT's
-# own home, which means the VM's own disk on sbx.
-#
-# Not the durable root, deliberately. The durable root is a virtiofs passthrough
-# on that backend (clone mode moves the WORKSPACE off virtiofs; it cannot move
-# proveo home, which has to stay a host bind or it would not persist at all),
-# and a virtiofs directory whose inode is replaced on the host takes its guest
-# dentry with it permanently — only a restart heals it. Running a toolchain out
-# of that is a bet that nothing on the host ever rewrites the tree.
-# proveo_sync_tools carries it across instead.
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
-#
-# Memoised: the answer cannot change inside one run.
 _proveo_tool_home() {
   if [ -n "${_PROVEO_TOOL_HOME:-}" ]; then printf '%s' "$_PROVEO_TOOL_HOME"; return 0; fi
   local t
@@ -534,13 +411,6 @@ _proveo_tool_home() {
   printf '%s' "$t"
 }
 
-# _proveo_tool_store is where toolchains PERSIST between runs, or empty when
-# there is nothing to carry.
-#
-# Empty on docker, and that is the whole docker story: there the agent home IS
-# the mounted host dir, so the install location is already durable and a sync
-# would copy a directory onto itself. Empty also when PROVEO_TOOL_SYNC is off,
-# which is how an operator declines to pay the copy.
 _proveo_tool_store() {
   case "$(printf '%s' "${PROVEO_TOOL_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
   off | false | 0 | no | disable | disabled) return 0 ;;
@@ -550,16 +420,6 @@ _proveo_tool_store() {
   printf '%s/%s' "$host" "$(_proveo_tool_rel)"
 }
 
-# proveo_sync_tools carries the toolchain tree between the durable host root and
-# the disk the agent actually runs from: "restore" on the way in, "save" on the
-# way out. The same shape as proveo_sync_state, and a silent no-op wherever
-# _proveo_tool_store is empty.
-#
-# The asymmetry is the point. Restore into a fresh VM copies the tree once,
-# sequentially; save copies only what this run added, because _proveo_sync_tree
-# is `cp -an` plus an overwrite of genuinely changed files. Compare that with
-# running every `command -v`, every shim and every server exec across virtiofs
-# for the life of the session.
 proveo_sync_tools() {
   local mode="${1:-}" store home lock src dst rc=0
   case "$mode" in
@@ -578,12 +438,6 @@ proveo_sync_tools() {
   [ -d "$src" ] || return 0
   [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
 
-  # Locked on the AGENT side, like the state sync: it is the restore/save
-  # collision inside one sandbox that was measured, and a lock on the shared
-  # root would compare pids across VM namespaces, where they mean nothing.
-  # Concurrent saves from two sandboxes are safe without it — the tree is
-  # content-identical for one platform, and _proveo_sync_tree replaces each file
-  # through an atomic rename.
   lock="$(_proveo_agent_home)/.proveo-tools.lock"
   if ! _proveo_sync_lock "$lock"; then
     printf 'proveo: toolchain %s skipped — another sync still holds the lock\n' "$mode" >&2
@@ -598,10 +452,6 @@ proveo_sync_tools() {
 _proveo_tool_path() {
   local t
   t="$(_proveo_tool_home)"
-  # mise keeps installs, shims, its global config, state and cache under the
-  # tool home rather than $HOME. Set as a GROUP: a data dir without a config dir
-  # leaves `mise use -g` recording a global config in a home the next run does
-  # not read, so the tools are on disk and nothing knows they are.
   export MISE_DATA_DIR="$t/.local/share/mise"
   export MISE_CONFIG_DIR="$t/.config/mise"
   export MISE_STATE_DIR="$t/.local/state/mise"
@@ -630,8 +480,6 @@ _proveo_github_token() {
   if [ -n "${GITHUB_TOKEN:-}" ]; then printf '%s' "$GITHUB_TOKEN"; return 0; fi
   if [ -n "${GH_TOKEN:-}" ]; then printf '%s' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 || return 0
-  # `pipefail` makes an unauthenticated `gh auth token` fail the whole pipeline,
-  # and the caller assigns this under `set -e`. No token is a normal state.
   _proveo_bounded 5 gh auth token 2>/dev/null | head -n1 || return 0
 }
 
@@ -654,20 +502,6 @@ _go_current_version() {
 }
 
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
-#
-# mise is the ONLY Go path. `g` (github.com/stefanmaric/g) was the primary and is
-# retired — not because it fails to install (measured inside an sbx sandbox, it
-# fetches and unpacks go1.26.5 fine) but because installing is all it does. It
-# hands back a GOROOT and expects a shell rc to carry it onto PATH. A sandbox has
-# no persistent rc — no /etc/sandbox-persistent.sh, no CLAUDE_ENV_FILE — so the
-# toolchain sat on disk while `mise run <task>` reported `go: command not found`.
-# mise's shims directory is on PATH from _proveo_tool_path on every backend, which
-# is the part that was missing.
-#
-# The output is REPORTED, not discarded. The `g` call ended in `>/dev/null 2>&1`,
-# so its own refusal — "ERROR: $GOPATH/bin not found in $PATH and it is required."
-# — reached nobody, and the operator got `WARN: g could not install Go`, which
-# names neither the cause nor the fix.
 _install_go() {
   local version="$1" out
   if ! command -v mise >/dev/null 2>&1; then
@@ -681,19 +515,9 @@ _install_go() {
 
 _proveo_lock_installs() {
   command -v flock >/dev/null 2>&1 || return 0
-  # Under the TOOL home, so the lock covers every run reaching the same tree —
-  # a docker run and an sbx run on one host now share it, which is exactly the
-  # race the lock exists for and could not previously see.
   local dir
   dir="$(_proveo_tool_home)/.local/share/proveo"
   mkdir -p "$dir" 2>/dev/null || return 0
-  # `exec` with no command makes its redirections PERMANENT for this shell, so
-  # `2>/dev/null` here did not scope stderr to the exec — it silenced stderr for
-  # the whole entrypoint AND the agent it goes on to exec. Every diagnostic after
-  # this line was being written to /dev/null, which is why so many failures in
-  # this harness present as a silent death with no message.
-  # Probe writability with the redirect scoped to a single command, then take the
-  # lock without touching fd 2. See _spec/internal/sbx/seed-node-version-abort.puml (C1).
   if ! : >>"${dir}/install.lock" 2>/dev/null; then return 0; fi
   exec 9>>"${dir}/install.lock"
   if ! flock -w "${PROVEO_INSTALL_LOCK_WAIT:-300}" 9; then
@@ -704,9 +528,6 @@ _proveo_lock_installs() {
   return 0
 }
 
-# Closing an fd that was never opened is not an error in bash, so this needs no
-# guard — and it must NOT carry `2>/dev/null`: on a bare `exec` that redirect is
-# permanent, and it silenced the rest of the run (see _proveo_lock_installs).
 _proveo_unlock_installs() { exec 9>&-; }
 
 ensure_project_tools() {
@@ -714,11 +535,9 @@ ensure_project_tools() {
  _proveo_auto_install_enabled || return 0
  _proveo_lock_installs || return 0
 
- # Bounded network so a blackholed egress can't hang the container at startup.
  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
  local tool_home; tool_home="$(_proveo_tool_home)"
 
- # 1. NX Detection & Installation
  if [[ -f nx.json ]]; then
  if ! command -v nx >/dev/null 2>&1; then
  echo "📦 Detected nx.json. Dynamically installing nx..."
@@ -726,7 +545,6 @@ ensure_project_tools() {
  fi
  fi
 
- # 2. Turbo Detection & Installation
  if [[ -f turbo.json ]]; then
  if ! command -v turbo >/dev/null 2>&1; then
  echo "📦 Detected turbo.json. Dynamically installing turbo..."
@@ -734,12 +552,9 @@ ensure_project_tools() {
  fi
  fi
 
- # 3. Mise Detection & Installation
  if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
  if ! command -v mise >/dev/null 2>&1; then
  echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
- # Download first so a blocked/timed-out fetch is detected via curl's own
- # exit status (piping straight to sh masks it: an empty body exits 0).
  local mise_installer
  mise_installer="$(mktemp)"
  if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
@@ -751,14 +566,7 @@ ensure_project_tools() {
  fi
  fi
 
- # 4. Go Detection & Installation
  if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
- # GOPATH only, deliberately. GOROOT used to be forced to "${tool_home}/.go"
- # because that is where `g` unpacked its toolchains; mise installs under
- # MISE_DATA_DIR instead. An explicit GOROOT OVERRIDES what the go binary infers
- # from its own location, so keeping that line would aim a working mise toolchain
- # at an empty directory — a harder failure than the one it replaced. GOPATH stays:
- # `go install` puts gopls there, and it has to be on PATH to be found.
  export GOPATH="${GOPATH:-${tool_home}/go}"
  export PATH="${GOPATH}/bin:${PATH}"
 
@@ -787,7 +595,6 @@ ensure_project_tools() {
  _proveo_unlock_installs
 }
 
-# ── 7c. Python Environment (detect → provision → activate) ──
 # SPEC: _spec/packages/lib/python-environment.puml
 _py_project_kind() {
   local d="${1:-$(pwd)}"
@@ -808,9 +615,6 @@ _py_requested_version() {
   printf '%s' "${v:-${PROVEO_PYTHON_VERSION:-3.12}}"
 }
 
-# Presence is not capability: python3-minimal satisfies `command -v python3`
-# while `python3 -m venv` fails, which is how a decoy interpreter gets mistaken
-# for a usable one.
 _py_venv_capable() {
   command -v python3 >/dev/null 2>&1 || return 1
   local probe; probe="$(mktemp -d)/v"
@@ -825,18 +629,6 @@ _py_env_dir() {
   printf '%s' "${HOME}/.cache/proveo/venv/${h}"
 }
 
-# _py_project_roots prints the directories under scan that ARE Python projects,
-# shallowest first, deduped.
-#
-# A monorepo root is whatever its primary language made it — here, package.json
-# and pnpm-workspace.yaml — while the Python service sits under apps/. Stat-ing
-# one directory therefore finds a standalone project and misses every nested
-# one, which is how a workspace ends up with pyright (whose scan walks the tree)
-# and no interpreter (whose scan did not).
-# _proveo_project_roots prints the directories under scan that hold any of the
-# given marker filenames, shallowest first, deduped, no deeper than depth.
-# Shared by every language: which markers matter is the only thing that differs,
-# and a per-language copy of this walk is how the scans drift apart.
 _proveo_project_roots() {
   local scan="$1" depth="$2"; shift 2
   local f d rel seps n tab m first=1
@@ -866,9 +658,6 @@ _py_project_roots() {
     pyproject.toml poetry.lock uv.lock Pipfile environment.yml environment.yaml 'requirements*.txt'
 }
 
-# _py_provision_one provisions the interpreter and the project's own installer,
-# then builds the environment. Returns non-zero only when the interpreter itself
-# could not be had — a missing installer falls back to pip.
 _py_provision_one() {
   local kind="$1" root="$2" ver env_dir spec
   ver="$(_py_requested_version "$root")"
@@ -907,9 +696,6 @@ ensure_python_env() {
   [[ -n "$roots" ]] || return 0
   command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
 
-  # Each project gets its own env (`_py_env_dir` keys by path), so the cap is
-  # about STARTUP COST, not correctness: every root past it is named rather than
-  # built, and a later run with the cap raised picks it up warm.
   max="${PROVEO_PYTHON_MAX_PROJECTS:-4}"
   _proveo_lock_installs || return 0
   while IFS= read -r root; do
@@ -932,9 +718,6 @@ ensure_python_env() {
 
   [[ -n "$primary" ]] || return 0
   _py_activate "$(_py_env_dir "$primary")" "$primary"
-  # The shell has ONE VIRTUAL_ENV, so the rest are built but not activated. Say
-  # where they are: an agent that cd-s into one needs the path, and silence here
-  # reads as "not provisioned".
   [[ -n "$others" ]] && echo "🐍 Also provisioned (not activated):${others}"
   [[ -n "$deferred" ]] && \
     echo "ℹ️  Python projects past PROVEO_PYTHON_MAX_PROJECTS=${max}, not provisioned:${deferred}"
@@ -969,7 +752,13 @@ _py_build_env() {
       fi
       ;;
   esac
-  [[ $rc -eq 0 ]] || echo "⚠️  Python dependency install did not complete; the environment may be partial"
+  if [[ $rc -ne 0 ]]; then
+    echo "⚠️  Python dependency install did not complete; the environment may be partial"
+    if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
+      echo "   No C toolchain in this image — a dependency with no linux-$(uname -m) wheel"
+      echo "   cannot build from source here. Pin a version that publishes one."
+    fi
+  fi
   return 0
 }
 
@@ -987,39 +776,8 @@ _py_activate() {
   echo "🐍 Python: $("$env_dir/bin/python" --version 2>&1) · ${scan} · env ${env_dir}"
 }
 
-# ── 7d. Workspace dependency trees (one rule for every language) ──
 # SPEC: _spec/packages/lib/dependency-trees.puml
-# Knobs: PROVEO_DEPS=auto|off|reinstall · PROVEO_DEPS_TIMEOUT ·
-#        PROVEO_DEPS_PROBE_LIMIT · PROVEO_DEP_SCAN_DEPTH.
-#
-# Every language a harness supports materialises SOMETHING inside the workspace,
-# and the workspace is bind-mounted from the host. So the hazard is not a
-# TypeScript hazard — node_modules is only the loudest instance of it. What
-# differs per language is not whether the tree crosses the boundary but what it
-# COSTS when it does, and that is what the table below encodes.
-#
-# Per project the walk finds: make a HOST-BUILT tree usable, then INSTALL
-# before the agent runs. See _spec/packages/lib/dependency-trees.puml.
-#
-# Python is the extreme: a venv ALWAYS holds a platform interpreter, so it can
-# never be inherited and ensure_python_env provisions unconditionally, outside
-# the workspace. Its in-tree ".venv" is still isolated by the mount plan, so the
-# host's interpreter never crosses either way.
 
-# _dep_lang_class decides the remedy, so every supported language gets an
-# explicit entry — including the ones with nothing to do, because an absent row
-# is indistinguishable from an oversight. internal/contract pins this list to the
-# language registry, and the markers/dirs rows to internal/workspace.DepLangs.
-#
-#   addons      mostly-portable tree punctuated by platform binaries; the
-#               package manager can rebuild it, given a reachable registry
-#   artifacts   entirely host build output; no registry needed, the toolchain
-#               regenerates it once the stale tree is out of the way
-#   provisioned never inherited at all — ensure_python_env owns it
-#   portable    nothing host-specific lands in-tree: Go modules and vendor/ are
-#               source; Java/Kotlin resolve to bytecode JARs; Nix keeps its
-#               closure in /nix/store, which is never mounted
-#   none        markup and configuration; no toolchain writes anything in-tree
 _dep_lang_class() { case "$1" in
   typescript|ruby|lua|terraform) REPLY=addons ;;
   rust|cpp|zig)                  REPLY=artifacts ;;
@@ -1029,11 +787,8 @@ _dep_lang_class() { case "$1" in
   *)                             REPLY="" ;;
 esac; }
 
-# _dep_langs is the order the walk visits languages in: every class row except
-# `none`, which has neither markers nor an install.
 _dep_langs() { echo "typescript python ruby lua terraform rust cpp zig go java kotlin nix"; }
 
-# Markers that say "a project of this language is rooted here".
 _dep_lang_markers() { case "$1" in
   typescript) echo "package.json" ;;
   python)     echo "pyproject.toml requirements*.txt Pipfile uv.lock poetry.lock environment.yml environment.yaml" ;;
@@ -1046,9 +801,6 @@ _dep_lang_markers() { case "$1" in
   go)         echo "go.mod" ;;
 esac; }
 
-# The directories that language's tooling materialises inside the project.
-# The first listed is the PRIMARY: its absence means "nothing is installed"; the
-# rest are secondary caches whose absence says nothing.
 _dep_lang_dirs() { case "$1" in
   typescript) echo "node_modules" ;;
   python)     echo ".venv venv" ;;
@@ -1060,9 +812,6 @@ _dep_lang_dirs() { case "$1" in
   zig)        echo "zig-cache .zig-cache zig-out" ;;
 esac; }
 
-# Filenames worth probing. Deliberately NOT ".a"/".rlib": both are ar archives
-# on every platform, so their magic bytes cannot tell host from container — a
-# format that cannot answer the question does not belong in the probe.
 _dep_lang_binaries() { case "$1" in
   typescript) echo "*.node" ;;
   ruby)       echo "*.so *.bundle" ;;
@@ -1071,8 +820,6 @@ _dep_lang_binaries() { case "$1" in
   rust|cpp|zig) echo "*.o *.so *.dylib" ;;
 esac; }
 
-# The command that installs a project's dependencies, chosen by its own lockfile
-# and RESPECTING it. Languages with no row install nothing here.
 _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
   typescript)
     [[ -f "$d/pnpm-lock.yaml" ]] && { echo "pnpm install --frozen-lockfile"; return 0; }
@@ -1082,8 +829,6 @@ _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
     echo "npm install" ;;
   ruby)      echo "bundle install" ;;
   lua)
-    # luarocks installs INTO the project tree named by _dep_lang_dirs, from the
-    # rockspec that roots it — bare `--only-deps` with no rockspec is an error.
     spec="$(ls "$d"/*.rockspec 2>/dev/null | head -n1)"
     [[ -n "$spec" ]] && echo "luarocks --tree lua_modules install --only-deps ${spec##*/}" ;;
   terraform) echo "terraform init -input=false" ;;   # honours .terraform.lock.hcl; -upgrade would rewrite it
@@ -1091,13 +836,8 @@ _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
   go)        echo "go mod download" ;;                # modules land in GOMODCACHE; gopls needs them present
 esac; return 0; }
 
-# _dep_install_idempotent says whether re-running the install on a tree that is
-# already present and native is a cheap no-op. `npm ci` is the exception.
 _dep_install_idempotent() { case "$1" in "npm ci"*) return 1 ;; esac; return 0; }
 
-# _proveo_dep_is_isolated reports whether DIR is proveo's private copy rather than
-# the host's tree, by asking whether it is its own mount point. Where /proc is
-# unreadable the answer is "not isolated".
 _proveo_dep_is_isolated() {
   local real
   real="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
@@ -1105,17 +845,12 @@ _proveo_dep_is_isolated() {
   awk -v p="$real" '$5 == p { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
 
-# _dep_clear_tree empties a private copy in place. The directory itself is a
-# mount point and cannot be removed; its contents can.
 _dep_clear_tree() {
   local dir="$1"
   find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
   return 0
 }
 
-# ELF is the only object format this container can execute, so anything else —
-# Mach-O from macOS, PE from Windows — came from the host. Four bytes settle it:
-# no uname, no package metadata, no per-ecosystem special cases.
 _proveo_foreign_object() {
   local magic
   magic="$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')"
@@ -1123,28 +858,19 @@ _proveo_foreign_object() {
   return 0
 }
 
-# _dep_owner names the thing an operator can act on, collapsing each ecosystem's
-# storage layout back to a package identity. Falls back to the first path
-# segment, which is already the package name in most layouts.
 _dep_owner() {
   local lang="$1" path="$2" dir="$3" rel="${2#"$3"/}" head rest
   case "$lang" in
     typescript)
-      # pnpm's store keys by "<name>@<version>", which is the identity worth
-      # reporting: a platform mismatch is always about a specific build.
       case "$rel" in .pnpm/*) rel="${rel#.pnpm/}"; printf '%s' "${rel%%/*}"; return 0 ;; esac
       head="${rel%%/*}"
       if [[ "$head" == @* ]]; then rest="${rel#*/}"; printf '%s/%s' "$head" "${rest%%/*}"; return 0; fi
       printf '%s' "$head"; return 0 ;;
     ruby)
-      # …/ruby/<abi>/gems/<gem>-<version>/…
       case "$rel" in *gems/*) rel="${rel#*gems/}"; printf '%s' "${rel%%/*}"; return 0 ;; esac ;;
     lua)
-      # luarocks stores by module, not by package: lib/lua/<ver>/<module>.so.
-      # The first path segment is only ever "lib", which names nothing.
       head="${path##*/}"; printf '%s' "${head%.*}"; return 0 ;;
     terraform)
-      # providers/<registry>/<namespace>/<name>/<version>/<os>_<arch>/…
       case "$rel" in
         providers/*/*/*)
           rel="${rel#providers/}"; rel="${rel#*/}"
@@ -1155,8 +881,6 @@ _dep_owner() {
   printf '%s' "${rel%%/*}"
 }
 
-# A workspace can hold thousands of binaries and the answer never changes after
-# the first foreign one, so the probe is capped: this is a diagnosis, not an audit.
 _dep_probe() {
   local dir="$1" lang="$2" cap="${PROVEO_DEPS_PROBE_LIMIT:-60}" f n=0 p first=1
   local pat=()
@@ -1174,9 +898,6 @@ _dep_probe() {
   return 0
 }
 
-# _dep_install runs the language's install command in ROOT, bounded, and reports
-# the outcome without ever failing the seed: a workspace whose install cannot
-# complete still gets an agent, just a warned one.
 _dep_install() {
   local lang="$1" root="$2" why="$3" cmd bounded="${PROVEO_DEPS_TIMEOUT:-900}" rc=0
   cmd="$(_dep_install_cmd "$lang" "$root")"
@@ -1197,8 +918,6 @@ _dep_install() {
   return 0
 }
 
-# _dep_addons_tree handles a PRESENT addons tree: foreign → rebuild (where that
-# is safe), native → refresh against the lockfile.
 _dep_addons_tree() {
   local lang="$1" root="$2" dir="$3" mode="$4" foreign names count cmd
   foreign="$(_dep_probe "$dir" "$lang" | sort -u)"
@@ -1210,9 +929,6 @@ _dep_addons_tree() {
     echo "    The portable majority still loads, so the failure arrives later, at the first"
     echo "    call into one of them, naming the TOOL rather than the platform."
     if _proveo_dep_is_isolated "$dir"; then
-      # The copy is proveo's, so clearing it costs the operator nothing — and a
-      # package manager handed an existing tree would keep the foreign binaries
-      # it finds there, which is why the rebuild starts from empty.
       echo "    ♻️  this is proveo's private copy; the host checkout is untouched — clearing it"
       _dep_clear_tree "$dir"
       _dep_install "$lang" "$root" "rebuilding ${dir#"$root"/} for this platform"
@@ -1231,9 +947,6 @@ _dep_addons_tree() {
   _dep_install "$lang" "$root" "refreshing ${dir#"$root"/} against its lockfile"
 }
 
-# Build output needs no registry — the toolchain regenerates it. A foreign copy
-# is simply cleared out of the way; a foreign HOST tree is named, since removing
-# the operator's build output is not proveo's call.
 _dep_artifacts_tree() {
   local lang="$1" root="$2" dir="$3"
   [[ -n "$(_dep_probe "$dir" "$lang" | head -n1)" ]] || return 0
@@ -1247,17 +960,12 @@ _dep_artifacts_tree() {
   return 0
 }
 
-# _ts_is_workspace_root: a workspace installs every member from ITS root, so
-# members are collapsed into their root.
 _ts_is_workspace_root() {
   local d="$1"
   [[ -f "$d/pnpm-workspace.yaml" ]] && return 0
   [[ -f "$d/package.json" ]] && grep -q '"workspaces"' "$d/package.json" 2>/dev/null
 }
 
-# _dep_collapse_workspaces reads project roots (shallowest first, as
-# _proveo_project_roots emits them) and drops every root that sits under a
-# workspace root already seen.
 _dep_collapse_workspaces() {
   local root w skip
   local ws=()
@@ -1316,35 +1024,11 @@ ensure_dependency_trees() {
   return 0
 }
 
-# ── Launcher handoff ───────────────────────────────────────
-# proveo_exec_agent decides whether "$@" is the agent's ARGUMENTS or a COMMAND to
-# run instead of the agent, and it exists because the two backends disagree.
-#
-# docker: proveo passes the harness's own flags (`-p "prompt"`, `--continue`), so
-#   they belong AFTER the agent binary.
-# sbx:    the built-in agent kit supplies the whole command in the CMD position —
-#   `claude --dangerously-skip-permissions`, or a `sh -c …` wrapper. The stock
-#   template's ENTRYPOINT is a bare init (`tini --`) so that command simply runs.
-#   proveo's ENTRYPOINT is this script, so the same words arrive here as "$@" and
-#   appending them to our own launch line hands the AGENT NAME to the agent as a
-#   positional — which every harness reads as a PROMPT. The agent then answers
-#   "claude --dangerously-skip-permissions", or just "sh", and exits; the sandbox
-#   stops with it, and the operator sees `ERROR: sandbox … was stopped` with no
-#   cause. That is the whole "auto-close", and the phantom `sh` prompts with it.
-#
-# The test is whether the first word RESOLVES as an executable. A harness flag
-# never does (`-p`, `--continue`); a launcher-supplied command always does
-# (`claude`, `sh`, `bash`). No backend detection, no env sniffing, and it stays
-# correct if either side changes its wording.
 proveo_exec_agent() {
   local agent="$1"; shift
   local launch=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
   [[ "${1:-}" == "--" ]] && shift
-  # "$1" != -* comes FIRST and is not redundant: `command -v -p` parses -p as
-  # command's OWN flag and reports success, so a bare probe declares the harness
-  # flag `-p` an executable and execs it. `--` then stops option parsing for the
-  # rest. Both guards are load-bearing.
   if [[ $# -gt 0 && "$1" != -* ]] && command -v -- "$1" >/dev/null 2>&1; then
     echo "🔁 launcher supplied its own command; running it instead of ${agent}: $1 …"
     exec "$@"
@@ -1352,52 +1036,18 @@ proveo_exec_agent() {
   exec "$agent" "${launch[@]}" "$@"
 }
 
-# ── 7e. House rules (proveo's own conventions, in every workspace) ──
 # SPEC: _spec/packages/lib/house-rules.puml
-# Knobs: PROVEO_HOUSE_RULES=off.
 
-# ProveoHouseRulesFile is where the image bakes THIS repo's AGENTS.md.
 readonly PROVEO_HOUSE_RULES_FILE=/opt/proveo/AGENTS.md
 readonly PROVEO_RULES_START="<!-- >>> proveo house rules (generated — edits are overwritten) >>> -->"
 readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
 
-# _house_rules_target maps a harness to its USER-level instruction file, relative
-# to the agent's home. Empty means the harness has no such file and proveo writes
-# nothing — a decision, not an oversight, so every supported target gets a row.
-#
-# USER level, never the workspace. The workspace is the operator's repository:
-# seeding a file there mutates their checkout, competes with an AGENTS.md they
-# already wrote, and cannot apply at all when one exists. The user layer has none
-# of those problems — both harnesses below merge it with the project's rather than
-# choosing between them, and both rank the project's HIGHER, so a repo can still
-# overrule the house.
-#
-#   claudecode  NONE here — /etc/claude-code/CLAUDE.md, baked by the Dockerfile.
-#               That is the MANAGED POLICY tier: it loads before the user and
-#               project files and cannot be excluded by claudeMdExcludes at any
-#               settings layer, which is what "always processed" requires. The
-#               home file this function would write is the LOWEST tier and a
-#               project CLAUDE.md outranks it.
-#   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
-#               instructions render global first, then project on top.
-#   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
-#               AGENTS.md/CLAUDE.md; its global "User Rules" live in the IDE
-#               settings UI, not a file the CLI reads. Nothing to write.
-#   cecli       NONE established. It seeds a PROJECT CONVENTIONS.md from its own
-#               defaults; no user-level equivalent is documented, and guessing a
-#               path writes a file nothing reads.
 _house_rules_target() { case "$1" in
-  # claudecode is deliberately EMPTY: its rules ship at the managed policy path
-  # (/etc/claude-code/CLAUDE.md, baked by the Dockerfile), which outranks the home
-  # file this function writes and cannot be excluded. Writing both would put the
-  # same text in context twice.
   claudecode) echo "" ;;
   opencode)   echo ".config/opencode/AGENTS.md" ;;
   cursor|cecli) echo "" ;;
 esac; }
 
-# proveo_compose_house_rules installs this repo's conventions as the harness's
-# user-level instructions, leaving the operator's own content in that file intact.
 proveo_compose_house_rules() {
   local target="${1:-}" home rel dest
   case "$(printf '%s' "${PROVEO_HOUSE_RULES:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1417,23 +1067,8 @@ proveo_compose_house_rules() {
   echo "📐 house rules → ${dest} (project instructions still take precedence)"
 }
 
-# ── 7f. Node toolchain from the project's own pins ──
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
-# Knobs: PROVEO_NODE_TOOLCHAIN=off.
-#
-# The image ships ONE node and ONE pnpm; a repository pins its own. Measured on
-# the pluvo monorepo: package.json pins "pnpm@9.15.0" and engines.pnpm "9.x",
-# while the image carries pnpm 10.33.0 — a major version out, which is enough to
-# rewrite a lockfile. node was fine (22.23.2 satisfies "22.x"), so the mismatch an
-# operator SEES as "node --version is wrong" is usually the package manager.
-#
-# corepack for the package manager and mise for the runtime, each because it is
-# the purpose-built tool: corepack exists to honour `packageManager` and ships
-# with node, and mise is already the floor's version manager (python-environment
-# .puml — "mise is the mechanism, not a competitor to uv"). Neither writes to the
-# workspace: corepack caches under the agent's home, mise under its own share dir.
 
-# _node_nearest_pkg prints the closest package.json at or above the scan root.
 _node_nearest_pkg() {
   local d; d="$(cd "${1:-$PWD}" 2>/dev/null && pwd)" || return 0
   while [[ -n "$d" && "$d" != "/" ]]; do
@@ -1444,16 +1079,9 @@ _node_nearest_pkg() {
   return 0
 }
 
-# _node_json_field reads one top-level field. node is always present here — it is
-# the runtime this function exists to manage — and parsing JSON with sed is how a
-# trailing comma or a nested "engines" turns into a silently wrong version.
 _node_json_field() {
   local file="$1" expr="$2"
   [[ -f "$file" ]] || return 0
-  # A harness image without node is the ORDINARY case — cecli ships python only —
-  # and both callers assign this in a command substitution, so a 127 from a
-  # missing interpreter aborted the whole seed under `set -euo pipefail`. Same
-  # defect as _node_version_file: absence is not failure.
   command -v node >/dev/null 2>&1 || return 0
   node -e '
     try {
@@ -1464,7 +1092,6 @@ _node_json_field() {
   ' "$file" "$expr" 2>/dev/null || return 0
 }
 
-# ensure_node_toolchain aligns the package manager and runtime with the project.
 ensure_node_toolchain() {
   local scan="${1:-$PWD}" pkg pm want_node have
   case "$(printf '%s' "${PROVEO_NODE_TOOLCHAIN:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1474,12 +1101,7 @@ ensure_node_toolchain() {
   pkg="$(_node_nearest_pkg "$scan")"
   [[ -n "$pkg" ]] || return 0
 
-  # packageManager is the exact, checksummed pin. corepack activates it globally
-  # for this container; the standalone pnpm the image ships would otherwise win
-  # on PATH and quietly use a different major.
   pm="$(_node_json_field "$pkg" packageManager)"
-  # corepack knows npm, pnpm and yarn. A `bun@…` pin is mise's (ensure_bun_pin,
-  # below); handing it to corepack only buys a "could not activate" warning.
   if [[ -n "$pm" && "$pm" != bun@* ]] && command -v corepack >/dev/null 2>&1; then
     if _proveo_bounded "${PROVEO_NODE_TIMEOUT:-180}" corepack prepare "$pm" --activate >/dev/null 2>&1 \
        && _proveo_bounded 30 corepack enable >/dev/null 2>&1; then
@@ -1491,9 +1113,6 @@ ensure_node_toolchain() {
 
   ensure_bun_pin "$pkg" "$scan"
 
-  # engines.node is a RANGE, not a pin, so it is only acted on when the running
-  # node fails it — reinstalling a satisfying runtime buys nothing and costs a
-  # download on every start.
   want_node="$(_node_json_field "$pkg" engines.node)"
   [[ -n "$want_node" ]] || want_node="$(_node_version_file "$scan")"
   [[ -n "$want_node" ]] || return 0
@@ -1507,9 +1126,6 @@ ensure_node_toolchain() {
     && _proveo_tool_path || echo "⚠️  could not provision node ${want_node}; keeping ${have}"
 }
 
-# ── Bun: the same rule, through mise ──
-# packageManager (exact pin), engines.bun (a range) or .bun-version asks for a
-# bun; corepack does not manage bun, so the pin goes through mise.
 _bun_wanted() {
   local pkg="$1" scan="$2" pm want
   pm="$(_node_json_field "$pkg" packageManager)"
@@ -1520,8 +1136,6 @@ _bun_wanted() {
   return 0
 }
 
-# _bun_satisfies: an exact X.Y.Z is matched exactly (that is what a pin means);
-# anything else is a range and follows _node_satisfies (major agreement).
 _bun_satisfies() {
   local have="$1" want="$2"
   [[ -n "$have" ]] || return 1
@@ -1531,8 +1145,6 @@ _bun_satisfies() {
   _node_satisfies "$have" "$want"
 }
 
-# _bun_mise_spec turns what the project wrote into what mise installs: an exact
-# pin verbatim, a range down to its leading version prefix ("^1.4" → 1.4).
 _bun_mise_spec() {
   local want="$1" v
   v="$(printf '%s' "$want" | sed -n 's/^[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
@@ -1567,9 +1179,6 @@ _node_version_file() {
   return 0
 }
 
-# _node_satisfies handles the range forms a package.json actually uses — "22.x",
-# ">=22", "^22.1.0", "22". Anything it cannot parse is treated as SATISFIED, so an
-# exotic range never triggers a pointless download.
 _node_satisfies() {
   local have="$1" want="$2" have_major want_major
   [[ -n "$have" ]] || return 1
@@ -1579,23 +1188,7 @@ _node_satisfies() {
   [[ "$have_major" == "$want_major" ]]
 }
 
-# ── 7g. UI defaults (a sandbox should LOOK like a sandbox) ──
 # SPEC: _spec/packages/lib/house-rules.puml
-# Knobs: PROVEO_UI_DEFAULTS=off.
-#
-# Two settings, both about reading the screen correctly.
-#
-# THEME. A sandboxed session and a host session are the same program in the same
-# terminal, and an operator with both open has nothing to tell them apart — which
-# is how a command meant for the sandbox gets typed into the host. Claude Code
-# supports custom themes as JSON under `<home>/.claude/themes/<slug>.json`,
-# selected as `custom:<slug>`, so proveo ships one in its own identity palette:
-# the accent, prompt border and permission dialogs go cyan/teal instead of the
-# default orange. Visible at a glance, no reading required.
-#
-# SYNTAX HIGHLIGHTING is already Claude Code's default; it is written explicitly
-# because the default is the thing an inherited settings file can quietly flip,
-# and a grep result rendered as flat text is materially harder to read.
 proveo_apply_ui_defaults() {
   local target="${1:-}" home themes src
   case "$(printf '%s' "${PROVEO_UI_DEFAULTS:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1613,8 +1206,6 @@ proveo_apply_ui_defaults() {
   fi
 
   command -v node >/dev/null 2>&1 || return 0
-  # MERGED, not written: this file is the operator's, and only the two keys
-  # proveo has an opinion about are set.
   PROVEO_AGENT_HOME="$home" node -e '
     const fs = require("fs");
     const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
@@ -1628,9 +1219,7 @@ proveo_apply_ui_defaults() {
   ' 2>/dev/null || true
 }
 
-# ── 7h. Claude Code hooks — the cwd guard ──
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
-# Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (path; tests point it elsewhere).
 proveo_install_claude_hooks() {
   local target="${1:-}" home hook
   case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1660,10 +1249,7 @@ proveo_install_claude_hooks() {
   return 0
 }
 
-# ── 7i. Claude Code code-intelligence plugins — seeded by the image, enabled here ──
 # SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
-# Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (set by the image).
-# The rule is the binary. Pinned to the Dockerfile's install list by internal/contract.
 _claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
 _claude_lsp_plugin_binary() { case "$1" in
   typescript-lsp)    echo "typescript-language-server" ;;
@@ -1674,7 +1260,6 @@ _claude_lsp_plugin_binary() { case "$1" in
   jdtls-lsp)         echo "jdtls" ;;
   lua-lsp)           echo "lua-language-server" ;;
 esac; }
-# The proveo-lsp language each official plugin supersedes.
 _claude_lsp_plugin_lang() { case "$1" in
   typescript-lsp)    echo "typescript" ;;
   pyright-lsp)       echo "python" ;;
@@ -1685,10 +1270,6 @@ _claude_lsp_plugin_lang() { case "$1" in
   lua-lsp)           echo "lua" ;;
 esac; }
 
-# proveo_enable_claude_lsp_plugins turns on every seeded official plugin whose
-# binary is present, MERGED into the agent's user settings, and writes the two
-# records Claude Code installs by (installed_plugins.json, known_marketplaces.json).
-# Exports PROVEO_CLAUDE_LSP_OFFICIAL.
 proveo_enable_claude_lsp_plugins() {
   local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
   export PROVEO_CLAUDE_LSP_OFFICIAL=""
@@ -1708,8 +1289,6 @@ proveo_enable_claude_lsp_plugins() {
   done
   [[ -n "$candidates" ]] || return 0
   command -v node >/dev/null 2>&1 || return 0
-  # node merges the three files and REPORTS what is on afterwards: a plugin the
-  # operator set to false stays off, and its language goes back to proveo-lsp.
   enabled="$(PROVEO_AGENT_HOME="$home" PROVEO_SEED="$seed" PROVEO_PLUGINS="$candidates" node -e '
     const fs = require("fs"), path = require("path");
     const home = process.env.PROVEO_AGENT_HOME + "/.claude", seed = process.env.PROVEO_SEED;
@@ -1762,11 +1341,7 @@ proveo_enable_claude_lsp_plugins() {
   return 0
 }
 
-# ── 7j. Browser layer — the agent-browser skill, and the Claude in Chrome bridge ──
 # SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
-# Knobs: PROVEO_BROWSER_SKILL=off · PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN
-#        (both set by `proveo run` when the claude-in-chrome add-on is on).
-# Gated on the BINARY, not the image name.
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
   cursor)     echo ".cursor/skills" ;;
@@ -1789,8 +1364,6 @@ proveo_seed_browser_skills() {
   [[ -n "$home" ]] || return 0
   dst="$home/$dir/agent-browser"
   mkdir -p "$dst" 2>/dev/null || return 0
-  # proveo's file, so it is refreshed in place; an operator's own skills beside it
-  # are never touched. (sha256sum, not cmp: diffutils is not on the slim floor.)
   if [[ "$(sha256sum < "$PROVEO_BROWSER_SKILL_SRC")" != "$(sha256sum < "$dst/SKILL.md" 2>/dev/null)" ]]; then
     cp -f "$PROVEO_BROWSER_SKILL_SRC" "$dst/SKILL.md" 2>/dev/null || return 0
   fi
@@ -1800,16 +1373,9 @@ proveo_seed_browser_skills() {
 }
 
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
-#
-# Two relays carry the native-host socket across the boundary; this is the
-# in-container half. PROVEO_CHROME_BRIDGE names the host end. Docker backend
-# only — the run never sets the variable on sbx.
 readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
 PROVEO_CHROME_READY=""
 
-# Claude Code's own credential gate, mirrored so the warning below is true
-# rather than merely cautious. Kept in lockstep with chromebridge.ScopeGate by
-# internal/entrypoint/parity_test.go.
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
 _proveo_chrome_scope_ok() {
   local scopes home
@@ -1822,9 +1388,6 @@ _proveo_chrome_scope_ok() {
   fi
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:-}" ]] && return 0
   home="$(_proveo_agent_home)"
-  # A login whose accessToken is present and non-empty. The blanked shape is what
-  # a macOS host leaves behind when it moves the token to the Keychain; in here
-  # the file is the credential, so an empty token means there is no login.
   if [[ -n "$home" ]] && grep -q '"accessToken":"[^"]' "$home/.claude/.credentials.json" 2>/dev/null; then
     return 0
   fi
@@ -1841,8 +1404,6 @@ proveo_chrome_bridge() {
     return 0
   fi
   command -v node >/dev/null 2>&1 || return 0
-  # Once per container: the seed owns the call, and a second relay would leave
-  # Claude Code choosing between two sockets by mtime.
   if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then
     return 0
   fi
@@ -1853,8 +1414,6 @@ proveo_chrome_bridge() {
   log="${TMPDIR:-/tmp}/proveo-chrome-bridge.log"
   out="${TMPDIR:-/tmp}/proveo-chrome-bridge.sock-path"
   : > "$out"
-  # Detached from this shell: the entrypoint execs into the agent, and the relay
-  # has to outlive that hand-over for as long as the agent does.
   if command -v setsid >/dev/null 2>&1; then
     setsid node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
   else
@@ -1888,9 +1447,6 @@ proveo_chrome_bridge() {
   return 0
 }
 
-# ── 8. Workspace LSP Detection (shared) ─────────────────────
-
-# LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
 _lsp_ext_lang() { case "$1" in
   .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) REPLY=typescript ;;
   .py|.pyi) REPLY=python ;;
@@ -2031,11 +1587,6 @@ PROVEO_JDTLS
   chmod +x "$t/.local/bin/jdtls"
 }
 
-# _proveo_walk runs find under scan_root with the build-output, cache and
-# vendored-dependency trees pruned, then applies the caller's own expression.
-# Shared so the language-server walk and the Python project scan can never drift
-# into pruning different things — the drift that let pyright be provisioned for
-# files whose interpreter was not.
 _proveo_walk() {
   local root="$1"; shift
   find "$root" \
@@ -2080,9 +1631,6 @@ _lsp_walk() {
 }
 
 # SPEC: _spec/packages/lib/language-server-provisioning.puml
-# Knobs: PROVEO_AUTO_INSTALL_TOOLS · PROVEO_LSP_INSTALL=off|<csv> ·
-# PROVEO_LSP_MIN_FILES · PROVEO_LSP_INSTALL_TIMEOUT · GITHUB_TOKEN.
-# Call directly, never through a pipe: it exports PATH.
 ensure_language_servers() {
   _proveo_tool_path
   _proveo_auto_install_enabled || return 0
@@ -2157,8 +1705,6 @@ ensure_language_servers() {
   return 0
 }
 
-# detect_workspace_lsps prints "lang|count|cmd|arg…|ext1,ext2" per language whose
-# LSP server is installed, ranked by file count desc, then popularity, then name.
 detect_workspace_lsps() {
   local scan_root="${1:-$(pwd)}"
   local tab; tab="$(printf '\t')"
@@ -2178,7 +1724,6 @@ detect_workspace_lsps() {
     [[ -n "$server" ]] || continue
     cmd="${server%% *}"
     command -v "$cmd" >/dev/null 2>&1 || continue
-    # Deterministic (sorted, unique) extension list regardless of filesystem order.
     extcsv="$(printf '%s' "$extcsv" | tr ',' '\n' | sort -u | paste -sd, -)"
     printf '%s|%s|%s|%s\n' "$lang" "$cnt" "${server// /|}" "$extcsv"
   done
@@ -2199,8 +1744,6 @@ configure_claude_lsp() {
       }
     }) | from_entries')"
   [ -z "$lsp_json" ] && lsp_json="{}"
-  # Languages an enabled official plugin already serves are left to it: two
-  # servers on one extension means one never starts and /plugin warns about it.
   if [[ -n "${PROVEO_CLAUDE_LSP_OFFICIAL:-}" ]]; then
     lsp_json="$(printf '%s' "$lsp_json" | jq --arg drop "$PROVEO_CLAUDE_LSP_OFFICIAL" \
       'with_entries(select(.key as $k | ($drop | split(" ") | index($k)) == null))')"
@@ -2214,14 +1757,6 @@ configure_claude_lsp() {
   echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }
 
-# configure_opencode_lsp merges the detected servers under `.lsp` in opencode's
-# user config. SETDEFAULT semantics: an entry the operator already wrote wins, so
-# a hand-tuned server survives every run.
-#
-# It lives HERE rather than in defs/opencode/entrypoint.sh because sbx never runs
-# the image entrypoint — `proveo-seed` is the Kit's only startup command — so a
-# wiring step left in the def reached the docker backend alone, and opencode came
-# up on sbx with every language server installed and none of them configured.
 configure_opencode_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
@@ -2259,26 +1794,7 @@ configure_opencode_lsp() {
   echo "─────────────────────────────────────────────────────"
 }
 
-# configure_opencode_formatter turns opencode's formatter registry ON.
 # SPEC: _spec/_plans/config-seeding-and-persistence.puml
-# Knobs: PROVEO_OPENCODE_FORMATTER=off
-#
-# opencode ships 24 built-in formatters — prettier, oxfmt, gofmt, ruff, rustfmt,
-# biome, shfmt, clang-format, terraform, ktlint, rubocop … — and they are
-# DISABLED BY DEFAULT: omitting the key is the off state, and nothing in the
-# project turns it on. So a workspace with prettier in its package.json and oxfmt
-# on PATH formatted nothing, forever, and looked like a misconfiguration rather
-# than a switch proveo had never flipped.
-#
-# `true` rather than a per-formatter table on purpose. opencode already decides
-# availability per formatter, and better than proveo could: a command on PATH for
-# gofmt and rustfmt, a config file for clang-format and biome, a package.json or
-# composer.json dependency for prettier and pint. Restating that here would be a
-# second detector to keep in step with theirs, so this only answers the question
-# opencode cannot answer for itself — may they run at all.
-#
-# Setdefault, like every other wiring step: an operator who set `formatter`
-# (including to `false`) keeps their answer.
 configure_opencode_formatter() {
   command -v jq >/dev/null 2>&1 || return 0
   case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -2301,13 +1817,6 @@ configure_opencode_formatter() {
   fi
 }
 
-# configure_cursor_lsp registers one mcp-language-server per detected language in
-# cursor's user MCP config: cursor has no native LSP client, so code intelligence
-# reaches it as MCP servers. Same backend reason as configure_opencode_lsp.
-#
-# The workspace is the SCAN ROOT rather than a hardcoded /app — on sbx the tree is
-# mounted at its own host path, and an mcp-language-server pointed at /app there
-# would index a directory that does not exist.
 configure_cursor_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   command -v mcp-language-server >/dev/null 2>&1 || return 0
@@ -2338,44 +1847,9 @@ configure_cursor_lsp() {
   fi
 }
 
-
-# ── 8b. The config-class chain ──────────────────────────────
 # SPEC: _spec/_plans/config-seeding-and-persistence.puml,
-#       _spec/packages/lib/language-server-provisioning.puml
-#
-# A harness opens onto a workspace and needs things CONFIGURED before it is
-# useful. They differ only in the file format at the end, so they get one table
-# and one entry point rather than a `case` per class scattered through the seed.
-#
-#   class      detect                 provide           probe             wire
-#   ────────── ────────────────────── ───────────────── ───────────────── ──────────────────
-#   plugin     fixed list             image seed dir    binary presence   configure_claude_plugins
-#   lsp        _lsp_walk (ext+marker) image layer, else none — measured   configure_claude_lsp
-#              ranked by file count   mise / ubi        and refused       configure_opencode_lsp
-#                                                                         configure_cursor_lsp
-#   formatter  the HARNESS's own      image layer +     none — the        configure_opencode_formatter
-#              availability check     project deps      harness gates
-#   mcp        the server's own       image layer       `initialize`      configure_cecli_mcp
-#              precondition           (venv / binary)  handshake
-#
-# The formatter row exists because opencode's registry is DISABLED BY DEFAULT and
-# nothing in a project turns it on — a workspace carrying prettier and oxfmt
-# formatted nothing, which reads as a misconfiguration rather than as a switch
-# proveo never flipped. It is the one class where the harness does its own
-# detection (opencode checks PATH, a config file, or a package.json dependency
-# per formatter), so proveo answers only the question opencode cannot: may they
-# run at all. The other three harnesses have a formatter surface too, and all
-# three are COMMAND hooks rather than registries — see the plan for why they are
-# not wired yet.
-# Order is a dependency, not a preference: the plugin row exports
-# PROVEO_CLAUDE_LSP_OFFICIAL, and the lsp row reads it to decide which languages
-# to YIELD to an official plugin. Wire lsp first and proveo-lsp declares a
-# language a plugin already serves — two servers on one extension, one of which
-# never starts.
 _proveo_config_classes() { echo "plugin lsp formatter mcp"; }
 
-# _proveo_class_wire names the function that writes one class's config for one
-# harness, or nothing when that harness has no surface for it.
 _proveo_class_wire() {
   case "$1:$2" in
   lsp:claudecode) echo "configure_claude_lsp" ;;
@@ -2387,32 +1861,13 @@ _proveo_class_wire() {
   esac
 }
 
-# _proveo_class_probe names the function that decides whether a provided thing
-# actually WORKS, or nothing when the class has no decidable probe.
-#
-# The asymmetry is the whole lesson of this table. LSP has no probe and that was
-# measured, not assumed: feeding EOF to healthy servers returns 124, 2, 1 and 0
-# depending on the server, so no exit code separates healthy from broken and any
-# probe would discard working servers. MCP is the opposite — `initialize` answers
-# with a result or the server answers nothing — and MCP is precisely the class
-# that shipped dead for weeks behind a `command -v` gate that only ever proved a
-# launcher existed.
 _proveo_class_probe() {
   case "$1" in
   mcp) echo "_proveo_mcp_probe" ;;
   plugin) echo "_proveo_plugin_probe" ;;
-  # formatter: none, and not for the LSP row's reason. opencode gates each
-  # built-in itself, so a proveo probe would be a second detector answering a
-  # question the harness has already answered better.
   esac
 }
 
-# _proveo_mcp_probe runs the MCP handshake against a candidate server and
-# succeeds only if it ANSWERS: one `initialize` request on stdin, a JSON-RPC
-# result naming a protocolVersion or a serverInfo on stdout.
-#
-# Bounded, because a server that hangs is a boot that hangs, and the whole point
-# is to reach a verdict without the agent waiting on one.
 _proveo_mcp_probe() {
   local secs="${PROVEO_MCP_PROBE_TIMEOUT:-10}" out
   command -v "$1" >/dev/null 2>&1 || return 1
@@ -2424,28 +1879,11 @@ _proveo_mcp_probe() {
   return 1
 }
 
-# _proveo_plugin_probe is the presence of the binary a plugin drives; the
-# enablement step applies it per plugin (_claude_lsp_plugin_binary).
 _proveo_plugin_probe() { command -v "$1" >/dev/null 2>&1; }
 
-# configure_claude_plugins adapts the plugin row to the table's signature.
-# The table calls every wire function as `<fn> <scan_root> <target>`; the
-# enablement step predates the table and keys on the target alone, so the
-# adapter exists rather than changing a function three tests already drive.
 configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
 
-# configure_cecli_mcp declares the Serena MCP server in cecli's home config.
 # SPEC: _spec/defs/cecli/cecli-paradigm.puml
-# Knobs: PROVEO_CECLI_MCP=off · PROVEO_MCP_PROBE_TIMEOUT
-#
-# cecli is the one harness with no native LSP client, so its code intelligence
-# has to arrive as MCP — the same delivery cursor gets from mcp-language-server.
-#
-# This shipped once before and was deleted, and the reason is the whole argument
-# for a probe step. The gate was `command -v serena`, which proved a LAUNCHER
-# existed; a package version skew meant the server then died on every boot for
-# weeks while the e2e side-effect assertion stayed green. `initialize` answers or
-# it does not, so the thing that failed silently is now the thing that cannot.
 configure_cecli_mcp() {
   local scan="${1:-$(pwd)}" conf probe
   case "$(printf '%s' "${PROVEO_CECLI_MCP:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -2454,8 +1892,6 @@ configure_cecli_mcp() {
   command -v serena >/dev/null 2>&1 || return 0
 
   conf="$(_proveo_agent_home)/.cecli.conf.yml"
-  # An existing declaration wins — the operator's, or one this file carried back
-  # from a previous run. Never a second mcp-servers block: cecli reads the first.
   if [[ -f "$conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$conf"; then
     echo "🧠 MCP: mcp-servers already declared in $conf; leaving it alone"
     return 0
@@ -2468,8 +1904,6 @@ configure_cecli_mcp() {
     return 0
   fi
 
-  # The project is the SCAN ROOT, not /app: sbx mounts the workspace at its own
-  # host path, and a server pointed at /app there indexes nothing.
   cat >>"$conf" <<YAML
 mcp-servers:
   mcpServers:
@@ -2480,10 +1914,6 @@ YAML
   echo "🧠 MCP code intelligence via Serena (initialize handshake answered): $conf"
 }
 
-# proveo_wire_config writes every class this harness has a surface for, in table
-# order, after provisioning. ONE entry point, called from proveo_seed — which is
-# what keeps a wiring step from being left in a def entrypoint, where it reaches
-# the docker backend alone because sbx never runs the image ENTRYPOINT.
 proveo_wire_config() {
   local target="${1:-}" scan class fn
   [[ -n "$target" ]] || return 0
@@ -2495,19 +1925,14 @@ proveo_wire_config() {
       echo "⚠️  no $class wiring function $fn in this image; skipping" >&2
       continue
     }
-    # Every wire function takes <scan_root> <target>; the ones that predate the
-    # table ignore the second, which is why the plugin row has an adapter.
     "$fn" "$scan" "$target" || true
   done
 }
 
-# ── 9. Agent Evidence (verbosity) ───────────────────────────
 agent_evidence_verbose() {
  [[ "${PROVEO_AGENT_EVIDENCE:-verbose}" != "default" ]]
 }
 
-# report_agent_evidence <flag>... — one line naming what the level bought, so an
-# operator reading the transcript can tell a quiet run from a suppressed one.
 report_agent_evidence() {
  if (( $# > 0 )); then
  echo "🔎 agent evidence: verbose — $*"
@@ -2516,22 +1941,12 @@ report_agent_evidence() {
  fi
 }
 
-# ── Subagent definitions — composed at runtime, never duplicated on disk ──
-# One body per agent lives in /opt/proveo/subagents/<name>.md with {{TOKEN}}
-# placeholders; the frontmatter schema is per-harness because Claude Code declares
-# a tools allowlist, opencode and cecli declare mode+permission, and cursor
-# declares readonly. A symlink cannot express that split (it is all-or-nothing,
-# and Docker COPY preserves the link so it dangles in the image), so the two
-# halves are joined here, on first run, into the harness's own agents directory.
-#
-#   render_subagents <harness> <dest-dir> [reseed]
 render_subagents() {
  local harness="$1" dst="$2" reseed="${3:-0}"
  local src="${PROVEO_SUBAGENTS_DIR:-/opt/proveo/subagents}"
  local fmdir="$src/_frontmatter/$harness" varfile="$src/_vars/$harness.env"
 
  [[ -d "$fmdir" ]] || return 0
- # set -e is on: a read-only home must degrade to "no subagents", not kill the run.
  mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not seed subagents into $dst; continuing" >&2; return 0; }
 
  local keys=() vals=() k v
@@ -2569,59 +1984,10 @@ render_subagents() {
  fi
 }
 
-# ── The FILE-SHAPED half of harness setup, invoked identically by both backends ──
-# Under sbx this runs from the Kit's setup.startup hook; on docker the entrypoint
-# calls it before exec. It may ONLY do work that outlives its own process: a setup
-# command runs in its own shell, so anything it exported would never reach the
-# agent. Env-shaped work is resolved host-side and arrives as values.
-#
-# Idempotent by construction — every step is "create if absent" or a merge — because
-# a re-attached sandbox runs the startup hook again.
-# _proveo_agent_home is the home the AGENT will run with, which is not always the
-# one this process has: sbx runs setup commands under `user: "1000"`, and that
-# resets HOME from /etc/passwd. Anything written for the agent to find later must
-# go here, or it lands in the image's home while the agent reads somewhere else.
 _proveo_agent_home() { printf '%s' "${PROVEO_HOME:-${HOME:-}}"; }
 
-# _proveo_scan_root is the workspace to provision against. On the docker backend
-# that is the container path; sbx mounts each workspace at its own HOST path, so
-# the launcher passes it explicitly and $PWD is not it.
 _proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
 
-# proveo_provision_toolchain is the INSTALL-shaped half of setup: everything that
-# leaves files behind and therefore outlives the process that made it.
-#
-# It lives here, in the seed, because the seed is the one step BOTH backends reach
-# by a route neither can skip: docker calls it from the entrypoint, sbx ALSO calls
-# it from setup.startup. Keeping the work in one function is what stops the two
-# paths drifting apart.
-#
-# Correction, recorded because it cost real time: the entrypoint is NOT skipped on
-# sbx. `-t` overrides the image, not the ENTRYPOINT, so defs/*/entrypoint.sh runs
-# on both backends — proven by the ladder, where rung 1 stayed broken after the
-# home fix and went green only once proveo_exec_agent stopped that entrypoint from
-# handing sbx's command to the agent as a prompt. The sbx run that had no poetry
-# was the ROOT-ONLY Python scan (see _py_project_roots), not a skipped entrypoint.
-# _proveo_volume_state_dirs lists the directories under the agent's home that sbx
-# mounts as PER-SANDBOX volumes, and that `sbx rm` therefore destroys with the VM.
-#
-# Discovered at runtime rather than tabulated per agent on purpose. sbx chooses
-# these itself, per built-in agent kit — for claude it is .claude/projects,
-# sessions, todos, shell-snapshots and statsig — so a hand-written table is a
-# guess that goes stale the moment sbx adds one, and the truth is already in
-# /proc/mounts: a block device under $HOME is by definition sandbox-local.
-# Host binds (virtiofs, like the shared skills dir) are left alone; they already
-# outlive the run.
-#
-# statsig and shell-snapshots are skipped: telemetry and scratch, not resume
-# state, and copying them back would grow the operator's home without ever being
-# read.
-# _proveo_volume_mounts is the unfiltered truth: every block-device mount under
-# the agent home, which is exactly the set sbx owns per sandbox. Split out from
-# _proveo_volume_state_dirs because the two callers want opposite halves — the
-# state sync wants the ones worth copying, the config sync wants to skip ALL of
-# them, telemetry included, since a volume is state by definition and a config
-# sync that descended into one would copy transcripts a second time.
 _proveo_volume_mounts() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$home" && -r /proc/mounts ]] || return 0
@@ -2639,42 +2005,17 @@ _proveo_volume_state_dirs() {
  done < <(_proveo_volume_mounts)
 }
 
-# ── Config persistence: the manifest's own named set ────────
 # SPEC: _spec/_plans/config-seeding-and-persistence.puml
-#
-# PROVEO_CONFIG_DIRS is the manifest's `home.mounts` resolved HOST-SIDE and
-# handed in as data (proveohome.ConfigSet): ";"-separated entries of
-# "<host-rel>|<agent-rel>|<deny,csv>".
-#
-# It is the same declaration the docker backend turns into bind mounts, not a
-# second list beside it. On docker those mounts ARE the persistence, so nothing
-# here runs; on sbx they cannot be expressed — a bind nested under proveo home
-# has no way to reach its container path — which is why every wired MCP server,
-# every LSP config, every plugin record and every settings merge died with the
-# VM. One declaration, two mechanisms.
 _proveo_config_entries() {
  [[ -n "${PROVEO_CONFIG_DIRS:-}" ]] || return 0
- # The trailing newline is load-bearing: `while read` sets the variable and
- # returns non-zero on an unterminated final line, so the loop condition is
- # already false and the body never runs for it. Without it the LAST declared
- # subtree silently never syncs — which is the whole cursor mount.
  printf '%s\n' "$PROVEO_CONFIG_DIRS" | tr ';' '\n'
 }
 
-# _proveo_config_file_names is the home-ROOT half of the same declaration
-# (proveohome.ConfigFiles): files that sit BESIDE the declared subtrees rather
-# than inside one, so a directory-shaped set never carried them. claudecode's
-# ~/.claude.json — accepted workspace trust, Chrome onboarding, the operator's
-# own MCP servers — was rebuilt from scratch on every sandbox open because of it.
 _proveo_config_file_names() {
  [[ -n "${PROVEO_CONFIG_FILES:-}" ]] || return 0
  printf '%s\n' "$PROVEO_CONFIG_FILES" | tr ';' '\n'
 }
 
-# _proveo_config_skips lists the subtree-relative paths one declared root must
-# not carry: every sbx volume inside it (state, moved by proveo_sync_state) and
-# every name the manifest denies (a credential must never ride out on a config
-# copy — the same names proveohome.scrubDeny strips on the host).
 _proveo_config_skips() {
  local arel="$1" deny="$2" home vol d
  home="$(_proveo_agent_home)"
@@ -2693,11 +2034,6 @@ _proveo_config_skips() {
  IFS="$oldifs"
 }
 
-# _proveo_config_tree copies one declared subtree, pruning the skips. Files are
-# copied when absent and replaced when the source is NEWER — `-nt` rather than
-# _proveo_changed_files's size+mtime pair, because a config file is small, its
-# mtime is the whole signal, and the walk has to prune (which that helper's
-# unconditional `cp -a .` cannot).
 _proveo_config_tree() {
  local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub
  [[ -d "$src" ]] || return 0
@@ -2722,7 +2058,6 @@ _proveo_config_tree() {
    continue
   fi
   [[ "$src/$rel" -nt "$dst/$rel" ]] || continue
-  # Replaced through a rename, so a reader never sees a half-written config.
   tmp="$dst/$rel.proveo-sync.$$"
   if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
    continue
@@ -2734,10 +2069,6 @@ _proveo_config_tree() {
  return "$failed"
 }
 
-# _proveo_config_file copies one home-root config file, newer wins. Separate
-# from _proveo_config_tree because a file has no subtree to prune and no deny
-# list to apply — the manifest names the file itself, so declaring it IS the
-# decision that it may travel.
 _proveo_config_file() {
  local src="$1" dst="$2" tmp
  [[ -f "$src" ]] || return 0
@@ -2751,15 +2082,6 @@ _proveo_config_file() {
  return 1
 }
 
-# proveo_sync_config carries the harness's own configuration between the durable
-# host root and the home the agent actually reads: "restore" on the way in,
-# "save" on the way out. Silent no-op without PROVEO_STATE_HOME (every docker
-# run, where the home already IS the host dir) or with PROVEO_CONFIG_SYNC=off.
-#
-# Unlike the toolchain tree, these files CANNOT be relocated: the agent opens
-# ~/.claude/settings.json, ~/.cursor/mcp.json and ~/.config/opencode/opencode.json
-# by those absolute names, and moving HOME to reach them is what orphaned the
-# credential the sbx proxy writes. So they are copied, by the manifest's own set.
 proveo_sync_config() {
  local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home entry hrel arel deny src dst lock rc=0
  case "$mode" in
@@ -2793,7 +2115,6 @@ proveo_sync_config() {
   _proveo_config_tree "$src" "$dst" "$arel" "$deny" || rc=1
  done < <(_proveo_config_entries)
 
- # And the home-ROOT files, whose name is the same on both sides.
  while IFS= read -r entry; do
   [[ -n "$entry" ]] || continue
   case "$mode" in
@@ -2808,30 +2129,6 @@ proveo_sync_config() {
  return "$rc"
 }
 
-# proveo_sync_state copies resume state between the mounted proveo home and the
-# sandbox-local volumes: "restore" on the way in, "save" on the way out.
-#
-# This is what the HOME redirect used to buy, minus the part that broke sbx.
-# Pointing HOME at the mounted host dir persisted everything, but sbx's credential
-# proxy writes .credentials.json into the IMAGE's home — so moving HOME orphaned
-# the live credential and the agent came up "Not logged in" (ladder rung 3).
-# Copying named directories leaves the credential exactly where the proxy put it
-# and still lets `--resume` find yesterday's transcripts.
-#
-# Silent no-op when PROVEO_STATE_HOME is unset, which is every docker run: there
-# the home IS the mounted host dir and nothing needs copying.
-# _proveo_sync_lock serialises the two directions of a state sync.
-#
-# restore and save move the same files in OPPOSITE directions, and proveo's failure
-# path runs both at once without meaning to: `sbx exec` on a STOPPED sandbox starts
-# it, so the kit's startup seed is still inside `restore` when the exec's own `save`
-# begins. Measured on the run that exposed this — mounts re-evaluated at
-# 15:12:13.030, the colliding writes landing 15:12:13.62-.69.
-#
-# mkdir is the primitive because it is atomic on every filesystem in play and needs
-# no util-linux in the image. A lock whose holder is gone is broken rather than
-# waited on: both callers live in the same PID namespace, so `kill -0` settles it,
-# and a seed killed mid-copy must not block every later run forever.
 _proveo_sync_lock() {
  local dir="$1" waited=0 pid
  while ! mkdir "$dir" 2>/dev/null; do
@@ -2848,28 +2145,6 @@ _proveo_sync_lock() {
  return 0
 }
 
-# _proveo_changed_files lists the paths that exist on BOTH sides and may differ.
-#
-# Two listings rather than a stat per file, because the skip is the whole point: on a
-# warm sandbox almost nothing has changed and the plugin marketplace alone is
-# thousands of files. Measured in the sandbox image — 5000 shared files cost 4.6s
-# through a fork-per-file copy against 0.067s for one bulk `cp -a`, and the restore
-# is already racing the agent's own start.
-#
-# `cp -a` preserves size and mtime, so equal size and equal mtime is normally the
-# copy having already happened. Normally is not always, and the exception is not
-# theoretical: on the sandbox's overlay filesystem two files written in the same
-# clock tick report the SAME nanosecond mtime, so a changed file can present as
-# identical. Measured — src and dst both `1787846280.6672317090`, different content,
-# same size.
-#
-# A stamp is therefore trusted as an identity only once it has stopped being "now".
-# Anything modified within the grace window is copied regardless of what its stamps
-# say, which is exactly the set that matters: on a save those are the transcripts the
-# agent just wrote, and on a restore there are none.
-#
-# Paths containing a newline are not represented and are skipped rather than
-# mangled; nothing in an agent home has ever held one.
 _proveo_changed_files() {
  local src="$1" dst="$2" cutoff
  cutoff=$(($(date +%s) - 5))
@@ -2887,29 +2162,6 @@ _proveo_changed_files() {
   }'
 }
 
-# _proveo_sync_tree copies src into dst without ever leaving a partially written
-# file at the destination.
-#
-# The plain `cp -a "$src/." "$dst/"` this replaces truncates in place: cp opens the
-# destination with O_TRUNC and streams into it, so anything that interrupts the copy
-# leaves the destination cut at a read-buffer boundary. That is not theoretical.
-# With restore and save running over each other (see _proveo_sync_lock), seven of
-# the operator's transcripts were rewritten short inside one second — 7340032,
-# 786432, 786432, 524288, 262144, 262144 and 262144 bytes, every size an exact
-# 256 KiB multiple, each cut mid-JSON — and the short copy was then propagated to
-# the other side. Nothing reported it: the old call sent stderr to /dev/null and
-# ended in `|| true`.
-#
-# Two phases, because atomicity is only needed where there is something to destroy:
-#   1. `cp -an` places every file the destination does NOT have, in one pass. No
-#      existing file is opened for writing, so this phase cannot truncate anything.
-#   2. Files present on both sides and differing are copied to a temp name in the
-#      destination directory and RENAMED over the target. rename(2) is atomic, so a
-#      reader sees the old file or the new one and never a short one, and an
-#      interruption leaves a stray temp file instead of a damaged transcript.
-#
-# Files only the destination has are left alone: a sync has never deleted, and the
-# operator's home holds sessions this sandbox was never given.
 _proveo_sync_tree() {
  local src="$1" dst="$2" rel tmp failed=0
  [[ -d "$src" ]] || return 0
@@ -2930,8 +2182,6 @@ _proveo_sync_tree() {
 proveo_sync_state() {
  local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
  [[ -n "$host" && -d "$host" ]] || return 0
- # Validated before the walk, not inside it: an unknown mode on a sandbox with no
- # state volumes used to fall out of the loop and report success.
  case "$mode" in
  restore | save) ;;
  *) return 2 ;;
@@ -2951,13 +2201,10 @@ proveo_sync_state() {
   save) src="$dir" dst="$host/$rel" ;;
   esac
   [[ -d "$src" ]] || continue
-  # An empty source would still succeed and is not worth the walk.
   [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
   _proveo_sync_tree "$src" "$dst" || rc=1
  done < <(_proveo_volume_state_dirs)
  rm -rf "$lock" 2>/dev/null
- # Said out loud, once. The silence of the old `|| true` is why a copy that
- # destroyed seven files looked like a copy that worked.
  ((rc == 0)) || printf 'proveo: state %s completed with copy errors\n' "$mode" >&2
  return "$rc"
 }
@@ -2965,12 +2212,6 @@ proveo_sync_state() {
 proveo_provision_toolchain() {
  local scan; scan="$(_proveo_scan_root "${1:-}")"
  [[ -d "$scan" ]] || return 0
- # ensure_project_tools reads the CWD (nx.json, go.mod, mise.toml), so it has to
- # be standing in the workspace rather than wherever the launcher left us. NOT a
- # subshell: it exports GOPATH/PATH, and on the docker backend this runs in the
- # very process that goes on to exec the agent — a subshell would drop exactly
- # what the agent needs to inherit. (GOROOT was in that list until `g` was
- # retired; mise resolves it from the toolchain's own location now.)
  local prev="$PWD"
  cd "$scan" 2>/dev/null && ensure_project_tools
  cd "$prev" 2>/dev/null || true
@@ -2981,17 +2222,9 @@ proveo_provision_toolchain() {
  _proveo_persist_tool_env
 }
 
-# Markers delimit the block so it can be rewritten rather than appended to.
 readonly PROVEO_RC_START="# >>> proveo toolchain (generated — edits are overwritten) >>>"
 readonly PROVEO_RC_END="# <<< proveo toolchain <<<"
 
-# _proveo_write_block replaces the marked region of a file, leaving everything
-# else exactly as the operator left it. Body arrives on stdin.
-#
-# Every one of these files may already hold hand-written content — a shell rc, a
-# CLAUDE.md of personal preferences — so appending would grow it without bound and
-# overwriting would destroy work that is not ours. The markers make the region
-# proveo owns explicit, and everything outside them untouchable.
 _proveo_write_block() {
   local path="$1" start="$2" end="$3" tmp
   mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
@@ -3004,28 +2237,13 @@ _proveo_write_block() {
   mv "$tmp" "$path" 2>/dev/null || rm -f "$tmp"
 }
 
-# _proveo_persist_tool_env writes the resolved PATH and VIRTUAL_ENV into the
-# agent's shell rc.
-#
-# A setup command runs in its OWN process, so its exports die with it — that is
-# the whole reason env-shaped work is resolved host-side into the Kit instead.
-# But an interpreter provisioned HERE cannot be known host-side, and the agent is
-# not a shell, so neither route reaches it. What does: every command the agent
-# runs is a bash invocation, and bash reads this file. Writing it down is the only
-# way a venv provisioned in one process is on PATH for a `pytest` run in another.
 _proveo_persist_tool_env() {
  local home tool; home="$(_proveo_agent_home)"; tool="$(_proveo_tool_home)"
  [[ -n "$home" ]] || return 0
- # The rc file lives in the AGENT's home (that is where a shell reads it); the
- # paths inside it name the TOOL home (that is where the binaries are).
  {
    printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
-   # No GOROOT line. It existed for `g`, whose GOROOT nothing else could find;
-   # mise's shims are already covered by the PATH line above. Writing a GOROOT
-   # down is now actively harmful — it outlives the toolchain it named, and the
-   # next `mise use -g go@<other>` leaves the rc pointing at the previous one.
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
      printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
@@ -3038,52 +2256,23 @@ proveo_seed() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
 
- # First: a resumed session's transcripts must be in place before the agent
- # starts looking for them.
- #
- # `|| true` is load-bearing here and is NOT the old silence. proveo-seed runs under
- # `set -euo pipefail`, and proveo_sync_state now returns non-zero when a copy fails
- # — which is what makes the failure visible to `save`'s caller and to the tests. Let
- # that status escape into the seed and a single failed file copy aborts the startup
- # command, so sbx reports "failed to run sandbox container" and NO sandbox comes up
- # at all. Losing yesterday's transcripts must never be the reason today's run cannot
- # start; the function has already said what went wrong on stderr.
  proveo_sync_state restore || true
 
- # And the harness's own configuration, before render_subagents and every
- # configure_* step below: they all merge with setdefault semantics, so a config
- # restored after them is a config whose persisted values lost to this run's
- # defaults — silently, because a merge that overwrites nothing looks identical
- # to a merge that had nothing to overwrite.
  proveo_sync_config restore || true
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
- # cecli reads subagents from CECLI_HOME (/app/.cecli in the image, the workspace
- # by design — see defs/cecli/README.md), and its entrypoint lists exactly that
- # dir in CECLI_AGENT_CONFIG's subagent_paths. "$home/agents" was seeded where
- # nothing looked: the banner never listed them and Delegate never saw them.
  cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
  accept_workspace_trust "$(_proveo_scan_root)"
 
- # Before provisioning, not after: _proveo_tool_path puts the tree on PATH and
- # every installer step gates on `command -v`, so a toolchain restored late is a
- # toolchain the run reinstalls beside itself.
  proveo_sync_tools restore || true
 
  proveo_provision_toolchain
 
- # Every config class this harness has a surface for, written AFTER provisioning
- # so each records what now exists rather than what did before.
- #
- # EVERY harness wires here, not in its def entrypoint: sbx runs `proveo-seed`
- # alone and never the image ENTRYPOINT, so a wiring step left in the def is a
- # step the sandbox backend silently skips. Pinned by
- # internal/contract/lsp_config_parity_test.go.
  proveo_wire_config "$target"
 
  proveo_compose_house_rules "$target"
@@ -3091,8 +2280,6 @@ proveo_seed() {
  proveo_install_claude_hooks "$target"
  proveo_seed_browser_skills "$target"
 
- # The Claude in Chrome bridge. Started HERE because sbx never runs the image
- # entrypoint and the seed is its startup command. No-op without
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
  proveo_chrome_bridge "$target"
 }

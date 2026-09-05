@@ -1,3 +1,6 @@
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml,
+// _spec/internal/choiceui/wireframe.puml
+//
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml
 package run
 
@@ -23,35 +26,24 @@ import (
 
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && WizardEnabled() && tty }
 
-// seedFromCache fills the axes the operator did not state explicitly from a
-// remembered answer. Whether the cache applies at all is the caller's decision.
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
 	sbxBackend, sbxWhy := false, ""
 	if man.IsSbx() {
-		// PROVEO_SBX is consulted HERE as well as at backend selection, or the two
-		// disagree: the picker offered a ticked "docker (sandbox)" while the run took
-		// the docker backend, so the prompt described a posture the run did not have.
 		if !sandbox.Enabled() {
 			sbxWhy = "PROVEO_SBX=0 is set"
 		} else {
 			sbxBackend, sbxWhy = sbx.Available()
 		}
 	}
-	// Availability alone decides which egress axis the operator is shown; the
-	// add-on does not vote.
 	sandboxOn := sbxBackend
 	chromeWhy := ""
 	if man.Capabilities.HasHostBrowser() {
 		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
 	}
 	form := &choiceui.Form{
-		Banner: choiceui.Banner(),
-		Title:  fmt.Sprintf("run %s — confirm or change this run", p.Target),
-		Header: buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
-		// The same lookup buildHeader uses, so one project .env governs the
-		// header's devicons and the strip's together. No translation on the way:
-		// posture, choiceui and ui name ONE tier type, so "off" reaches the
-		// figure as "off" and glyphsFor collapses it to ASCII there.
+		Banner:   choiceui.Banner(),
+		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
+		Header:   buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
@@ -71,7 +63,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: label, Options: opts, Multi: true, Divider: true,
-			// WHERE it runs is one of these; WHAT it drives is any number.
 			Radio: label == rowExecution,
 			On:    p.addonDefaults(opts), Help: addonHelp,
 		})...)
@@ -79,8 +70,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy, chromeWhy)
-		// Toggling the sandbox add-on moves the review tier with it: the consent
-		// gate has no sbx transport, so review is reachable only off that backend.
 		gateReview(f, hasAddon(selectedAddons(f), addonSandbox))
 	}
 	form.OnChange(form)
@@ -108,10 +97,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	return nil
 }
 
-// evidenceRow offers the two levels as a RADIO, which is what they are: one
-// answer, never both and never neither. It used to be a checkbox pair kept
-// exclusive by a gate, with "neither ticked" quietly meaning default — a state
-// the operator could reach and the picker could not explain.
 func evidenceRow(current string) choiceui.Row {
 	opts := []string{EvidenceDefault, EvidenceVerbose}
 	sel := 0
@@ -140,9 +125,6 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 	if creds == "" {
 		creds = credsFallback
 	}
-	// Read from the form, not from the row in hand: the two boxes live in
-	// different groups.
-	// Read from the row's OPTIONS, not from On: the loop below is what sets On.
 	sandboxTicked := sbxWhy == "" && rowOffers(f, rowExecution, addonSandbox)
 	for i := range f.Rows {
 		r := &f.Rows[i]
@@ -153,40 +135,27 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 		if len(r.On) != len(r.Options) {
 			r.On = make([]bool, len(r.Options))
 		}
-		// Rebuilt from scratch on every toggle, like Off: these constraints move
-		// with the other rows, and a stale entry would explain a box that is
-		// available again.
 		r.OffWhy = map[string]string{}
 		var reasons []string
 		for j, opt := range r.Options {
-			// A fact, not a choice: greyed, and left in the state it states.
 			if fixed, ok := addonFixed[opt]; ok {
 				r.Off[j] = true
 				r.On[j] = fixed.on
 				r.OffWhy[opt] = fixed.why
-				// Deliberately NOT in reasons: these are greyed on every run, and an
-				// inline note that never changes teaches the operator to skip the
-				// line that sometimes matters.
 				continue
 			}
 			switch opt {
 			case addonSandbox:
-				// A fact in both directions, greyed either way.
 				r.Off[j] = true
 				if sbxWhy != "" {
-					// Greyed AND unticked: a ticked box that cannot be honoured is
-					// worse than an absent one, because the operator reads it as the
-					// posture of the run rather than as a thing they cannot have.
 					r.On[j] = false
 					reasons = append(reasons, "docker sandbox: "+sbxWhy)
 					r.OffWhy[opt] = sbxWhy
 					break
 				}
-				// Greyed AND ticked: compulsory, and out of `reasons`.
 				r.On[j] = true
 				r.OffWhy[opt] = "this harness runs in the sandbox and nowhere else; PROVEO_SBX=0 or --egress-mode review fall back to docker + egress sidecars"
 			case addonChrome:
-				// The tier constraint is the DOCKER backend's; sbx no longer excludes this.
 				why := chromeWhy
 				switch {
 				case why != "":
@@ -206,12 +175,6 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 	}
 }
 
-// chromeUnavailable is the host-side preflight for the Claude in Chrome add-on:
-// what, at this moment, would stop the bridge from connecting. Empty means go.
-// The credential check is Claude Code's rule about SCOPES — chromebridge.ScopeGate.
-// It asks about the environment the AGENT will see, not the one proveo was
-// launched in. Both halves come from AuthSuppressor rather than from a second
-// rule that happens to agree.
 func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
 	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot)
 	effective := func(k string) string {
@@ -220,8 +183,6 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 		}
 		return lookup(k)
 	}
-	// A blanked file only decides anything when the FILE was going to be the
-	// credential, so this is answered only when nothing in the env carries it.
 	if effective(chromebridge.EnvOAuthToken) == "" &&
 		effective(chromebridge.EnvOAuthTokenFD) == "" &&
 		credentials.LoginBlanked(target, homeRoot) {
@@ -237,8 +198,6 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 	return ""
 }
 
-// gateReview re-greys the review tier whenever the sandbox add-on is toggled,
-// so the egress row keeps telling the truth about what this run can reach.
 func gateReview(f *choiceui.Form, sandboxOn bool) {
 	for i := range f.Rows {
 		r := &f.Rows[i]
@@ -275,7 +234,6 @@ func gateReview(f *choiceui.Form, sandboxOn bool) {
 	}
 }
 
-// firstSelectableIn is the fallback selection when the current one is greyed out.
 func firstSelectableIn(r *choiceui.Row) int {
 	for i := range r.Options {
 		if i >= len(r.Off) || !r.Off[i] {
@@ -299,8 +257,6 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 	return r
 }
 
-// reviewAvailability greys the review option out on hosts whose transport
-// cannot carry the gate.
 func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
 	if sandboxBackend {
 		return comingSoon(r, "review", "review: not supported on the docker sandbox backend")
@@ -311,7 +267,6 @@ func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
 	return r
 }
 
-// comingSoon greys an option out and moves the selection off it.
 func comingSoon(r choiceui.Row, option, reason string) choiceui.Row {
 	r.Off = make([]bool, len(r.Options))
 	for i, o := range r.Options {
@@ -336,31 +291,9 @@ func firstEnabled(r choiceui.Row) int {
 	return 0
 }
 
-// applicableRows drops axes with nothing to decide.
-// egressRow shows the axis that actually governs THIS backend.
-//
-// On docker that is proveo's own tier: open|allowlist|review, which the egress
-// sidecars enforce and the in-container gate parses.
-//
-// On sbx it is not. sandbox.Spec derives the Kit allowlist from the harness
-// capabilities and the detected providers and never consults the tier, so "open"
-// and "allowlist" produce an identical sandbox and "review" falls back to docker
-// — a three-option risk axis on which nothing moves. What governs there is sbx's
-// GLOBAL baseline, because a Kit only adds allow rules ON TOP of it and a
-// per-sandbox deny cannot express "only the allowlist" (deny beats allow). So the
-// row is replaced by the real thing, LOCKED: proveo reports the baseline and does
-// not set it, since it is host-wide, applies to every sandbox including ones
-// proveo never started, and changing it needs `sbx policy reset` — which clears
-// every policy on the host. See _spec/internal/sbx/policy-baseline.puml.
-// changeBaselineHint is deliberately identical for every baseline. The row is
-// DISPLAY ONLY: the baseline is the host's, shared by every sandbox on it, and
-// offering it as a per-run choice would teach exactly the wrong intuition — that
-// this is a property of the container in front of you. It is not.
 const changeBaselineHint = "host-wide, not per-run — to change, run on the host: " +
 	"`sbx policy reset && sbx policy init allow-all|balanced|deny-all`"
 
-// policyBaseline is a seam: reading it shells out to sbx, which a unit test has no
-// business doing.
 var policyBaseline = sbx.PolicyBaseline
 
 func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
@@ -369,8 +302,6 @@ func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row 
 	}
 	name, known := policyBaseline()
 	if !known {
-		// Naming a baseline we could not read would put a boundary in front of the
-		// operator that may not exist.
 		return choiceui.Row{
 			Label: "egress", Options: []string{"unreadable"}, Locked: true,
 			Reason: "proveo could not read the host baseline (`sbx policy inspect local-policy`). " + changeBaselineHint,
@@ -382,9 +313,6 @@ func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row 
 			r.Selected = i
 		}
 	}
-	// ONE sample, the same whichever baseline is in effect. `init` alone is
-	// rejected once the host is initialized ("use sbx policy reset first"), so a
-	// sample without the reset would be a command that fails.
 	r.Reason = changeBaselineHint
 	return r
 }
@@ -399,14 +327,7 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 	return out
 }
 
-// The docker add-on: the one way a harness can hand the agent a Docker daemon.
-// It is CHECKED by default wherever the manifest declares it — the picker shows
-// what the run is about to do — and greyed, because after retire-dind there is
-// nothing to choose between: `PROVEO_SBX=0` is the only way to a weaker backend.
 const (
-	// The two planes the checkboxes are grouped into: WHERE the agent runs, and
-	// WHAT it can drive. One undifferentiated "add-ons" row put a Docker daemon
-	// beside a browser as though they answered the same question.
 	rowExecution = "execution"
 	rowInterface = "interface"
 
@@ -417,13 +338,10 @@ const (
 	addonChrome  = chromebridge.Addon
 )
 
-// addonRows is the order the two groups are drawn and read back in.
 var addonRows = []string{rowExecution, rowInterface}
 
 func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
 
-// addonFixed are the boxes that state a FACT rather than offer a choice. They
-// are greyed but keep their TRUE state.
 var addonFixed = map[string]struct {
 	on  bool
 	why string
@@ -432,8 +350,6 @@ var addonFixed = map[string]struct {
 	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
 }
 
-// addonHelp is what each add-on DOES, in one line, shown under the row while the
-// cursor is on that box. Each names its ALTERNATIVE too.
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
@@ -442,10 +358,6 @@ var addonHelp = map[string]string{
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
-// executionOptions is WHERE the agent runs: the excluded host, then the sandbox,
-// on a harness that declares one. One entry, never two — retiring the privileged
-// sidecar left `docker: sbx` as the only way a harness gets a daemon, so this row
-// no longer chooses BETWEEN daemons; it states the single one there is.
 // SPEC: _spec/_plans/retire-dind.puml
 func executionOptions(man manifest.Manifest) []string {
 	opts := []string{addonHost}
@@ -455,10 +367,6 @@ func executionOptions(man manifest.Manifest) []string {
 	return opts
 }
 
-// interfaceOptions is WHAT the agent can drive. "browser" is a Chromium INSIDE
-// the sandbox (the -browser image variant); the claude-in-chrome add-on is the
-// operator's own Chrome, reached through the Claude in Chrome bridge. Different
-// things, so both can be offered at once.
 func interfaceOptions(man manifest.Manifest) []string {
 	opts := []string{addonTUI}
 	for target := range man.Images {
@@ -480,8 +388,6 @@ func addonOptions(man manifest.Manifest, label string) []string {
 	return interfaceOptions(man)
 }
 
-// selectedAddons reads both groups back as the one list the rest of the run
-// consumes, so splitting the row changed the picker and nothing downstream.
 func selectedAddons(f *choiceui.Form) []string {
 	var out []string
 	for _, label := range addonRows {
@@ -491,8 +397,6 @@ func selectedAddons(f *choiceui.Form) []string {
 	return out
 }
 
-// compulsory are the ticked boxes of one group that "Selections" drops because
-// they are greyed. See _spec/internal/choiceui/choice-prompt-render.puml.
 func compulsory(f *choiceui.Form, label string) []string {
 	var out []string
 	for i := range f.Rows {
@@ -513,10 +417,6 @@ func compulsory(f *choiceui.Form, label string) []string {
 	return out
 }
 
-// rowOffers reports whether a group lists an option at all, which is a different
-// question from whether it is ticked: the execution row carries the sandbox only
-// on a harness that declares it, and a harness with no docker mode at all must
-// not be read as one.
 func rowOffers(f *choiceui.Form, label, option string) bool {
 	for i := range f.Rows {
 		if f.Rows[i].Label != label {
@@ -527,9 +427,6 @@ func rowOffers(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// rowTicked reports whether one option of one group is checked, reading On
-// directly: gating runs before Off is recomputed, so Selections would answer
-// from a stale gate on the first pass.
 func rowTicked(f *choiceui.Form, label, option string) bool {
 	for i := range f.Rows {
 		r := &f.Rows[i]
@@ -545,14 +442,6 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// normalizeAddons reconciles the names a previous version remembered with the
-// ones that still exist, so a cached choice keeps meaning what the operator
-// picked — or is dropped when it no longer means anything.
-//
-// The privileged sidecar's two spellings ("dind", then "docker (dind)") are
-// DROPPED rather than translated. Nothing they could map to is the same offer:
-// the sandbox box is compulsory and re-ticked by the gate on every run, so
-// carrying a remembered sidecar answer forward would only put a dead name in the
 // selection. SPEC: _spec/_plans/retire-dind.puml
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
@@ -574,9 +463,6 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-// sbxStoredAuth names the harness credentials sbx's own store already holds, and
-// is empty on every run that will not use the sbx backend.
-// See _spec/_paradigms/credential-boundary.puml.
 func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, bridges provider.BridgeTable, repoRoot, inputDir, homeRoot string) []string {
 	if inputDir == "" {
 		inputDir = repoRoot

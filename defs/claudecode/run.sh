@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Thin shim → proveo run.
 # SPEC: _spec/cmd/proveo/usage.puml, _spec/components.puml, _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 set -euo pipefail
 

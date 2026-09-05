@@ -1,3 +1,6 @@
+// SPEC: _spec/_paradigms/git-identity.puml,
+// _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
+//
 // SPEC: _spec/_paradigms/git-identity.puml, _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
 package gitidentity
 
@@ -37,8 +40,8 @@ func Resolve(getenv func(string) string, gitConfig func(key string) string) Iden
 	return Identity{Name: name, Email: email}
 }
 
-// EnvPairs returns docker-style KEY=VALUE strings for non-empty identity
-// fields (author + committer both set to the same resolved values).
+// EnvPairs returns docker-style KEY=VALUE strings for non-empty identity fields
+// (author + committer both set to the same resolved values).
 func (id Identity) EnvPairs() []string {
 	var out []string
 	if id.Name != "" {

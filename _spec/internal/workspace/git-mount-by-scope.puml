@@ -5,6 +5,37 @@ title Where .git comes from, and how gitMode is honoured in each scope
 ' covers: internal/workspace/mount.go, internal/manifest/manifest.go,
 '         defs/cecli/harness.manifest, defs/cursor/harness.manifest,
 '         defs/opencode/harness.manifest, defs/claudecode/harness.manifest
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
+'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+'
+' ── THE CONTAINER SIDE: MAKING THAT MOUNT PLAN USABLE BY git ────────────────
+' The plan above decides what arrives. Two shell steps then make git able to
+' read it, and BOTH run in the ENTRYPOINT SHELL rather than the Go prelude:
+' `proveo-entrypoint prep` is a subprocess, so anything it exports dies with it,
+' and only the shell that execs the agent can hand it environment
+' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+'
+' ensure_git_safe_directory. Under a subdir scope /app is the IMAGE's own
+' directory, so its owner differs from the run-as uid and git refuses everything
+' with "dubious ownership". The remedy is declared through git's config-env —
+' GIT_CONFIG_KEY_<n>=safe.directory / GIT_CONFIG_VALUE_<n>=<dir>, appended after
+' whatever GIT_CONFIG_COUNT already holds — so nothing is written to a config
+' file. It is a no-op when the worktree already resolves, and it reports
+' "declared <dir> safe (worktree owner differs from the run-as uid)" only once
+' the declaration actually took effect.
+'
+' scope_git_worktree. Only under a subdir scope (PROVEO_SCOPE_REL): the
+' container's worktree root is /app but only PART of the repo is mounted there,
+' so git measures the whole-repo index against a partial tree and reports every
+' unmounted path as deleted. Rather than write into the host's .git, git is
+' pointed at a COPY of the index — cp to ~/.cache/proveo/scoped-index, exported
+' as GIT_INDEX_FILE — and the unmounted paths are marked skip-worktree there.
+'
+' Absent-at-STARTUP means "not mounted", never "the agent deleted it": the agent
+' has not run yet. Deletions it makes later still show normally. When the
+' skip-worktree pass fails the step warns ("status will list unmounted paths as
+' deleted") and returns 0, because a confusing `git status` must not stop a run.
 
 component "MountSpec.Plan()" as PLAN <<app>>
 
@@ -74,5 +105,57 @@ note bottom of PLAN
   Sibling: ""_spec/internal/workspace/subdir-scope-mounts.puml"" details what
   ELSE branch B carries — root files, ""rootDirs"" (""_spec"", ""vendor""),
   dependency trees, and the dotenv masking that spans them.
+end note
+
+' ── The container side: two shell steps in the entrypoint SHELL ──────────────
+node "Agent container — the entrypoint SHELL" as SHELL <<host>> {
+  component "**declare** — ""ensure_git_safe_directory""\n""GIT_CONFIG_KEY_n=safe\.directory""" as SAFE <<app>>
+  component "**scope** — ""scope_git_worktree""\nonly under ""PROVEO_SCOPE_REL""" as SCOPED <<app>>
+}
+database "the host's "".git""\nnever written by either step" as HOSTGIT <<error>>
+database """~/\.cache/proveo/scoped-index""\na COPY — ""GIT_INDEX_FILE""" as IDX <<db>>
+
+B ARROW_MAIN SHELL : ""/app/<rel>"" + ""/app/\.git""
+SAFE ARROW_MAIN SCOPED
+SCOPED ARROW_MAIN IDX : ""git update-index --skip-worktree""
+SCOPED ARROW_ERROR HOSTGIT : the write this exists to avoid
+
+note top of SHELL
+  **Both run in the ENTRYPOINT SHELL, not the
+  Go prelude.** ""proveo-entrypoint prep"" is a
+  subprocess, so anything it exports dies with
+  it — only the shell that execs the agent can
+  hand it environment.
+end note
+
+note bottom of SAFE
+  **Under a subdir scope ""/app"" is the IMAGE's
+  own directory**, so its owner differs from the
+  run-as uid and git refuses everything with
+  "dubious ownership". ""safe\.directory"" is
+  declared via ""GIT_CONFIG_KEY_n"" — file-free.
+end note
+
+note bottom of SCOPED
+  **The worktree root is ""/app"" but only PART of
+  the repo is mounted there**, so git measures a
+  whole-repo index against a partial tree and
+  reports every unmounted path as deleted.
+end note
+
+note right of IDX
+  **The fix never writes the host's "".git"".**
+  The index is COPIED to
+  ""~/\.cache/proveo/scoped-index"",
+  ""GIT_INDEX_FILE"" points at the copy, and the
+  unmounted paths are marked skip-worktree.
+end note
+
+note left of SCOPED
+  **Absent at STARTUP means "not mounted".** It
+  can never mean "the agent deleted it" — the
+  agent has not run yet — so deletions it makes
+  later still show normally, and a failed pass
+  only warns rather than stopping the run.
 end note
 @enduml

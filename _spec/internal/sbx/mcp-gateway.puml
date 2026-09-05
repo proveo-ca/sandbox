@@ -1,0 +1,123 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why proveo declines sbx's MCP gateway by default, and how a decline is expressed
+' covers: internal/backend/sandbox/sandbox.go (MCPGatewayVar, WithMCPGatewayPolicy,
+'         DeclineMCPGateway, MCPGatewayAllowed)
+' covers: internal/posture/posture.go (MCPGateway)
+'   the Kit this rides in ......... _spec/internal/sbx/sbx-kit-contract.puml
+'   the backend that writes it .... _spec/internal/sbx/sandbox-backend.puml
+'   the home the entry would land in _spec/internal/proveohome/proveo-home-lifecycle.puml
+'   one eliminated hypothesis ..... _spec/internal/sbx/seed-node-version-abort.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE GATEWAY IS, AND WHY IT IS NOT PROVEO'S ────────────────────────
+' sbx's built-in agent kits register an MCP aggregator inside the sandbox:
+'   claude mcp add mcp-gateway <url> --scope user
+' Their setup step is gated on one variable — `[ -n "$MCP_GATEWAY_URL" ] || exit 0`
+' — so declaring MCP_GATEWAY_URL EMPTY is the SUPPORTED way to decline. Nothing is
+' patched, and there is no race with a step that runs inside the sandbox.
+'
+' ── USER SCOPE IS THE PROBLEM, NOT MCP ─────────────────────────────────────
+' `--scope user` writes into the agent's home. proveo mounts the proveo home
+' read-write, so an entry meant to live and die with a disposable sandbox lands in
+' the operator's REAL home and outlives every run that wrote it.
+'
+' Worse than untidy: nothing in `proveo run --print` ever named it, which makes the
+' gateway a THIRD source of agent capability beside the Kit's allowlist and the
+' credential store — one the operator never saw and cannot audit from the plan.
+'
+' ── DECLINING COSTS NOTHING TODAY ──────────────────────────────────────────
+' `sbx mcp ls` registers no servers, so the gateway currently aggregates an empty
+' set: the decline removes an unaudited capability and no reach.
+' PROVEO_SBX_MCP=on restores it, for an operator who has registered servers of
+' their own and wants the agent to reach them.
+'
+' ── THE DECLINE IS DECLARED TWICE, ON PURPOSE ──────────────────────────────
+' The Kit's environment block is the posture proveo PUBLISHES; the `-e` flag is
+' what sandboxd applies when it CREATES the sandbox, which is the moment sbx's own
+' injection happens. Either one alone may lose that race; neither is harmful when
+' the other wins, so both are written.
+'
+' The Kit side is written EXPLICITLY rather than through KitEnvVars, because
+' KitEnvVars drops empty values — and here the empty string IS the instruction.
+' That same drop is what keeps the `-e` pair from duplicating the Kit's
+' declaration: one mechanism, used in both directions.
+'
+' ── AND IT IS A POSTURE ROW ────────────────────────────────────────────────
+' A posture that lists reachable hosts and credentials but NOT an MCP server the
+' agent is told to call is not describing the run. posture.MCPGateway takes the
+' backend and the decision as VALUES; it used to read PROVEO_SBX_MCP itself, which
+' made the row a second place the decision was made rather than a rendering of the
+' one the run already made.
+title sbx MCP gateway — declined by default, and declared twice so it sticks
+
+participant "operator" as OP <<app>>
+participant "sandbox.Spec" as SPEC <<app>>
+participant "Kit spec.yaml\nenvironment block" as KIT <<data>>
+participant "sbx run -e\napplied at CREATE" as CLI <<host>>
+participant "sbx built-in agent kit\nsetup step" as SETUP <<cloud>>
+participant "the operator's proveo home\nmounted read-write" as HOME <<db>>
+
+OP ARROW_MAIN SPEC : PROVEO_SBX_MCP unset (the default)
+SPEC ARROW_MAIN KIT : MCP_GATEWAY_URL = "" (written explicitly)
+SPEC ARROW_MAIN CLI : -e MCP_GATEWAY_URL=
+KIT ARROW_QUEUE SETUP : the gate reads empty
+CLI ARROW_QUEUE SETUP : the gate reads empty
+SETUP ARROW_OPTIONAL SETUP : exit 0 — no registration
+SETUP ARROW_ERROR HOME : what --scope user would have written
+
+note over SETUP
+  **The decline is the kit's own gate.**
+  ""[ -n '$MCP_GATEWAY_URL' ] || exit 0"" is sbx's
+  step, so an empty value is the supported way
+  out — no patching, and no race with something
+  running inside the sandbox.
+end note
+
+note over HOME
+  **""--scope user"" outlives the sandbox.**
+  proveo mounts the proveo home read-write, so an
+  entry meant to die with a disposable VM lands in
+  the operator's real home instead.
+end note
+
+note over HOME
+  **Unaudited is the sharper half.** No
+  ""proveo run --print"" ever named it, making the
+  gateway a third source of agent capability
+  beside the Kit allowlist and the credential
+  store.
+end note
+
+note over KIT
+  **The empty string IS the instruction.**
+  ""KitEnvVars"" drops empty values, so this pair
+  is written explicitly — and the same drop is
+  what stops the ""-e"" copy duplicating it.
+end note
+
+note over CLI
+  **Twice, because they land at different
+  moments.** The Kit block is the published
+  posture; ""-e"" is what sandboxd applies at
+  CREATE, which is when sbx would inject. Either
+  may lose the race; neither harms when it wins.
+end note
+
+note over OP
+  **Declining costs no reach today.**
+  ""sbx mcp ls"" registers nothing, so the gateway
+  aggregates an empty set. ""PROVEO_SBX_MCP=on""
+  restores it for an operator with servers of
+  their own.
+end note
+
+note over SPEC
+  **It earns a posture row.** A posture naming
+  hosts and credentials but not an MCP server
+  the agent is told to call is not describing
+  the run. ""posture.MCPGateway"" takes it as a
+  VALUE, never re-derives it.
+end note
+@enduml

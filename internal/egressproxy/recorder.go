@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml
+//
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml
 package egressproxy
 
 import (
@@ -29,7 +31,6 @@ type Recorder struct {
 	enc *json.Encoder
 }
 
-// NewRecorder opens path for append. A nil Recorder is a valid no-op.
 func NewRecorder(path string) (*Recorder, error) {
 	if path == "" {
 		return nil, nil
@@ -41,8 +42,7 @@ func NewRecorder(path string) (*Recorder, error) {
 	return &Recorder{f: f, enc: json.NewEncoder(f)}, nil
 }
 
-// ModifyResponse records the completed flow. It reads only method/host/port/path
-// and status — never headers, body, or query string.
+// ModifyResponse records the completed flow.
 func (r *Recorder) ModifyResponse(res *http.Response) error {
 	if r == nil || res == nil || res.Request == nil {
 		return nil
@@ -114,7 +114,6 @@ func itoa(n int) string {
 	if n == 0 {
 		return ""
 	}
-	// small non-alloc-heavy int->string without importing strconv widely
 	buf := [12]byte{}
 	i := len(buf)
 	neg := n < 0

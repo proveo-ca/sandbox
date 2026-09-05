@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_config.sh - Entrypoint behavior: smoke mode, proxy compat, preamble
 
-# Smoke mode: entrypoint completes setup, prints the ready marker, then parks.
 TESTS_RUN=$((TESTS_RUN + 1))
 SMOKE_OUTPUT=$(run_timeout 60 docker run --rm \
   -e PROVEO_SMOKE_TEST=1 \
@@ -17,7 +15,6 @@ else
   printf "${RED}FAIL${NC} [%d] smoke mode (output: %.300s)\n" "$TESTS_RUN" "$SMOKE_OUTPUT"
 fi
 
-# Entrypoint preamble reports the paradigm and the policy layer.
 TESTS_RUN=$((TESTS_RUN + 1))
 if echo "$SMOKE_OUTPUT" | grep -q "policy-gated autonomous loop"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -48,8 +45,6 @@ else
   printf "${RED}FAIL${NC} [%d] preamble lists seeded subagents\n" "$TESTS_RUN"
 fi
 
-# Proxy detection flips useHttp1ForAgent in the seeded config. Drive the
-# entrypoint with --version (utility passthrough) so it exits immediately.
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   -e HTTPS_PROXY=http://squid:3128 \
@@ -77,8 +72,6 @@ else
   printf "${RED}FAIL${NC} [%d] proxy-less config (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# Entrypoint bridges common .env model aliases to CURSOR_MODEL. Use a fake agent
-# binary so this checks the entrypoint logic without a real model call.
 FIXTURE_DIR=$(mktemp -d)
 trap 'rm -rf "$FIXTURE_DIR"' RETURN
 

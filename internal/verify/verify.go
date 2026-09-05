@@ -1,5 +1,4 @@
 // Package verify discovers project verification commands (test/lint/build/…).
-// It replaces defs/lib/detect-verify.sh as the single source of truth.
 //
 // SPEC: _spec/internal/verify/verification-discovery.puml, _spec/defs/cursor/cursor-paradigm.puml
 package verify
@@ -23,8 +22,6 @@ func (c Command) Line() string {
 	return c.Category + "|" + c.Cmd
 }
 
-// Detect returns verification commands for root, matching the former bash helper.
-// lookPath may be exec.LookPath; nil uses exec.LookPath.
 func Detect(root string, lookPath func(string) (string, error)) []Command {
 	if root == "" {
 		root, _ = os.Getwd()
@@ -58,7 +55,6 @@ func Detect(root string, lookPath func(string) (string, error)) []Command {
 	return out
 }
 
-// FormatLines joins Detect results as category|command lines (no trailing newline on last optional).
 func FormatLines(cmds []Command) string {
 	if len(cmds) == 0 {
 		return ""
@@ -115,7 +111,6 @@ func nodeScriptKeys(pkgPath string) map[string]bool {
 		Scripts map[string]json.RawMessage `json:"scripts"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil || doc.Scripts == nil {
-		// Fallback: substring match like bash without jq.
 		s := string(b)
 		for _, k := range []string{"test", "lint", "build", "typecheck", "fmt", "format"} {
 			if strings.Contains(s, `"`+k+`"`) {

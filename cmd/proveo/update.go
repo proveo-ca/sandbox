@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/cdn/distribution-update.puml
+//
+// SPEC: _spec/internal/cdn/distribution-update.puml
 package main
 
 import (
@@ -98,7 +100,6 @@ func doUpdate(force, checkOnly bool) error {
 	return nil
 }
 
-// replaceExecutable atomically replaces dst with src (rename-first for Windows locks).
 func replaceExecutable(dst, src string) error {
 	old := dst + ".old"
 	_ = os.Remove(old)
@@ -106,7 +107,6 @@ func replaceExecutable(dst, src string) error {
 	if err := os.Rename(dst, old); err == nil {
 		renamed = true
 	} else if !os.IsNotExist(err) {
-		// Cross-device or busy: copy to sibling then rename.
 		newPath := dst + ".new"
 		if err := copyFileMode(src, newPath, 0o755); err != nil {
 			return err
@@ -122,7 +122,6 @@ func replaceExecutable(dst, src string) error {
 		if renamed {
 			_ = os.Rename(old, dst)
 		}
-		// Last resort: copy over dst
 		if err2 := copyFileMode(src, dst, 0o755); err2 != nil {
 			return fmt.Errorf("install new binary: %w (rollback: %v)", err2, err)
 		}

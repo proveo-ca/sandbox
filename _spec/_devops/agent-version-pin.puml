@@ -6,7 +6,49 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' covers: defs/lib/docker-build.sh
 ' covers: defs/*/build.sh
 ' covers: defs/*/Dockerfile
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/claudecode/solidity/Dockerfile
+' covers: defs/*/test.sh
+' covers: defs/*/tests/test_build.sh
 ' covers: internal/contract/agent_pin_test.go
+'
+' ── TWO PINNING SHAPES, AND WHEN EACH IS USED ──────────────────────────────
+' A. RESOLVED AT BUILD TIME, bare ARG, no default — the AGENT itself, whose
+'    release moves constantly and whose version the image LABELs:
+'    CECLI_VERSION, SERENA_VERSION, OPENCODE_VERSION, CLAUDE_CODE_VERSION,
+'    CURSOR_AGENT_VERSION. build.sh calls proveo_agent_version and passes the
+'    result in; the Dockerfile guards with `test -n` and verifies with the
+'    tool's own --version.
+' B. PINNED IN THE DOCKERFILE as an ARG WITH a default — supporting toolchains
+'    that move on their own cadence and are not the image's headline agent:
+'      PLANTUML_VERSION=1.2026.6      NODE_MAJOR=22       pnpm@10.33.0
+'      BUN_VERSION=1.4.0 (+ SHA256)   PLAYWRIGHT_VERSION=1.61.0
+'      AGENT_BROWSER_VERSION=0.36.0 (+ SHA256)
+'      SEMGREP_VERSION=1.176.1        SOLC_SELECT_VERSION=1.2.0
+'      SOLHINT_VERSION=6.2.4          FOUNDRY_VERSION=v1.8.1
+'      MITMPROXY_VERSION=11.1.3
+'    The CACHE argument is identical in both shapes and is the whole reason for
+'    either: BuildKit caches a RUN by its text, so an unpinned line re-runs only
+'    when something ABOVE it changes, and a warm cache keeps last year's linter
+'    with nothing in the build saying so.
+'
+' Still unpinned, and known to be (see _spec/_plans/image-size-reduction.puml
+' item (c) for the full list): the six LSP servers in base-node-lsp, cursor's
+' two `go install …@latest`, `plantuml-lsp@latest` in defs/base, and `mise.run`.
+'
+' ── TWO PINS IN ONE IMAGE: cecli ───────────────────────────────────────────
+' cecli resolves BOTH cecli-dev and serena-agent through the same resolver, into
+' separate venvs. Serena is pinned for the reason the layer was deleted the FIRST
+' time: an unpinned `pip install serena-agent` shipped a version skew that left
+' the MCP server dead on every boot for weeks.
+'
+' ── FOUNDRY: WHY A DEFAULTED ARG WAS STILL AN UPGRADE ──────────────────────
+' `curl -L https://foundry.paradigm.xyz | bash && foundryup` installs the
+' NIGHTLY — foundryup with no argument takes latest, and foundry's release feed is
+' nightlies with a stable tag every few weeks. So the image's toolchain changed
+' under it on EVERY rebuild, which is precisely what this diagram exists to
+' prevent. `foundryup --install <tag>` pins it; `forge --version` and
+' `cast --version` make the pin a fact about the image.
 '
 ' ── WHY A PIN AT ALL: BuildKit's CACHE KEY ─────────────────────────────────
 ' The 📌 note states the version AND how it was chosen. The first version of

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/agent-definition-sharing.puml
-# Local preview of what a harness will compose at container start. There is only
-# one implementation — render_subagents in packages/lib/entrypoint-lib.sh, the
-# same function the entrypoints call — so a preview cannot drift from the image.
-#
-# Usage: render-subagents.sh <harness> [dest-dir]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

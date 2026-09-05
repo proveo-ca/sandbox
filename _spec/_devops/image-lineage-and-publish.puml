@@ -2,6 +2,81 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Image lineage — parent tags, ensure.sh modes, and the publish contract
 
+' purpose: which parent a child builds on, at which tag, and what ensure.sh
+'          actually checks in each of its two modes
+' covers: defs/lib/docker-build.sh
+' covers: defs/*/build.sh
+' covers: defs/*/ensure.sh
+' covers: defs/*/test.sh
+' covers: defs/*/tests/helpers.sh
+' covers: internal/maintain/**
+'
+' ── EVERY build.sh HAS THE SAME SHAPE ───────────────────────────────────────
+'   IMAGE="${PROVEO_<X>_IMAGE:-proveo/<x>:latest}"   env override wins outright
+'   --tag <t>   rewrites only the tag: IMAGE="${IMAGE%%:*}:$TAG"
+'   --image     replaces the whole reference
+'   --no-cache  passed straight through
+'   --push      switches every ensure.sh below into publication mode
+'   PARENT_TAG="$(proveo_ref_tag "$IMAGE")"   the child's tag decides the parent's
+'   "<parent>/ensure.sh" --tag "$PARENT_TAG" ${PUSH:+--push}
+'
+' ── THE FLOOR PROBES, PER LAYER ─────────────────────────────────────────────
+' A tag alone is not evidence: a stale image from a different lineage looks
+' present and has the wrong contents. So each ensure.sh runs the layer's own
+' probe inside the image, and the probe states the CONTRACT rather than restating
+' the package list:
+'
+'   proveo/base            git · gh · jq · an executable
+'                          /usr/local/bin/proveo-entrypoint. Explicitly no
+'                          browser, no Node, no Python — those moved out.
+'   proveo/base-node-browser  node · playwright · typescript-language-server ·
+'                          a chromium-* dir under PLAYWRIGHT_BROWSERS_PATH ·
+'                          agent-browser · an executable
+'                          AGENT_BROWSER_EXECUTABLE_PATH · core/SKILL.md under
+'                          AGENT_BROWSER_SKILLS_DIR ·
+'                          /opt/proveo/skills/agent-browser/SKILL.md
+'
+' Probe fails on a PRESENT image -> rebuild from source. Image absent -> pull,
+' then probe; pull failed or probe failed -> build from source. The messages name
+' which of those three happened, because "missing the floor" and "not present"
+' send a reader to different places.
+'
+' ── BUILD CONTEXT IS NOT UNIFORM, AND THAT IS DELIBERATE ────────────────────
+' Two groups, for one reason: does the Dockerfile COPY anything out of the repo?
+'
+'   REPO_ROOT   base (the Go builder copies cmd/ and internal/), cecli, cursor,
+'               opencode, claudecode (both variants) — they COPY packages/lib,
+'               defs/subagents, defs/bridges, AGENTS.md.
+'   SCRIPT_DIR  base-node, base-node-lsp, base-node-browser — these COPY nothing
+'               from the module (base-node-browser copies only its own skills/),
+'               so the narrower context is free.
+'
+' A repo-root context is what makes the root .dockerignore load-bearing: without
+' it, 201 MB of node_modules and .git reach the daemon on every harness build.
+'
+' ── TWO SHELL HELPERS WITH NON-OBVIOUS BODIES ───────────────────────────────
+' proveo_image_created prints an image's build time as epoch seconds and is the
+' shell twin of posture's dockerImageCreated. The fraction is trimmed BEFORE
+' parsing: docker reports RFC3339Nano ("2026-08-31T00:37:15.008872627Z") and
+' neither GNU nor BSD `date` accepts nanoseconds. Both spellings are attempted in
+' turn (`date -u -d` then `date -u -j -f`) because build hosts are Linux and
+' developer hosts are macOS, and this helper runs on both. It returns non-zero
+' when the host has no such image, which is what lets proveo_resolve_image treat
+' "absent" as "not a candidate" rather than as time zero.
+'
+' _proveo_json_field prints one jq-path field out of JSON on stdin, with python3
+' as the fallback so a host without jq still resolves an agent version. When
+' neither is present it drains stdin (`cat >/dev/null`, so a caller's pipeline
+' never blocks) and prints nothing — the caller then reports the unresolved
+' version by name rather than baking `@latest`.
+'
+' proveo_docker_host_platform maps uname -m to linux/amd64 or linux/arm64 and
+' falls back to linux/amd64 on anything else — QEMU and unusual hosts get the
+' published default rather than an error.
+'
+' Only :latest is ever resolved by proveo_resolve_image. An explicit :v2 or a
+' digest is a deliberate choice by the caller and is returned untouched.
+
 node "defs/ build scripts" as HOST <<host>> {
   component "proveo_image_ref\n<env-var> <repo> <tag>" as REF <<app>>
   component "proveo_ref_tag\n<ref> → tag (default latest)" as RTAG <<app>>
@@ -142,9 +217,13 @@ note bottom of ENSURE
   walks the lineage upward once, and no script needs to know the whole
   chain — only its immediate parent.
 
-  Build context is the repo root for every def, because variant Dockerfiles
-  resolve ""COPY"" paths from there; a def-local context would break the
-  shared ""packages/lib"" copies.
+  Build context follows what the Dockerfile COPIES, not a single rule. The
+  harnesses and ""base"" use the REPO ROOT, because they resolve
+  ""packages/lib"", ""defs/subagents"", ""defs/bridges"", ""AGENTS\.md"" and (for
+  ""base"") ""cmd""/""internal"" from there. ""base-node"", ""base-node-lsp"" and
+  ""base-node-browser"" pass their own directory: they copy nothing out of the
+  module, so the narrow context costs them nothing and hands the daemon far
+  less. The root ""\.dockerignore"" is what keeps the wide case honest.
 end note
 
 

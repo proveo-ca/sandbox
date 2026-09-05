@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml,
+// _spec/internal/choiceui/wireframe.puml
+//
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/choiceui/wireframe.puml
 package provider
 
@@ -11,40 +14,27 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 )
 
-// Bridge is one row of defs/bridges/<harness>.tsv — how the shared role vars become
-// the env vars one harness actually reads. The table is the single declaration: the
-// shell applies it at container start, and this package reads the same rows to show
-// resolved slots in the prompt header before a container exists.
+// Bridge is one row of defs/bridges/<harness>.tsv — how the shared role vars
+// become the env vars one harness actually reads.
 type Bridge struct {
 	Slot      string   // header-facing name; "-" means internal, never displayed
 	Targets   []string // env vars to set; an explicit value already set always wins
 	Roles     []string // fallback chain, first non-empty wins
 	Default   string   // literal, "$OTHER" to copy a target, or "" for none
 	Transform string   // "normalize", "bare", or ""
-	// Provider vendor-locks the slot: only a model resolving to it may be
-	// assigned. Empty takes any provider. Declared, never derived.
-	Provider string
+	Provider  string
 }
 
-// Slot is one model assignment a harness actually reads. Harnesses do not agree on
-// how many they expose: Claude Code routes internally and offers two, cursor one,
-// while cecli and opencode take three. Printing all three role vars on a harness
-// that reads two advertises an assignment it cannot honour, and the operator only
-// finds out after a run behaves differently than the header implied.
+// Slot is one model assignment a harness actually reads.
 type Slot struct {
 	Name  string // header-facing slot: main, small, build, editor, weak
 	Role  string // the RoleVar that filled it
 	Model string
 }
 
-// BridgeTable is every harness's rows, keyed by harness name. A nil table is a
-// valid zero value: EffectiveSlots then shows every role rather than hiding one.
+// BridgeTable is every harness's rows, keyed by harness name.
 type BridgeTable map[string][]Bridge
 
-// LoadBridges parses defs/bridges/*.tsv out of fsys. It takes an fs.FS rather than
-// importing the root embed package, because packages under internal/ must stay
-// buildable from a context holding only cmd/ and internal/ — the egress-proxy image
-// builds exactly that, and an import of the root package breaks it.
 func LoadBridges(fsys fs.FS) (BridgeTable, error) {
 	matches, err := fs.Glob(fsys, "defs/bridges/*.tsv")
 	if err != nil {
@@ -66,8 +56,6 @@ func LoadBridges(fsys fs.FS) (BridgeTable, error) {
 	return tab, nil
 }
 
-// parseBridges is deliberately strict: a malformed row would otherwise mean a slot
-// silently vanishes from the header while the shell still sets it.
 func parseBridges(src string) ([]Bridge, error) {
 	var out []Bridge
 	sc := bufio.NewScanner(strings.NewReader(src))
@@ -122,11 +110,8 @@ func (t BridgeTable) Harnesses() []string {
 	return out
 }
 
-// EffectiveSlots resolves r through the named harness's table and returns only the
-// slots that harness will actually fill. Defaults are not applied: the header states
-// what the operator chose, and a default that fires inside the container is not a
-// choice. An unknown harness falls back to every role, because showing one model too
-// many is a smaller error than hiding one that is in use.
+// EffectiveSlots resolves r through the named harness's table and returns only
+// the slots that harness will actually fill.
 func (t BridgeTable) EffectiveSlots(harness string, r Roles) []Slot {
 	rows, ok := t[harness]
 	if !ok {
@@ -146,8 +131,6 @@ func (t BridgeTable) EffectiveSlots(harness string, r Roles) []Slot {
 			if v == "" {
 				continue
 			}
-			// Refused, not shown: the header states what the run will use, and a
-			// slot the bridge will not fill is not an assignment.
 			if row.Accepts(v) {
 				out = append(out, Slot{Name: row.Slot, Role: role, Model: applyTransform(row.Transform, v)})
 			}
@@ -157,8 +140,7 @@ func (t BridgeTable) EffectiveSlots(harness string, r Roles) []Slot {
 	return out
 }
 
-// Accepts reports whether model may fill this slot. An unresolvable provider is
-// accepted — local and shim endpoints serve arbitrary ids.
+// Accepts reports whether model may fill this slot.
 func (b Bridge) Accepts(model string) bool {
 	if b.Provider == "" || strings.TrimSpace(model) == "" {
 		return true
@@ -197,16 +179,14 @@ type Refusal struct {
 	Targets           []string
 }
 
-// Reason is the one line proveo prints, naming the variable, the vendor it takes
-// and the vendor it was handed.
+// Reason is the one line proveo prints, naming the variable, the vendor it
+// takes and the vendor it was handed.
 func (r Refusal) Reason() string {
 	return fmt.Sprintf("%s=%s resolves to %s, and %s takes models from %s only — the slot is left "+
 		"unset, so the agent falls back to its own default",
 		r.Role, r.Model, r.Got, strings.Join(r.Targets, "/"), r.Want)
 }
 
-// applyTransform mirrors the shell so the header shows the value the harness will
-// actually see, not the one the operator typed.
 func applyTransform(kind, v string) string {
 	switch kind {
 	case "bare":
@@ -219,14 +199,8 @@ func applyTransform(kind, v string) string {
 	return v
 }
 
-// ResolvedEnv applies the whole bridge table for a harness and returns the env vars
-// it produces, already transformed.
-//
-// This is the same walk apply_model_bridges does in shell, run on the host instead.
-// Under sbx it has to be: a setup command cannot export into the agent, so the Kit
-// carries ANTHROPIC_MODEL decided rather than shipping the tables and a bridge to
-// recompute it inside. Defaults are deliberately not applied — the header states
-// what the operator chose, and a default that fires in-container is not a choice.
+// ResolvedEnv applies the whole bridge table for a harness and returns the env
+// vars it produces, already transformed.
 func (t BridgeTable) ResolvedEnv(harness string, r Roles) map[string]string {
 	rows, ok := t[harness]
 	if !ok {

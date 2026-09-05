@@ -2,18 +2,11 @@
 # SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
 set -euo pipefail
 
-# Headless mitmproxy (mitmdump) inspector.
-#
-# In `firewall` egress mode this runs as the agent's first hop:
-#   agent -> mitmproxy (decrypts + records) -> squid (enforces) -> internet
-
 : "${PROVEO_MITM_PORT:=8888}"
 : "${PROVEO_MITM_CONFDIR:=/mitmproxy-confdir}"
 : "${PROVEO_MITM_FLOWS:=/flows}"
 : "${PROVEO_MITM_UPSTREAM:=}"
 
-# Emit the readiness sentinel ONLY in smoke mode — printing it on every normal
-# run gives any orchestrator that greps stdout a false "ready" positive.
 if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-mitmproxy}"
   exec sleep infinity

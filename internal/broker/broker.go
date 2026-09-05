@@ -1,4 +1,5 @@
 // Package broker is the credential broker for the enforced egress modes.
+//
 // SPEC: _spec/_paradigms/credential-boundary.puml
 package broker
 
@@ -20,26 +21,17 @@ var DefaultStripHeaders = []string{
 }
 
 type Route struct {
-	// Provider is the registry name, used only for reporting. Never a secret.
-	Provider string
-	Hosts    []string
-	// Header is the auth header to set on these hosts (e.g. "x-api-key").
-	Header string
-	// Query, if set, is a query-param name to set instead of a header (e.g.
-	// Gemini "key").
-	Query string
-	// Value is the secret to inject (may include a "Bearer " prefix). Takes
-	// precedence over ValueFile.
+	Provider  string
+	Hosts     []string
+	Header    string
+	Query     string
 	Value     string
 	ValueFile string
 }
 
 type Config struct {
-	// Routes is one entry per broker-injectable provider, in registry order.
 	Routes []Route
-	// Strip lists credential headers removed off-route. Defaults to
-	// DefaultStripHeaders when empty *and* at least one route is configured.
-	Strip []string
+	Strip  []string
 }
 
 // Broker applies the inject/strip policy to requests.
@@ -48,7 +40,6 @@ type Broker struct {
 	strip  []string
 }
 
-// route is a validated Route with its secret resolved.
 type route struct {
 	provider string
 	hosts    []string
@@ -112,7 +103,7 @@ func (b *Broker) InjectReady() bool {
 func (b *Broker) Active() bool { return len(b.routes) > 0 || len(b.strip) > 0 }
 
 // InjectingProviders names the providers this broker holds a usable secret for,
-// in configuration order. Names only — safe to log.
+// in configuration order.
 func (b *Broker) InjectingProviders() []string {
 	var out []string
 	for i := range b.routes {
@@ -124,7 +115,7 @@ func (b *Broker) InjectingProviders() []string {
 }
 
 // Hosts is every host suffix across all routes: the set of destinations the
-// broker treats as on-route. Used to seed the policy's provider hosts.
+// broker treats as on-route.
 func (b *Broker) Hosts() []string {
 	var out []string
 	for i := range b.routes {
@@ -134,7 +125,7 @@ func (b *Broker) Hosts() []string {
 }
 
 // Apply mutates req in place: inject on the matching provider's hosts, strip
-// credential headers everywhere else. Safe to call on every request.
+// credential headers everywhere else.
 func (b *Broker) Apply(req *http.Request) {
 	if rt := b.match(hostOf(req)); rt != nil {
 		if rt.ready {
@@ -149,14 +140,11 @@ func (b *Broker) Apply(req *http.Request) {
 		}
 		return
 	}
-	// Off-route: never let a credential header leave.
 	for _, name := range b.strip {
 		req.Header.Del(name)
 	}
 }
 
-// onRoute reports whether any route owns host — i.e. whether a request there is
-// on-route and therefore exempt from header stripping.
 func (b *Broker) onRoute(host string) bool { return b.match(host) != nil }
 
 func (b *Broker) match(host string) *route {
@@ -172,8 +160,6 @@ func (b *Broker) match(host string) *route {
 	return nil
 }
 
-// hostOf returns the request's target hostname without port, tolerating both
-// server-side (req.Host) and proxy-side (req.URL.Host) request shapes.
 func hostOf(req *http.Request) string {
 	h := req.Host
 	if h == "" && req.URL != nil {
@@ -190,6 +176,5 @@ func readSecret(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Trim only trailing newline(s); preserve any internal characters.
 	return strings.TrimRight(string(data), "\r\n"), nil
 }

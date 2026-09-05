@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_config.sh - Claude configuration verification
-
-# ==================== Standalone ====================
 
 IMAGE="$STANDALONE_IMAGE"
 
-# Config file existence
 assert_success \
   "[standalone] ~/.claude.json exists" \
   "$IMAGE" \
@@ -18,7 +14,6 @@ assert_output_contains \
   "stat -c '%U' /home/claude/.claude.json" \
   "claude"
 
-# Key config values
 assert_output_contains \
   "[standalone] dangerouslySkipPermissions=true" \
   "$IMAGE" \
@@ -61,14 +56,12 @@ assert_output_contains \
   "cat /home/claude/.claude.json" \
   '"hasCompletedOnboarding": true'
 
-# mcpServers should be empty
 assert_output_matches \
   "[standalone] mcpServers is empty" \
   "$IMAGE" \
   "python3 -c \"import json; c=json.load(open('/home/claude/.claude.json')); print(len(c['projects']['/workspace']['mcpServers']))\"" \
   "^0$"
 
-# settings.local.json
 assert_success \
   "[standalone] ~/.claude/settings.local.json exists" \
   "$IMAGE" \
@@ -84,13 +77,6 @@ assert_success \
   "$IMAGE" \
   "python3 -c \"import json; json.load(open('/home/claude/.claude/settings.local.json'))\""
 
-# Baked-in subagents (seeded into $HOME/.claude/agents by the entrypoint).
-#
-# They live in the SHARED tree at /opt/proveo/subagents with a per-harness
-# _roster.json, not under /opt/claudecode/defaults/agents — this assertion named
-# the retired path and the restated five. Read the roster from the image instead,
-# as cecli's test.sh does; a list copied into a test is what let the path go stale
-# without anything noticing.
 # SPEC: _spec/defs/agent-definition-sharing.puml
 assert_success \
   "[standalone] every subagent in the claudecode roster is baked in" \
@@ -102,15 +88,6 @@ assert_success \
      test -f "/opt/proveo/subagents/$a.md" || { echo "missing /opt/proveo/subagents/$a.md"; exit 1; }
    done'
 
-# The read-only split is the whole point under --dangerously-skip-permissions:
-# no advisor may hold Edit/Write, and nothing may hold Bash.
-#
-# `tools:` moved into the per-harness FRONTMATTER that render_subagents applies to
-# the shared body — the bodies never carried it. Both checks below are
-# assert_failure, so while they pointed at the retired
-# /opt/claudecode/defaults/agents the grep found no directory, failed, and they
-# reported PASS having verified nothing. A positive assertion goes first so a
-# missing tree fails loudly instead of turning the two negatives vacuous again.
 FRONTMATTER=/opt/proveo/subagents/_frontmatter/claudecode
 assert_success \
   "[standalone] claudecode subagent frontmatter is present" \
@@ -128,11 +105,6 @@ assert_failure \
   "grep -lE '^tools:.*(Edit|Write)' ${FRONTMATTER}/*.yaml \
    | grep -v spec-keeper.yaml | grep -q ."
 
-# seed_claude_subagents no longer exists — the renderer is render_subagents in the
-# SHARED lib, called from proveo_seed's per-harness case. The old spelling sed'd a
-# function out of /entrypoint.sh that had already moved, so `eval ""` succeeded and
-# the call died `command not found` (127), which under `set -e` took the whole
-# suite down after this phase — every phase from Workspace onward never ran.
 assert_output_contains \
   "[standalone] render_subagents seeds the roster into \$HOME/.claude/agents" \
   "$IMAGE" \
@@ -147,8 +119,6 @@ assert_output_contains \
   "$IMAGE" \
   "cat /opt/claudecode/defaults/CLAUDE.md" \
   "Review Gates"
-
-# ==================== MCP ====================
 
 if $MCP_IMAGE_AVAILABLE; then
   IMAGE="$MCP_IMAGE"
@@ -170,7 +140,6 @@ if $MCP_IMAGE_AVAILABLE; then
     "cat /home/claude/.claude.json" \
     '"hasCompletedOnboarding": true'
 
-  # MCP variant permits MCP tools but does not currently bake in a server.
   assert_output_contains \
     "[mcp] mcpServers is present" \
     "$IMAGE" \

@@ -39,6 +39,55 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' deletes node_modules first, every time, so it runs only when the tree is
 ' absent or foreign.
 '
+' ── HOW THE PROBE DECIDES, IN FOUR BYTES ───────────────────────────────────
+' ELF is the only object format this container can execute, so anything else —
+' Mach-O from macOS, PE from Windows — came from the host. _proveo_foreign_object
+' reads four bytes and compares them to 7f454c46: no uname, no package metadata,
+' no per-ecosystem special cases.
+'
+' _dep_lang_binaries names what is worth reading, and deliberately NOT ".a" or
+' ".rlib": both are ar archives on every platform, so their magic bytes cannot
+' tell host from container. A format that cannot answer the question does not
+' belong in the probe.
+'
+' The scan is CAPPED at PROVEO_DEPS_PROBE_LIMIT (default 60). A workspace can
+' hold thousands of binaries and the answer never changes after the first
+' foreign one — this is a diagnosis, not an audit.
+'
+' _dep_owner names the thing an operator can ACT on, collapsing each ecosystem's
+' storage layout back to a package identity. pnpm's store keys by
+' "<name>@<version>" under .pnpm/, which is the identity worth reporting because
+' a platform mismatch is always about a specific build; ruby is
+' …/ruby/<abi>/gems/<gem>-<version>/…; terraform is
+' providers/<registry>/<namespace>/<name>/<version>/<os>_<arch>/…; luarocks
+' stores by MODULE rather than package (lib/lua/<ver>/<module>.so), where the
+' first path segment is only ever "lib" and names nothing, so the filename minus
+' its extension is used instead. Everything else falls back to the first path
+' segment, which is already the package name in most layouts.
+'
+' _dep_clear_tree empties a private copy IN PLACE: the directory itself is a
+' mount point and cannot be removed, but its contents can.
+'
+' ── WHY EACH INSTALL COMMAND IS THE ONE CHOSEN ─────────────────────────────
+' Every command is picked by the project's own lockfile and RESPECTS it:
+' `pnpm install --frozen-lockfile`, `bun install --frozen-lockfile`,
+' `yarn install --immutable`, `npm ci`, else plain `npm install`.
+'   terraform  `terraform init -input=false` honours .terraform.lock.hcl;
+'              `-upgrade` would rewrite it.
+'   rust       `cargo fetch` — crates land in CARGO_HOME, outside the tree.
+'   go         `go mod download` — modules land in GOMODCACHE, and gopls needs
+'              them present.
+'   lua        luarocks installs INTO the tree named by _dep_lang_dirs, from the
+'              rockspec that roots it; bare `--only-deps` with no rockspec is an
+'              error, so the rockspec is resolved and passed by name.
+'
+' _dep_install never fails the seed: a workspace whose install cannot complete
+' still gets an agent, just a warned one. Absent tooling is reported by name
+' ("<cmd> is not on PATH"), and a non-zero install points at the two causes worth
+' checking — an unreachable registry under a tight egress tier (rerun with
+' --egress-mode open) and a lockfile that disagrees with its manifest, which is
+' reported rather than rewritten.
+'
 ' _proveo_dep_is_isolated reports whether a directory is proveo's private copy
 ' rather than the host's tree: a copy is bind-mounted at exactly that path, so
 ' it is its own mount point, while the host's tree sits INSIDE the workspace

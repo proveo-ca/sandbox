@@ -12,8 +12,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// initProviderKeys are env vars proveo --init may copy into a new .env.
-// Includes broker KeyVars plus common aliases the bash init shipped.
 var initProviderKeys = func() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -36,7 +34,6 @@ var initProviderKeys = func() []string {
 	return out
 }()
 
-// initCmd keeps `proveo init` as an alias for `proveo --init`.
 func initCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
@@ -92,7 +89,6 @@ func doInit() error {
 	return nil
 }
 
-// quoteEnvValue produces a shell-safe single-token value (bash printf %q–like).
 func quoteEnvValue(v string) string {
 	return strconv.Quote(v)
 }

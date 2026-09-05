@@ -19,7 +19,6 @@ fi
 
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
-# Toolchain provisioning moved into proveo_seed (runs on both backends).
 
 : "${CECLI_HOME:=/app/.cecli}"
 export CECLI_HOME
@@ -46,21 +45,9 @@ if ! command -v proveo-entrypoint >/dev/null 2>&1; then
   report_git_context
 fi
 
-# Model bridges are declared in defs/bridges/cecli.tsv.
 apply_model_bridges cecli
 
-
-
-# A local model reaches litellm through Ollama's OPENAI-COMPATIBLE API, not its
-# native one. Both litellm ollama providers are broken in this image:
-# "ollama_chat/<model>" loses its api_base and every call dies with "Request URL
-# is missing an 'http://' or 'https://' protocol", while "ollama/<model>" raises
-# FileNotFoundError. Ollama also serves /v1, and that route works — so the model
-# is spelled "openai/<model>" and pointed at it.
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  # OPENAI_API_BASE is litellm's name for the endpoint (OPENAI_BASE_URL is the
-  # SDK's); prefer whatever `proveo run --local-model` already set, and derive it
-  # from the Ollama base otherwise so a hand-run container still works.
   export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
   case "$OPENAI_API_BASE" in
     */v1|*/v1/) : ;;
@@ -85,13 +72,11 @@ fi
 
 seed_cecli_subagents
 
-
 if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
   CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"max_sub_agents\":3,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
   export CECLI_AGENT_CONFIG
 fi
 
-# ── Seed project-level CONVENTIONS.md if missing ──────────
 if [[ -f /opt/cecli/defaults/CONVENTIONS.md && ! -f CONVENTIONS.md ]]; then
   cp /opt/cecli/defaults/CONVENTIONS.md CONVENTIONS.md
   echo "🌱 Seeded CONVENTIONS.md into workspace"
@@ -174,8 +159,6 @@ echo "────────────────────────�
 
 run_smoke_test "cecli"
 
-# ── Verification command discovery ────────────────────────
-# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   echo "── Verification Commands ────────────────────────────"
   proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
@@ -204,7 +187,6 @@ if [[ ${#CECLI_RULE_ARGS[@]} -gt 0 ]]; then
   echo "📐 rules: ${CECLI_RULE_ARGS[*]}"
 fi
 
-# ── Agent evidence ─────────────────────────────────────────
 CECLI_EVIDENCE_ARGS=()
 if agent_evidence_verbose; then
   CECLI_EVIDENCE_ARGS=(--verbose --show-diffs)
@@ -213,8 +195,6 @@ else
   report_agent_evidence
 fi
 
-# Evidence flags ride with the rules: both are ours to add, and both belong only
-# on a cecli invocation — never on the bash/git/... passthroughs below.
 if [[ $# -eq 0 ]]; then
   set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}"
 elif [[ "$1" == -* ]]; then

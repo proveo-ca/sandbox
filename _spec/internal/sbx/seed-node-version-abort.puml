@@ -7,10 +7,38 @@ skinparam noteTextAlignment left
 '
 ' NOT THE ONLY ONE. _node_json_field had the same defect for a different reason —
 ' it runs `node -e`, and the cecli image ships python and no node, so it returned
-' 127 into the same kind of command substitution. All 24 command-substituted
-' helpers were then audited by measurement inside the image; two were non-zero and
-' both are fixed. See _spec/internal/sbx/seed-node-version-abort.puml (C1) for that sweep and
-' for the bare-`exec` stderr bug that hid it.
+' 127 into the same kind of command substitution. A harness image WITHOUT node is
+' the ordinary case there, so absence is not failure: the helper now returns 0
+' when `command -v node` finds nothing. All 24 command-substituted helpers were
+' then audited by measurement inside the image; two were non-zero and both are
+' fixed. That sweep and the stderr bug that hid it are recorded below rather than
+' elsewhere — an earlier version of this line pointed the reader at THIS file.
+'
+' ── C1 · THE BARE-`exec` STDERR BUG THAT HID ALL OF IT ─────────────────────
+' `exec` with NO command makes its redirections PERMANENT for the running shell.
+' So in _proveo_lock_installs:
+'
+'   exec 9>>"${dir}/install.lock" 2>/dev/null
+'
+' the `2>/dev/null` did not scope stderr to the exec — it silenced stderr for the
+' WHOLE entrypoint and for the agent that shell goes on to exec. Every diagnostic
+' after that line was being written to /dev/null, which is why so many failures
+' in this harness present as a silent death with no message.
+'
+' The fix separates the two jobs the one line was doing: probe writability with
+' the redirect scoped to a SINGLE command (`: >>"$lock" 2>/dev/null`, returning
+' early when it fails), then take fd 9 without touching fd 2 at all.
+'
+' _proveo_unlock_installs is the mirror image and must NOT carry `2>/dev/null`
+' for the same reason. It needs no guard either: closing an fd that was never
+' opened is not an error in bash.
+'
+' The lock itself lives under the TOOL home, so it covers every run reaching the
+' same tree — a docker run and an sbx run on one host now share it, which is
+' exactly the race it exists for and could not previously see. Failing to lock is
+' not failing to boot: no flock binary degrades to no locking, and a timeout
+' (PROVEO_INSTALL_LOCK_WAIT, default 300s) skips installs rather than aborting,
+' because the run holding the lock is installing the same things anyway.
 '
 ' ── THE DEFECT ─────────────────────────────────────────────────────────────
 ' _node_version_file looks for .nvmrc then .node-version and, finding neither,
@@ -127,5 +155,21 @@ note over SEED
   the helper returns 0 on absence, and the caller's two lines
   survive ""set -euo pipefail"" against a package.json with no
   ""engines\.node"".
+end note
+
+note over SEED #F4F9FB
+  **The bug that hid this.** A bare ""exec"" with
+  no command makes its redirections PERMANENT
+  for the shell, so ""exec 9>>lock 2>/dev/null""
+  silenced stderr for the whole entrypoint AND
+  the agent it goes on to exec.
+end note
+
+note over SEED #F4F9FB
+  **Which is why failures presented as a silent
+  death.** Every diagnostic after that line went
+  to ""/dev/null"". The lock now probes with the
+  redirect scoped to ONE command, then takes
+  fd 9 without touching fd 2.
 end note
 @enduml

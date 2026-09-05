@@ -14,7 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// install.sh PATH block markers (also stripped by apps/cli/public/cli/uninstall.sh).
 const (
 	installPathMarkerStart = "# Added by proveo install.sh"
 	installPathMarkerEnd   = "# End added by proveo install.sh"
@@ -115,8 +114,6 @@ func shellRCCandidates(home string) []string {
 	}
 }
 
-// stripInstallPathBlock removes the install.sh-delimited PATH block and any
-// lone PATH lines pointing at binDir.
 func stripInstallPathBlock(rc, binDir string) error {
 	b, err := os.ReadFile(rc)
 	if err != nil {
@@ -157,7 +154,6 @@ func stripInstallPathBlock(rc, binDir string) error {
 	return writeRC(rc, strings.Join(out, "\n"))
 }
 
-// stripSetupPathBlock removes the `# added by proveo setup` marker + following PATH line.
 func stripSetupPathBlock(rc string) error {
 	b, err := os.ReadFile(rc)
 	if err != nil {

@@ -1,32 +1,18 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/helpers.sh - Test framework helpers for the claudecode images.
 
-# --- State ---
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 FAILURES=()
 
-# --- Image names (overridable) ---
-# Resolved through proveo_test_image so a NEWER <repo>:local build wins over the
-# published tag — the same rule `proveo run` applies. proveo_docker_build refuses
-# to write :latest locally, so without this the suite only ever sees the registry.
 # shellcheck source=../../lib/docker-build.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
 STANDALONE_IMAGE="$(proveo_test_image "${STANDALONE_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE="$(proveo_test_image "${MCP_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE_AVAILABLE=false
 
-# run_timeout <duration> <cmd...> — wraps cmd with $TIMEOUT_BIN when available.
-#
-# test_config.sh has called this since it was written and claudecode's helpers
-# never defined it (opencode and cursor both do). It failed as
-# `run_timeout: command not found`, and because the caller is
-#   BAD_RULES=$(run_timeout ... docker run ... | grep -c 'mcp__\*' || true)
-# the empty pipeline still produced "0" — so the wildcard-MCP-rule assertion
-# reported PASS without ever starting a container. A test that cannot fail.
 if command -v timeout >/dev/null 2>&1; then
   TIMEOUT_BIN="timeout"
 elif command -v gtimeout >/dev/null 2>&1; then
@@ -45,7 +31,6 @@ run_timeout() {
   fi
 }
 
-# --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -58,9 +43,6 @@ docker_exec() {
   return $?
 }
 
-# --- Assertions ---
-
-# assert_success <description> <image> <command>
 assert_success() {
   local desc="$1" image="$2"; shift 2
   local cmd="$*"
@@ -77,7 +59,6 @@ assert_success() {
   fi
 }
 
-# assert_failure <description> <image> <command>
 assert_failure() {
   local desc="$1" image="$2"; shift 2
   local cmd="$*"
@@ -92,7 +73,6 @@ assert_failure() {
   fi
 }
 
-# assert_output_contains <description> <image> <command> <expected_substring>
 assert_output_contains() {
   local desc="$1" image="$2" cmd="$3" expected="$4"
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -109,7 +89,6 @@ assert_output_contains() {
   fi
 }
 
-# assert_output_matches <description> <image> <command> <regex>
 assert_output_matches() {
   local desc="$1" image="$2" cmd="$3" pattern="$4"
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -126,8 +105,6 @@ assert_output_matches() {
   fi
 }
 
-# assert_inspect <description> <image> <format> <expected_substring>
-# Uses docker inspect instead of running the container
 assert_inspect() {
   local desc="$1" image="$2" fmt="$3" expected="$4"
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -145,7 +122,6 @@ assert_inspect() {
   fi
 }
 
-# skip_test <description> <reason>
 skip_test() {
   local desc="$1" reason="$2"
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -153,7 +129,6 @@ skip_test() {
   printf "${YELLOW}SKIP${NC} [%d] %s -- %s\n" "$TESTS_RUN" "$desc" "$reason"
 }
 
-# print_summary - call at end of run_tests.sh
 print_summary() {
   echo ""
   echo "========================================="
@@ -175,7 +150,6 @@ print_summary() {
   return 0
 }
 
-# images_to_test - returns list of available images
 images_to_test() {
   echo "$STANDALONE_IMAGE"
   if $MCP_IMAGE_AVAILABLE; then
@@ -183,7 +157,6 @@ images_to_test() {
   fi
 }
 
-# image_tag - short name for display
 image_tag() {
   local image="$1"
   if [[ "$image" == "$STANDALONE_IMAGE" ]]; then

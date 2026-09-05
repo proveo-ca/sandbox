@@ -1,3 +1,7 @@
+// SPEC: _spec/internal/workspace/mount-model.puml,
+// _spec/internal/workspace/subdir-scope-mounts.puml,
+// _spec/packages/lib/dependency-trees.puml
+//
 // SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/subdir-scope-mounts.puml, _spec/packages/lib/dependency-trees.puml
 package workspace
 
@@ -18,18 +22,15 @@ import (
 	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
-// DepLang is one row of the dependency-tree table: which files root a project of
-// that language, and which directories its tooling materialises beside them.
-// Kept in lockstep with _dep_lang_markers / _dep_lang_dirs in
-// packages/lib/entrypoint-lib.sh; internal/contract pins the two together.
+// DepLang is one row of the dependency-tree table: which files root a project
+// of that language, and which directories its tooling materialises beside them.
 type DepLang struct {
 	Lang    string
 	Markers []string // filenames (filepath.Match globs) that root a project
 	Dirs    []string // project-relative dirs the tooling writes; may be nested (vendor/bundle)
 }
 
-// DepLangs is the table. Languages with nothing host-specific in-tree have no
-// row here, but do have one in the shell's _dep_lang_class.
+// DepLangs is the table.
 var DepLangs = []DepLang{
 	{Lang: "typescript", Markers: []string{"package.json"}, Dirs: []string{"node_modules"}},
 	{Lang: "python", Markers: []string{"pyproject.toml", "requirements*.txt", "Pipfile", "uv.lock", "poetry.lock", "environment.yml", "environment.yaml"}, Dirs: []string{".venv", "venv"}},
@@ -42,33 +43,22 @@ var DepLangs = []DepLang{
 }
 
 // DepScanDepth bounds how deep under the scope project roots are looked for.
-// Mirrors the seed's PROVEO_DEP_SCAN_DEPTH default so the trees proveo isolates
-// are exactly the trees the seed then installs into.
 const DepScanDepth = 4
 
-// depScanBudget caps directory entries visited, so a pathological tree cannot
-// stall the plan. Matches wsscan.DefaultBudget in spirit; the walk here prunes
-// far more aggressively so it is rarely approached.
 const depScanBudget = 20000
 
 // DepCopy is one isolated dependency tree.
-//
-//	Host      the operator's tree; may not exist
-//	Stage     the private directory proveo mounts in its place
-//	Container where it lands in the agent's view
 type DepCopy struct {
 	Host, Stage, Container string
 	Lang, Dir              string
 }
 
-// depTree is a (project root, language, dir) triple found by the walk.
 type depTree struct {
 	root string
 	lang DepLang
 	dir  string
 }
 
-// projectLangs returns the table rows whose markers match an entry of dir.
 func projectLangs(entries []fs.DirEntry) []DepLang {
 	var out []DepLang
 	for _, l := range DepLangs {
@@ -93,9 +83,6 @@ func markersMatch(markers []string, entries []fs.DirEntry) bool {
 	return false
 }
 
-// depTreesUnder walks root to DepScanDepth and returns every tree the table
-// names for a project found there, present on the host or not. Dep dirs and the
-// shared prune set are never descended into.
 func depTreesUnder(root string) []depTree {
 	root = filepath.Clean(root)
 	var out []depTree
@@ -131,8 +118,6 @@ func depTreesUnder(root string) []depTree {
 	return out
 }
 
-// depStage is where copies are staged. The fallback is keyed by pid, so
-// concurrent runs cannot collide and repeated Plan calls in one process agree.
 func (w MountSpec) depStage() string {
 	if w.DepStage != "" {
 		return filepath.Clean(w.DepStage)
@@ -140,17 +125,13 @@ func (w MountSpec) depStage() string {
 	return filepath.Join(os.TempDir(), "proveo-deps", fmt.Sprint(os.Getpid()))
 }
 
-// stagePath names a copy's staging dir from its container path. Deterministic,
-// so Plan is a pure function and --print renders the argv the run will use.
 func stagePath(stage, container string) string {
 	sum := sha256.Sum256([]byte(container))
 	return filepath.Join(stage, hex.EncodeToString(sum[:5])+"-"+filepath.Base(container))
 }
 
 // DepCopies is the PURE half of dependency isolation: which host trees the plan
-// hides, and where each private copy is staged. Two sets, mirroring Plan's two
-// layouts — under the scope tree every table row gets an overlay present or
-// not, at the repo root of a subdir scope only trees that EXIST are copied.
+// hides, and where each private copy is staged.
 func (w MountSpec) DepCopies() []DepCopy {
 	scopeHost, scopeContainer := w.scope()
 	if scopeHost == "" {
@@ -192,8 +173,6 @@ func (w MountSpec) DepCopies() []DepCopy {
 	return out
 }
 
-// scope returns the host directory bind-mounted as the workspace and where it
-// lands — the same resolution Plan performs, factored so both agree.
 func (w MountSpec) scope() (host, container string) {
 	switch {
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):
@@ -205,9 +184,6 @@ func (w MountSpec) scope() (host, container string) {
 	}
 }
 
-// depMounts renders DepCopies as the rw overlays Plan appends. Writable even
-// when the workspace is read-only: an install has to land somewhere, and the
-// copy is the one place it can go without touching the operator's files.
 func (w MountSpec) depMounts() []runner.Mount {
 	var out []runner.Mount
 	for _, c := range w.DepCopies() {
@@ -216,9 +192,6 @@ func (w MountSpec) depMounts() []runner.Mount {
 	return out
 }
 
-// MaterializeDeps is the WRITING half: it creates every staging dir and, when
-// reuse is set, plain-copies the host tree into it. Best-effort per tree,
-// returning the copies made and the joined errors.
 func MaterializeDeps(copies []DepCopy, reuse bool) ([]DepCopy, error) {
 	var errs []error
 	var made []DepCopy
@@ -239,18 +212,14 @@ func MaterializeDeps(copies []DepCopy, reuse bool) ([]DepCopy, error) {
 	return made, errors.Join(errs...)
 }
 
-// copyTree plain-copies src's contents into dst (which exists), preserving
-// symlinks, modes and times. On macOS it asks for clonefile(2) first.
 func copyTree(src, dst string) error {
 	args := []string{"-a"}
 	if runtime.GOOS == "darwin" {
 		args = append(args, "-c")
 	}
-	// src+"/." copies the CONTENTS; filepath.Join would clean the dot away.
 	args = append(args, src+"/.", dst)
 	out, err := exec.Command("cp", args...).CombinedOutput()
 	if err != nil && runtime.GOOS == "darwin" {
-		// An older cp, or a volume that rejects -c outright: retry without it.
 		out, err = exec.Command("cp", "-a", src+"/.", dst).CombinedOutput()
 	}
 	if err != nil {
@@ -259,8 +228,6 @@ func copyTree(src, dst string) error {
 	return nil
 }
 
-// StripDepCopies removes the staged overlays from a mount list and reports how
-// many it dropped. A nested overlay has no expression on the sbx backend.
 func StripDepCopies(mounts []runner.Mount, stage string) ([]runner.Mount, int) {
 	if stage == "" {
 		return mounts, 0

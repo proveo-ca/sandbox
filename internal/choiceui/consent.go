@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/choiceui/choice-prompt-render.puml
+//
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 package choiceui
 
 import (
@@ -7,7 +9,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// newScreen is injected so the dialog is testable against a SimulationScreen.
 func Consent(newScreen func() (tcell.Screen, error), host, port string) (bool, error) {
 	s, err := newScreen()
 	if err != nil {
@@ -39,7 +40,6 @@ func Consent(newScreen func() (tcell.Screen, error), host, port string) (bool, e
 	}
 }
 
-// drawConsent renders the modal centred on whatever size the terminal is.
 func drawConsent(s tcell.Screen, host, port string) {
 	p := styles()
 	s.Clear()
@@ -74,7 +74,6 @@ func drawConsent(s tcell.Screen, host, port string) {
 		y0 = 0
 	}
 
-	// Fill the box so the agent's frame does not show through behind the text.
 	for y := y0; y < y0+boxH && y < h; y++ {
 		for x := x0; x < x0+boxW && x < w; x++ {
 			s.SetContent(x, y, ' ', nil, tcell.StyleDefault)

@@ -160,6 +160,74 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' `.claude` perfectly while doing nothing at all for the entry beside it, which
 ' is the shape of failure that reads as "persistence is flaky".
 '
+' ── 7a · THE FOUR TRAPS IN THE TOOL HOME ITSELF ───────────────────────────
+' Knobs: PROVEO_TOOL_SYNC=off · PROVEO_CONFIG_SYNC=off · PROVEO_STATE_HOME
+' (the HOST path, set by the sbx backend only) · PROVEO_CONFIG_DIRS ·
+' PROVEO_CONFIG_FILES · PROVEO_INSTALL_LOCK_WAIT.
+'
+' 1. THE PLATFORM FOLD RUNS THE OPPOSITE WAY FROM THE BUILD'S. Both fold
+'    `uname -m` onto docker's spelling (amd64/arm64) —
+'    proveo_docker_host_platform in defs/lib/docker-build.sh, normalizeArch in
+'    internal/workspace/platform.go, _proveo_container_platform here — but an
+'    UNRECOGNISED machine is handled differently on purpose. The build side
+'    defaults to amd64, because there the value picks a published image and a
+'    guess is recoverable. Here it NAMES A DIRECTORY, so the machine keeps its
+'    own `uname -m` spelling: guessing wrong would silently share ONE toolchain
+'    tree between two architectures, which is the wrong-arch binary that
+'    satisfies `command -v` and dies on first exec.
+'
+' 2. THE NAMESPACE EXISTS BECAUSE SHARING IS THE POINT. _proveo_tool_rel is
+'    `toolchains/<os>-<arch>`. The persisted tree is shared: the docker backend
+'    and the sbx VM on one host save into the same directory, and so does a run
+'    pinned with DOCKER_DEFAULT_PLATFORM. Install once, reuse on the other
+'    backend — and the namespace is the only thing stopping an amd64 install
+'    from answering `command -v` for an arm64 sandbox. _proveo_tool_home is
+'    memoised in _PROVEO_TOOL_HOME, since the answer cannot change inside a run.
+'
+' 3. THE MISE VARIABLES MUST BE SET AS A GROUP. MISE_DATA_DIR, MISE_CONFIG_DIR,
+'    MISE_STATE_DIR and MISE_CACHE_DIR all hang off the tool home, and setting
+'    only some of them is worse than none: a data dir WITHOUT a config dir
+'    leaves `mise use -g` recording a global config in a home the next run does
+'    not read, so the tools are on disk and nothing knows they are.
+'    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT defaults to 1 alongside them.
+'
+' 4. _proveo_tool_store IS EMPTY ON DOCKER, AND THAT IS THE WHOLE DOCKER STORY.
+'    There the agent home IS the mounted host dir, so the install location is
+'    already durable and a sync would copy a directory onto itself. It is also
+'    empty when PROVEO_TOOL_SYNC is off, which is how an operator declines the
+'    copy in both directions.
+'
+' ── WHY THE TOOL SYNC IS ASYMMETRIC, AND WHERE ITS LOCK LIVES ─────────────
+' Restore into a fresh VM copies the tree once, sequentially. Save copies only
+' what this run ADDED, because _proveo_sync_tree is `cp -an` plus an overwrite
+' of genuinely changed files. Compare that with running every `command -v`,
+' every shim and every server exec across virtiofs for the life of a session.
+'
+' The lock is taken on the AGENT side (`<agent home>/.proveo-tools.lock`), like
+' the state sync: it is the restore/save collision INSIDE one sandbox that was
+' measured, and a lock on the shared host root would compare pids across VM
+' namespaces, where they mean nothing. Concurrent saves from two sandboxes are
+' safe without it — the tree is content-identical for one platform, and each
+' file is replaced through an atomic rename.
+'
+' ── WHY THE CONFIG COPY USES `-nt` AND NOT THE STATE SYNC'S COMPARISON ────
+' _proveo_config_tree copies a file when absent and replaces it when the source
+' is NEWER — plain `-nt`, not _proveo_changed_files's size+mtime pair. Two
+' reasons: a config file is small, so its mtime is the whole signal; and this
+' walk has to PRUNE, which that helper's unconditional `cp -a .` cannot. The
+' replacement still goes through a temp name and a rename, so a reader never
+' sees a half-written config.
+'
+' _proveo_config_skips is what makes the prune list: every sbx volume inside the
+' declared root (state, owned by proveo_sync_state) plus every name the manifest
+' DENIES. That second half is a credential boundary, not tidiness — a secret
+' must never ride out on a config copy, and these are the same names
+' proveohome.scrubDeny strips on the host.
+'
+' _proveo_config_file is separate from the tree walk because a home-root file
+' has no subtree to prune and no deny list to apply: the manifest names the file
+' itself, so declaring it IS the decision that it may travel.
+'
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.
 '
@@ -310,7 +378,8 @@ legend bottom
   bare name, and ""PROVEO_CONFIG_FILES"" carries them.
   --
   **4. Generalise the chain into one table and one entry point.** — LANDED.
-  ""_proveo_config_classes"" is ""plugin lsp mcp"" — an ORDER, not a preference: the
+  ""_proveo_config_classes"" is ""plugin lsp formatter mcp"" — an ORDER, not a
+  preference: the
   plugin row exports ""PROVEO_CLAUDE_LSP_OFFICIAL"" and the lsp row reads it to
   decide which languages to yield. ""_proveo_class_wire <class>:<harness>"" names
   the wiring function, ""_proveo_class_probe <class>"" names the health check, and

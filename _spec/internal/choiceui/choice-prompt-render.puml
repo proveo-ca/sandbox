@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
-' row-gating helpers (applicableRows, comingSoon, gateAddons, gateEvidence) lands here (batches 3 and 6).
+' row-gating helpers (applicableRows, comingSoon, gateAddons, gateReview) lands here (batches 3 and 6).
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
@@ -182,8 +182,8 @@ note bottom of DRAW
   **""agent evidence"" is a toggle, not a tier.**
   Narrating more of the run costs tokens and
   screen rather than safety, so it belongs with
-  the add-ons instead of under the legend, and
-  ""gateEvidence"" enforces their exclusivity.
+  the add-ons instead of under the legend — as a
+  RADIO row, since a level is exactly one answer.
 end note
 
 note bottom of DRAW
@@ -203,11 +203,11 @@ note top of GATE
 end note
 
 note top of GATE
-  **A level is one answer.** ""gateEvidence""
-  clears the opposite box whenever either is
-  ticked, and clearing both is allowed because
-  ""evidenceFrom"" only asks whether verbose was
-  selected.
+  **A level is one answer, so it is a radio.**
+  The gate that kept two checkboxes exclusive is
+  gone: it left 'neither ticked' reachable, a
+  state that quietly meant default and that the
+  picker had no way to explain.
 end note
 
 note bottom of GATE

@@ -86,6 +86,14 @@ note over SPEC
 end note
 
 note over DO
+  **The output dir is created host-side, before
+  either backend sees it.** ""docker run -v""
+  invents a missing path as ROOT, and sbx does
+  not invent it at all — it asks 'create it?
+  (y/N)', which no unattended run can answer.
+end note
+
+note over DO
   **Converted with gofmt -r, not regex.** A text
   pass had already rewritten a string LITERAL.
   An AST rewrite cannot reach into strings or

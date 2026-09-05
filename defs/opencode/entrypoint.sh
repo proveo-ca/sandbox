@@ -7,7 +7,6 @@ if [[ -f /entrypoint-lib.sh ]]; then
   source /entrypoint-lib.sh
 fi
 
-# Shared prelude (uid, .env, model bridges, git, sentinel) via Go when baked.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=opencode
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
@@ -26,8 +25,6 @@ else
   apply_model_bridges opencode
 fi
 
-# ── Seed global defaults (~/.config/opencode) ──────────────
-# Only seed files that are missing, unless OPENCODE_RESEED=1 forces a full re-seed.
 write_minimal_opencode_config() {
   local target="$1"
   cat >"$target" <<'EOF'
@@ -100,7 +97,6 @@ seed_defaults
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
-# ── Local model (Ollama) provider ─────────────────────────
 configure_opencode_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   command -v jq >/dev/null 2>&1 || { echo "⚠️  jq missing; cannot wire Ollama provider" >&2; return 0; }
@@ -129,7 +125,6 @@ configure_opencode_local_model() {
 }
 configure_opencode_local_model
 
-# ── Seed project-level AGENTS.md if missing ───────────────
 seed_project_agents_md() {
   local src="/opt/opencode/defaults/AGENTS.md"
   local dst="AGENTS.md"
@@ -160,8 +155,6 @@ echo "Review gates: @adversarial-reviewer always; @security-reviewer for sensiti
 echo "HITL: approve risky bash, destructive ops, publishes, deploys, secrets, and network/security changes"
 echo "─────────────────────────────────────────────────────"
 
-# ── Verification command discovery ────────────────────────
-# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   echo "── Verification Commands ────────────────────────────"
   proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
@@ -180,7 +173,6 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
-# ── Configuration check ────────────────────────────────────
 echo "── Configuration Check ──────────────────────────────"
 if [[ -f opencode.json ]]; then
   echo "✅ Found opencode.json"
@@ -191,7 +183,6 @@ else
 fi
 if [[ -f AGENTS.md ]]; then echo "✅ Found AGENTS.md"; else echo "🔎 No AGENTS.md"; fi
 
-# Surface available subagents (global + project)
 agent_files=()
 [[ -d "${HOME}/.config/opencode/agents" ]] && \
   while IFS= read -r f; do agent_files+=("@$(basename "${f%.md}")"); done \
@@ -212,14 +203,6 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   exec sleep infinity
 fi
 
-# Toolchain provisioning AND LSP wiring moved into proveo_seed (runs on both
-# backends): sbx never executes this entrypoint.
-
-# ── API key detection ──────────────────────────────────────
-# OPENCODE_API_KEY is OpenCode's own gateway — Zen (pay-as-you-go) and Go (the
-# subscription) both read it, ahead of auth.json, so a host-exported key is a
-# complete login and needs no /connect inside the sandbox (whose auth.json proveo
-# scrubs every run).
 has_api_key() {
   [[ -n "$OPENCODE_API_KEY" ]] || \
   [[ -n "$ANTHROPIC_API_KEY" ]] || \
@@ -246,7 +229,6 @@ if ! has_api_key && ! has_project_config; then
   echo "   sandbox writes auth.json, which proveo scrubs on the next run."
 fi
 
-# ── Agent evidence ─────────────────────────────────────────
 OPENCODE_EVIDENCE_ARGS=()
 if agent_evidence_verbose; then
   OPENCODE_EVIDENCE_ARGS=(--log-level DEBUG)
@@ -265,7 +247,6 @@ else
   report_agent_evidence
 fi
 
-# ── Launch ─────────────────────────────────────────────────
 if [[ $# -gt 0 ]]; then
   set -- "${OPENCODE_EVIDENCE_ARGS[@]}" "$@"
   echo "🚀 Launching: opencode $*"

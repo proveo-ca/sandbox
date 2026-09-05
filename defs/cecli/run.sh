@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Thin shim → proveo run.
 # SPEC: _spec/cmd/proveo/usage.puml, _spec/components.puml
 set -euo pipefail
 
@@ -34,7 +33,6 @@ while [[ $# -gt 0 ]]; do
  --shell|--print)
  ARGS+=("$1"); shift ;;
  --read-only)
- # Mount mode is manifest-driven; accept for flag compatibility.
  shift ;;
  -h|--help)
  exec "$PROVEO_BIN" run --help ;;

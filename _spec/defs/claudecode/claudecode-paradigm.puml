@@ -12,8 +12,33 @@
 ' CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (2.1.132+) is the documented opt-out
 ' that wins over a saved setting.
 '
+' ── AGENTS.md IS BRIDGED, NOT COPIED ───────────────────────────────────────
+' Claude Code does not read AGENTS.md natively, so when a repo ships one and no
+' CLAUDE.md, the entrypoint writes a one-line CLAUDE.md containing "@AGENTS.md"
+' — an include, so the repo keeps ONE instruction file and edits to it are live.
+' Only when neither exists is the baked default CLAUDE.md copied in.
+'
+' Both writes are best-effort: the workspace may be a read-only mount, and a
+' failure warns and continues rather than killing the run. This is a PROJECT
+' file and therefore distinct from the house rules, which are never written to
+' the workspace at all (_spec/packages/lib/house-rules.puml).
+'
+' seed_claude_proveo_home covers the other direction: when proveo mounts
+' ~/.proveo at /proveo-home and sets HOME, the image's baked .claude.json and
+' .claude/settings.local.json are copied into that durable home — MISSING-ONLY,
+' so a returning operator's own files are never overwritten.
+'
+' --chrome is passed for THIS SESSION only, gated on PROVEO_CHROME_READY, which
+' proveo_seed sets in the same shell. Nothing is persisted:
+' claudeInChromeDefaultEnabled stays untouched, so a run without the add-on does
+' not inherit the last one's browser integration
+' (_spec/defs/claudecode/chrome-bridge.puml).
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title claudecode paradigm — ML blackbox algorithm (spec → plan → implement → verify → loop)
+
+' covers: defs/claudecode/mcp/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
 
 actor "Developer\ngoal + stopping condition" as DEV
 

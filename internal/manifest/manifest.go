@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/manifest/harness-manifest-schema.puml
+//
+// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 package manifest
 
 import (
@@ -19,18 +21,11 @@ const Filename = "harness.manifest"
 // Workspace declares how a harness mounts the working tree — the model the
 // run.sh files encode today, lifted into data so `proveo run` can reproduce it.
 type Workspace struct {
-	Layout string `yaml:"layout"`
-	// ConfigDir is the tool config dir preserved from the repo root in the
-	// monorepo-subdir case (e.g. ".cursor", ".opencode", ".cecli"). app layout only.
+	Layout    string `yaml:"layout"`
 	ConfigDir string `yaml:"configDir"`
-	// GitMode is how the root .git is mounted in the subdir case: "rw" (default)
-	// or "ro" (cecli). app layout only.
-	GitMode string `yaml:"gitMode"`
-	// Output mounts the output dir at /app/output:rw (cecli). app layout only.
-	Output bool `yaml:"output"`
-	// Mode is how the working tree itself is mounted: "rw" (default) or "ro".
-	// Applies to the workspace root (/app).
-	Mode string `yaml:"mode"`
+	GitMode   string `yaml:"gitMode"`
+	Output    bool   `yaml:"output"`
+	Mode      string `yaml:"mode"`
 }
 
 type EnvVar struct {
@@ -49,18 +44,6 @@ type HomeMount struct {
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
 	Mounts  []HomeMount `yaml:"mounts"`
-	// Files are config files at the ROOT of the agent home rather than inside one
-	// of the declared subtrees — claudecode's ~/.claude.json (workspace trust,
-	// Chrome onboarding, whatever MCP servers the operator registered) and cecli's
-	// ~/.cecli.conf.yml.
-	//
-	// They needed declaring because the two backends carry the home differently.
-	// docker binds the WHOLE proveo home at /proveo-home, so a file at its root
-	// persists without anyone naming it; sbx copies the named set instead, and a
-	// set derived from `mounts` alone is directory-shaped — so these files were
-	// rebuilt from scratch on every sandbox open, silently.
-	//
-	// Bare names only: a path would land outside the home, and Validate refuses it.
 	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	Files []string `yaml:"files"`
 }
@@ -79,30 +62,19 @@ type Manifest struct {
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
 	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
 	Config       []string          `yaml:"config"`
-	// AgentEnv is proveo's own opinion about how the harness should run: NAME:
-	// value pairs handed to the agent on EVERY backend unless the operator sets
-	// NAME themselves. Neither `env` nor `config`.
 	// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 	AgentEnv     map[string]string `yaml:"agentEnv"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
 
-	// Retired flags, still parsed so a stale manifest fails loudly at load
-	// instead of silently losing its docker story to the unknown-key rule.
 	RetiredDind          bool `yaml:"dind"`
 	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
 }
 
 // DockerMode is how a harness hands its agent a Docker daemon, and after
-// retiring the privileged sidecar there is exactly one way: `sbx` runs the agent
-// in a sandbox VM that has its own daemon, behind a boundary. Absent means no
-// daemon reaches the agent at all.
+// retiring the privileged sidecar there is exactly one way: `sbx` runs the
+// agent in a sandbox VM that has its own daemon, behind a boundary.
 //
-// `dind` was the other value — a privileged sibling the agent could call, which
-// is a way to start a container proveo did not write the argv for, and which was
-// only ever offered on the one posture where proveo had already stopped enforcing
-// anything. It is now REFUSED at load rather than silently ignored, because a
-// manifest that still declares it is asking for an isolation story proveo no
 // longer implements. SPEC: _spec/_plans/retire-dind.puml
 type DockerMode string
 
@@ -110,8 +82,6 @@ const (
 	DockerNone DockerMode = ""    // no daemon reaches the agent
 	DockerSbx  DockerMode = "sbx" // docker sandboxes (internal/sbx)
 
-	// retiredDockerDind is not a mode a manifest may declare. It exists so
-	// Validate can name it in the refusal.
 	retiredDockerDind DockerMode = "dind"
 )
 
@@ -127,11 +97,7 @@ type Capabilities struct {
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
 	Hosts       []string `yaml:"hosts"`
-	// HostBrowser names the integration through which the agent can drive the
-	// OPERATOR's browser (claude-in-chrome). It is what makes `proveo run` offer
-	// the "claude-in-chrome" add-on; a harness without one is
-	// a bridge it has no client for. See _spec/defs/claudecode/chrome-bridge.puml.
-	HostBrowser string `yaml:"hostBrowser"`
+	HostBrowser string   `yaml:"hostBrowser"`
 }
 
 // HasHostBrowser reports whether the harness can drive the operator's browser.
@@ -155,8 +121,8 @@ func listAllows(list []string, v string) bool {
 	return false
 }
 
-// MissingEnv returns the declared env vars whose value is empty per getenv,
-// in declaration order.
+// MissingEnv returns the declared env vars whose value is empty per getenv, in
+// declaration order.
 func (m Manifest) MissingEnv(getenv func(string) string) []EnvVar {
 	var out []EnvVar
 	for _, e := range m.Env {
@@ -202,10 +168,6 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest %q: empty target or image (%q: %q)", m.Name, target, image)
 		}
 	}
-	// A home file is a bare name at the home root. A path would either escape the
-	// home or name something inside a declared subtree, which `mounts` already
-	// carries — and the sandbox-side copy resolves it against two different roots,
-	// so a wrong shape is a file written where nothing reads it.
 	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	for _, f := range m.Home.Files {
 		name := strings.TrimSpace(f)
@@ -262,8 +224,6 @@ func (m Manifest) Validate() error {
 		if c == "" {
 			return fmt.Errorf("manifest %q: config entry with empty name", m.Name)
 		}
-		// config is forwarded BY VALUE, so a secret listed here would land on the
-		// docker argv in plain sight. Declared secrets go through Env.
 		if seen[c] {
 			return fmt.Errorf("manifest %q: %q is declared in env (brokered) — it cannot also be a config passthrough", m.Name, c)
 		}
@@ -273,8 +233,6 @@ func (m Manifest) Validate() error {
 		if strings.TrimSpace(k) == "" {
 			return fmt.Errorf("manifest %q: agentEnv entry with empty name", m.Name)
 		}
-		// An empty value IS the unset state. A default that says nothing is not a
-		// default, and on an argv it would occupy the slot the agent reads.
 		if strings.TrimSpace(v) == "" {
 			return fmt.Errorf("manifest %q: agentEnv %s has no value — drop the entry rather than defaulting it to empty", m.Name, k)
 		}
@@ -332,7 +290,6 @@ func (h Home) Active() bool {
 	return h.Enabled && (len(h.Mounts) > 0 || len(h.Files) > 0)
 }
 
-// Parse decodes one manifest from YAML bytes (dir is used only for messages).
 func Parse(data []byte, dir string) (Manifest, error) {
 	var m Manifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
@@ -345,7 +302,6 @@ func Parse(data []byte, dir string) (Manifest, error) {
 	return m, nil
 }
 
-// Load reads every `defs/*/harness.manifest` under defsDir, sorted by name.
 func Load(defsDir string) ([]Manifest, error) {
 	matches, err := filepath.Glob(filepath.Join(defsDir, "*", Filename))
 	if err != nil {
@@ -367,8 +323,6 @@ func Load(defsDir string) ([]Manifest, error) {
 	return out, nil
 }
 
-// LoadFS reads every defs/*/harness.manifest from an fs.FS (e.g. the embedded
-// manifests), so the CLI works without the defs tree on disk.
 func LoadFS(fsys fs.FS) ([]Manifest, error) {
 	matches, err := fs.Glob(fsys, "defs/*/"+Filename)
 	if err != nil {
@@ -390,8 +344,6 @@ func LoadFS(fsys fs.FS) ([]Manifest, error) {
 	return out, nil
 }
 
-// Targets flattens the images across manifests into target -> image, erroring on
-// a duplicate target name (two harnesses claiming the same runnable target).
 func Targets(ms []Manifest) (map[string]string, error) {
 	out := make(map[string]string)
 	for _, m := range ms {

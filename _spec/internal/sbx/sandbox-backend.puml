@@ -1,6 +1,15 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
+' purpose: how a run reaches the sbx backend, what it hands over, and what it refuses
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/sbx/sbx.go
+' covers: internal/sbx/exec.go
+' covers: internal/sbx/run.go
+' covers: internal/sbx/agents.go
+' covers: internal/run/run.go (selectBackend)
+'   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
+'
 ' ── Authoritative sbx references. The Kit spec is the source of truth for every
 ' field below. Deriving the shape from sbx's rejection messages instead produced a
 ' Kit that validated while omitting what actually makes an agent session work.
@@ -162,10 +171,19 @@ note bottom of CLI
 
   **Mounts are path-preserving.** A workspace lands inside the VM at its own HOST
   path over virtiofs, the cwd is that path, and the user is the image's own. There
-  is no flag to choose a container path, so proveo home travels as a workspace
-  with ""HOME"" repointed at its host path (which keeps ~/.claude and resume state
-  across runs) — and a bind NESTED under home, the gh config at
-  ""/proveo-home/.config/gh"", cannot be reproduced at all and is dropped.
+  is no flag to choose a container path, so proveo home travels as a workspace —
+  and a bind NESTED under home, the gh config at ""/proveo-home/.config/gh"",
+  cannot be reproduced at all and is dropped.
+
+  //The HOME redirect that used to be described here is gone.// It was written for
+  the docker backend, where proveo runs the agent as the HOST's uid; sbx runs its
+  own uid-1000 agent and its credential proxy writes ""\.credentials\.json"" into
+  that user's home, so repointing HOME ORPHANED the live credential and the agent
+  reported "Not logged in" (e2e/ladder_test.go rung 3). ""PROVEO_STATE_HOME""
+  publishes the host path instead of moving HOME to it, which is what keeps resume
+  state without moving the agent away from its own credential — see
+  ""_spec/internal/proveohome/proveo-home-lifecycle\.puml"" and
+  ""_spec/internal/sbx/state-sync\.puml"".
 
   **The image store is crossed locally, per user, and identity is what matters.**
   ""docker save -o <tar>"" then ""template load <tar>"" — it takes a FILE, not stdin,
@@ -390,6 +408,45 @@ note as Memory #F4F9FB
   nothing gets a behaviour change. A malformed value falls BACK to the
   derivation rather than through to sbx — sbx rejects a bad ""-m"" once the run is
   under way, and reports a flag, never the variable behind it.
+end note
+
+note right of SEL
+  **""PROVEO_SBX=off"" is the only headless route
+  to docker.** The add-on is default-ON and a
+  run with no TTY no longer reads the choice
+  cache — nothing to seed — so a script, CI, or
+  a test inspecting the docker plan needs a knob.
+end note
+
+note bottom of KIT
+  **Resolved in ""Spec"", not at write time.**
+  Derived inside ""Run"" instead, the dry run was
+  silently missing ""--kit"" — the allowlist and
+  brokered credentials it carries invisible in
+  the one output an operator inspects for them.
+end note
+
+note bottom of SEL
+  **""--print"" writes the Kit, nothing else.**
+  ""--kit"" carries the whole posture and sbx
+  refuses a run without it, so printing a path
+  nothing wrote fails like an sbx bug. The
+  printed argv still needs the secrets stored.
+end note
+
+note top of SBX
+  **One struct, not eight function variables.**
+  Scattered over five files, what the package
+  EXECUTES could only be found by grepping for
+  ""= func("". It stays a package value: threading
+  it would be plumbing for a second impl.
+end note
+
+note top of SBX
+  **Every daemon call is bounded at 10s.** A
+  degraded daemon does not fail, it waits — and
+  an unbounded call turns that into a proveo
+  that hangs before launch with a blank screen.
 end note
 
 @enduml

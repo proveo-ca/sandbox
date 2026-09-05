@@ -1,3 +1,6 @@
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml,
+// _spec/internal/maintain/image-build-deploy.puml
+//
 // SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/internal/maintain/image-build-deploy.puml
 package main
 

@@ -34,6 +34,30 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' Available is a MOMENT-IN-TIME answer, which is the honest one for a picker:
 ' the native host lives only while Chrome runs with the extension connected.
 '
+' ── THE TWO THINGS CLAUDE CODE CHECKS BEFORE IT USES THE SOCKET ────────────
+' Both are mirrored by the container relay, because failing either makes the
+' socket unusable rather than merely unusual:
+'   * the DIRECTORY must be 0700 and owned by the running uid, and the SOCKET
+'     0600. Otherwise Claude Code reports "Insecure socket directory
+'     permissions … Directory may have been tampered with". The relay mkdirs
+'     with mode 0700, chmods the directory again (mkdir honours umask), and
+'     chmods the socket to 0600 only after `listen` has created it.
+'   * <username> is os.userInfo().username, falling back to $USER, then
+'     $USERNAME, then the literal "default". An arbitrary run-as uid with no
+'     passwd entry lands on that fallback, so the relay computes the name with
+'     the SAME rule rather than guessing it from the shell.
+'
+' The relay prints the socket path on stdout and NOTHING else: Claude Code reads
+' that line to tell a relay socket from a native host's own, so the path is the
+' contract. Diagnostics go to stderr, which the seed appends to
+' $TMPDIR/proveo-chrome-bridge.log. On SIGTERM/SIGINT/SIGHUP the socket is
+' unlinked, so a restart does not inherit a stale path.
+'
+' The seed waits for that path to appear AND to be a socket, polling ten times
+' at 0.3s; a relay that never comes up leaves Claude in Chrome off with the log
+' named. PROVEO_CHROME_BRIDGE without PROVEO_CHROME_BRIDGE_TOKEN is refused
+' outright — the relay will not run unauthenticated.
+'
 ' ── THE CREDENTIAL GATE, MIRRORED FROM CLAUDE CODE 2.1.258 ─────────────────
 ' Knobs: PROVEO_CHROME_BRIDGE=host:port + PROVEO_CHROME_BRIDGE_TOKEN, both set
 ' by `proveo run` when the "claude-in-chrome" add-on is on.

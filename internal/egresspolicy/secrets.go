@@ -1,3 +1,7 @@
+// SPEC: _spec/internal/egresspolicy/egress-policy-decide.puml,
+// _spec/internal/egresspolicy/egress-policy-layers.puml,
+// _spec/_conventions/design-decision-ids.puml
+//
 // SPEC: _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
@@ -9,18 +13,13 @@ import (
 	"strings"
 )
 
-// minSecretLen ignores exact-match values too short to be a real credential (and
-// prone to false positives).
 const minSecretLen = 8
 
-// entropy heuristic thresholds: a contiguous token must be at least this long,
-// carry both letters and digits, and exceed this Shannon entropy to be flagged.
 const (
 	entropyMinTokenLen = 24
 	entropyBitsPerChar = 4.0
 )
 
-// knownSecretPatterns match common credential shapes regardless of value.
 var knownSecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`sk-[A-Za-z0-9_-]{16,}`),         // OpenAI / Anthropic sk-ant-…
 	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),              // AWS access key id
@@ -52,13 +51,10 @@ func newScanner(secrets []string, patterns, decode, entropy bool) *scanner {
 	return s
 }
 
-// active reports whether any detector can fire. decode is a modifier on the
-// exact/pattern matchers, so it does not activate the scanner on its own.
 func (s *scanner) active() bool {
 	return len(s.secrets) > 0 || s.patterns || s.entropy
 }
 
-// hit reports whether hay carries a secret per the enabled detectors.
 func (s *scanner) hit(hay string) bool {
 	if hay == "" {
 		return false
@@ -72,8 +68,6 @@ func (s *scanner) hit(hay string) bool {
 	return s.entropy && hasHighEntropyToken(hay)
 }
 
-// matchKnown reports whether hay directly contains a known exact secret value or
-// a generic credential-shape pattern (no decoding, no entropy).
 func (s *scanner) matchKnown(hay string) bool {
 	for _, v := range s.secrets {
 		if strings.Contains(hay, v) {
@@ -119,8 +113,6 @@ func (s *scanner) matchDecoded(b []byte) bool {
 	return len(b) >= minSecretLen && isMostlyPrintable(b) && s.matchKnown(string(b))
 }
 
-// isMostlyPrintable reports whether b is >=90% printable ASCII/whitespace — the
-// shape of a decoded credential, not of random bytes from a benign signature.
 func isMostlyPrintable(b []byte) bool {
 	if len(b) == 0 {
 		return false
@@ -134,8 +126,6 @@ func isMostlyPrintable(b []byte) bool {
 	return printable*10 >= len(b)*9
 }
 
-// hasHighEntropyToken reports whether hay contains a long, mixed, high-entropy
-// token — the shape of an encoded credential, not of ordinary prose or paths.
 func hasHighEntropyToken(hay string) bool {
 	for _, tok := range tokenize(hay) {
 		if len(tok) >= entropyMinTokenLen && mixedClasses(tok) && shannon(tok) >= entropyBitsPerChar {
@@ -145,8 +135,6 @@ func hasHighEntropyToken(hay string) bool {
 	return false
 }
 
-// tokenize splits on characters outside a credential-ish alphabet, so slugs and
-// prose break into short tokens while base64/hex secrets stay contiguous.
 func tokenize(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool {
 		switch {
@@ -172,7 +160,6 @@ func mixedClasses(s string) bool {
 	return hasLetter && hasDigit
 }
 
-// shannon returns the Shannon entropy of s in bits per byte.
 func shannon(s string) float64 {
 	if s == "" {
 		return 0

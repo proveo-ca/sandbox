@@ -43,8 +43,6 @@ type Gate struct {
 	asking   sync.Mutex
 }
 
-// New returns a Gate. A nil Asker means nothing can grant consent, so every
-// uncached host is denied — the correct posture for a headless run.
 func New(ask Asker) *Gate {
 	return &Gate{Ask: ask, Deadline: DefaultDeadline, decided: map[string]Verdict{}}
 }
@@ -56,18 +54,13 @@ func Path(dir string) string {
 	if len(full) <= maxSockPath {
 		return full
 	}
-	// Portable by construction: short on Linux (/tmp) and macOS (/var/folders/...),
-	// and well under sun_path on both (104 on BSD/macOS, 108 on Linux).
 	sum := sha256.Sum256([]byte(dir))
 	return filepath.Join(os.TempDir(), "proveo-review-"+hex.EncodeToString(sum[:6]), SocketName)
 }
 
-// Listen binds the socket in dir and serves until Close. The socket is 0600: it
-// grants network reach, so only the invoking user may ask through it.
+// Listen binds the socket in dir and serves until Close.
 func (g *Gate) Listen(dir string) error {
 	path := Path(dir)
-	// 0700 on the socket's own directory: it is bind-mounted into a sidecar, so it
-	// must contain nothing else and be reachable by nobody else.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("review gate: mkdir: %w", err)
 	}
@@ -106,8 +99,6 @@ func (g *Gate) Close() error {
 		return nil
 	}
 	err := ln.Close()
-	// Unlink explicitly: Go removes the socket on a clean Close, but a killed run
-	// leaves it, and every stale socket is a directory the next run will not reuse.
 	if path != "" {
 		_ = os.Remove(path)
 		_ = os.Remove(filepath.Dir(path)) // no-op unless it is our empty fallback dir
@@ -115,7 +106,6 @@ func (g *Gate) Close() error {
 	return err
 }
 
-// serve speaks one line per request: "host port\n" in, "allow\n"/"deny\n" out.
 func (g *Gate) serve(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	sc := bufio.NewScanner(conn)
@@ -149,8 +139,6 @@ func (g *Gate) Decide(host, port string) Verdict {
 	}
 	g.mu.Unlock()
 
-	// One question at a time: concurrent CONNECTs to the same new host must not
-	// raise two overlays.
 	g.asking.Lock()
 	defer g.asking.Unlock()
 	g.mu.Lock()

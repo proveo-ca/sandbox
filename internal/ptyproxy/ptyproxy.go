@@ -1,7 +1,7 @@
 //go:build !windows
 
-// Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be drawn
-// over the agent's full-screen TUI and dismissed without corrupting it.
+// Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be
+// drawn over the agent's full-screen TUI and dismissed without corrupting it.
 //
 // SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml
 package ptyproxy
@@ -27,49 +27,13 @@ type Proxy struct {
 	master  *os.File
 	restore *term.State
 
-	// Tap, when set, is handed every batch of bytes read from the operator's
-	// terminal, together with whether the filter let it through. It exists so a
-	// run can answer "what actually arrived on stdin" without the usual cost of
-	// finding out: wrapping os.Stdin in a plain io.Reader makes os/exec substitute
-	// a pipe, and the child then has no tty at all. Here the child keeps the pty
-	// either way, and the tap still sees what was DROPPED — which is the half a
-	// child-side log can never show.
-	//
-	// It is called on the input pump's goroutine, so an implementation that blocks
-	// stalls the operator's keystrokes. Buffer, do not block.
 	Tap func(b []byte, forwarded bool)
 
-	// OutTap, when set, is handed every batch of bytes the child wrote, after it
-	// has already gone to the terminal. It is how an INTERACTIVE run keeps a tail
-	// of the agent's last words, which was previously impossible: the tail is
-	// normally taken by teeing os/exec's Stdout, and os/exec gives the child a real
-	// terminal only when that field holds an *os.File — an io.MultiWriter
-	// substitutes a pipe, the agent can no longer read the window size, and its TUI
-	// draws one character per line. Here the child's output already passes through
-	// the pty master on its way to the terminal, so the copy costs it nothing.
-	//
-	// It runs on the output pump's goroutine: an implementation that blocks stalls
-	// the agent's own rendering. Buffer, do not block.
 	OutTap func(b []byte)
 
-	// filter removes terminal reports that are neither keystrokes nor an answer
-	// anyone is waiting for. New installs the default; set DisableFilter to opt
-	// out and forward the operator's terminal byte-for-byte.
 	filter        *inputFilter
 	DisableFilter bool
 
-	// DropReports widens the filter from "drop the surplus copy" to "drop every
-	// report", and belongs to the backend rather than to the terminal.
-	//
-	// The default rule forwards a report's FIRST copy because the child asked for
-	// it — true when the child is an agent on a real tty, as on the docker backend
-	// and behind the review gate. It is FALSE on sbx: there the agent is driven
-	// through an agent-session API that reads input as a prompt stream, so no
-	// query was ever sent and a forwarded report is enqueued as a user message
-	// nobody typed. Set by the caller that knows which of the two it is.
-	//
-	// Read once at the start of Run, before the pumps exist, so setting it after
-	// Run has begun has no effect and cannot race the input pump.
 	DropReports bool
 
 	mu        sync.Mutex
@@ -79,21 +43,16 @@ type Proxy struct {
 	inFd      int
 }
 
-// New returns a Proxy over the given terminal files. Passing os.Stdin/os.Stdout
-// is the normal case.
 func New(in, out *os.File) *Proxy {
 	return &Proxy{In: in, Out: out, filter: newInputFilter()}
 }
 
-// Usable reports whether a PTY overlay is possible at all: both ends must be a
-// real terminal. A headless run has no overlay and must not get one.
 func Usable(in, out *os.File) bool {
 	return in != nil && out != nil &&
 		term.IsTerminal(int(in.Fd())) && term.IsTerminal(int(out.Fd()))
 }
 
 func (p *Proxy) Run(cmd *exec.Cmd) error {
-	// Before pty.Start, so the pump that reads this field cannot exist yet.
 	if p.filter != nil {
 		p.filter.dropReplies = p.DropReports
 	}
@@ -117,7 +76,6 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 		defer p.Restore()
 	}
 
-	// Real terminal resizes must still reach the child.
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
@@ -136,8 +94,7 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	return err
 }
 
-// Restore returns the operator's terminal to its original mode. Safe to call more
-// than once.
+// Restore returns the operator's terminal to its original mode.
 func (p *Proxy) Restore() {
 	p.mu.Lock()
 	st, fd := p.restore, p.inFd
@@ -160,8 +117,6 @@ func (p *Proxy) setRestore(st *term.State) {
 	p.mu.Unlock()
 }
 
-// pumpIn forwards keystrokes to the child, unless an overlay has suspended it —
-// then the bytes are consumed here and the child never sees them.
 func (p *Proxy) pumpIn() {
 	buf := make([]byte, 4096)
 	for {
@@ -169,8 +124,6 @@ func (p *Proxy) pumpIn() {
 		if n > 0 {
 			forward := p.DisableFilter || p.filter == nil || p.filter.keep(buf[:n])
 			if p.Tap != nil {
-				// Before any routing: the tap records what ARRIVED, and whether it
-				// survived the filter.
 				p.Tap(buf[:n], forward)
 			}
 			if !forward {
@@ -196,8 +149,6 @@ func (p *Proxy) pumpIn() {
 	}
 }
 
-// pumpOut writes child output to the terminal, buffering it while an overlay is up
-// so nothing paints over the prompt.
 func (p *Proxy) pumpOut() {
 	buf := make([]byte, 32*1024)
 	m := p.masterFile()
@@ -255,7 +206,6 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	return drawErr
 }
 
-// forceRepaint nudges the child into a full redraw via a real size change.
 func (p *Proxy) forceRepaint() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -273,16 +223,12 @@ func (p *Proxy) forceRepaint() {
 	_ = pty.Setsize(m, size)
 }
 
-// masterFile reads the PTY master under the lock: Run assigns it from its own
-// goroutine while the pumps and Overlay read it from others.
 func (p *Proxy) masterFile() *os.File {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.master
 }
 
-// chanReader adapts the pump's hand-off channel to io.Reader so an overlay reads
-// the terminal without ever touching the file descriptor the pump owns.
 type chanReader struct {
 	ch  chan []byte
 	buf []byte

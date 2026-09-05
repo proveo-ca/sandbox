@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/_plans/harness-launch-restructure.puml
-# The seed step as a command, so a Kit's setup.startup can name it. Both backends
-# reach the same function; only the invocation differs.
+# SPEC: _spec/packages/lib/seed-and-launch.puml
 set -euo pipefail
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh

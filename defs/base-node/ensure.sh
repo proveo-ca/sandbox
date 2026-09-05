@@ -35,7 +35,6 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# Floor: the proveo/base floor plus a working Node + pnpm + Bun.
 node_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v git >/dev/null \

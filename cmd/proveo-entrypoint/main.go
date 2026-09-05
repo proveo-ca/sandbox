@@ -1,8 +1,5 @@
 // Command proveo-entrypoint is the in-container harness prelude.
 //
-//	proveo-entrypoint prep [smoke-target]   # setup only; exit 0 (or sleep if smoke)
-//	proveo-entrypoint <smoke-target> -- <cmd> [args...]  # setup then exec
-//
 // SPEC: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/cmd/proveo-entrypoint/prep-sequence.puml, _spec/_paradigms/harness-paradigms.puml
 package main
 
@@ -23,7 +20,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	// verify: print category|command lines (replaces detect-verify.sh).
 	if os.Args[1] == "verify" {
 		root := ""
 		if len(os.Args) > 2 {
@@ -107,8 +103,6 @@ func runPrep() {
 		}
 	}
 
-	// Both fall back to the cwd, which the chdir above already put at the
-	// workspace root — so there is nothing layout-specific left to pass.
 	entrypoint.BridgeGitIdentity("")
 	reportGitContext("")
 	entrypoint.ApplyEnvBridges()

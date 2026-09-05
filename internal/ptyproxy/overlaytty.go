@@ -27,8 +27,7 @@ func (t *OverlayTty) Read(p []byte) (int, error)  { return t.in.Read(p) }
 func (t *OverlayTty) Write(p []byte) (int, error) { return t.out.Write(p) }
 func (t *OverlayTty) Close() error                { return nil } // the proxy owns these files
 
-// Start puts the terminal in raw mode for tcell. The pump is already parked, so
-// this cannot race a read in flight.
+// Start puts the terminal in raw mode for tcell.
 func (t *OverlayTty) Start() error {
 	if st, err := term.MakeRaw(t.fd); err == nil {
 		t.saved = st
@@ -49,8 +48,9 @@ func (t *OverlayTty) Stop() error {
 // blocks forever the way it can on a real /dev/tty.
 func (t *OverlayTty) Drain() error { return nil }
 
-// NotifyResize is unused for the lifetime of a modal — the proxy already forwards
-// SIGWINCH to the child, and a resize mid-prompt redraws on the next poll.
+// NotifyResize is unused for the lifetime of a modal — the proxy already
+// forwards SIGWINCH to the child, and a resize mid-prompt redraws on the next
+// poll.
 func (t *OverlayTty) NotifyResize(cb func()) { t.resize = cb }
 
 func (t *OverlayTty) WindowSize() (int, int, error) {
@@ -61,8 +61,7 @@ func (t *OverlayTty) WindowSize() (int, int, error) {
 	return w, h, nil
 }
 
-// OverlayScreen builds a tcell screen over the suspended terminal. Only valid
-// inside Overlay's draw callback, where the pump is parked and feeding in.
+// OverlayScreen builds a tcell screen over the suspended terminal.
 func (p *Proxy) OverlayScreen(in io.Reader) (tcell.Screen, error) {
 	return tcell.NewTerminfoScreenFromTty(&OverlayTty{in: in, out: p.Out, fd: p.fd()})
 }

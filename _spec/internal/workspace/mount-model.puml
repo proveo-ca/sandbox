@@ -47,6 +47,14 @@ note left of RES
   mounts read-only.
 end note
 
+note left of RES
+  **Both paths are compared RESOLVED.**
+  ""git rev-parse"" reports the REAL path while
+  ""--input"" is whatever the caller passed — on
+  macOS /tmp and /var differ (→ /private/…), so
+  a literal compare drops ""\.git"" from the plan.
+end note
+
 note right of PICK
   **The picker opens only when every condition holds: no explicit ""--scope"",
   a repo, a TTY, and not a print-only run.** An explicit ""--scope"" is the

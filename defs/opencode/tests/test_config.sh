@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_config.sh - Entrypoint configuration detection
 
 FIXTURE_DIR=$(mktemp -d)
 trap 'rm -rf "$FIXTURE_DIR"' RETURN
@@ -12,7 +11,6 @@ cat >"$FIXTURE_DIR/opencode.json" <<'EOF'
 }
 EOF
 cat >"$FIXTURE_DIR/AGENTS.md" <<'EOF'
-# Test fixture agents file.
 EOF
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 OPENCODE_TEST_MARKER=loaded_from_env
@@ -34,8 +32,6 @@ else
   printf "${RED}FAIL${NC} [%d] entrypoint detects config (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# Entrypoint bridges common .env model aliases to opencode env vars.
-# Use a fake opencode binary so this checks the entrypoint logic without a real model call.
 mkdir -p "$FIXTURE_DIR/fake-bin"
 cat >"$FIXTURE_DIR/fake-bin/opencode" <<'EOF'
 #!/usr/bin/env bash
@@ -52,7 +48,6 @@ ARCHITECT_MODEL=gpt-5.5
 EDITOR_MODEL=xai/grok-4.3
 SMALL_MODEL=xai/grok-small
 EOF
-# Also test bridging OPENCODE_SMALL_MODEL -> SMALL_MODEL when SMALL_MODEL not set
 cat >"$FIXTURE_DIR/.env2" <<'EOF'
 ARCHITECT_MODEL=gpt-5.5
 EDITOR_MODEL=xai/grok-4.3
@@ -75,7 +70,6 @@ else
   printf "${RED}FAIL${NC} [%d] opencode model bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# Entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL when SMALL_MODEL is unset
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 ARCHITECT_MODEL=gpt-5.5
 EDITOR_MODEL=xai/grok-4.3
@@ -108,7 +102,6 @@ else
   printf "${RED}FAIL${NC} [%d] opencode run.sh shim contract\n" "$TESTS_RUN"
 fi
 
-# Entrypoint forwards args to opencode
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 30s docker run --rm "$IMAGE" --version 2>&1 || true)
 if echo "$RESULT" | grep -qE "[0-9]+\.[0-9]+"; then

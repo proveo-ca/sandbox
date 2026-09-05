@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/shell/setup-path.puml
+//
+// SPEC: _spec/internal/shell/setup-path.puml
 package shell
 
 import (
@@ -26,7 +28,6 @@ var known = map[string]Shell{
 	"tcsh": {Name: "tcsh", Supported: false},
 }
 
-// Detect resolves a Shell from a $SHELL-style path (e.g. "/bin/zsh" -> zsh).
 func Detect(shellPath string) (Shell, bool) {
 	base := filepath.Base(strings.TrimSpace(shellPath))
 	s, ok := known[base]
@@ -37,7 +38,6 @@ func Detect(shellPath string) (Shell, bool) {
 func (s Shell) RCFile(goos, home string) string {
 	switch s.Name {
 	case "bash":
-		// macOS Terminal starts login shells, which read .bash_profile.
 		if goos == "darwin" {
 			return filepath.Join(home, ".bash_profile")
 		}
@@ -55,7 +55,8 @@ func (s Shell) RCFile(goos, home string) string {
 	}
 }
 
-// PathLine returns the line that prepends binDir to PATH in this shell's syntax.
+// PathLine returns the line that prepends binDir to PATH in this shell's
+// syntax.
 func (s Shell) PathLine(binDir string) string {
 	switch s.Name {
 	case "fish":
@@ -85,8 +86,6 @@ func (s Shell) Block(binDir string) string {
 	return "\n" + Marker + "\n" + s.PathLine(binDir) + "\n"
 }
 
-// AlreadyConfigured reports whether rcContent already puts binDir on PATH (so
-// setup is idempotent).
 func AlreadyConfigured(rcContent, binDir string) bool {
 	return strings.Contains(rcContent, Marker) || strings.Contains(rcContent, binDir)
 }

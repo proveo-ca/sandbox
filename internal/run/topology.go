@@ -1,4 +1,5 @@
 // Package-local projection of the choice form onto the topology strip.
+//
 // SPEC: _spec/internal/choiceui/topology-strip.puml, _spec/internal/sbx/policy-baseline.puml
 package run
 
@@ -11,13 +12,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-// topologyOf builds the projection the strip is painted from — the ONLY place
-// the picture learns what "allow-all" or "docker (sandbox)" mean. The returned
-// function is called at PAINT time, once per frame.
 func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefault, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
-		// BOTH rows need a fallback, because applicableRows drops any axis with
-		// one option — and cursor declares exactly one of each.
 		tier := f.Selection("egress")
 		if tier == "" {
 			tier = tierDefault
@@ -45,8 +41,6 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 	}
 }
 
-// lanesOf is how many lanes leave the hop, and how many die at it. The counts
-// are ILLUSTRATIVE, not measured, and one lane always survives.
 func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
 	if sbx {
 		switch tier {
@@ -55,8 +49,6 @@ func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
 		case "balanced":
 			return choiceui.LaneScreened, 2, 1
 		default:
-			// deny-all, and — deliberately — the unreadable baseline: an unknown
-			// boundary is drawn as the tightest one.
 			return choiceui.LaneScreened, 1, 2
 		}
 	}
@@ -70,12 +62,8 @@ func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
 	}
 }
 
-// hopOf names who is in the path. An empty name means nobody is: that is the one
-// docker shape with no MITM, and the columns are held open rather than closed up.
 func hopOf(tier, creds string, sbx bool) string {
 	if sbx {
-		// There is no proveo egress layer here at all. "broker" still means the
-		// value never reaches the agent, but the party doing it is sbx.
 		return "sbx proxy"
 	}
 	if tier == "open" {
@@ -97,9 +85,6 @@ func keyHomeOf(creds string) choiceui.KeyHome {
 	return choiceui.KeyAtHost
 }
 
-// hostAccount is who the operator is on their own machine. Read from the
-// environment rather than os/user, which shells out to getent on some builds —
-// this is drawn on every animation frame.
 func hostAccount() string {
 	for _, k := range []string{"USER", "LOGNAME", "USERNAME"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -109,8 +94,6 @@ func hostAccount() string {
 	return "host"
 }
 
-// hostPlatform is the operator's OS under its common name. runtime.GOOS calls
-// macOS "darwin", which is the kernel's name for it and not the one on the box.
 func hostPlatform() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -123,9 +106,6 @@ func hostPlatform() string {
 	return runtime.GOOS
 }
 
-// squareOf labels the container the agent runs in with the daemon behind it.
-// One daemon left to name: the privileged sidecar is retired, so a harness
-// either declares `docker: sbx` or gets no daemon at all.
 func squareOf(man manifest.Manifest, target string) string {
 	if man.Docker == manifest.DockerSbx {
 		return "sbx · " + target
@@ -133,8 +113,6 @@ func squareOf(man manifest.Manifest, target string) string {
 	return target
 }
 
-// interfaceOf names what the agent can drive. The TUI is always there; the rest
-// join it, which is why they read as additions rather than as alternatives.
 func interfaceOf(f *choiceui.Form) string {
 	driven := []string{"tui"}
 	if rowTicked(f, rowInterface, addonBrowser) {
@@ -143,15 +121,9 @@ func interfaceOf(f *choiceui.Form) string {
 	if rowTicked(f, rowInterface, addonChrome) {
 		driven = append(driven, "chrome")
 	}
-	// Just the surfaces. The figure draws this INSIDE the container with a node
-	// dot in front of it, so the frame and the dot already say "the interface
-	// the agent drives" — repeating the word costs eleven columns of a box whose
-	// width sets the whole figure's.
 	return strings.Join(driven, " + ")
 }
 
-// focusOf maps the cursor's row onto the element that row owns, keyed on the
-// LABEL — so a locked row the cursor can now hover lights its element too.
 func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	if cursor < 0 || cursor >= len(f.Rows) {
 		return choiceui.FocusNone
@@ -171,8 +143,6 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	return choiceui.FocusNone
 }
 
-// captionOf states the same facts as the figure, in one sentence, for the
-// terminal too short to draw the figure at all.
 func captionOf(fr choiceui.Frame, tier, creds string, sbx bool) string {
 	var what string
 	switch {

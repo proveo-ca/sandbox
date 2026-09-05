@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/20-contract.puml
-# Layer 2 contracts are Go-first (internal/contract, internal/verify, cmd/proveo, …).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

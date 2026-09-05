@@ -1,3 +1,6 @@
+// SPEC: _spec/tests/testing-strategy.puml,
+// _spec/tests/40-agent-e2e-components.puml
+//
 // SPEC: _spec/tests/testing-strategy.puml, _spec/tests/40-agent-e2e-components.puml
 package tmux
 
@@ -9,7 +12,7 @@ import (
 	"time"
 )
 
-// Runner executes `tmux <args>` and returns combined output. Injectable for tests.
+// Runner executes `tmux <args>` and returns combined output.
 type Runner func(args ...string) (string, error)
 
 func execRunner(args ...string) (string, error) {
@@ -17,7 +20,6 @@ func execRunner(args ...string) (string, error) {
 	return string(out), err
 }
 
-// Available reports whether tmux is installed.
 func Available() bool {
 	_, err := exec.LookPath("tmux")
 	return err == nil
@@ -29,7 +31,6 @@ type Session struct {
 	run  Runner
 }
 
-// New makes a Session; a nil runner uses the real tmux binary.
 func New(name string, run Runner) *Session {
 	if run == nil {
 		run = execRunner
@@ -57,7 +58,7 @@ func (s *Session) Enter() error {
 	return err
 }
 
-// SendKeys sends named keys (e.g. "C-c", "Escape", "Up").
+// SendKeys sends named keys (e.g.
 func (s *Session) SendKeys(keys ...string) error {
 	_, err := s.run(append([]string{"send-keys", "-t", s.Name}, keys...)...)
 	return err

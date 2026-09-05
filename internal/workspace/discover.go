@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/workspace/mount-model.puml
+//
+// SPEC: _spec/internal/workspace/mount-model.puml
 package workspace
 
 import (
@@ -18,11 +20,8 @@ type Project struct {
 	Tool string // "pnpm" | "npm/yarn" | "convention"
 }
 
-// markerFiles identify a directory as a real project (not just a glob match).
 var markerFiles = []string{"package.json", "project.json", "Cargo.toml", "go.mod"}
 
-// conventionGlobs are the fallback layout when no workspace manifest declares
-// members — the same defaults the old registry encoded.
 var conventionGlobs = []string{"apps/*", "packages/*", "libs/*", "projects/*", "services/*"}
 
 func DiscoverProjects(root string) []Project {
@@ -31,12 +30,9 @@ func DiscoverProjects(root string) []Project {
 	seen := map[string]bool{}
 	var out []Project
 	for _, pat := range patterns {
-		// Ignore negation patterns (pnpm/npm exclusions) as include sources.
 		if strings.HasPrefix(pat, "!") {
 			continue
 		}
-		// Normalize `**` (recursive) to a single-level glob — covers the common
-		// `packages/**` while staying filepath.Glob-compatible.
 		glob := strings.ReplaceAll(pat, "**", "*")
 		matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(glob)))
 		if err != nil {
@@ -96,8 +92,6 @@ func pnpmPackages(root string) []string {
 	return doc.Packages
 }
 
-// packageJSONWorkspaces reads the root package.json `workspaces`, which may be
-// an array of globs or an object {"packages": [...]}.
 func packageJSONWorkspaces(root string) []string {
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {

@@ -45,7 +45,6 @@ fi
 
 curl -fsSL "$FIREHOL_SOURCE_URL" -o "$tmp"
 
-# Optional integrity check: refuse to proceed on a checksum mismatch.
 if [[ -n "$FIREHOL_SHA256" ]]; then
   if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$tmp" | awk '{print $1}')"
   elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"

@@ -1,24 +1,20 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_workspace.sh - Directory structure and permissions
 
 for image in $(images_to_test); do
   tag=$(image_tag "$image")
 
-  # Directory existence
   for dir in /app /app/output /workspace \
              /workspace/data /workspace/temp /workspace/mcp-servers; do
     assert_success "[$tag] $dir exists" "$image" "test -d $dir"
   done
 
-  # Ownership
   assert_output_contains \
     "[$tag] /workspace owned by claude" \
     "$image" \
     "stat -c '%U' /workspace" \
     "claude"
 
-  # Permissions
   assert_output_matches \
     "[$tag] /workspace is 755" \
     "$image" \
@@ -55,22 +51,18 @@ for image in $(images_to_test); do
     "stat -c '%a' /workspace/mcp-servers" \
     "^755$"
 
-  # WORKDIR — /app, the same workspace root every def uses
   assert_inspect \
     "[$tag] WORKDIR is /app" \
     "$image" \
     '{{.Config.WorkingDir}}' \
     "/app"
 
-  # Home directory
   assert_output_contains \
     "[$tag] HOME is /home/agent (the REAL home; /home/claude is the alias)" \
     "$image" \
     'echo $HOME' \
     "/home/agent"
 
-  # The alias still has to resolve — image healthchecks and def tests read paths
-  # through /home/${USER_NAME}, and nothing may mount there.
   # SPEC: _spec/_paradigms/runtime-user-boundary.puml
   assert_output_contains \
     "[$tag] /home/claude resolves to /home/agent" \
@@ -78,7 +70,6 @@ for image in $(images_to_test); do
     'readlink -f /home/claude' \
     "/home/agent"
 
-  # Launch contract lives in the baked entrypoint (start-claude.sh was retired)
   assert_success \
     "[$tag] entrypoint.sh is baked and executable" \
     "$image" \

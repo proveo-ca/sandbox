@@ -90,8 +90,3 @@ func parseMemorySize(v string) (int64, bool) {
 	}
 	return n * mult, true
 }
-
-// Available reports whether the host can run the sbx backend, and if not, why.
-// A too-old CLI is reported as unavailable rather than tried: falling back to
-// docker+egress is a posture the operator can read, whereas a mid-run flag
-// rejection is not.

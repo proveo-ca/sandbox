@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/proveohome/proveo-home-components.puml,
+// _spec/internal/proveohome/proveo-home-lifecycle.puml
+//
 // SPEC: _spec/internal/proveohome/proveo-home-components.puml, _spec/internal/proveohome/proveo-home-lifecycle.puml
 package proveohome
 
@@ -12,10 +15,9 @@ import (
 )
 
 // ContainerHome is the fixed HOME inside the agent when proveo home mounts are
-// active. Tools write sessions under this tree; host uid remapping cannot move it.
+// active.
 const ContainerHome = "/proveo-home"
 
-// Root returns PROVEO_HOME, or <user home>/.proveo when unset.
 func Root(getenv func(string) string) string {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -26,19 +28,6 @@ func Root(getenv func(string) string) string {
 	return filepath.Join(UserHome(getenv), ".proveo")
 }
 
-// UserHome resolves the operator's home directory across the three host OSes
-// proveo ships for (see .goreleaser.yaml: linux, darwin, windows).
-//
-// HOME alone is a Unix answer. On Windows it is set by Git Bash / MSYS and by
-// nothing else, so a proveo started from PowerShell or cmd read an EMPTY HOME
-// and fell through to ".", which put the durable root — sessions, logs, run
-// transcripts and now provisioned toolchains — inside whatever directory the
-// operator happened to be standing in, typically their repository.
-//
-// USERPROFILE is the documented Windows answer and HOMEDRIVE+HOMEPATH is its
-// domain-joined fallback; both are what os.UserHomeDir consults. This is
-// getenv-driven rather than a call to os.UserHomeDir so one seam still governs
-// the whole resolution and a test can pin every platform's shape from any host.
 func UserHome(getenv func(string) string) string {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -53,8 +42,6 @@ func UserHome(getenv func(string) string) string {
 	if drive != "" && path != "" {
 		return drive + path
 	}
-	// Every source empty. "." keeps proveo runnable rather than erroring at
-	// startup, and it is the state the caller sees when a home cannot be found.
 	return "."
 }
 
@@ -89,8 +76,6 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 			Container: ContainerHome,
 			ReadOnly:  false,
 		}},
-		// PROVEO_HOME is HOME under a name no launcher rewrites; the seed reads it on
-		// both backends so one code path cannot silently target a different home.
 		Env: []string{"HOME=" + ContainerHome, "PROVEO_HOME=" + ContainerHome},
 	}, nil
 }
@@ -109,8 +94,6 @@ func scrubDeny(dir string, deny []string) error {
 	return nil
 }
 
-// ResumeArgs maps proveo --resume/--continue/--ls onto harness CLI argv.
-// target is the runnable image target (e.g. cursor-browser, claudecode-solidity).
 func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 	base := harnessFamily(target)
 	switch {

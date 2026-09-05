@@ -29,7 +29,6 @@ func Available() (bool, string) {
 	return true, ""
 }
 
-// verLine matches the CLI's own report: "sbx version: v0.39.0 <sha>".
 func Version() (string, error) {
 	out, err := sh.Version()
 	if err != nil {
@@ -42,9 +41,6 @@ func Version() (string, error) {
 	return m[1] + "." + m[2] + "." + m[3], nil
 }
 
-// Older reports whether got precedes want. An unparseable side is treated as
-// NOT older, so a version scheme this build has never seen is assumed newer
-// rather than blocking a host the operator just upgraded.
 func Older(got, want string) bool {
 	g, gok := parseVer(got)
 	w, wok := parseVer(want)
@@ -75,9 +71,6 @@ func parseVer(s string) ([3]int, bool) {
 	return out, true
 }
 
-// InstallCmd is the shell command that brings sbx to MinVersion or newer:
-// installing it when absent, upgrading it when present but too old. Empty on a
-// platform with no supported install route.
 func InstallCmd(installed bool) string {
 	switch goos {
 	case "darwin":
@@ -103,14 +96,11 @@ func InstallCmd(installed bool) string {
 	}
 }
 
-// Installed reports whether the CLI is on PATH at all, which is what decides
-// between an install and an upgrade.
 func Installed() bool {
 	_, err := lookPath(Binary)
 	return err == nil
 }
 
-// InstallHint is the platform's install line for the sbx CLI.
 func InstallHint() string {
 	switch goos {
 	case "darwin":
@@ -126,6 +116,3 @@ func InstallHint() string {
 		return ""
 	}
 }
-
-// TemplateLoadArgs builds the argv that reads a `docker save` TAR into the
-// sandbox runtime's own image store. The file is appended by the caller.

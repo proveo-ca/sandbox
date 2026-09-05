@@ -7,6 +7,49 @@ skinparam linetype ortho
 
 left to right direction
 
+' purpose: the three egress modes and the sidecar images that implement them
+' covers: defs/sidecars/egress-proxy/Dockerfile
+' covers: defs/sidecars/mitmproxy/Dockerfile
+' covers: defs/sidecars/squid-proxy/Dockerfile
+' covers: defs/sidecars/mitmproxy/test.sh
+' covers: internal/egress/**
+'
+' ── THE SIDECAR IMAGES, AND THE THREE CHOICES INSIDE THEM ───────────────────
+' proveo/egress-proxy — the Go MITM (cmd/proveo-egress), EXPOSE 8888.
+'   Build context is the REPO ROOT (the Go module), not the sidecar directory:
+'     docker build -f defs/sidecars/egress-proxy/Dockerfile -t proveo/egress-proxy:latest .
+'   ARG GO_VERSION=1.26. `COPY go.mod go.sum` + `go mod download` above the
+'   source copy, so module downloads cache separately; then `COPY cmd` +
+'   `COPY internal` — the narrow-copy shape defs/base/Dockerfile was later
+'   changed to match.
+'   Built static and stripped (`CGO_ENABLED=0 -trimpath -ldflags="-s -w"`) so it
+'   is runnable as ANY uid against bind mounts.
+'   Final stage is `gcr.io/distroless/static-debian12:nonroot`, chosen for two
+'   properties: it ships ca-certificates — needed to validate the REAL provider
+'   certificate on the re-originated TLS leg — and it ships no shell and no
+'   package manager.
+'
+' proveo/mitmproxy — the legacy fallback recorder, EXPOSE 8888.
+'   ARG MITMPROXY_VERSION=11.1.3, `FROM mitmproxy/mitmproxy:${MITMPROXY_VERSION}`,
+'   re-declared after the FROM so `LABEL mitmproxy.version` can read it. Bump to
+'   the latest published mitmproxy/mitmproxy tag when upgrading.
+'   It runs as `USER root` deliberately: the bind-mounted confdir and flows
+'   directories must be writable regardless of the HOST uid. That is acceptable
+'   only because this is a LOCAL sidecar and not a published service — the
+'   trade-off is recorded rather than assumed.
+'   VOLUME ["/flows", "/mitmproxy-confdir"]; the NDJSON addon is
+'   addons/ndjson_dump.py.
+'
+' proveo/squid-proxy — the upstream policy proxy, EXPOSE 3128, run as squid's own
+'   `proxy` user, CMD `squid -f /etc/squid/squid.conf -NYC`. It carries
+'   squid.conf plus the firehol blocked-nets and ipset configs and the
+'   update-firehol-ipsets script.
+'   KNOWN PROBLEM: it is `FROM ubuntu/squid:latest` — a bare mutable tag in a
+'   security-enforcement sidecar — and it has no build.sh and is not in
+'   internal/maintain's registry, while internal/egress/stage.go reads its
+'   config. Dead code or live infrastructure outside the build contract; either
+'   way it is a bug. Tracked in _spec/_plans/image-size-reduction.puml (e).
+
 title Claude Code Egress Topology — Go-Inspector Broker + Credential Broker
 
 actor "Human" as Human

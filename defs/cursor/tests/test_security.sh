@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_security.sh - Runtime hardening posture
 
 assert_output_contains \
   "container runs as the cursor user" \
@@ -29,8 +28,6 @@ else
   printf "${RED}FAIL${NC} [%d] no setuid binaries remain (%s)\n" "$TESTS_RUN" "$SETUID_FILES"
 fi
 
-# The enterprise hook layer must be immutable to the runtime user: it is the
-# harness-owned guardrail with the highest hooks precedence.
 assert_success \
   "enterprise hooks.json exists" \
   "$IMAGE" \

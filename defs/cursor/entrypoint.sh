@@ -7,7 +7,6 @@ if [[ -f /entrypoint-lib.sh ]]; then
   source /entrypoint-lib.sh
 fi
 
-# Shared prelude (uid, .env, bridges, git, sentinel) via Go entrypoint when baked.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=cursor
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
@@ -22,12 +21,8 @@ else
   attach_rtk
 fi
 
-# Model bridges are declared in defs/bridges/cursor.tsv.
 apply_model_bridges cursor
 
-# ── Seed user-level defaults (~/.cursor) ────────────────────
-# Only seed files that are missing, unless CURSOR_RESEED=1 forces a full
-# re-seed. The mounted workspace is never touched here (see CURSOR_SEED_RULES).
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 
 seed_defaults() {
@@ -53,7 +48,6 @@ seed_defaults
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
-# ── Proxy compatibility ─────────────────────────────────────
 configure_proxy_compat() {
   [[ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}" ]] || return 0
   export NODE_USE_ENV_PROXY=1
@@ -83,7 +77,6 @@ echo "Paradigm: policy-gated autonomous loop (spec → plan → implement → ve
 echo "node version:       $(command_version node unknown --version)"
 echo "pnpm version:       $(command_version pnpm n/a -v)"
 
-# ── Policy layer report ────────────────────────────────────
 echo "── Policy Layer ─────────────────────────────────────"
 deny_count="$(jq -r '(.permissions.deny // []) | length' "$CURSOR_HOME/cli-config.json" 2>/dev/null || echo 0)"
 deny_count="${deny_count:-0}"
@@ -92,7 +85,6 @@ if [[ -f /etc/cursor/hooks.json ]]; then
   echo "Shell audit hook: /etc/cursor/hooks.json (enterprise layer, root-owned, fail-open)"
 fi
 
-# Surface available subagents (user + project)
 agent_files=()
 [[ -d "$CURSOR_HOME/agents" ]] && \
   while IFS= read -r f; do agent_files+=("$(basename "${f%.md}")"); done \
@@ -105,9 +97,6 @@ if (( ${#agent_files[@]} > 0 )); then
 fi
 echo "─────────────────────────────────────────────────────"
 
-# ── Steering files: detect and report, never write by default ──────────
-# Project steering is the repo's own. The baked loop rule reaches the
-# workspace only when explicitly requested with CURSOR_SEED_RULES=1.
 report_steering() {
   echo "── Steering Files ───────────────────────────────────"
   local found=0
@@ -137,8 +126,6 @@ report_steering() {
 }
 report_steering
 
-# ── Verification command discovery ────────────────────────
-# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   echo "── Verification Commands ────────────────────────────"
   proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
@@ -157,15 +144,8 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
-# ── Smoke test mode ────────────────────────────────────────
 run_smoke_test "cursor"
 
-# Toolchain provisioning AND LSP wiring moved into proveo_seed (runs on both
-# backends): sbx never executes this entrypoint.
-
-# ── Auth check ─────────────────────────────────────────────
-# All inference transits the Cursor backend; there is no provider-key or
-# local-model alternative. Headless auth is CURSOR_API_KEY.
 if [[ -z "${CURSOR_API_KEY:-}" ]]; then
   echo "⚠️  CURSOR_API_KEY not set. Create one at cursor.com/dashboard → API Keys,"
   echo "   or run 'agent login' interactively (NO_OPEN_BROWSER=1 prints the URL)."
@@ -173,8 +153,6 @@ if [[ -z "${CURSOR_API_KEY:-}" ]]; then
   echo "   prefer CURSOR_API_KEY — login tokens are scrubbed from the durable cache."
 fi
 
-# ── Launch ─────────────────────────────────────────────────
-# Utility subcommands pass through without the autonomy flags.
 case "${1:-}" in
   login|logout|status|whoami|ls|resume|update|upgrade|mcp|create-chat|uninstall|help|-v|--version|-h|--help)
     echo "🚀 Launching: agent $*"
@@ -194,13 +172,9 @@ for arg in "$@"; do
   fi
 done
 if (( CURSOR_HEADLESS )); then
-  # Headless runs need workspace trust up front (no prompt to answer).
   LAUNCH_ARGS+=(--trust)
 fi
 
-# ── Agent evidence ─────────────────────────────────────────
-#
-# A caller's own --output-format wins: it is a parse contract, not a preference.
 cursor_has_output_format() {
   local a
   for a in "$@"; do

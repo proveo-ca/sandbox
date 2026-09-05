@@ -1,12 +1,9 @@
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml Package posture
+// renders the decisions a run has already made — once, for two readers: the
+// header a human reads before launch, and the run-log block a human reads after
+// a failure.
+//
 // SPEC: _spec/internal/posture/one-value-two-renderings.puml
-//
-// Package posture renders the decisions a run has already made — once, for two
-// readers: the header a human reads before launch, and the run-log block a human
-// reads after a failure. Assembling those independently is how a row could name
-// Squid logs on a backend that runs none; one value rendered twice cannot.
-//
-// Nothing here decides anything. Every input arrives as a value, so a row is never
-// a second place a decision gets made.
 package posture
 
 import (
@@ -26,9 +23,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
-// Image records WHICH image a run took, because "proveo/claudecode:latest"
-// alone does not distinguish the build under test from a registry artifact that may
-// be weeks older.
 func Image(ref string) string {
 	if maintain.RefTag(ref) == maintain.LocalTag {
 		return ref + " (local build)"
@@ -36,7 +30,6 @@ func Image(ref string) string {
 	return ref + " (published)"
 }
 
-// dockerImageCreated reports when the host built or pulled an image.
 var dockerImageCreated = func(ref string) (time.Time, bool) {
 	out, err := exec.Command("docker", "image", "inspect", ref, "--format", "{{.Created}}").Output()
 	if err != nil {
@@ -49,13 +42,6 @@ var dockerImageCreated = func(ref string) (time.Time, bool) {
 	return ts, true
 }
 
-// reportImageChoice resolves :latest against a local build and NAMES the winner.
-// The naming is the point: an image silently resolving to a published artifact
-// instead of the build under test is invisible until something behaves like code
-// nobody wrote, and reading it off one header line is the whole difference.
-// ResolveImageChoice returns the image the run will use and whether it is a local
-// build. It no longer prints: a package that renders a posture should not also be
-// a place output happens, or its tests cannot assert what a run says.
 func ResolveImageChoice(ref string) (chosen string, isLocal bool) {
 	return maintain.ResolveImage(ref, dockerImageCreated)
 }
@@ -80,13 +66,7 @@ var lspMarkers = []wsscan.Marker{
 	{Label: "yaml-language-server", Suffixes: []string{".yml", ".yaml"}},
 }
 
-// GlyphMode selects what decorates the lsp: row. Nerd is the default and ASCII is the
-// fallback an operator selects when their font stops at the Powerline range, because a
-// terminal offers no way to ask whether its font carries a codepoint.
-//
-// An ALIAS of ui.GlyphTier rather than a type of its own. The tier is one decision
-// per session, and three packages each holding their own idea of it is what let
-// PROVEO_GLYPHS=off reach the topology figure and come back with nerd runes.
+// GlyphMode selects what decorates the lsp: row.
 type GlyphMode = ui.GlyphTier
 
 const (
@@ -95,8 +75,6 @@ const (
 	GlyphsOff   = ui.GlyphsOff
 )
 
-// lspNerd maps an LSP server to its Nerd Font devicon — per-language identity, since
-// a logo is recognised before it is read.
 var lspNerd = map[string]string{
 	"gopls":                      "\ue627",
 	"typescript-language-server": "\ue628",
@@ -106,14 +84,6 @@ var lspNerd = map[string]string{
 	"yaml-language-server":       "\ue60b",
 }
 
-// lspASCII maps an LSP server to a category marker, deliberately coarser than the
-// devicons: an ASCII symbol has to be decoded rather than recognised, so per-language
-// distinctions it cannot carry are not worth inventing. Every marker is padded to two
-// columns so the server names stay aligned whichever category they fall in.
-//
-// The set avoids "[", "(" and ">" on purpose. choiceui.go draws "[x] "/"[ ] " for
-// checkboxes, "(•) "/"( ) " for radios, and "◀ riskier"/"safer ▶" for the legend, so
-// a "[]" before a server name would read as an unchecked add-on rather than a glyph.
 var lspASCII = map[string]string{
 	"gopls":                      "<>",
 	"typescript-language-server": "<>",
@@ -123,15 +93,8 @@ var lspASCII = map[string]string{
 	"yaml-language-server":       "{}",
 }
 
-// GlyphModeFrom reads PROVEO_GLYPHS through lookup, so a project .env can set it once
-// per repo. Unset means nerd; an unrecognised value also means nerd rather than off,
-// so a typo degrades to the default rather than silently stripping the row.
 func GlyphModeFrom(lookup func(string) string) GlyphMode { return ui.GlyphTierFrom(lookup) }
 
-// WithGlyphs prefixes each label with its glyph. Nerd mode falls back to the ASCII
-// category marker for a server with no devicon, so adding a language to lspMarkers
-// degrades to a category rather than to a ragged column. A server in neither table is
-// left bare: an invented placeholder would read as a language nobody has.
 func WithGlyphs(labels []string, mode GlyphMode) []string {
 	if mode == GlyphsOff {
 		return labels
@@ -218,9 +181,6 @@ func DetectHooks(man manifest.Manifest, inputDir, homeRoot string) []string {
 	return out
 }
 
-// Workspace says whether the agent edits the operator's checkout or a
-// private clone of it. It is a posture row because it changes WHERE the work
-// lands, which is the one thing an operator must not have to guess.
 func Workspace(clone bool) string {
 	if clone {
 		return "in-container clone (default on sbx; --clone=false opts out) — the checkout is never written; the agent's commits are `git fetch`ed back at teardown under refs/proveo/<sid>/"
@@ -228,15 +188,6 @@ func Workspace(clone bool) string {
 	return "mounted checkout — the agent edits it directly"
 }
 
-// MCPGateway reports what the run does about sbx's MCP gateway.
-//
-// It earns a posture row because it is a CAPABILITY the agent gets, decided
-// outside the Kit: sbx registers the gateway from its own agent kit, into a HOME
-// proveo mounts read-write. A posture that lists reachable hosts and credentials
-// but not an MCP server the agent is told to call is not describing the run.
-// MCPGateway takes both the backend and the gateway decision as VALUES. It used
-// to read PROVEO_SBX_MCP itself, which made the row a second place the decision
-// was made rather than a rendering of the one the run already made.
 func MCPGateway(sandbox, allowed bool, gatewayVar string) string {
 	switch {
 	case !sandbox:
@@ -247,10 +198,6 @@ func MCPGateway(sandbox, allowed bool, gatewayVar string) string {
 	return "declined (" + gatewayVar + " empty; PROVEO_SBX_MCP=on to allow)"
 }
 
-// EnforcedBy names who holds the boundary. proveo's tiers describe its own Squid and
-// MITM sidecars; under sbx neither runs, and the Kit hands enforcement to the sandbox
-// runtime instead. Printing a tier without naming the enforcer reads as a proveo
-// guarantee that proveo is not, on that backend, in a position to make.
 func EnforcedBy(sandboxed bool) string {
 	if sandboxed {
 		return "sbx — Kit network allowlist + credential proxy (proveo runs no Squid or MITM)"
@@ -284,10 +231,6 @@ func MergeRoles(explicit provider.Roles, remembered map[string]string) provider.
 	return out
 }
 
-// RolesLine renders the role assignment for the transcript and the prompt header,
-// naming the slots the harness will actually fill rather than the role vars the
-// operator happened to set. A harness that reads two of the three must not be shown
-// advertising the third: the header is the only pre-launch view of that resolution.
 func RolesLine(bridges provider.BridgeTable, harness string, r provider.Roles) string {
 	var parts []string
 	for _, s := range bridges.EffectiveSlots(harness, r) {
@@ -300,13 +243,7 @@ func RolesLine(bridges provider.BridgeTable, harness string, r provider.Roles) s
 	return strings.Join(parts, "  ")
 }
 
-// Posture is every row a run resolves, held as ONE value. It exists because the
-// header and the run-log block used to be assembled independently from the same
-// scattered locals, so the two could disagree — and did: a row named Squid logs on
-// a backend that runs no Squid. A single struct makes that class unrepresentable.
-//
-// Every field is already-rendered text. Nothing here decides; the run decides and
-// this reports, which is why the package imports no docker, no sbx and no cobra.
+// Posture is every row a run resolves, held as ONE value.
 type Posture struct {
 	Target         string
 	EgressTier     string
@@ -355,9 +292,7 @@ func (p Posture) Fields() map[string]string {
 }
 
 // Render is the run-log block exactly as runlog would write it: keys sorted, an
-// empty value shown as "(unset)". It is what the posture golden asserts, so a row
-// that silently appears, vanishes or changes wording fails a test instead of
-// quietly changing what an operator is told.
+// empty value shown as "(unset)".
 func (p Posture) Render() string {
 	f := p.Fields()
 	keys := make([]string, 0, len(f))

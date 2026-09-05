@@ -35,8 +35,6 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# The minimal-floor contract: git + gh + the proveo-entrypoint binary. (No
-# browsers/Node/Python — those moved out of the base.)
 base_has_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v git >/dev/null \

@@ -2,6 +2,94 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Testing strategy — four layers, speed traded for fidelity
 
+' purpose: the four test layers, and the failure modes the def-level bash suites
+'          have actually exhibited — every one of them a test that passed
+' covers: internal/contract/**
+' covers: e2e/**
+' covers: defs/tests/**
+' covers: defs/*/test.sh
+' covers: defs/*/tests/*.sh
+' covers: defs/sidecars/mitmproxy/test.sh
+'
+' Image resolution for these suites (proveo_test_image, and why :latest could only
+' ever mean "whatever the registry last published") is
+' _spec/_devops/image-lineage-and-publish.puml.
+'
+' ── FOUR WAYS A def SUITE REPORTED PASS WHILE TESTING NOTHING ───────────────
+' Recorded because each cost real time, and because all four are shapes rather
+' than one-off bugs.
+'
+' 1. A SUITE THAT REBUILT WHAT IT TESTED. claudecode's phase 1 used to BUILD the
+'    image it then asserted against, with a bare `docker build` and no BASE_IMAGE
+'    build-arg — so `ARG BASE_IMAGE=proveo/base-node-lsp:latest`, the Dockerfile's
+'    default, applied. That is the PUBLISHED base. Every run therefore threw away
+'    the local lineage that build.sh and ensure.sh exist to establish, overwrote
+'    the operator's image with a registry-based one, and then asserted against the
+'    result.
+'    It surfaced as `bun: command not found`: bun was added to proveo/base-node
+'    AFTER the last base-node-lsp publish, so a locally built claudecode had it
+'    and the one this phase substituted did not. Rebuilding by hand "fixed" it
+'    exactly until the next run of the suite clobbered it again — twice, before
+'    the mechanism was found.
+'    opencode and cursor verify AVAILABILITY here and never build; claudecode now
+'    matches them. Building is build.sh's job, and it is the only caller that
+'    knows how to resolve the base chain: `proveo build claudecode`.
+'
+' 2. A MISSING HELPER THAT STILL PRODUCED A NUMBER. test_config.sh had called
+'    `run_timeout` since it was written and claudecode's helpers never defined it
+'    (opencode's and cursor's both do). It failed as `run_timeout: command not
+'    found`, and because the caller is
+'      BAD_RULES=$(run_timeout ... docker run ... | grep -c 'mcp__\*' || true)
+'    the empty pipeline still produced "0" — so the wildcard-MCP-rule assertion
+'    reported PASS without ever starting a container. A test that cannot fail.
+'
+' 3. TWO NEGATIVES OVER A PATH THAT NO LONGER EXISTED. In test_config.sh both
+'    tool-permission checks are `assert_failure`. While they pointed at the
+'    retired /opt/claudecode/defaults/agents, `grep` found no directory, failed,
+'    and both reported PASS having verified nothing. A POSITIVE assertion now goes
+'    first, so a missing tree fails loudly instead of turning the two negatives
+'    vacuous again.
+'
+' 4. A `set -e` CASCADE THAT HID NINE PHASES. test_config.sh sed'd
+'    `seed_claude_subagents` out of /entrypoint.sh, but the renderer had already
+'    become `render_subagents` in the SHARED lib, called from proveo_seed's
+'    per-harness case. The old spelling matched nothing, so `eval ""` succeeded
+'    and the call died `command not found` (127) — which under `set -e` took the
+'    whole suite down after that phase. Every phase from Workspace onward never
+'    ran at all.
+'
+' ── THE ROSTER IS READ FROM THE IMAGE, NEVER RESTATED ───────────────────────
+' Subagents are no longer under /opt/<harness>/defaults/agents. They are one
+' shared tree at /opt/proveo/subagents with a per-harness _roster.json, and
+' cursor's and opencode's test_defaults.sh went on asserting the retired path —
+' 10 failures against an image that was built correctly, which reads as a broken
+' image rather than a stale test.
+'
+' So the roster is READ FROM THE IMAGE. A list copied into a test drifts silently
+' the moment the roster changes; cecli's test.sh already took this approach
+' ("read from the image, never restated here") and did not go stale.
+' `tools:` and `readonly: true` moved with them, into the per-harness FRONTMATTER
+' (_frontmatter/<harness>/<agent>.yaml) that render_subagents applies to the
+' shared body — the bodies never carried either, so they are asserted there.
+' See _spec/defs/agent-definition-sharing.puml.
+'
+' ── WHAT A def SUITE IS ALLOWED TO ASSERT ───────────────────────────────────
+' These suites assert what the IMAGE carries. When cursor's test_tools.sh was
+' INVERTED on 2026-09-05 to expect NO docker binaries, that was correct for
+' exactly this reason: the image now deliberately carries none. Whether a sandbox
+' can still REACH a daemon is a different question, owned by e2e/sbx_test.go's
+' assertSandboxSuppliesDocker, which was deliberately not inverted.
+'
+' Two smaller conventions worth keeping:
+'   * the baked uid/gid is asserted against the Dockerfile's `ARG USER_ID` (1000,
+'     named "claude" in claudecode), overridable via EXPECTED_UID;
+'   * NODE_ENV is asserted ABSENT, because baking it would make the agent's own
+'     `npm`/`pnpm install` skip devDependencies — the project's .env is the only
+'     place allowed to set it.
+' The Claude-in-Chrome phase runs a FAKE host relay inside the container in place
+' of `proveo run`'s, so the chain is driven end to end without a browser
+' (_spec/defs/claudecode/chrome-bridge.puml).
+
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
 component "**2. Contract**\nGo builders + goldens\nDockerRunArgs · BuildPlan · Detect · writeBrokerEnv\n//always, no Docker//" as L2 <<app>>
 component "**3. Infra integration**\ninternal/egress ""//go:build integration//""\nreal containers, no model\n//-tags=integration + PROVEO_EGRESS_INTEGRATION=1//" as L3 <<async>>
@@ -81,6 +169,44 @@ note as ECHOAGENT
   vendor's release cadence in the loop.
 end note
 
+
+note as VACUOUS1
+  **A test that cannot fail is worse than a
+  missing one.** claudecode's helpers never
+  defined ""run_timeout"", so the pipeline that
+  called it produced ""0"" from ""grep -c"" and the
+  assertion PASSED without starting a container.
+end note
+
+note as VACUOUS2
+  **Put a positive assertion first.** Two
+  ""assert_failure"" checks aimed at a retired
+  path: ""grep"" found no directory, failed, and
+  both reported PASS having verified nothing.
+end note
+
+note as VACUOUS3
+  **A suite must not build what it tests.**
+  claudecode's phase 1 ran a bare ""docker
+  build"", so the Dockerfile's PUBLISHED default
+  base applied and overwrote the local lineage —
+  surfacing as ""bun: command not found"".
+end note
+
+note as VACUOUS4
+  **One missing function ended nine phases.**
+  A ""sed"" for a helper that had already moved
+  left an empty ""eval"", so the call exited 127
+  and ""set -e"" took every later phase with it.
+end note
+
+note as ROSTER
+  **Read the roster from the image.**
+  A list restated in a test drifts the moment
+  the roster moves: cursor and opencode logged
+  10 failures against a correctly built image,
+  which reads as a broken image, not a stale test.
+end note
 
 note as DEFTESTS
   **Each def ships its own container test suite**, and they share a shape:

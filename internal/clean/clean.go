@@ -1,16 +1,16 @@
 // SPEC: _spec/internal/clean/clean-lifecycle.puml
+//
+// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package clean
 
-// Container is a proveo-managed container. Session is the egress session id
-// ("" for a legacy DinD sidecar, which was never session-labeled).
+// Container is a proveo-managed container.
 type Container struct {
 	Name    string
 	Session string
 	Running bool
 }
 
-// Net is a proveo egress network. HasEndpoints is true when something is still
-// attached (docker network rm would fail, and it likely belongs to a live run).
+// Net is a proveo egress network.
 type Net struct {
 	Name         string
 	Session      string
@@ -24,24 +24,13 @@ type ToolDir struct {
 
 // Inventory is everything cmd/proveo found that clean might act on.
 type Inventory struct {
-	Egress   []Container // containers labeled proveo.egress.session
-	Networks []Net       // networks labeled proveo.egress.session
-	// LegacyDind are proveo-dind-* sidecars from BEFORE the privileged sidecar was
-	// retired (_spec/_plans/retire-dind.puml). proveo no longer starts one, and the
-	// sweep is kept precisely because of that: a --privileged container an older
-	// proveo left running is the last thing to strand on an operator's host with
-	// nothing left that knows its name.
-	LegacyDind []Container
-	StateDirs  []string // session ids present under <stateDir>/egress/
-	Images     []string // proveo/* image refs (populated only for --deep)
-	ToolDirs   []ToolDir
-	// Sandboxes are proveo's RUNNING sbx sandboxes. They hold the toolchain
-	// prune back exactly as a live egress sidecar does — and they are the only
-	// thing that does on that backend, which has no sidecars at all.
-	Sandboxes []string
-	// SandboxesUnknown is set when sbx is installed but its listing could not be
-	// read. Liveness is then undecidable, and a destructive prune must hold back
-	// rather than guess that nothing is running.
+	Egress           []Container // containers labeled proveo.egress.session
+	Networks         []Net       // networks labeled proveo.egress.session
+	LegacyDind       []Container
+	StateDirs        []string // session ids present under <stateDir>/egress/
+	Images           []string // proveo/* image refs (populated only for --deep)
+	ToolDirs         []ToolDir
+	Sandboxes        []string
 	SandboxesUnknown bool
 }
 
@@ -105,13 +94,6 @@ func BuildPlan(inv Inventory, o Options) Plan {
 	}
 
 	if o.Tools {
-		// Every way a run can still be using the toolchain tree. The sbx arms are
-		// not symmetry for its own sake: a sandbox run has no egress sidecar and no
-		// dind, so before they were counted this gate read "nothing is running" on
-		// that backend every single time — while an sbx run copies its toolchains
-		// into this very tree at teardown. A prune racing that copy leaves the store
-		// half written, which is the worst of the three outcomes: a tree that
-		// satisfies `command -v` and fails on first exec.
 		// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 		running := len(inv.Sandboxes) > 0 || inv.SandboxesUnknown
 		for _, c := range inv.Egress {

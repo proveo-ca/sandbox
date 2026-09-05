@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_security.sh - Security hardening verification
 
 assert_output_contains \
   "runs as user opencode" \
@@ -47,8 +46,6 @@ assert_output_contains \
   'echo $OPENCODE_AUTO_UPDATE' \
   "false"
 
-# Run-as-host-uid contract: any `--user` uid (not just the baked 1000) must
-# get a usable identity and writable HOME via ensure_runtime_user.
 TESTS_RUN=$((TESTS_RUN + 1))
 LAST_OUTPUT=$(docker run --rm --user 4242:4242 --entrypoint bash "$IMAGE" -c \
   'source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"' 2>&1)
@@ -62,7 +59,6 @@ else
   printf "     Output: %.200s\n" "$LAST_OUTPUT"
 fi
 
-# Never root at runtime, even without wrapper flags.
 assert_failure \
   "does not run as root by default" \
   "$IMAGE" \

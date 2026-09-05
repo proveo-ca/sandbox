@@ -614,15 +614,29 @@ func contains(ss []string, want string) bool {
 
 // assertDockerServerReachable is the verdict on what `docker: sbx` promises: a
 // daemon the agent can actually reach. It fails three ways, and each names a
-// different repair — a missing client is an image problem, a refused connection is
-// a posture problem, and prose where a version belongs is neither.
+// different repair — a missing client is now an SBX problem, a refused connection
+// is a posture problem, and prose where a version belongs is neither.
+//
+// The first arm changed meaning on 2026-09-05 without changing its trigger. The
+// harness images used to ship the docker static tarball, so "command not found"
+// meant a layer was missing and the repair was `proveo build <target>`. They ship
+// none of it now — all eight binaries overlapped the sandbox runtime — so the same
+// output means sbx did not supply a client, and the repair is sbx-side or the
+// manifests should stop declaring `docker: sbx`.
+//
+// This was NOT inverted to expect absence, deliberately. Four manifests still
+// promise `docker: sbx`, and a test that expects the promise to be broken would
+// hide exactly the regression it exists to catch.
+// SPEC: _spec/_plans/image-size-reduction.puml
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Helper()
 	low := strings.ToLower(got)
 	switch {
 	case strings.Contains(low, "command not found"), strings.Contains(low, "executable file not found"):
-		t.Fatalf("%s declares docker: %s but its image ships no docker client: %q\n"+
-			"add the static-client layer to the image and rebuild (proveo build %s)", target, how, got, target)
+		t.Fatalf("%s declares docker: %s but no docker client is present: %q\n"+
+			"the image ships none by design (the static tarball overlapped sbx), so this means "+
+			"sbx supplied no client either — fix it sbx-side or stop declaring docker: %s\n"+
+			"see _spec/_plans/image-size-reduction.puml", target, how, got, how)
 	case strings.Contains(low, "cannot connect to the docker daemon"),
 		strings.Contains(low, "is the docker daemon running"),
 		strings.Contains(low, "permission denied"):

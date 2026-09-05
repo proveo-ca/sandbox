@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_build.sh - Image availability verification
 
 TESTS_RUN=$((TESTS_RUN + 1))
 printf "Verifying image %s is available... " "$IMAGE"
@@ -40,9 +39,6 @@ assert_inspect \
   '{{json .Config.Entrypoint}}' \
   "dumb-init"
 
-# The image says which agent it carries, and the label is the truth: the version
-# build.sh pinned is the one the installed CLI reports. An image without the label
-# predates the pin — rebuild it (proveo build opencode) rather than trusting it.
 # SPEC: _spec/_devops/agent-version-pin.puml
 assert_inspect \
   "proveo.agent label names the agent package" \

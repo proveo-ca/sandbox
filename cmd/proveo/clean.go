@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/clean/clean-lifecycle.puml
+//
+// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package main
 
 import (
@@ -60,17 +62,6 @@ var toolSubdirs = []string{
 	"go",
 }
 
-// toolRoots are the directories under PROVEO_HOME that hold toolSubdirs.
-//
-// "" is the LEGACY root: before toolchains were relocated, the seed installed
-// straight into the agent home, which on docker was PROVEO_HOME itself. Those
-// trees are still on operators' disks and `--tools` must still reclaim them, or
-// the relocation quietly strands whatever the previous version installed.
-//
-// toolchains/<os>-<arch> is the current one, one per platform the operator has
-// actually run — globbed rather than tabulated, because the set is whatever
-// _proveo_tool_home created and a hand-written list would go stale the first
-// time someone pins DOCKER_DEFAULT_PLATFORM.
 // SPEC: _spec/_plans/config-seeding-and-persistence.puml
 func toolRoots(root string) []string {
 	roots := []string{root}
@@ -87,7 +78,6 @@ func toolRoots(root string) []string {
 	return roots
 }
 
-// gatherSandboxes reports proveo's running sbx sandboxes for the liveness gate.
 func gatherSandboxes() (names []string, unknown bool) {
 	names, ok := sbx.RunningNames()
 	return names, !ok
@@ -156,7 +146,6 @@ func cleanProveoHomes(dryRun bool) error {
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 	var inv clean.Inventory
 
-	// Egress session containers (labeled proveo.egress.session).
 	for _, line := range dockerLines("ps", "-a", "--filter", "label=proveo.egress.session",
 		"--format", "{{.Names}}\t{{.State}}\t{{.Label \"proveo.egress.session\"}}") {
 		if f := strings.SplitN(line, "\t", 3); len(f) == 3 {
@@ -164,9 +153,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// Legacy DinD sidecars (proveo-dind-*, never session-labeled). proveo stopped
-	// starting these when the privileged sidecar was retired; the sweep stays so a
-	// --privileged leftover from an older proveo can still be removed by the tool
 	// that made it. SPEC: _spec/_plans/retire-dind.puml
 	for _, line := range dockerLines("ps", "-a", "--filter", "name=proveo-dind-",
 		"--format", "{{.Names}}\t{{.State}}") {
@@ -175,7 +161,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// Egress networks (labeled); inspect for the session id + endpoint count.
 	for _, name := range dockerLines("network", "ls", "--filter", "label=proveo.egress.session", "--format", "{{.Name}}") {
 		n := clean.Net{Name: name}
 		if insp := dockerLines("network", "inspect", name,
@@ -187,8 +172,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		inv.Networks = append(inv.Networks, n)
 	}
 
-	// Egress state dirs (each holds a session's squid config, mitm confdir, and
-	// — critically — the injected broker.env secret).
 	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
@@ -197,7 +180,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// proveo/* images (only for --deep). Upstream sidecar bases are left alone.
 	if deep {
 		seen := map[string]bool{}
 		for _, ref := range dockerLines("image", "ls", "--format", "{{.Repository}}:{{.Tag}}") {
@@ -210,8 +192,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 	return inv, nil
 }
 
-// runClean executes (or, with dryRun, prints) the plan. All removals are
-// best-effort: an image still in use by a live run fails to remove and is left.
 func runClean(p clean.Plan, dryRun bool) error {
 	if len(p.Containers)+len(p.Networks)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
 		if len(p.SkippedLive) == 0 {
@@ -270,7 +250,6 @@ func runClean(p clean.Plan, dryRun bool) error {
 	return nil
 }
 
-// dockerLines runs a docker query and returns non-empty output lines.
 func dockerLines(args ...string) []string {
 	out, err := exec.Command("docker", args...).Output()
 	if err != nil {

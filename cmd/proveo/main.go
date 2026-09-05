@@ -1,4 +1,5 @@
 // Command proveo is the harness CLI.
+//
 // SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/_plans/retire-dind.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 package main
 
@@ -39,7 +40,6 @@ func loadManifests() ([]manifest.Manifest, error) {
 	return manifest.LoadFS(proveo.Manifests)
 }
 
-// loadTargets resolves the target->image map across all manifests.
 func loadTargets() (map[string]string, error) {
 	ms, err := loadManifests()
 	if err != nil {
@@ -48,7 +48,6 @@ func loadTargets() (map[string]string, error) {
 	return manifest.Targets(ms)
 }
 
-// manifestForTarget returns the manifest that owns the given runnable target.
 func manifestForTarget(target string) (manifest.Manifest, error) {
 	ms, err := loadManifests()
 	if err != nil {
@@ -91,7 +90,6 @@ func main() {
 	root.Flags().BoolVar(&flagInit, "init", false, "Create a project .env from provider API keys already in the environment")
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		// Branding banner on root help only (proveo help / proveo --help).
 		if !cmd.HasParent() {
 			ui.WriteBrandBanner(cmd.OutOrStdout())
 		}
@@ -109,7 +107,6 @@ func main() {
 	}
 }
 
-// versionCmd keeps `proveo version` as an alias for `proveo --version`.
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -119,7 +116,6 @@ func versionCmd() *cobra.Command {
 	}
 }
 
-// lsCmd keeps `proveo ls` as an alias for `proveo --ls`.
 func lsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
@@ -314,7 +310,6 @@ func onPath(dir string) bool {
 	return false
 }
 
-// pickProject returns the chosen monorepo scope ("" = repo root).
 func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string {
 	if agentio.IsReaderTTY(in) {
 		return fuzzyPickProject(projs)
@@ -322,7 +317,6 @@ func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string 
 	return pickProjectNumbered(projs, in, out)
 }
 
-// fuzzyPickProject shows an interactive finder with "<repo root>" as entry 0.
 func fuzzyPickProject(projs []workspace.Project) string {
 	labels := make([]string, 0, len(projs)+1)
 	labels = append(labels, "<repo root>")
@@ -361,9 +355,6 @@ func sortedKeys(m map[string]string) []string {
 	return names
 }
 
-// runDeps binds the terminal- and host-bound halves of a run. Everything here
-// needs a TTY, the gh session or the docker daemon, which is why internal/run
-// takes them as functions instead of importing them.
 func runDeps() run.Deps {
 	return run.Deps{
 		ManifestFor: manifestForTarget,
@@ -381,10 +372,6 @@ func runDeps() run.Deps {
 	}
 }
 
-// egressProxyImage settles which egress-proxy sidecar a run launches: the
-// operator's PROVEO_EGRESS_PROXY_IMAGE when set, otherwise the published tag
-// resolved against a local build by recency. resolve is injected so the choice
-// stays testable without docker.
 // SPEC: _spec/internal/egress/teardown-and-signals.puml
 func egressProxyImage(getenv func(string) string, resolve func(string) (string, bool)) (image string, isLocal bool) {
 	if v := strings.TrimSpace(getenv("PROVEO_EGRESS_PROXY_IMAGE")); v != "" {

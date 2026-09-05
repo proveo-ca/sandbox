@@ -38,7 +38,9 @@ var agentPins = []struct {
 	{
 		image: "proveo/cecli", buildScript: "defs/cecli/build.sh",
 		arg: "CECLI_VERSION", pkg: "cecli-dev", ecosystem: "pypi",
-		install: regexp.MustCompile(`pip install "cecli-dev==\$\{CECLI_VERSION\}"`),
+		// Flags may sit between `install` and the spec (--no-compile keeps 153 MB of
+		// bytecode out of the venv); the contract is that the SPEC names the arg.
+		install: regexp.MustCompile(`pip install (?:--[^\s"]+ )*"cecli-dev==\$\{CECLI_VERSION\}"`),
 		banned:  []string{"pip install cecli-dev "},
 	},
 	{

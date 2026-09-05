@@ -1,12 +1,4 @@
 #!/bin/sh
-# Strip privilege-escalation vectors from the image: remove setuid/setgid bits
-# and delete raw network utilities. Baked into proveo/base so every harness
-# layer that apt-installs extras re-runs the SAME pass (new packages can
-# reintroduce setuid binaries) instead of copy-pasting a drifting inline RUN.
-#
-# Scope: scans the path args (default `/`). The base does one full `/` sweep;
-# harness layers pass just the prefixes their apt/npm touched
-# (e.g. `proveo-harden /usr /opt`) so re-runs don't re-walk the whole filesystem.
 if [ "$#" -eq 0 ]; then
   set -- /
 fi

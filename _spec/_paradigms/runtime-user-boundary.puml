@@ -2,6 +2,77 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Runtime user boundary — never root, any host uid
 
+' purpose: how an arbitrary run-as uid gets an identity and a writable HOME without
+'          root; and why /home/agent is the REAL home while the harness name is
+'          only an alias, plus the two build-time mistakes that reversal invites
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/runner/**
+' covers: internal/contract/home_symlink_test.go
+' covers: defs/cecli/Dockerfile
+' covers: defs/cursor/Dockerfile
+' covers: defs/opencode/Dockerfile
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/claudecode/tests/test_workspace.sh
+'
+' ── WHAT ensure_runtime_user ACTUALLY DOES, IN TWO STEPS ────────────────────
+' 1. SYNTHESIZE A PASSWD ENTRY, so getpwuid-based tooling does not choke on
+'    "I have no name!". The line appended is
+'    `agent:x:<uid>:<gid>:agent:<HOME>:/bin/bash`, and only when
+'    `getent passwd <uid>` finds nothing AND /etc/passwd is writable — which is
+'    why the step is best-effort rather than fatal.
+' 2. GUARANTEE A WRITABLE HOME. The baked home is owned by the BUILD user and is
+'    not writable by a different run-as uid until the deferred chmod lands, so an
+'    empty or unwritable HOME falls back to /tmp.
+'
+' The same HOME guard also runs at SOURCE time, at the top level of the lib, not
+' only inside the function — see the note below for why that placement is what
+' makes ~/… seeding work in every entrypoint rather than just the fallback branch.
+'
+' ── WHY /home/agent AND NOT /home/<harness> ─────────────────────────────────
+' sbx's built-in agent kits are authored against their own template, whose
+' runtime user is `agent` with HOME=/home/agent: their setup.install chowns
+' agent:agent, and the claude kit mounts FIVE block volumes AT
+' /home/agent/.claude/{projects,sessions,todos,shell-snapshots,statsig}.
+'
+' So /home/agent must be a REAL directory and the actual home. An alias user plus
+' a home SYMLINK is not enough, and that was the bug: a mount target cannot
+' resolve through a symlink, so containerd materialises /home/agent as a fresh
+' directory, SHADOWING the link. The volumes then land somewhere the agent never
+' reads while $HOME points elsewhere — including `sessions`, which sbx's own kit
+' calls load-bearing for `claude -c`. Measured: the stock image holds a session,
+' and the same sbx invocation with a symlinked home died in 15s
+' (e2e/ladder_test.go).
+'
+' The reversal is therefore: the REAL home is /home/agent, and the
+' harness-specific name (/home/claude, /home/cursor, /home/opencode, /home/cecli)
+' is the alias. /home/${USER_NAME} stays as a symlink because image healthchecks
+' and def tests read paths through it, and nothing ever mounts there. All four
+' harnesses do this; cecli and opencode joined cursor and claudecode because
+' `docker: sbx` is now the only backend that hands them a daemon.
+'
+' ── THE SECOND MISTAKE THE REVERSAL INVITES: chown THROUGH THE ALIAS ────────
+' `chown -R` given a SYMLINK as its argument chowns the link and stops — it does
+' not recurse into the target without -L. `mkdir -p`, by contrast, follows the
+' link happily. So a build step reads correctly and is wrong, and the two
+' harnesses hit it differently:
+'
+'   opencode  mkdir -p /home/${USER_NAME}/.config/opencode  -> real home, ROOT-owned
+'             chown -R … /home/${USER_NAME}                 -> the LINK only
+'             The agent died at its first write:
+'               mkdir: cannot create directory
+'               '/home/agent/.config/opencode/agents': Permission denied
+'             after a build that reported success, with `ls -l /home/opencode`
+'             showing 1000:1000 because that IS the link.
+'   cursor    `.cursor` was created root-owned through the link, so the seed's
+'             `mkdir .cursor/agents` hit Permission denied and the entrypoint's
+'             `set -e` killed the container before the agent ever ran. sbx
+'             reported that as "failed to run sandbox container" with no cause.
+'
+' Both are now fixed by pointing the chown at /home/agent. claudecode chowns
+' /home/${USER_NAME}/.claude — a subpath, which ends at a real directory — which
+' is why opencode alone failed the detached smoke suite. Guarded by
+' internal/contract TestNoDockerfileChownsTheHomeSymlink.
+
 actor "Developer\nuid:gid" as DEV
 
 node "Host" as HOST <<host>> {
@@ -26,6 +97,22 @@ RUN ARROW_MAIN ENSURE
 ENSURE ARROW_MAIN AGENT
 AGENT ARROW_MAIN REPO : writes come back owned\nby the developer
 CTR ARROW_ERROR ROOT : errorLabel(never used)
+
+note top of ENSURE
+  **"I have no name!" is the symptom.** Any tool
+  that calls ""getpwuid"" chokes on a uid with no
+  passwd entry, so one is APPENDED — possible
+  only where ""/etc/passwd"" is writable — which
+  is why the step is best-effort, never fatal.
+end note
+
+note left of ENSURE
+  **And ""HOME=/tmp"" is the fallback, not a
+  default.** The baked home is owned by the
+  BUILD user and is not writable by a different
+  run-as uid until the deferred chmod lands, so
+  an unwritable HOME degrades, never fails.
+end note
 
 note bottom of ENSURE
   **HOME is made writable in the shell itself, at source time — not only
@@ -73,6 +160,30 @@ note bottom of HOMES
   at a real directory — which is why opencode alone failed the
   detached smoke suite. Guarded by ""internal/contract""
   ""TestNoDockerfileChownsTheHomeSymlink"".
+end note
+
+note top of HOMES
+  **Five volumes decide the real home.**
+  sbx's claude kit mounts blocks at
+  /home/agent/.claude/{projects,sessions,…},
+  and a mount target cannot resolve through a
+  symlink — containerd shadows the link.
+end note
+
+note left of HOMES
+  **The 15-second death.** ""sessions"" is what
+  ""claude -c"" resumes from. With the volumes
+  landing off-home, the stock image held a
+  session and the same sbx invocation with a
+  symlinked home died in 15s (ladder_test).
+end note
+
+note right of HOMES
+  **Two harnesses, one root-owned tree.**
+  cursor: the seed's ""mkdir .cursor/agents"" hit
+  Permission denied, ""set -e"" killed the
+  container, and sbx reported only 'failed to
+  run sandbox container' with no cause.
 end note
 
 note bottom of REPO

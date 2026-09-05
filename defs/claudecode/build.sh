@@ -59,9 +59,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Pin the agent to the current release (or CLAUDE_CODE_VERSION when exported); see
-# proveo_agent_version for why an unpinned `npm install -g` is not a pin. Resolved
-# once, so every variant built by this invocation carries the same agent.
 CLAUDE_CODE_VERSION="$(proveo_agent_version CLAUDE_CODE_VERSION npm @anthropic-ai/claude-code)"
 
 build_variant() {
@@ -74,8 +71,6 @@ build_variant() {
     -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
-# Browser variant: the mcp image FROM base-node-browser (Playwright + Chromium),
-# short-circuiting the variant matrix below.
 if [[ "$BROWSER" == 1 ]]; then
   "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
   build_variant mcp proveo/claudecode-browser \
@@ -96,7 +91,6 @@ build_solidity() {
     -t "proveo/claudecode-solidity:$TAG" -f "$SCRIPT_DIR/solidity/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
-# mcp builds FROM proveo/base-node-lsp (adds the shared workspace LSP servers)
 "$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 
 case "$VARIANT" in
