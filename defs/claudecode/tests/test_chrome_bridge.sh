@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
 
-read -r -d '' CHAIN_SCRIPT <<'EOS'
+# `read -d ''` returns 1 at EOF (no NUL delimiter), and run_tests.sh runs under
+# `set -euo pipefail` — so without `|| true` this line killed the sourced script
+# before a single Phase 10 assertion ran. It was invisible while an earlier phase
+# always failed first. SPEC: _spec/tests/testing-strategy.puml
+read -r -d '' CHAIN_SCRIPT <<'EOS' || true
 set -e
 export HOME=/tmp
 node -e '

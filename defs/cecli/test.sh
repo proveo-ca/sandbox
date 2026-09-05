@@ -42,8 +42,11 @@ import json, os, sys
 from cecli.helpers.agents.service import AgentService
 agents_dir = sys.argv[1]
 roster = set(json.load(open("/opt/proveo/subagents/_roster.json"))["cecli"])
+# The FILES are ours: exactly the roster, nothing missing, nothing stray.
 seeded = {f[:-3] for f in os.listdir(agents_dir) if f.endswith(".md")}
 assert seeded == roster, f"seeded {sorted(seeded)} != roster {sorted(roster)}"
+# The REGISTRY belongs to cecli: it merges its own built-ins, memorizer and
+# worker among them, with ours — so it must CONTAIN the roster, not equal it.
 AgentService._global_registry = {}
 AgentService.build_registry([agents_dir])
 registry = AgentService.get_registry()

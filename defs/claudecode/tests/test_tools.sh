@@ -53,6 +53,10 @@ SOL_IMAGE="$(proveo_resolve_image "${SOL_IMAGE:-proveo/claudecode-solidity:lates
 if docker image inspect "$SOL_IMAGE" >/dev/null 2>&1; then
   for tool_entry in "${TOOLS[@]}" "${SOL_TOOLS[@]}"; do
     IFS=':' read -r name cmd <<< "$tool_entry"
+    if [[ "$name" == solc && "$(uname -m)" =~ ^(aarch64|arm64)$ ]]; then
+      skip_test "[sol] solc runs" "solc publishes no linux-arm64 build; solc-select installs the x86-64 one"
+      continue
+    fi
     assert_success "[sol] $name is installed" "$SOL_IMAGE" "$cmd"
   done
   for name in "${SOL_ABSENT[@]}"; do
