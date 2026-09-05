@@ -1,0 +1,276 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Base image layers — builder stages, the jlink runtime, and what must share a RUN
+
+' purpose: how proveo/base, base-node and base-node-lsp are actually assembled —
+'          stage ordering, pinning by digest, and the same-RUN rule that makes a
+'          deletion save bytes rather than only hide a path
+' covers: defs/base/Dockerfile
+' covers: defs/base/build.sh
+' covers: defs/base/ensure.sh
+' covers: defs/base-node/Dockerfile
+' covers: defs/base-node/build.sh
+' covers: defs/base-node-lsp/Dockerfile
+' covers: defs/base-node-lsp/build.sh
+'
+' Lineage rules (which parent, which tag, ensure.sh's two modes) are
+' _spec/_devops/image-lineage-and-publish.puml. The size ARGUMENT and the
+' fleet-wide measurements are _spec/_plans/image-size-reduction.puml. This file
+' is the current-state record of how the three shared layers are built.
+'
+' ── STAGE 1: ONE proveo-entrypoint BUILDER FOR THE WHOLE FLEET ──────────────
+' `FROM golang:1.26-trixie AS proveo-entrypoint-builder`. Built once, in
+' defs/base, and every harness inherits the binary instead of recompiling it in
+' its own stage.
+'
+' The stage's internal order is deliberate and was arrived at by watching builds
+' re-run:
+'
+'   COPY go.mod go.sum ./ ; RUN go mod download
+'       module downloads cached separately from source.
+'   RUN CGO_ENABLED=0 GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
+'       ABOVE the source copy on purpose: plantuml-lsp is fetched from upstream
+'       and owes nothing to this repo's source. Below the copy, every edit in the
+'       tree re-ran the install.
+'   COPY cmd ./cmd ; COPY internal ./internal
+'       `COPY cmd` + `COPY internal`, NEVER `COPY . .` — the same shape
+'       defs/sidecars/egress-proxy/Dockerfile already used.
+'   RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+'
+' WHY THE NARROW COPY. The build context is the REPO ROOT (every def builds from
+' there), which carries 201 MB of node_modules and 83 MB of apps/. `COPY . .`
+' baked all of it into this layer AND invalidated the build below on any file in
+' the tree — a README edit re-ran the compile. `./cmd/proveo-entrypoint` needs
+' internal/entrypoint and internal/verify and nothing else: the root package's
+' embeds are not in its dependency graph, so defs/ and packages/ are not required
+' here. The root .dockerignore stops the rest from reaching the daemon at all.
+'
+' ── STAGE 2: THE JRE, BUILT WITH jlink, NOT INSTALLED ───────────────────────
+' `default-jre-headless` was the largest single package in this image — dpkg
+' Installed-Size 198,806 kB — and its only consumer is /opt/plantuml.jar. Because
+' it sits in proveo/base it was paid by every harness, every browser variant and
+' every sidecar descendant: all 14 published images.
+'
+' `FROM debian:trixie-slim AS jre-builder` installs `openjdk-21-jdk-headless`
+' AND `binutils`, then runs jlink. binutils is not optional: `jlink
+' --strip-debug` shells out to `objcopy` on Debian's OpenJDK and fails with
+' "Cannot run program objcopy" without it. It joins the BUILDER stage only, which
+' ships nothing into the final image.
+'
+' MEASURED on this JDK: 72 MB against 194 MB, rendering -tpng and -tsvg
+' identically (verified before it landed).
+'
+' THE MODULE LIST IS NOT THE MINIMUM, and that is the decision:
+'   java.base, java.compiler, java.desktop, java.instrument, java.logging,
+'   java.management, java.naming, java.net.http, java.prefs, java.rmi,
+'   java.scripting, java.sql, java.xml, jdk.attach, jdk.compiler, jdk.crypto.ec,
+'   jdk.jartool, jdk.jdi, jdk.unsupported, jdk.zipfs
+'   --strip-debug --no-header-files --no-man-pages --compress=zip-6
+' A plantuml-only prune is 59 MB and would break jdtls: `_install_jdtls`
+' provisions its own Java 21 only when `_java_major` reports < 21, and this
+' runtime reports 21 — so it must be able to HOST jdtls, an Eclipse/OSGi
+' application. java.compiler, java.instrument, jdk.attach, jdk.jdi, jdk.zipfs and
+' jdk.compiler are there for jdtls, and they cost 13 MB.
+'
+' ── THE THREE APT PACKAGES THAT ONLY LOOK COSMETIC ──────────────────────────
+' fontconfig, fonts-dejavu-core and libharfbuzz0b are installed explicitly
+' because they are what openjdk-21-jre-headless used to pull in for free.
+' Debian's libfontmanager.so links against the SYSTEM harfbuzz; a jlink runtime
+' carries the .so but not the dependency, so PlantUML died in SunFontManager's
+' static initialiser — before drawing anything, and only at first render. Found
+' by building it, not by reading.
+'
+' That is also why the layer that writes the plantuml shim RENDERS one diagram:
+'
+'   printf '@startuml\nAlice -> Bob: floor\n@enduml\n' > /tmp/floor.puml
+'   plantuml -tpng -o /tmp /tmp/floor.puml && test -s /tmp/floor.png
+'
+' A missing module then fails the BUILD, rather than a sandbox an operator is
+' already sitting in.
+'
+' ── WHY JAVA_HOME IS SET WHERE IT IS ────────────────────────────────────────
+' `ENV JAVA_HOME=/opt/jre PATH="/opt/jre/bin:${PATH}"` sits immediately after the
+' `COPY --from=jre-builder`, not in the ENV block at the end of the file, because
+' the RUN that follows asserts the runtime works and an ENV declared later is not
+' in scope for it. `java` on PATH is also exactly what `_install_jdtls` probes.
+'
+' ── COPY --chmod, NOT COPY-THEN-chmod ───────────────────────────────────────
+' The COPYs carry `--chmod=0755` so the mode arrives with the file. Setting it in
+' a later RUN copied each binary UP into that layer in full — overlayfs has no
+' other way to record a metadata change — storing proveo-entrypoint and
+' plantuml-lsp twice. Two of the three chmods were no-ops anyway, because
+' `go build` already writes 0755.
+'
+' ── proveo/base-node: ONE NODE, ONE pnpm, ONE BUN ───────────────────────────
+' NODE_MAJOR=22 via nodesource, pnpm@10.33.0, `unzip`.
+'
+' unzip is Bun's one documented prerequisite on Linux, and it lands here so every
+' Node consumer inherits it (opencode used to install its own copy).
+'
+' `rm -rf /usr/include/node` is in the SAME RUN as the nodesource install:
+' nodesource's deb ships 65 MB of C++ headers for building native addons, and
+' node-gyp fetches its own into ~/.cache/node-gyp anyway — only an explicit
+' `--nodedir` reads these. A later RUN would delete the path and keep the bytes.
+'
+' BUN IS PINNED TWICE — by version AND by the digest published in that release's
+' SHASUMS256.txt:
+'   ARG BUN_VERSION=1.4.0
+'   ARG BUN_SHA256_X64=2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
+'   ARG BUN_SHA256_AARCH64=4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e
+' From the GitHub release zip. NOT `npm install -g bun`: its postinstall fetches
+' the same binary through the registry, unverified by anything the Dockerfile
+' names. NOT the install script: unpinned by default, and it writes to ~/.bun.
+' The x64 asset is the AVX2 build — Bun's `-baseline` variant exists for
+' pre-Haswell CPUs and is not what this fleet runs on. `bunx` is a symlink to
+' `bun`, as the installer makes it. `test "$(bun --version)" = "${BUN_VERSION}"`
+' makes the pin a fact about the image.
+'
+' Which pins the SEED honours, and why bun rides this layer rather than a
+' harness, is _spec/_runtimes/toolchain-provisioning.puml.
+'
+' ── proveo/base-node-lsp: SIX SERVERS, AND A PRUNE IN THE SAME RUN ──────────
+' `npm install -g --no-optional`: typescript-language-server,
+' vscode-langservers-extracted, bash-language-server,
+' dockerfile-language-server-nodejs, yaml-language-server, pyright.
+'
+' Measured in the installed tree: 11 MB of `*.map` and 18 MB of changelogs,
+' readmes and docs/ directories. Source maps only ever improve a stack trace from
+' a server nobody debugs from inside a sandbox.
+'
+' `test/` directories are deliberately NOT pruned — some packages load fixtures
+' from them at runtime, and 29 MB is not worth finding out which.
+'
+' ── proveo/base's FLOOR PROBE ───────────────────────────────────────────────
+' defs/base/ensure.sh checks git + gh + jq + an executable
+' /usr/local/bin/proveo-entrypoint. No browser, no Node, no Python: those moved
+' out of the base, and the probe states the contract rather than restating the
+' package list.
+'
+' ── BUILD CONTEXT DIFFERS BY LAYER, AND IT IS NOT AN OVERSIGHT ──────────────
+' defs/base/build.sh passes REPO_ROOT, because the entrypoint builder copies
+' cmd/ and internal/ from the module. defs/base-node/build.sh and
+' defs/base-node-lsp/build.sh pass SCRIPT_DIR: those Dockerfiles COPY nothing
+' from the repo, so the narrower context is free.
+
+node "Builder stages — discarded after the copy" as B <<host>> {
+  component "proveo-entrypoint-builder\n""golang:1.26-trixie""" as GO <<app>>
+  component "jre-builder\n""debian:trixie-slim"" + jdk + binutils" as JRE <<app>>
+}
+
+node "proveo/base — the universal floor" as BASE <<host>> {
+  component """/usr/local/bin/proveo-entrypoint""\n""/usr/local/bin/plantuml-lsp""" as BIN <<app>>
+  database "``/opt/jre`` — jlink, 72 MB\n20 modules, zip-6, stripped" as JLINK <<db>>
+  component "``/opt/plantuml.jar`` + shim\nrendered once, at build" as PUML <<app>>
+  component "git · gh · jq · tmux · ripgrep\ngraphviz · fontconfig · harfbuzz" as APT <<app>>
+}
+
+node "proveo/base-node" as BN <<host>> {
+  component "node 22 · pnpm 10.33.0 · unzip" as NODE <<app>>
+  component "bun 1.4.0 + bunx\nversion AND sha256 pinned" as BUN <<app>>
+}
+
+node "proveo/base-node-lsp" as BNL <<host>> {
+  component "six language servers\n""npm install -g --no-optional""" as LSP <<app>>
+}
+
+component "``COPY . .`` into the Go builder\n201 MB node_modules · a README busts it" as WIDE <<error>>
+component "``default-jre-headless`` 194 MB\nfor one jar, on all 14 images" as FATJRE <<error>>
+component "SunFontManager static initialiser\nno system harfbuzz — dies before drawing" as FONT <<error>>
+component "a delete in a LATER RUN\nremoves the path, keeps the bytes" as LATER <<error>>
+component "``npm install -g bun``\npostinstall fetches, nothing verifies" as NPMBUN <<error>>
+
+GO ARROW_MAIN BIN : ""COPY --chmod=0755 --from=…""
+JRE ARROW_MAIN JLINK : ""COPY --from=jre-builder /opt/jre""
+GO ARROW_ERROR WIDE : avoided — ""COPY cmd"" + ""COPY internal""
+FATJRE ARROW_MAIN JRE : replaced by ""jlink"", 194 → 72 MB
+JLINK ARROW_MAIN PUML : the shim execs this runtime
+APT ARROW_ERROR FONT : prevented — harfbuzz, fontconfig\nand dejavu are explicit now
+PUML ARROW_MAIN PUML : renders ""/tmp/floor.puml"" at BUILD
+BASE ARROW_MAIN BN
+BN ARROW_MAIN BNL
+NODE ARROW_ERROR LATER : ""rm -rf /usr/include/node""\nshares the nodesource RUN
+LSP ARROW_ERROR LATER : the ""*.map"" and docs prune\nshares the install RUN
+BUN ARROW_ERROR NPMBUN : never — release zip,\nversion + SHASUMS256 digest
+
+note bottom of GO
+  **Upstream code goes above the source copy.**
+  plantuml-lsp owes nothing to this repo, so
+  installing it below ""COPY"" made every edit in
+  the tree re-run the fetch. Above it, the layer
+  is cached until the version moves.
+end note
+
+note bottom of WIDE
+  **The context is the whole repo.**
+  Every def builds from the root, so ""COPY . .""
+  baked 201 MB of node_modules into a builder and
+  invalidated the compile on any file — a README
+  edit re-ran ""go build"".
+end note
+
+note right of JLINK
+  **The module list is deliberately not minimal.**
+  A plantuml-only prune is 59 MB and breaks jdtls:
+  ""_install_jdtls"" uses the floor's java once
+  ""_java_major"" reports 21, so this runtime must
+  HOST an OSGi app. Six modules for it, 13 MB.
+end note
+
+note bottom of JRE
+  **binutils is a build dep, not a runtime one.**
+  ""jlink --strip-debug"" runs ""objcopy"" on
+  Debian's OpenJDK and fails with 'Cannot run
+  program objcopy' without it. It stays in the
+  builder stage, which ships nothing.
+end note
+
+note bottom of FONT
+  **A jlink runtime has the .so, not its deps.**
+  libfontmanager links the SYSTEM harfbuzz, so
+  PlantUML died in a static initialiser at FIRST
+  render — nothing earlier. Found by building it,
+  now caught by rendering a diagram at build.
+end note
+
+note right of PUML
+  **The build renders a diagram on purpose.**
+  A missing module is otherwise invisible until an
+  operator asks for a picture inside a sandbox, so
+  the layer that writes the shim proves it works
+  before the image is allowed to exist.
+end note
+
+note bottom of BUN
+  **Two pins, because one is a request.**
+  The version names the release; the SHASUMS256
+  digest names the bytes. The x64 asset is the
+  AVX2 build — the ""-baseline"" variant is for
+  pre-Haswell CPUs this fleet does not run on.
+end note
+
+note bottom of LATER
+  **A deletion only saves bytes in the RUN that
+  created them.** overlayfs records a later ""rm""
+  as a whitedout path over a layer that still
+  carries the content, so the image is no smaller
+  and the reader believes it is.
+end note
+
+note bottom of LSP
+  **""test/"" is kept, and that is a judgement.**
+  Maps and docs are 29 MB and safe to drop; some
+  packages load fixtures from ""test/"" at runtime
+  and another 29 MB is not worth discovering
+  which one does it in a sandbox.
+end note
+
+note bottom of BIN
+  **The mode travels with the COPY.**
+  A later ""chmod"" copies each binary up into
+  layer in full, storing both twice, and two of
+  the three were no-ops because ""go build""
+  already writes 0755.
+end note
+
+@enduml

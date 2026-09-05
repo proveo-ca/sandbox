@@ -2,13 +2,6 @@
 ARG BASE_IMAGE=proveo/base-node:latest
 FROM ${BASE_IMAGE}
 
-# The prune is in this SAME RUN, because a later one would keep the bytes.
-#
-# Measured in the installed tree: 11 MB of `*.map` and 18 MB of changelogs, readmes
-# and docs/ directories. Source maps only ever improve a stack trace from a server
-# nobody debugs from inside a sandbox. `test/` directories are deliberately NOT
-# pruned — some packages load fixtures from them at runtime, and 29 MB is not worth
-# finding out which.
 # SPEC: _spec/_plans/image-size-reduction.puml
 RUN npm install -g --no-optional \
     typescript-language-server \

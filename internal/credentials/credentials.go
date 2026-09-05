@@ -1,13 +1,8 @@
+// SPEC: _spec/_paradigms/credential-boundary.puml,
+// _spec/internal/credentials/credential-decisions.puml Package credentials
+// decides what a run authenticates with, and writes nothing else.
+//
 // SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml
-//
-// Package credentials decides what a run authenticates with, and writes nothing
-// else. Every function here is pure over (manifest, lookup, homeRoot): no run
-// state, no cobra, no docker — which is why it is move 2 of the decomposition and
-// why the plan goldens cannot change when it lands.
-//
-// WriteBrokerEnv is the one writer, and keeps its 0600. WarnMountedSecrets takes
-// its writer rather than reaching for a package global, so a caller's tests can
-// capture what it says.
 package credentials
 
 import (
@@ -57,19 +52,8 @@ func FilterProviders(detected []string, c manifest.Capabilities) []string {
 	return out
 }
 
-// AvailableAuthVars lists the credentials the operator holds for the provider
-// this run will pin.
-// AuthVarLogin names the credential the operator already established as a FILE in
-// the proveo home. It is offered beside the environment variables because it is a
-// third way to authenticate and, until it was listed, an unnameable one: the row
-// showed only env vars, so a remembered answer naming one of them outranked a login
-// the operator had made later — and proveo forwarded a token the API refused while
-// a working subscription sat mounted and unread.
 const AuthVarLogin = "login (proveo home)"
 
-// AvailableAuthVars lists the credentials the operator holds for this harness, the
-// persisted login first when there is one: it is the answer that needs no value
-// exported, so it belongs where a default lands.
 func AvailableAuthVars(man manifest.Manifest, lookup func(string) string) []string {
 	return AvailableAuthVarsIn(man, lookup, "", "")
 }
@@ -123,33 +107,10 @@ func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
 	}, true
 }
 
-// agentTranscriptDirs are where a harness writes its session transcripts inside the
-// mounted proveo home, relative to it. Keyed by target: each CLI chooses its own.
 var agentTranscriptDirs = map[string][]string{
 	"claudecode": {".claude/projects"},
 }
 
-// AgentTranscript names the session transcript written during this run, if any.
-//
-// It is better evidence than a captured tail. A tail holds what reached the
-// terminal; the transcript holds what the agent received and said — which is where
-// "Credit balance is too low" appeared after a run showed nothing but a stopped
-// sandbox.
-//
-// The window is closed at BOTH ends, and the upper bound is not defensive tidiness.
-// The copy-out that brings a transcript to the host runs on the failure path, and
-// on a stopped sandbox `sbx exec` restarts the VM to do it — which re-runs the
-// seed. That restart writes files of its own. One run reported
-// "66523790-…jsonl" as what the agent said: zero bytes, created at 15:12:13.694,
-// seventeen seconds AFTER the agent it was supposed to be quoting had already died,
-// belonging to no session that ever ran (the run's own session was 1a972241, and it
-// has no transcript anywhere). Ranking by mtime alone, it was the newest file in
-// the home and therefore won.
-//
-// Empty is not evidence either. A zero-byte file satisfied "a transcript exists",
-// which suppressed the credential hint written for exactly the failure that leaves
-// nothing behind — so the one run that most needed an explanation got a path to an
-// empty file instead.
 func AgentTranscript(target, homeRoot string, since, until time.Time) string {
 	if homeRoot == "" {
 		return ""
@@ -177,27 +138,10 @@ func AgentTranscript(target, homeRoot string, since, until time.Time) string {
 	return newest
 }
 
-// subscriptionLoginFiles are where a completed login persists inside the proveo
-// home the sandbox mounts. Keyed by target because each harness stores its own.
-//
-// An operator may authenticate on the HOST before launching — `claude setup-token`,
-// or a normal interactive login — and that credential reaches the container because
-// HOME points at the proveo home, which is mounted. When it is present it is the
-// operator's answer, and proveo must not hand sbx a competing API key that its
-// proxy would inject instead (which is how a subscription run silently billed per
-// token).
-//
-// cursor is absent deliberately: its manifest declares only CURSOR_API_KEY, and its
-// CLI keeps no credential file we have established — ~/.cursor/cli-config.json is
-// configuration, not auth. Add it here once the location is known rather than
-// guessing, or a missing file will read as "no login" forever.
 var subscriptionLoginFiles = map[string][]string{
 	"claudecode": {".claude/.credentials.json"},
 }
 
-// EffectiveAuthVar is the credential the run should authenticate with: the row the
-// operator answered if there was one, otherwise the manifest's own secret when a
-// host login is already sitting in the proveo home.
 func EffectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string) string {
 	if v := strings.TrimSpace(chosen); v != "" && v != AuthVarLogin {
 		return v
@@ -213,23 +157,11 @@ func EffectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string) st
 	return ""
 }
 
-// HasPersistedLogin reports whether a login already exists for target under the
-// proveo home. It is the half of the auth picture MissingEnv cannot see: the env
-// var is one way to be authenticated and the credential file is the other.
 func HasPersistedLogin(target, homeRoot string) bool {
 	ok, _ := PersistedLogin(target, homeRoot)
 	return ok
 }
 
-// PersistedLogin reports whether the credential can still authenticate, and
-// whether it must be refreshed first.
-//
-// Existence is NOT validity, and the difference is the whole point of the guard
-// this feeds. A dead credential is a file of exactly the same size as a live
-// one, so stat-ing it let an expired login satisfy the check that exists to stop
-// a run the agent cannot complete — it reaches the login prompt, exits, and the
-// sandbox stops with it, which surfaces as an infrastructure failure rather than
-// as "your login ran out".
 func PersistedLogin(target, homeRoot string) (ok, needsRefresh bool) {
 	if homeRoot == "" {
 		return false, false
@@ -242,39 +174,19 @@ func PersistedLogin(target, homeRoot string) (ok, needsRefresh bool) {
 	return false, false
 }
 
-// oauthCredential is the shape claudecode persists. The stamps say whether the
-// credential is live; the tokens are read only for EMPTINESS, never for value —
-// a stamp cannot tell you the token beside it was taken away.
 type oauthCredential struct {
 	ClaudeAIOauth struct {
-		// Pointers because ABSENT and ZERO mean opposite things here: a missing
-		// field is a shape we do not understand (assume usable), while an explicit
-		// 0 is a stamp that has been cleared — a token deliberately invalidated,
-		// which is exactly the state a failed refresh leaves behind.
-		ExpiresAt             *int64 `json:"expiresAt"`             // ms since epoch
-		RefreshTokenExpiresAt *int64 `json:"refreshTokenExpiresAt"` // ms since epoch
-		// Pointers for the same reason, and it is load-bearing: logging in on
-		// macOS moves the credential to the KEYCHAIN and rewrites this file with
-		// its tokens blanked, leaving every stamp in place. An absent field is a
-		// shape we do not judge; an explicit "" is a token that was removed.
-		AccessToken  *string `json:"accessToken"`
-		RefreshToken *string `json:"refreshToken"`
-		// Descriptive only — read for the host-store report, never for a decision.
-		Scopes           []string `json:"scopes"`
-		SubscriptionType string   `json:"subscriptionType"`
+		ExpiresAt             *int64   `json:"expiresAt"`             // ms since epoch
+		RefreshTokenExpiresAt *int64   `json:"refreshTokenExpiresAt"` // ms since epoch
+		AccessToken           *string  `json:"accessToken"`
+		RefreshToken          *string  `json:"refreshToken"`
+		Scopes                []string `json:"scopes"`
+		SubscriptionType      string   `json:"subscriptionType"`
 	} `json:"claudeAiOauth"`
 }
 
-// tokenCleared reports whether a token field is present and blank — removed,
-// rather than belonging to a shape this check does not recognise.
 func tokenCleared(tok *string) bool { return tok != nil && *tok == "" }
 
-// loginUsable classifies one credential file.
-//
-// An UNRECOGNISED file is reported usable on purpose. This check exists to catch
-// a credential that is definitely dead; inferring "expired" from a shape we
-// cannot parse would refuse runs that work, and a false refusal is worse than
-// the failure it was meant to prevent — the operator has no way to argue with it.
 func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) == 0 {
@@ -283,20 +195,12 @@ func loginUsable(path string, now time.Time) (usable, needsRefresh bool) {
 	return loginUsableBytes(b, now)
 }
 
-// loginUsableBytes is loginUsable over bytes from ANY source, so the host secret
-// store and the mounted file are judged by one rule.
 func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	var c oauthCredential
 	if json.Unmarshal(b, &c) != nil {
 		return true, false // presence is all this file lets us honestly assert
 	}
 	o := &c.ClaudeAIOauth
-	// A file with its tokens BLANKED is not a login, however live the stamps look.
-	// This is the ordinary state of the proveo home on macOS: `claude` there writes
-	// the credential to the Keychain and leaves the file with "" tokens and every
-	// stamp intact. Reading the stamps alone reported that as a login needing a
-	// refresh, so the run announced itself authenticated, suppressed the env token
-	// that would have worked, and the agent died with nothing to send.
 	if tokenCleared(o.AccessToken) {
 		return false, false
 	}
@@ -306,23 +210,12 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	if now.Before(time.UnixMilli(*o.ExpiresAt)) {
 		return true, false
 	}
-	// A stale access token beside a LIVE refresh token is still a login: the
-	// agent renews it at startup with no prompt, which is exactly what happened
-	// on the run that reported "Login expired" and then carried on working. A
-	// CLEARED stamp (0) lands here too, which is correct — it needs the same
-	// refresh, and saying so is what tells the operator why the agent stalled.
-	//
-	// A blanked refresh token is the exception: there is nothing to renew WITH, so
-	// the stamp describes a renewal that cannot happen.
 	if r := o.RefreshTokenExpiresAt; r != nil && !tokenCleared(o.RefreshToken) && now.Before(time.UnixMilli(*r)) {
 		return true, true
 	}
 	return false, false
 }
 
-// LoginBlanked reports a credential file that exists but holds no token — the
-// ordinary state of the proveo home on macOS, and worth saying out loud rather
-// than treating as "no login".
 // SPEC: _spec/internal/secretref/secret-references.puml
 func LoginBlanked(target, homeRoot string) bool {
 	if homeRoot == "" {
@@ -344,35 +237,11 @@ func LoginBlanked(target, homeRoot string) bool {
 	return false
 }
 
-// AuthSuppressor reports which auth vars must NOT be injected for this run.
-//
-// Two ways of being authenticated compete, and they do not merge: an env token
-// OVERRIDES a credential file rather than sitting beside it. So when the operator's
-// login already exists as a file under the mounted proveo home, that file IS the
-// credential and every auth var for its provider is suppressed — otherwise a
-// setup-token exported on the host authenticates the run as the API while the
-// mounted subscription login goes unread, which is what "Claude API" on a
-// subscription run was reporting. When the operator answered the auth row instead,
-// their answer stands and only its alternatives are suppressed.
 func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string) func(string) bool {
 	chosen = strings.TrimSpace(chosen)
-	// The login is the credential — either named outright, or the only answer when
-	// the operator gave none and one exists. Then NO variable for its providers may
-	// be injected: an env token supersedes the file rather than joining it.
-	// A login only outranks an env token while it can still AUTHENTICATE. A file
-	// that needs a renewal this backend cannot perform is not the credential — it
-	// is a dead one, and suppressing a working token in its favour leaves the run
-	// with no credential at all. That is not hypothetical: on macOS the host's
-	// login lives in the KEYCHAIN, so the file under the proveo home is written
-	// only by the container and can go stale with no host-side way to refresh it.
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)
 	usableLogin = usableLogin && !staleLogin
 	if chosen == AuthVarLogin || (chosen == "" && usableLogin) {
-		// Scoped to the providers the login actually authenticates — read off the
-		// harness's own declared secrets. Scoping it to the manifest's capabilities
-		// instead reached too far: a manifest that declares none allows every
-		// provider, so an anthropic login would have suppressed the openai key too
-		// and quietly removed reach the harness legitimately has.
 		owned := map[string]bool{}
 		for _, e := range man.Env {
 			if e.Secret {
@@ -390,10 +259,6 @@ func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string) func
 	return func(k string) bool { return LosesToChosenAuth(k, auth) }
 }
 
-// LosesToChosenAuth reports whether key var k is a rejected alternative to the auth
-// var the operator picked. Only vars of the SAME provider compete: an anthropic
-// choice says nothing about openai, and dropping an unrelated key would silently
-// remove reach the harness legitimately has.
 func LosesToChosenAuth(k, chosen string) bool {
 	chosen = strings.TrimSpace(chosen)
 	if chosen == "" || k == chosen {
@@ -484,9 +349,6 @@ func BrokerOffReason(forwards bool, routed []string, detected []string, brokerOn
 		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
-// ProviderOfKeyVar names the provider a credential env var belongs to, or the var
-// itself when the registry does not claim it — so an unknown key is judged by the
-// capability list rather than silently dropped.
 func ProviderOfKeyVar(envVar string) string {
 	if name, _, ok := ProviderForAuthVar(envVar); ok {
 		return name
@@ -494,10 +356,6 @@ func ProviderOfKeyVar(envVar string) string {
 	return envVar
 }
 
-// ProviderForAuthVar maps a credential env var back to the provider that accepts
-// it and the auth option describing how — the reverse of the registry's usual
-// direction, and what lets a Kit name a service for a secret proveo only knows by
-// variable name.
 func ProviderForAuthVar(envVar string) (string, provider.AuthOption, bool) {
 	for _, n := range provider.Names() {
 		e, ok := provider.Lookup(n)
@@ -513,19 +371,6 @@ func ProviderForAuthVar(envVar string) (string, provider.AuthOption, bool) {
 	return "", provider.AuthOption{}, false
 }
 
-// WarnMountedSecrets speaks when a workspace .env carries a provider key the
-// agent will be able to read.
-//
-// The tier only silences it on the DOCKER backend, and only because proveo masks
-// every .env* with /dev/null there on the enforced tiers. sbx does no such thing:
-// it takes directory workspaces, the repo carrying those files is mounted whole,
-// and with no PROVEO_EGRESS_MODE in the Kit the in-container prelude SOURCES the
-// .env with `set -a` — so every key in it becomes agent environment whatever tier
-// was chosen.
-//
-// That inversion is why sandboxed is a parameter rather than a tier check: the
-// backend where the file IS read was the one saying nothing, while the backend
-// that masks it warned.
 func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) string) {
 	if dir == "" {
 		return
@@ -552,15 +397,13 @@ func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) st
 }
 
 // ChildEnv carries the values a bare `-e NAME` needs the CHILD to inherit,
-// keeping them out of proveo's own environ. Replaces the os.Setenv hydration;
-// see _spec/internal/secretref/secret-references.puml. Zero value usable.
+// keeping them out of proveo's own environ.
 type ChildEnv struct {
 	pairs []string
 	seen  map[string]bool
 }
 
-// Add records name's value for the child, resolved through lookup. A name
-// already in proveo's environment needs no pair — the child inherits it anyway.
+// Add records name's value for the child, resolved through lookup.
 func (c *ChildEnv) Add(name string, lookup func(string) string) {
 	if c.seen[name] || strings.TrimSpace(os.Getenv(name)) != "" {
 		return
@@ -582,7 +425,7 @@ func (c *ChildEnv) Add(name string, lookup func(string) string) {
 // Pairs is the "KEY=VALUE" list for one exec's cmd.Env, nil when empty.
 func (c *ChildEnv) Pairs() []string { return c.pairs }
 
-// Names lists what this ChildEnv carries, for reporting. Names only.
+// Names lists what this ChildEnv carries, for reporting.
 func (c *ChildEnv) Names() []string {
 	out := make([]string, 0, len(c.pairs))
 	for _, p := range c.pairs {
@@ -593,8 +436,7 @@ func (c *ChildEnv) Names() []string {
 }
 
 // Apply builds the environment for one exec: base, then these pairs, so a pair
-// here overrides a same-named value in base. Nil when empty, which leaves
-// os/exec passing proveo's environment through untouched.
+// here overrides a same-named value in base.
 func (c *ChildEnv) Apply(base []string) []string {
 	if len(c.pairs) == 0 {
 		return nil
@@ -604,7 +446,6 @@ func (c *ChildEnv) Apply(base []string) []string {
 	return append(out, c.pairs...)
 }
 
-// ParseEnvFile reads a KEY=VALUE env file (project .env shape). Missing => empty.
 func ParseEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	if path == "" {
@@ -636,8 +477,6 @@ func ParseEnvFile(path string) map[string]string {
 	return out
 }
 
-// WriteBrokerEnv writes present provider keys to a 0600 file the egress proxy
-// mounts. lookup may include host-side .env values not in the process env.
 func WriteBrokerEnv(dir string, lookup func(string) string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
@@ -658,9 +497,6 @@ func WriteBrokerEnv(dir string, lookup func(string) string) (string, error) {
 	return path, nil
 }
 
-// ProviderLookup prefers the process env, then a host-side KEY=VALUE file
-// (project .env / PROVEO_EGRESS_ENV_FILE). A value that parses as a secret
-// reference is resolved here, once per name per run.
 func ProviderLookup(envFile string) func(string) string {
 	return ProviderLookupWith(envFile, &secretref.Resolver{
 		Getenv: os.Getenv,
@@ -670,9 +506,6 @@ func ProviderLookup(envFile string) func(string) string {
 	}, ui.Warnf)
 }
 
-// ProviderLookupWith is ProviderLookup with the resolver and warning sink
-// injected. warn fires once per variable; an unresolved reference yields "",
-// never the reference text itself.
 func ProviderLookupWith(envFile string, r *secretref.Resolver, warn func(string, ...any)) func(string) string {
 	fileVals := ParseEnvFile(envFile)
 	warned := map[string]bool{}

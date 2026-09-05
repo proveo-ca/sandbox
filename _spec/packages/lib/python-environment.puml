@@ -5,6 +5,39 @@ title Python environments — detected and provisioned, never inherited
 ' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
 '         defs/cursor/entrypoint.sh, defs/cecli/entrypoint.sh,
 '         defs/claudecode/mcp/entrypoint.sh
+'
+' Knobs: PROVEO_PYTHON_ENV=auto|off · PROVEO_PYTHON_VERSION (default 3.12) ·
+'        PROVEO_PYTHON_MAX_PROJECTS (default 4) · PROVEO_PYTHON_TIMEOUT
+'        (default 600s, per install) · PROVEO_PYTHON_SCAN_DEPTH (falls back to
+'        PROVEO_DEP_SCAN_DEPTH, default 4). PROVEO_AUTO_INSTALL_TOOLS=false
+'        disables the whole provisioning path, this step included.
+'
+' ── THE VERSION A PROJECT ASKS FOR ──────────────────────────────────────────
+' _py_requested_version reads `.python-version` first, then `requires-python`
+' out of pyproject.toml (major.minor only), and falls back to
+' PROVEO_PYTHON_VERSION and finally 3.12 — the same "the project pins, the
+' sandbox honours" rule node and bun follow
+' (_spec/_runtimes/toolchain-provisioning.puml).
+'
+' Kinds are decided by lockfile, most specific first: environment.yml/.yaml →
+' conda (micromamba), uv.lock → uv, poetry.lock → poetry, else
+' pyproject.toml/Pipfile/requirements*.txt → pip. Each kind builds into the
+' env dir with its own installer; only conda short-circuits on an already-built
+' interpreter, because `uv sync` and `poetry install` are cheap no-ops.
+'
+' ── WHY A PARTIAL ENVIRONMENT NOW NAMES ITS CAUSE ──────────────────────────
+' A partial venv is not self-explanatory, and after the image-size cuts one
+' cause dominates: there is no C compiler in ANY proveo image — base,
+' base-node-lsp, claudecode, cursor, opencode and cecli all answer nothing for
+' gcc/cc/g++/make (_spec/_plans/image-size-reduction.puml, cut 8). So a
+' dependency with no linux-<arch> wheel has to build from source and cannot.
+'
+' _py_build_env therefore probes `cc` and `gcc` on failure and says so:
+'   "No C toolchain in this image — a dependency with no linux-<arch> wheel
+'    cannot build from source here. Pin a version that publishes one."
+' Staying quiet left the operator with a venv that imports most of the way.
+' Naming it turns a mystery into a choice: pin a version that publishes a
+' wheel, or drop the dependency.
 
 node "Host" as HOST <<host>> {
   database "miniconda / venv\nabsolute paths · macOS binaries" as HOSTENV <<error>>
@@ -95,6 +128,22 @@ note bottom of ENV
   collide with the developer's own ""\.venv"" and never lands in a mounted tree
   that may be read-only. Persisting under PROVEO_HOME is what makes the second
   run 1s instead of 18s.
+end note
+
+note bottom of BUILD
+  **A partial environment is not
+  self-explanatory, and one cause dominates.**
+  No proveo image ships a C compiler, so a
+  dependency with no ""linux-<arch>"" wheel must
+  build from source and cannot.
+end note
+
+note right of BUILD
+  **So the message names it.** Staying quiet left
+  a venv that imports most of the way; naming the
+  missing toolchain turns a mystery into a choice
+  — pin a version that publishes a wheel, or drop
+  the dependency.
 end note
 
 note bottom of PYRIGHT

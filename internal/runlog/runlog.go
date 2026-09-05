@@ -1,5 +1,5 @@
-// Package runlog gives every run a transcript under PROVEO_HOME/logs so a failure
-// can be diagnosed after the fact.
+// Package runlog gives every run a transcript under PROVEO_HOME/logs so a
+// failure can be diagnosed after the fact.
 //
 // SPEC: _spec/internal/runlog/run-transcript.puml
 package runlog
@@ -15,19 +15,14 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 )
 
-// keep is how many transcripts survive; older ones are pruned on each open. Small
-// because these are for the run that just failed, not an audit trail.
 const keep = 20
 
-// Log is an open transcript. A nil *Log is valid and discards everything, so
-// callers never have to branch on whether logging came up.
+// Log is an open transcript.
 type Log struct {
 	f    *os.File
 	path string
 }
 
-// Open creates PROVEO_HOME/logs/<sid>.log and points latest.log at it. Errors are
-// returned but are never fatal to a run: losing the transcript must not stop work.
 func Open(sid string) (*Log, error) {
 	dir := filepath.Join(proveohome.Root(os.Getenv), "logs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -36,8 +31,6 @@ func Open(sid string) (*Log, error) {
 	prune(dir)
 
 	path := filepath.Join(dir, sid+".log")
-	// 0600: the transcript names providers and env vars, and records the workspace
-	// path. No secret values, but not world-readable either.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open log: %w", err)
@@ -59,7 +52,7 @@ func (l *Log) Path() string {
 	return l.path
 }
 
-// Writer exposes the file for ui.TeeTo. Nil-safe: returns nil, which TeeTo ignores.
+// Writer exposes the file for ui.TeeTo.
 func (l *Log) Writer() *os.File {
 	if l == nil {
 		return nil
@@ -104,11 +97,7 @@ func (l *Log) Fields(section string, kv map[string]string) {
 
 const PolicyLogFile = "policy-log.json"
 
-// Artifacts records where the evidence for this run lives. These paths outlive the
-// run, and finding them is most of the work when diagnosing an egress denial — which
-// is exactly why they must not be invented. proveo's Squid and MITM sidecars only run
-// on the docker backend; naming their logs after an sbx run sends an operator to four
-// files that will never exist, at the moment they most need one that does.
+// Artifacts records where the evidence for this run lives.
 func (l *Log) Artifacts(egDir string, sandboxed bool) {
 	if l == nil || l.f == nil || egDir == "" {
 		return
@@ -141,8 +130,6 @@ func (l *Log) Close() {
 	l.f = nil
 }
 
-// prune keeps the newest `keep` transcripts. Best-effort: a failure here is never
-// worth failing a run over.
 func prune(dir string) {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -154,8 +141,6 @@ func prune(dir string) {
 			logs = append(logs, e.Name())
 		}
 	}
-	// Names embed a unix timestamp (proveo-<epoch>-<pid>), so lexical order is
-	// chronological for any realistic span.
 	sort.Strings(logs)
 	for i := 0; i < len(logs)-keep+1 && i < len(logs); i++ {
 		_ = os.Remove(filepath.Join(dir, logs[i]))

@@ -1,10 +1,11 @@
 // SPEC: _spec/internal/provider/provider-registry.puml
+//
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import "strings"
 
-// AuthOption is one way to authenticate to a provider. The first option whose
-// EnvVar is present wins, so list the preferred scheme first.
+// AuthOption is one way to authenticate to a provider.
 type AuthOption struct {
 	EnvVar string // env var holding the secret, e.g. "ANTHROPIC_API_KEY"
 	Header string // header to set, e.g. "x-api-key" or "authorization"
@@ -12,8 +13,8 @@ type AuthOption struct {
 	Bearer bool   // prefix the value with "Bearer "
 }
 
-// Entry is a provider's full policy: detection, Squid ACL, and (optional) broker
-// injection. Entries are held in an ordered slice; detection order is preserved.
+// Entry is a provider's full policy: detection, Squid ACL, and (optional)
+// broker injection.
 type Entry struct {
 	Name   string
 	Detect []string     // env vars that imply this provider (any present => detected)
@@ -35,7 +36,6 @@ func bearer(envVar string) []AuthOption {
 	return []AuthOption{{EnvVar: envVar, Header: "authorization", Bearer: true}}
 }
 
-// entries is ordered to match defs/lib/egress.sh `proveo_egress_detect_providers`.
 var entries = []Entry{
 	{Name: "anthropic", Detect: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
 		ACL: "dstdomain .anthropic.com", Hosts: []string{".anthropic.com"}, Auth: []AuthOption{
@@ -99,12 +99,8 @@ var entries = []Entry{
 		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
 	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
 		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
-	// OpenCode's own gateway. models.dev lists it as TWO providers (Zen and Go) but
-	// they share the host and the key, so for detection, reach and injection they
-	// are one route. The key is a plain bearer read ahead of auth.json.
 	{Name: "opencode", Detect: []string{"OPENCODE_API_KEY"},
 		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"}, Auth: bearer("OPENCODE_API_KEY")},
-	// Signed-request providers: detectable + Squid-pinned, but NOT broker-injectable.
 	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"},
 		ACL: `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`},
 	{Name: "azure", Detect: []string{"AZURE_API_KEY", "AZURE_OPENAI_API_KEY"},
@@ -121,7 +117,6 @@ var byName = func() map[string]*Entry {
 	return m
 }()
 
-// Names returns all provider names in registry (detection) order.
 func Names() []string {
 	out := make([]string, len(entries))
 	for i := range entries {
@@ -130,7 +125,6 @@ func Names() []string {
 	return out
 }
 
-// Lookup returns the entry for a provider name.
 func Lookup(name string) (Entry, bool) {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {
@@ -139,8 +133,6 @@ func Lookup(name string) (Entry, bool) {
 	return *e, true
 }
 
-// Detect returns the providers implied by the present env vars, in registry
-// order. Mirrors defs/lib/egress.sh `proveo_egress_detect_providers`.
 func Detect(getenv func(string) string) []string {
 	var out []string
 	for i := range entries {
@@ -154,7 +146,6 @@ func Detect(getenv func(string) string) []string {
 	return out
 }
 
-// ACLBody returns the Squid `provider_allow` ACL body for a provider.
 func ACLBody(name string) (string, bool) {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {
@@ -177,8 +168,6 @@ func DetectVars() []string {
 	return out
 }
 
-// KeyVars returns every broker secret env-var name (injectable providers only),
-// so the host side can dump exactly those into the broker's secret env-file.
 func KeyVars() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -230,8 +219,6 @@ func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, 
 	return r, true
 }
 
-// AuthVars lists the credential env vars a provider accepts, in declared order.
-// More than one means the operator has a choice to make.
 func AuthVars(name string) []string {
 	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {

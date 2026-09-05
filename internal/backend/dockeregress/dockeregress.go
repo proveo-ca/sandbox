@@ -1,16 +1,10 @@
+// SPEC: _spec/internal/egress/teardown-and-signals.puml,
+// _spec/internal/egress/teardown-and-signals.puml Package dockeregress is the
+// docker+egress backend: Assemble PLANS a run and Exec EXECUTES one — the same
+// split as internal/backend/sandbox, which is what lets cmd/proveo SELECT a
+// backend instead of branching on a bool that six other places also read.
+//
 // SPEC: _spec/internal/egress/teardown-and-signals.puml, _spec/internal/egress/teardown-and-signals.puml
-//
-// Package dockeregress is the docker+egress backend: Assemble PLANS a run and
-// Exec EXECUTES one — the same split as internal/backend/sandbox, which is what
-// lets cmd/proveo SELECT a backend instead of branching on a bool that six other
-// places also read.
-//
-// Exec owns the one behaviour no golden can see: teardown must happen exactly
-// once, whether it is reached by defer, by SIGINT, or by both racing. That is why
-// the cleanup closure is guarded by sync.Once and the signal handler is stopped on
-// the way out.
-//
-// Input carries values, never the CLI struct — the same cut move 4 made.
 package dockeregress
 
 import (
@@ -35,7 +29,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// ReviewSupported reports whether the review tier's consent gate can work here.
 func ReviewSupported(getenv func(string) string) (ok bool, why string) {
 	if runtime.GOOS != "linux" {
 		return false, "linux only"
@@ -46,16 +39,12 @@ func ReviewSupported(getenv func(string) string) (ok bool, why string) {
 	return true, ""
 }
 
-// NeedsLifecycle reports whether the plan created any network/sidecar, so the run
-// must go through the egress lifecycle rather than a bare `docker run`.
 func NeedsLifecycle(p egress.Plan) bool {
 	return len(p.Networks) > 0 || len(p.Sidecars) > 0
 }
 
 // Input is the fully-resolved, side-effect-free input to Assemble.
 type Input struct {
-	// Values, not the CLI struct — the same cut move 4 made to runSandboxInput.
-	// These are the nine fields Assemble actually read.
 	Target, Image, AuthVar              string
 	Mode, Credentials                   string
 	LocalModel, DataDir                 string
@@ -135,9 +124,6 @@ func captureSidecarLogs(r egress.ExecRunner, egDir string, plan egress.Plan) {
 	}
 }
 
-// cfgFS carries the embedded squid config. It is passed in rather than imported:
-// the root package embeds it, and an internal package that reaches back up for it
-// breaks the sidecar images, which copy only cmd/ and internal/.
 func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, providers []string, reviewProxy *ptyproxy.Proxy) error {
 	r := egress.ExecRunner{Stderr: true}
 	rq := egress.ExecRunner{}
@@ -197,7 +183,6 @@ func Exec(cfgFS fs.FS, plan egress.Plan, agent runner.Config, egDir string, prov
 
 func ExecAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 	c := exec.Command("docker", runner.DockerRunArgs(agent)...)
-	// The values behind every bare `-e NAME`, for THIS process only.
 	if len(agent.ChildEnv) > 0 {
 		c.Env = append(os.Environ(), agent.ChildEnv...)
 	}
@@ -215,13 +200,6 @@ func ExecAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 	return err
 }
 
-// StartReviewGate opens the review tier's consent gate. The CONSENT CALLBACK is
-// injected: this package builds and owns the gate, the socket and the decision
-// tally, but it never draws a prompt. cmd/proveo supplies the overlay.
-//
-// That split is what makes the review tier testable at all — a test can pass
-// deny-all or allow-all and assert the resulting decisions without a terminal,
-// which was impossible while the prompt lived in here.
 func StartReviewGate(mode, egDir string, consent func(host, port string) bool) (*reviewgate.Gate, func()) {
 	if mode != "review" || consent == nil {
 		return nil, func() {}

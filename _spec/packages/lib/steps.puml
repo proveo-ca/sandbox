@@ -6,6 +6,64 @@
 '   internal/egressproxy/*        — MITM proxy + flows.ndjson recorder
 '   internal/workspace/mount.go   — mount plan + .env masking
 '   packages/lib/entrypoint-lib.sh, defs/*/entrypoint.sh — in-container steps
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
+'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+'
+' ── §2 · FINDING A .env, IN FOUR ORDERED ATTEMPTS ──────────────────────────
+' find_env_file stops at the first hit, and the order is the point: the most
+' specific answer wins over the most convenient one.
+'   1. ./.env in the current working directory.
+'   2. the git root, via `git rev-parse --show-toplevel`.
+'   3. the git root again, by PURE-BASH upward traversal looking for a directory
+'      holding both .git and .env — the fallback for an image with no git, or a
+'      checkout git refuses to read.
+'   4. any .env at `find -maxdepth 5`, excluding */node_modules/* and */.*/*,
+'      with `-print -quit` so the walk stops at the first match.
+'
+' load_env sources it inside `set -a` / `set +a`, so every assignment in the
+' file is EXPORTED rather than merely set — the agent is a child process and an
+' unexported variable would never reach it.
+'
+' Provider key aliasing runs in both directions, because the ecosystem has not
+' settled on one spelling: GOOGLE_GENERATIVE_AI_API_KEY is filled from
+' GEMINI_API_KEY or GOOGLE_API_KEY when absent, and once it is set the two older
+' names are filled back from it for tools that read only those. Every bridge
+' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
+'
+' Under egress mode open|allowlist|review the file is not sourced at all — a
+' containment step, not an optimisation (see the note on step 4 below).
+'
+' apply_broker_sentinel then runs in those same three modes: every name listed in
+' PROVEO_CREDENTIAL_BROKER_KEYS (comma-separated, whitespace trimmed) is
+' rewritten to PROVEO_BROKER_SENTINEL — default "proveo-brokered" — so the agent
+' process never holds the real key, and the MITM inspector injects it on-route
+' (_spec/_paradigms/credential-boundary.puml). Already-sentinel values are left
+' alone, and the substitution is announced by name.
+'
+' ── §2c · WHY THE gh PROBE IS TIME-BOUNDED ────────────────────────────────
+' report_git_context is read-only, but `gh auth status` validates GH_TOKEN and
+' config sessions OVER THE NETWORK. Under a locked-down egress tier that call
+' can hang, and this runs before the agent, so it is capped at `timeout 5s` —
+' an unanswered probe reports "not authenticated" rather than stalling startup.
+'
+' The same reasoning caps the version banners: command_version_cecli and
+' command_version_opencode both bound the call at 5s and fall back to a caller-
+' supplied string. There are two spellings only because the harnesses pass their
+' arguments in opposite orders (fallback-first vs command-first).
+'
+' ── §3/§4 · TWO STEPS THAT DEGRADE RATHER THAN FAIL ───────────────────────
+' attach_rtk is opt-in (ATTACH_RTK=1|true|yes|on) and skips with a warning when
+' the working directory is not writable, since a read-only workspace is a
+' supported mount rather than an error.
+'
+' run_smoke_test, under PROVEO_SMOKE_TEST=1, prints
+' "PROVEO_SMOKE_READY <PROVEO_SMOKE_TARGET|target>" and then
+' `exec sleep infinity` — the container stays up for inspection and the agent
+' never starts. Anything a def prints AFTER its own run_smoke_test call is
+' therefore unreachable in smoke mode
+' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+'
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
 skinparam ConditionEndStyle hline

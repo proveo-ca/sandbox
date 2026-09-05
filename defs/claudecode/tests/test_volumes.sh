@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_volumes.sh - Volume mount behavior
 
 IMAGE="$STANDALONE_IMAGE"
 
-# --- Input volume is readable ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_INPUT=$(mktemp -d)
 echo "volume-test-content-12345" > "$TEST_INPUT/sample.txt"
@@ -21,7 +19,6 @@ else
 fi
 rm -rf "$TEST_INPUT"
 
-# --- Input volume can be mounted read-only when requested ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_INPUT=$(mktemp -d)
 RESULT=$(docker run --rm --entrypoint bash \
@@ -37,7 +34,6 @@ else
 fi
 rm -rf "$TEST_INPUT"
 
-# --- Default input bind is writable (proveo mounts without :ro) ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_INPUT=$(mktemp -d)
 RESULT=$(docker run --rm --entrypoint bash \
@@ -53,7 +49,6 @@ else
 fi
 rm -rf "$TEST_INPUT"
 
-# --- Output volume is writable and persists to host ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_OUTPUT=$(mktemp -d)
 docker run --rm --entrypoint bash \
@@ -69,7 +64,6 @@ else
 fi
 rm -rf "$TEST_OUTPUT"
 
-# --- /workspace/temp is writable ---
 assert_success \
   "/workspace/temp is writable by claude" \
   "$IMAGE" \

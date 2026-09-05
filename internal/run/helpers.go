@@ -32,8 +32,6 @@ func policyProviderHosts(detected []string, c manifest.Capabilities) []string {
 	return out
 }
 
-// cacheApplies reports whether a remembered answer may take part in this run.
-// tty is passed in rather than probed so the rule is testable without a PTY.
 func reportLinks(links []workspace.Link) {
 	for _, l := range links {
 		switch l.Action {
@@ -51,8 +49,6 @@ func reportLinks(links []workspace.Link) {
 	}
 }
 
-// CloneDefault is the --clone default: on, unless PROVEO_CLONE turns it off. An
-// explicit `--clone=false` still wins over the environment.
 // SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneDefault(getenv func(string) string) bool {
 	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_CLONE"))) {
@@ -106,8 +102,6 @@ func sbxStoredAuth(man manifest.Manifest, p *Params) []string {
 	return credentials.StoreHolds(man, sbx.StoredSecretNames())
 }
 
-// sbxSuppliesCredential reports whether this run reaches the backend whose
-// credential lives in sbx's store rather than in the proveo home.
 func sbxSuppliesCredential(man manifest.Manifest, p *Params, sbxOK bool) bool {
 	return man.Subscription && man.IsSbx() && p.Mode != "review" &&
 		sandbox.Enabled() && sbxOK
@@ -130,8 +124,6 @@ func warnUnknownModel(key, value, localModel string) {
 	}
 }
 
-// ollamaModelsDir resolves the host Ollama model store: PROVEO_OLLAMA_MODELS_DIR
-// else $HOME/.ollama/models (mirrors defs/lib/egress.sh).
 func ollamaModelsDir() string {
 	if d := os.Getenv("PROVEO_OLLAMA_MODELS_DIR"); d != "" {
 		return d
@@ -143,8 +135,6 @@ func ollamaModelsDir() string {
 	return filepath.Join(home, ".ollama", "models")
 }
 
-// preferHostOllama reports whether --local-model should target the host's Ollama
-// (host.docker.internal) instead of a sidecar.
 func preferHostOllama() bool {
 	if os.Getenv("PROVEO_LOCAL_MODEL_SIDECAR") == "1" {
 		return false
@@ -152,8 +142,6 @@ func preferHostOllama() bool {
 	return runtime.GOOS == "darwin"
 }
 
-// sidecarOllamaGPU reports whether the Ollama sidecar can be GPU-accelerated:
-// Linux with the NVIDIA container runtime registered in Docker.
 func sidecarOllamaGPU() bool {
 	if runtime.GOOS != "linux" {
 		return false
@@ -161,8 +149,6 @@ func sidecarOllamaGPU() bool {
 	out, err := exec.Command("docker", "info", "--format", "{{json .Runtimes}}").Output()
 	return err == nil && strings.Contains(string(out), "nvidia")
 }
-
-// --- helpers ---------------------------------------------------------------
 
 func OrWD(p string) string {
 	if p != "" {
@@ -190,8 +176,6 @@ func StateDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
 }
 
-// WizardEnabled reports whether the wizard may prompt at all
-// (PROVEO_WIZARD=off|0|no|false disables it, mirroring PROVEO_CREDENTIAL_BROKER).
 func WizardEnabled() bool {
 	switch strings.ToLower(os.Getenv("PROVEO_WIZARD")) {
 	case "off", "0", "no", "false", "disable", "disabled":

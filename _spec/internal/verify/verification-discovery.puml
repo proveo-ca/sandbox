@@ -1,4 +1,20 @@
 @startuml
+' covers: defs/lib/detect-verify.sh, defs/cecli/proveo-lib/detect-verify.sh,
+'         defs/claudecode/mcp/proveo-lib/detect-verify.sh
+'
+' ── WHY A SHELL WRAPPER STILL EXISTS AROUND THE GO IMPLEMENTATION ──────────
+' detect_verify_commands is a thin wrapper over `proveo-entrypoint verify`. It
+' keeps the name detect-verify.sh so BAKED IMAGE PATHS (/opt/proveo/lib/) keep
+' working: every def entrypoint falls back to sourcing that path when the Go
+' binary is not on PATH, and older images have it.
+'
+' It carries one dev fallback for hosts where the binary is not baked yet — walk
+' up to the nearest go.mod and `go run ./cmd/proveo-entrypoint verify` — which is
+' what lets host-side contract tests exercise the same discovery the container
+' uses. With neither available it fails loudly rather than printing an empty
+' command list, because "no verification commands" and "no discovery" must not
+' look alike.
+
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Verification-command discovery — telling the agent how to check its own work
 

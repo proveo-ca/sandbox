@@ -1,21 +1,11 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_defaults.sh - Default opencode.json + subagents are baked in and seeded.
 
-# Defaults are baked at /opt/opencode/defaults
 assert_success \
   "baked defaults: opencode.json present in /opt" \
   "$IMAGE" \
   "test -f /opt/opencode/defaults/opencode.json"
 
-# Subagents are NOT under /opt/<harness>/defaults/agents any more. They are one
-# shared tree at /opt/proveo/subagents with a per-harness _roster.json, and this
-# file went on asserting the retired path — 10 failures against an image that was
-# built correctly, which reads as a broken image rather than a stale test.
-#
-# The roster is READ FROM THE IMAGE rather than restated here. A list copied into a
-# test drifts silently the moment the roster changes; cecli's test.sh already took
-# this approach ("read from the image, never restated here") and did not go stale.
 # SPEC: _spec/defs/agent-definition-sharing.puml
 assert_success \
   "baked subagents: every agent in the opencode roster has a body in /opt" \
@@ -28,7 +18,6 @@ assert_success \
    done
    echo "roster: $(echo $roster | tr "\n" " ")"'
 
-# Default config encodes the HITL permission model
 assert_output_contains \
   "default opencode.json: build agent has bash:ask" \
   "$IMAGE" \
@@ -64,7 +53,6 @@ RESULT=$(docker run --rm \
   --entrypoint /entrypoint.sh \
   "$IMAGE" --version 2>&1 || true)
 if echo "$RESULT" | grep -qE "(Seeded global defaults|already-seeded|opencode version)"; then
-  # Now verify the files actually got written
   CHECK=$(docker run --rm \
     --entrypoint bash \
     "$IMAGE" -c '/entrypoint.sh --version >/dev/null 2>&1; test -f "$HOME/.config/opencode/opencode.json" && test -f "$HOME/.config/opencode/agents/adversarial-reviewer.md" && echo OK' 2>&1)
@@ -82,7 +70,6 @@ else
   printf "${RED}FAIL${NC} [%d] entrypoint did not run (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- OPENCODE_RESEED=1 overwrites user-modified config ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm \
   -e OPENCODE_RESEED=1 \
@@ -102,7 +89,6 @@ else
   printf "${RED}FAIL${NC} [%d] OPENCODE_RESEED behaviour (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- Without OPENCODE_RESEED, existing config is preserved ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm \
   --entrypoint bash \

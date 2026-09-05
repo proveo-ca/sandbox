@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-version-pin.puml
-# Shared docker buildx helper for defs/*/build.sh.
 
-# _proveo_json_field prints one top-level-ish field out of JSON on stdin, by
-# jq path ("info.version"), with python3 as the fallback so a host without jq
-# still resolves. Prints nothing when neither is present or the path is absent.
 _proveo_json_field() {
   local path="$1"
   if command -v jq >/dev/null 2>&1; then
@@ -28,13 +24,6 @@ except Exception:
   cat >/dev/null
 }
 
-# proveo_agent_version prints the version of the agent package a harness bakes,
-# so build.sh can pin the install to an exact release instead of `@latest`.
-#
-#   proveo_agent_version <OVERRIDE_VAR> <ecosystem> <package>
-#
-# ecosystem is npm, pypi or cursor. An exported OVERRIDE_VAR wins outright. The
-# bare version goes to stdout, the 📌 note to stderr.
 # SPEC: _spec/_devops/agent-version-pin.puml
 proveo_agent_version() {
   local override_var="$1" eco="$2" pkg="$3" v=""
@@ -78,7 +67,6 @@ proveo_agent_version() {
   printf '%s' "$v"
 }
 
-# proveo_docker_host_platform prints the linux/<arch> matching this machine.
 proveo_docker_host_platform() {
   case "$(uname -m)" in
     x86_64 | amd64) echo "linux/amd64" ;;
@@ -128,14 +116,6 @@ proveo_ref_tag() {
   esac
 }
 
-# proveo_image_created prints an image's build time as epoch seconds, and returns
-# non-zero when the host has no such image. The shell twin of posture's
-# dockerImageCreated.
-#
-# The fraction is trimmed before parsing: docker reports RFC3339Nano
-# ("2026-08-31T00:37:15.008872627Z") and neither GNU nor BSD `date` accepts
-# nanoseconds. Both spellings are tried because build hosts are Linux and
-# developer hosts are macOS.
 proveo_image_created() {
   local ts
   ts="$(docker image inspect "$1" --format '{{.Created}}' 2>/dev/null)" || return 1
@@ -146,19 +126,6 @@ proveo_image_created() {
     || return 1
 }
 
-# proveo_resolve_image picks between a published reference and the local build of
-# the same repository, preferring whichever was built MORE RECENTLY. It is the
-# shell twin of internal/maintain.ResolveImage, and internal/contract
-# TestShellImageResolverMatchesResolveImage pins the two together.
-#
-# Recency rather than mere existence, for the same reason the runner uses it: a
-# stale :local from last week must not shadow an image just pulled, and a build
-# from a minute ago must not lose to a published one. Only :latest is resolved —
-# an explicit :v2 or a digest is a deliberate choice and is returned untouched.
-#
-# Without this, a def's test.sh defaulted to :latest, which `proveo_docker_build`
-# REFUSES to write locally — so the suite could only ever exercise whatever the
-# registry last published, never the tree the author was standing in.
 # SPEC: _spec/_devops/image-lineage-and-publish.puml
 proveo_resolve_image() {
   local ref="$1" repo local_ref local_at pub_at
@@ -175,12 +142,6 @@ proveo_resolve_image() {
   printf '%s' "$ref"
 }
 
-# proveo_test_image resolves a reference AND says which one won, on stderr.
-#
-# The naming is the point, and it is the same point the runner makes with
-# "image: … (local build — newer than the published tag)": an image silently
-# resolving to a published artifact instead of the build under test is invisible
-# until something behaves like code nobody wrote.
 proveo_test_image() {
   local ref chosen
   ref="$1"
@@ -257,8 +218,6 @@ proveo_docker_ensure_buildx() {
   printf '%s' "$builder"
 }
 
-# proveo_docker_arg_tag reads the --tag value out of a build argv, defaulting to
-# latest the same way the docker CLI does when none is given.
 proveo_docker_arg_tag() {
   local prev=""
   for a in "$@"; do
@@ -298,10 +257,6 @@ proveo_docker_build() {
     mode="push"
     out_flags=(--push)
   else
-    # A --load build must never write :latest. That tag means "published", and when a
-    # local build also answered to it, anything that re-resolves the reference — sbx
-    # pulls it at sandbox creation — could serve the registry image over the build
-    # under test, silently. Local builds are :local; `proveo deploy` promotes.
     local want_tag
     want_tag="$(proveo_docker_arg_tag "${docker_args[@]}")"
     if [[ "$want_tag" == "latest" ]]; then

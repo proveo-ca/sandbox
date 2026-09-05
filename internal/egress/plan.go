@@ -1,3 +1,10 @@
+// SPEC: _spec/_paradigms/egress-boundary.puml,
+// _spec/_conventions/design-decision-ids.puml,
+// _spec/internal/egress/egress-tiers.puml,
+// _spec/internal/egress/teardown-and-signals.puml,
+// _spec/_paradigms/credential-boundary.puml,
+// _spec/defs/claudecode/chrome-bridge.puml
+//
 // SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
 package egress
 
@@ -25,60 +32,39 @@ type Plan struct {
 	Images          []string  // every sidecar image, for the preflight (in add order)
 }
 
-// Options parameterizes a Plan. Zero values are sensible: images default to the
-// proveo/* names, GID falls back to UID.
+// Options parameterizes a Plan.
 type Options struct {
-	Mode          string // "open" | "allowlist" | "review" (aliases resolved by Canonical)
-	Credentials   string
-	SessionID     string
-	AgentName     string // e.g. "claudecode-mcp" (sanitized into network names)
-	UID, GID      string
-	LocalModel    string // optional Ollama model
-	ModelsDir     string // host Ollama model store, mounted read-only at /models
-	Providers     []string
-	BrokerEnvFile string
-	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
-	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
-	ProviderDomains string
-	// ProviderHosts are the inference-provider endpoints this run legitimately
-	// reaches, and they carry the policy's on-provider DLP exemption
-	// (PROVEO_EGRESS_PROVIDER_HOSTS). They are stated independently of the broker
-	// because the exemption has to hold when nothing is brokered: under
-	// --credentials forward the agent carries its own key, and the provider's own
-	// host is the one destination that key belongs on.
-	ProviderHosts []string
-	ReviewSocket  string
-	AuthVar       string
-	WriteHosts    []string
-	// Host paths for the firewall-mode inspector.
-	ConfDir  string // holds the generated CA cert
-	FlowsDir string // holds flows.ndjson
-	// Host paths for Squid (proxy + firewall).
-	SquidConfigDir string // mounted read-only at /etc/squid
-	SquidLogDir    string // mounted at /var/log/squid
-	// Image overrides.
+	Mode                                string // "open" | "allowlist" | "review" (aliases resolved by Canonical)
+	Credentials                         string
+	SessionID                           string
+	AgentName                           string // e.g. "claudecode-mcp" (sanitized into network names)
+	UID, GID                            string
+	LocalModel                          string // optional Ollama model
+	ModelsDir                           string // host Ollama model store, mounted read-only at /models
+	Providers                           []string
+	BrokerEnvFile                       string
+	ProviderDomains                     string
+	ProviderHosts                       []string
+	ReviewSocket                        string
+	AuthVar                             string
+	WriteHosts                          []string
+	ConfDir                             string // holds the generated CA cert
+	FlowsDir                            string // holds flows.ndjson
+	SquidConfigDir                      string // mounted read-only at /etc/squid
+	SquidLogDir                         string // mounted at /var/log/squid
 	SquidImage, ProxyImage, OllamaImage string
 	HostOllama                          bool
-	// OllamaGPU adds `--gpus all` to the Ollama sidecar so it is GPU-accelerated
-	// (Linux + NVIDIA container runtime). Without it the sidecar runs on CPU.
-	OllamaGPU bool
-	// HostBridge makes host.docker.internal resolve to the REAL host gateway, so
-	// the agent can reach a relay `proveo run` holds open. Only the open+forward
-	// paths honour it.
-	HostBridge bool
+	OllamaGPU                           bool
+	HostBridge                          bool
 }
 
 const (
-	caContainerPath = "/etc/proveo/mitmproxy-ca-cert.pem"
-	squidUpstream   = "http://squid:3128"
-	inspectProxyURL = "http://mitm:8888"
-	// Ollama endpoint roots for --local-model: the in-network sidecar alias, or the
-	// host gateway for the host-GPU path (macOS, broker mode).
+	caContainerPath   = "/etc/proveo/mitmproxy-ca-cert.pem"
+	squidUpstream     = "http://squid:3128"
+	inspectProxyURL   = "http://mitm:8888"
 	sidecarOllamaBase = "http://ollama:11434"
 	hostOllamaBase    = "http://host.docker.internal:11434"
 	dnsBlackhole      = "0.0.0.0"
-	// host.docker.internal, pinned either to the container's own loopback (the
-	// name resolves, the host does not answer) or to the real host gateway.
 	hostLoopbackAlias = "--add-host=host.docker.internal:127.0.0.1"
 	hostGatewayAlias  = "--add-host=host.docker.internal:host-gateway"
 )
@@ -97,7 +83,6 @@ func (o Options) user() string {
 }
 func (o Options) safeAgent() string { return nonAlnum.ReplaceAllString(o.AgentName, "-") }
 
-// hostAlias is the host.docker.internal mapping for a bridge-network agent.
 func (o Options) hostAlias() string {
 	if o.HostBridge {
 		return hostGatewayAlias
@@ -143,7 +128,6 @@ func ValidCredentials(name string) bool {
 	return false
 }
 
-// Modes returns the valid egress mode names in canonical order.
 func Modes() []string {
 	out := make([]string, len(modeBuilders))
 	for i, m := range modeBuilders {
@@ -152,7 +136,6 @@ func Modes() []string {
 	return out
 }
 
-// ValidMode reports whether name is a known egress mode.
 func ValidMode(name string) bool {
 	name, _ = Canonical(name)
 	for _, m := range modeBuilders {
@@ -190,8 +173,6 @@ func (b *builder) network(name string, internal bool) {
 func (b *builder) sidecar(cmd Command, name string) {
 	b.p.Sidecars = append(b.p.Sidecars, cmd)
 	b.containers = append(b.containers, name)
-	// Every sidecar run command ends with its image (none takes a trailing
-	// container command), so record it here for the image preflight.
 	b.p.Images = append(b.p.Images, cmd[len(cmd)-1])
 }
 
@@ -225,14 +206,8 @@ func buildOpen(o Options) Plan {
 		b.network(net, false)
 		b.p.AgentArgs = []string{"--network", net}
 		if o.HostBridge {
-			// A user-defined network gets no host.docker.internal on Linux unless
-			// asked; Docker Desktop adds it anyway, so this is harmless there.
 			b.p.AgentArgs = append(b.p.AgentArgs, hostGatewayAlias)
 		}
-		// The network is named in AgentArgs and nowhere else. `Plan.AgentNetwork`
-		// used to record it too, so the privileged sidecar could attach itself under
-		// the alias `docker`; with that sidecar retired nothing attaches, and a
-		// field no reader consults is a claim the plan cannot keep.
 		// SPEC: _spec/_plans/retire-dind.puml
 		b.attachLocalModel(net)
 		return b.done()
@@ -284,8 +259,6 @@ func buildEnforced(o Options) Plan {
 	return b.done()
 }
 
-// --- command builders ------------------------------------------------------
-
 func label(sid string) string { return "proveo.egress.session=" + sid }
 
 func netCreate(name string, internal bool, sid string) Command {
@@ -307,8 +280,6 @@ func squidName(o Options) string  { return o.SessionID + "-squid" }
 func proxyName(o Options) string  { return o.SessionID + "-egress" }
 func ollamaName(o Options) string { return o.SessionID + "-ollama" }
 
-// sidecarHardening is the privilege-reduction baseline for sidecars: block
-// setuid escalation and cap the pid count. Applied to every sidecar.
 func sidecarHardening() []string {
 	return []string{"--security-opt=no-new-privileges:true", "--pids-limit=256"}
 }
@@ -419,9 +390,6 @@ func localModelArgs(model, base string) []string {
 	return []string{
 		"-e", "PROVEO_LOCAL_MODEL=" + model,
 		"-e", "OLLAMA_HOST=" + base, "-e", "OLLAMA_API_BASE=" + base,
-		// Both spellings: the OpenAI SDKs read OPENAI_BASE_URL, litellm (cecli/aider)
-		// reads OPENAI_API_BASE. Setting only the first left every litellm-backed
-		// harness with no endpoint for the local model.
 		"-e", "OPENAI_BASE_URL=" + base + "/v1", "-e", "OPENAI_API_BASE=" + base + "/v1",
 		"-e", "OPENAI_API_KEY=ollama",
 		"-e", "ARCHITECT_MODEL=ollama/" + model, "-e", "EDITOR_MODEL=ollama/" + model,

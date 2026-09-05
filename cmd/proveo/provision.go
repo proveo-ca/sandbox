@@ -1,3 +1,6 @@
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml,
+// _spec/_devops/image-lineage-and-publish.puml
+//
 // SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
@@ -19,15 +22,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
-// imageDep is one image the run needs, with its build script when the image is
-// a locally-built proveo/* one and a source checkout is present ("" otherwise).
 type imageDep struct {
 	Name        string
 	BuildScript string
 }
 
-// provisioner holds the injectable actions so Ensure's decision logic is
-// unit-testable without Docker or a terminal.
 type provisioner struct {
 	Present func(image string) bool
 	Pull    func(image string) error
@@ -76,8 +75,6 @@ var (
 	preflightEngine = engine.DetectOffline
 )
 
-// ensureDockerUsable failfasts with an engine-specific hint before any image
-// operation.
 func ensureDockerUsable() error {
 	if _, err := preflightLookPath("docker"); err != nil {
 		if preflightGOOS == "darwin" {
@@ -98,8 +95,6 @@ func ensureDockerUsable() error {
 	return nil
 }
 
-// preflightImages readies every image the run needs: the plan's sidecars plus
-// the agent image itself.
 func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string) error {
 	if err := ensureDockerUsable(); err != nil {
 		return err
@@ -117,7 +112,6 @@ func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string)
 			_, err := quiet.Run("image", "inspect", img)
 			return err == nil
 		},
-		// Pull/build progress streams to stderr so stdout stays machine-clean.
 		Pull: func(img string) error {
 			c := exec.Command("docker", "pull", img)
 			c.Stdout, c.Stderr = os.Stderr, os.Stderr
@@ -163,7 +157,6 @@ func sourceDefsDir() string {
 	return ""
 }
 
-// sidecarBuildScript maps a proveo/* sidecar image to defs/sidecars/<name>/build.sh.
 func sidecarBuildScript(defsDir, image string) string {
 	base, ok := proveoImageBase(image)
 	if defsDir == "" || !ok {
@@ -185,8 +178,6 @@ func harnessBuildScript(defsDir string, man manifest.Manifest, agentImage string
 	return ""
 }
 
-// proveoImageBase returns the name segment of a locally-built proveo/* image
-// ("proveo/egress-proxy:latest" -> "egress-proxy").
 func proveoImageBase(image string) (string, bool) {
 	base, ok := strings.CutPrefix(image, "proveo/")
 	if !ok {

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_build.sh - Image availability verification
 
 TESTS_RUN=$((TESTS_RUN + 1))
 printf "Verifying image %s is available... " "$IMAGE"
@@ -28,8 +27,6 @@ assert_inspect \
   '{{index .Config.Labels "security.hardened"}}' \
   "true"
 
-# The label is the truth: the release build.sh read out of cursor.com/install
-# must be the one the installer unpacked.
 # SPEC: _spec/_devops/agent-version-pin.puml
 assert_inspect \
   "proveo.agent label names the agent package" \

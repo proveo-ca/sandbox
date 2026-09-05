@@ -3,7 +3,42 @@
 skinparam noteTextAlignment left
 title Claude Code code intelligence — seeded plugins, enabled per binary, no install prompt
 
-' covers: defs/claudecode/mcp/Dockerfile, packages/lib/entrypoint-lib.sh
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: packages/lib/entrypoint-lib.sh
+'
+' ── HOW THE SEED IS BUILT ───────────────────────────────────────────────────
+' ARG CLAUDE_PLUGIN_SEED=/opt/proveo/claude-plugins, exported to the image as
+' ENV CLAUDE_CODE_PLUGIN_SEED_DIR so it is valid for whatever HOME a run uses.
+'
+' The build RUN drives the real `claude` CLI inside a THROWAWAY home:
+'   HOME=/tmp/claude-build
+'   DISABLE_AUTOUPDATER=1
+'   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+'   CLAUDE_CODE_PLUGIN_CACHE_DIR="${CLAUDE_PLUGIN_SEED}"
+' then `claude plugin marketplace add anthropics/claude-plugins-official` and
+' `claude plugin install <p>@claude-plugins-official` for each of:
+'   typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp
+'   jdtls-lsp lua-lsp
+' It asserts `known_marketplaces.json` and
+' `cache/claude-plugins-official/typescript-lsp` exist, then removes
+' /tmp/claude-build. The list is pinned to `_claude_lsp_plugins` in
+' packages/lib/entrypoint-lib.sh by internal/contract.
+'
+' THE SEED IS chmod -R a+rwX — WORLD-WRITABLE, deliberately. Claude Code drops
+' `.in_use/<pid>` markers BESIDE a loaded plugin, and the runtime uid is the
+' operator's rather than the baked 1000, so a read-only tree would fail those
+' writes. They land in the container's own writable layer and never persist.
+'
+' WHY ANY OF THIS EXISTS. Claude Code offers to install an official `*-lsp`
+' plugin whenever it finds that plugin's language-server binary on PATH with the
+' plugin absent — "If you already have a language server installed, Claude may
+' prompt you to install the corresponding plugin when you open a project"
+' (Discover and install plugins, Code intelligence). This image BAKES the
+' binaries, so every session opened with an install prompt for a plugin nobody
+' asked for, and a sandbox home could never keep the answer. The documented
+' remedy is a seed: a read-only mirror of ~/.claude/plugins that Claude Code
+' reads in place — marketplace registration and plugin caches, no network at run
+' time.
 '
 ' ── THE RULE IS THE BINARY ─────────────────────────────────────────────────
 ' Knobs: PROVEO_CLAUDE_LSP_PLUGINS=off · CLAUDE_CODE_PLUGIN_SEED_DIR (image-set).
@@ -61,6 +96,14 @@ note bottom of SEED
   registered", 0 plugins. So the seed step writes
   ""installed_plugins.json"" and ""known_marketplaces.json""
   into the run's HOME pointing here. Build: 16 s, 9.9 MB.
+end note
+
+note left of SEED
+  **World-writable, and for a specific reason.**
+  Claude Code drops an ""\.in_use/<pid>"" marker
+  beside a loaded plugin, and the runtime uid is
+  the operator's, not 1000 — so the seed is
+  ""chmod -R a+rwX"" and the writes stay in-layer.
 end note
 
 note right of EN

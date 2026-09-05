@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_tools.sh - Required CLI/runtime tools are installed
 
 assert_success \
   "cursor cli (agent) is installed and reports a version" \
@@ -20,24 +19,13 @@ assert_output_matches \
 
 assert_success "git is installed" "$IMAGE" "git --version"
 assert_success "gh is installed" "$IMAGE" "gh --version"
-# cursor is FROM proveo/base (no language runtime): the cursor-agent is a
-# self-contained binary, so there is no node/pnpm/bun/python/browser here.
 assert_failure "bun stays out of the runtime-free cursor image (it lives in proveo/base-node)" "$IMAGE" "command -v bun"
-# INVERTED 2026-09-05: the image ships no docker binaries at all. Every one of the
-# static tarball's eight overlapped sbx, which owns the daemon it starts from the
-# `com.docker.sandboxes.start-docker` label, so `docker: sbx` now depends on sbx
-# supplying the client too. This suite asserts what the IMAGE carries, and it
-# deliberately carries nothing; whether a sandbox can still REACH a daemon is
-# e2e/sbx_test.go's assertSandboxSuppliesDocker, which was not inverted.
 # SPEC: _spec/_plans/image-size-reduction.puml
 assert_failure "no docker binaries in the image (sbx owns the daemon and the client)" "$IMAGE" "command -v docker"
 assert_failure "no dockerd in the image (210 MB of tarball that overlapped sbx)" "$IMAGE" "command -v dockerd"
 assert_success "shared verification lib is baked" "$IMAGE" \
   'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'
 
-# Browser variant (proveo/cursor-browser, FROM proveo/base-node-browser):
-# Playwright's Chromium plus vercel-labs/agent-browser pointed at that same binary,
-# and the discovery stub the seed drops into ~/.cursor/skills.
 CURSOR_BROWSER_IMAGE="$(proveo_resolve_image "${CURSOR_BROWSER_IMAGE:-proveo/cursor-browser:latest}")"
 if docker image inspect "$CURSOR_BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$CURSOR_BROWSER_IMAGE" "playwright --version"

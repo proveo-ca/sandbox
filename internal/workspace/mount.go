@@ -1,3 +1,8 @@
+// SPEC: _spec/internal/workspace/mount-model.puml,
+// _spec/internal/workspace/mount-symlink-escape.puml,
+// _spec/internal/workspace/worktree-git-linkage.puml,
+// _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
+//
 // SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/workspace/worktree-git-linkage.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
 package workspace
 
@@ -23,8 +28,6 @@ var rootFiles = []string{
 }
 
 // SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml
-//
-// vendor is here as SOURCE: Go's vendor/ is checked-in module code and portable.
 var rootDirs = []string{
 	"_spec",
 	"vendor",
@@ -37,23 +40,13 @@ type MountSpec struct {
 	OutputDir          string
 	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
-	// MountRootDeps copies a subdir scope's repo-root dependency trees to /app.
-	// PROVEO_MOUNT_ROOT_DEPS=0 turns it off.
-	MountRootDeps bool
-	// DepStage is the directory dependency-tree copies are staged under (see
-	// DepCopies / MaterializeDeps). The run points it inside its per-run state
-	// dir so `proveo clean` reclaims it; empty falls back to a per-pid temp dir.
-	DepStage string
-	// WorktreeLinkDir holds the container-only pointer files written by
-	// PrepareWorktreeLinks. Empty disables the overlay (see worktreeMounts).
-	WorktreeLinkDir string
+	MountRootDeps      bool
+	DepStage           string
+	WorktreeLinkDir    string
 }
 
 // ScopeRel returns the repo-relative scope path when only PART of the repo is
-// mounted, or "" when the container sees the whole tree. The container's git
-// worktree root is /app either way, so in the partial case git measures a
-// whole-repo index against a directory that holds only the mounted paths and
-// reports every unmounted file as deleted — see scope_git_worktree.
+// mounted, or "" when the container sees the whole tree.
 func (w MountSpec) ScopeRel() string {
 	if w.RepoRoot == "" {
 		return ""
@@ -64,10 +57,9 @@ func (w MountSpec) ScopeRel() string {
 	return relSlash(w.RepoRoot, w.InputDir)
 }
 
-// Plan returns the bind mounts, the container workdir, and the escaping symlinks
-// it resolved (see Link) for the spec, reproducing the per-harness run.sh mount
-// models. It inspects the filesystem (existence of root files / config dir /
-// .env) exactly as the Bash did.
+// Plan returns the bind mounts, the container workdir, and the escaping
+// symlinks it resolved (see Link) for the spec, reproducing the per-harness
+// run.sh mount models.
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
@@ -100,8 +92,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 				mounts = append(mounts, maskEnvMounts(host, "/app/"+d)...)
 			}
 		}
-		// Root dependency trees (the hoisted node_modules a workspace member
-		// resolves through) arrive as plain copies too — see depMounts below.
 		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
@@ -111,8 +101,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
-	// Dependency trees are never the host's: every directory DepLangs names is
-	// overlaid with a private copy. Plan only NAMES them.
 	// SPEC: _spec/packages/lib/dependency-trees.puml
 	mounts = append(mounts, w.depMounts()...)
 
@@ -125,12 +113,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 	return append(mounts, linkMounts...), "/app", links
 }
 
-// resolved returns p with symlinks expanded, or p unchanged when it cannot be.
-// RepoRoot comes from `git rev-parse`, which always reports the REAL path, while
-// InputDir is whatever the caller passed. On macOS those differ for anything
-// under /tmp or /var (→ /private/…), and for any symlinked project dir on every
-// platform — so comparing them literally makes a real repo look like "not a
-// repo", which drops .git from the plan entirely.
 func resolved(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
@@ -173,17 +155,11 @@ func isDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir
 // ContainerGitCommonDir is where a linked worktree's shared .git is mounted.
 const ContainerGitCommonDir = "/proveo-git"
 
-// gitWorktree is a LINKED worktree: .git is a FILE holding "gitdir: <abs path>"
-// that points under the MAIN repo, outside the mounted tree. Nothing follows
-// that pointer into the container, so git reports "not a git repository" and
-// every downstream signal (identity, gh, verify) degrades with it.
 type gitWorktree struct {
 	CommonDir string // <main>/.git — objects, refs, config
 	Name      string // per-worktree dir under <common>/worktrees/
 }
 
-// readGitWorktree parses the pointer chain from the filesystem alone, matching
-// how the rest of Plan works (no git binary, no shelling out).
 func readGitWorktree(tree string) (gitWorktree, bool) {
 	b, err := os.ReadFile(filepath.Join(tree, ".git"))
 	if err != nil {
@@ -197,7 +173,6 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(tree, gitDir)
 	}
-	// commondir is written relative to the per-worktree dir.
 	cb, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
 	if err != nil {
 		return gitWorktree{}, false
@@ -212,23 +187,12 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir)}, true
 }
 
-// LinkedWorktree reports whether dir is a LINKED git worktree — its .git is a
-// pointer file into another checkout's .git/worktrees/ — as opposed to the main
-// worktree or no repository at all. sbx's clone mode can clone only the main
-// worktree, so the clone default has to step aside here.
 func LinkedWorktree(dir string) bool {
 	_, ok := readGitWorktree(dir)
 	return ok
 }
 
-// WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil. The
-// per-worktree commondir file is RELATIVE, so pointing GIT_DIR inside the
-// mounted common dir resolves without host and container paths having to match.
-//
-// FALLBACK ONLY, for when PrepareWorktreeLinks could not write the pointer files.
-// GIT_DIR is absolute and process-global, so it also captures any nested or
-// sibling repo the agent visits; the pointer overlay has neither problem. Do not
-// set both — a coherent chain needs no pin.
+// WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil.
 func (w MountSpec) WorktreeEnv() []string {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok {
@@ -242,17 +206,6 @@ func (w MountSpec) WorktreeEnv() []string {
 
 func (w MountSpec) containerRoot() string { return "/app" }
 
-// worktreeMounts carries the shared .git of a linked worktree into the container.
-//
-// Binding the common dir alone leaves the linkage INCOHERENT: the tree's .git
-// file and <common>/worktrees/<name>/gitdir both hold host paths that do not
-// exist here, so git marks the worktree prunable — `git worktree prune` (also
-// reached via gc) then deletes the host's registration, and any tool that does
-// its own discovery instead of inheriting GIT_DIR reports "not a git repository".
-// WorktreeLinkDir supplies container-correct replacements for exactly those two
-// pointer files, layered as nested read-only binds so the HOST copies are never
-// rewritten — the same masking trick envMounts uses for .env. With the chain
-// coherent, plain discovery works and WorktreeEnv's GIT_DIR pin is unnecessary.
 func (w MountSpec) worktreeMounts() []runner.Mount {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok {
@@ -278,7 +231,6 @@ func (w MountSpec) worktreeMounts() []runner.Mount {
 	)
 }
 
-// Pointer-file basenames under WorktreeLinkDir.
 const (
 	worktreeDotGitFile = "dotgit" // replaces <tree>/.git
 	worktreeGitDirFile = "gitdir" // replaces <common>/worktrees/<name>/gitdir
@@ -286,18 +238,12 @@ const (
 
 // PrepareWorktreeLinks materialises the two container-only pointer files for a
 // linked worktree under root and returns the directory holding them, for the
-// caller to assign to WorktreeLinkDir. Returns "" (no error) when InputDir is
-// not a linked worktree, so callers need no special-casing.
-//
-// This is the one part of mount planning that WRITES, which is why it is a
-// separate step: Plan stays a pure function of the filesystem.
+// caller to assign to WorktreeLinkDir.
 func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok || root == "" {
 		return "", nil
 	}
-	// The per-worktree name alone collides across repos (every checkout may hold
-	// a worktree called "feature"), so key the dir by the common dir too.
 	sum := sha256.Sum256([]byte(wt.CommonDir + "\x00" + wt.Name))
 	dir := filepath.Join(root, "worktrees", wt.Name+"-"+hex.EncodeToString(sum[:6]))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -316,11 +262,6 @@ func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
 	return dir, nil
 }
 
-// envOverlay binds the workspace .env when it resolves on the host but would not
-// inside the container — the usual cause being a symlink to a path outside the
-// mounted tree (a worktree pointing back at its main checkout). Docker resolves
-// the host path, so binding the link lands the real file. Never in isolate mode,
-// where .env is deliberately masked instead.
 func (w MountSpec) envOverlay() []runner.Mount {
 	if w.isolateEnv() {
 		return nil
@@ -337,9 +278,6 @@ func (w MountSpec) envOverlay() []runner.Mount {
 	return []runner.Mount{{Host: target, Container: w.containerRoot() + "/.env", ReadOnly: true}}
 }
 
-// gitOverride pins .git's read-only state when it differs from the parent mount
-// it sits inside, by layering a nested bind over that path. Empty when the
-// parent already yields the requested state or the tree carries no .git.
 func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []runner.Mount {
 	gitRO := w.GitMode == "ro"
 	if gitRO == parentRO {
@@ -377,8 +315,6 @@ func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
 	return nil
 }
 
-// envMaskPrune are directories skipped when hunting for dotenv files to mask:
-// huge and never the project's own secrets.
 var envMaskPrune = map[string]bool{".git": true, "node_modules": true}
 
 func secretEnvFile(name string) bool {

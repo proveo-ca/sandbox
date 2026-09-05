@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/secretref/secret-references.puml
+//
+// SPEC: _spec/internal/secretref/secret-references.puml
 package secretref
 
 import (
@@ -31,13 +33,12 @@ const (
 	Failed      Outcome = "failed"
 )
 
-// Ref is a parsed reference. Arg is empty for a bare "keychain:".
+// Ref is a parsed reference.
 type Ref struct {
 	Scheme string
 	Arg    string
 }
 
-// Parse splits a raw value into a reference. ok is false for a literal secret.
 func Parse(raw string) (Ref, bool) {
 	scheme, arg, found := strings.Cut(strings.TrimSpace(raw), ":")
 	if !found {
@@ -50,8 +51,7 @@ func Parse(raw string) (Ref, bool) {
 	return Ref{}, false
 }
 
-// Result is what one resolution learned. Value is empty unless Outcome is OK;
-// Source and Detail never carry the secret.
+// Result is what one resolution learned.
 type Result struct {
 	Value   string
 	Outcome Outcome
@@ -63,11 +63,10 @@ type Result struct {
 const DefaultTimeout = 20 * time.Second
 
 type Resolver struct {
-	GOOS    string
-	Getenv  func(string) string
-	Timeout time.Duration
-	Exec    func(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error)
-	// Announce is called at most once, before the first exec-backed resolve.
+	GOOS     string
+	Getenv   func(string) string
+	Timeout  time.Duration
+	Exec     func(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error)
 	Announce func(scheme string)
 
 	once   sync.Once
@@ -115,7 +114,6 @@ func (r *Resolver) resolve(name string, ref Ref) Result {
 	case SchemeEnv:
 		src := ref.Arg
 		if src == "" {
-			// A bare "env:" would name the variable being resolved, forever.
 			return Result{Outcome: Failed, Source: name, Detail: `"env:" needs a variable name (env:OTHER_VAR)`}
 		}
 		if r.Getenv == nil {
@@ -149,7 +147,7 @@ func (r *Resolver) resolve(name string, ref Ref) Result {
 }
 
 // Keychain reads one generic-password entry. account may be empty to match on
-// the service alone. Read-only: proveo never calls add-generic-password.
+// the service alone.
 func (r *Resolver) Keychain(service, account string) Result {
 	if r.goos() != "darwin" {
 		return Result{Outcome: Unsupported, Source: service,
@@ -181,15 +179,12 @@ func (r *Resolver) run(scheme, source, name string, args ...string) Result {
 	if err != nil {
 		return Result{Outcome: classify(string(stderr)), Source: source, Detail: firstLine(string(stderr))}
 	}
-	// Trailing newline only: a secret's interior is never ours to trim.
 	if v := strings.TrimRight(string(stdout), "\r\n"); v != "" {
 		return Result{Value: v, Outcome: OK, Source: source}
 	}
 	return Result{Outcome: NotFound, Source: source, Detail: "the entry exists and is empty"}
 }
 
-// classify maps a resolver's own stderr onto the taxonomy. Unrecognised text
-// falls through to Failed, which quotes rather than labels.
 func classify(stderr string) Outcome {
 	s := strings.ToLower(stderr)
 	switch {
@@ -222,7 +217,6 @@ func execCommand(ctx context.Context, name string, args ...string) ([]byte, []by
 	return []byte(out.String()), []byte(errb.String()), err
 }
 
-// Advice is the one sentence to print for a non-OK outcome.
 func Advice(name string, res Result) string {
 	switch res.Outcome {
 	case OK:

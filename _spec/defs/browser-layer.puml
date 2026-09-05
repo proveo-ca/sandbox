@@ -3,7 +3,63 @@
 skinparam noteTextAlignment left
 title Browser layer — Playwright and agent-browser share one Chromium, and every harness is told
 
-' covers: defs/base-node-browser/**, defs/base-node-browser/skills/agent-browser/SKILL.md, packages/lib/entrypoint-lib.sh (proveo_seed_browser_skills)
+' covers: defs/base-node-browser/**
+' covers: defs/base-node-browser/skills/agent-browser/SKILL.md
+' covers: defs/base-node-browser/build.sh
+' covers: defs/base-node-browser/ensure.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/tests/test_tools.sh
+' covers: defs/opencode/tests/test_tools.sh
+' covers: defs/claudecode/tests/test_tools.sh
+'
+' ── ONE CHROMIUM, ENFORCED BY A GUARD RATHER THAN BY A COMMENT ──────────────
+' PLAYWRIGHT_VERSION=1.61.0, PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright.
+'
+' `playwright install chromium` lands TWO browsers — `chromium-<rev>` and
+' `chromium_headless_shell-<rev>` — and this layer only ever launches the first.
+' The symlink below proves it: its `find … -path '*/chromium-*/*'` uses a HYPHEN
+' so it cannot match the shell. Measured at 1.61.0: chromium 624 MB, headless
+' shell **334 MB**, ffmpeg 3.3 MB — i.e. a quarter of the layer was installed and
+' then excluded by hand. `--no-shell` stops installing it at all.
+'
+' The trade, stated so nobody rediscovers it: Playwright >=1.49 PREFERS the shell
+' for its own headless runs, so a project's `playwright test` falls back to full
+' Chromium — slower to start, same result — while agent-browser, which drives
+' Chromium over CDP, never wanted the shell at all.
+'
+' The `! ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-*` line in the
+' same RUN is the point of the flag: a future Playwright that ignores
+' `--no-shell` must fail this build LOUDLY rather than quietly re-adding 334 MB
+' to three variants. Pinned by internal/contract
+' TestBrowserLayerInstallsOneChromiumNotTwo.
+'
+' ── WHAT THE BUILD CAN AND CANNOT VERIFY ────────────────────────────────────
+' The install RUN asserts everything reachable from a buildkit step:
+' `agent-browser --version`, `test -x "$AGENT_BROWSER_EXECUTABLE_PATH"`,
+' `test -f "$AGENT_BROWSER_SKILLS_DIR/core/SKILL.md"`. Verified 2026-09-01 on the
+' darwin build of 0.36.0: with the executable path set it launches headless and
+' never asks for `install`.
+'
+' The Linux run-as-uid path (containers auto-enable --no-sandbox since 0.16.1) is
+' deliberately NOT asserted here — a buildkit RUN is not the container the image
+' will run in. It is covered by defs/base-node-browser/ensure.sh's floor probe
+' and by each def's tests/test_tools.sh.
+'
+' The floor probe is the layer's contract restated as a runnable check: node,
+' playwright and typescript-language-server on PATH, a `chromium-*` directory
+' under the browser store, `agent-browser` on PATH, an executable
+' AGENT_BROWSER_EXECUTABLE_PATH, core/SKILL.md under AGENT_BROWSER_SKILLS_DIR,
+' and /opt/proveo/skills/agent-browser/SKILL.md present for the seed to copy.
+'
+' Both the browser store and /opt/agent-browser are `chmod -R a+rX`: the harness
+' never runs as root, so an arbitrary run-as uid must be able to launch Chromium,
+' and a repo-local Playwright honours the same PLAYWRIGHT_BROWSERS_PATH — so a
+' project's own `npx playwright install` lands in the same shared store.
+'
+' agent-browser is pinned by version AND tarball digest:
+'   ARG AGENT_BROWSER_VERSION=0.36.0
+'   ARG AGENT_BROWSER_SHA256=858a753760034d73c6bc17dd895f91141ef03c3fcca978348b378e26d2d617e4
+' The tarball ships every platform's binary (~40 MB); only this arch's is kept.
 '
 ' ── WHY A DISCOVERY STUB RATHER THAN A COPIED GUIDE ────────────────────────
 ' The layer pins agent-browser the way it pins Playwright: by VERSION and by
@@ -13,6 +69,11 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' floor probe and the seed no longer describe.
 '
 ' Knob: PROVEO_BROWSER_SKILL=off.
+'
+' The stub is proveo's own file, so it is REFRESHED IN PLACE while an operator's
+' own skills beside it are never touched. The comparison uses `sha256sum` piped
+' from both files rather than `cmp`, because diffutils is not on the slim floor —
+' and copying unconditionally would rewrite an unchanged file on every start.
 '
 ' The `-browser` image variants (FROM proveo/base-node-browser) carry
 ' Playwright's Chromium and vercel-labs/agent-browser pointed at it. The binary
@@ -35,7 +96,7 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 cloud "registry.npmjs.org\n""agent-browser-<v>.tgz""" as NPM <<cloud>>
 
 node "Image build — defs/base-node-browser/Dockerfile" as BUILD <<host>> {
-  component "Playwright ""<v>""\n""playwright install --with-deps chromium""" as PW <<app>>
+  component "Playwright ""<v>""\n""playwright install --with-deps --no-shell chromium""" as PW <<app>>
   database "browser store\n""/opt/ms-playwright/chromium-<rev>/chrome-linux/chrome""" as STORE <<db>>
   component "agent-browser (native Rust)\n""/usr/local/bin/agent-browser""" as AB <<app>>
   database "skill-data\n""AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data""" as SKD <<db>>
@@ -83,6 +144,37 @@ note right of BUILD
   agent-browser is the agent's interactive
   tool. Both launch the Chromium Playwright
   installed, so the layer pays for it once.
+end note
+
+note left of PW
+  **--no-shell, and a guard that proves it.**
+  ""playwright install"" lands chromium AND
+  chromium_headless_shell; only the first is
+  ever launched. Measured at 1.61.0: 624 MB
+  against **334 MB** installed then excluded.
+end note
+
+note bottom of PW
+  **The ""! ls"" line is the point of the flag.**
+  A future Playwright that ignores ""--no-shell""
+  must fail this build loudly rather than
+  quietly re-adding 334 MB to three variants.
+end note
+
+note bottom of AB
+  **A buildkit RUN is not the container it will
+  run in.** So the layer verifies what it can —
+  ""--version"", the executable path, the skills
+  file — and the run-as-uid launch is left to
+  ensure.sh's floor probe and defs/*/tests.
+end note
+
+note bottom of STORE
+  **World-readable because root never runs.**
+  An arbitrary run-as uid has to launch
+  Chromium, so the store and the skill tree are
+  ""chmod -R a+rX"" — and a repo-local Playwright
+  honours the same variable and lands here too.
 end note
 
 note bottom of NPM

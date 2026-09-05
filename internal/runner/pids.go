@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/runner/hardened-run-argv.puml
+//
+// SPEC: _spec/internal/runner/hardened-run-argv.puml
 package runner
 
 import (
@@ -14,26 +16,19 @@ import (
 	"time"
 )
 
-// Tier minimums: a host whose ceiling is below these cannot safely run that
-// sandbox profile. EnsurePidsCapability failfasts before docker run.
 const (
 	MinPidsBase    = 512
 	MinPidsBrowser = 1024
 )
 
-// Override floor: PROVEO_PIDS_LIMIT cannot go below this (still always capped).
 const pidsOverrideFloor = 256
 
-// Last-resort fallback when neither /proc nor a Docker engine probe yields
-// kernel.pid_max (matches the historic Linux default).
 const pidMaxFallback = 32768
 
 const pidMaxDarwinFallback = 4194304
 
-// goos is overridable in tests.
 var goos = runtime.GOOS
 
-// Max local images to try when probing Docker for pid_max (never pulls).
 const dockerPidMaxImageTries = 8
 
 const dockerPidMaxProbeTimeout = 8 * time.Second
@@ -43,7 +38,6 @@ const dockerPidMaxProbeTimeout = 8 * time.Second
 var ErrInsufficientPidsCapability = errors.New("insufficient host pids capability")
 
 // HostInfo is the host capacity used to scale the agent --pids-limit.
-// Tests inject values; production uses DetectHost.
 type HostInfo struct {
 	CPUs   int // effective CPUs (affinity / cgroup-aware)
 	PidMax int // kernel.pid_max, or pidMaxFallback
@@ -64,8 +58,6 @@ func DetectHost(preferImages ...string) HostInfo {
 	return HostInfo{CPUs: cpus, PidMax: pidMax}
 }
 
-// HostCeiling is the max pids one sandbox may take on this host:
-// min(cpus*1024, pidMax/64).
 func HostCeiling(h HostInfo) int {
 	cpus := h.CPUs
 	if cpus < 1 {
@@ -83,12 +75,10 @@ func HostCeiling(h HostInfo) int {
 	return byPid
 }
 
-// IsBrowserImage reports whether the image ref is a *-browser variant.
 func IsBrowserImage(image string) bool {
 	return strings.Contains(image, "-browser")
 }
 
-// ParsePidsOverride parses PROVEO_PIDS_LIMIT. ok is false when unset or invalid.
 func ParsePidsOverride(s string) (n int, ok bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -101,7 +91,6 @@ func ParsePidsOverride(s string) (n int, ok bool) {
 	return n, true
 }
 
-// MinPidsLimit is the minimum --pids-limit for the tier (base or browser).
 func MinPidsLimit(browser bool) int {
 	if browser {
 		return MinPidsBrowser
@@ -109,8 +98,6 @@ func MinPidsLimit(browser bool) int {
 	return MinPidsBase
 }
 
-// EnsurePidsCapability failfasts when the host ceiling (or a set override)
-// cannot meet MinPidsLimit for the tier. Call before ResolvePidsLimit.
 func EnsurePidsCapability(h HostInfo, browser bool, override int, overrideSet bool) error {
 	min := MinPidsLimit(browser)
 	tier := "base"
@@ -160,8 +147,6 @@ func clamp(n, lo, hi int) int {
 	return n
 }
 
-// cgroupCPUQuota returns the effective CPU count from cgroup quota, or 0 if
-// unlimited / unavailable. Prefers cgroup v2 cpu.max, then v1 cfs quota/period.
 func cgroupCPUQuota() int {
 	if n := parseCPUMax(readFileTrim("/sys/fs/cgroup/cpu.max")); n > 0 {
 		return n
@@ -174,7 +159,6 @@ func cgroupCPUQuota() int {
 	return 0
 }
 
-// parseCPUMax parses cgroup v2 "cpu.max" ("max 100000" or "200000 100000").
 func parseCPUMax(s string) int {
 	fields := strings.Fields(s)
 	if len(fields) < 2 || fields[0] == "max" {
@@ -201,7 +185,6 @@ func readPidMax(preferImages ...string) int {
 	return 0
 }
 
-// readPidMaxDocker is the non-/proc path; overridden in tests.
 var readPidMaxDocker = cachedDockerPidMax
 
 var (

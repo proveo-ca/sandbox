@@ -153,6 +153,22 @@ note bottom of m_bake #E7F0FF
   so presence alone is not enough either.
 end note
 
+note bottom of m_bake
+  **The receipt is written only after the store
+  is CONFIRMED to hold it.** Written blind, it
+  outlives a load that failed to land, and
+  ""HasTemplate"" then skips the reload forever —
+  an afternoon lost to an immovable entrypoint.
+end note
+
+note bottom of m_rot
+  **The check is only valid right after a load.**
+  Before any sandbox exists the store prints
+  what it was handed; one ""sbx create"" later it
+  does not. ""PROVEO_SBX_RELOAD=1"" is the hatch
+  for a store out of sync invisibly.
+end note
+
 note bottom of m_rot #FFF3F0
   **The reload that was removed was also a repair.** While proveo re-loaded the
   template on every run, a bad bake was overwritten before anything could run on

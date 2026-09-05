@@ -1,5 +1,6 @@
 // Package cdn knows how to resolve and verify proveo CLI releases published to
 // the consumer CDN (apps/cli/public/cli → https://proveo.ca/cli).
+//
 // SPEC: _spec/internal/cdn/distribution-update.puml
 package cdn
 
@@ -28,8 +29,6 @@ type Manifest struct {
 	BaseURL   string            `json:"base_url,omitempty"`
 }
 
-// AssetName returns the CDN binary basename for goos/goarch
-// (e.g. proveo-linux-amd64, proveo-windows-amd64.exe).
 func AssetName(goos, goarch string) string {
 	name := "proveo-" + goos + "-" + goarch
 	if goos == "windows" {
@@ -38,12 +37,10 @@ func AssetName(goos, goarch string) string {
 	return name
 }
 
-// CurrentAssetName is AssetName for the running process.
 func CurrentAssetName() string {
 	return AssetName(runtime.GOOS, runtime.GOARCH)
 }
 
-// BaseURL resolves the CDN root: PROVEO_ASSET_BASE_URL, else DefaultBaseURL.
 func BaseURL() string {
 	if u := strings.TrimSpace(os.Getenv("PROVEO_ASSET_BASE_URL")); u != "" {
 		return strings.TrimRight(u, "/")
@@ -51,7 +48,6 @@ func BaseURL() string {
 	return DefaultBaseURL
 }
 
-// FetchManifest downloads and parses latest.json from baseURL.
 func FetchManifest(client *http.Client, baseURL string) (Manifest, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
@@ -88,7 +84,6 @@ func FetchManifest(client *http.Client, baseURL string) (Manifest, error) {
 	return m, nil
 }
 
-// DownloadAsset fetches bin/<asset> into destPath and verifies sha256 against wantHex.
 func DownloadAsset(client *http.Client, baseURL, asset, destPath, wantHex string) error {
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
@@ -146,8 +141,6 @@ func joinURL(base, rel string) (string, error) {
 	return u.String(), nil
 }
 
-// IsDevVersion reports builds that should not self-update against the release channel
-// without --force (dev, empty, or goreleaser snapshot-looking stamps).
 func IsDevVersion(v string) bool {
 	v = strings.TrimSpace(strings.ToLower(v))
 	if v == "" || v == "dev" {
@@ -156,8 +149,6 @@ func IsDevVersion(v string) bool {
 	return strings.HasPrefix(v, "dev@") || strings.Contains(v, "-snapshot") || strings.HasPrefix(v, "0.0.0")
 }
 
-// Newer reports whether remote is a higher semver-ish version than local.
-// Non-semver locals (dev@…) always lose to a remote release unless equal.
 func Newer(remote, local string) bool {
 	remote = strings.TrimPrefix(strings.TrimSpace(remote), "v")
 	local = strings.TrimPrefix(strings.TrimSpace(local), "v")
@@ -170,8 +161,6 @@ func Newer(remote, local string) bool {
 	return compareSemver(remote, local) > 0
 }
 
-// compareSemver compares dotted numeric versions (major.minor.patch[+extra ignored]).
-// Returns >0 if a>b, <0 if a<b, 0 if equal / incomparable.
 func compareSemver(a, b string) int {
 	ap := semverParts(a)
 	bp := semverParts(b)

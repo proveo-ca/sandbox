@@ -232,3 +232,99 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 		}
 	}
 }
+
+// The solidity variant's two giants were also its two reproducibility holes.
+// `curl … | bash && foundryup` with no argument installs the NIGHTLY — foundry's
+// release feed is nightlies with a stable tag every few weeks — so the audit
+// toolchain changed under the image on every rebuild; and semgrep went unpinned
+// into Debian's dist-packages behind --break-system-packages.
+// SPEC: _spec/_plans/image-size-reduction.puml
+func TestSolidityPinsItsToolchainAndShipsOnlyWhatItAudits(t *testing.T) {
+	t.Parallel()
+	df := readRepoFile(t, "defs/claudecode/solidity/Dockerfile")
+
+	for _, want := range []string{
+		`ARG FOUNDRY_VERSION=`,
+		`--install "${FOUNDRY_VERSION}"`,
+		`ARG SEMGREP_VERSION=`,
+		`ARG SOLC_SELECT_VERSION=`,
+		`ARG SOLHINT_VERSION=`,
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("defs/claudecode/solidity/Dockerfile lacks %q — an unpinned install lets a "+
+				"warm cache serve a toolchain nothing in the build names", want)
+		}
+	}
+
+	// anvil is a devnet and chisel a REPL: a sandbox has no chain and no operator
+	// at a prompt. foundryup has no component selector, so they must be removed in
+	// the SAME RUN that installs them — a later RUN drops the paths, not the bytes.
+	// By NAME, not by path. foundryup puts the real binaries under
+	// versions/foundry-rs/foundry/<tag>/ and only symlinks them into bin/, so
+	// deleting the bin entries hid the commands and left 100 MB in the image
+	// (measured: anvil 49 MB, chisel 51 MB, still present after the first attempt).
+	if !strings.Contains(df, `find "/home/${USER_NAME}/.foundry" \( -name anvil -o -name chisel \) -delete`) {
+		t.Error("solidity must delete anvil and chisel BY NAME under ~/.foundry — " +
+			"removing the bin/ symlinks alone leaves the binaries behind")
+	}
+
+	if strings.Contains(instructionsOnly(df), "--break-system-packages") {
+		t.Error("solidity must not pip-install into dist-packages; /opt/security is its venv")
+	}
+
+	// The foundry bin dir lives under a home the agent can write and sbx mounts
+	// volumes into. At the FRONT of PATH it shadows any binary of the same name.
+	if strings.Contains(df, `ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"`) {
+		t.Error("~/.foundry/bin must be APPENDED to PATH — prepending lets a writable, " +
+			"mount-target directory shadow git, curl or anything else for every later command")
+	}
+	if !strings.Contains(df, `ENV PATH="$PATH:/home/${USER_NAME}/.foundry/bin"`) {
+		t.Error("solidity must append ~/.foundry/bin to PATH")
+	}
+}
+
+// No proveo image ships a C compiler — cecli was the last to carry one, for its
+// own venv. That makes one failure mode dominant for workspace Python projects,
+// and the seed has to name it: a dependency with no wheel for this arch cannot
+// build from source, and the generic "environment may be partial" reads like a
+// transient network problem.
+//
+// The two halves are asserted together on purpose. If a compiler ever comes back,
+// this test fails and the message has to be revisited rather than left lying.
+func TestPythonDepFailureNamesTheMissingToolchain(t *testing.T) {
+	t.Parallel()
+	lib := readRepoFile(t, "packages/lib/entrypoint-lib.sh")
+	for _, want := range []string{
+		`command -v cc >/dev/null 2>&1`,
+		`No C toolchain in this image`,
+	} {
+		if !strings.Contains(lib, want) {
+			t.Errorf("_py_build_env must name the missing toolchain; %q not found", want)
+		}
+	}
+
+	for _, rel := range append([]string{"defs/base/Dockerfile", "defs/base-node/Dockerfile",
+		"defs/base-node-lsp/Dockerfile"}, harnessDockerfiles...) {
+		pkgs := installedPackages(dockerfileBody(t, rel))
+		for _, cc := range []string{"build-essential", "gcc", "g++"} {
+			if pkgs[cc] {
+				t.Errorf("%s installs %q — a compiler is back in the fleet, so the "+
+					"\"No C toolchain\" advice in _py_build_env is now wrong", rel, cc)
+			}
+		}
+	}
+}
+
+// instructionsOnly drops comment lines. A contract about what a layer DOES must
+// not match what a comment SAYS: the solidity prose names the flag it removed,
+// and a raw grep read that as the flag still being there.
+func instructionsOnly(df string) string {
+	var out []string
+	for _, line := range strings.Split(df, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}

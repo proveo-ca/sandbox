@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_mcp.sh - Critical: MCP server config is loaded and tools become callable.
-#
-# Two layers:
-#   1. Config-load test (no API key needed): opencode parses opencode.json with
-#      an mcp block and starts the server.
-#   2. Live tool-call test (requires ANTHROPIC_API_KEY): opencode actually
-#      reaches into the MCP server during a `run` invocation.
 
 FIXTURE_DIR=$(mktemp -d)
 trap 'rm -rf "$FIXTURE_DIR"' RETURN
 
-# A trivially small MCP server fixture: the filesystem MCP scoped to /app.
-# Using @modelcontextprotocol/server-filesystem via npx — opencode boots it on demand.
 cat >"$FIXTURE_DIR/opencode.json" <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
@@ -28,8 +19,6 @@ cat >"$FIXTURE_DIR/opencode.json" <<'EOF'
 EOF
 echo "MCP_FIXTURE_OK" >"$FIXTURE_DIR/marker.txt"
 
-# --- (1) Config-load test: list MCP-discovered servers without a model call. ---
-# `opencode mcp list` enumerates servers from opencode.json.
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm \
   -v "$FIXTURE_DIR:/app" \
@@ -45,7 +34,6 @@ else
   printf "${RED}FAIL${NC} [%d] MCP discovery (output: %.400s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- (2) Live tool-call test (requires API key) ---
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   skip_test "opencode can invoke MCP tool end-to-end" "no ANTHROPIC_API_KEY"
   return 0 2>/dev/null || exit 0

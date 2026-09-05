@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/runner/hardened-run-argv.puml
+//
+// SPEC: _spec/internal/runner/hardened-run-argv.puml
 package runner
 
 import "fmt"
@@ -18,8 +20,6 @@ type Config struct {
 	Tmpfs       []string // e.g. "/tmp:noexec,nosuid,size=100m"
 	Mounts      []Mount
 	Env         []string // "KEY=VALUE", or bare "KEY" to forward the client env value (keeps secrets off the argv)
-	// ChildEnv is "KEY=VALUE" for the `docker` process itself, never the argv:
-	// DockerRunArgs does not read it, so --print is unaffected.
 	// SPEC: _spec/internal/secretref/secret-references.puml
 	ChildEnv   []string
 	Workdir    string   // container working dir (-w), e.g. a monorepo sub-scope
@@ -84,8 +84,6 @@ func resolvePids(cfg Config) int {
 	return ResolvePidsLimit(DetectHost(cfg.Image), IsBrowserImage(cfg.Image), 0, false)
 }
 
-// Hardening returns the baseline flags including --pids-limit for the given
-// positive limit (for contract tests / docs).
 func Hardening(pids int) []string {
 	if pids < 1 {
 		pids = ResolvePidsLimit(DetectHost(), false, 0, false)

@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/choiceui/topology-strip.puml
+//
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (
@@ -8,9 +10,6 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// pen writes styled runs left to right on one row, advancing by DISPLAY width
-// rather than rune count. A zero-width rune attaches to the PRECEDING cell as a
-// tcell combining rune. `put` is deliberately left alone.
 type pen struct {
 	s     tcell.Screen
 	x, y  int
@@ -22,16 +21,12 @@ func newPen(s tcell.Screen, x, y int) *pen { return &pen{s: s, x: x, y: y} }
 
 func (p *pen) col() int { return p.x }
 
-// write paints text at the pen and leaves the pen after it.
 func (p *pen) write(style tcell.Style, text string) *pen {
 	for _, r := range text {
 		if zeroWidth(r) {
-			// Nothing of ours to combine onto yet, so there is nowhere to put it:
-			// writing to p.x-1 would scribble on a cell another writer owns.
 			if !p.wrote {
 				continue
 			}
-			// p.x-1 is the CONTINUATION cell of a wide rune, not its base.
 			base := p.x - p.last
 			mainc, combc, st, _ := p.s.GetContent(base, p.y)
 			p.s.SetContent(base, p.y, mainc, append(append([]rune(nil), combc...), r), st)
@@ -49,7 +44,6 @@ func (p *pen) write(style tcell.Style, text string) *pen {
 	return p
 }
 
-// padTo advances to an absolute column, writing nothing if already past it.
 func (p *pen) padTo(col int) *pen {
 	for p.x < col {
 		p.s.SetContent(p.x, p.y, ' ', nil, tcell.StyleDefault)
@@ -58,8 +52,6 @@ func (p *pen) padTo(col int) *pen {
 	return p
 }
 
-// zeroWidth reports a rune that decorates the cell before it instead of taking
-// a column of its own. Asked directly, not through go-runewidth.
 func zeroWidth(r rune) bool {
 	switch {
 	case r >= 0xFE00 && r <= 0xFE0F: // variation selectors
@@ -72,8 +64,6 @@ func zeroWidth(r rune) bool {
 	return false
 }
 
-// textWidth is the columns text will occupy once written, measured the way
-// tcell will measure it.
 func textWidth(text string) int {
 	w := 0
 	for _, r := range text {

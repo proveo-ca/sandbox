@@ -2,9 +2,6 @@
 # SPEC: _spec/internal/provider/provider-registry.puml
 set -euo pipefail
 
-# Keep the provider allowlist fresh by reconciling it against a public, maintained
-# model registry — the FireHOL-updater pattern, applied to LLM endpoints.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_URL="${PROVEO_PROVIDER_SOURCE_URL:-https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}"
 CACHED=""
@@ -44,8 +41,6 @@ done
 mkdir -p "$OUTPUT_DIR"
 report="$OUTPUT_DIR/provider-coverage.txt"
 
-# Normalize LiteLLM provider names to the short names egress.sh uses, so the diff
-# doesn't flag pure naming differences (vertex_ai→vertex, gemini→google, etc.).
 normalize_provider() {
   case "$1" in
     vertex_ai|vertex_ai_beta) echo vertex ;;
@@ -57,7 +52,6 @@ normalize_provider() {
   esac
 }
 
-# 1. Obtain the registry JSON (cached file or fetch; degrade gracefully).
 json="$(mktemp)"; trap 'rm -f "$json"' EXIT
 if [[ -n "$CACHED" ]]; then
   [[ -f "$CACHED" ]] || { echo "❌ cached file not found: $CACHED" >&2; exit 1; }
@@ -71,7 +65,6 @@ else
   exit 0
 fi
 
-# 2. Extract upstream provider names (jq if present, else grep fallback).
 upstream="$(mktemp)"; trap 'rm -f "$json" "$upstream"' EXIT
 if command -v jq >/dev/null 2>&1; then
   jq -r '[.[]? | .litellm_provider? // empty] | unique[]' "$json" 2>/dev/null \
@@ -82,7 +75,6 @@ else
     | while IFS= read -r p; do normalize_provider "$p"; done | sort -u >"$upstream"
 fi
 
-# 3. Extract the providers the Go registry maps (single source: internal/provider).
 mapped="$(mktemp)"; trap 'rm -f "$json" "$upstream" "$mapped"' EXIT
 proveo_egress_providers() {
   if [[ -n "${PROVEO_EGRESS_BIN:-}" && -x "${PROVEO_EGRESS_BIN}" ]]; then "$PROVEO_EGRESS_BIN" providers; return; fi
@@ -91,7 +83,6 @@ proveo_egress_providers() {
 }
 proveo_egress_providers | sort -u >"$mapped"
 
-# 4. Report drift.
 missing="$(comm -23 "$upstream" "$mapped" || true)"   # upstream has, we don't map
 stale="$(comm -13 "$upstream" "$mapped" || true)"     # we map, upstream doesn't list
 

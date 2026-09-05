@@ -2,6 +2,32 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Buildx driver selection — which driver, and where a FROM resolves
 
+' purpose: which buildx driver each build mode selects, and the consequence that
+'          matters — where a FROM resolves its parent from
+' covers: defs/lib/docker-build.sh
+' covers: defs/*/build.sh
+'
+' ── THE INPUTS proveo_docker_build READS ────────────────────────────────────
+'   --push (argv) or PROVEO_DOCKER_PUSH in {1,true,yes,on}  → push mode
+'   PROVEO_PLATFORMS   default "linux/amd64,linux/arm64"
+'   PROVEO_BUILDX_BUILDER        names the container-driver builder
+'                                (default "proveo-multiarch")
+'   PROVEO_BUILDX_LOCAL_BUILDER  overrides the docker-driver choice outright
+'
+' A LOCAL LOAD IS SINGLE-PLATFORM, always. `--load` cannot accept a multi-platform
+' result, so when PROVEO_PLATFORMS still holds a comma the value is narrowed to
+' proveo_docker_host_platform and the build says so:
+'   "local image load is single-platform; building <p>
+'    (PROVEO_DOCKER_PUSH=1 / --push publishes amd64+arm64)"
+' Silently building one arch while the variable asks for two is the kind of thing
+' that is only discovered at publish time, so it is announced.
+'
+' proveo_docker_arg_tag reads the --tag/-t value back out of the build argv,
+' defaulting to `latest` exactly the way the docker CLI does when none is given.
+' It exists so the :latest refusal (see
+' _spec/_devops/image-lineage-and-publish.puml) can be enforced before buildx is
+' invoked, rather than after a full build.
+
 node "Maintainer host — Fedora or macOS" as HOST <<host>> {
   component "defs/lib/docker-build.sh\nproveo_docker_build" as LIB <<app>>
   component "proveo_docker_ensure_buildx\n<push|load> <platforms>" as SEL <<app>>

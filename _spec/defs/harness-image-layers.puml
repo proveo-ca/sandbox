@@ -1,0 +1,254 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Harness image layers — venvs, what each image refuses to ship, and PATH order
+
+' purpose: the per-harness build decisions that are not lineage, not version
+'          pinning and not user identity — what goes in a venv, what is
+'          deliberately absent, and the two places PATH and prefix order matter
+' covers: defs/cecli/Dockerfile
+' covers: defs/cursor/Dockerfile
+' covers: defs/opencode/Dockerfile
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/claudecode/solidity/Dockerfile
+'
+' Elsewhere on purpose:
+'   which parent, which tag ....... _spec/_devops/image-lineage-and-publish.puml
+'   why every agent is pinned ..... _spec/_devops/agent-version-pin.puml
+'   /home/agent and the alias ..... _spec/_paradigms/runtime-user-boundary.puml
+'   the harden pass ............... _spec/defs/harden-pass.puml
+'   no docker binaries, and the
+'   evidence against that call .... _spec/_plans/image-size-reduction.puml
+'   the plugin seed ............... _spec/defs/claudecode/lsp-plugins-seed.puml
+'   house rules as managed policy . _spec/packages/lib/house-rules.puml
+'
+' ── cecli: TWO VENVS, AND A BYTECODE PREFIX INSTEAD OF A SWITCH ─────────────
+' cecli is the aider fork (cecli-dev) in a Python venv on proveo/base. No Node,
+' no browsers — deduped from the old MCR playwright/python variant.
+'
+' PYTHONPYCACHEPREFIX=/tmp/proveo-pycache, NOT PYTHONDONTWRITEBYTECODE=1. The
+' full chain, because two of the three steps look wrong on their own:
+'   * pip byte-compiles at INSTALL time regardless of PYTHONDONTWRITEBYTECODE —
+'     that variable is a RUNTIME switch. So both venvs shipped .py AND .pyc:
+'     153 MB measured.
+'   * `pip install --no-compile` removes them. But paired with
+'     PYTHONDONTWRITEBYTECODE the modules are then never regenerated either, so
+'     every launch re-parses everything, forever: `cecli --version` measured
+'     876 ms -> 1850 ms.
+'   * So bytecode IS written, to a prefix OUTSIDE the read-only venv that any
+'     run-as uid can create. Measured at uid 4242: first launch 2258 ms, then
+'     711 ms — FASTER than the 876 ms baseline, because the cache holds only
+'     what was actually imported. (The same pairing measured during the size
+'     work reported 2315 ms then 679/712 ms; both runs agree on the shape.)
+' /tmp is the right home for it: per-sandbox, world-writable, and nothing needs
+' it to survive the sandbox.
+'
+' NO build-essential, AND THE VENVS STILL BUILD. It used to be installed
+' permanently so pip could compile sdists. Measured: of cecli-dev's and
+' serena-agent's ENTIRE dependency closures exactly ONE arrives as an sdist
+' (proxy_tools 0.1.0) and it is pure Python, so setuptools alone builds its
+' wheel. gcc-14, g++-14, cpp-14, binutils, libstdc++-dev, libgcc-dev and
+' linux-libc-dev were ~190 MB shipped to an agent image for a compiler nothing
+' invoked. Verified by building both venvs on a base with no compiler at all
+' before the removal landed.
+'
+' SERENA GETS ITS OWN VENV. cecli has no native LSP client, so its code
+' intelligence arrives as MCP — the same delivery cursor gets from
+' mcp-language-server. serena-agent and cecli-dev disagree about dependency
+' versions, so they cannot share a prefix; only the stdio launcher is symlinked
+' onto PATH. It is pinned for the reason the layer was deleted the FIRST time: an
+' unpinned `pip install serena-agent` shipped a version skew that left the server
+' dead on every boot for weeks. packages/lib/entrypoint-lib.sh
+' (configure_cecli_mcp) refuses to declare a server that will not answer an
+' initialize handshake.
+'
+' apt here: python3, python3-pip, python3-venv, iptables, less.
+' ENV: PYTHONUNBUFFERED=1, PIP_NO_CACHE_DIR=1, CECLI_HOME=/app/.cecli.
+'
+' ── iptables STAYS IN ALL FOUR, AND IT IS NOT AN OVERSIGHT ──────────────────
+' iptables is the DAEMON's dependency, not the harness's: sbx's per-sandbox
+' daemon builds its own NAT chain at start and cannot without it. It stays even
+' though no image ships dockerd any more — a NAT chain needs iptables whoever
+' builds it. The same reasoning keeps the `docker` group (`groupadd -f docker`
+' plus `usermod -aG docker` for both the harness user and `agent`, because the
+' socket is created root:docker) and the
+' `com.docker.sandboxes.start-docker="true"` LABEL, which is what sbx reads to
+' decide whether to start a daemon at all; without it sbx records `dind: false`
+' at container creation and `docker version` answers "Cannot connect to the
+' Docker daemon" beside Compose files the agent can plainly read.
+'
+' ── opencode: xclip IS ABSENT ON PURPOSE ────────────────────────────────────
+' xclip needs an X display. This container has none and sets no DISPLAY, and the
+' package drags libx11/libxmu/libxt/libxext along for a clipboard that cannot
+' exist. Nothing in the tree ever invoked it. plantuml and plantuml-lsp arrive
+' from proveo/base-node-lsp rather than being installed here, as do the shared
+' workspace language servers — only the opencode agent itself is installed in
+' this file.
+'
+' ── claudecode: THE DEV TOOLS EVERY REPO PINS ITSELF ARE ABSENT ─────────────
+' No global typescript / ts-node / prettier / eslint. 65 MB measured, unpinned
+' (so a warm cache could serve last year's), and a fifth copy of typescript in an
+' image whose three LSP servers each bundle their own. The language SERVERS stay:
+' they come from proveo/base-node-lsp and are what the LSP plugin seed keys on.
+'
+' The same argument is why NODE_ENV is deliberately NOT baked. Setting it to
+' production would make every `npm`/`pnpm install` the agent runs in the
+' workspace skip devDependencies — tsc, eslint, test runners — which are exactly
+' the tools the agent needs. It is left undefined so the project's own .env can
+' set it if it wants one (load_env exports .env with `set -a`).
+'
+' WORKSPACE ROOTS. /app is the workspace root, the same as every other def.
+' /workspace survives only for the parts that were never claudecode's own:
+' `--data-dir` mounts at /workspace/data for EVERY harness, so that path is a
+' cross-harness convention rather than a leftover of the retired input-output
+' layout. Modes as built: /workspace 755, /app 750, /workspace/data 750,
+' /app/output 755, /workspace/temp 755, /workspace/mcp-servers 755.
+'
+' The sandbox theme is baked to /opt/proveo/themes and installed into the agent
+' home by the seed, so it reaches BOTH backends rather than only docker.
+'
+' KNOWN DEFECT, recorded rather than fixed here: the HEALTHCHECK hard-codes
+' /home/claude while USER_NAME is a build ARG, so any build with a different
+' USER_NAME is permanently unhealthy.
+'
+' ── cursor: THE ENTERPRISE HOOK LAYER ───────────────────────────────────────
+' /etc/cursor/hooks.json is copied root-owned at mode 644. Cursor's hook
+' precedence is enterprise > team > project > user, so the sandboxed agent can
+' neither edit the file nor out-rank it. That is the whole reason it lives in
+' /etc rather than in the agent home.
+'
+' ── solidity: A VENV INSTEAD OF A PEP 668 OVERRIDE ──────────────────────────
+' This layer was `pip3 install --no-cache-dir --break-system-packages semgrep
+' solc-select` — 377 MB measured, unpinned, and a PEP 668 override on the SYSTEM
+' interpreter that apt also manages, so a later `apt-get install python3-<x>` (or
+' an agent doing so at runtime) could produce a broken mixed install. Three fixes
+' in one layer: its own prefix (/opt/security), versions that are facts about the
+' image, and no shipped bytecode.
+'   ARG SEMGREP_VERSION=1.176.1
+'   ARG SOLC_SELECT_VERSION=1.2.0
+'   ARG SOLHINT_VERSION=6.2.4
+'   ARG FOUNDRY_VERSION=v1.8.1
+' Only the entry points go on PATH — semgrep, solc-select and solc are symlinked
+' into /usr/local/bin. defs/claudecode/tests asserts both `semgrep --version` and
+' `solc-select --version`, which is why both are linked.
+'
+' python3-venv is installed HERE rather than in proveo/claudecode: that image has
+' python3 and python3-pip but NOT ensurepip, so `python3 -m venv` fails there
+' with "the virtual environment was not created successfully". Only this variant
+' needs a venv, so only this variant pays for it.
+'
+' PYTHONPYCACHEPREFIX is set for the same reason as cecli's, one step further on:
+' /opt/security is root-owned and the agent is not root, so without a writable
+' prefix Python would re-parse every module on every semgrep run.
+'
+' FOUNDRY WAS INSTALLING NIGHTLIES. `curl -L https://foundry.paradigm.xyz | bash
+' && foundryup` takes LATEST when given no argument, and foundry's release feed
+' is nightlies with a stable tag every few weeks — so the image's toolchain
+' changed under it on every rebuild, which is exactly what
+' _spec/_devops/agent-version-pin.puml exists to prevent. `foundryup --install
+' <tag>` pins it, and `forge --version` plus `cast --version` make the pin a fact.
+'
+' foundryup has NO component selector — no flag installs a subset — so anvil and
+' chisel are deleted in the SAME RUN. This image audits contracts: forge builds
+' and tests them, cast inspects them. anvil is a local devnet and chisel is a
+' Solidity REPL, and a sandbox with no chain and no operator at a prompt has use
+' for neither. A `rm` in a later RUN would have removed the paths and kept the
+' bytes.
+'
+' THE FOUNDRY PATH ENTRY IS APPENDED, NEVER PREPENDED. `/home/${USER_NAME}` is a
+' symlink to /home/agent, which sbx mounts volumes under and the agent can write
+' to. At the FRONT of PATH, that directory would let anything written to
+' ~/.foundry/bin/<name> shadow the real binary of that name for every later
+' command. forge and cast are unique names, so putting them last costs nothing
+' and closes the hole.
+
+node "proveo/cecli — FROM proveo/base" as CECLI <<host>> {
+  database "``/opt/cecli`` venv\ncecli-dev, ""--no-compile""" as V1 <<db>>
+  database "``/opt/serena`` venv\nserena-agent — versions conflict" as V2 <<db>>
+  component "``PYTHONPYCACHEPREFIX``\n""/tmp/proveo-pycache""" as PYC <<app>>
+}
+
+node "proveo/claudecode-solidity" as SOL <<host>> {
+  database "``/opt/security`` venv\nsemgrep 1.176.1 · solc-select 1.2.0" as V3 <<db>>
+  component "foundry v1.8.1\nforge + cast only" as FOUND <<app>>
+}
+
+node "Deliberately absent" as GONE <<host>> {
+  component "opencode: ""xclip""\nno DISPLAY, no clipboard to reach" as G1 <<app>>
+  component "claudecode: ""typescript ts-node\nprettier eslint"" — 65 MB, unpinned" as G2 <<app>>
+  component "claudecode: baked ""NODE_ENV""\nit would skip devDependencies" as G3 <<app>>
+  component "cecli: ""build-essential""\none sdist in two closures, pure Python" as G4 <<app>>
+}
+
+component "``--break-system-packages``\napt and pip owning one prefix" as PEP <<error>>
+component "foundryup with no tag\na nightly toolchain per rebuild" as NIGHTLY <<error>>
+component "``~/.foundry/bin`` first on PATH\nan agent-writable dir shadowing binaries" as SHADOW <<error>>
+component "``.pyc`` shipped beside ``.py``\n153 MB, then 1850 ms per launch" as BYTES <<error>>
+component "HEALTHCHECK hard-codes ``/home/claude``\nany other USER_NAME is never healthy" as HC <<error>>
+
+V1 ARROW_MAIN PYC : written outside a read-only venv
+V3 ARROW_MAIN PYC : ""/opt/security"" is root-owned
+PYC ARROW_ERROR BYTES : both halves needed —\n""--no-compile"" AND a writable prefix
+V3 ARROW_ERROR PEP : replaced it — own prefix,\npinned versions, no bytecode
+V2 ARROW_MAIN V2 : its own prefix because\nit conflicts with cecli-dev
+FOUND ARROW_ERROR NIGHTLY : ""--install v1.8.1"" +\n""forge --version"" as the proof
+FOUND ARROW_ERROR SHADOW : ""ENV PATH=$PATH:…"" — appended
+G3 ARROW_ERROR HC : both are claudecode's, and only\none of them is on purpose
+
+note bottom of PYC
+  **Neither switch alone is right.**
+  pip compiles at INSTALL time, so the runtime
+  variable ships the bytes anyway; dropping them
+  without a writable prefix pays re-parse forever.
+  Doing both is what beat the baseline.
+end note
+
+note bottom of V2
+  **Pinned because it was deleted once already.**
+  An unpinned serena-agent shipped a version skew
+  that left the MCP server dead on every boot for
+  weeks, and the seed now refuses to declare a
+  server that fails the initialize handshake.
+end note
+
+note bottom of V3
+  **A venv, not a PEP 668 override.**
+  Sharing apt's interpreter meant a later
+  ""apt-get install python3-<x>"" — or an agent
+  doing one at runtime — could produce a broken
+  mixed install. Only entry points go on PATH.
+end note
+
+note bottom of FOUND
+  **No component selector, so delete in the RUN.**
+  foundryup installs all four binaries and offers
+  no subset flag. anvil is a devnet and chisel a
+  REPL; this image audits contracts, and a later
+  ""rm"" would keep the bytes.
+end note
+
+note bottom of SHADOW
+  **Appending is the security decision.**
+  ~/.foundry/bin sits under a home sbx mounts and
+  the agent can write. First on PATH it shadows
+  any binary by name; last it cannot, and forge
+  and cast are unique names anyway.
+end note
+
+note right of GONE
+  **An absence has to be written where it was
+  made.** Each of these reads as a missing package
+  to the next author, so the image records why the
+  clipboard, the compiler, the dev tools and the
+  env var were all removed on purpose.
+end note
+
+note bottom of HC
+  **A build ARG the healthcheck does not read.**
+  USER_NAME parameterises the user elsewhere,
+  so a build that changes it yields an image that
+  is permanently unhealthy. Recorded here rather
+  than repaired.
+end note
+
+@enduml

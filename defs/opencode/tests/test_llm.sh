@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_llm.sh - Critical: direct LLM API connection works.
-#
-# Verifies opencode can authenticate to each provider via env-var alone and
-# complete a round-trip. Skips per-provider when the key is absent.
 
-# provider:model:envvar triplets — keep models small/cheap when possible.
 PROVIDERS=(
   "anthropic:anthropic/claude-haiku-4-5:ANTHROPIC_API_KEY"
   "openai:openai/gpt-4.1-mini:OPENAI_API_KEY"

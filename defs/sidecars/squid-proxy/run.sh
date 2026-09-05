@@ -54,7 +54,6 @@ done
 
 mkdir -p "$CONFIG_DIR"
 
-# If no custom config exists, copy the default one
 if [[ ! -f "$CONFIG_DIR/squid.conf" ]]; then
   cp "$(dirname "$0")/squid.conf" "$CONFIG_DIR/squid.conf"
 fi
@@ -64,8 +63,6 @@ fi
 if [[ ! -f "$CONFIG_DIR/firehol-ipset.conf" ]]; then
   cp "$(dirname "$0")/firehol-ipset.conf" "$CONFIG_DIR/firehol-ipset.conf"
 fi
-# squid.conf includes provider-allow.conf; ship the no-op default so the
-# standalone run doesn't fail on a missing include.
 if [[ ! -f "$CONFIG_DIR/provider-allow.conf" ]]; then
   cp "$(dirname "$0")/provider-allow.conf" "$CONFIG_DIR/provider-allow.conf"
 fi

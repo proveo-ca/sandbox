@@ -1,24 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_build.sh - Image availability verification
 
-# This phase used to BUILD the image it then tested, with a bare `docker build`
-# and no BASE_IMAGE build-arg — so `ARG BASE_IMAGE=proveo/base-node-lsp:latest`,
-# the Dockerfile's default, applied. That is the PUBLISHED base. Every run
-# therefore threw away the local lineage `build.sh` and `ensure.sh` exist to
-# establish, overwrote the operator's image with a registry-based one, and then
-# asserted against the result.
-#
-# It surfaced as `bun: command not found`: bun was added to proveo/base-node after
-# the last base-node-lsp publish, so a locally built claudecode had it and the one
-# this phase substituted did not. Rebuilding by hand "fixed" it exactly until the
-# next run of this suite clobbered it again — twice, before the mechanism was
-# found. It is also the failure _spec/_devops/image-lineage-and-publish.puml is
-# about, reached from inside the test suite rather than from sbx.
-#
-# opencode and cursor verify AVAILABILITY here and never build; claudecode now
-# matches them. Building is build.sh's job, and it is the only caller that knows
-# how to resolve the base chain: `proveo build claudecode`.
 TESTS_RUN=$((TESTS_RUN + 1))
 printf "Verifying image %s is available... " "$STANDALONE_IMAGE"
 if docker image inspect "$STANDALONE_IMAGE" >/dev/null 2>&1 || docker pull "$STANDALONE_IMAGE" >/dev/null 2>&1; then
@@ -33,13 +15,10 @@ else
   exit 1
 fi
 
-# Cover the mcp variant too when its image is available locally (build.sh
-# builds both); downstream phases key off this flag.
 if docker image inspect "$MCP_IMAGE" >/dev/null 2>&1; then
   MCP_IMAGE_AVAILABLE=true
 fi
 
-# --- Verify Docker labels ---
 assert_inspect \
   "[claudecode] has security.non-root=true label" \
   "$STANDALONE_IMAGE" \
@@ -66,9 +45,6 @@ if $MCP_IMAGE_AVAILABLE; then
     "true"
 fi
 
-# The image says which agent it carries, and the label is the truth: the version
-# build.sh pinned is the one the installed CLI reports. An image without the label
-# predates the pin — rebuild it (proveo build claudecode) rather than trusting it.
 # SPEC: _spec/_devops/agent-version-pin.puml
 assert_inspect \
   "[claudecode] proveo.agent label names the agent package" \

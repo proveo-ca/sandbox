@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_functional.sh - Token-required functional tests
 
-# --- claude --version (may work without token) ---
 for image in $(images_to_test); do
   tag=$(image_tag "$image")
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -19,7 +17,6 @@ for image in $(images_to_test); do
   fi
 done
 
-# --- Tests below require a valid token ---
 if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
   skip_test "claude -p prompt test (standalone)" "no CLAUDE_CODE_OAUTH_TOKEN"
   skip_test "claude reads input volume (standalone)" "no CLAUDE_CODE_OAUTH_TOKEN"
@@ -31,7 +28,6 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
   return 0 2>/dev/null || exit 0
 fi
 
-# --- claude -p runs a simple prompt (standalone) ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm --entrypoint bash \
   -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}" \
@@ -45,7 +41,6 @@ else
   printf "${RED}FAIL${NC} [%d] [standalone] claude -p (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- claude reads from input volume ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_INPUT=$(mktemp -d)
 echo "TEST_MARKER_ABC123" > "$TEST_INPUT/marker.txt"
@@ -63,7 +58,6 @@ else
   printf "${RED}FAIL${NC} [%d] [standalone] claude can read input volume files (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- claude writes to output volume ---
 TESTS_RUN=$((TESTS_RUN + 1))
 TEST_OUTPUT=$(mktemp -d)
 docker run --rm --entrypoint bash \
@@ -80,9 +74,7 @@ else
 fi
 rm -rf "$TEST_OUTPUT"
 
-# --- MCP functional tests ---
 if $MCP_IMAGE_AVAILABLE; then
-  # claude -p in MCP image
   TESTS_RUN=$((TESTS_RUN + 1))
   RESULT=$(docker run --rm --entrypoint bash \
     -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}" \
@@ -96,7 +88,6 @@ if $MCP_IMAGE_AVAILABLE; then
     printf "${RED}FAIL${NC} [%d] [mcp] claude -p (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
   fi
 
-  # claude can still answer MCP-related questions even when no server is baked in.
   TESTS_RUN=$((TESTS_RUN + 1))
   RESULT=$(docker run --rm --entrypoint bash \
     -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}" \

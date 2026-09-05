@@ -2,10 +2,18 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Toolchain provisioning — what is baked into the floor vs installed on demand
 
+' purpose: which runtimes the images bake and which the seed provisions on demand,
+'          and why the project's pin beats the image's copy
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/base/Dockerfile
+' covers: defs/base-node/Dockerfile
+' covers: defs/base-node-lsp/Dockerfile
+' How the three shared layers are assembled: _spec/defs/base-image-layers.puml.
+
 node "proveo/base — the universal floor" as FLOOR <<host>> {
   component "git · gh · bash · jq · tmux\ndumb-init · proveo-entrypoint" as CORE <<app>>
   component "ripgrep" as RG <<app>>
-  component "plantuml jar + shim\ndefault-jre-headless · graphviz" as PUML <<app>>
+  component "plantuml jar + shim\njlink JRE 72 MB · graphviz" as PUML <<app>>
   component "mise" as MISE <<app>>
 }
 
@@ -29,6 +37,42 @@ node "proveo/base-node — the TypeScript floor" as TSFLOOR <<host>> {
 ' through mise — corepack does not manage bun. A bun lockfile alone selects
 ' `bun install --frozen-lockfile`; it never triggers a reinstall.
 '
+' ── HOW A PIN IS COMPARED, AND WHAT COUNTS AS "SATISFIED" ───────────────────
+' Knobs: PROVEO_NODE_TOOLCHAIN=off · PROVEO_NODE_TIMEOUT (default 180s, the
+' corepack prepare bound) · PROVEO_AUTO_INSTALL_TOOLS=false gates the lot.
+'
+' _node_nearest_pkg walks UP from the scan root to the closest package.json, so a
+' subdir scope still resolves the pin its monorepo declares.
+'
+' _node_json_field reads one field with `node -e`, never sed: parsing JSON with
+' sed is how a trailing comma or a nested "engines" turns into a silently wrong
+' version. A harness image WITHOUT node is the ordinary case (cecli ships python
+' only), so the helper returns 0 when `command -v node` finds nothing — both
+' callers assign it in a command substitution, and a 127 there aborted the whole
+' seed under `set -euo pipefail`
+' (_spec/internal/sbx/seed-node-version-abort.puml).
+'
+' _node_satisfies handles the range forms a package.json actually uses — "22.x",
+' ">=22", "^22.1.0", "22" — by comparing MAJORS only. Anything it cannot parse is
+' treated as SATISFIED, so an exotic range never triggers a pointless download.
+' engines.node is acted on only when the running node FAILS it; a satisfying
+' runtime is never reinstalled, because a range is not a pin.
+'
+' _bun_satisfies splits the two meanings apart: an exact X.Y.Z is matched
+' EXACTLY, because that is what a pin means, and anything else is a range and
+' follows _node_satisfies. _bun_mise_spec then turns what the project wrote into
+' what mise installs — an exact pin verbatim, a range down to its leading version
+' prefix ("^1.4" → 1.4), falling back to `latest`.
+'
+' corepack knows npm, pnpm and yarn ONLY. A `bun@…` pin handed to it buys nothing
+' but a "could not activate" warning, so ensure_bun_pin takes that row through
+' mise instead. packageManager is the exact, checksummed pin and corepack
+' activates it globally for the container; without that the standalone pnpm the
+' image ships wins on PATH and quietly uses a different major.
+'
+' Neither mechanism writes to the workspace: corepack caches under the agent's
+' home, mise under its own share dir.
+'
 ' ── Installing dependencies ──────────────────────────────────────────────────
 ' A FOREIGN dependency tree is already unusable in the sandbox, so reinstalling
 ' costs it nothing and is the only way the agent can run anything. It DOES
@@ -40,7 +84,27 @@ node "proveo/base-node — the TypeScript floor" as TSFLOOR <<host>> {
 ' BOTH backends reach: docker from the entrypoint, sbx also from setup.startup.
 ' A setup command's exports die with it, so the resolved PATH/VIRTUAL_ENV are
 ' written to the agent home's .bashrc — the agent is not a shell, but every
-' command it runs is.
+' command it runs is. That block is delimited by markers
+' (PROVEO_RC_START/PROVEO_RC_END) and REPLACED rather than appended, through the
+' same _proveo_write_block used for house rules: these files may already hold
+' hand-written content, so appending would grow one without bound and
+' overwriting would destroy work that is not ours.
+'
+' NOT A SUBSHELL, deliberately. ensure_project_tools reads the CWD (nx.json,
+' go.mod, mise.toml), so proveo_provision_toolchain cd-s into the scan root and
+' back — but it does not wrap the call, because the function EXPORTS GOPATH and
+' PATH and on the docker backend this runs in the very process that goes on to
+' exec the agent. A subshell would drop exactly what the agent needs to inherit.
+' (GOROOT was in that list until `g` was retired; mise resolves it from the
+' toolchain's own location now, and an explicit GOROOT would override that.)
+'
+' The GitHub token passed to installers is resolved GITHUB_TOKEN → GH_TOKEN →
+' `gh auth token`, bounded at 5s. The last leg ends in `|| return 0` because
+' `pipefail` makes an unauthenticated `gh auth token` fail the whole pipeline
+' while the caller assigns it under `set -e` — and no token is a normal state.
+'
+' npm fetches here are bounded the same way as everything else on this path:
+' --fetch-timeout=60000 --fetch-retries=1.
 node "Container startup — proveo_provision_toolchain" as BOOT <<host>> {
   component "1. nx — nx.json" as T1 <<app>>
   component "2. turbo — turbo.json" as T2 <<app>>
@@ -72,11 +136,15 @@ note right of PUML
   (see ""_spec/""), so an agent that cannot run ""plantuml -checkonly""
   cannot verify the artifact it just edited. Shipped as the upstream
   jar behind a shell shim — the Debian package pulls a much larger
-  dependency set for the same jar. The headless JRE and graphviz are
-  its prerequisites; graphviz renders every non-sequence diagram.
+  dependency set for the same jar. A Java runtime and graphviz are its
+  prerequisites; graphviz renders every non-sequence diagram.
 
-  Cost: roughly 567MB on every image. Narrowing where it lands is
-  open.
+  The runtime is no longer a distro package. ""default-jre-headless""
+  was 194 MB (dpkg Installed-Size 198,806 kB) on all 14 images for one
+  jar; a ""jlink"" runtime built in a discarded stage is **72 MB** and
+  renders ""-tpng"" and ""-tsvg"" identically. Its module set is
+  deliberately larger than plantuml needs, because jdtls has to be
+  hostable on it — see ""_spec/defs/base-image-layers\.puml"".
 end note
 
 note bottom of TSFLOOR

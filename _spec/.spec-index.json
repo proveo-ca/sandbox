@@ -1,0 +1,844 @@
+{
+  "version": 1,
+  "specs": [
+    {
+      "spec": "_spec/overview.puml",
+      "covers": ["cmd/proveo/**", "internal/**"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/minimum_requirements.puml",
+      "covers": ["internal/sbx/sbx.go", "e2e/capacity_test.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/components.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_conventions/design-decision-ids.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_conventions/spec-conventions.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_conventions/tui-design-language.puml",
+      "covers": [
+        "internal/ui/**",
+        "internal/posture/posture.go",
+        "internal/choiceui/topology.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/agent-version-pin.puml",
+      "covers": [
+        "defs/lib/docker-build.sh",
+        "defs/*/build.sh",
+        "defs/*/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/solidity/Dockerfile",
+        "defs/*/test.sh",
+        "defs/*/tests/test_build.sh",
+        "internal/contract/agent_pin_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/buildx-driver-selection.puml",
+      "covers": ["defs/lib/docker-build.sh", "defs/*/build.sh"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/image-lineage-and-publish.puml",
+      "covers": [
+        "defs/lib/docker-build.sh",
+        "defs/*/build.sh",
+        "defs/*/ensure.sh",
+        "defs/*/test.sh",
+        "defs/*/tests/helpers.sh",
+        "internal/maintain/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_experiments/docker-sandbox.puml",
+      "covers": [
+        "internal/sbx/sbx.go",
+        "cmd/proveo/main.go",
+        "e2e/sbx_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/credential-boundary.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/egress-boundary.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/git-identity.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/harness-paradigms.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/runtime-user-boundary.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/runner/**",
+        "internal/contract/home_symlink_test.go",
+        "defs/cecli/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/tests/test_workspace.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_runtimes/toolchain-provisioning.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/base/Dockerfile",
+        "defs/base-node/Dockerfile",
+        "defs/base-node-lsp/Dockerfile"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/choiceui-viewport-proposals.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/ci-pipeline.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/claude-in-chrome-reachability.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/config-seeding-and-persistence.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/image-size-reduction.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/retire-dind.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/secret-custody.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/ship-and-reach.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/tui-style-deferred-surfaces.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/white-label-brand-manifest.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/workspace-env-key.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/github-credentials.puml",
+      "covers": ["cmd/proveo/ghtoken.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/provision-and-targets.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/usage.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo-entrypoint/prep-process-boundary.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo-entrypoint/prep-sequence.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/agent-definition-sharing.puml",
+      "covers": [
+        "defs/subagents/**",
+        "defs/lib/render-subagents.sh",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/agents_shared_test.go",
+        "defs/*/defaults/agents/**",
+        "defs/*/*/defaults/agents/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/base-image-layers.puml",
+      "covers": [
+        "defs/base/Dockerfile",
+        "defs/base/build.sh",
+        "defs/base/ensure.sh",
+        "defs/base-node/Dockerfile",
+        "defs/base-node/build.sh",
+        "defs/base-node-lsp/Dockerfile",
+        "defs/base-node-lsp/build.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/browser-layer.puml",
+      "covers": [
+        "defs/base-node-browser/**",
+        "defs/base-node-browser/skills/agent-browser/SKILL.md",
+        "defs/base-node-browser/build.sh",
+        "defs/base-node-browser/ensure.sh",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/tests/test_tools.sh",
+        "defs/opencode/tests/test_tools.sh",
+        "defs/claudecode/tests/test_tools.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/harden-pass.puml",
+      "covers": [
+        "defs/base/proveo-harden",
+        "defs/base/Dockerfile",
+        "defs/base-node/Dockerfile",
+        "defs/base-node-lsp/Dockerfile",
+        "defs/base-node-browser/Dockerfile",
+        "defs/cecli/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/solidity/Dockerfile"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/harness-image-layers.puml",
+      "covers": [
+        "defs/cecli/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/solidity/Dockerfile"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/cecli/cecli-paradigm.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/cecli/cecli-topology.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/claudecode/chrome-bridge.puml",
+      "covers": [
+        "internal/chromebridge/**",
+        "defs/claudecode/mcp/proveo-lib/chrome-bridge.js",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/run/choices.go",
+        "internal/egress/plan.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/claudecode/claudecode-egress-topology.puml",
+      "covers": [
+        "defs/sidecars/egress-proxy/Dockerfile",
+        "defs/sidecars/mitmproxy/Dockerfile",
+        "defs/sidecars/squid-proxy/Dockerfile",
+        "defs/sidecars/mitmproxy/test.sh",
+        "internal/egress/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/claudecode/claudecode-paradigm.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/claudecode/claudecode-topology.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/claudecode/lsp-plugins-seed.puml",
+      "covers": [
+        "defs/claudecode/mcp/Dockerfile",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/cursor/cursor-paradigm.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/cursor/cursor-topology.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/opencode/opencode-paradigm.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/opencode/opencode-topology.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/dependency-trees.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/workspace/deps.go",
+        "internal/workspace/mount.go",
+        "internal/workspace/platform.go",
+        "internal/run/run.go",
+        "defs/opencode/entrypoint.sh",
+        "defs/cursor/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/house-rules.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/themes/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/language-server-provisioning.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/lsp_config_parity_test.go",
+        "internal/sbx/kit.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/python-environment.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cursor/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/seed-and-launch.puml",
+      "covers": [
+        "packages/lib/proveo-seed",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/entrypoint.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh",
+        "internal/sbx/kit.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/steps.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/entrypoint.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/testing-strategy.puml",
+      "covers": [
+        "internal/contract/**",
+        "e2e/**",
+        "defs/tests/**",
+        "defs/*/test.sh",
+        "defs/*/tests/*.sh",
+        "defs/sidecars/mitmproxy/test.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/43-toolchain-e2e.puml",
+      "covers": [
+        "e2e/toolchain_test.go",
+        "internal/contract/toolchain_test.go",
+        "e2e/testdata/polyglot22"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/00-testing-overview.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/10-unit.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/20-contract.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/30-infra-integration.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/40-agent-e2e-components.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/41-agent-e2e-sequence.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/42-hello-world-e2e.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/agentio/agent-terminal-io.puml",
+      "covers": ["internal/agentio/**", "cmd/proveo/main.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/agentsettings/choice-cache.puml",
+      "covers": [
+        "internal/agentsettings/**",
+        "internal/choiceui/**",
+        "internal/wsscan/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/backend/exit-code.puml",
+      "covers": ["internal/backend/backend.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/broker/off-route-stripping.puml",
+      "covers": ["internal/broker/broker.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/cdn/distribution-update.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/choice-prompt-render.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/topology-states.puml",
+      "covers": ["internal/run/topology.go", "internal/choiceui/topology.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/topology-strip.puml",
+      "covers": [
+        "internal/choiceui/topology.go",
+        "internal/choiceui/layout.go",
+        "internal/choiceui/anim.go",
+        "internal/choiceui/pen.go",
+        "internal/run/topology.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/viewport.puml",
+      "covers": [
+        "internal/choiceui/viewport.go",
+        "internal/choiceui/canvas.go",
+        "internal/choiceui/layout.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/wireframe.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/clean/clean-lifecycle.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/contract/what-a-contract-test-is.puml",
+      "covers": ["internal/contract/**"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/credentials/credential-decisions.puml",
+      "covers": [
+        "internal/credentials/credentials.go",
+        "internal/credentials/hints.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egress/egress-tiers.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egress/teardown-and-signals.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-components.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-decide.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-layers.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-overview.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/egressproxy/mitm-and-flow-record.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/engine/container-engine.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
+      "covers": ["defs/bridges/**", "internal/provider/slots.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/gitidentity/authorship.puml",
+      "covers": ["internal/gitidentity/gitidentity.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/maintain/image-build-deploy.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/manifest/harness-manifest-schema.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/posture/one-value-two-renderings.puml",
+      "covers": [
+        "internal/posture/posture.go",
+        "cmd/proveo/posture_golden_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/proveohome/proveo-home-components.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/proveohome/proveo-home-lifecycle.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/provider/model-catalog.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/provider/model-resolution.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/provider/provider-registry.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/ptyproxy/terminal-report-filter.puml",
+      "covers": [
+        "internal/ptyproxy/inputfilter.go",
+        "internal/ptyproxy/ptyproxy.go",
+        "cmd/proveo/main.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/reviewgate/pty-review-proxy.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/reviewgate/transport-portability.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/run/run-spec.puml",
+      "covers": [
+        "internal/run/spec.go",
+        "internal/run/run.go",
+        "cmd/proveo/run_golden_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/runlog/run-transcript.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/runner/hardened-run-argv.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/browser-viewport.puml",
+      "covers": [
+        "internal/sbx/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/run/run.go",
+        "e2e/browser_viewport_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/clone-workspace.puml",
+      "covers": [
+        "internal/run/run.go",
+        "internal/sbx/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/run/clone_test.go",
+        "internal/sbx/clone_test.go",
+        "e2e/clone_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/credential-path.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/sbx.go",
+        "internal/sbx/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/mcp-gateway.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/posture/posture.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/oauth-provisioning.puml",
+      "covers": [
+        "internal/sbx/run.go",
+        "internal/credentials/keychain.go",
+        "internal/run/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/policy-baseline.puml",
+      "covers": [
+        "internal/sbx/sbx.go",
+        "internal/run/choices.go",
+        "internal/sbx/baseline_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/sandbox-backend.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/sbx.go",
+        "internal/sbx/exec.go",
+        "internal/sbx/run.go",
+        "internal/sbx/agents.go",
+        "internal/run/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/sbx-kit-contract.puml",
+      "covers": ["internal/sbx/**", "cmd/proveo/main.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/seed-node-version-abort.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/seed_abort_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/state-sync.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/virtiofs-cwd-invalidation.puml",
+      "covers": [
+        "defs/claudecode/mcp/defaults/hooks/cwd-guard.sh",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/secretref/secret-references.puml",
+      "covers": [
+        "internal/secretref/secretref.go",
+        "internal/credentials/keychain.go",
+        "internal/credentials/credentials.go",
+        "internal/runner/runner.go",
+        "internal/backend/dockeregress/dockeregress.go",
+        "internal/backend/sandbox/sandbox.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/shell/setup-path.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/tmux/driving-a-tty.puml",
+      "covers": ["internal/tmux/tmux.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/ui/output-vocabulary.puml",
+      "covers": ["internal/ui/**"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/verify/verification-discovery.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/workspace/git-mount-by-scope.puml",
+      "covers": [
+        "internal/workspace/mount.go",
+        "internal/manifest/manifest.go",
+        "defs/*/harness.manifest",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/entrypoint.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/workspace/mount-model.puml",
+      "covers": ["internal/workspace/mount.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/workspace/mount-symlink-escape.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/workspace/subdir-scope-mounts.puml",
+      "covers": ["internal/workspace/mount.go"],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/workspace/worktree-git-linkage.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/wsscan/workspace-scan.puml",
+      "covers": [],
+      "fingerprint": null
+    }
+  ],
+  "unresolved": []
+}

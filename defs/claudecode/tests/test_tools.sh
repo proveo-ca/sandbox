@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_tools.sh - Verify all expected tools are installed
 
-# Core toolchain: present in every claudecode variant.
 TOOLS=(
   "claude:claude --help"
   "node:node --version"
@@ -19,7 +17,6 @@ TOOLS=(
   "dumb-init:dumb-init --version"
 )
 
-# Solidity/security toolchain: lives only in the sol variant (defs/claudecode/sol).
 SOL_TOOLS=(
   "solhint:solhint --version"
   "semgrep:semgrep --version"
@@ -27,8 +24,10 @@ SOL_TOOLS=(
   "solc:solc --version"
   "forge:forge --version"
   "cast:cast --version"
-  "anvil:anvil --version"
 )
+
+# SPEC: _spec/_plans/image-size-reduction.puml
+SOL_ABSENT=(anvil chisel)
 
 for image in $(images_to_test); do
   tag=$(image_tag "$image")
@@ -40,9 +39,11 @@ for image in $(images_to_test); do
     IFS=':' read -r name cmd <<< "$tool_entry"
     assert_failure "[$tag] $name stays out of the base variant (sol-only)" "$image" "command -v $name"
   done
+  for name in "${SOL_ABSENT[@]}"; do
+    assert_failure "[$tag] $name is in no variant at all" "$image" "command -v $name"
+  done
 done
 
-# Bun runs TypeScript directly — the TS toolkit's second runtime (proveo/base-node).
 for image in $(images_to_test); do
   assert_output_contains "[$(image_tag "$image")] bun executes a TypeScript file without a build step" "$image" \
     "printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts" "42"
@@ -54,9 +55,12 @@ if docker image inspect "$SOL_IMAGE" >/dev/null 2>&1; then
     IFS=':' read -r name cmd <<< "$tool_entry"
     assert_success "[sol] $name is installed" "$SOL_IMAGE" "$cmd"
   done
+  for name in "${SOL_ABSENT[@]}"; do
+    assert_failure "[sol] $name is removed after foundryup (devnet/REPL, no chain and no prompt here)" \
+      "$SOL_IMAGE" "command -v $name"
+  done
 fi
 
-# MCP-specific: no server is baked in by default; users mount or add their own.
 if $MCP_IMAGE_AVAILABLE; then
   assert_success \
     "[mcp] MCP server directory exists" \
@@ -64,10 +68,6 @@ if $MCP_IMAGE_AVAILABLE; then
     "test -d /workspace/mcp-servers"
 fi
 
-# Browser variant (proveo/claudecode-browser, FROM proveo/base-node-browser):
-# Playwright's Chromium plus vercel-labs/agent-browser pointed at that same
-# binary, with the skills tree `agent-browser skills get core` serves and the
-# discovery stub the seed drops into ~/.claude/skills.
 BROWSER_IMAGE="$(proveo_resolve_image "${BROWSER_IMAGE:-proveo/claudecode-browser:latest}")"
 if docker image inspect "$BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$BROWSER_IMAGE" "playwright --version"

@@ -20,15 +20,12 @@ type Kit struct {
 	Setup         *KitSetup      `yaml:"setup,omitempty"`
 }
 
-// KitEnv carries values RESOLVED ON THE HOST. A setup command runs in its own
-// process and cannot export into the agent, so anything env-shaped has to arrive
-// already decided rather than as work for a script to redo inside.
+// KitEnv carries values RESOLVED ON THE HOST.
 type KitEnv struct {
 	Variables map[string]string `yaml:"variables,omitempty"`
 }
 
-// KitSetup holds the container-side steps. Only file-shaped work belongs here:
-// files outlive the process that wrote them, exports do not.
+// KitSetup holds the container-side steps.
 type KitSetup struct {
 	Startup []KitCommand `yaml:"startup,omitempty"`
 }
@@ -41,7 +38,6 @@ type KitCommand struct {
 	Description string   `yaml:"description,omitempty"`
 }
 
-// KitSchemaVersionV2 is the schemaVersion every rendered Kit declares.
 func SeedCommand(target string) KitCommand {
 	return KitCommand{
 		Command:     []string{"/usr/local/bin/proveo-seed", target},
@@ -50,9 +46,7 @@ func SeedCommand(target string) KitCommand {
 	}
 }
 
-// KitSandbox names the image and what runs in it. Entrypoint is what keeps
-// proveo's harness layer — the seeded guide file, the model bridging, the LSP and
-// subagent wiring — instead of sbx's own agent command replacing it.
+// KitSandbox names the image and what runs in it.
 type KitSandbox struct {
 	Image      string   `yaml:"image"`
 	Entrypoint []string `yaml:"entrypoint,omitempty"`
@@ -69,7 +63,6 @@ type KitNet struct {
 	Deny  []string `yaml:"deny,omitempty"`
 }
 
-// WriteKit renders k into dir/spec.yaml and returns dir.
 func WriteKit(dir string, k Kit) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

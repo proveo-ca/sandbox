@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/provider/provider-registry.puml
+//
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import (
@@ -8,12 +10,10 @@ import (
 
 var knownModels = map[string][]string{
 	"anthropic": {
-		// current
 		"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5",
 		"claude-fable-5", "claude-mythos-5",
 		"claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5",
 		"claude-sonnet-4-6",
-		// legacy but still routable
 		"claude-opus-4-1", "claude-opus-4-0", "claude-sonnet-4-5", "claude-sonnet-4-0",
 	},
 }
@@ -37,9 +37,6 @@ func ModelProvider(model string) string {
 	return bareModelProvider(strings.ToLower(model))
 }
 
-// providerAliases folds upstream provider ids that share ONE registry entry, so
-// a model id spelled the catalog's way still pins the same route and names the
-// same credential.
 var providerAliases = map[string]string{
 	"opencode-go": "opencode",
 }

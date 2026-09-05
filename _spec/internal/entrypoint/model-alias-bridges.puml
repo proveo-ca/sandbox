@@ -27,6 +27,32 @@
 ' future Anthropic family pass without a table edit, and the registry stays the
 ' one place a model's vendor is decided.
 '
+' ── HOW A ROW IS APPLIED, AND WHY THE FILE'S ORDER IS PART OF THE DATA ─────
+' A TSV row is: slot, targets, roles, default, transform, want. Applied in file
+' order, and ROW ORDER IS LOAD-BEARING: a "$VAR" default must run AFTER the row
+' that sets VAR. A `$`-prefixed default means "read this other environment
+' variable", not "use this literal"; a bare "-" means no default at all.
+'
+' Within a row: the first non-empty variable in `roles` wins, then the default;
+' `targets` is a comma-separated list and each target is skipped when it is
+' ALREADY set, so an explicit tool-specific value always beats the alias.
+' Comment rows (#) and empty slots are ignored, so a table can carry its own
+' documentation.
+'
+' The vendor lock is checked BEFORE the transform, since `bare` is what would
+' discard the evidence. Transforms are `normalize` (prefix a bare id with its
+' provider) and `bare` (strip the provider/ prefix).
+'
+' ── THE PREFIX TABLE LIVES IN EXACTLY ONE PLACE PER SIDE ───────────────────
+' _normalize_model is that place in the shell: gpt-*/chatgpt-* and OpenAI's
+' reasoning ids (the letter "o" followed by a digit — o1, o3, o4-mini) go to
+' openai/, claude-* to anthropic/, grok-* to xai/, gemini-* to google/,
+' deepseek-* to deepseek/. An id that already contains "/" is returned as-is.
+'
+' _model_provider is built ON TOP of _normalize_model rather than repeating the
+' table, and internal/contract runs one table through both it and
+' provider.ModelProvider so the two cannot drift.
+'
 ' REFUSAL IS REPORTED. A locked slot that silently stays unset leaves the agent
 ' on its own built-in default: a working run producing work on a model nobody
 ' chose, which is the quietest kind of wrong. RefusedSlots names the variable,

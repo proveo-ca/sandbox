@@ -1,9 +1,37 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title House rules — proveo's conventions in every session, without touching a repository
+title House rules and UI defaults — proveo's conventions in every session, without touching a repository
 
 ' covers: packages/lib/entrypoint-lib.sh, defs/claudecode/mcp/Dockerfile,
 '         defs/opencode/Dockerfile
+' covers: defs/claudecode/mcp/themes/**
+'
+' Knobs: PROVEO_HOUSE_RULES=off · PROVEO_UI_DEFAULTS=off.
+'
+' ── 7g. UI DEFAULTS — A SANDBOX SHOULD LOOK LIKE A SANDBOX ─────────────────
+' Two settings, both about reading the screen correctly, both claudecode-only
+' because it is the only harness with a theme file proveo can write.
+'
+' THEME. A sandboxed session and a host session are the same program in the same
+' terminal, and an operator with both open has nothing to tell them apart —
+' which is how a command meant for the sandbox gets typed into the host. Claude
+' Code supports custom themes as JSON under `<home>/.claude/themes/<slug>.json`,
+' selected as `custom:<slug>`, so proveo ships one in its own identity palette:
+' the accent, prompt border and permission dialogs go cyan/teal instead of the
+' default orange. Visible at a glance, no reading required. The source is baked
+' at /opt/proveo/themes/proveo-sandbox.json and COPIED into the agent home by
+' the seed, so it reaches BOTH backends.
+'
+' SYNTAX HIGHLIGHTING is already Claude Code's default; `syntaxHighlightingDisabled
+' = false` is written explicitly because the default is exactly the thing an
+' inherited settings file can quietly flip, and a grep result rendered as flat
+' text is materially harder to read.
+'
+' settings.json is MERGED, not written: the file is the operator's, only the two
+' keys proveo has an opinion about are set, and each is set only when absent.
+' The same file carries the cwd guard's PreToolUse hook
+' (_spec/internal/sbx/virtiofs-cwd-invalidation.puml), so the merge discipline is
+' shared rather than particular to the theme.
 
 node "proveo image" as IMG <<host>> {
   file "/opt/proveo/AGENTS\.md\nthis repo's conventions, baked in" as SRC <<db>>
@@ -68,5 +96,48 @@ end note
 note top of SRC
   Baked into the image rather than mounted: it must be present on BOTH backends,
   and a file the sandbox cannot edit cannot be edited by the agent either.
+end note
+
+' ── 7g. UI defaults — claudecode only ────────────────────────────────────────
+file "/opt/proveo/themes/proveo-sandbox\.json\nbaked, proveo's identity palette" as THEME <<db>>
+component "**apply** — ""proveo_apply_ui_defaults""\n""PROVEO_UI_DEFAULTS=off"" skips it" as UIFN <<app>>
+file """~/\.claude/settings\.json""\nthe operator's file — merged, never written" as SETTINGS <<app>>
+component "a sandbox session indistinguishable\nfrom a host one" as MIXUP <<error>>
+
+THEME ARROW_MAIN UIFN : copied to ""~/\.claude/themes/""
+UIFN ARROW_MAIN SETTINGS : ""theme"" · ""syntaxHighlightingDisabled""
+SETTINGS ARROW_MAIN AGENT : read every session
+UIFN ARROW_ERROR MIXUP : the thing it exists to prevent
+
+note bottom of UIFN
+  **A sandboxed session and a host session are
+  the same program in the same terminal.** With
+  nothing to tell them apart, a command meant
+  for the sandbox gets typed into the host — so
+  the accent goes cyan, not the default orange.
+end note
+
+note right of THEME
+  **Baked, then copied by the seed.** A theme is
+  JSON at ""~/\.claude/themes/<slug>\.json"",
+  selected as ""custom:<slug>"" — so shipping one
+  in the image reaches both backends without a
+  network fetch or an operator step.
+end note
+
+note bottom of SETTINGS
+  **MERGED, and only where the key is absent.**
+  The file is the operator's; proveo sets
+  ""theme"" and ""syntaxHighlightingDisabled"" and
+  nothing else, and the cwd guard's PreToolUse
+  hook merges into this same file.
+end note
+
+note right of SETTINGS
+  **The default is what an inherited file can
+  quietly flip.** Syntax highlighting is already
+  Claude Code's default, so it is written down
+  explicitly — a grep result rendered as flat
+  text is materially harder to read.
 end note
 @enduml

@@ -45,7 +45,7 @@ component "Section(ui.Section*)\nten closed names\nheading drawn LAZILY" as SEC 
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
-component "termWidth(w)\nioctl, else 80" as WIDTH <<host>>
+component "termWidth(w)\nioctl, else 100" as WIDTH <<host>>
 component "GlyphTier\nPROVEO_GLYPHS\nNerd · ASCII · Off" as TIER <<host>>
 component "stripANSI" as STRIP <<app>>
 component "Default → os.Stderr" as DEF <<app>>
@@ -121,6 +121,29 @@ note right of SEC
   ""starting"", ""secrets"", ""interface"", ""results"" — so
   a second heading is a different moment rather than a
   repeat, and every divider appears exactly once.
+end note
+
+note bottom of SEC
+  **The heading is LEFT-anchored, unlike
+  choiceui's.** There it centres on 72 columns
+  over a column grid; centred here it floated at
+  column 32 above text starting at 2, reading as
+  a caption for nothing.
+end note
+
+note right of WIDTH
+  **An unmeasurable writer gets the short form.**
+  A log, a pipe or CI takes choiceui's six rules
+  either side of the label rather than a rule run
+  out to a guess — a hundred dashes per section
+  is noise, and the width would be a pretence.
+end note
+
+note bottom of TEE
+  **The section state crosses with the writer.**
+  ""TeeTo"" is called after the first lines are
+  out, so dropping ""pending""/""shown"" would
+  redraw a heading the operator just read.
 end note
 
 note bottom of WRAP

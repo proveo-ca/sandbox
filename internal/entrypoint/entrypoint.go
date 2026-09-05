@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml,
+// _spec/_paradigms/harness-paradigms.puml
+//
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/_paradigms/harness-paradigms.puml
 package entrypoint
 
@@ -24,13 +27,10 @@ var ConfigVars = []string{
 	"CODE_THEME",
 }
 
-// EnsureRuntimeUser synthesizes a passwd entry for the current uid when missing
-// and ensures HOME is writable (mirrors packages/lib/entrypoint-lib.sh).
 func EnsureRuntimeUser() {
 	uid := fmt.Sprintf("%d", os.Getuid())
 	gid := fmt.Sprintf("%d", os.Getgid())
 	if _, err := user.LookupId(uid); err != nil {
-		// Best-effort passwd append when writable.
 		if f, err := os.OpenFile("/etc/passwd", os.O_APPEND|os.O_WRONLY, 0); err == nil {
 			_, _ = fmt.Fprintf(f, "agent:x:%s:%s:agent:%s:/bin/bash\n", uid, gid, firstNonEmpty(os.Getenv("HOME"), "/tmp"))
 			_ = f.Close()
@@ -57,7 +57,6 @@ func writable(path string) bool {
 	return true
 }
 
-// FindEnvFile locates a .env near cwd / git root (same search order as bash).
 func FindEnvFile(cwd string) string {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -85,8 +84,6 @@ func FindEnvFile(cwd string) string {
 	return ""
 }
 
-// LoadEnvFile parses KEY=VALUE lines into the process environment (set -a style).
-// Does not override keys already set in the environment (docker -e wins).
 func LoadEnvFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -138,7 +135,6 @@ func canonicalTier(mode string) bool {
 
 func ShouldSkipEnvLoad(mode string) bool { return canonicalTier(mode) }
 
-// BridgeGoogleKeys mirrors the GEMINI/GOOGLE key alias bridges from load_env.
 func BridgeGoogleKeys() {
 	if os.Getenv("GOOGLE_GENERATIVE_AI_API_KEY") == "" {
 		if v := os.Getenv("GEMINI_API_KEY"); v != "" {
@@ -181,8 +177,6 @@ func ApplyBrokerSentinel(mode, keysCSV, sentinel string) []string {
 	return rewritten
 }
 
-// BridgeGitIdentity sets GIT_CONFIG_* so git config --get resolves identity
-// without writing files (when repo has no user.name/email).
 func BridgeGitIdentity(dir string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
@@ -211,7 +205,6 @@ func BridgeGitIdentity(dir string) {
 	}
 }
 
-// NormalizeModel adds a provider prefix when missing (opencode-style).
 func NormalizeModel(model string) string {
 	if model == "" || strings.Contains(model, "/") {
 		return model
@@ -232,9 +225,6 @@ func NormalizeModel(model string) string {
 	return model
 }
 
-// ApplyEnvBridges applies provider key aliases. Model bridges are declared once in
-// defs/bridges/<harness>.tsv and applied by apply_model_bridges in the def's shell;
-// duplicating them here is what let this map drift from packages/lib/entrypoint-lib.sh.
 func ApplyEnvBridges() {
 	type bridge struct {
 		from, to, fallback, def, transform string
@@ -268,7 +258,6 @@ func ApplyEnvBridges() {
 	}
 }
 
-// SmokeReady prints the smoke sentinel and returns true when PROVEO_SMOKE_TEST=1.
 func SmokeReady(target string) bool {
 	if os.Getenv("PROVEO_SMOKE_TEST") != "1" {
 		return false

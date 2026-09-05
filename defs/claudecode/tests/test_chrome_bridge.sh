@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/claudecode/chrome-bridge.puml
-# tests/test_chrome_bridge.sh - the container half of the Claude in Chrome bridge.
-# A fake host relay inside the container stands in for `proveo run`'s, so the
-# chain is driven end to end without a browser.
 
 read -r -d '' CHAIN_SCRIPT <<'EOS'
 set -e

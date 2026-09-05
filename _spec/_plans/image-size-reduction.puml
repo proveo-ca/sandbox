@@ -3,7 +3,7 @@
 ' purpose: cut the fleet's image weight where it actually is, and settle whether
 '          the `-browser` variants should invert to layers on the harness images
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
-' PARTLY APPLIED — cuts 1-11 landed 2026-09-05. 12, 13 and the inversion are open.
+' PARTLY APPLIED — cuts 1-12 landed 2026-09-05. 13 and the inversion are open.
 ' _spec/_plans/ is exempt from the SPEC-reference rule.
 '
 ' ── WHAT LANDED, AND WHAT THE REBUILD MEASURED ─────────────────────────────
@@ -134,10 +134,12 @@
 ' gcc/cc/g++/make. cecli was the only one that ever had one, incidentally, for its
 ' own venv. So a WORKSPACE Python project whose dependency has no linux-arm64 wheel
 ' and must build a C extension now fails everywhere rather than in five of six
-' images, and `_py_build_env` reports it only as
-' "Python dependency install did not complete; the environment may be partial".
-' Making that message name the missing toolchain is the cheapest honest fix and is
-' NOT done here.
+' images. `_py_build_env` used to report that only as "Python dependency install
+' did not complete; the environment may be partial".
+' DONE since: it now probes `cc`/`gcc` on failure and names the missing toolchain
+' ("a dependency with no linux-<arch> wheel cannot build from source here. Pin a
+' version that publishes one."). Recorded in
+' _spec/packages/lib/python-environment.puml.
 '
 ' ── CUT 4 APPLIED: NO DOCKER BINARIES IN ANY HARNESS IMAGE ────────────────
 ' Decided by the operator, 2026-09-05: "since we migrated to sbx, everything that
@@ -202,6 +204,73 @@
 ' FAILED to start for claudecode and ANSWERED for the harnesses that later shipped
 ' the full tarball. Under this cut neither happens, because there is no dockerd to
 ' start. The open question moves from "why does it fail" to "does sbx supply one".
+'
+' ── CUT 12 APPLIED, AND THE MISTAKE IT TOOK TWO TRIES TO SEE ──────────────
+'   proveo/claudecode-solidity   3.31 GB -> **2.53 GB**  (-780 MB, -24%)
+'   ~/.foundry                    263 MB -> 168 MB
+'   semgrep    377 MB in dist-packages -> 269 MB in /opt/security, 0 .pyc
+'   foundry    unpinned nightly     -> pinned v1.8.1, asserted at build
+'   anvil + chisel                 -> 0 files
+'
+' THE FIRST ATTEMPT WAS WRONG IN THE WORST WAY: it looked right.
+' `rm -f ~/.foundry/bin/{anvil,chisel}` made `command -v anvil` report absent, so
+' the def suite would have agreed — but foundryup puts the REAL binaries under
+' versions/foundry-rs/foundry/<tag>/ and only SYMLINKS them into bin/. anvil
+' (49 MB) and chisel (51 MB) stayed in the image, 100 MB deleted only in name.
+' What caught it was the image size barely moving (2.69 -> 2.68 GB) and going to
+' look instead of accepting the number. Deleting BY NAME under ~/.foundry fixes
+' it, and the contract test now asserts that form with the reason attached.
+'
+' Three other things this layer fixed while it was open, all of them defects the
+' review had already named:
+'   - PEP 668: semgrep and solc-select left Debian's dist-packages for a venv,
+'     so a later `apt-get install python3-<x>` can no longer produce a mixed tree.
+'   - python3-venv is installed HERE, not in proveo/claudecode: that image carries
+'     python3 and python3-pip but no ensurepip, so `python3 -m venv` fails there.
+'   - ~/.foundry/bin moved to the END of PATH. At the front, a directory the agent
+'     can write (and sbx mounts volumes under) shadowed any binary of the same
+'     name for every later command.
+'
+' ── DESIGN RATIONALE LEFT SOURCE FOR _spec ────────────────────────────────
+' Operator instruction, 2026-09-05: source carries instructions, _spec carries
+' reasoning. 4,741 comment lines removed across 178 files; 193 files changed,
+' -4,932 lines net. Remaining: defs/ 1,172 -> 207, entrypoint-lib.sh 845 -> 26,
+' non-test Go 3,276 -> 627. Test files were left untouched.
+'
+' KEPT, because each is load-bearing rather than prose: `SPEC:` / `covers:`
+' reference lines (the spec<->source index), Go directives (//go:*, //nolint),
+' the FIRST SENTENCE of godoc on exported symbols, shebangs (including one inside
+' a heredoc that writes a script), `# shellcheck` pragmas, and Dockerfile parser
+' directives.
+'
+' FOUR HAZARDS THE MIGRATION HIT, all found by testing rather than reading:
+' 1. A heredoc tracker latched onto the literal
+'    "<!-- <<< proveo house rules <<< -->" as an opener named `proveo` and
+'    under-stripped 518 lines. Rejecting the here-string `<<<` and blanking
+'    quoted spans fixed it; an unterminated heredoc now REFUSES the file.
+' 2. Keeping a doc comment's first LINE truncated sentences mid-clause. It keeps
+'    the first SENTENCE now, re-wrapped, with a detector that ignores the '.' in
+'    ".tsv" and "harness.manifest".
+' 3. Seven comments in internal/sbx/sbx.go describe functions in OTHER files
+'    (`// MemoryLimit returns...` sits above `const (`). A rule that keeps the
+'    first line of any block above an exported declaration would have preserved
+'    each as godoc for the wrong symbol. It now checks that the comment NAMES
+'    what it sits above, and strips the block whole when it does not.
+' 4. Removing per-field comments changed gofmt's struct alignment groups in 23
+'    files. `gofmt -w` is the fix; `go build` and the linter do not catch it.
+'
+' AND ONE NEAR-MISS THAT JUSTIFIES THE ORDERING. The migration ran BEFORE the
+' strip. _spec/defs/cecli/cecli-paradigm.puml claimed the local-model prefix is
+' `ollama_chat/`; the source comment recorded the opposite — both litellm ollama
+' providers are broken in that image, so it must be `openai/<model>` against
+' Ollama's /v1. Stripping first would have left the spec actively wrong with no
+' record of the correction.
+'
+' VERIFIED after both: gofmt clean · go build ./... · go vet clean · lint 0 issues
+' · all 13 Dockerfiles pass `docker build --check` · every shell file parses ·
+' 14/14 images rebuild · `mise run test-images` green except the pre-existing
+' arm64 `[sol] solc` · all four harness detached smokes pass · all 37 touched
+' .puml render without a syntax error.
 '
 ' ── WHAT CUT 4 DID TO THE INVERSION ARGUMENT ──────────────────────────────
 ' It weakened it further, which is worth stating because the inversion is the item
@@ -446,7 +515,7 @@
 '   what the browser layer is .... _spec/defs/browser-layer.puml
 '   why pins exist ............... _spec/_devops/agent-version-pin.puml
 '   what mise now owns ........... _spec/_runtimes/toolchain-provisioning.puml
-title PARTLY APPLIED — image size: cuts 1-11 landed (-7.69 GB), and why the variant inversion is still not next
+title PARTLY APPLIED — image size: cuts 1-12 landed (-7.85 GB), and why the variant inversion is still not next
 
 folder "the floor, measured" as FLOOR <<host>> {
   component "proveo/base 938 MB\nJRE **194 MB** · mise 97 MB · jar 29 MB" as B <<app>>

@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/agentio/agent-terminal-io.puml
+//
+// SPEC: _spec/internal/agentio/agent-terminal-io.puml
 package agentio
 
 import (

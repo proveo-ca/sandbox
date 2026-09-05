@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: why a host OAuth credential cannot be provisioned into sbx, and the one remedy that can
 ' covers: internal/sbx/run.go (AuthLoginArgs)
 ' covers: internal/credentials/keychain.go (NeedsSandboxLogin, SandboxLoginHint)
-' covers: internal/run/run.go (reportSandboxLogin)
+' covers: internal/run/run.go (reportSandboxLogin, selectBackend)
 '   what proveo can read ........ _spec/internal/secretref/secret-references.puml
 '   the credential path it joins . _spec/internal/sbx/credential-path.puml
 '   the exposure it does NOT close _spec/_plans/secret-custody.puml
@@ -52,6 +52,25 @@ skinparam noteTextAlignment left
 ' costs a terminal: not the sbx backend, not a subscription harness, a usable
 ' file login, something already in sbx's store, or an env credential carrying
 ' the session — any one of those and proveo says nothing.
+'
+' ── THE ONE REFUSAL, AND THE ONE THAT WAS REMOVED ──────────────────────────
+' A subscription harness with NO credential at all is refused on this backend
+' before launch. The agent cannot complete a login here: it reaches the prompt,
+' exits, and the sandbox stops with it — which surfaces ~30s later as an unrelated
+' 137. Refusing costs nothing; launching costs a minute of image load to reach a
+' failure that was knowable up front. The refusal is gated on the persisted login
+' as well as on MissingEnv, or it would refuse runs whose credential is already in
+' the proveo home, and it prints `claude setup-token` plus the operator's own
+' shell's export line rather than a bare error.
+'
+' There is deliberately NO stale-login refusal any more. It was added when the
+' mounted proveo home WAS this backend's credential, so a login that could not
+' renew meant a run that could not authenticate. That stopped being true when the
+' HOME redirect went (sandbox.Home): sbx runs its own agent user and its credential
+' proxy writes the live credential into that user's home, so the file under the
+' proveo home is not consulted and its freshness decides nothing. Refusing on it
+' would block runs that WORK — verified by e2e/ladder_test.go, whose rung 3 carries
+' this exact Kit.
 '
 ' ── AN UNVERIFIED FINDING, RECORDED RATHER THAN ACTED ON ───────────────────
 ' proveo writes `sbx secret set --force <ENV_VAR_NAME>` — ANTHROPIC_API_KEY,
@@ -137,6 +156,22 @@ note bottom of SBXSTORE
   Keychain too. Only ITS entry is wired to the
   proxy, which is why the credential has to
   arrive through the sign-in.
+end note
+
+note bottom of LOGIN
+  **No credential at all is refused up front.**
+  The agent reaches its login prompt, exits, and
+  the sandbox stops with it — surfacing ~30s
+  later as an unrelated 137, after a minute of
+  image load nobody needed to pay.
+end note
+
+note top of LOGIN
+  **A STALE login is not refused, deliberately.**
+  Since the HOME redirect went, sbx's proxy owns
+  the live credential and the file under the
+  proveo home decides nothing. Refusing on it
+  blocked runs that work (ladder rung 3).
 end note
 
 note bottom of MISNAMED

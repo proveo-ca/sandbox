@@ -1,3 +1,6 @@
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml,
+// _spec/internal/egress/egress-tiers.puml
+//
 // SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egress/egress-tiers.puml
 package egress
 
@@ -36,8 +39,6 @@ func ProviderAllowConf(providers []string, customDomains string) (conf string, m
 	return b.String(), matched, unknown
 }
 
-// normalize splits comma/space-separated tokens and drops blanks, so callers can
-// pass "anthropic,openai" or []string{"anthropic openai"} interchangeably.
 func normalize(in []string) []string {
 	var out []string
 	for _, tok := range in {

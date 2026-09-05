@@ -1,6 +1,10 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_paradigms/credential-boundary.puml, _spec/_conventions/design-decision-ids.puml
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml,
+// _spec/internal/egressproxy/mitm-and-flow-record.puml,
+// _spec/_paradigms/credential-boundary.puml,
+// _spec/_conventions/design-decision-ids.puml Command proveo-egress is the
+// egress inspection sidecar for firewall mode.
 //
-// Command proveo-egress is the egress inspection sidecar for firewall mode.
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_paradigms/credential-boundary.puml, _spec/_conventions/design-decision-ids.puml
 package main
 
 import (
@@ -30,13 +34,11 @@ func main() {
 		runProviderAllow()
 		return
 	case "providers":
-		// The registry's provider names (for tooling like update-provider-allow.sh).
 		for _, n := range provider.Names() {
 			fmt.Println(n)
 		}
 		return
 	case "serve", "":
-		// fall through to serve
 	default:
 		log.Fatalf("proveo-egress: unknown subcommand %q (want: serve|detect|provider-allow|providers)", cmd)
 	}
@@ -66,8 +68,6 @@ func serve() {
 		cfg.Broker.Routes = registryRoutes()
 	}
 
-	// Egress policy (read-allow / write-deny / DLP) — the S1 destination/method/
-	// content gate. On by default; PROVEO_EGRESS_POLICY=off disables it.
 	if !isOff(env("PROVEO_EGRESS_POLICY", "on")) {
 		cfg.Policy = buildPolicy(cfg.Broker)
 		cfg.EnforcePolicy = true
@@ -114,8 +114,6 @@ func registryRoutes() []broker.Route {
 
 	var routes []broker.Route
 	var skipped []string
-	// Registry order, so overlapping suffixes (if ever added) resolve
-	// deterministically and the log reads the same way every run.
 	for _, name := range provider.Detect(lookup) {
 		if len(allow) > 0 && !allow[name] {
 			continue
@@ -130,7 +128,6 @@ func registryRoutes() []broker.Route {
 		})
 	}
 	if len(skipped) > 0 {
-		// Never echo secrets — only (non-secret) provider names.
 		ui.Warnf("proveo-egress: not broker-injectable, passing the agent's own credential through: %s",
 			strings.Join(skipped, ", "))
 	}
@@ -138,19 +135,10 @@ func registryRoutes() []broker.Route {
 }
 
 func buildPolicy(bc broker.Config) egresspolicy.Config {
-	// Every route's hosts: the destinations the broker treats as on-route, and so
-	// the destinations a provider secret is legitimately allowed to reach.
 	var providerHosts []string
 	for _, r := range bc.Routes {
 		providerHosts = append(providerHosts, r.Hosts...)
 	}
-	// Plus the provider endpoints `proveo run` resolved for this run, which is
-	// what keeps the exemption alive when there are no routes at all. Under
-	// --credentials forward the broker is inert by design: the agent holds the
-	// real key and calls the vendor itself. Deriving the exemption from routes
-	// alone left providerHosts empty there, so the DLP scan saw a live
-	// credential-shaped header bound for the provider's own API and answered 403
-	// — the one destination the key is supposed to reach was the only one denied.
 	providerHosts = append(providerHosts, splitCSV(env("PROVEO_EGRESS_PROVIDER_HOSTS", ""))...)
 	custom := splitCSV(strings.ReplaceAll(env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""), " ", ","))
 
@@ -233,8 +221,6 @@ func mergedLookup() func(string) string {
 	}
 }
 
-// runProviderAllow prints the Squid provider-allow.conf content for the pinned
-// provider (PROVEO_EGRESS_PROVIDER) or, absent that, the auto-detected ones.
 func runProviderAllow() {
 	var providers []string
 	if p := strings.TrimSpace(env("PROVEO_EGRESS_PROVIDER", "")); p != "" && p != "none" {

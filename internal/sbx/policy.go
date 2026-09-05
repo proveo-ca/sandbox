@@ -15,28 +15,10 @@ func CheckNetworkArgs(host string) []string {
 
 func PolicyLog(sandbox string) ([]byte, error) { return sh.PolicyLog(sandbox) }
 
-// Baseline names sbx's GLOBAL network policy, which is the only lever that can
-// make a Kit allowlist mean anything: a Kit adds allow rules ON TOP of this, and
-// a per-sandbox deny cannot express "only the allowlist" because deny always
-// beats allow. See _spec/internal/sbx/policy-baseline.puml.
 func Baselines() []string { return []string{BaselineAllowAll, BaselineBalanced, BaselineDenyAll} }
 
-// InspectPolicyArgs reads the global policy. `local-policy` is the id sbx gives
-// the baseline; it is not a per-sandbox policy.
 func InspectPolicyArgs() []string { return []string{"policy", "inspect", "local-policy"} }
 
-// PolicyBaseline reports which baseline this host is on, read from sbx rather
-// than probed: `sbx policy check` can only tell allow-all from "something
-// stricter", because balanced and deny-all both deny an unallowlisted host.
-//
-// Classification is structural, from the network rules sbx prints:
-//
-//	allow **        -> allow-all   (rule id default-allow-all)
-//	no network allow -> deny-all
-//	specific allows  -> balanced
-//
-// known is false when sbx is absent or its output is unrecognisable, and callers
-// must say "unreadable" rather than assume a posture in either direction.
 func PolicyBaseline() (name string, known bool) {
 	out, err := sh.InspectPolicy()
 	if err != nil {
@@ -46,8 +28,6 @@ func PolicyBaseline() (name string, known bool) {
 	allows := 0
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Fields(line)
-		// DECISION RESOURCE TYPE ... — network rows only; filesystem rows are a
-		// separate axis and sbx prints them in the same table.
 		if len(f) < 3 || f[2] != "network" {
 			continue
 		}
@@ -94,15 +74,3 @@ func NetworkAllowed(host string) (allowed, known bool) {
 	}
 	return false, false
 }
-
-// SecretSetArgs builds the credential-injection argv.
-//
-// --force is what makes the write non-interactive on a SECOND run. `sbx secret
-// set` reads the value from stdin, which works once; when the secret already
-// exists it first asks "Overwrite? (y/N)", and the piped value answers THAT
-// prompt instead — so the write is cancelled and the agent silently starts with
-// the credential it had before. Every run after the first hit this.
-//
-// The value still travels on stdin. --token would pass it as an argument, which
-// the credential boundary forbids: a secret on an argv is visible in `ps` and in
-// shell history (_spec/_paradigms/credential-boundary.puml).

@@ -1,6 +1,8 @@
-// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml,
+// _spec/defs/claudecode/claudecode-egress-topology.puml Package egressproxy is
+// the Go egress inspection proxy (TLS-terminating MITM).
 //
-// Package egressproxy is the Go egress inspection proxy (TLS-terminating MITM).
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 package egressproxy
 
 import (
@@ -34,13 +36,10 @@ type Config struct {
 	CAValidity  time.Duration // CA validity
 	Broker      broker.Config // credential broker policy
 
-	// EnforcePolicy attaches the read-allow/write-deny/DLP policy (fixes S1). It
-	// is the destination/method/content gate the broker + recorder alone lack.
 	EnforcePolicy bool
 	Policy        egresspolicy.Config
 }
 
-// brokerModifier adapts the stdlib-only broker to martian's RequestModifier.
 type brokerModifier struct{ b *broker.Broker }
 
 func (m brokerModifier) ModifyRequest(req *http.Request) error {
@@ -70,7 +69,6 @@ func (m policyModifier) ModifyRequest(req *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("egress policy: blocked (%s)", d.Reason)
 	}
-	// martian closes conn after we return (Hijack contract); we just write + flush.
 	_ = conn
 	res := proxyutil.NewResponse(http.StatusForbidden,
 		strings.NewReader("egress policy: blocked ("+d.Reason+")\n"), req)
@@ -81,7 +79,6 @@ func (m policyModifier) ModifyRequest(req *http.Request) error {
 	return nil
 }
 
-// reqChain runs request modifiers in order, stopping at the first error.
 type reqChain []martian.RequestModifier
 
 func (c reqChain) ModifyRequest(req *http.Request) error {
@@ -130,8 +127,6 @@ func build(cfg Config) (*martian.Proxy, *broker.Broker, func(), error) {
 		return nil, nil, nil, fmt.Errorf("egressproxy: open flow log: %w", err)
 	}
 
-	// Request pipeline: broker (inject/strip) then policy (destination/method/DLP).
-	// Ordered so the broker's provider-host injection is never DLP-flagged.
 	var reqMods []martian.RequestModifier
 	if b.Active() {
 		reqMods = append(reqMods, brokerModifier{b})
@@ -159,7 +154,6 @@ func build(cfg Config) (*martian.Proxy, *broker.Broker, func(), error) {
 	return p, b, closer, nil
 }
 
-// Run builds and serves the proxy until the listener is closed.
 func Run(cfg Config) error {
 	p, b, closer, err := build(cfg)
 	if err != nil {

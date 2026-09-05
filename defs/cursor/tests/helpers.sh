@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/helpers.sh - Test framework helpers for cursor image
 
 TESTS_RUN=0
 TESTS_PASSED=0
@@ -8,10 +7,6 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 FAILURES=()
 
-# Resolved through proveo_test_image so a NEWER <repo>:local build wins over the
-# published tag — the same rule `proveo run` applies (internal/maintain.ResolveImage).
-# proveo_docker_build refuses to write :latest locally, so without this the suite
-# only ever sees whatever the registry last published.
 # shellcheck source=../../lib/docker-build.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
 IMAGE="$(proveo_test_image "${IMAGE:-proveo/cursor:latest}")"
@@ -30,7 +25,6 @@ else
   printf "WARN: no 'timeout'/'gtimeout' on host; time-bounded steps run unbounded (install coreutils for limits).\n" >&2
 fi
 
-# run_timeout <duration> <cmd...> — wraps cmd with $TIMEOUT_BIN when available.
 run_timeout() {
   local dur="$1"; shift
   if [[ -n "$TIMEOUT_BIN" ]]; then
@@ -40,8 +34,6 @@ run_timeout() {
   fi
 }
 
-# docker_exec <image> <command_string>
-# Runs the command inside the image (overrides entrypoint), captures combined output.
 docker_exec() {
   local image="$1"; shift
   local cmd="$*"

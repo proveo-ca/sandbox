@@ -1,20 +1,13 @@
 #!/usr/bin/env bash
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
-# PreToolUse(Bash) guard: name the one failure the Bash tool cannot name itself.
-#
-# Exit 2 blocks the call and hands stderr to the model. Everything else exits 0
-# and says nothing. PROVEO_PROC points the /proc walk elsewhere for tests.
 set -u
 payload="$(cat 2>/dev/null || true)"
 proc="${PROVEO_PROC:-/proc}"
 
-# 1. What Claude Code itself believes its cwd is — the JSON is its only channel.
 cwd="$(printf '%s' "$payload" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
 gone=""
 case "$cwd" in *" (deleted)") gone="$cwd" ;; esac
 
-# 2. What the kernel says about the processes above us: the Claude Code process
-#    holds the unlinked directory as its cwd, and /proc shows it as such.
 if [[ -z "$gone" && -d "$proc/self" ]]; then
   p="${PPID:-}"
   while [[ -n "$p" && "$p" != "0" && "$p" != "1" ]]; do

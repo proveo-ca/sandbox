@@ -22,14 +22,8 @@ type Params struct {
 	Evidence                                                                    string
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
-	// ProxyImage is the egress-proxy sidecar image the launcher settled on, in
-	// cmd/proveo rather than here.
 	// SPEC: _spec/internal/egress/teardown-and-signals.puml
-	ProxyImage string
-	// Clone is the REQUEST: --clone / PROVEO_CLONE. Whether the run actually
-	// clones is Spec.Backend.Clone, settled by decideClone once the backend and
-	// the workspace shape are known. CloneSet records an explicit flag, which
-	// turns "cannot clone here" from a fallback into an error.
+	ProxyImage      string
 	Clone, CloneSet bool
 }
 
@@ -44,7 +38,6 @@ func (p Params) credentialsOrDefault() string {
 
 func (p Params) intercepts() bool { return p.Mode != "open" || !p.forwards() }
 
-// Agent evidence: how much of its own work the harness narrates.
 const (
 	evidenceLabel   = "agent evidence"
 	EvidenceVar     = "PROVEO_AGENT_EVIDENCE"
@@ -77,12 +70,6 @@ func (p *Params) applyCapabilities(c manifest.Capabilities) error {
 	return nil
 }
 
-// policyProviderHosts names the endpoints the egress DLP must treat as
-// on-provider: where a credential this run legitimately holds is allowed to go.
-// It unions the detected providers' hosts with the ones the manifest declares
-// the harness can use, because the second set is the only one a SUBSCRIPTION
-// harness has — it logs in inside the sandbox, so no key is detectable
-// host-side, yet the token it mints still has to reach the vendor.
 func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
 	if !p.ModeSet && cached.Egress != "" {
 		p.Mode = cached.Egress
@@ -100,9 +87,6 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	p.Roles = posture.MergeRoles(provider.RolesFrom(lookup), cached.Models)
 }
 
-// addonDefaults is the picker's initial checkbox state: a remembered answer
-// wins, and absent one the docker add-on starts checked — the run is going to
-// use it, so the box that says so is ticked before the operator is asked.
 func (p *Params) addonDefaults(opts []string) []bool {
 	on := make([]bool, len(opts))
 	for i, a := range opts {
@@ -111,13 +95,6 @@ func (p *Params) addonDefaults(opts []string) []bool {
 	return on
 }
 
-// willSandbox reports whether this run takes the sandbox backend, and is the
-// value every posture line is rendered from.
 func (p *Params) willSandbox(man manifest.Manifest) bool {
 	return sandbox.Selected(man)
 }
-
-// reviewConsent builds the terminal half of the review tier: a pty overlay that
-// asks, and the answer as a plain bool. The backend takes this as a callback, so
-// it owns the gate and the socket while never drawing a prompt — and a test can
-// pass deny-all without a terminal.

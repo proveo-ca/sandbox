@@ -35,7 +35,6 @@ if [[ -n "$PUSH" ]]; then
   exit 0
 fi
 
-# Floor: the base-node floor plus the shared language servers.
 lsp_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v node >/dev/null \

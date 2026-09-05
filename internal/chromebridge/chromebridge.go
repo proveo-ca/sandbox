@@ -1,10 +1,10 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
-//
-// Package chromebridge is the HOST half of the Claude in Chrome bridge: a TCP
-// listener that, per connection, dials the newest native-host socket at
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml Package chromebridge is the
+// HOST half of the Claude in Chrome bridge: a TCP listener that, per
+// connection, dials the newest native-host socket at
 // /tmp/claude-mcp-browser-bridge-<username>/<pid>.sock and pipes bytes both
-// ways, guarded by a per-run token. Its counterpart in the image is
-// defs/claudecode/mcp/proveo-lib/chrome-bridge.js.
+// ways, guarded by a per-run token.
+//
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 package chromebridge
 
 import (
@@ -28,58 +28,29 @@ import (
 )
 
 const (
-	// Addon is the picker label. Kept beside docker's "(sandbox)" spelling so the
-	// row reads as one family of things the run can hand the agent.
 	Addon = "claude-in-chrome"
 
-	// EnvAddr is what the container relay dials: host:port, from the container's
-	// point of view (host.docker.internal:<port> on the docker backend).
-	EnvAddr = "PROVEO_CHROME_BRIDGE"
-	// EnvToken carries the per-run handshake token. Forwarded as a BARE -e so the
-	// value rides the client environment rather than the docker argv.
+	EnvAddr  = "PROVEO_CHROME_BRIDGE"
 	EnvToken = "PROVEO_CHROME_BRIDGE_TOKEN"
 
-	// handshakePrefix opens every relayed connection; chrome-bridge.js writes the
-	// same bytes. The line is bounded so a client cannot stall the reader with an
-	// unterminated preamble.
 	handshakePrefix  = "PROVEO-CHROME-BRIDGE "
 	handshakeMaxLine = 256
 	handshakeTimeout = 5 * time.Second
 
-	// SocketDirPrefix is Claude Code's own: `/tmp/claude-mcp-browser-bridge-${username}`.
 	SocketDirPrefix = "/tmp/claude-mcp-browser-bridge-"
 
-	// ContainerHost is how the docker backend names the host from inside the
-	// agent container; the egress plan maps it to the host gateway when a bridge
-	// is on (egress.Options.HostBridge).
 	ContainerHost = "host.docker.internal"
 )
 
-// TierSupported reports whether the DOCKER backend's egress posture leaves the
-// agent a route to the host's bridge listener: the plain tier, with credentials
-// forwarded. Every other combination puts a TLS-inspecting MITM — and in the
-// enforced tiers a Squid allowlist — between the agent and everything else, with
-// the agent on an `--internal` network that has no host gateway at all. Brokered
-// credentials fail from the other direction: injection is a guarantee only while
-// the injector is the sole egress path.
-//
-// It lives here because the bridge is the only thing this constraint still
-// governs. It used to be dind.ModeSupported / dind.CredentialsSupported, asking
-// the same question about a privileged sidecar; that sidecar is retired
-// (_spec/_plans/retire-dind.puml) and the predicate outlived it. The sbx backend
-// is unaffected — the tier is inert there and the bridge is refused for a
-// different reason (a sandbox VM has no route to a host socket).
 func TierSupported(mode, credentials string) bool {
 	return strings.EqualFold(strings.TrimSpace(mode), "open") &&
 		strings.EqualFold(strings.TrimSpace(credentials), "forward")
 }
 
 // TierWhy is the one sentence the picker and the run both print when
-// TierSupported says no. One string so the two surfaces cannot drift.
+// TierSupported says no.
 const TierWhy = "needs egress open + credentials forward"
 
-// Username mirrors Claude Code's rule for the socket directory suffix:
-// os.userInfo().username, else $USER, else $USERNAME, else "default".
 func Username(getenv func(string) string) string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return u.Username
@@ -92,40 +63,22 @@ func Username(getenv func(string) string) string {
 	return "default"
 }
 
-// SocketDir is the directory Claude Code's native host listens in for username.
 func SocketDir(username string) string { return SocketDirPrefix + username }
 
-// HostSocketDir is SocketDir for the operator running proveo.
 func HostSocketDir() string { return SocketDir(Username(os.Getenv)) }
 
-// The credential gate, mirrored from Claude Code 2.1.258: the scopes are
-// SYNTHESISED on the client from where the credential arrived, and
-// /api/oauth/validate is named in its log line but never called.
 const (
-	// EnvOAuthToken shadows the credential store outright: when it is set, Claude
-	// Code stops looking and a /login sitting in the same home is never consulted.
-	EnvOAuthToken = "CLAUDE_CODE_OAUTH_TOKEN"
-	// EnvOAuthScopes is the only thing that decides an env-var session's scopes.
-	// Space-separated; unset means the hardcoded fallback below.
-	EnvOAuthScopes = "CLAUDE_CODE_OAUTH_SCOPES"
-	// EnvOAuthTokenFD is the desktop app's delivery path. Its scope default
-	// carries user:ccr_inference, so that shape passes without saying anything.
+	EnvOAuthToken   = "CLAUDE_CODE_OAUTH_TOKEN"
+	EnvOAuthScopes  = "CLAUDE_CODE_OAUTH_SCOPES"
 	EnvOAuthTokenFD = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"
-	// EnvAPIKey buys inference and no OAuth account, so there are no scopes to
-	// accept — unless a login is persisted, which the key does not displace.
-	EnvAPIKey = "ANTHROPIC_API_KEY"
+	EnvAPIKey       = "ANTHROPIC_API_KEY"
 )
 
-// BrowserScopes is the accepted set. Any ONE of them is enough.
+// BrowserScopes is the accepted set.
 var BrowserScopes = []string{"user:profile", "user:office", "user:ccr_inference"}
 
-// envTokenFallbackScopes is what Claude Code assumes when EnvOAuthToken arrives
-// with no EnvOAuthScopes: inference only, which accepts nothing.
 var envTokenFallbackScopes = []string{"user:inference"}
 
-// ScopeGate reports why Claude Code would refuse to wire the browser integration
-// for the session this run is about to start, or "" when it would wire it — a
-// shape it cannot classify included.
 func ScopeGate(lookup func(string) string, hasPersistedLogin bool) string {
 	if lookup == nil {
 		return ""
@@ -169,9 +122,6 @@ func hasBrowserScope(scopes []string) bool {
 
 func scopeList() string { return strings.Join(BrowserScopes, ", ") }
 
-// NewestSocket returns the most recently modified *.sock in dir. Claude Code
-// lists the directory the same way; when Chrome has restarted the native host,
-// the newest socket is the live one and the older files are leftovers.
 func NewestSocket(dir string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -200,8 +150,6 @@ func NewestSocket(dir string) (string, error) {
 	return socks[0].path, nil
 }
 
-// Available reports whether a Claude in Chrome native host is reachable right
-// now, and if not, what the operator has to do about it.
 func Available(dir string) (ok bool, why string) {
 	if _, err := NewestSocket(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -222,8 +170,6 @@ type Relay struct {
 	errf  func(string, ...any)
 }
 
-// BindAddr picks where the relay listens: loopback where host.docker.internal
-// routes there, the bridge address on Linux.
 func BindAddr() string {
 	if runtime.GOOS == "linux" {
 		return "0.0.0.0:0"
@@ -231,8 +177,6 @@ func BindAddr() string {
 	return "127.0.0.1:0"
 }
 
-// Start listens on bind and relays each authenticated connection to the newest
-// native host socket in dir at the time the connection arrives.
 func Start(bind, dir string, errf func(string, ...any)) (*Relay, error) {
 	if errf == nil {
 		errf = func(string, ...any) {}
@@ -265,12 +209,13 @@ func (r *Relay) Token() string { return r.token }
 func (r *Relay) ContainerAddr() string { return ContainerHost + ":" + strconv.Itoa(r.Port()) }
 
 // Env are the two variables the agent container needs, in runner.Config.Env
-// form: the address as KEY=VALUE, the token as a bare name (the caller sets it in
-// its own environment, see SetTokenEnv).
+// form: the address as KEY=VALUE, the token as a bare name (the caller sets it
+// in its own environment, see SetTokenEnv).
 func (r *Relay) Env() []string { return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken} }
 
-// SetTokenEnv exports the token into this process so a bare `-e PROVEO_CHROME_BRIDGE_TOKEN`
-// forwards it without the value appearing on the docker command line.
+// SetTokenEnv exports the token into this process so a bare `-e
+// PROVEO_CHROME_BRIDGE_TOKEN` forwards it without the value appearing on the
+// docker command line.
 func (r *Relay) SetTokenEnv() error { return os.Setenv(EnvToken, r.token) }
 
 // Close stops accepting and waits for in-flight connections to unwind.
@@ -299,7 +244,6 @@ func (r *Relay) serve() {
 	}
 }
 
-// Handshake is the first line the container relay sends for token.
 func Handshake(token string) string { return handshakePrefix + token + "\n" }
 
 func (r *Relay) handle(c net.Conn) {
@@ -334,8 +278,6 @@ func (r *Relay) handle(c net.Conn) {
 	go func() { _, _ = io.Copy(up, br); done <- struct{}{} }()
 	go func() { _, _ = io.Copy(c, up); done <- struct{}{} }()
 	<-done
-	// Half-close is not something the native messaging stream uses; the first
-	// side to finish ends the conversation.
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.CloseRead()
 	}

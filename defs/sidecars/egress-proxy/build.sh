@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Build the Go egress inspection proxy image. Build context is the repo root
-# (the Go module); the Dockerfile lives here.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

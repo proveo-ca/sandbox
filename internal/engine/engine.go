@@ -1,4 +1,6 @@
 // SPEC: _spec/internal/engine/container-engine.puml
+//
+// SPEC: _spec/internal/engine/container-engine.puml
 package engine
 
 import (
@@ -24,7 +26,6 @@ const (
 	DockerEngine   Kind = "docker-engine"
 )
 
-// Test seams; production leaves these at their defaults.
 var (
 	lookPath = exec.LookPath
 	goos     = runtime.GOOS
@@ -44,7 +45,6 @@ type Info struct {
 	HasCLI   bool   // a docker CLI resolved on PATH
 }
 
-// profile is the per-kind static knowledge for one engine.
 type profile struct {
 	name       string // display name
 	start      string // command that brings the engine up
@@ -54,7 +54,6 @@ type profile struct {
 	infoOS     []string // `docker info` .OperatingSystem / .Name markers
 }
 
-// profiles is ordered; the first match wins.
 var profiles = []struct {
 	kind Kind
 	profile
@@ -106,7 +105,6 @@ func profileFor(k Kind) profile {
 	return profile{}
 }
 
-// DetectOffline classifies the engine without contacting the daemon.
 func DetectOffline() Info {
 	in := Info{Kind: Unknown}
 	if _, err := lookPath("docker"); err != nil {
@@ -119,7 +117,6 @@ func DetectOffline() Info {
 	return in
 }
 
-// Detect classifies the engine behind the docker CLI, confirming with the daemon.
 func Detect() Info {
 	in := DetectOffline()
 	if !in.HasCLI {
@@ -143,7 +140,6 @@ func Detect() Info {
 	return in
 }
 
-// activeContext resolves the endpoint the CLI will dial.
 func activeContext() (name, endpoint string) {
 	if h := strings.TrimSpace(getenv("DOCKER_HOST")); h != "" {
 		return "", h
@@ -159,7 +155,6 @@ func activeContext() (name, endpoint string) {
 	return parts[0], parts[1]
 }
 
-// classify matches the endpoint socket, then the context name.
 func classify(context, endpoint string) Kind {
 	ep, ctx := strings.ToLower(endpoint), strings.ToLower(context)
 	for _, p := range profiles {
@@ -182,7 +177,6 @@ func classify(context, endpoint string) Kind {
 	return Unknown
 }
 
-// classifyInfo matches the daemon's self-description.
 func classifyInfo(operatingSystem, name string) Kind {
 	hay := strings.ToLower(operatingSystem + " " + name)
 	for _, p := range profiles {
@@ -195,7 +189,6 @@ func classifyInfo(operatingSystem, name string) Kind {
 	return Unknown
 }
 
-// dockerInfo reports the daemon's OperatingSystem, Name and ServerVersion.
 func dockerInfo() (operatingSystem, name, version string, ok bool) {
 	out, err := output("docker", "info", "--format", "{{json .}}")
 	if err != nil {
@@ -214,7 +207,6 @@ func dockerInfo() (operatingSystem, name, version string, ok bool) {
 
 var semverish = regexp.MustCompile(`\d+\.\d+(\.\d+)?`)
 
-// engineVersion asks the engine's own CLI for its version.
 func engineVersion(k Kind) string {
 	cli := profileFor(k).versionCLI
 	if cli == "" {

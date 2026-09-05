@@ -1,0 +1,146 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The harden pass — one script, re-run by every layer that installs
+
+' purpose: what proveo-harden strips, why it is a SCRIPT rather than a copy-pasted
+'          inline RUN, and the two places its guarantee is currently overstated
+' covers: defs/base/proveo-harden
+' covers: defs/base/Dockerfile
+' covers: defs/base-node/Dockerfile
+' covers: defs/base-node-lsp/Dockerfile
+' covers: defs/base-node-browser/Dockerfile
+' covers: defs/cecli/Dockerfile
+' covers: defs/cursor/Dockerfile
+' covers: defs/opencode/Dockerfile
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/claudecode/solidity/Dockerfile
+'
+' ── WHAT THE PASS ACTUALLY DOES ─────────────────────────────────────────────
+' `defs/base/proveo-harden` is a POSIX /bin/sh script, installed into
+' proveo/base at /usr/local/sbin/proveo-harden by `COPY --chmod=0755`. Three
+' actions, in this order, for each path argument:
+'
+'   find "$root" -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true
+'   find "$root" -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
+'   rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
+'
+' So: strip every setuid bit and every setgid bit off regular files, then delete
+' the raw network utilities. Both finds swallow stderr and end in `|| true` — an
+' unreadable or vanishing path must not fail a build. `-xdev` keeps the sweep on
+' one filesystem.
+'
+' ── SCOPE: THE ARGUMENTS ARE THE POINT ──────────────────────────────────────
+' With no arguments the script sets `-- /` and sweeps the whole filesystem. That
+' full sweep is run ONCE, by proveo/base. Every later layer passes just the
+' prefixes its own apt/npm/pip touched — `proveo-harden /usr /opt` — so a re-run
+' does not re-walk a filesystem that already carries a browser store and several
+' venvs. The `rm -f` list is absolute and therefore runs on every invocation
+' regardless of the prefixes given, which is intentional: those four paths are
+' the ones a new package can reintroduce.
+'
+' Two layers call it with NO arguments and thus take the full `/` sweep a second
+' time — defs/cursor/Dockerfile and defs/opencode/Dockerfile, at their apt layer.
+' Recorded because it is a cost, not a correctness problem.
+'
+' ── WHY A SCRIPT AND NOT AN INLINE RUN ──────────────────────────────────────
+' The pass is baked into proveo/base precisely so that every descendant layer
+' which installs extras re-runs THE SAME pass. A new apt or npm package can
+' reintroduce a setuid binary, so hardening cannot be a one-time act at the
+' bottom of the lineage. The alternative — a copy-pasted inline `find … chmod`
+' in each Dockerfile — drifts: ten copies of a security sweep diverge silently,
+' and the one that matters is always the one nobody updated.
+'
+' ── WHERE THE GUARANTEE IS OVERSTATED (both real, neither fixed here) ───────
+' (a) `LABEL security.hardened=true` is asserted by proveo/base, proveo/base-node,
+'     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode and
+'     claudecode — but several harnesses add root-owned binaries AFTER their last
+'     proveo-harden call, and defs/claudecode/solidity/Dockerfile never calls the
+'     script at all while inheriting the label from proveo/claudecode. The label
+'     is a claim about the layer that wrote it, not about the image.
+' (b) The `/opt` sweep strips the setuid bit from Chromium's `chrome-sandbox`
+'     helper as a SIDE EFFECT (defs/base-node-browser/Dockerfile installs into
+'     /opt/ms-playwright, and the harden call that follows passes /opt). That is
+'     why the browser story depends on `--no-sandbox` — which agent-browser
+'     auto-enables in containers, so nothing visibly breaks. Incidental today;
+'     recorded so it reads as a decision rather than an accident.
+'
+' proveo-harden is explicitly NOT implicated in the dockerd privilege failures
+' recorded in _spec/_plans/image-size-reduction.puml: it only strips setuid and
+' setgid bits and removes nc/netcat/netstat/ss.
+
+component "defs/base/proveo-harden\n""/usr/local/sbin/proveo-harden [paths…]""" as H <<app>>
+
+node "Callers, in lineage order" as CALL <<host>> {
+  component "proveo/base — full ""/"" sweep\nonce, after the apt and curl layers" as C1 <<app>>
+  component "base-node · base-node-lsp\nbase-node-browser — ""/usr /opt""" as C2 <<app>>
+  component "cecli · claudecode · solidity\n""/usr /opt"" after each install" as C3 <<app>>
+  component "cursor · opencode\nno args — a second full sweep" as C4 <<app>>
+}
+
+component "setuid / setgid bits\n""-perm -4000"" · ""-perm -2000""" as BITS <<error>>
+component "raw network utilities\n""nc"" · ""netcat"" · ""netstat"" · ""ss""" as NET <<error>>
+
+database "chrome-sandbox\nsetuid bit stripped by the ""/opt"" sweep" as CHROME <<db>>
+component "``LABEL security.hardened=true``\nclaimed by layers that later install" as LABEL <<error>>
+component "a copy-pasted inline sweep\nten drifting versions of one rule" as INLINE <<error>>
+
+C1 ARROW_MAIN H
+C2 ARROW_MAIN H
+C3 ARROW_MAIN H
+C4 ARROW_MAIN H
+H ARROW_ERROR BITS : ""chmod u-s"" · ""chmod g-s""
+H ARROW_ERROR NET : ""rm -f"", absolute paths,\non every invocation
+H ARROW_ERROR CHROME : incidental — the reason\n""--no-sandbox"" is load-bearing
+CALL ARROW_ERROR LABEL : asserted before the\nlast installing layer
+H ARROW_ERROR INLINE : never — one script,\nre-run rather than restated
+
+note bottom of H
+  **Installing is what re-arms the risk.**
+  A new apt or npm package can ship a setuid
+  binary, so the sweep is not a one-time act at
+  the bottom of the lineage — every layer that
+  installs runs the same script again.
+end note
+
+note right of CALL
+  **The arguments keep the re-runs cheap.**
+  No argument means sweep ""/"", and the base does
+  that once. Later layers name only the prefixes
+  they touched, so a re-run does not re-walk a
+  browser store and three venvs.
+end note
+
+note bottom of NET
+  **The deletions ignore the path arguments.**
+  Those four absolute paths are removed on every
+  invocation, because a later package is exactly
+  what reintroduces them — unlike the bit sweep,
+  there is nothing to scope.
+end note
+
+note bottom of LABEL
+  **The label outlived the pass.**
+  It describes the layer that wrote it, not the
+  image: harnesses install root-owned binaries
+  after their last call, and solidity never calls
+  the script while inheriting the claim.
+end note
+
+note bottom of CHROME
+  **A security sweep with a browser side effect.**
+  The ""/opt"" pass strips chrome-sandbox's setuid
+  bit, so Chromium cannot use its own sandbox and
+  ""--no-sandbox"" is required — auto-enabled in
+  containers, which is why nothing looks broken.
+end note
+
+note bottom of INLINE
+  **Drift is the failure mode being avoided.**
+  Ten inline copies of one security rule diverge
+  quietly, and the copy that matters is the one
+  nobody remembered to update. A script in the
+  base is edited in a single place.
+end note
+
+@enduml

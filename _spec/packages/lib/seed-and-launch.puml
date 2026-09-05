@@ -1,0 +1,280 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Seed and launch — the one startup step both backends run, and how the agent is exec'd
+
+' purpose: why proveo_seed's step order is a dependency chain, and why the hand-off to the agent has to test whether the first word resolves as an executable
+' covers: packages/lib/proveo-seed
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
+'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: internal/sbx/kit.go
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
+'   what each step does ....... _spec/packages/lib/steps.puml
+'   the class table ........... _spec/_plans/config-seeding-and-persistence.puml
+'   the wiring functions ...... _spec/packages/lib/language-server-provisioning.puml
+'   the Kit's three work kinds  _spec/internal/sbx/sbx-kit-contract.puml
+'   what the syncs move ....... _spec/internal/sbx/state-sync.puml
+'
+' ── THE SEED AS A COMMAND ──────────────────────────────────────────────────
+' packages/lib/proveo-seed exists so a Kit's setup.startup can NAME the step:
+' it runs under `set -euo pipefail`, sources /entrypoint-lib.sh by absolute
+' path, and calls proveo_seed "$@". Both backends reach the same function and
+' only the invocation differs — docker from defs/*/entrypoint.sh before the
+' exec, sbx from setup.startup.
+'
+' Correction, recorded because it cost real time: the entrypoint is NOT skipped
+' on sbx. `-t` overrides the IMAGE, not its ENTRYPOINT, so defs/*/entrypoint.sh
+' runs on BOTH backends — proven by the ladder, where rung 1 stayed broken after
+' the home fix and went green only once proveo_exec_agent stopped that entrypoint
+' handing sbx's command to the agent as a prompt. The sbx run that had no poetry
+' was the ROOT-ONLY Python scan (_py_project_roots), not a skipped entrypoint.
+'
+' ── THE STEP ORDER, AND WHY EACH EDGE IS A DEPENDENCY ──────────────────────
+'   1. proveo_sync_state restore   a resumed session's transcripts must be in
+'                                  place before the agent starts looking.
+'   2. proveo_sync_config restore  BEFORE render_subagents and every configure_*
+'                                  step: they all merge with setdefault
+'                                  semantics, so a config restored after them is
+'                                  a config whose persisted values lost to this
+'                                  run's defaults — silently, because a merge
+'                                  that overwrites nothing looks identical to a
+'                                  merge that had nothing to overwrite.
+'   3. render_subagents <harness>  per-target destination. cecli reads subagents
+'                                  from CECLI_HOME (/app/.cecli in the image, the
+'                                  workspace by design — defs/cecli/README.md),
+'                                  and its entrypoint lists exactly that dir in
+'                                  CECLI_AGENT_CONFIG's subagent_paths.
+'                                  "$home/agents" was seeded where nothing
+'                                  looked: the banner never listed them and
+'                                  Delegate never saw them.
+'   4. accept_workspace_trust      before the agent, or the prompt appears.
+'   5. proveo_sync_tools restore   BEFORE provisioning: _proveo_tool_path puts
+'                                  the tree on PATH and every installer step
+'                                  gates on `command -v`, so a toolchain restored
+'                                  late is a toolchain the run reinstalls beside
+'                                  itself.
+'   6. proveo_provision_toolchain  project tools, node, python, dep trees, LSPs.
+'   7. proveo_wire_config          AFTER provisioning, so each class records what
+'                                  now exists rather than what did before. EVERY
+'                                  harness wires here, never in its def
+'                                  entrypoint: sbx runs `proveo-seed` alone and
+'                                  never the image ENTRYPOINT, so a wiring step
+'                                  left in a def is a step the sandbox backend
+'                                  silently skips. Pinned by
+'                                  internal/contract/lsp_config_parity_test.go.
+'   8. house rules · UI defaults · claude hooks · browser skills · chrome bridge
+'
+' `|| true` on the three sync calls is load-bearing and is NOT the old silence.
+' proveo-seed runs under `set -euo pipefail`, and the syncs now RETURN non-zero
+' when a copy fails — which is what makes the failure visible to save's caller
+' and to the tests. Let that status escape and a single failed file copy aborts
+' the startup command, so sbx reports "failed to run sandbox container" and NO
+' sandbox comes up at all. Losing yesterday's transcripts must never be the
+' reason today's run cannot start; the function has already said what went wrong
+' on stderr.
+'
+' ── THE TWO ACCESSORS EVERY STEP GOES THROUGH ──────────────────────────────
+' _proveo_agent_home = ${PROVEO_HOME:-${HOME:-}} — the home the AGENT will run
+' with, which is not always the one this process has: sbx runs setup commands
+' under `user: "1000"`, and that resets HOME from /etc/passwd. Anything written
+' for the agent to find later must go here, or it lands in the image's home
+' while the agent reads somewhere else.
+'
+' _proveo_scan_root = ${1:-${PROVEO_WORKDIR:-$PWD}} — the workspace to provision
+' against. On docker that is the container path; sbx mounts each workspace at
+' its own HOST path, so the launcher passes it explicitly and $PWD is not it.
+'
+' set_working_directory makes the SAME choice for the shell: PROVEO_WORKDIR wins
+' over the caller's default, because on sbx the workspace is mounted at its own
+' host path and /app holds nothing. Launching the agent there made it report
+' "not a git repository" and then block on a trust dialog for a folder that is
+' not the project — a prompt no automation answers — and the run died with the
+' sandbox 30s later. proveo-entrypoint chdirs correctly but cannot move its
+' parent shell, so the shell has to decide for itself.
+'
+' The seed is idempotent by construction — every step is "create if absent" or a
+' merge — because a re-attached sandbox runs the startup hook again.
+'
+' ── THE LAUNCHER HAND-OFF ──────────────────────────────────────────────────
+' proveo_exec_agent decides whether "$@" is the agent's ARGUMENTS or a COMMAND to
+' run INSTEAD of the agent, and it exists because the two backends disagree.
+'
+'   docker  proveo passes the harness's own flags (`-p "prompt"`, `--continue`),
+'           so they belong AFTER the agent binary.
+'   sbx     the built-in agent kit supplies the whole command in the CMD
+'           position — `claude --dangerously-skip-permissions`, or a `sh -c …`
+'           wrapper. The stock template's ENTRYPOINT is a bare init (`tini --`)
+'           so that command simply runs. proveo's ENTRYPOINT is the def script,
+'           so the same words arrive as "$@" and appending them to our own launch
+'           line hands the AGENT NAME to the agent as a positional — which every
+'           harness reads as a PROMPT.
+'
+' The agent then answers "claude --dangerously-skip-permissions", or just "sh",
+' and exits; the sandbox stops with it, and the operator sees
+' `ERROR: sandbox … was stopped` with no cause. That is the whole "auto-close",
+' and the phantom `sh` prompts with it.
+'
+' The test is whether the first word RESOLVES as an executable. A harness flag
+' never does (`-p`, `--continue`); a launcher-supplied command always does
+' (`claude`, `sh`, `bash`). No backend detection, no env sniffing, and it stays
+' correct if either side changes its wording.
+'
+' Two guards, both load-bearing, in this order:
+'   [[ "$1" != -* ]]        FIRST, and not redundant: `command -v -p` parses -p
+'                           as command's OWN flag and reports success, so a bare
+'                           probe declares the harness flag `-p` an executable
+'                           and execs it.
+'   command -v -- "$1"      `--` then stops option parsing for the rest.
+' `--` also separates the def's own launch flags from the caller's argv, so each
+' entrypoint reads `proveo_exec_agent <agent> <our flags> -- "$@"`.
+
+node "Both backends, one step" as BE <<host>> {
+  component "docker — image ENTRYPOINT\n""defs/<h>/entrypoint\.sh"" → seed → exec" as DOCK <<app>>
+  component "sbx — ""setup\.startup""\n""proveo-seed <target>"", no exec here" as SBX <<app>>
+}
+
+component """packages/lib/proveo-seed""\nthe seed as a NAMEABLE command" as CMDWRAP <<app>>
+component """proveo_seed <target>""\nfile-shaped work only" as SEED <<app>>
+
+node "The order — every edge a dependency" as ORDERBOX <<host>> {
+  component "1 · ""proveo_sync_state restore""\n2 · ""proveo_sync_config restore""" as ORDER <<async>>
+  component "3 · ""render_subagents""\n4 · ""accept_workspace_trust""" as TRUST <<app>>
+  component "5 · ""proveo_sync_tools restore""\n6 · ""proveo_provision_toolchain""" as PROV <<app>>
+  component "7 · ""proveo_wire_config""\n8 · rules · UI · hooks · skills · chrome" as WIRE <<app>>
+}
+
+component """_proveo_agent_home"" · ""_proveo_scan_root""\nneither is ""$HOME"", neither is ""$PWD""" as HOMEFN <<app>>
+
+component "**hand-off** — ""proveo_exec_agent""\n<agent> <our flags> ""--"" then the caller's argv" as EXEC <<app>>
+component "**the test** — first word not ""-*"",\nTHEN ""command -v --"" resolves it" as GUARD <<app>>
+component "agent process" as AGENT <<app>>
+component "the agent NAME read as a PROMPT\n'auto-close' · phantom 'sh' prompts" as PROMPT <<error>>
+
+DOCK ARROW_MAIN SEED
+SBX ARROW_MAIN CMDWRAP
+CMDWRAP ARROW_MAIN SEED
+SEED ARROW_MAIN ORDER
+ORDER ARROW_MAIN TRUST : restore BEFORE every setdefault merge
+TRUST ARROW_MAIN PROV
+PROV ARROW_MAIN WIRE : wire AFTER provisioning
+SEED ARROW_MAIN HOMEFN : every step resolves paths here
+DOCK ARROW_MAIN EXEC : only docker execs
+EXEC ARROW_MAIN GUARD
+GUARD ARROW_MAIN AGENT : first word resolves → run it INSTEAD
+GUARD ARROW_OPTIONAL AGENT : otherwise → agent + our flags + ""$@""
+EXEC ARROW_ERROR PROMPT : what appending sbx's command did
+
+note right of SEED
+  **The seed is the one step BOTH backends
+  reach by a route neither can skip.** docker
+  calls it from the entrypoint; sbx calls it
+  from ""setup\.startup"" and never runs the
+  image ENTRYPOINT at all.
+end note
+
+note bottom of SEED
+  **""|| true"" here is load-bearing, and is not
+  the old silence.** The syncs now RETURN
+  non-zero so a failure is visible; letting that
+  escape under ""set -euo pipefail"" would abort
+  the startup command and bring up no sandbox.
+end note
+
+note bottom of CMDWRAP
+  **The seed as a COMMAND, so a Kit's
+  ""setup\.startup"" can name it.** It sources
+  the lib by absolute path under
+  ""set -euo pipefail"" and calls one function:
+  both backends reach the same code.
+end note
+
+note bottom of ORDER
+  **Order is a dependency, not a preference.**
+  State restores first, so a resumed session's
+  transcripts are in place before the agent
+  looks; config restores before every merge,
+  which is setdefault and would otherwise win.
+end note
+
+note right of PROV
+  **Tools restore BEFORE provisioning.**
+  ""_proveo_tool_path"" puts the tree on PATH and
+  every installer gates on ""command -v"", so a
+  toolchain restored late is one the run
+  reinstalls beside itself.
+end note
+
+note bottom of WIRE
+  **Wiring runs AFTER provisioning**, so each
+  config records what now exists rather than
+  what did before — and it runs in the SEED,
+  never in a def entrypoint, which would reach
+  the docker backend alone.
+end note
+
+note bottom of TRUST
+  **A prompt nobody is watching cannot be
+  answered.** Claude Code asks the operator to
+  confirm an unseen folder, so the workspace is
+  marked trusted up front — the same thing sbx's
+  own claude kit does from ""setup\.install"".
+end note
+
+note right of TRUST
+  **MERGED, never rewritten.** That file is the
+  operator's own ""~/\.claude\.json"", carried in
+  from the proveo home, so only this directory's
+  ""hasTrustDialogAccepted"" is set and the rest
+  is copied through untouched.
+end note
+
+note bottom of HOMEFN
+  **Neither is ""$HOME"", neither is ""$PWD"".**
+  sbx runs startup commands as uid 1000, which
+  resets HOME from ""/etc/passwd""; and it mounts
+  each workspace at its own HOST path, so the
+  launcher passes the scan root explicitly.
+end note
+
+note right of EXEC
+  **Two launchers, one argv position.** docker
+  passes the harness's own flags, so they go
+  AFTER the binary; sbx's built-in agent kit
+  supplies the WHOLE command in the CMD slot,
+  and those words arrive here as ""$@"" too.
+end note
+
+note left of EXEC
+  **And the operator sees no cause.** The run
+  ends with ""ERROR: sandbox … was stopped"",
+  naming nothing — that plus the phantom 'sh'
+  prompts were one bug, not two.
+end note
+
+note bottom of EXEC
+  **The test is whether the first word RESOLVES
+  as an executable.** A harness flag never does
+  (""-p"", ""--continue""); a launcher command
+  always does (""claude"", ""sh"", ""bash""). No
+  backend detection and no env sniffing.
+end note
+
+note right of GUARD
+  **Both guards are load-bearing.** ""$1"" != -*
+  comes FIRST: ""command -v -p"" parses ""-p"" as
+  command's OWN flag and reports success, so a
+  bare probe declares a harness flag executable
+  and execs it. ""--"" then stops option parsing.
+end note
+
+note bottom of PROMPT
+  **The whole 'auto-close'.** Appended to our
+  own launch line, the agent NAME arrives as a
+  positional — which every harness reads as a
+  PROMPT. The agent answers that string, or
+  just 'sh', then exits, and the sandbox with it.
+end note
+@enduml

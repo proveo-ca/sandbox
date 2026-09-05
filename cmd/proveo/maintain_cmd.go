@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/maintain/image-build-deploy.puml,
+// _spec/_devops/image-lineage-and-publish.puml
+//
 // SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
@@ -67,7 +70,6 @@ func pickTargets(reg []maintain.Target, verb string, in io.Reader, out io.Writer
 	return pickTargetsNumbered(reg, verb, in, out)
 }
 
-// fuzzyPickTargets shows an interactive finder with "all" as entry 0.
 func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, error) {
 	labels := make([]string, 0, len(reg)+1)
 	labels = append(labels, "all")
@@ -96,7 +98,6 @@ func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, er
 	return out, nil
 }
 
-// pickTargetsNumbered prints a numbered menu (0 = all) and returns the choice.
 func pickTargetsNumbered(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
 	fmt.Fprintf(out, "Select a target to %s:\n", verb)
 	fmt.Fprintln(out, "   0) all")
@@ -116,8 +117,6 @@ func pickTargetsNumbered(reg []maintain.Target, verb string, in io.Reader, out i
 	return []maintain.Target{reg[n-1]}, nil
 }
 
-// runPlan executes (or prints, when printOnly) each command in order, streaming
-// stdio, stopping at the first failure.
 func runPlan(cmds []maintain.Command, printOnly bool) error {
 	for _, c := range cmds {
 		if printOnly {

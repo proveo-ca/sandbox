@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/provider/model-resolution.puml,
+// _spec/internal/provider/model-catalog.puml
+//
 // SPEC: _spec/internal/provider/model-resolution.puml, _spec/internal/provider/model-catalog.puml
 package provider
 
@@ -9,12 +12,9 @@ import (
 
 var RoleVars = []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"}
 
-// Roles is a session's model assignment, keyed by RoleVars name. Empty entries
-// mean the role is unset, which is normal: most sessions set one.
+// Roles is a session's model assignment, keyed by RoleVars name.
 type Roles map[string]string
 
-// RolesFrom reads the role variables through lookup, normalizing each value so a
-// loose spelling resolves the same as an exact one.
 func RolesFrom(lookup func(string) string) Roles {
 	r := Roles{}
 	for _, v := range RoleVars {
@@ -74,8 +74,6 @@ func (r Roles) Canonical() map[string]string {
 	return out
 }
 
-// RolesFromCanonical rebuilds an assignment from a stored map, ignoring keys it
-// does not recognize so a hand-edited or future settings file cannot break a run.
 func RolesFromCanonical(m map[string]string) Roles {
 	r := Roles{}
 	for _, role := range RoleVars {
@@ -130,14 +128,11 @@ func knownRole(v string) bool {
 	return false
 }
 
-// normalizeIntent turns a loose operator spelling into the id the registry
-// matches against: "Kimi K3", "kimi_k3" and "kimi.k3" are one intent.
 func normalizeIntent(model string) string {
 	s := strings.TrimSpace(strings.ToLower(model))
 	for _, sep := range []string{" ", "_", "."} {
 		s = strings.ReplaceAll(s, sep, "-")
 	}
-	// Collapse runs introduced by the replacements above.
 	for strings.Contains(s, "--") {
 		s = strings.ReplaceAll(s, "--", "-")
 	}

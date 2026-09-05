@@ -12,7 +12,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-// Target kinds.
 const (
 	KindBase    = "base"
 	KindHarness = "harness"
@@ -30,8 +29,6 @@ type Target struct {
 	TestScript  string   // DefDir/test.sh (may not exist; TestPlan checks at run time)
 }
 
-// sidecars are the fixed egress-enforcement images (no harness manifest). Name
-// doubles as the defs/sidecars/<name> subdir and the proveo/<name> image.
 var sidecars = []string{"egress-proxy", "mitmproxy"}
 
 var variantArgs = map[string][]string{
@@ -73,8 +70,6 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 		})
 	}
 
-	// Attach the build recipe to every target (uniform: paths off DefDir, plus
-	// the per-target variant selector).
 	for i := range out {
 		out[i].BuildScript = filepath.Join(out[i].DefDir, "build.sh")
 		out[i].TestScript = filepath.Join(out[i].DefDir, "test.sh")
@@ -90,12 +85,6 @@ type Command struct {
 }
 
 // LocalTag is the only tag a --load build ever writes, and it is never pushed.
-// PublishTag is the only tag that ever means "published".
-//
-// They are separate because they used to be the same: a local build and the
-// registry artifact both answered to :latest, so any tool that re-resolved the
-// reference — sbx pulls it at sandbox creation — could serve a week-old published
-// image over the build under test, with nothing anywhere saying which one ran.
 const (
 	LocalTag   = "local"
 	PublishTag = "latest"
@@ -116,15 +105,7 @@ func (t Target) BuildPlan(tag string, noCache bool) []Command {
 	}
 }
 
-// DeployPlan promotes the tested local build and publishes it. It REQUIRES
-// <image>:local: deploying without one would publish an image nothing ran against,
-// which is the whole reason build and publish stopped sharing a tag.
-//
-// The retag makes the local :latest identical to what was tested. The push then
-// rebuilds for every platform in PROVEO_PLATFORMS, because a --load build is
-// single-arch and cannot itself be published as a multi-arch manifest — layers come
-// from the same cache, so the host-arch image is the tested one and the other arch
-// is the same source built alongside it.
+// DeployPlan promotes the tested local build and publishes it.
 func (t Target) DeployPlan(tag string) []Command {
 	tag = normTag(tag, PublishTag)
 	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
@@ -137,8 +118,7 @@ func (t Target) DeployPlan(tag string) []Command {
 	}
 }
 
-// TestPlan runs the def's test.sh. It returns nil when the def has no test.sh —
-// callers treat that as "skip". exists is injected so the decision stays pure.
+// TestPlan runs the def's test.sh.
 func (t Target) TestPlan(exists func(string) bool) []Command {
 	if t.TestScript == "" || !exists(t.TestScript) {
 		return nil
@@ -146,7 +126,6 @@ func (t Target) TestPlan(exists func(string) bool) []Command {
 	return []Command{{Dir: t.DefDir, Argv: []string{"bash", t.TestScript}}}
 }
 
-// stripTag drops a trailing ":tag" from an image reference.
 func stripTag(image string) string {
 	if i := strings.IndexByte(image, ':'); i >= 0 {
 		return image[:i]
@@ -161,15 +140,6 @@ func normTag(tag, def string) string {
 	return tag
 }
 
-// ResolveImage picks between a published reference and the local build of the same
-// repository, preferring whichever was built more recently.
-//
-// Recency rather than mere existence: a stale :local left over from last week must
-// not shadow an image just pulled, and a build from a minute ago must not lose to a
-// published one. Only :latest references are considered — an explicit :v2 or a
-// digest is a deliberate choice and is returned untouched.
-//
-// created reports an image's build time, and false when the host has no such image.
 func ResolveImage(ref string, created func(string) (time.Time, bool)) (chosen string, isLocal bool) {
 	repo := stripTag(ref)
 	if tag := RefTag(ref); tag != PublishTag {
@@ -186,8 +156,6 @@ func ResolveImage(ref string, created func(string) (time.Time, bool)) (chosen st
 	return ref, false
 }
 
-// RefTag returns a reference's tag, defaulting to PublishTag when it carries none.
-// A digest reference has no tag and is never rewritten.
 func RefTag(ref string) string {
 	last := ref
 	if i := strings.LastIndex(ref, "/"); i >= 0 {

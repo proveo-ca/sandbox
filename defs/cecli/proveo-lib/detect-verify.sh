@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Thin wrapper → proveo-entrypoint verify (Go: internal/verify).
-# Kept as detect-verify.sh so baked image paths (/opt/proveo/lib/) keep working.
 # SPEC: _spec/defs/cursor/cursor-paradigm.puml
 
 detect_verify_commands() {
@@ -9,7 +7,6 @@ detect_verify_commands() {
     proveo-entrypoint verify "$root"
     return 0
   fi
-  # Dev fallback when the binary is not baked yet (host contract tests).
   if command -v go >/dev/null 2>&1; then
     local dir repo=""
     dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

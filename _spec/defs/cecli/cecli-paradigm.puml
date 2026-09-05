@@ -2,6 +2,52 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title cecli paradigm — pair-programming specialist (precise, low-token, human-guided)
 
+' covers: defs/cecli/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/bridges/cecli.tsv
+'
+' ── THE LOCAL MODEL GOES THROUGH OLLAMA'S OPENAI-COMPATIBLE API ────────────
+' A local model reaches litellm through Ollama's /v1 route, NOT its native one,
+' because both litellm ollama providers are broken in this image:
+'
+'   ollama_chat/<model>   loses its api_base — every call dies with
+'                         "Request URL is missing an 'http://' or 'https://'
+'                         protocol"
+'   ollama/<model>        raises FileNotFoundError
+'
+' Ollama also serves /v1 and that route works, so the model is spelled
+' "openai/<model>" and pointed at it. All three slots take it: CECLI_MODEL,
+' CECLI_EDITOR_MODEL and CECLI_WEAK_MODEL.
+'
+' OPENAI_API_BASE is litellm's name for the endpoint (OPENAI_BASE_URL is the
+' SDK's), so that is the variable set. Precedence: whatever `proveo run
+' --local-model` already exported wins; otherwise it is derived from
+' OLLAMA_API_BASE, defaulting to http://ollama:11434 so a hand-run container
+' still works. A "/v1" suffix is appended when absent. OPENAI_API_KEY defaults
+' to the literal "ollama", which is what that endpoint expects.
+'
+' NOTE: this supersedes the older "the ollama_chat/ prefix matters" reading.
+' The bridge table may still normalise an id to an ollama prefix
+' (_spec/internal/entrypoint/model-alias-bridges.puml); this block overrides
+' the three CECLI_* slots afterwards when PROVEO_LOCAL_MODEL is set.
+'
+' ── THE UI PASSTHROUGHS, AND THE ARGV RULE ─────────────────────────────────
+' DARK_MODE (true/1/yes, any case) sets both CECLI_DARK_MODE and
+' AIDER_DARK_MODE; CODE_THEME sets CECLI_CODE_THEME. Both fill an empty slot
+' only, so an explicit CECLI_* value always wins.
+'
+' CECLI_AGENT_CONFIG is defaulted only when neither the environment nor a
+' project config declares `agent-config:`. Its subagent_paths names
+' "$CECLI_HOME/agents" AND "/app/.cecli/agents", which is why proveo_seed
+' composes into CECLI_HOME rather than the agent home — see
+' _spec/packages/lib/seed-and-launch.puml.
+'
+' Evidence and --rules flags are ours to add, and both belong ONLY on a cecli
+' invocation. So the argv rule has three cases: no arguments, or a leading
+' flag, or a first word that is not one of the passthrough commands
+' (cecli, bash, sh, python, python3, node, npm, pnpm, git, curl) — those get
+' the flags prepended; a passthrough is exec'd untouched.
+'
 actor "Developer\nsupplies exact references" as DEV
 
 node "cecli container" as CTR <<host>> {
@@ -73,11 +119,10 @@ note bottom of CLI
   in the same list but they print and **exit**, so they can never be
   defaults.
 
-  **Local model: cecli reaches Ollama through litellm**, and the
-  ""ollama_chat/"" prefix matters — not the plain ""ollama/"" spelling bridged
-  from ""ARCHITECT_MODEL"". It selects the chat-plus-tools formatter that
-  agentic edits need; the plain prefix yields a completion formatter that
-  cannot drive edits.
+  **Local model: cecli reaches Ollama through litellm** — but NEITHER litellm
+  ollama provider works in this image, so the route is the OpenAI-compatible
+  one. See the header block above for the two failure modes and the spelling
+  that replaced them.
 end note
 
 

@@ -40,6 +40,11 @@ var specNotesEnforced = []string{
 	"_spec/_plans/config-seeding-and-persistence.puml",
 	"_spec/_plans/claude-in-chrome-reachability.puml",
 	"_spec/_plans/image-size-reduction.puml",
+	"_spec/internal/sbx/mcp-gateway.puml",
+	"_spec/packages/lib/seed-and-launch.puml",
+	"_spec/defs/harden-pass.puml",
+	"_spec/defs/base-image-layers.puml",
+	"_spec/defs/harness-image-layers.puml",
 }
 
 const (

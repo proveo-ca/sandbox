@@ -1,3 +1,6 @@
+// SPEC: _spec/internal/secretref/secret-references.puml,
+// _spec/_paradigms/credential-boundary.puml
+//
 // SPEC: _spec/internal/secretref/secret-references.puml, _spec/_paradigms/credential-boundary.puml
 package credentials
 
@@ -17,20 +20,17 @@ import (
 	"github.com/proveo-ca/proveo/internal/secretref"
 )
 
-// keychainAccountOK is the charset `claude` validates its account name against.
 var keychainAccountOK = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
-// keychainAccountFallback is what `claude` uses when the username is unusable.
 const keychainAccountFallback = "claude-code-user"
 
 // LookupEnv is the environment shape the service-name algorithm needs: it gives
-// an ABSENT variable and one set to "" different answers, which os.Getenv cannot
-// express.
+// an ABSENT variable and one set to "" different answers, which os.Getenv
+// cannot express.
 type LookupEnv func(string) (string, bool)
 
 func OSLookupEnv(name string) (string, bool) { return os.LookupEnv(name) }
 
-// KeychainAccount is the account name `claude` stores its credential under.
 func KeychainAccount(look LookupEnv) string {
 	user, _ := look("USER")
 	user = strings.TrimSpace(user)
@@ -40,10 +40,6 @@ func KeychainAccount(look LookupEnv) string {
 	return user
 }
 
-// KeychainServices lists the service names `claude` could have stored this
-// host's credential under, most specific first:
-//
-//	service = "Claude Code" + oauthSuffix + "-credentials" + configHash
 func KeychainServices(look LookupEnv) []string {
 	if override, _ := look("PROVEO_KEYCHAIN_SERVICE"); strings.TrimSpace(override) != "" {
 		return []string{strings.TrimSpace(override)}
@@ -57,12 +53,8 @@ func KeychainServices(look LookupEnv) []string {
 	return out
 }
 
-// keychainOAuthSuffix is claude's OAUTH_FILE_SUFFIX: empty for the production
-// host, non-empty only for its internal staging ones.
 const keychainOAuthSuffix = ""
 
-// keychainConfigHash reproduces claude's config-dir discriminator. Three states,
-// not two: see _spec/internal/secretref/secret-references.puml.
 func keychainConfigHash(look LookupEnv) string {
 	storage, storageSet := look("CLAUDE_SECURESTORAGE_CONFIG_DIR")
 	storage = strings.TrimSpace(storage)
@@ -84,26 +76,17 @@ func keychainConfigHash(look LookupEnv) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-// keychainLoginServices names, per target, the candidate service names in the
-// host store. Keyed by target for the same reason subscriptionLoginFiles is.
 var keychainLoginServices = map[string]func(LookupEnv) []string{
 	"claudecode": KeychainServices,
 }
 
-// KeychainLogin is what the host store holds for this run — metadata only. The
-// credential itself is parsed, judged and dropped.
+// KeychainLogin is what the host store holds for this run — metadata only.
 type KeychainLogin struct {
-	// Found is true when a candidate's payload parsed as a login with a
-	// non-empty access token.
-	Found bool
-	// Service is the candidate that answered. A name, never a secret.
+	Found   bool
 	Service string
-	// Outcome is the taxonomy entry for the LAST candidate consulted.
 	Outcome secretref.Outcome
 	Detail  string
 
-	// Usable and NeedsRefresh come from loginUsableBytes, the same judgement the
-	// mounted file gets.
 	Usable       bool
 	NeedsRefresh bool
 
@@ -113,9 +96,6 @@ type KeychainLogin struct {
 	Subscription     string
 }
 
-// ReadKeychainLogin consults the host secret store for target's login. One
-// continuation rule: not-found tries the next candidate, every other outcome
-// stops. An unparseable payload counts as a wrong name and continues.
 func ReadKeychainLogin(target string, look LookupEnv, r *secretref.Resolver, now time.Time) KeychainLogin {
 	services, ok := keychainLoginServices[HarnessFamily(target)]
 	if !ok || r == nil {
@@ -124,14 +104,10 @@ func ReadKeychainLogin(target string, look LookupEnv, r *secretref.Resolver, now
 	account := KeychainAccount(look)
 	last := KeychainLogin{Outcome: secretref.NotFound}
 	for _, svc := range services(look) {
-		// The account first, exactly as `claude` reads it; then the service alone.
 		for _, acct := range []string{account, ""} {
 			res := r.Keychain(svc, acct)
 			if res.Outcome != secretref.OK {
 				if res.Outcome == secretref.NotFound {
-					// No detail: "this host has no such item" is the ordinary case,
-					// and only an item that ANSWERED with something unrecognisable
-					// earns a sentence.
 					last = KeychainLogin{Service: svc, Outcome: secretref.NotFound}
 					continue
 				}
@@ -150,8 +126,6 @@ func ReadKeychainLogin(target string, look LookupEnv, r *secretref.Resolver, now
 	return last
 }
 
-// parseKeychainCredential judges one payload. JSON or hex-encoded JSON, since
-// `claude` writes with `-X <hex>`. Accepted only on a non-empty access token.
 func parseKeychainCredential(payload string, now time.Time) (KeychainLogin, bool) {
 	raw := []byte(strings.TrimSpace(payload))
 	if len(raw) == 0 {
@@ -187,7 +161,7 @@ func parseKeychainCredential(payload string, now time.Time) (KeychainLogin, bool
 }
 
 // Report is the line proveo prints for what the host store holds, empty when
-// there is nothing worth saying. It never claims the run will USE the credential.
+// there is nothing worth saying.
 func (k KeychainLogin) Report() string {
 	if !k.Found {
 		return ""
@@ -220,8 +194,8 @@ func until(t time.Time) string {
 	return "until " + t.Local().Format("2006-01-02 15:04")
 }
 
-// KeychainAdvice explains what the host store's login can and cannot do for THIS
-// backend — the half that stops Report from being trivia.
+// KeychainAdvice explains what the host store's login can and cannot do for
+// THIS backend — the half that stops Report from being trivia.
 func (k KeychainLogin) KeychainAdvice(sbxBackend, fileLogin bool) string {
 	if !k.Found || !k.Usable {
 		return ""
@@ -240,14 +214,13 @@ func (k KeychainLogin) KeychainAdvice(sbxBackend, fileLogin bool) string {
 }
 
 // KeychainFailureAdvice turns a non-OK read into the sentence the taxonomy
-// prescribes. Every outcome is a warning and a no-op.
+// prescribes.
 func (k KeychainLogin) KeychainFailureAdvice() string {
 	if k.Found {
 		return ""
 	}
 	switch k.Outcome {
 	case secretref.NotFound:
-		// A host with no `claude` login is the ordinary case, not a fault.
 		if k.Detail == "" {
 			return ""
 		}
@@ -270,8 +243,6 @@ func (k KeychainLogin) KeychainFailureAdvice() string {
 	return "host Keychain: could not read it — " + detail
 }
 
-// NeedsSandboxLogin reports whether this run has no credential the sbx backend
-// can use. Every clause below is a reason to stay silent.
 // SPEC: _spec/internal/sbx/oauth-provisioning.puml
 func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored []string, lookup func(string) string) bool {
 	if !sbxBackend || !man.Subscription || fileLogin {
@@ -289,8 +260,7 @@ func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored
 }
 
 // SandboxLoginHint is what proveo says when the host store holds a login the
-// sandbox cannot reach. It names the credential that exists, so the operator is
-// not told to authenticate something they already did.
+// sandbox cannot reach.
 func (k KeychainLogin) SandboxLoginHint(argv string) []string {
 	lines := []string{
 		"the sandbox has no credential of its own, and sbx's OAuth slot has no import path",

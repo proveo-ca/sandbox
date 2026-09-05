@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_defaults.sh - Baked defaults exist, seed correctly, and never touch /app uninvited.
 
-# Defaults are baked at /opt/cursor/defaults
 assert_success \
   "baked defaults: cli-config.json present in /opt" \
   "$IMAGE" \
@@ -18,19 +16,7 @@ assert_success \
   "$IMAGE" \
   "test -x /opt/cursor/defaults/hooks/audit-shell.sh"
 
-# Subagents are NOT under /opt/<harness>/defaults/agents any more. They are one
-# shared tree at /opt/proveo/subagents with a per-harness _roster.json, and this
-# file went on asserting the retired path — 10 failures against an image that was
-# built correctly, which reads as a broken image rather than a stale test.
-#
-# The roster is READ FROM THE IMAGE rather than restated here. A list copied into a
-# test drifts silently the moment the roster changes; cecli's test.sh already took
-# this approach ("read from the image, never restated here") and did not go stale.
 # SPEC: _spec/defs/agent-definition-sharing.puml
-#
-# `readonly: true` moved with them, into the per-harness FRONTMATTER
-# (_frontmatter/cursor/<agent>.yaml) that the seed renders onto the shared body —
-# so it is asserted there rather than in the body, which never carried it.
 assert_success \
   "baked subagents: every agent in the cursor roster has a body and is readonly" \
   "$IMAGE" \
@@ -44,7 +30,6 @@ assert_success \
    done
    echo "roster: $(echo $roster | tr "\n" " ")"'
 
-# Deny baseline survives --force by product semantics; assert it exists.
 assert_output_contains \
   "default cli-config.json denies privilege escalation" \
   "$IMAGE" \
@@ -57,14 +42,12 @@ assert_output_contains \
   'cat /opt/cursor/defaults/cli-config.json' \
   '"Read(.env*)"'
 
-# Enterprise hook layer is baked outside the agent-writable tree.
 assert_output_contains \
   "enterprise hooks.json wires the shell audit hook" \
   "$IMAGE" \
   'cat /etc/cursor/hooks.json' \
   'beforeShellExecution'
 
-# --- Runtime seeding via entrypoint (utility passthrough exits fast) ---
 TESTS_RUN=$((TESTS_RUN + 1))
 CHECK=$(run_timeout 60 docker run --rm \
   --entrypoint bash \
@@ -78,8 +61,6 @@ else
   printf "${RED}FAIL${NC} [%d] seed check (output: %.300s)\n" "$TESTS_RUN" "$CHECK"
 fi
 
-
-# --- CURSOR_RESEED=1 overwrites user-modified config ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   -e CURSOR_RESEED=1 \
@@ -100,7 +81,6 @@ else
   printf "${RED}FAIL${NC} [%d] CURSOR_RESEED behaviour (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- Without CURSOR_RESEED, existing config is preserved ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   -e PROVEO_SMOKE_TEST=1 \
@@ -120,7 +100,6 @@ else
   printf "${RED}FAIL${NC} [%d] preserve behaviour (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- Workspace is NEVER seeded by default (container-internal defaults only) ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   --entrypoint bash \
@@ -137,7 +116,6 @@ else
   printf "${RED}FAIL${NC} [%d] default workspace mutation (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- CURSOR_SEED_RULES=1 seeds the loop rule into the workspace ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   -e CURSOR_SEED_RULES=1 \
@@ -155,7 +133,6 @@ else
   printf "${RED}FAIL${NC} [%d] opt-in rule seed (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
-# --- Audit hook appends the stdin payload and allows ---
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 60 docker run --rm \
   --entrypoint bash \

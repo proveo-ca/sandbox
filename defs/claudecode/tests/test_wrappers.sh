@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_wrappers.sh - Wrapper contract checks that do not require Docker.
 
 WRAPPER_FILES=(
   "$PROJECT_ROOT/run.sh"
@@ -10,8 +9,6 @@ for wrapper in "${WRAPPER_FILES[@]}"; do
   name="${wrapper#$PROJECT_ROOT/}"
 
   TESTS_RUN=$((TESTS_RUN + 1))
-  # Parent run.sh is a thin proveo shim — durable ~/.claude lives under
-  # ~/.proveo via proveo home mounts, not a host ~/.claude bind.
   if grep -q 'exec "$PROVEO_BIN" run' "$wrapper" \
      && grep -q -- '--variant' "$wrapper"; then
     TESTS_PASSED=$((TESTS_PASSED + 1))

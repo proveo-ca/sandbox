@@ -1,4 +1,5 @@
 // Package egresspolicy is the stdlib-only egress policy core for firewall mode.
+//
 // SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
@@ -12,7 +13,6 @@ import (
 	"sync"
 )
 
-// Reasons a request is blocked (empty => allowed).
 const (
 	ReasonSink   = "sink"                  // host is a known exfil sink (all methods)
 	ReasonReview = "review-denied"         // the operator declined this connection (review tier)
@@ -27,25 +27,18 @@ type Decision struct {
 	Reason string // "" when allowed; one of the Reason* constants otherwise
 }
 
-// Config declares the policy: read-allow / write-deny, DLP detectors off where empty.
+// Config declares the policy: read-allow / write-deny, DLP detectors off where
+// empty.
 type Config struct {
-	ProviderHosts []string
-	// WriteHosts are suffixes where write methods (POST/PUT/PATCH/DELETE) are allowed
-	// and which are exempt from the outbound byte budget.
-	WriteHosts []string
-	// DenySinks are suffixes hard-denied for ALL methods (exfil sinks).
-	DenySinks     []string
-	OpenNetwork   bool
-	ReviewConnect func(host, port string) bool
-	// Secrets are exact secret values scanned for off-provider (URL + body). Values
-	// shorter than minSecretLen are ignored.
-	Secrets []string
-	// BlockKnownSecrets enables the generic secret-shape patterns (sk-, AKIA, ...).
-	BlockKnownSecrets bool
-	DecodeScan        bool
-	BlockEntropy      bool
-	// MaxOutBytesPerHost caps cumulative (query+body) bytes to a non-allowlisted host
-	// over the policy's lifetime. 0 => unlimited.
+	ProviderHosts      []string
+	WriteHosts         []string
+	DenySinks          []string
+	OpenNetwork        bool
+	ReviewConnect      func(host, port string) bool
+	Secrets            []string
+	BlockKnownSecrets  bool
+	DecodeScan         bool
+	BlockEntropy       bool
 	MaxOutBytesPerHost int64
 }
 
@@ -63,11 +56,8 @@ type Policy struct {
 	outByHost map[string]int64
 }
 
-// maxBodyScan caps the request body we buffer for scanning. The full body is
-// still buffered+restored for forwarding; a streaming cap is a Phase-2 concern.
 const maxBodyScan = 1 << 20 // 1 MiB
 
-// New compiles cfg into a Policy.
 func New(cfg Config) *Policy {
 	return &Policy{
 		providerHosts: normHosts(cfg.ProviderHosts),
@@ -81,16 +71,13 @@ func New(cfg Config) *Policy {
 	}
 }
 
-// Decide evaluates req and reports whether to allow it. It may read and restore
-// req.Body (bounded) to scan for secrets; the body stays readable downstream.
+// Decide evaluates req and reports whether to allow it.
 func (p *Policy) Decide(req *http.Request) Decision {
 	host := hostOf(req)
 
-	// On-provider: the broker owns this host. Allow untouched, no DLP, no budget.
 	if matchHost(host, p.providerHosts) {
 		return Decision{Allow: true}
 	}
-	// B: exfil-sink denylist (all methods, including the CONNECT tunnel).
 	if matchHost(host, p.denySinks) {
 		return Decision{Reason: ReasonSink}
 	}
@@ -104,11 +91,9 @@ func (p *Policy) Decide(req *http.Request) Decision {
 		return Decision{Allow: true}
 	}
 	allowlisted := p.openNetwork || matchHost(host, p.writeHosts)
-	// A: write methods only to the write-allowlist.
 	if !isReadMethod(req.Method) && !allowlisted {
 		return Decision{Reason: ReasonWrite}
 	}
-	// C(1): DLP secret scan over URL (raw + decoded), headers, and body.
 	scan, bodyLen := peekBody(req)
 	if p.scanner.active() {
 		uri := req.URL.RequestURI()
@@ -150,13 +135,10 @@ func peekBody(req *http.Request) (scan []byte, fullLen int64) {
 	orig := req.Body
 	head, err := io.ReadAll(io.LimitReader(orig, maxBodyScan))
 	if err != nil {
-		// Read error: forward the prefix we have; drop the (unreadable) rest.
 		_ = orig.Close()
 		req.Body = io.NopCloser(bytes.NewReader(head))
 		return head, int64(len(head))
 	}
-	// Reattach: scanned prefix first, then the still-open original stream (its
-	// cursor now sits just past the prefix). The tail is never buffered.
 	req.Body = &prefixBody{prefix: bytes.NewReader(head), rest: orig}
 	if req.ContentLength >= 0 {
 		return head, req.ContentLength
@@ -164,8 +146,6 @@ func peekBody(req *http.Request) (scan []byte, fullLen int64) {
 	return head, int64(len(head))
 }
 
-// prefixBody serves an already-read prefix, then the remainder of the original
-// body — reconstructing the full stream for forwarding without buffering the tail.
 type prefixBody struct {
 	prefix *bytes.Reader
 	rest   io.ReadCloser
@@ -199,8 +179,6 @@ func isReadMethod(m string) bool {
 	return false
 }
 
-// hostOf returns the request's target hostname without port, tolerating both
-// server-side (req.Host) and proxy-side (req.URL.Host) request shapes.
 func hostOf(req *http.Request) string {
 	h := req.Host
 	if h == "" && req.URL != nil {
