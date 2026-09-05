@@ -10,7 +10,7 @@ left to right direction
 ' purpose: the three egress modes and the sidecar images that implement them
 ' covers: defs/sidecars/egress-proxy/Dockerfile
 ' covers: defs/sidecars/mitmproxy/Dockerfile
-' covers: defs/sidecars/squid-proxy/Dockerfile
+' covers: defs/sidecars/squid-proxy/*.conf
 ' covers: defs/sidecars/mitmproxy/test.sh
 ' covers: internal/egress/**
 '
@@ -40,15 +40,24 @@ left to right direction
 '   VOLUME ["/flows", "/mitmproxy-confdir"]; the NDJSON addon is
 '   addons/ndjson_dump.py.
 '
-' proveo/squid-proxy — the upstream policy proxy, EXPOSE 3128, run as squid's own
-'   `proxy` user, CMD `squid -f /etc/squid/squid.conf -NYC`. It carries
-'   squid.conf plus the firehol blocked-nets and ipset configs and the
-'   update-firehol-ipsets script.
-'   KNOWN PROBLEM: it is `FROM ubuntu/squid:latest` — a bare mutable tag in a
-'   security-enforcement sidecar — and it has no build.sh and is not in
-'   internal/maintain's registry, while internal/egress/stage.go reads its
-'   config. Dead code or live infrastructure outside the build contract; either
-'   way it is a bug. Tracked in _spec/_plans/image-size-reduction.puml (e).
+' squid — RESOLVED 2026-09-05. There is no proveo/squid-proxy image and there
+'   never was one in use: `internal/egress/plan.go` runs the container from
+'   UPSTREAM `ubuntu/squid:latest` (overridable via PROVEO_SQUID_PROXY_IMAGE),
+'   and the image name `proveo/squid-proxy` appears nowhere in the code. The
+'   Dockerfile that built it, plus run.sh and update-provider-allow.sh, had zero
+'   references and are deleted.
+'
+'   What survives under defs/sidecars/squid-proxy/ is live and load-bearing:
+'   squid.conf and the two firehol configs are embedded by embed.go and staged
+'   into every session by egress.StageSquidConfig; provider-allow.conf is
+'   GENERATED at run time by egress.ProviderAllowConf (which is why the shell
+'   updater beside it was dead); update-firehol-ipsets.sh is asserted by
+'   defs/claudecode/tests/test_egress.sh.
+'
+'   THE PIN MOVED, IT DID NOT GO AWAY. The bare mutable tag is real, but it is
+'   in plan.go's default and in two Go test files — not in a Dockerfile. proveo
+'   pulls and runs an unpinned upstream image to ENFORCE egress. Deciding a
+'   version for it changes what runs and is left open.
 
 title Claude Code Egress Topology — Go-Inspector Broker + Credential Broker
 

@@ -3,12 +3,18 @@
   "specs": [
     {
       "spec": "_spec/overview.puml",
-      "covers": ["cmd/proveo/**", "internal/**"],
+      "covers": [
+        "cmd/proveo/**",
+        "internal/**"
+      ],
       "fingerprint": null
     },
     {
       "spec": "_spec/minimum_requirements.puml",
-      "covers": ["internal/sbx/sbx.go", "e2e/capacity_test.go"],
+      "covers": [
+        "internal/sbx/sbx.go",
+        "e2e/capacity_test.go"
+      ],
       "fingerprint": null
     },
     {
@@ -51,7 +57,10 @@
     },
     {
       "spec": "_spec/_devops/buildx-driver-selection.puml",
-      "covers": ["defs/lib/docker-build.sh", "defs/*/build.sh"],
+      "covers": [
+        "defs/lib/docker-build.sh",
+        "defs/*/build.sh"
+      ],
       "fingerprint": null
     },
     {
@@ -176,7 +185,9 @@
     },
     {
       "spec": "_spec/cmd/proveo/github-credentials.puml",
-      "covers": ["cmd/proveo/ghtoken.go"],
+      "covers": [
+        "cmd/proveo/ghtoken.go"
+      ],
       "fingerprint": null
     },
     {
@@ -291,7 +302,6 @@
       "covers": [
         "defs/sidecars/egress-proxy/Dockerfile",
         "defs/sidecars/mitmproxy/Dockerfile",
-        "defs/sidecars/squid-proxy/Dockerfile",
         "defs/sidecars/mitmproxy/test.sh",
         "internal/egress/**"
       ],
@@ -462,7 +472,10 @@
     },
     {
       "spec": "_spec/internal/agentio/agent-terminal-io.puml",
-      "covers": ["internal/agentio/**", "cmd/proveo/main.go"],
+      "covers": [
+        "internal/agentio/**",
+        "cmd/proveo/main.go"
+      ],
       "fingerprint": null
     },
     {
@@ -476,12 +489,16 @@
     },
     {
       "spec": "_spec/internal/backend/exit-code.puml",
-      "covers": ["internal/backend/backend.go"],
+      "covers": [
+        "internal/backend/backend.go"
+      ],
       "fingerprint": null
     },
     {
       "spec": "_spec/internal/broker/off-route-stripping.puml",
-      "covers": ["internal/broker/broker.go"],
+      "covers": [
+        "internal/broker/broker.go"
+      ],
       "fingerprint": null
     },
     {
@@ -496,7 +513,10 @@
     },
     {
       "spec": "_spec/internal/choiceui/topology-states.puml",
-      "covers": ["internal/run/topology.go", "internal/choiceui/topology.go"],
+      "covers": [
+        "internal/run/topology.go",
+        "internal/choiceui/topology.go"
+      ],
       "fingerprint": null
     },
     {
@@ -531,7 +551,9 @@
     },
     {
       "spec": "_spec/internal/contract/what-a-contract-test-is.puml",
-      "covers": ["internal/contract/**"],
+      "covers": [
+        "internal/contract/**"
+      ],
       "fingerprint": null
     },
     {
@@ -584,12 +606,17 @@
     },
     {
       "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
-      "covers": ["defs/bridges/**", "internal/provider/slots.go"],
+      "covers": [
+        "defs/bridges/**",
+        "internal/provider/slots.go"
+      ],
       "fingerprint": null
     },
     {
       "spec": "_spec/internal/gitidentity/authorship.puml",
-      "covers": ["internal/gitidentity/gitidentity.go"],
+      "covers": [
+        "internal/gitidentity/gitidentity.go"
+      ],
       "fingerprint": null
     },
     {
@@ -744,7 +771,10 @@
     },
     {
       "spec": "_spec/internal/sbx/sbx-kit-contract.puml",
-      "covers": ["internal/sbx/**", "cmd/proveo/main.go"],
+      "covers": [
+        "internal/sbx/**",
+        "cmd/proveo/main.go"
+      ],
       "fingerprint": null
     },
     {
@@ -787,12 +817,16 @@
     },
     {
       "spec": "_spec/internal/tmux/driving-a-tty.puml",
-      "covers": ["internal/tmux/tmux.go"],
+      "covers": [
+        "internal/tmux/tmux.go"
+      ],
       "fingerprint": null
     },
     {
       "spec": "_spec/internal/ui/output-vocabulary.puml",
-      "covers": ["internal/ui/**"],
+      "covers": [
+        "internal/ui/**"
+      ],
       "fingerprint": null
     },
     {
@@ -816,7 +850,9 @@
     },
     {
       "spec": "_spec/internal/workspace/mount-model.puml",
-      "covers": ["internal/workspace/mount.go"],
+      "covers": [
+        "internal/workspace/mount.go"
+      ],
       "fingerprint": null
     },
     {
@@ -826,7 +862,9 @@
     },
     {
       "spec": "_spec/internal/workspace/subdir-scope-mounts.puml",
-      "covers": ["internal/workspace/mount.go"],
+      "covers": [
+        "internal/workspace/mount.go"
+      ],
       "fingerprint": null
     },
     {

@@ -8,6 +8,8 @@ RUN go install github.com/isaacphi/mcp-language-server@latest \
 
 FROM ${BASE_IMAGE}
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ARG USER_ID=1000
 ARG USER_NAME=cursor
 ARG CURSOR_INSTALL_URL=https://cursor.com/install
@@ -54,7 +56,7 @@ COPY --from=lsp-builder /go/bin/mcp-language-server /go/bin/gopls /usr/local/bin
 ARG CURSOR_AGENT_VERSION
 RUN test -n "${CURSOR_AGENT_VERSION}" \
       || { echo "CURSOR_AGENT_VERSION build-arg is required — defs/cursor/build.sh resolves it" >&2; exit 1; } \
-    && HOME=/opt/cursor-dist bash -c "curl -fsS ${CURSOR_INSTALL_URL} | bash" \
+    && HOME=/opt/cursor-dist bash -c 'curl -fsS "$1" | bash' cursor-install "$CURSOR_INSTALL_URL" \
     && test -d "/opt/cursor-dist/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}" \
     && ln -s /opt/cursor-dist/.local/bin/agent /usr/local/bin/agent \
     && ln -s /opt/cursor-dist/.local/bin/cursor-agent /usr/local/bin/cursor-agent \

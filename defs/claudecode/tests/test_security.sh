@@ -49,12 +49,6 @@ for image in $(images_to_test); do
     'echo "${NODE_ENV:-unset}"' \
     "unset"
 
-  assert_output_contains \
-    "[$tag] RLIMIT_CORE is 0" \
-    "$image" \
-    'echo $RLIMIT_CORE' \
-    "0"
-
   assert_inspect \
     "[$tag] entrypoint uses dumb-init" \
     "$image" \

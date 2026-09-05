@@ -20,6 +20,8 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
 
 FROM debian:trixie-slim
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
 COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 
@@ -42,6 +44,9 @@ COPY --from=jre-builder /opt/jre /opt/jre
 ENV JAVA_HOME=/opt/jre \
     PATH="/opt/jre/bin:${PATH}"
 
+ARG MISE_VERSION=v2026.9.1
+ARG MISE_SHA256_X64=c98423c8470d6dc416d9f7036d0646d8ef5ae92ad9186907f8fcc84cbe7db4ea
+ARG MISE_SHA256_ARM64=0ef0a778eaa8599f3e90a8a0979c9fc3f79922cafb5fa6d39f366d974da33bba
 ARG PLANTUML_VERSION=1.2026.6
 RUN curl -fsSL -o /opt/plantuml.jar \
       "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar" \
@@ -51,16 +56,22 @@ RUN curl -fsSL -o /opt/plantuml.jar \
     && printf '@startuml\nAlice -> Bob: floor\n@enduml\n' > /tmp/floor.puml \
     && plantuml -tpng -o /tmp /tmp/floor.puml && test -s /tmp/floor.png \
     && rm -f /tmp/floor.puml /tmp/floor.png \
-    && curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh \
-    && chmod 0755 /usr/local/bin/mise \
+    && case "$(uname -m)" in \
+         x86_64|amd64)  mise_arch=x64;   mise_sha="${MISE_SHA256_X64}" ;; \
+         aarch64|arm64) mise_arch=arm64; mise_sha="${MISE_SHA256_ARM64}" ;; \
+         *) echo "unsupported architecture for mise: $(uname -m)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/mise \
+         "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-${mise_arch}" \
+    && echo "${mise_sha}  /tmp/mise" | sha256sum -c - \
+    && install -m 0755 /tmp/mise /usr/local/bin/mise \
+    && rm -f /tmp/mise \
+    && test "v$(mise --version | awk '{print $1}')" = "${MISE_VERSION}" \
     && rm -rf /tmp/* /var/tmp/* /root/.cache \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    NPM_CONFIG_AUDIT=false \
+ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
-    RLIMIT_CORE=0 \
-    RLIMIT_NOFILE=1024 \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 LABEL security.hardened=true \
