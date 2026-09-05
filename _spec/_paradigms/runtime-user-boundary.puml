@@ -14,6 +14,7 @@ node "Agent container" as CTR <<host>> {
   component "image USER (uid 1000)\nbaked non-root default" as IMGUSER <<app>>
   component "ensure_runtime_user\npasswd entry + writable HOME" as ENSURE <<app>>
   component "agent process" as AGENT <<app>>
+  component "/home/agent — the REAL home\n/home/<harness> — an alias symlink" as HOMES <<app>>
   component "root / gosu / privilege drop" as ROOT <<error>>
 }
 
@@ -48,6 +49,30 @@ note right of ENSURE
 
   There is no gosu and no in-container privilege drop:
   the process starts unprivileged and stays there.
+end note
+
+note bottom of HOMES
+  **""mkdir"" follows the alias; ""chown"" does not.** The harness-named
+  home is a SYMLINK to ""/home/agent"" (sbx mounts its volumes at the
+  real path, so that one has to be the directory). A build step then
+  reads perfectly and is wrong:
+
+    ""mkdir -p /home/${USER_NAME}/.config/opencode""     → real home, ROOT-owned
+    ""chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}""  → the LINK only
+
+  Nothing fails. ""ls -l /home/${USER_NAME}"" even reports the right
+  owner, because that IS the link. The agent dies later, on its first
+  write — ""mkdir: cannot create directory
+  '/home/agent/.config/opencode/agents': Permission denied"" — one
+  layer and one process away from the line that caused it.
+
+  Measured on ""proveo/opencode:local"", 2026-09-05: ""\.config"",
+  ""\.config/opencode"" and ""\.local/share/opencode"" all ""0:0"" beneath a
+  ""/home/agent"" owned by ""1000:1000"". cursor chowns ""/home/agent"";
+  claudecode chowns ""/home/${USER_NAME}/\.claude"", a subpath that ends
+  at a real directory — which is why opencode alone failed the
+  detached smoke suite. Guarded by ""internal/contract""
+  ""TestNoDockerfileChownsTheHomeSymlink"".
 end note
 
 note bottom of REPO
