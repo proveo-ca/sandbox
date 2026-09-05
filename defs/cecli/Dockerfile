@@ -2,6 +2,8 @@ ARG BASE_IMAGE=proveo/base:latest
 
 FROM ${BASE_IMAGE}
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ARG USER_ID=1000
 ARG USER_NAME=cecli
 

@@ -3,6 +3,8 @@
 ARG BASE_IMAGE=proveo/claudecode:latest
 FROM ${BASE_IMAGE}
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ARG USER_NAME=claude
 
 USER root

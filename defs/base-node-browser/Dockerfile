@@ -2,6 +2,8 @@
 ARG BASE_IMAGE=proveo/base-node-lsp:latest
 FROM ${BASE_IMAGE}
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ARG PLAYWRIGHT_VERSION=1.61.0
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright

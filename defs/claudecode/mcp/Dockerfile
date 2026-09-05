@@ -2,6 +2,8 @@ ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
 FROM ${BASE_IMAGE}
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ARG USER_ID=1000
 ARG USER_NAME=claude
 
@@ -104,8 +106,6 @@ COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoi
 USER ${USER_NAME}
 WORKDIR /app
 
-ENV YAMA_PTRACE_SCOPE=1
-
 LABEL security.non-root=true \
       security.hardened=true \
       security.version="1.0" \
@@ -113,6 +113,6 @@ LABEL security.non-root=true \
       proveo.agent.version="${CLAUDE_CODE_VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-  CMD test -f /home/claude/.claude.json && test -f /home/claude/.claude/settings.local.json || exit 1
+  CMD test -f /home/agent/.claude.json && test -f /home/agent/.claude/settings.local.json || exit 1
 
 ENTRYPOINT ["dumb-init", "--", "/entrypoint.sh"]
