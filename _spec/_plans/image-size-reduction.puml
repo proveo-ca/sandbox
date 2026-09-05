@@ -205,6 +205,19 @@
 ' the full tarball. Under this cut neither happens, because there is no dockerd to
 ' start. The open question moves from "why does it fail" to "does sbx supply one".
 '
+' ── CUT 13 IS DEFERRED, NOT REJECTED ─────────────────────────────────────
+' Operator's call, 2026-09-05. Enumerating what `playwright install --with-deps`
+' apt-installs is worth 120-180 MB x 3 browser variants, and it is the last size
+' item left. It is also the one whose failure mode is worst: Chromium starts, and
+' then crashes on a particular page, because one of ~100 GTK/X11/ALSA/font
+' packages was the one that mattered. A build error would be preferable.
+'
+' Whoever picks it up: `--with-deps` is invisible to
+' internal/contract/toolchain_test.go's installedPackages scanner, so the "no
+' image reinstalls what its base carries" contract has a blind spot exactly where
+' the biggest apt payload is. Closing that blind spot is arguably the more
+' valuable half of this item, and it costs no bytes.
+'
 ' ── CUT 12 APPLIED, AND THE MISTAKE IT TOOK TWO TRIES TO SEE ──────────────
 '   proveo/claudecode-solidity   3.31 GB -> **2.53 GB**  (-780 MB, -24%)
 '   ~/.foundry                    263 MB -> 168 MB
@@ -459,7 +472,7 @@
 '     dist-packages. Both unpinned, in the image the fleet's own doctrine says must
 '     be. defs/claudecode/solidity/Dockerfile:10,19 · ~100-200 MB
 '
-' 13. `--with-deps` APT-INSTALLS ~100 GTK/X11/ALSA PACKAGES for a headless,
+' 13. [DEFERRED 2026-09-05] `--with-deps` APT-INSTALLS ~100 GTK/X11/ALSA PACKAGES for a headless,
 '     `--no-sandbox`, CDP-only consumer. It is also invisible to
 '     `toolchain_test.go`'s `installedPackages` scanner, so the "no image reinstalls
 '     what its base carries" contract has a blind spot exactly where the biggest apt
