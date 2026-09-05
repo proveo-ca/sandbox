@@ -1,11 +1,17 @@
-# Go is pinned in go.mod (`toolchain go1.26.5`) — the one place every tool obeys
-# via GOTOOLCHAIN=auto, including CI. It is deliberately absent here: mise would
-# install a SECOND GOROOT alongside the one `g` (github.com/stefanmaric/g) manages,
-# and two toolchains over one build cache fail with
-# `compile: version "goX" does not match go tool version "goY"`.
-#   g install 1.26.5   # match go.mod locally (download + activate)
-#   g list             # what's installed / active
+# Go is pinned HERE and in go.mod (`toolchain go1.26.5`). Two pins, kept byte-equal
+# by internal/contract TestMiseGoPinMatchesGoModToolchain, so `mise run <task>` and
+# GOTOOLCHAIN=auto resolve the same compiler instead of racing over one build cache.
+#
+# It was deliberately absent until the retirement of `g` (github.com/stefanmaric/g):
+# with `g` owning a GOROOT, a mise pin meant a SECOND one, and two toolchains over
+# one build cache fail with `compile: version "goX" does not match go tool version
+# "goY"`. `g` is gone — it hands back a GOROOT and stops, leaving every consumer to
+# find it through a shell rc. A sandbox has no persistent rc to write one into, so
+# `mise run` reported `go: command not found` with a working toolchain on disk.
+# mise's shims are already on PATH on every backend.
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml
 [tools]
+go = "1.26.5"
 node = "24"
 pnpm = "10"
 tmux = "3.7b"
@@ -155,7 +161,13 @@ run = "scripts/go-test-coverage.sh merge"
 [tasks.test-images]
 description = "Docker/image + consumer CLI suites (needs Docker; slow)"
 dir = "{{config_root}}"
+# The shebang is load-bearing: without it mise runs the block under `sh`, and the
+# `tests=(...)` array below is a bash construct dash cannot parse. It failed as
+# `sh: 4: Syntax error: "(" unexpected` AFTER staging had already succeeded, which
+# reads like a broken test script rather than a wrong interpreter.
+# Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
 run = """
+#!/usr/bin/env bash
 set -euo pipefail
 bash scripts/stage-cli-cdn.sh
 

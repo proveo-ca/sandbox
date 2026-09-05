@@ -8,7 +8,13 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 FAILURES=()
 
-IMAGE="${IMAGE:-proveo/opencode:latest}"
+# Resolved through proveo_test_image so a NEWER <repo>:local build wins over the
+# published tag — the same rule `proveo run` applies (internal/maintain.ResolveImage).
+# proveo_docker_build refuses to write :latest locally, so without this the suite
+# only ever sees whatever the registry last published.
+# shellcheck source=../../lib/docker-build.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
+IMAGE="$(proveo_test_image "${IMAGE:-proveo/opencode:latest}")"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

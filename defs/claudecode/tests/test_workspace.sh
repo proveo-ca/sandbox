@@ -64,10 +64,19 @@ for image in $(images_to_test); do
 
   # Home directory
   assert_output_contains \
-    "[$tag] HOME is /home/claude" \
+    "[$tag] HOME is /home/agent (the REAL home; /home/claude is the alias)" \
     "$image" \
     'echo $HOME' \
-    "/home/claude"
+    "/home/agent"
+
+  # The alias still has to resolve — image healthchecks and def tests read paths
+  # through /home/${USER_NAME}, and nothing may mount there.
+  # SPEC: _spec/_paradigms/runtime-user-boundary.puml
+  assert_output_contains \
+    "[$tag] /home/claude resolves to /home/agent" \
+    "$image" \
+    'readlink -f /home/claude' \
+    "/home/agent"
 
   # Launch contract lives in the baked entrypoint (start-claude.sh was retired)
   assert_success \
@@ -79,5 +88,5 @@ for image in $(images_to_test); do
     "[$tag] entrypoint launches claude with --dangerously-skip-permissions" \
     "$image" \
     "cat /entrypoint.sh" \
-    "exec claude --dangerously-skip-permissions"
+    "proveo_exec_agent claude --dangerously-skip-permissions"
 done

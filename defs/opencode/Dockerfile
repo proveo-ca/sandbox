@@ -97,11 +97,24 @@ RUN test -n "${OPENCODE_VERSION}" \
     && npm install -g "opencode-ai@${OPENCODE_VERSION}" && npm cache clean --force \
     && test "$(opencode --version)" = "${OPENCODE_VERSION}"
 
+# The chown targets /home/agent, NOT /home/${USER_NAME}.
+#
+# /home/${USER_NAME} is the SYMLINK created above. `mkdir -p` follows it, so these
+# directories are created inside the real home as root; `chown -R` does not follow
+# it, so pointing the chown at the link changed the link's own ownership and left
+# every directory under it root-owned. The agent then died at its first write:
+#   mkdir: cannot create directory '/home/agent/.config/opencode/agents':
+#   Permission denied
+# — after a build that reported success, and with `ls -l /home/opencode` showing
+# 1000:1000 because that IS the link. cursor chowns /home/agent and claudecode
+# chowns /home/${USER_NAME}/.claude; both end at a real directory, which is why
+# opencode was the only harness that failed the detached smoke.
+# Guarded by internal/contract TestNoDockerfileChownsTheHomeSymlink.
 RUN mkdir -p /workspace \
-             /home/${USER_NAME}/.config/opencode \
-             /home/${USER_NAME}/.local/share/opencode \
+             /home/agent/.config/opencode \
+             /home/agent/.local/share/opencode \
              /opt/opencode/defaults \
-    && chown -R ${USER_NAME}:${USER_NAME} /workspace /home/${USER_NAME}
+    && chown -R ${USER_NAME}:${USER_NAME} /workspace /home/agent
 
 # Pre-baked defaults (config + subagents). Seeded into ~/.config/opencode on first run
 # by entrypoint.sh, or re-seeded when OPENCODE_RESEED=1.

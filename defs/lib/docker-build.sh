@@ -128,6 +128,71 @@ proveo_ref_tag() {
   esac
 }
 
+# proveo_image_created prints an image's build time as epoch seconds, and returns
+# non-zero when the host has no such image. The shell twin of posture's
+# dockerImageCreated.
+#
+# The fraction is trimmed before parsing: docker reports RFC3339Nano
+# ("2026-08-31T00:37:15.008872627Z") and neither GNU nor BSD `date` accepts
+# nanoseconds. Both spellings are tried because build hosts are Linux and
+# developer hosts are macOS.
+proveo_image_created() {
+  local ts
+  ts="$(docker image inspect "$1" --format '{{.Created}}' 2>/dev/null)" || return 1
+  [[ -n "$ts" ]] || return 1
+  ts="${ts%.*}"; ts="${ts%Z}"
+  date -u -d "${ts}Z" +%s 2>/dev/null \
+    || date -u -j -f '%Y-%m-%dT%H:%M:%S' "$ts" +%s 2>/dev/null \
+    || return 1
+}
+
+# proveo_resolve_image picks between a published reference and the local build of
+# the same repository, preferring whichever was built MORE RECENTLY. It is the
+# shell twin of internal/maintain.ResolveImage, and internal/contract
+# TestShellImageResolverMatchesResolveImage pins the two together.
+#
+# Recency rather than mere existence, for the same reason the runner uses it: a
+# stale :local from last week must not shadow an image just pulled, and a build
+# from a minute ago must not lose to a published one. Only :latest is resolved —
+# an explicit :v2 or a digest is a deliberate choice and is returned untouched.
+#
+# Without this, a def's test.sh defaulted to :latest, which `proveo_docker_build`
+# REFUSES to write locally — so the suite could only ever exercise whatever the
+# registry last published, never the tree the author was standing in.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
+proveo_resolve_image() {
+  local ref="$1" repo local_ref local_at pub_at
+  [[ "$(proveo_ref_tag "$ref")" == "latest" ]] || { printf '%s' "$ref"; return 0; }
+  repo="${ref%:*}"
+  local_ref="${repo}:local"
+
+  if ! local_at="$(proveo_image_created "$local_ref")"; then
+    printf '%s' "$ref"; return 0
+  fi
+  if ! pub_at="$(proveo_image_created "$ref")" || (( local_at > pub_at )); then
+    printf '%s' "$local_ref"; return 0
+  fi
+  printf '%s' "$ref"
+}
+
+# proveo_test_image resolves a reference AND says which one won, on stderr.
+#
+# The naming is the point, and it is the same point the runner makes with
+# "image: … (local build — newer than the published tag)": an image silently
+# resolving to a published artifact instead of the build under test is invisible
+# until something behaves like code nobody wrote.
+proveo_test_image() {
+  local ref chosen
+  ref="$1"
+  chosen="$(proveo_resolve_image "$ref")"
+  if [[ "$chosen" != "$ref" ]]; then
+    echo "🧪 image: $chosen (local build — newer than the published tag)" >&2
+  else
+    echo "🧪 image: $chosen (published)" >&2
+  fi
+  printf '%s' "$chosen"
+}
+
 proveo_docker_container_builder() {
   local builder="${PROVEO_BUILDX_BUILDER:-proveo-multiarch}"
   if ! proveo_docker_builder_running "$builder"; then

@@ -10,9 +10,40 @@ TESTS_SKIPPED=0
 FAILURES=()
 
 # --- Image names (overridable) ---
-STANDALONE_IMAGE="${STANDALONE_IMAGE:-proveo/claudecode:latest}"
-MCP_IMAGE="${MCP_IMAGE:-proveo/claudecode:latest}"
+# Resolved through proveo_test_image so a NEWER <repo>:local build wins over the
+# published tag — the same rule `proveo run` applies. proveo_docker_build refuses
+# to write :latest locally, so without this the suite only ever sees the registry.
+# shellcheck source=../../lib/docker-build.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
+STANDALONE_IMAGE="$(proveo_test_image "${STANDALONE_IMAGE:-proveo/claudecode:latest}")"
+MCP_IMAGE="$(proveo_test_image "${MCP_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE_AVAILABLE=false
+
+# run_timeout <duration> <cmd...> — wraps cmd with $TIMEOUT_BIN when available.
+#
+# test_config.sh has called this since it was written and claudecode's helpers
+# never defined it (opencode and cursor both do). It failed as
+# `run_timeout: command not found`, and because the caller is
+#   BAD_RULES=$(run_timeout ... docker run ... | grep -c 'mcp__\*' || true)
+# the empty pipeline still produced "0" — so the wildcard-MCP-rule assertion
+# reported PASS without ever starting a container. A test that cannot fail.
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+else
+  TIMEOUT_BIN=""
+  printf "WARN: no 'timeout'/'gtimeout' on host; time-bounded steps run unbounded (install coreutils for limits).\n" >&2
+fi
+
+run_timeout() {
+  local dur="$1"; shift
+  if [[ -n "$TIMEOUT_BIN" ]]; then
+    "$TIMEOUT_BIN" "$dur" "$@"
+  else
+    "$@"
+  fi
+}
 
 # --- Colors ---
 RED='\033[0;31m'

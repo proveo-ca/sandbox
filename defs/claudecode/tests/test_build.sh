@@ -1,25 +1,34 @@
 #!/usr/bin/env bash
 # SPEC: _spec/tests/testing-strategy.puml
-# tests/test_build.sh - Image build verification
+# tests/test_build.sh - Image availability verification
 
-# The Dockerfile requires the agent version as a build-arg (a bare `docker build`
-# fails on purpose — see _spec/_devops/agent-version-pin.puml), so this suite
-# resolves it the same way build.sh does. CLAUDE_CODE_VERSION exported wins.
-# shellcheck source=../../lib/docker-build.sh
-source "$PROJECT_ROOT/../lib/docker-build.sh"
-CLAUDE_CODE_VERSION="$(proveo_agent_version CLAUDE_CODE_VERSION npm @anthropic-ai/claude-code)"
-
+# This phase used to BUILD the image it then tested, with a bare `docker build`
+# and no BASE_IMAGE build-arg — so `ARG BASE_IMAGE=proveo/base-node-lsp:latest`,
+# the Dockerfile's default, applied. That is the PUBLISHED base. Every run
+# therefore threw away the local lineage `build.sh` and `ensure.sh` exist to
+# establish, overwrote the operator's image with a registry-based one, and then
+# asserted against the result.
+#
+# It surfaced as `bun: command not found`: bun was added to proveo/base-node after
+# the last base-node-lsp publish, so a locally built claudecode had it and the one
+# this phase substituted did not. Rebuilding by hand "fixed" it exactly until the
+# next run of this suite clobbered it again — twice, before the mechanism was
+# found. It is also the failure _spec/_devops/image-lineage-and-publish.puml is
+# about, reached from inside the test suite rather than from sbx.
+#
+# opencode and cursor verify AVAILABILITY here and never build; claudecode now
+# matches them. Building is build.sh's job, and it is the only caller that knows
+# how to resolve the base chain: `proveo build claudecode`.
 TESTS_RUN=$((TESTS_RUN + 1))
-printf "Building claudecode image... "
-if docker build -t "$STANDALONE_IMAGE" --build-arg CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" \
-     -f "$PROJECT_ROOT/mcp/Dockerfile" "$PROJECT_ROOT/../.." 2>&1; then
+printf "Verifying image %s is available... " "$STANDALONE_IMAGE"
+if docker image inspect "$STANDALONE_IMAGE" >/dev/null 2>&1 || docker pull "$STANDALONE_IMAGE" >/dev/null 2>&1; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] claudecode image builds successfully\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] claudecode image is available\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("claudecode image builds successfully")
-  printf "${RED}FAIL${NC} [%d] claudecode image builds successfully\n" "$TESTS_RUN"
-  echo "FATAL: Cannot continue without the claudecode image."
+  FAILURES+=("claudecode image is available")
+  printf "${RED}FAIL${NC} [%d] claudecode image is available\n" "$TESTS_RUN"
+  echo "FATAL: Cannot continue without the claudecode image — proveo build claudecode"
   print_summary
   exit 1
 fi

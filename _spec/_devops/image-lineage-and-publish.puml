@@ -23,7 +23,10 @@ node "Tag policy" as TAGS <<host>> {
   component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
   component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
+  component "proveo_resolve_image\nthe same rule, in shell" as SHRESOLVE <<app>>
 }
+
+node "defs/**/test.sh · tests/helpers.sh" as DEFTESTS <<host>>
 
 cloud "Registry" as REG <<cloud>>
 component "A published image shadowing\nthe build under test" as SHADOW <<error>>
@@ -47,6 +50,8 @@ BUILD ARROW_MAIN DEPLOY : the tested image
 DEPLOY ARROW_CLOUD REG : promoted, multi-arch
 RESOLVE ARROW_ERROR SHADOW : prevented by tag, not by luck
 REG ARROW_ERROR SHADOW : sbx re-pulls at sandbox creation
+DEFTESTS ARROW_MAIN SHRESOLVE : resolve before the first ""docker run""
+SHRESOLVE ARROW_MAIN RESOLVE : one rule, pinned by\n""TestShellImageResolverMatchesResolveImage""
 
 note right of REF
   **A child never hardcodes ""latest"".** Every parent reference is
@@ -173,6 +178,29 @@ note bottom of SHADOW
   from the registry, so a week-old published tag
   reached the container while every local rebuild
   appeared to succeed and changed nothing.
+end note
+
+note bottom of SHRESOLVE
+  **The def suites had the shadow the runtime was spared.** Every
+  ""test\.sh"" and ""tests/helpers\.sh"" defaulted to ""<image>:latest"" —
+  a tag ""proveo_docker_build"" REFUSES to write locally — so the only
+  image they could ever reach was whatever the registry last
+  published. ""mise run test-images"" read as a verdict on the working
+  tree and was a verdict on the last deploy.
+
+  Measured: ""defs/cecli/test\.sh"" failed
+  ""proveo\.agent\.version label missing"" against a ""proveo/cecli:latest""
+  pulled from the registry, built 2026-08-31 — three days before the
+  label was added to the Dockerfile. The suite was right, the image
+  was old, and nothing on the path could have produced a newer one.
+
+  Ten sites carried it (four harnesses, their browser and solidity
+  variants, the mitmproxy sidecar). They now share
+  ""proveo_resolve_image"", and ""proveo_test_image"" NAMES the winner the
+  way the runner does — because an image silently resolving to a
+  published artifact is invisible until something behaves like code
+  nobody wrote. ""build\.sh"" keeps its ""latest"" default: publishing is
+  what that tag is for.
 end note
 
 @enduml

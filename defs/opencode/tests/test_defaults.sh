@@ -8,24 +8,25 @@ assert_success \
   "$IMAGE" \
   "test -f /opt/opencode/defaults/opencode.json"
 
-REQUIRED_AGENTS=(
-  "adversarial-reviewer"
-  "security-reviewer"
-  "architect"
-  "systems-design"
-  "frontend"
-  "backend"
-  "sre"
-  "devops"
-  "monorepo-coordinator"
-  "spec-keeper"
-)
-for a in "${REQUIRED_AGENTS[@]}"; do
-  assert_success \
-    "baked defaults: agents/$a.md present in /opt" \
-    "$IMAGE" \
-    "test -f /opt/opencode/defaults/agents/$a.md"
-done
+# Subagents are NOT under /opt/<harness>/defaults/agents any more. They are one
+# shared tree at /opt/proveo/subagents with a per-harness _roster.json, and this
+# file went on asserting the retired path — 10 failures against an image that was
+# built correctly, which reads as a broken image rather than a stale test.
+#
+# The roster is READ FROM THE IMAGE rather than restated here. A list copied into a
+# test drifts silently the moment the roster changes; cecli's test.sh already took
+# this approach ("read from the image, never restated here") and did not go stale.
+# SPEC: _spec/defs/agent-definition-sharing.puml
+assert_success \
+  "baked subagents: every agent in the opencode roster has a body in /opt" \
+  "$IMAGE" \
+  'set -eu
+   roster="$(jq -r ".opencode[]" /opt/proveo/subagents/_roster.json)"
+   [ -n "$roster" ] || { echo "opencode roster is empty"; exit 1; }
+   for a in $roster; do
+     test -f "/opt/proveo/subagents/$a.md" || { echo "missing /opt/proveo/subagents/$a.md"; exit 1; }
+   done
+   echo "roster: $(echo $roster | tr "\n" " ")"'
 
 # Default config encodes the HITL permission model
 assert_output_contains \
