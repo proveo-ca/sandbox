@@ -653,20 +653,29 @@ _go_current_version() {
   printf '%s' "${v#go}"
 }
 
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml
+#
+# mise is the ONLY Go path. `g` (github.com/stefanmaric/g) was the primary and is
+# retired — not because it fails to install (measured inside an sbx sandbox, it
+# fetches and unpacks go1.26.5 fine) but because installing is all it does. It
+# hands back a GOROOT and expects a shell rc to carry it onto PATH. A sandbox has
+# no persistent rc — no /etc/sandbox-persistent.sh, no CLAUDE_ENV_FILE — so the
+# toolchain sat on disk while `mise run <task>` reported `go: command not found`.
+# mise's shims directory is on PATH from _proveo_tool_path on every backend, which
+# is the part that was missing.
+#
+# The output is REPORTED, not discarded. The `g` call ended in `>/dev/null 2>&1`,
+# so its own refusal — "ERROR: $GOPATH/bin not found in $PATH and it is required."
+# — reached nobody, and the operator got `WARN: g could not install Go`, which
+# names neither the cause nor the fix.
 _install_go() {
-  local version="$1" t
-  t="$(_proveo_tool_home)"
-  if curl -fsSL --connect-timeout 5 --max-time 120 \
-       -o "$t/.local/bin/g" \
-       https://github.com/stefanmaric/g/releases/latest/download/g; then
-    chmod +x "$t/.local/bin/g"
-    "$t/.local/bin/g" install -y "$version" >/dev/null 2>&1 \
-      || echo "WARN: g could not install Go ${version}"
-  elif command -v mise >/dev/null 2>&1; then
-    mise use -g "go@${version}" >/dev/null 2>&1 \
-      || echo "WARN: mise could not install Go ${version}"
-  else
-    echo "WARN: failed to fetch g; Go not installed"
+  local version="$1" out
+  if ! command -v mise >/dev/null 2>&1; then
+    echo "WARN: mise is not on PATH; Go ${version} not installed"
+    return 0
+  fi
+  if ! out="$(_mise_install "go@${version}")"; then
+    echo "WARN: mise could not install Go ${version}: ${out}"
   fi
 }
 
@@ -744,9 +753,14 @@ ensure_project_tools() {
 
  # 4. Go Detection & Installation
  if [[ -f go.mod || -f go.work ]] || compgen -G "*.go" >/dev/null 2>&1; then
- export GOROOT="${GOROOT:-${tool_home}/.go}"
+ # GOPATH only, deliberately. GOROOT used to be forced to "${tool_home}/.go"
+ # because that is where `g` unpacked its toolchains; mise installs under
+ # MISE_DATA_DIR instead. An explicit GOROOT OVERRIDES what the go binary infers
+ # from its own location, so keeping that line would aim a working mise toolchain
+ # at an empty directory — a harder failure than the one it replaced. GOPATH stays:
+ # `go install` puts gopls there, and it has to be on PATH to be found.
  export GOPATH="${GOPATH:-${tool_home}/go}"
- export PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
+ export PATH="${GOPATH}/bin:${PATH}"
 
  local go_version="latest" pinned="" current=""
  if [[ -f go.mod ]]; then
@@ -756,7 +770,7 @@ ensure_project_tools() {
  current="$(_go_current_version)"
 
  if [[ -z "$current" ]]; then
- echo "Detected a Go project. Dynamically installing Go ${go_version} via g..."
+ echo "Detected a Go project. Dynamically installing Go ${go_version} via mise..."
  _install_go "$go_version"
  elif [[ -n "$pinned" && "$current" != "$pinned" ]]; then
  echo "Go ${current} is installed but go.mod pins ${pinned}; installing the pinned toolchain..."
@@ -2953,9 +2967,10 @@ proveo_provision_toolchain() {
  [[ -d "$scan" ]] || return 0
  # ensure_project_tools reads the CWD (nx.json, go.mod, mise.toml), so it has to
  # be standing in the workspace rather than wherever the launcher left us. NOT a
- # subshell: it exports GOROOT/GOPATH/PATH, and on the docker backend this runs
- # in the very process that goes on to exec the agent — a subshell would drop
- # exactly what the agent needs to inherit.
+ # subshell: it exports GOPATH/PATH, and on the docker backend this runs in the
+ # very process that goes on to exec the agent — a subshell would drop exactly
+ # what the agent needs to inherit. (GOROOT was in that list until `g` was
+ # retired; mise resolves it from the toolchain's own location now.)
  local prev="$PWD"
  cd "$scan" 2>/dev/null && ensure_project_tools
  cd "$prev" 2>/dev/null || true
@@ -3007,7 +3022,10 @@ _proveo_persist_tool_env() {
    printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
-   [[ -n "${GOROOT:-}" ]] && printf 'export GOROOT="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOROOT" "$GOROOT"
+   # No GOROOT line. It existed for `g`, whose GOROOT nothing else could find;
+   # mise's shims are already covered by the PATH line above. Writing a GOROOT
+   # down is now actively harmful — it outlives the toolchain it named, and the
+   # next `mise use -g go@<other>` leaves the rc pointing at the previous one.
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
      printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
