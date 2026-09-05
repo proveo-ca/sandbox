@@ -37,7 +37,9 @@
 ' installed`, and it is NOT this work: the output is
 ' `OSError: [Errno 8] Exec format error` on solc-0.8.20 beside solc-select's own
 ' `.arm64_warning_shown` marker — solc publishes no linux-arm64 build, so
-' solc-select installed the x86-64 one. Nothing in a Dockerfile can cause or fix
+' solc-select installed the x86-64 one. RESOLVED 2026-09-05 as a scoped SKIP —
+' see _spec/tests/testing-strategy.puml, "when a def suite may skip rather than
+' assert". Nothing in a Dockerfile can cause or fix
 ' that. It is plausibly newly VISIBLE rather than new: commit 63719c3 pointed the
 ' suite at the locally built (arm64) image instead of a published multi-arch tag.
 '

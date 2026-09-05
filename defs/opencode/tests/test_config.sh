@@ -11,6 +11,7 @@ cat >"$FIXTURE_DIR/opencode.json" <<'EOF'
 }
 EOF
 cat >"$FIXTURE_DIR/AGENTS.md" <<'EOF'
+# Test fixture agents file.
 EOF
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 OPENCODE_TEST_MARKER=loaded_from_env

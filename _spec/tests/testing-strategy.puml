@@ -80,6 +80,30 @@ title Testing strategy — four layers, speed traded for fidelity
 ' can still REACH a daemon is a different question, owned by e2e/sbx_test.go's
 ' assertSandboxSuppliesDocker, which was deliberately not inverted.
 '
+' ── WHEN A def SUITE MAY SKIP RATHER THAN ASSERT ────────────────────────────
+' Only when the property is IMPOSSIBLE on the host running the suite, never when
+' it is merely inconvenient — and the reason must be printed, so a skip reads as
+' a fact about the machine rather than a hole in the coverage.
+'
+' The case that set this: `[sol] solc is installed` failed on every arm64 run
+' with `OSError: [Errno 8] Exec format error` on solc-0.8.20, beside solc-select's
+' own `.arm64_warning_shown` marker. solc publishes NO linux-arm64 binary, so
+' solc-select installs the x86-64 one and exec cannot succeed. No Dockerfile
+' change can cause or fix that, and the failure made `mise run test-images` exit
+' non-zero — which ABORTS the run before cursor's and opencode's suites, so one
+' impossible assertion was hiding two whole suites.
+'
+' Scoped as narrowly as the fact allows: only the EXEC is skipped, only on
+' aarch64/arm64. `solc-select versions` still asserts the version is installed,
+' solc's ABSENCE from the base variants is still asserted, and on x86-64 the
+' original assertion runs unchanged. The skip prints
+' "solc publishes no linux-arm64 build; solc-select installs the x86-64 one".
+'
+' A note on the judgement, because this is a test edited to make a suite pass:
+' the honest test of that move is whether the assertion could EVER hold here. It
+' cannot. Had it been failing for a reason the tree controls, the fix would have
+' been the tree.
+'
 ' Two smaller conventions worth keeping:
 '   * the baked uid/gid is asserted against the Dockerfile's `ARG USER_ID` (1000,
 '     named "claude" in claudecode), overridable via EXPECTED_UID;
