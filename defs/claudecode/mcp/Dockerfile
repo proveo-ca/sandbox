@@ -54,40 +54,17 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-# Static docker CLI only — the record of three attempts, so this is not re-derived.
+# No docker binaries here. The whole static tarball — docker, dockerd, containerd,
+# containerd-shim-runc-v2, ctr, runc, docker-proxy, docker-init, 210 MB measured —
+# was removed when sbx became the only backend that hands this harness a daemon:
+# every one of those binaries overlaps the sandbox runtime that owns it.
 #
-# sbx gives each sandbox its own Docker daemon, but it runs from the IMAGE and
-# starts as root. Shipping dockerd makes sbx ATTEMPT that start; a daemon that
-# fails to start blocks the whole sandbox, which is worse than having none.
-#
-#  1. bookworm, nf_tables  → "failed to create NAT chain DOCKER (exit status 4)"
-#  2. bookworm, legacy     → "can't initialize iptables table `nat'"
-#  3. TRIXIE, nf_tables    → "iptables v1.8.11: Could not fetch rule set
-#                             generation id: Permission denied (you must be root)"
-#
-# The trixie move fixed the version: iptables is now 1.8.11, identical to the
-# stock template's, so the base image is no longer the blocker. What remains is
-# the privilege. Scoped sudo (NOPASSWD for /usr/local/bin/dockerd only) was tried
-# and changed NOTHING — the error is byte-identical — so sbx does not invoke
-# dockerd through sudo, and the stock template's `NOPASSWD:ALL` is not what makes
-# it work either. proveo-harden is not implicated: it only strips setuid/setgid
-# and removes nc/netstat.
-#
-# Next step is sbx-side, not packaging: find how its dind path grants dockerd its
-# privileges. e2e/ladder_test.go is the harness that would prove a fix.
-#
-# Keep the version in step with cursor, opencode and cecli.
-RUN DOCKER_VERSION=29.7.2 \
-    && case "$(uname -m)" in \
-         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
-         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
-         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
-    && tar -xzf /tmp/docker.tgz -C /tmp \
-    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
-    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
-    && rm -rf /tmp/docker /tmp/docker.tgz
+# The LABEL below, the `docker` group and `iptables` are NOT overlaps and stay:
+# sbx's own switch, the group on a root:docker socket, and the NAT chain's
+# dependency. The assumption this rests on (sbx supplies the client AND the
+# daemon), the evidence in this tree pointing the other way, and the exact symptom
+# if it is wrong: _spec/_plans/image-size-reduction.puml.
+# SPEC: _spec/_plans/image-size-reduction.puml
 
 # ── Docker-in-sandbox ───────────────────────────────────────────────────────
 #
@@ -97,8 +74,7 @@ RUN DOCKER_VERSION=29.7.2 \
 # creation and never starts a daemon, which is why every proveo sbx run reported
 # "Cannot connect to the Docker daemon" beside Compose files it could read.
 #
-# The daemon binaries were already being downloaded and discarded: the static
-# tarball carries dockerd, containerd, runc and friends alongside the client.
+# The daemon itself is sbx's: this image ships no dockerd (see above).
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
  && usermod -aG docker agent

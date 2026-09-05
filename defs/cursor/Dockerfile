@@ -60,17 +60,17 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-RUN DOCKER_VERSION=29.7.2 \
-    && case "$(uname -m)" in \
-         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
-         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
-         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
-    && tar -xzf /tmp/docker.tgz -C /tmp \
-    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
-    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
-    && rm -rf /tmp/docker /tmp/docker.tgz
+# No docker binaries here. The whole static tarball — docker, dockerd, containerd,
+# containerd-shim-runc-v2, ctr, runc, docker-proxy, docker-init, 210 MB measured —
+# was removed when sbx became the only backend that hands this harness a daemon:
+# every one of those binaries overlaps the sandbox runtime that owns it.
+#
+# The LABEL below, the `docker` group and `iptables` are NOT overlaps and stay:
+# sbx's own switch, the group on a root:docker socket, and the NAT chain's
+# dependency. The assumption this rests on (sbx supplies the client AND the
+# daemon), the evidence in this tree pointing the other way, and the exact symptom
+# if it is wrong: _spec/_plans/image-size-reduction.puml.
+# SPEC: _spec/_plans/image-size-reduction.puml
 
 # ── Docker-in-sandbox ───────────────────────────────────────────────────────
 #
@@ -80,8 +80,7 @@ RUN DOCKER_VERSION=29.7.2 \
 # creation and never starts a daemon, which is why every proveo sbx run reported
 # "Cannot connect to the Docker daemon" beside Compose files it could read.
 #
-# The daemon binaries were already being downloaded and discarded: the static
-# tarball carries dockerd, containerd, runc and friends alongside the client.
+# The daemon itself is sbx's: this image ships no dockerd (see above).
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
  && usermod -aG docker agent

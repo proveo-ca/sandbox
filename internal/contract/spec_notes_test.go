@@ -39,6 +39,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/workspace-env-key.puml",
 	"_spec/_plans/config-seeding-and-persistence.puml",
 	"_spec/_plans/claude-in-chrome-reachability.puml",
+	"_spec/_plans/image-size-reduction.puml",
 }
 
 const (

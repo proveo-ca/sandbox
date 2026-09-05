@@ -43,8 +43,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
-# iptables is dockerd's, not cecli's: the per-sandbox daemon builds its own NAT
-# chain at start and cannot without it.
+# iptables is the daemon's, not cecli's: sbx's per-sandbox daemon builds its own
+# NAT chain at start and cannot without it. It stays even though this image no
+# longer ships dockerd — a NAT chain needs iptables whoever builds it.
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     python3 \
@@ -97,22 +98,17 @@ RUN test -n "${SERENA_VERSION}" \
   && rm -rf /root/.cache /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
-# The whole static tarball, not just the client. With the privileged dind sidecar
-# retired (_spec/_plans/retire-dind.puml), the only daemon this harness can reach
-# is sbx's per-sandbox one, and that daemon runs INSIDE the sandbox — so the image
-# ships dockerd, containerd, runc and docker-proxy, which this same download
-# already carried and threw away.
-RUN DOCKER_VERSION=29.7.2 \
-    && case "$(uname -m)" in \
-         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
-         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
-         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
-    && tar -xzf /tmp/docker.tgz -C /tmp \
-    && install -m 0755 /tmp/docker/* /usr/local/bin/ \
-    && ln -sf /usr/local/bin/dockerd /usr/bin/dockerd \
-    && rm -rf /tmp/docker /tmp/docker.tgz
+# No docker binaries here. The whole static tarball — docker, dockerd, containerd,
+# containerd-shim-runc-v2, ctr, runc, docker-proxy, docker-init, 210 MB measured —
+# was removed when sbx became the only backend that hands this harness a daemon:
+# every one of those binaries overlaps the sandbox runtime that owns it.
+#
+# The LABEL below, the `docker` group and `iptables` are NOT overlaps and stay:
+# sbx's own switch, the group on a root:docker socket, and the NAT chain's
+# dependency. The assumption this rests on (sbx supplies the client AND the
+# daemon), the evidence in this tree pointing the other way, and the exact symptom
+# if it is wrong: _spec/_plans/image-size-reduction.puml.
+# SPEC: _spec/_plans/image-size-reduction.puml
 
 # ── Docker-in-sandbox ───────────────────────────────────────────────────────
 #

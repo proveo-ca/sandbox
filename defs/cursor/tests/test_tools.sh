@@ -23,7 +23,15 @@ assert_success "gh is installed" "$IMAGE" "gh --version"
 # cursor is FROM proveo/base (no language runtime): the cursor-agent is a
 # self-contained binary, so there is no node/pnpm/bun/python/browser here.
 assert_failure "bun stays out of the runtime-free cursor image (it lives in proveo/base-node)" "$IMAGE" "command -v bun"
-assert_success "docker client is installed (docker via the sbx sandbox backend)" "$IMAGE" "docker --version"
+# INVERTED 2026-09-05: the image ships no docker binaries at all. Every one of the
+# static tarball's eight overlapped sbx, which owns the daemon it starts from the
+# `com.docker.sandboxes.start-docker` label, so `docker: sbx` now depends on sbx
+# supplying the client too. This suite asserts what the IMAGE carries, and it
+# deliberately carries nothing; whether a sandbox can still REACH a daemon is
+# e2e/sbx_test.go's assertSandboxSuppliesDocker, which was not inverted.
+# SPEC: _spec/_plans/image-size-reduction.puml
+assert_failure "no docker binaries in the image (sbx owns the daemon and the client)" "$IMAGE" "command -v docker"
+assert_failure "no dockerd in the image (210 MB of tarball that overlapped sbx)" "$IMAGE" "command -v dockerd"
 assert_success "shared verification lib is baked" "$IMAGE" \
   'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'
 

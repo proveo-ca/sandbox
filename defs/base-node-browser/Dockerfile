@@ -6,8 +6,20 @@ ARG PLAYWRIGHT_VERSION=1.61.0
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
+# `--no-shell`: `playwright install chromium` lands TWO browsers — `chromium-<rev>`
+# and `chromium_headless_shell-<rev>` — and this layer only ever launches the first.
+# The symlink below proves it: its `find … -path '*/chromium-*/*'` uses a hyphen so
+# it cannot match the shell. Measured at 1.61.0: chromium 624 MB, shell **334 MB**,
+# i.e. a quarter of this layer installed and then excluded by hand. Playwright ≥1.49
+# prefers the shell for its own headless runs, so a project's `playwright test`
+# falls back to full Chromium — slower to start, same result — while agent-browser,
+# which drives Chromium over CDP, never wanted the shell at all.
+#
+# The `! ls` guard is the point of the flag: a future Playwright that ignores
+# `--no-shell` must fail this build loudly rather than quietly re-adding 334 MB.
 RUN npm install -g --no-optional "playwright@${PLAYWRIGHT_VERSION}" \
-    && playwright install --with-deps chromium \
+    && playwright install --with-deps --no-shell chromium \
+    && ! ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-* >/dev/null 2>&1 \
     && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
     && npm cache clean --force \
     && rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/* \

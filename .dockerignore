@@ -1,0 +1,38 @@
+# The build context for every def is the REPO ROOT (defs/*/build.sh pass
+# "$SCRIPT_DIR/../.."), because variant Dockerfiles resolve their COPY paths from
+# there. Without this file the daemon received the whole tree — 303 MB, of which
+# 201 MB is node_modules and 83 MB is apps/ — on every single image build, and
+# defs/base/Dockerfile's builder stage baked it into a layer with `COPY . .`.
+#
+# defs/cecli/.dockerignore is NOT this file and never applied: BuildKit reads
+# <context>/.dockerignore or <dockerfile>.dockerignore, and that path is neither.
+#
+# This is a denylist on purpose. An allowlist (`*` + `!`) would be tighter, but
+# five Dockerfiles COPY from this context — AGENTS.md, cmd/, internal/, go.mod,
+# go.sum, defs/**, packages/lib/** — and a new COPY silently reaching nothing is a
+# worse failure than a slightly wide context.
+
+# JS toolchain: never copied by any Dockerfile, and the bulk of the context.
+node_modules
+**/node_modules
+.pnpm-store
+
+# The CLI's web assets — built and published by wrangler, not by any image.
+apps
+
+# VCS. Nothing in a build reads it; `go build` simply skips VCS stamping.
+.git
+.gitattributes
+.gitignore
+
+# Local test/build output.
+cov
+dist
+*.out
+*.log
+.DS_Store
+
+# Agent- and editor-local state.
+.claude
+.vscode
+.idea
