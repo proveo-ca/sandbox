@@ -16,17 +16,23 @@ TARGETS=(
   "cursor|proveo/cursor"
 )
 
-# resolve_image echoes the tag of $1 present locally, preferring the local build.
-# A repository with neither tag echoes nothing, and the caller skips it.
+# shellcheck source=../defs/lib/docker-build.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../defs/lib" && pwd)/docker-build.sh"
+
+# resolve_image echoes the reference this smoke run should use, or nothing when
+# the repository has neither tag (the caller skips it).
+#
+# It preferred :local by mere EXISTENCE, which is a third answer to a question
+# the codebase had already settled twice — internal/maintain.ResolveImage and now
+# proveo_resolve_image both decide by RECENCY. Existence-first has the failure
+# that doc names: a stale :local from last week silently shadows an image pulled
+# a minute ago, and the smoke run reads as coverage of the newer one.
+# SPEC: _spec/_devops/image-lineage-and-publish.puml
 resolve_image() {
-  local repo="$1" tag
-  for tag in local latest; do
-    if docker image inspect "$repo:$tag" >/dev/null 2>&1; then
-      printf '%s:%s\n' "$repo" "$tag"
-      return 0
-    fi
-  done
-  return 1
+  local repo="$1" chosen
+  chosen="$(proveo_resolve_image "$repo:latest")"
+  docker image inspect "$chosen" >/dev/null 2>&1 || return 1
+  printf '%s\n' "$chosen"
 }
 
 

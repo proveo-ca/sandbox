@@ -52,7 +52,7 @@ for image in $(images_to_test); do
     "printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts" "42"
 done
 
-SOL_IMAGE="${SOL_IMAGE:-proveo/claudecode-solidity:latest}"
+SOL_IMAGE="$(proveo_resolve_image "${SOL_IMAGE:-proveo/claudecode-solidity:latest}")"
 if docker image inspect "$SOL_IMAGE" >/dev/null 2>&1; then
   for tool_entry in "${TOOLS[@]}" "${SOL_TOOLS[@]}"; do
     IFS=':' read -r name cmd <<< "$tool_entry"
@@ -72,7 +72,7 @@ fi
 # Playwright's Chromium plus vercel-labs/agent-browser pointed at that same
 # binary, with the skills tree `agent-browser skills get core` serves and the
 # discovery stub the seed drops into ~/.claude/skills.
-BROWSER_IMAGE="${BROWSER_IMAGE:-proveo/claudecode-browser:latest}"
+BROWSER_IMAGE="$(proveo_resolve_image "${BROWSER_IMAGE:-proveo/claudecode-browser:latest}")"
 if docker image inspect "$BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$BROWSER_IMAGE" "playwright --version"
   assert_success "[browser] agent-browser is installed" "$BROWSER_IMAGE" "agent-browser --version"

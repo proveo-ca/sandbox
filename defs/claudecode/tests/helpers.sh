@@ -10,8 +10,13 @@ TESTS_SKIPPED=0
 FAILURES=()
 
 # --- Image names (overridable) ---
-STANDALONE_IMAGE="${STANDALONE_IMAGE:-proveo/claudecode:latest}"
-MCP_IMAGE="${MCP_IMAGE:-proveo/claudecode:latest}"
+# Resolved through proveo_test_image so a NEWER <repo>:local build wins over the
+# published tag — the same rule `proveo run` applies. proveo_docker_build refuses
+# to write :latest locally, so without this the suite only ever sees the registry.
+# shellcheck source=../../lib/docker-build.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
+STANDALONE_IMAGE="$(proveo_test_image "${STANDALONE_IMAGE:-proveo/claudecode:latest}")"
+MCP_IMAGE="$(proveo_test_image "${MCP_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE_AVAILABLE=false
 
 # --- Colors ---

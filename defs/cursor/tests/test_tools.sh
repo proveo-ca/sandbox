@@ -30,7 +30,7 @@ assert_success "shared verification lib is baked" "$IMAGE" \
 # Browser variant (proveo/cursor-browser, FROM proveo/base-node-browser):
 # Playwright's Chromium plus vercel-labs/agent-browser pointed at that same binary,
 # and the discovery stub the seed drops into ~/.cursor/skills.
-CURSOR_BROWSER_IMAGE="${CURSOR_BROWSER_IMAGE:-proveo/cursor-browser:latest}"
+CURSOR_BROWSER_IMAGE="$(proveo_resolve_image "${CURSOR_BROWSER_IMAGE:-proveo/cursor-browser:latest}")"
 if docker image inspect "$CURSOR_BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$CURSOR_BROWSER_IMAGE" "playwright --version"
   assert_success "[browser] agent-browser is installed" "$CURSOR_BROWSER_IMAGE" "agent-browser --version"

@@ -44,7 +44,7 @@ assert_output_contains \
 # Browser variant (proveo/opencode-browser, FROM proveo/base-node-browser):
 # Playwright's Chromium plus vercel-labs/agent-browser pointed at that same binary,
 # and the discovery stub the seed drops into ~/.config/opencode/skills.
-OPENCODE_BROWSER_IMAGE="${OPENCODE_BROWSER_IMAGE:-proveo/opencode-browser:latest}"
+OPENCODE_BROWSER_IMAGE="$(proveo_resolve_image "${OPENCODE_BROWSER_IMAGE:-proveo/opencode-browser:latest}")"
 if docker image inspect "$OPENCODE_BROWSER_IMAGE" >/dev/null 2>&1; then
   assert_success "[browser] playwright CLI is installed" "$OPENCODE_BROWSER_IMAGE" "playwright --version"
   assert_success "[browser] agent-browser is installed" "$OPENCODE_BROWSER_IMAGE" "agent-browser --version"

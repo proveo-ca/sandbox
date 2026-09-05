@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_NAME="${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/docker-build.sh
+source "$SCRIPT_DIR/../lib/docker-build.sh"
+
+# :latest is the reference; proveo_test_image swaps in <repo>:local when a local
+# build is NEWER, the same rule `proveo run` applies (internal/maintain.ResolveImage).
+# Without it this suite could only ever test what the registry last published,
+# because proveo_docker_build refuses to write :latest locally.
+IMAGE_NAME="$(proveo_test_image "${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}")"
 
 # Root-free contract: non-root default user, no gosu, and any wrapper-passed
 # `--user` uid gets a usable identity and writable HOME via ensure_runtime_user.
