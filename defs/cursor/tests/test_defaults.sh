@@ -18,21 +18,31 @@ assert_success \
   "$IMAGE" \
   "test -x /opt/cursor/defaults/hooks/audit-shell.sh"
 
-REQUIRED_AGENTS=(
-  "adversarial-reviewer"
-  "security-reviewer"
-)
-for a in "${REQUIRED_AGENTS[@]}"; do
-  assert_success \
-    "baked defaults: agents/$a.md present in /opt" \
-    "$IMAGE" \
-    "test -f /opt/cursor/defaults/agents/$a.md"
-  assert_output_contains \
-    "default subagent $a is structurally readonly" \
-    "$IMAGE" \
-    "cat /opt/cursor/defaults/agents/$a.md" \
-    "readonly: true"
-done
+# Subagents are NOT under /opt/<harness>/defaults/agents any more. They are one
+# shared tree at /opt/proveo/subagents with a per-harness _roster.json, and this
+# file went on asserting the retired path — 10 failures against an image that was
+# built correctly, which reads as a broken image rather than a stale test.
+#
+# The roster is READ FROM THE IMAGE rather than restated here. A list copied into a
+# test drifts silently the moment the roster changes; cecli's test.sh already took
+# this approach ("read from the image, never restated here") and did not go stale.
+# SPEC: _spec/defs/agent-definition-sharing.puml
+#
+# `readonly: true` moved with them, into the per-harness FRONTMATTER
+# (_frontmatter/cursor/<agent>.yaml) that the seed renders onto the shared body —
+# so it is asserted there rather than in the body, which never carried it.
+assert_success \
+  "baked subagents: every agent in the cursor roster has a body and is readonly" \
+  "$IMAGE" \
+  'set -eu
+   roster="$(jq -r ".cursor[]" /opt/proveo/subagents/_roster.json)"
+   [ -n "$roster" ] || { echo "cursor roster is empty"; exit 1; }
+   for a in $roster; do
+     test -f "/opt/proveo/subagents/$a.md" || { echo "missing /opt/proveo/subagents/$a.md"; exit 1; }
+     grep -qx "readonly: true" "/opt/proveo/subagents/_frontmatter/cursor/$a.yaml" \
+       || { echo "$a frontmatter is not readonly: true"; exit 1; }
+   done
+   echo "roster: $(echo $roster | tr "\n" " ")"'
 
 # Deny baseline survives --force by product semantics; assert it exists.
 assert_output_contains \
