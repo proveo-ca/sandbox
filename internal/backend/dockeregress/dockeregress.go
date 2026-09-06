@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/reviewgate"
@@ -77,14 +78,17 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		HostBridge:      in.HostBridge,
 		ProviderDomains: in.ProviderDomains,
 		ReviewSocket:    in.ReviewSocket,
-		AuthVar:         in.AuthVar,
-		WriteHosts:      in.WriteHosts,
-		ProviderHosts:   in.ProviderHosts,
-		ConfDir:         filepath.Join(in.EgDir, "mitmproxy", "confdir"),
-		FlowsDir:        filepath.Join(in.EgDir, "mitmproxy", "flows"),
-		SquidConfigDir:  filepath.Join(in.EgDir, "squid", "config"),
-		SquidLogDir:     filepath.Join(in.EgDir, "squid", "logs"),
-		SquidImage:      in.SquidImage, ProxyImage: in.ProxyImage, OllamaImage: in.OllamaImage,
+		// The plan wants a variable NAME for the broker to prefer. The row's
+		// credential-shape answers name no variable, so they resolve to nothing
+		// here rather than reaching the sidecar as one proveo invented.
+		AuthVar:        brokerAuthVar(in.AuthVar),
+		WriteHosts:     in.WriteHosts,
+		ProviderHosts:  in.ProviderHosts,
+		ConfDir:        filepath.Join(in.EgDir, "mitmproxy", "confdir"),
+		FlowsDir:       filepath.Join(in.EgDir, "mitmproxy", "flows"),
+		SquidConfigDir: filepath.Join(in.EgDir, "squid", "config"),
+		SquidLogDir:    filepath.Join(in.EgDir, "squid", "logs"),
+		SquidImage:     in.SquidImage, ProxyImage: in.ProxyImage, OllamaImage: in.OllamaImage,
 	})
 	if err != nil {
 		return egress.Plan{}, runner.Config{}, err
@@ -249,4 +253,14 @@ func waitForFile(path string, timeout time.Duration) error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// brokerAuthVar keeps credential-shape answers out of the sidecar's environment:
+// the egress broker looks the value up as an env var name, and "login (proveo
+// home)" is not one.
+func brokerAuthVar(v string) string {
+	if credentials.IsAuthSentinel(v) {
+		return ""
+	}
+	return v
 }

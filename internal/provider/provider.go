@@ -11,6 +11,11 @@ type AuthOption struct {
 	Header string // header to set, e.g. "x-api-key" or "authorization"
 	Query  string // query param to set instead of a header (e.g. Gemini "key")
 	Bearer bool   // prefix the value with "Bearer "
+	// Harness names the CLI whose OWN plan issues this credential, empty when it
+	// is a general provider key any harness can send — what stops one harness
+	// being offered another's plan credential as if it were spendable.
+	// SPEC: _spec/internal/provider/provider-registry.puml
+	Harness string
 }
 
 // Entry is a provider's full policy: detection, Squid ACL, and (optional)
@@ -40,10 +45,13 @@ var entries = []Entry{
 	{Name: "anthropic", Detect: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
 		ACL: "dstdomain .anthropic.com", Hosts: []string{".anthropic.com"}, Auth: []AuthOption{
 			{EnvVar: "ANTHROPIC_API_KEY", Header: "x-api-key"},
-			{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Header: "authorization", Bearer: true},
+			{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Header: "authorization", Bearer: true, Harness: "claudecode"},
 		}},
+	// No bring-your-own-key path (staff-confirmed, forum.cursor.com "Can I use
+	// provider API keys with Cursor cli agent?"): this key is cursor's plan.
 	{Name: "cursor", Detect: []string{"CURSOR_API_KEY"},
-		ACL: "dstdomain .cursor.sh .cursor.com", Hosts: []string{".cursor.sh", ".cursor.com"}, Auth: bearer("CURSOR_API_KEY")},
+		ACL: "dstdomain .cursor.sh .cursor.com", Hosts: []string{".cursor.sh", ".cursor.com"},
+		Auth: []AuthOption{{EnvVar: "CURSOR_API_KEY", Header: "authorization", Bearer: true, Harness: "cursor"}}},
 	{Name: "openai", Detect: []string{"OPENAI_API_KEY"},
 		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
 	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
@@ -99,8 +107,11 @@ var entries = []Entry{
 		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
 	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
 		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
+	// One key, both plans of one gateway: Zen (opencode/<model>) and Go
+	// (opencode-go/<model>) — models.dev lists env ["OPENCODE_API_KEY"] for each.
 	{Name: "opencode", Detect: []string{"OPENCODE_API_KEY"},
-		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"}, Auth: bearer("OPENCODE_API_KEY")},
+		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"},
+		Auth: []AuthOption{{EnvVar: "OPENCODE_API_KEY", Header: "authorization", Bearer: true, Harness: "opencode"}}},
 	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"},
 		ACL: `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`},
 	{Name: "azure", Detect: []string{"AZURE_API_KEY", "AZURE_OPENAI_API_KEY"},
@@ -217,6 +228,24 @@ func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, 
 		break
 	}
 	return r, true
+}
+
+// AuthVarsFor lists the credentials a given harness may actually send to this
+// provider: the general keys, plus its OWN plan credential, never another
+// harness's.
+func AuthVarsFor(name, harness string) []string {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(e.Auth))
+	for _, a := range e.Auth {
+		if a.Harness != "" && !strings.EqualFold(a.Harness, harness) {
+			continue
+		}
+		out = append(out, a.EnvVar)
+	}
+	return out
 }
 
 func AuthVars(name string) []string {

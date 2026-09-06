@@ -251,12 +251,13 @@ func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored
 	if len(StoreHolds(man, stored)) > 0 {
 		return false
 	}
-	for _, e := range man.Env {
-		if e.Secret && lookup != nil && strings.TrimSpace(lookup(e.Name)) != "" {
-			return false
-		}
+	if len(SubscriptionVars(man, lookup)) > 0 {
+		return false
 	}
-	return true
+	// A provider key the harness can actually use is a credential too — telling
+	// an opencode run backed by ANTHROPIC_API_KEY that "the sandbox has no
+	// credential of its own" points at a login it does not need.
+	return len(ProviderKeyVars(man, lookup)) == 0
 }
 
 // SandboxLoginHint is what proveo says when the host store holds a login the

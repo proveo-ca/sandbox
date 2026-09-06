@@ -449,4 +449,67 @@ note top of SBX
   that hangs before launch with a blank screen.
 end note
 
+note top of SBX
+  **The bound is on the CALL, not the process.**
+  A context kills what we started; ""Output()""
+  waits on the stdout PIPE, which a grandchild
+  that inherited it holds open afterwards.
+end note
+
+note top of SBX
+  Measured: ""sh -c 'sleep 60'"" under a 50ms
+  context takes **60s** — shell dies on time,
+  ""sleep"" keeps the pipe. ""sleep 60"" started
+  directly takes 51ms. Forking hides the hazard.
+end note
+
+note top of SBX
+  ""WaitDelay"" closes the pipes a grace period
+  after the deadline, which is what makes the
+  call return. ""docker info"" on a wedged daemon
+  is exactly the fork-happy client this is for.
+end note
+
+note top of SBX
+  **The test for this asserted nothing for a
+  while.** It swapped the ""DockerMemTotal"" seam
+  for a fake, so no bounded path was under test
+  — it measured whether the FAKE returned.
+end note
+
+note top of SBX
+  And the fake was ""sh -c 'sleep 60'"": it took
+  the full minute, the 5s deadline fired, and the
+  failure read 'the daemon call is unbounded'
+  while pointing at code that had a deadline.
+end note
+
+note top of SBX
+  **The split is one question:** can this call
+  hang while the operator waits, or is it the
+  operation they are waiting FOR? Every read-only
+  interrogation is bounded; the write path is not.
+end note
+
+note top of SBX
+  ""Version"", ""SandboxList"", ""SecretList"" and
+  ""TemplateList"" had no deadline at all until
+  this pass. ""Version"" is the one that mattered:
+  ""sbx.Available()"" hits it before every launch.
+end note
+
+note top of SBX
+  ""TemplateLoad"", ""TemplateRemove"" and
+  ""SecretSet"" must NOT join them: an image load
+  runs for minutes, so a 10s bound would abort
+  the work rather than protect anyone from it.
+end note
+
+note top of SBX
+  The wiring is tested through a fake ""sbx"" on
+  PATH that exits at once and leaves an orphan
+  holding the pipe — a call that stops going
+  through ""bounded()"" is the regression to catch.
+end note
+
 @enduml

@@ -94,6 +94,24 @@ note bottom of EP
   injects the real bearer on "".opencode.ai"" only — and ""proveo --init""
   offers it.
 
+  **The def DECLARES it now, and that is what 'unaware' meant.** For a long
+  while the manifest listed no ""env:"" at all, so ""OPENCODE_API_KEY"" was a
+  provider key proveo detected and nothing more: not the harness's plan, so
+  ""--credentials forward"" had nothing to forward (the e2e case skipped for
+  exactly that reason), ""CredentialReachedAgent"" could not see it, and the
+  'no credential reached the agent' hint fired naming nothing to fix. The auth
+  row never offered it either — its old gate wanted exactly ONE detected
+  provider, and a host with the gateway key beside ""ANTHROPIC_API_KEY"" has
+  two.
+
+  ""subscription: true"" here is about the PROMPT, not about a login flow: never
+  ask for this key ahead of time, because the operator may be running on their
+  own provider keys — or on the gateway's free models with no key at all. The
+  paths that read that flag as 'this harness has no credential' were the ones
+  that had to learn the difference: the sbx refusal and the sbx login hint both
+  yield to a usable provider key now.
+  SPEC: _spec/internal/credentials/credential-decisions.puml
+
   The TUI's ""/connect"" (""opencode auth login"") is the wrong place: it writes
   ""~/.local/share/opencode/auth.json"", which the manifest's share mount
   **denies** — the proveo home scrubs it on every run so login tokens never

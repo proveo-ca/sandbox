@@ -316,21 +316,27 @@ func TestProviderLookupResolvesReferences(t *testing.T) {
 	}
 }
 
-// The auth row exists only when the operator actually holds more than one
-// credential for the provider this run will pin — otherwise there is no decision
-// and the row would be inert.
+// The auth row exists only where the operator actually holds both sides —
+// otherwise there is no decision and the row would be inert. The sides are the
+// two ways a run is BILLED, and which variable belongs to which comes from the
+// manifest: the harness declares its own plan credential, everything else is a
+// provider key. SPEC: _spec/internal/credentials/credential-decisions.puml
 func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	t.Parallel()
-	man := manifest.Manifest{Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}}}
+	man := manifest.Manifest{
+		Name:         "claudecode",
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
 	both := func(k string) string {
 		return map[string]string{"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oauth"}[k]
 	}
-	if got := AvailableAuthVars(man, both); len(got) != 2 {
-		t.Errorf("with both credentials = %v, want two options", got)
+	if got := AvailableAuthVars(man, both); !slices.Equal(got, []string{AuthUsage, AuthSubscription}) {
+		t.Errorf("with both credentials = %v, want both classes, riskier first", got)
 	}
 	only := func(k string) string { return map[string]string{"ANTHROPIC_API_KEY": "sk"}[k] }
-	if got := AvailableAuthVars(man, only); len(got) != 1 {
-		t.Errorf("with one credential = %v, want one (no row is rendered for <2)", got)
+	if got := AvailableAuthVars(man, only); !slices.Equal(got, []string{AuthUsage}) {
+		t.Errorf("with one credential = %v, want usage credits alone", got)
 	}
 	none := func(string) string { return "" }
 	if got := AvailableAuthVars(man, none); len(got) != 0 {
@@ -477,13 +483,13 @@ func TestAuthSuppressorKeepsTheTokenWhenTheLoginIsBlanked(t *testing.T) {
 	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
 		time.Now().Add(8*time.Hour).UnixMilli())
 	write(live)
-	if !AuthSuppressor(man, "claudecode", "", home)("CLAUDE_CODE_OAUTH_TOKEN") {
+	if !AuthSuppressor(man, "claudecode", "", home, nil)("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("a login that CAN authenticate is the credential; the env token must be suppressed")
 	}
 
 	write(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,` +
 		`"refreshTokenExpiresAt":4102444800000}}`)
-	if AuthSuppressor(man, "claudecode", "", home)("CLAUDE_CODE_OAUTH_TOKEN") {
+	if AuthSuppressor(man, "claudecode", "", home, nil)("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("a blanked login is not the credential; suppressing the env token leaves the run with none")
 	}
 }
@@ -538,7 +544,7 @@ func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
 	home := t.TempDir()
 
 	// No explicit choice and no host login: nothing is implied, nothing is dropped.
-	if got := EffectiveAuthVar(man, "claudecode", "", home); got != "" {
+	if got := EffectiveAuthVar(man, "claudecode", "", home, nil); got != "" {
 		t.Errorf("without a login or a choice the auth var is unknown, got %q", got)
 	}
 
@@ -550,15 +556,15 @@ func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{"x":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := EffectiveAuthVar(man, "claudecode", "", home); got != "CLAUDE_CODE_OAUTH_TOKEN" {
+	if got := EffectiveAuthVar(man, "claudecode", "", home, nil); got != "CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Errorf("a persisted host login must select the harness credential, got %q", got)
 	}
-	if !LosesToChosenAuth("ANTHROPIC_API_KEY", EffectiveAuthVar(man, "claudecode", "", home)) {
+	if !LosesToChosenAuth("ANTHROPIC_API_KEY", EffectiveAuthVar(man, "claudecode", "", home, nil)) {
 		t.Error("with a host login present the competing API key must not be stored")
 	}
 
 	// An explicit answer always wins over the inferred one.
-	if got := EffectiveAuthVar(man, "claudecode", "ANTHROPIC_API_KEY", home); got != "ANTHROPIC_API_KEY" {
+	if got := EffectiveAuthVar(man, "claudecode", "ANTHROPIC_API_KEY", home, nil); got != "ANTHROPIC_API_KEY" {
 		t.Errorf("the operator's own choice must win, got %q", got)
 	}
 }
@@ -581,7 +587,7 @@ func TestFileBackedLoginSuppressesEveryAuthVarForItsProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
-	suppressed := AuthSuppressor(man, "claudecode", "", home)
+	suppressed := AuthSuppressor(man, "claudecode", "", home, nil)
 
 	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
 		if !suppressed(k) {
@@ -606,7 +612,7 @@ func TestChosenAuthVarSurvivesAPersistedLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
-	suppressed := AuthSuppressor(man, "claudecode", "ANTHROPIC_API_KEY", home)
+	suppressed := AuthSuppressor(man, "claudecode", "ANTHROPIC_API_KEY", home, nil)
 
 	if suppressed("ANTHROPIC_API_KEY") {
 		t.Error("the operator's answer was dropped")
@@ -621,7 +627,7 @@ func TestChosenAuthVarSurvivesAPersistedLogin(t *testing.T) {
 // With no login on disk nothing is suppressed: the env vars are the only auth.
 func TestNoPersistedLoginInjectsTheManifestSecret(t *testing.T) {
 	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
-	if AuthSuppressor(man, "claudecode", "", t.TempDir())("CLAUDE_CODE_OAUTH_TOKEN") {
+	if AuthSuppressor(man, "claudecode", "", t.TempDir(), nil)("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Fatal("dropped the only credential the run had")
 	}
 }
@@ -787,17 +793,31 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "key"}[k]
 	}
 
+	// A login IS a subscription, so it no longer needs an option of its own — it
+	// backs that one. What it must never be is unnameable: an answer of
+	// "subscription" has to reach it, and the hint has to say it is the file
+	// rather than the token beside it.
 	got := AvailableAuthVarsIn(man, lookup, "claudecode", home)
-	if len(got) == 0 || got[0] != AuthVarLogin {
-		t.Fatalf("the login must be offered first, got %v", got)
+	if !slices.Contains(got, AuthSubscription) {
+		t.Fatalf("a mounted login is not offered as the plan, got %v", got)
 	}
-	// Without one on disk the row is unchanged: nothing to name.
-	if bare := AvailableAuthVarsIn(man, lookup, "claudecode", t.TempDir()); slices.Contains(bare, AuthVarLogin) {
-		t.Errorf("offered a login that does not exist: %v", bare)
+	if b := AuthBacking(man, lookup, "claudecode", home, "")[AuthSubscription]; !strings.Contains(b, cred) {
+		t.Errorf("the plan hint does not name the login that will be spent: %q", b)
+	}
+	// With no login on disk the plan side is the declared token alone.
+	if b := AuthBacking(man, lookup, "claudecode", t.TempDir(), "")[AuthSubscription]; strings.Contains(b, "login ") {
+		t.Errorf("named a login that does not exist: %q", b)
+	}
+
+	// Answering "subscription" with a login on disk resolves to the FILE, and
+	// suppresses that provider's variables — only that provider's.
+	if s := AuthSuppressor(man, "claudecode", AuthSubscription, home, lookup); !s("ANTHROPIC_API_KEY") ||
+		!s("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("an env token was injected over the login the operator's answer selected")
 	}
 
 	// Naming it suppresses that provider's variables, and only that provider's.
-	suppressed := AuthSuppressor(man, "claudecode", AuthVarLogin, home)
+	suppressed := AuthSuppressor(man, "claudecode", AuthVarLogin, home, nil)
 	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
 		if !suppressed(k) {
 			t.Errorf("%s injected over the login the operator named", k)
@@ -807,7 +827,7 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 		t.Error("an anthropic login must not remove reach to another provider")
 	}
 	// It is a sentinel, never an env var name.
-	if v := EffectiveAuthVar(man, "claudecode", AuthVarLogin, home); v == AuthVarLogin {
+	if v := EffectiveAuthVar(man, "claudecode", AuthVarLogin, home, nil); v == AuthVarLogin {
 		t.Errorf("the login sentinel leaked into an env var name: %q", v)
 	}
 }
@@ -966,7 +986,7 @@ func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
 
 	t.Run("a live login still outranks the token", func(t *testing.T) {
 		home := write(t, fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, live, future))
-		if !AuthSuppressor(man, "claudecode", "", home)("ANTHROPIC_API_KEY") {
+		if !AuthSuppressor(man, "claudecode", "", home, nil)("ANTHROPIC_API_KEY") {
 			t.Error("a usable login must still suppress an env token, or a subscription run silently bills per token")
 		}
 	})
@@ -974,14 +994,14 @@ func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
 	t.Run("a login needing renewal does not", func(t *testing.T) {
 		// expiresAt:0 is what a failed refresh leaves behind.
 		home := write(t, fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, future))
-		if AuthSuppressor(man, "claudecode", "", home)("ANTHROPIC_API_KEY") {
+		if AuthSuppressor(man, "claudecode", "", home, nil)("ANTHROPIC_API_KEY") {
 			t.Error("a login that cannot authenticate must not suppress the only working credential")
 		}
 	})
 
 	t.Run("an explicit login answer still wins", func(t *testing.T) {
 		home := write(t, `{"claudeAiOauth":{"expiresAt":0}}`)
-		if !AuthSuppressor(man, "claudecode", AuthVarLogin, home)("ANTHROPIC_API_KEY") {
+		if !AuthSuppressor(man, "claudecode", AuthVarLogin, home, nil)("ANTHROPIC_API_KEY") {
 			t.Error("the operator naming the login outranks its freshness — their answer stands")
 		}
 	})
@@ -1031,7 +1051,7 @@ func TestASuppressedVarNeverCarriesAValue(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			suppressed := AuthSuppressor(man, "claudecode", tc.chosen, home)
+			suppressed := AuthSuppressor(man, "claudecode", tc.chosen, home, nil)
 
 			for _, e := range man.Env {
 				if !e.Secret || !suppressed(e.Name) {

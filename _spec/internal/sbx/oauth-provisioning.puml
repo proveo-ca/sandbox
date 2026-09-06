@@ -189,4 +189,32 @@ note bottom of DIRECT
   sbx changed its storage shape, and fail on the
   operator's next run rather than ours.
 end note
+note as N_AUTH_RUN
+  **'Needs a login' is about the RUN.** Both gates
+  read a harness's ""env:"" list and took its
+  absence to mean nothing authenticates —
+  wrong for one that also reads provider keys.
+end note
+
+note as N_AUTH_PRED
+  ""credentials.HasUsableAuth"" is the shared
+  predicate: a login on disk, the harness's own
+  plan credential, or a provider key it can spend.
+  SPEC: internal/credentials/credential-decisions
+end note
+
+note as N_AUTH_VOICE
+  **The refusal speaks for what it refused.** It
+  named ""claude setup-token"" whatever harness
+  reached it, so a cursor run with no key got
+  instructions for a different product.
+end note
+
+note as N_AUTH_HINTS
+  ""SandboxAuthRefusal"" builds it from
+  ""SubscriptionAuthHints"", names each declared
+  credential and its export line, and offers the
+  provider-key branch only where one would work.
+end note
+
 @enduml

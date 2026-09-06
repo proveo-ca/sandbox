@@ -385,7 +385,7 @@ func TestKeychainNeverFeedsSuppression(t *testing.T) {
 		t.Fatal("HasPersistedLogin true with no proveo home — the store leaked into it")
 	}
 	man := manifest.Manifest{Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
-	suppress := AuthSuppressor(man, "claudecode", "", "")
+	suppress := AuthSuppressor(man, "claudecode", "", "", nil)
 	if suppress("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("the host store suppressed the env token — the sbx inversion is live")
 	}

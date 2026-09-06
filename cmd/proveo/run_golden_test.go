@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -73,6 +74,27 @@ func renderRun(t *testing.T, target, image, mode, creds, sbx string) string {
 	for _, k := range provider.KeyVars() {
 		t.Setenv(k, "")
 	}
+	// The same rule, and the same reason, for everything else the resolve path
+	// reads off the environment. These were NOT pinned, so a developer with
+	// ARCHITECT_MODEL exported got three `-e ..._MODEL=` flags, a DARK_MODE flag,
+	// an `------ egress ------` section and three keyless-role warnings that the
+	// recorded golden had never seen — a diff that says nothing about the resolve
+	// path and everything about whose shell ran the test.
+	for _, k := range entrypoint.ConfigVars {
+		t.Setenv(k, "")
+	}
+	for _, k := range provider.RoleVars {
+		t.Setenv(k, "")
+	}
+	// The gh mount is a real line of the plan, so pinning it OFF would drop
+	// coverage. Pin it to a directory the test creates instead: always present,
+	// always at a path scrubRun can rewrite. Unpinned it stat-ed the developer's
+	// own ~/.config/gh, so the line existed only for developers who use gh.
+	ghDir := filepath.Join(t.TempDir(), "gh")
+	if err := os.MkdirAll(ghDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_CONFIG_DIR", ghDir)
 	for k, v := range map[string]string{
 		"PROVEO_HOME": home, "PROVEO_WIZARD": "off", "PROVEO_SBX": sbx,
 		// PROVEO_DIND is retired and warns when set; pinned off so an operator's own
@@ -123,6 +145,13 @@ var (
 	reSid  = regexp.MustCompile(`proveo-\d+-\d+`)
 	reTmp  = regexp.MustCompile(`/(?:private/)?(?:var|tmp)/[^\s"',:]*`)
 	rePort = regexp.MustCompile(`127\.0\.0\.1:\d+`)
+	// The agent runs as the INVOKING user, so `--user 501:20` is a fact about the
+	// macOS laptop that recorded the golden and `--user 1000:1000` a fact about
+	// every Linux CI runner. There is no env override to pin — and there should
+	// not be one, since a test-only switch on the uid the agent runs as is
+	// production surface for a test's convenience. It is a display property, so
+	// it scrubs like the session id.
+	reUser = regexp.MustCompile(`--user \d+:\d+`)
 )
 
 // scrub removes everything that legitimately differs between two runs on two
@@ -138,6 +167,7 @@ func scrubRun(s, work, home string) string {
 	}
 	s = reSid.ReplaceAllString(s, "proveo-<SID>")
 	s = rePort.ReplaceAllString(s, "127.0.0.1:<PORT>")
+	s = reUser.ReplaceAllString(s, "--user <UID>:<GID>")
 	s = reTmp.ReplaceAllString(s, "<TMP>")
 	return s
 }

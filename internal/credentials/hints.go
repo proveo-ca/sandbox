@@ -34,6 +34,57 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 			Login: "agent login",
 		},
 	},
+	// No Login command: opencode's `/connect` writes
+	// ~/.local/share/opencode/auth.json, which the manifest's share mount denies
+	// and the proveo home scrubs on every run. The host export IS the login here.
+	"opencode": {
+		"OPENCODE_API_KEY": {
+			HowTo: "sign in at opencode.ai/auth and copy the key — one key for both plans, " +
+				"Zen (`opencode/<model>`) and Go (`opencode-go/<model>`)",
+		},
+	},
+}
+
+// SandboxAuthRefusal is what `proveo run` says when a subscription harness
+// reaches the sbx backend with nothing to authenticate with — the agent would
+// exit at its login prompt and the sandbox stop with it. It returns "" whenever
+// SOME credential is available, and speaks for the harness it refused rather
+// than in claudecode's words. SPEC: _spec/internal/sbx/oauth-provisioning.puml
+func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup func(string) string) string {
+	if HasUsableAuth(man, target, homeRoot, lookup) {
+		return ""
+	}
+	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	if !ok {
+		sh = shell.Shell{Name: "bash", Supported: true}
+	}
+	b := &strings.Builder{}
+	fmt.Fprintf(b, "%s needs a credential and the sbx backend cannot complete a login:\n"+
+		"  the agent exits at its login prompt and the sandbox stops with it.", man.Name)
+	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
+	for _, e := range man.Env {
+		if !e.Secret {
+			continue
+		}
+		hint := byHarness[e.Name]
+		if hint.HowTo == "" {
+			hint.HowTo = e.Description
+		}
+		fmt.Fprintf(b, "\n  Obtain %s", e.Name)
+		if hint.HowTo != "" {
+			fmt.Fprintf(b, " — %s", hint.HowTo)
+		}
+		if hint.Login != "" {
+			fmt.Fprintf(b, "\n      (or `%s` on the host)", hint.Login)
+		}
+		fmt.Fprintf(b, "\n      %s", sh.ExportLine(e.Name, "<token>"))
+	}
+	if VendorPinnedWhy(man) == "" {
+		b.WriteString("\n  Or export a provider key this harness can use instead " +
+			"(ANTHROPIC_API_KEY, OPENAI_API_KEY, …).")
+	}
+	b.WriteString("\n  Or use --egress-mode review, which runs on the docker backend where a login persists")
+	return b.String()
 }
 
 func CredentialReachedAgent(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, lookup func(string) string) bool {
