@@ -58,12 +58,31 @@ skinparam noteTextAlignment left
 ' dangling symlink, a non-executable interpreter, a wrong shebang path and a uid
 ' that cannot traverse the directory are all ruled out by measurement.
 '
-' What remains is narrower and stranger: the file is perfectly executable, yet
-' the session fell back to INTERPRETING it. That is either an invocation which
-' bypasses the shebang, or a shebang the kernel rejects for a reason head(1)
-' cannot show — a BOM or stray byte before `#!`. The probe now asks the kernel
-' outright (execve of the resolved path) and dumps the first four bytes, which
-' separates those two.
+' AND THEN THE LAST TWO WENT TOO. A rebuilt image, climbed again:
+'
+'   execve:  OK — the kernel runs it, so the shebang is honoured here
+'   first4:   # ! / o
+'
+' The kernel runs the file. There is no BOM. NOTHING IS WRONG WITH IT, and the
+' session interpreted it anyway.
+'
+' Only one shape survives that, and it reproduces exactly outside the sandbox:
+'
+'   exec'd            Traceback (most recent call last):     <- python ran it
+'   sh <file>         /tmp/fake: 2: import: not found
+'                     /tmp/fake: 3: from: not found
+'
+' Same lines, same tokens, same words as cecli's failure. Handing a file to a
+' shell IGNORES its shebang; only exec honours it. So the launcher is running
+' the resolved path AS A SHELL SCRIPT.
+'
+' It is not our entrypoint. Both the old allowlist and the new guard reach
+' `exec cecli`, and execve of that path demonstrably works — so the entrypoint
+' is not what runs it. Rung 0 (shell agent, NO command) holds, and rung 2 (shell
+' agent PLUS command) dies, which puts it in sbx's handling of the command for a
+' def with no built-in agent. The probe now runs both invocations side by side
+' inside the sandbox, so the next climb proves that in situ rather than by
+' analogy.
 '
 ' Still unknown, and NOT to be guessed at — three theories died that way on the
 ' opencode hunt before the ladder settled it in 103 seconds. Should the probe

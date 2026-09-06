@@ -393,7 +393,13 @@ esac
   || echo "execve:  FAILED ($?) — the kernel will not run it; that is the ENOEXEC"
 # A BOM or stray byte before #! makes the kernel reject a shebang that head(1)
 # still prints, and is invisible in every check above.
-echo "first4:  $(od -An -c -N4 "$path" 2>/dev/null | tr -s ' ')"`
+echo "first4:  $(od -An -c -N4 "$path" 2>/dev/null | tr -s ' ')"
+# THE TWO INVOCATIONS, side by side. "sh -c prog" execs and honours the shebang;
+# "sh file" hands the file to the shell as a SCRIPT and ignores it entirely. If
+# the second reproduces the session's error and the first does not, the fault is
+# not in the file — it is in how the launcher invoked it.
+echo "as -c:   $(sh -c "$prog --version" 2>&1 | head -1)"
+echo "as file: $(sh "$path" --version 2>&1 | head -1)"`
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	c := exec.CommandContext(ctx, "sbx", "exec", sandbox, "--", "sh", "-c", script)
