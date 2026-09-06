@@ -4,28 +4,48 @@ FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ARG NODE_MAJOR=22
-
-# SPEC: _spec/_plans/image-size-reduction.puml
-# The template ships Ubuntu's own nodejs (24.x, with npm 9.2.0). We pin the
-# major deliberately, so NodeSource still replaces it — but NodeSource publishes
-# per Ubuntu release, and the template's release moves with the template. A
-# missing repo is the likeliest build break of the rebase, so it says what to do
-# rather than failing inside a piped shell script.
+# Node arrives as the OFFICIAL nodejs.org tarball, pinned and sha256-verified,
+# the same way this lineage already installs mise, bun and plantuml.
+#
+# It used to come from NodeSource, which publishes PER UBUNTU RELEASE. The rebase
+# onto docker/sandbox-templates moved the floor to ubuntu:questing (26.04), and a
+# base whose Node install depends on a third party having packaged the exact
+# distro release the TEMPLATE happens to ship is a build that breaks on someone
+# else's schedule. The tarball has no distro coupling at all.
+#
+# The template already carries Ubuntu's nodejs (24.x with npm 9.2.0). This
+# REPLACES it on PATH: /usr/local/bin precedes /usr/bin, and the version is
+# asserted below so a silent fallback to the distro copy fails the build.
+#
+# xz-utils is installed BEFORE the extract, not after: `tar -J` shells out to xz,
+# and the template is not guaranteed to carry it. Ordering it after the extract
+# would fail on a missing decompressor with tar's own error, not ours.
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
-RUN . /etc/os-release; \
-    { curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -; } \
-      || { echo "NodeSource has no repository for ${ID} ${VERSION_CODENAME} (${VERSION_ID})." >&2; \
-           echo "The template already carries node $(node -v 2>/dev/null || echo '?'):" >&2; \
-           echo "  either set NODE_MAJOR to that major and drop this layer," >&2; \
-           echo "  or pin SANDBOX_TEMPLATE to a tag on an Ubuntu release NodeSource supports." >&2; \
-           exit 1; } \
-    && apt-get install -y --no-install-recommends nodejs unzip \
-    && npm install -g pnpm@10.33.0 \
-    && npm cache clean --force \
-    && rm -rf /usr/include/node \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && /usr/local/sbin/proveo-harden /usr /opt
+ARG NODE_VERSION=22.23.2
+ARG NODE_SHA256_X64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
+ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8
+RUN set -e; \
+    case "$(uname -m)" in \
+      x86_64|amd64)  node_arch=x64;   node_sha="${NODE_SHA256_X64}" ;; \
+      aarch64|arm64) node_arch=arm64; node_sha="${NODE_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture for node: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    apt-get update -o APT::Update::Error-Mode=any; \
+    apt-get install -y --no-install-recommends unzip xz-utils; \
+    curl -fsSL -o /tmp/node.tar.xz \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"; \
+    echo "${node_sha}  /tmp/node.tar.xz" | sha256sum -c -; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+        --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'; \
+    rm -f /tmp/node.tar.xz; \
+    test "$(node --version)" = "v${NODE_VERSION}"; \
+    npt="$(npm --version)"; echo "npm ${npt} from the pinned tarball"; \
+    npm install -g pnpm@10.33.0; \
+    npm cache clean --force; \
+    rm -rf /usr/include/node /usr/local/include/node; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
+    /usr/local/sbin/proveo-harden /usr /opt
 
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
 ARG BUN_VERSION=1.4.0

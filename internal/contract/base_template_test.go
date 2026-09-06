@@ -32,6 +32,50 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 	if !strings.Contains(src, "FROM ${SANDBOX_TEMPLATE}") {
 		t.Error("SANDBOX_TEMPLATE is declared but the runtime stage does not build FROM it")
 	}
+
+	// An ARG written AFTER a FROM belongs to that build stage, so only a
+	// declaration above EVERY FROM reaches a FROM line. This test previously
+	// asserted the ARG merely existed, and passed on a Dockerfile that could not
+	// build: buildx warned "UndefinedArgInFrom" and failed with "base name
+	// (${SANDBOX_TEMPLATE}) should not be blank". Existence was never the rule.
+	// SPEC: _spec/_devops/sandbox-template-rebase.puml
+	argAt := strings.Index(src, arg[0])
+	firstFROM := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(src)
+	if firstFROM == nil {
+		t.Fatal("defs/base/Dockerfile has no FROM at all")
+	}
+	if argAt > firstFROM[0] {
+		t.Errorf("ARG SANDBOX_TEMPLATE is declared after the first FROM, so it is scoped "+
+			"to that stage and resolves EMPTY in `FROM ${SANDBOX_TEMPLATE}` — move it above "+
+			"every FROM (arg at byte %d, first FROM at %d)", argAt, firstFROM[0])
+	}
+}
+
+// Every ARG a FROM interpolates must be global. Checked across the whole file
+// rather than for one name, because the next base to be parameterised will hit
+// the identical rule.
+func TestEveryArgUsedByFromIsGlobal(t *testing.T) {
+	t.Parallel()
+	for _, rel := range []string{"defs/base/Dockerfile", "defs/base-node/Dockerfile",
+		"defs/base-node-lsp/Dockerfile", "defs/base-node-browser/Dockerfile"} {
+		src := readFileOrFail(t, filepath.Join(repoRoot(t), rel))
+		firstFROM := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(src)
+		if firstFROM == nil {
+			continue
+		}
+		for _, m := range regexp.MustCompile(`(?m)^FROM \$\{([A-Za-z_][A-Za-z0-9_]*)\}`).FindAllStringSubmatch(src, -1) {
+			name := m[1]
+			decl := regexp.MustCompile(`(?m)^ARG ` + regexp.QuoteMeta(name) + `(=|\s*$)`).FindStringIndex(src)
+			if decl == nil {
+				t.Errorf("%s: FROM interpolates %s but never declares it", rel, name)
+				continue
+			}
+			if decl[0] > firstFROM[0] {
+				t.Errorf("%s: ARG %s is declared after the first FROM, so it resolves empty "+
+					"in the FROM that uses it", rel, name)
+			}
+		}
+	}
 }
 
 // A -docker variant is the only one carrying dockerd. A plain tag gives a
@@ -81,7 +125,7 @@ func TestHardenPassExemptsSudo(t *testing.T) {
 func TestBaseAssertsWhatItInherits(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
-	for _, probe := range []string{"command -v docker", "command -v dockerd", "test -u /usr/bin/sudo.ws"} {
+	for _, probe := range []string{"command -v docker", "command -v dockerd", "readlink -f \"$(command -v sudo)\""} {
 		if !strings.Contains(src, probe) {
 			t.Errorf("base does not verify %q at build time", probe)
 		}

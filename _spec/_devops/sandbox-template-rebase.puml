@@ -75,6 +75,45 @@ skinparam noteTextAlignment left
 ' collapsing it to the template's bare `agent` would be a one-line change that
 ' reddens the suite. It is redundant on this base, not harmful.
 '
+' ── WHAT THE FIRST BUILD ATTEMPT TAUGHT ────────────────────────────────────
+' The rebase was committed unbuilt — there is no daemon in a proveo sandbox,
+' which is the finding that prompted the rebase — and the first real build on
+' the host failed immediately. Recorded because each of these costs a full
+' rebuild cycle to rediscover:
+'
+'   ARG SCOPE.  `ARG SANDBOX_TEMPLATE=...` sat between the builder stage and the
+'     runtime stage. An ARG written AFTER a FROM belongs to THAT STAGE, so only a
+'     declaration above EVERY FROM reaches a FROM line. buildx warned
+'     "UndefinedArgInFrom" and failed with "base name should not be blank". The
+'     contract test asserted the ARG EXISTED and passed on a Dockerfile that
+'     could not build — existence was never the rule. It now asserts ORDER, for
+'     every ARG any FROM interpolates, across all four base images.
+'
+'   NODESOURCE.  base-node installed Node from NodeSource, which publishes PER
+'     UBUNTU RELEASE. The template's floor is ubuntu:questing (26.04) and moves
+'     with the template, so that layer depended on a third party having packaged
+'     whatever release the template happens to ship. Node now arrives as the
+'     official nodejs.org tarball, pinned and sha256-verified, exactly as mise,
+'     bun and plantuml already do. The test that pinned the NodeSource apt line
+'     pinned a MECHANISM; it now pins the property — one Node, by version and
+'     digest, verified after install.
+'
+'   xz AND GLOBS.  `tar -J` shells out to xz, which the template is not
+'     guaranteed to carry, so xz-utils is installed BEFORE the extract rather
+'     than in the same apt call after it. GNU tar matches --exclude against the
+'     WHOLE member name, so `--exclude=CHANGELOG.md` never matched
+'     `node-vX-linux-arm64/CHANGELOG.md`; the patterns are anchored `*/` now.
+'
+'   RESOLVE, DO NOT NAME.  `test -u /usr/bin/sudo.ws` hardcoded an alternatives
+'     name, and `command -v java` assumed java was on PATH. Both now resolve the
+'     real path and fail with a sentence naming what was missing, because a
+'     build that dies on `test -x` prints nothing an operator can act on.
+'
+' Verified statically, since this sandbox still has no daemon: every apt package
+' exists on questing (queried), both node tarball URLs resolve, and Playwright
+' 1.61.0's own dependency table lists ubuntu26.04 — so `--with-deps` has a
+' distro entry for the new floor.
+'
 ' ── STILL OPEN ──────────────────────────────────────────────────────────────
 ' Whether the RENAMED user needs its own sudo grant. The template grants
 ' NOPASSWD:ALL to `agent` by name; after the rename that name belongs to a

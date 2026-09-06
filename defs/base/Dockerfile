@@ -1,6 +1,13 @@
 # SPEC: _spec/components.puml, _spec/_runtimes/toolchain-provisioning.puml
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
 
+# DECLARED BEFORE THE FIRST FROM, and it must stay there. An ARG written after a
+# FROM belongs to THAT BUILD STAGE, so a copy sitting between the builder stage
+# and the runtime stage is invisible to `FROM ${SANDBOX_TEMPLATE}` — buildx warns
+# "UndefinedArgInFrom" and then fails with "base name should not be blank".
+# Only the global scope, above every FROM, reaches a FROM line.
+ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
+
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -22,11 +29,6 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint 
 # variants. A client with no daemon behind it is exactly what `docker: sbx`
 # promised and no proveo image delivered.
 #
-# PINNED, not floating: a mutable tag lets a published image shadow a local
-# build (_spec/_devops/image-lineage-and-publish.puml), and this base decides
-# the libc, the toolchain versions and the identity of every harness.
-# SPEC: _spec/_devops/sandbox-template-rebase.puml
-ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
 FROM ${SANDBOX_TEMPLATE}
 
 # Re-declared: an ARG consumed by FROM does not survive into the build stage,
@@ -58,9 +60,12 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
 # a SYMLINK so JAVA_HOME and every downstream reference to it keep working
 # without knowing the arch-specific path underneath.
 RUN set -e; \
-    java_bin="$(readlink -f "$(command -v java)")"; \
+    java_bin="$(command -v java || true)"; \
+    [ -n "${java_bin}" ] || java_bin="$(ls -d /usr/lib/jvm/*/bin/java 2>/dev/null | head -n1)"; \
+    [ -n "${java_bin}" ] || { echo "the template ships no java: plantuml and jdtls both need one" >&2; exit 1; }; \
+    java_bin="$(readlink -f "${java_bin}")"; \
     java_home="${java_bin%/bin/java}"; \
-    test -x "${java_home}/bin/java"; \
+    test -x "${java_home}/bin/java" || { echo "resolved java_home ${java_home} has no bin/java" >&2; exit 1; }; \
     ln -sfn "${java_home}" /opt/jre; \
     /opt/jre/bin/java -version
 
@@ -101,7 +106,9 @@ RUN set -e; \
     command -v docker  >/dev/null || { echo "template lost the docker client" >&2; exit 1; }; \
     command -v dockerd >/dev/null || { echo "not a -docker template: no Engine" >&2; exit 1; }; \
     getent group docker >/dev/null || { echo "no docker group" >&2; exit 1; }; \
-    test -u /usr/bin/sudo.ws || { echo "proveo-harden disarmed sudo" >&2; exit 1; }
+    sudo_bin="$(readlink -f "$(command -v sudo)")"; \
+    test -n "${sudo_bin}" || { echo "no sudo in the template" >&2; exit 1; }; \
+    test -u "${sudo_bin}" || { echo "proveo-harden disarmed sudo (${sudo_bin})" >&2; exit 1; }
 
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
