@@ -41,6 +41,15 @@ ARG DEBIAN_FRONTEND=noninteractive
 # npm -g, so this image ends as root and each LEAF def declares its own USER.
 USER root
 
+# The template sets WORKDIR /home/agent/workspace, and BuildKit RECREATES a
+# missing working directory before every RUN. Downstream defs rename uid 1000
+# and move /home/agent aside, so an inherited workdir underneath it reappears
+# between two RUN steps and the move back fails with "directory /home/agent
+# exists". The Debian base this replaced had no WORKDIR, so `/` is what the
+# lineage always had; leaf defs set their own (/app, /workspace).
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
+WORKDIR /
+
 COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
 COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 

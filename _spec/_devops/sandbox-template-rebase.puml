@@ -104,6 +104,27 @@ skinparam noteTextAlignment left
 '     WHOLE member name, so `--exclude=CHANGELOG.md` never matched
 '     `node-vX-linux-arm64/CHANGELOG.md`; the patterns are anchored `*/` now.
 '
+'   INHERITED WORKDIR.  The template sets WORKDIR /home/agent/workspace, and
+'     BuildKit RECREATES a missing working directory before every RUN. The defs
+'     rename uid 1000 and move /home/agent aside in one RUN, so the workdir
+'     underneath reappeared before the next one and the move back died with
+'     "usermod: directory /home/agent exists" (exit 12). The Debian base carried
+'     no WORKDIR, so `/` is what this lineage always had; base declares it now,
+'     and the four defs additionally rmdir an empty stub before moving. rmdir,
+'     never rm -rf: a stub is empty, and a real home must fail loudly instead of
+'     being silently discarded. Exercised against all three cases — stub,
+'     idempotent re-run, and real content — before shipping.
+'
+'   A TEST THAT MEASURED THE WRONG THING, AGAIN.  The workdir test sliced the
+'     runtime stage with an UNANCHORED search for "FROM ${SANDBOX_TEMPLATE}",
+'     which matches the phrase where it appears inside a COMMENT near the top of
+'     the file. "The runtime stage" therefore spanned the builder too, whose
+'     WORKDIR /src satisfied the assertion no matter what the runtime stage
+'     said: the test passed with the defect reintroduced. Anchored to `(?m)^FROM`
+'     now. Third time in this rebase that a green test was measuring its own
+'     setup rather than the contract — the tell each time was a negative check
+'     that produced NO failure.
+'
 '   RESOLVE, DO NOT NAME.  `test -u /usr/bin/sudo.ws` hardcoded an alternatives
 '     name, and `command -v java` assumed java was on PATH. Both now resolve the
 '     real path and fail with a sentence naming what was missing, because a

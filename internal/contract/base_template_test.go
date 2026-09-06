@@ -29,8 +29,9 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 	if !regexp.MustCompile(`^ARG SANDBOX_TEMPLATE=\S+$`).MatchString(arg[0]) {
 		t.Fatalf("malformed template pin: %q", arg[0])
 	}
-	if !strings.Contains(src, "FROM ${SANDBOX_TEMPLATE}") {
-		t.Error("SANDBOX_TEMPLATE is declared but the runtime stage does not build FROM it")
+	if !regexp.MustCompile(`(?m)^FROM \$\{SANDBOX_TEMPLATE\}`).MatchString(src) {
+		t.Error("SANDBOX_TEMPLATE is declared but no FROM line builds from it " +
+			"(a mention inside a comment does not count)")
 	}
 
 	// An ARG written AFTER a FROM belongs to that build stage, so only a
@@ -128,6 +129,57 @@ func TestBaseAssertsWhatItInherits(t *testing.T) {
 	for _, probe := range []string{"command -v docker", "command -v dockerd", "readlink -f \"$(command -v sudo)\""} {
 		if !strings.Contains(src, probe) {
 			t.Errorf("base does not verify %q at build time", probe)
+		}
+	}
+}
+
+// The template sets WORKDIR /home/agent/workspace, and BuildKit recreates a
+// missing working directory before every RUN. Downstream defs rename uid 1000
+// and move /home/agent aside, so an inherited workdir underneath it reappears
+// between two RUN steps — the move back then fails with "directory /home/agent
+// exists" and the build stops. The Debian base this replaced had no WORKDIR at
+// all, so the runtime stage must declare one of its own.
+// SPEC: _spec/_devops/sandbox-template-rebase.puml
+func TestBaseDoesNotInheritTheTemplateWorkdir(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
+
+	// Anchored to a real FROM line. An unanchored search matches the phrase
+	// where it appears inside a COMMENT near the top of the file, which made
+	// "the runtime stage" span the builder too — and the builder's WORKDIR /src
+	// then satisfied the assertion no matter what the runtime stage said.
+	loc := regexp.MustCompile(`(?m)^FROM \$\{SANDBOX_TEMPLATE\}`).FindStringIndex(src)
+	if loc == nil {
+		t.Fatal("no runtime stage building FROM ${SANDBOX_TEMPLATE}")
+	}
+	runtime := src[loc[0]:]
+	if !regexp.MustCompile(`(?m)^WORKDIR `).MatchString(runtime) {
+		t.Fatal("the runtime stage declares no WORKDIR, so it inherits the template's " +
+			"/home/agent/workspace — which BuildKit recreates under a home the defs rename")
+	}
+	if regexp.MustCompile(`(?m)^WORKDIR /home/agent`).MatchString(runtime) {
+		t.Error("the base workdir sits inside /home/agent, the very directory the defs move")
+	}
+}
+
+// Every def that moves uid 1000's home must tolerate an empty stub at the
+// destination, because an inherited workdir can put one there between steps.
+func TestHomeMoveToleratesARecreatedStub(t *testing.T) {
+	t.Parallel()
+	for _, rel := range []string{"defs/cecli/Dockerfile", "defs/claudecode/mcp/Dockerfile",
+		"defs/cursor/Dockerfile", "defs/opencode/Dockerfile"} {
+		src := readFileOrFail(t, filepath.Join(repoRoot(t), rel))
+		if !strings.Contains(src, "usermod -d /home/agent -m") {
+			continue
+		}
+		if !strings.Contains(src, "rmdir /home/agent") {
+			t.Errorf("%s moves the home without clearing an empty stub first — usermod "+
+				"refuses a destination that exists", rel)
+		}
+		// rmdir, never rm -rf: a stub is empty, real content must fail loudly.
+		if regexp.MustCompile(`rm -rf /home/agent(\s|$)`).MatchString(src) {
+			t.Errorf("%s clears /home/agent with rm -rf, which would silently discard a "+
+				"real home; rmdir removes only an empty stub", rel)
 		}
 	}
 }
