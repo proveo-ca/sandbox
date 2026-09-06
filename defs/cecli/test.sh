@@ -14,6 +14,14 @@ docker run --rm --user 4242:4242 --entrypoint bash "$IMAGE_NAME" -c \
   'source /entrypoint-lib.sh && ensure_runtime_user && [ "$(id -u)" = "4242" ] && [ -w "$HOME" ]'
 echo "✅ non-root default user, no gosu, arbitrary --user uid usable"
 
+# The sbx Kit registers `/usr/local/bin/proveo-seed <target>` as its one startup
+# command for EVERY sbx target, whether or not the image can run it. cecli
+# shipped without it, so every sbx run failed startup with `exit=127` and seeded
+# nothing. internal/contract asserts the Dockerfile copies it; this asserts the
+# image actually has it. SPEC: _spec/packages/lib/seed-and-launch.puml
+docker run --rm --entrypoint bash "$IMAGE_NAME" -c 'test -x /usr/local/bin/proveo-seed'
+echo "✅ ships the Kit's startup command (/usr/local/bin/proveo-seed)"
+
 docker run --rm --entrypoint bash "$IMAGE_NAME" -c 'git --version && gh --version'
 docker run --rm --user 4242:4242 --entrypoint bash \
   -e GIT_AUTHOR_NAME="Proveo Dev" -e GIT_AUTHOR_EMAIL="dev@proveo.test" "$IMAGE_NAME" -c '
