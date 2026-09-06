@@ -48,15 +48,75 @@ func ladderTarget() string { return env("PROVEO_LADDER_TARGET", "claudecode") }
 // sbxAgentFor maps the def to the sbx agent that runs it, the same mapping
 // internal/sbx uses. Rung 0 needs it to name a STOCK agent with no proveo image.
 func sbxAgentFor(t *testing.T, target string) string {
-	agent := sbx.BuiltinAgent(target)
+	agent, _ := sbx.AgentFor(target)
 	if agent == "" {
-		t.Skipf("%s has no sbx agent — it runs on the docker backend only", target)
+		t.Skipf("%s resolves to no sbx agent at all", target)
 	}
 	return agent
 }
 
+// shellAgentTarget reports a def sbx has no BUILT-IN agent for. Those run under
+// the stock `shell` agent with the def's own launcher as the COMMAND — proveo
+// passes `-- cecli` — which means the def's entrypoint does not execute until
+// that command is added.
+//
+// The ladder used to skip these outright ("no sbx agent — docker only"), so the
+// one harness whose failure is still unexplained was also the one the
+// instrument could not reach. It gets an extra rung instead: the command is a
+// thing being added, so it is a rung of its own rather than a passenger on the
+// image's. SPEC: _spec/_paradigms/capability-ladder.puml
+func shellAgentTarget(target string) bool { return sbx.BuiltinAgent(target) == "" }
+
+// agentCommand is what proveo appends after `--` for a shell-agent target, and
+// nothing for a built-in one, whose agent name already carries its launch.
+func agentCommand(target string) []string {
+	_, cmd := sbx.AgentFor(target)
+	return cmd
+}
+
+// withCommand appends the `-- <command>` tail sbx expects.
+func withCommand(argv []string, cmd []string) []string {
+	if len(cmd) == 0 {
+		return argv
+	}
+	return append(append(argv, "--"), cmd...)
+}
+
 func ladderRungs() []rung {
 	target := ladderTarget()
+	rungs := baseRungs(target)
+	if !shellAgentTarget(target) {
+		return rungs
+	}
+	// A shell-agent def's entrypoint does not run until the COMMAND is added, so
+	// every rung below carries none and one rung introduces it. Without this the
+	// image rungs measure a bare shell in our image — real, but not the thing
+	// that failed. It is inserted after the base image so the two are never
+	// added together.
+	cmd := agentCommand(target)
+	withCmd := rung{
+		name: "2-agent-command", adds: "the def's own launcher as the sbx COMMAND (-- " + strings.Join(cmd, " ") + ")",
+		argv: func(t *testing.T, work string) []string {
+			img := harnessImage(t, target)
+			freshTemplate(t, img)
+			base := append([]string{"run", "--name", ladderName(t, 2), "-t", img},
+				append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
+			return withCommand(base, cmd)
+		},
+	}
+	out := append([]rung{}, rungs[:2]...)
+	out = append(out, withCmd)
+	for i := 2; i < len(rungs); i++ {
+		r := rungs[i]
+		inner := r.argv
+		r.argv = func(t *testing.T, work string) []string { return withCommand(inner(t, work), cmd) }
+		r.name = fmt.Sprintf("%d-%s", i+1, strings.SplitN(r.name, "-", 2)[1])
+		out = append(out, r)
+	}
+	return out
+}
+
+func baseRungs(target string) []rung {
 	return []rung{
 		{
 			name: "0-bare-sbx-agent", adds: "nothing — stock sbx agent and stock image",
@@ -473,5 +533,66 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 	got := ladderReport([]rungVerdict{{name: "0", adds: "x", verdict: "PASS"}})
 	if !strings.Contains(got, "Every rung held") {
 		t.Errorf("a clean climb reports nothing:\n%s", got)
+	}
+}
+
+// A def sbx has no built-in agent for runs under the stock `shell` agent with
+// its own launcher as the COMMAND — proveo passes `-- cecli`. The ladder used to
+// skip those outright, so cecli, whose failure is still unexplained, was the one
+// harness the instrument could not reach.
+//
+// The command is a thing being added, so it earns a rung. Folding it into the
+// image rung would add two things at once and forfeit the attribution the whole
+// method rests on. SPEC: _spec/_paradigms/capability-ladder.puml
+func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
+	if !shellAgentTarget("cecli") {
+		t.Skip("cecli gained a built-in sbx agent; this shape no longer applies")
+	}
+	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
+	rungs := ladderRungs()
+
+	if len(rungs) != 5 {
+		t.Fatalf("shell-agent ladder has %d rungs, want 5 (the four base rungs plus the command)", len(rungs))
+	}
+	want := []string{"0-bare-sbx-agent", "1-proveo-base-image", "2-agent-command",
+		"3-proveo-browser-image", "4-proveo-mixin-and-seed"}
+	for i, w := range want {
+		if rungs[i].name != w {
+			t.Errorf("rung %d is %q, want %q — the command must come after the image and before the rest",
+				i, rungs[i].name, w)
+		}
+	}
+
+	// Rung 0 must stay stock: no image, and NO command. `cecli` does not exist in
+	// the stock image, so passing it there would fail for a reason that is not
+	// the one under test. (Rung 0 needs no docker, so it is safe to build here.)
+	zero := rungs[0].argv(t, t.TempDir())
+	if contains(zero, "-t") || contains(zero, "--") {
+		t.Errorf("rung 0 is not stock — it names an image or a command: %v", zero)
+	}
+
+	// The command itself, and how it is appended, are pure and testable without
+	// a daemon; the image-bearing rungs are exercised by a real climb.
+	cmd := agentCommand("cecli")
+	if len(cmd) != 1 || cmd[0] != "cecli" {
+		t.Errorf("agentCommand(cecli) = %v, want [cecli] — proveo passes it after --", cmd)
+	}
+	got := withCommand([]string{"run", "shell", "/w"}, cmd)
+	if len(got) != 5 || got[3] != "--" || got[4] != "cecli" {
+		t.Errorf("withCommand = %v, want the `-- cecli` tail sbx expects", got)
+	}
+	if again := withCommand([]string{"run"}, nil); len(again) != 1 {
+		t.Errorf("withCommand with no command appended something: %v", again)
+	}
+}
+
+func TestLadderLeavesBuiltinTargetsAtFourRungs(t *testing.T) {
+	t.Setenv("PROVEO_LADDER_TARGET", "opencode")
+	rungs := ladderRungs()
+	if len(rungs) != 4 {
+		t.Fatalf("built-in ladder has %d rungs, want 4", len(rungs))
+	}
+	if cmd := agentCommand("opencode"); len(cmd) != 0 {
+		t.Errorf("opencode is a built-in agent and must carry no command, got %v", cmd)
 	}
 }

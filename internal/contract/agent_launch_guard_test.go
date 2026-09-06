@@ -13,6 +13,7 @@ var calls = regexp.MustCompile(`(?m)^\s*proveo_exec_agent\s+\S`)
 // the echo test image are absent because they launch no agent and have no "$@"
 // to disambiguate.
 var agentEntrypoints = []string{
+	"defs/cecli/entrypoint.sh",
 	"defs/opencode/entrypoint.sh",
 	"defs/cursor/entrypoint.sh",
 	"defs/claudecode/mcp/entrypoint.sh",

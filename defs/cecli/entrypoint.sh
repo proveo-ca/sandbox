@@ -195,12 +195,15 @@ else
   report_agent_evidence
 fi
 
-if [[ $# -eq 0 ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}"
-elif [[ "$1" == -* ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
-elif [[ "$1" != "cecli" && "$1" != "bash" && "$1" != "sh" && "$1" != "python" && "$1" != "python3" && "$1" != "node" && "$1" != "npm" && "$1" != "pnpm" && "$1" != "git" && "$1" != "curl" ]]; then
-  set -- cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" "$@"
-fi
-
-exec "$@"
+# "$@" is ambiguous: on docker it is cecli's own flags, on sbx it is the whole
+# COMMAND the agent kit supplied in the CMD position. This used to decide with a
+# hand-written allowlist of command names — cecli, bash, sh, python, python3,
+# node, npm, pnpm, git, curl — which can never be complete, and a name missing
+# from it is appended to cecli as a positional, which cecli reads as a prompt.
+#
+# proveo_exec_agent asks the question the list was approximating: is the first
+# word an executable on PATH? That is behaviour-preserving for every name the
+# list held and correct for the ones it forgot.
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+echo "🚀 Launching cecli ${CECLI_RULE_ARGS[*]} ${CECLI_EVIDENCE_ARGS[*]}"
+proveo_exec_agent cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" -- "$@"

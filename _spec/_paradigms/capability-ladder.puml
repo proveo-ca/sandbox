@@ -35,6 +35,29 @@ skinparam noteTextAlignment left
 ' and opens a first-run picker that blocks on a keypress no automation sends.
 ' A rung that reproduces nothing is worse than no rung.
 '
+' ── A DEF WITH NO BUILT-IN AGENT GETS AN EXTRA RUNG ───────────────────────
+' sbx has built-in agents for claudecode, cursor and opencode; their agent name
+' carries the launch. cecli has none, so it runs under the stock `shell` agent
+' with its own launcher as the COMMAND — proveo appends `-- cecli`.
+'
+' That matters because the def's entrypoint does not execute until the command is
+' added. An image rung without it measures a bare shell inside our image: real,
+' but not the thing that failed. So the command is its own rung, inserted after
+' the base image, and every rung above keeps it:
+'
+'   0  bare sbx shell     stock agent, stock image, NO command
+'   1  proveo base image  the image, still no command
+'   2  agent command      `-- cecli` — the def's entrypoint runs from here
+'   3  browser variant
+'   4  posture Kit + seed
+'
+' Rung 0 deliberately carries no command: `cecli` does not exist in the stock
+' image, so passing it there would fail for a reason that is not under test.
+'
+' The ladder used to SKIP these defs outright — "no sbx agent, docker only" —
+' which left the one harness whose failure is still unexplained as the one the
+' instrument could not reach.
+'
 ' ── ONE HARNESS IS ONE DATA POINT ──────────────────────────────────────────
 ' PROVEO_LADDER_TARGET selects the def, defaulting to claudecode. It is a knob
 ' rather than a constant because the sbx fixes this suite proved for claudecode
