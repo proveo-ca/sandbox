@@ -274,10 +274,24 @@ func normalizeIntent(model string) string {
 // SPEC: _spec/internal/provider/model-catalog.puml
 var planFallback = map[string]map[Billing][]string{
 	"opencode": {
+		// ENTITLEMENT-SAFE ONLY. Not the best model — the one that runs.
+		//
+		// Holding OPENCODE_API_KEY does not tell you which plan it entitles.
+		// That is the whole finding of this file: Zen and Go share the variable.
+		// A fallback of opencode-go/muse-spark-1.3-contributor therefore ASSUMED
+		// Go, and on a Zen key opencode answered "configured model is not valid"
+		// and silently fell through to Whisper Large V3 Turbo on Groq — a 2024
+		// speech-to-text model, driving a coding agent, with no error the
+		// operator could act on.
+		//
+		// So the list holds only ids the gateway serves to any key: the `-free`
+		// tier, which opencode.ai serves even unauthenticated. A Go subscriber
+		// who wants their plan names an opencode-go/ model themselves and tier 1
+		// or 2 honours it — proveo never has to guess an entitlement it cannot
+		// see.
 		BillPlan: {
-			"opencode-go/muse-spark-1.3-contributor", // 2026-09-02, 1.05M ctx, $0.10/M in
-			"opencode-go/glm-5.3",                    // 2026-08-14, 1M ctx, flagship
-			"opencode-go/glm-5.3-flash",              // 2026-08-26, 1M ctx, $0.075/M in
+			"opencode/muse-spark-1.3-contributor-free", // $0, Zen free tier
+			"opencode/glm-5-free",                      // $0, fallback of the fallback
 		},
 		BillMetered: nil, // Zen is metered like any provider key; nothing to prefer
 	},
@@ -373,16 +387,25 @@ func ResolveRoles(remembered, env Roles, harness string, want Billing,
 			picked = tier.model
 			break
 		}
+		usedFallback := false
 		if picked == "" && len(skipped) > 0 && fallback != "" {
-			picked = fallback
+			picked, usedFallback = fallback, true
 		}
 		if picked == "" {
 			continue // nothing to say; the bridge default applies as before
 		}
 		out[role] = picked
 		if len(skipped) > 0 {
-			notes = append(notes, fmt.Sprintf("%s: using %s — skipped %s",
-				role, picked, strings.Join(skipped, ", ")))
+			note := fmt.Sprintf("%s: using %s", role, picked)
+			if usedFallback {
+				// Say what this is. It is not a recommendation and it is not the
+				// operator's plan: proveo cannot see which plan their key
+				// entitles, so it picks the free tier the gateway serves to any
+				// key and leaves the better choice to them.
+				note += " (free tier — proveo cannot verify which plan this key" +
+					" entitles; name an opencode-go/ or opencode/ model to choose)"
+			}
+			notes = append(notes, note+" — skipped "+strings.Join(skipped, ", "))
 		}
 	}
 	return out, notes

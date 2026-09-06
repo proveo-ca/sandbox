@@ -158,3 +158,17 @@ var vendorPlanProviders = map[string]bool{"cursor": true, "opencode": true}
 func SplitsBilling(name string) bool {
 	return vendorPlanProviders[strings.ToLower(strings.TrimSpace(name))]
 }
+
+// IsFreeTier reports a gateway model served at no cost. opencode names every one
+// of them with a `-free` suffix — 31 of them on Zen at the time of writing —
+// which is a convention rather than a contract, so this is a heuristic like the
+// alpha/preview filter in scripts/rank-plan-fallbacks.py and is used only where
+// being wrong is safe.
+//
+// It exists so a fallback can be entitlement-safe. A free model bills NOTHING,
+// so it cannot spend the wrong side of a choice the operator made — which is
+// the property that matters when proveo cannot see which plan a key entitles.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func IsFreeTier(model string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), "-free")
+}

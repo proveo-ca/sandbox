@@ -242,8 +242,14 @@ func TestPlanFallbacksAreRealModels(t *testing.T) {
 				if _, ok := Lookup(p); !ok {
 					t.Errorf("%s/%v fallback %q names %q, not in the registry", harness, side, model, p)
 				}
-				if got := ModelBilling(model); got != side {
-					t.Errorf("%s fallback %q is billed %v but is listed as the %v choice",
+				// A fallback must not spend a side the operator did not choose.
+				// Matching the side satisfies that; so does costing nothing,
+				// which is the entitlement-safe escape: proveo cannot see which
+				// plan a key entitles, so a free id is the only thing it can
+				// pick without assuming one.
+				if got := ModelBilling(model); got != side && !IsFreeTier(model) {
+					t.Errorf("%s fallback %q is billed %v, is listed as the %v choice, "+
+						"and is not free — it would spend a side nobody chose",
 						harness, model, got, side)
 				}
 			}
@@ -294,5 +300,34 @@ func TestNoAnswerJudgesNoBillingSide(t *testing.T) {
 	got, notes := ResolveRoles(nil, r, "opencode", BillUnknown, nil, func(string) bool { return true })
 	if got["ARCHITECT_MODEL"] != "opencode/gpt-5.6-luna" || len(notes) != 0 {
 		t.Errorf("rewrote a runnable model with no answer given: %v %v", got, notes)
+	}
+}
+
+// Holding OPENCODE_API_KEY does not tell you which PLAN it entitles — Zen and
+// Go share the variable, which is the central finding this package encodes. A
+// fallback of `opencode-go/muse-spark-1.3-contributor` therefore assumed Go,
+// and on a Zen key opencode answered "configured model is not valid" and
+// silently fell through to Whisper Large V3 Turbo on Groq: a 2024
+// speech-to-text model driving a coding agent, with no error the operator
+// could act on.
+//
+// So a fallback may only name something the gateway serves to ANY key. A
+// plan-gated prefix is exactly the assumption proveo cannot make.
+func TestFallbacksNeverAssumeAnEntitlement(t *testing.T) {
+	t.Parallel()
+	for harness, sides := range planFallback {
+		for side, models := range sides {
+			for _, model := range models {
+				if strings.HasPrefix(strings.ToLower(model), "opencode-go/") {
+					t.Errorf("%s/%v fallback %q is gated on the Go subscription — proveo "+
+						"cannot see whether this key has it, and a wrong guess degrades the "+
+						"run to whatever opencode picks instead", harness, side, model)
+				}
+				if !IsFreeTier(model) {
+					t.Errorf("%s/%v fallback %q is not free-tier; a fallback is the model "+
+						"that RUNS, not the best one", harness, side, model)
+				}
+			}
+		}
 	}
 }

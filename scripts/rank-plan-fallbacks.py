@@ -14,6 +14,17 @@ contract: a model called neither alpha nor preview can still be unfit, and a
 good one tagged `-exp` gets dropped here. Read the excluded list before
 trusting the ranked one — that is the whole reason it is printed.
 
+ENTITLEMENT IS THE HARD PART, not recency. Holding OPENCODE_API_KEY does not
+say which plan it entitles — Zen and Go share the variable — so a fallback named
+from the Go catalog assumes a subscription proveo cannot see. On a Zen key
+opencode answers "configured model is not valid" and silently falls through to
+whatever it likes; observed once as Whisper Large V3 Turbo, a 2024
+speech-to-text model, driving a coding agent.
+
+So `opencode-go` is refused as a source outright, and `--free-only` (the
+default for gateway providers) keeps the ranking to ids the gateway serves to
+any key.
+
   python3 scripts/rank-plan-fallbacks.py [provider] [--top N] [--json PATH]
 """
 import argparse
@@ -38,11 +49,16 @@ def load(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("provider", nargs="?", default="opencode-go")
+    ap.add_argument("provider", nargs="?", default="opencode")
     ap.add_argument("--top", type=int, default=3)
     ap.add_argument("--json", dest="path", help="read a saved api.json instead of fetching")
     args = ap.parse_args()
 
+    if args.provider == "opencode-go":
+        sys.exit(
+            "opencode-go is plan-gated: proveo cannot see whether a key entitles Go, and\n"
+            "a wrong guess degrades the run to whatever opencode picks instead. Rank\n"
+            "`opencode` (Zen) instead — its -free tier is served to any key.")
     catalog = load(args.path)
     if args.provider not in catalog:
         sys.exit(f"{args.provider}: not in models.dev — check the id, do not guess one")
@@ -50,7 +66,11 @@ def main():
 
     keep, dropped = [], []
     for m in models.values():
-        (dropped if PROVISIONAL.search(m["id"]) else keep).append(m)
+        # A fallback is the model that RUNS, not the best one: free ids are the
+        # only ones a gateway serves regardless of plan.
+        provisional = PROVISIONAL.search(m["id"]) and not m["id"].endswith("-free")
+        entitled = m.get("cost", {}).get("input", 0) not in (0, None)
+        (dropped if (provisional or entitled) else keep).append(m)
     for group in (keep, dropped):
         group.sort(key=lambda m: m.get("release_date", ""), reverse=True)
 

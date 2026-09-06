@@ -83,20 +83,31 @@ nor their `.env` can authenticate. Unlike the catalog above, this list **is**
 rewritten on a sync — it is a recommendation, and recommendations go stale.
 
 ```
-python3 scripts/rank-plan-fallbacks.py opencode-go --top 3
+python3 scripts/rank-plan-fallbacks.py opencode --top 3
 ```
 
-It fetches models.dev, drops ids whose names advertise them as provisional
-(`alpha`, `beta`, `preview`, `exp`, `free`), sorts what remains by
-`release_date`, and prints pasteable Go lines.
+**Never rank `opencode-go`.** The script refuses it, and the reason is the one
+thing this list gets wrong most easily: holding `OPENCODE_API_KEY` does not say
+which plan it entitles — Zen and Go share the variable. A fallback named from
+the Go catalog assumes a subscription proveo cannot see, and when the key is a
+Zen key opencode answers "configured model is not valid" and silently falls
+through to whatever it likes. Observed once as Whisper Large V3 Turbo: a 2024
+speech-to-text model, driving a coding agent.
+
+A fallback is the model that **runs**, not the best one. Only zero-cost ids
+qualify, because those are what the gateway serves to any key.
+
+It fetches models.dev, keeps only zero-cost ids, drops the rest and anything
+whose name advertises it as provisional (`alpha`, `beta`, `preview`, `exp`),
+sorts what remains by `release_date`, and prints pasteable Go lines.
 
 **Read the excluded block before the ranked one.** That filter is a guess about
 naming, not a contract:
 
 - a model called neither alpha nor preview can still be unfit for an agent;
 - a good model tagged `-exp` gets dropped;
-- `free` is excluded because a free tier is not a subscription's default, not
-  because the model is bad.
+- a priced model is excluded because proveo cannot see whether this key can pay
+  for it, not because it is worse.
 
 Sorting by recency alone is what makes the filter necessary at all: the newest
 OpenCode Go model at the time of writing was `omen-alpha`. models.dev carries
