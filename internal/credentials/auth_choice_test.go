@@ -376,3 +376,67 @@ func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 		t.Errorf("cursor's own plan key was classed as usage credits: %v", v)
 	}
 }
+
+// A stored or mounted credential OUTRANKS an ambient .env value, and the
+// suppressor is only half of enforcing that: the caller must consult it
+// everywhere a variable can be set, not just where the manifest declares one.
+//
+// run.go had two loops. The first, over the manifest's declared env, honoured
+// the suppressor. The second, over provider.KeyVars(), did not — and its
+// "already added?" guard only skipped names the FIRST loop had ACCEPTED, so a
+// variable the first loop declined fell through and got a sentinel anyway.
+//
+// A sentinel in that slot is not a harmless placeholder. An agent reads a SET
+// variable as a chosen credential whatever it holds, so it displaces the login
+// on disk — which is the misbilling this whole boundary exists to prevent:
+// a subscription run authenticating as the API.
+// SPEC: _spec/_paradigms/credential-boundary.puml
+func TestAMountedLoginOutranksAnAmbientEnvValue(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"live"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	// Both of anthropic's credentials exported, as an ordinary host has them.
+	lookup := lookupOf(map[string]string{
+		"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "sk", "OPENAI_API_KEY": "oa",
+	})
+	suppress := AuthSuppressor(man, "claudecode", "", home, lookup)
+
+	// The login is the credential, so BOTH anthropic variables must be withheld —
+	// the declared one and the one only provider.KeyVars() knows about.
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppress(k) {
+			t.Errorf("%s is not withheld, so it lands beside a mounted login and displaces it", k)
+		}
+	}
+	// And only that provider's: a login for anthropic says nothing about openai.
+	if suppress("OPENAI_API_KEY") {
+		t.Error("an anthropic login removed reach to a different provider")
+	}
+}
+
+// The same precedence with no login on disk: nothing is withheld, because there
+// is no stored credential to outrank anything.
+func TestWithoutAStoredCredentialTheEnvStands(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	lookup := lookupOf(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
+	suppress := AuthSuppressor(man, "claudecode", "", t.TempDir(), lookup)
+	if suppress("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("withheld the only credential the run has")
+	}
+}

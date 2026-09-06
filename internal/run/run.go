@@ -602,6 +602,16 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
 				continue
 			}
+			// The loop above already declined this one, and re-adding it here
+			// undid that decision. A mounted login IS the credential, and an
+			// agent reads a SET variable as a chosen credential whatever it
+			// holds — so a sentinel in that slot is not a harmless placeholder,
+			// it displaces the file. The `already` guard below only skips names
+			// the first loop ACCEPTED, so a suppressed one fell straight through
+			// to here. SPEC: _spec/_paradigms/credential-boundary.puml
+			if suppressedAuth(k) {
+				continue
+			}
 			already := false
 			for _, n := range rs.Creds.BrokerKeyNames {
 				if n == k {
