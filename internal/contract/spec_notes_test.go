@@ -46,6 +46,7 @@ var specNotesEnforced = []string{
 	"_spec/defs/base-image-layers.puml",
 	"_spec/defs/harness-image-layers.puml",
 	"_spec/_paradigms/capability-ladder.puml",
+	"_spec/_plans/all-defs-green.puml",
 }
 
 const (
