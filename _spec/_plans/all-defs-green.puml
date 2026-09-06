@@ -25,12 +25,15 @@ skinparam noteTextAlignment left
 ' answered a question nobody asked.
 '
 ' ── WHERE EACH DEF STANDS ──────────────────────────────────────────────────
-'   claudecode   idle PASS on both backends. Ladder never climbed for the
-'                record, though it is the ladder's own default target.
-'   cursor       idle PASS on sbx. Ladder in flight at time of writing.
-'   opencode     ladder ALL RUNGS PASS after the `opencode opencode` fix.
-'                Idle on sbx NOT re-verified since — it died there before.
-'   cecli        ladder rung 2 FAILS. The one hard blocker.
+'   claudecode   LADDER GREEN — all four rungs, base and browser images.
+'   cursor       LADDER GREEN — all four rungs, base and browser images.
+'   opencode     LADDER GREEN — all four rungs, after the `opencode opencode`
+'                fix. Three of four defs now meet the gate.
+'   cecli        ladder rung 2 FAILS. The one remaining blocker, and the
+'                measurement is STALE: the image it ran against was built at
+'                03:18 and the entrypoint fix landed at 10:02, so that climb
+'                judged code that is no longer in the tree. Rebuild before
+'                reading anything into it.
 '
 ' ── THE BLOCKER ────────────────────────────────────────────────────────────
 ' cecli rung 2 — adding `-- cecli` as the sbx COMMAND — dies in ~3s with
@@ -43,9 +46,29 @@ skinparam noteTextAlignment left
 ' and our entrypoint failing to run (it runs — ENTRYPOINT is dumb-init --
 ' cecli-entrypoint, and the bash fallback is what prints those lines).
 '
+' AND FOUR MORE CAUSES ARE NOW ELIMINATED, by the probe rather than by argument:
+'
+'   id        uid=1000(cecli) — the running user, not a stranger to the file
+'   file      -rwxr-xr-x, resolvable on PATH at /opt/cecli/bin/cecli
+'   shebang   #!/opt/cecli/bin/python3
+'   interp    a symlink resolving to /usr/bin/python3.13
+'   runs      Python 3.13.5
+'
+' So the interpreter exists, is executable by the running uid, and works. A
+' dangling symlink, a non-executable interpreter, a wrong shebang path and a uid
+' that cannot traverse the directory are all ruled out by measurement.
+'
+' What remains is narrower and stranger: the file is perfectly executable, yet
+' the session fell back to INTERPRETING it. That is either an invocation which
+' bypasses the shebang, or a shebang the kernel rejects for a reason head(1)
+' cannot show — a BOM or stray byte before `#!`. The probe now asks the kernel
+' outright (execve of the resolved path) and dumps the first four bytes, which
+' separates those two.
+'
 ' Still unknown, and NOT to be guessed at — three theories died that way on the
-' opencode hunt before the ladder settled it in 103 seconds. One command answers
-' it, on a host with sbx:
+' opencode hunt before the ladder settled it in 103 seconds. Should the probe
+' ever be unavailable, this answers the same question by hand on a host with
+' sbx:
 '
 '   sbx run -t proveo/cecli:local shell /tmp -- sh -c \
 '     'ls -l /opt/cecli/bin/python3; readlink -f /opt/cecli/bin/python3; \

@@ -383,7 +383,17 @@ case "$shebang" in
          echo "target:  $(readlink -f "$interp" 2>&1)"
          echo "runs:    $("$interp" -V 2>&1 || echo '<cannot execute>')" ;;
   *)     echo "interp:  <no shebang — not a script>" ;;
-esac`
+esac
+# The decisive one. Everything above describes the file; this ASKS THE KERNEL.
+# If execve succeeds here but the agent session still fell back to interpreting
+# the file, then nothing is wrong with it and the fault is in how the session
+# invoked it — a different question, and the only one left.
+"$path" --version >/dev/null 2>&1 \
+  && echo "execve:  OK — the kernel runs it, so the shebang is honoured here" \
+  || echo "execve:  FAILED ($?) — the kernel will not run it; that is the ENOEXEC"
+# A BOM or stray byte before #! makes the kernel reject a shebang that head(1)
+# still prints, and is invisible in every check above.
+echo "first4:  $(od -An -c -N4 "$path" 2>/dev/null | tr -s ' ')"`
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	c := exec.CommandContext(ctx, "sbx", "exec", sandbox, "--", "sh", "-c", script)
