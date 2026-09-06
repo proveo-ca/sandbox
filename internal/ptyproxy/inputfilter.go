@@ -147,3 +147,81 @@ func isNumericParams(b []byte) bool {
 	}
 	return true
 }
+
+// maxHeld bounds how much of an unfinished escape sequence is carried into the
+// next read. A terminal reply is tens of bytes; anything longer is not one, and
+// holding real input hostage is worse than passing a report through.
+const maxHeld = 128
+
+// split walks a chunk and returns the bytes to forward, plus any trailing
+// PARTIAL escape sequence to carry into the next read.
+//
+// keep() judged one whole read at a time, which is wrong twice over. A reply
+// arriving split across reads left a fragment — `ESC[?62;` then `c` — and the
+// second piece failed the len<3 guard and reached the agent as a keystroke;
+// that is the stray `c` sitting in front of every "sandbox was stopped". And a
+// chunk carrying a report BESIDE real typing was all-or-nothing, so filtering
+// it meant eating the keystrokes with it. Bracketed paste makes both routine:
+// the pasted text, its ESC[200~/ESC[201~ markers and whatever the terminal was
+// still answering all land in one read.
+//
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func (f *inputFilter) split(b []byte) (forward, held []byte) {
+	for i := 0; i < len(b); {
+		if b[i] != 0x1b {
+			j := i
+			for j < len(b) && b[j] != 0x1b {
+				j++
+			}
+			forward = append(forward, b[i:j]...)
+			i = j
+			continue
+		}
+		end, complete := escEnd(b[i:])
+		if !complete {
+			// Unfinished: hold it for the next read, unless it is implausibly
+			// long — a lone ESC keypress must not be swallowed forever.
+			if len(b)-i <= maxHeld {
+				return forward, append(held, b[i:]...)
+			}
+			forward = append(forward, b[i:]...)
+			return forward, nil
+		}
+		seq := b[i : i+end]
+		if f.keep(seq) {
+			forward = append(forward, seq...)
+		}
+		i += end
+	}
+	return forward, nil
+}
+
+// escEnd returns the length of the escape sequence starting at b[0] and whether
+// it is complete. It recognises the terminators each introducer actually uses;
+// anything unknown is treated as a two-byte ESC pair rather than swallowing the
+// rest of the buffer.
+func escEnd(b []byte) (int, bool) {
+	if len(b) < 2 {
+		return 0, false
+	}
+	switch b[1] {
+	case '[': // CSI: params then a final byte in @..~
+		for i := 2; i < len(b); i++ {
+			if b[i] >= 0x40 && b[i] <= 0x7e {
+				return i + 1, true
+			}
+		}
+		return 0, false
+	case 'P', ']', '_', '^': // DCS, OSC, APC, PM: terminated by ST or BEL
+		for i := 2; i < len(b); i++ {
+			if b[i] == 0x07 {
+				return i + 1, true
+			}
+			if b[i] == 0x1b && i+1 < len(b) && b[i+1] == '\\' {
+				return i + 2, true
+			}
+		}
+		return 0, false
+	}
+	return 2, true // ESC + one byte: Alt-key, or an introducer we do not parse
+}

@@ -1,6 +1,7 @@
 package ptyproxy
 
 import (
+	"bytes"
 	"testing"
 	"time"
 )
@@ -335,6 +336,91 @@ func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 		if got := classifyTerminalReport(tc.b); got != reportNone {
 			t.Errorf("%s: classified %v, want reportNone — the agent must still see it",
 				tc.name, got)
+		}
+	}
+}
+
+// The sequence from a real crashed session, byte for byte:
+//
+//	^[[200~sk-…^[[201~cERROR: sandbox "…" was stopped
+//
+// A bracketed paste, then a lone `c` — the tail of a DA1 reply whose head
+// arrived in the previous read. keep() judged one whole read, so the fragment
+// failed the len<3 guard and reached the agent as a keystroke. That `c` sat in
+// front of every "sandbox was stopped" in this investigation.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true // the sbx path sets DropReports
+
+	// Read 1 ends mid-reply: the head must be HELD, not forwarded.
+	fwd, held := f.split([]byte("hello\x1b[?62;"))
+	if string(fwd) != "hello" {
+		t.Errorf("forwarded %q, want the real keystrokes only", fwd)
+	}
+	if string(held) != "\x1b[?62;" {
+		t.Errorf("held %q, want the partial reply carried forward", held)
+	}
+	// Read 2 completes it. Rejoined, it is a reply and is dropped whole.
+	fwd, held = f.split(append(held, []byte("c")...))
+	if len(fwd) != 0 {
+		t.Errorf("forwarded %q — the reply tail reached the agent as input", fwd)
+	}
+	if len(held) != 0 {
+		t.Errorf("still holding %q after the reply completed", held)
+	}
+}
+
+// A read carrying a report BESIDE real typing was all-or-nothing: filtering it
+// ate the keystrokes too. Bracketed paste makes that routine — the pasted text,
+// its markers, and whatever the terminal was still answering land together.
+func TestAPasteSurvivesAReportInTheSameRead(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+
+	paste := "\x1b[200~sk-REDACTED\x1b[201~"
+	fwd, held := f.split([]byte(paste + "\x1b[?62;1c"))
+	if string(fwd) != paste {
+		t.Errorf("forwarded %q, want the paste intact and the reply gone", fwd)
+	}
+	if len(held) != 0 {
+		t.Errorf("held %q, want nothing — the reply was complete", held)
+	}
+}
+
+// A lone ESC keypress must not be held hostage waiting for a sequence that
+// never comes, and an over-long run claiming to be an escape must not swallow
+// the buffer.
+func TestUnfinishedEscapesDoNotStallInput(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+
+	fwd, held := f.split([]byte{0x1b})
+	if len(fwd) != 0 || string(held) != "\x1b" {
+		t.Errorf("split(ESC) = %q, %q; want it held for one read", fwd, held)
+	}
+	long := append([]byte{0x1b, '['}, bytes.Repeat([]byte("1;"), maxHeld)...)
+	fwd, held = f.split(long)
+	if len(held) != 0 {
+		t.Errorf("held %d bytes; beyond maxHeld it must be released, not hoarded", len(held))
+	}
+	if len(fwd) != len(long) {
+		t.Errorf("forwarded %d of %d bytes — real input was dropped", len(fwd), len(long))
+	}
+}
+
+// Ordinary typing must be untouched by any of this.
+func TestPlainTypingPassesThroughUnchanged(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	for _, in := range []string{"ls -la\r", "y", "\x03", "git commit -m 'x'\n"} {
+		fwd, held := f.split([]byte(in))
+		if string(fwd) != in || len(held) != 0 {
+			t.Errorf("split(%q) = %q, held %q; want it verbatim", in, fwd, held)
 		}
 	}
 }

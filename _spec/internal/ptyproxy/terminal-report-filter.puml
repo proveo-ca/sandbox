@@ -152,4 +152,45 @@ note as N_KITTY_TAIL
   sightings before it was read as a clue.
 end note
 
+note as N_SPLIT_UNIT
+  **The filter judges a SEQUENCE, not a read.**
+  ""keep()"" took one whole ""Read()"" and answered
+  yes or no for all of it, which is wrong in two
+  directions at once.
+end note
+
+note as N_SPLIT_TAIL
+  A reply split across reads left a fragment:
+  ""ESC[?62;"" then ""c"". The second piece failed
+  the ""len < 3"" guard and reached the agent as a
+  keystroke.
+end note
+
+note as N_SPLIT_SEEN
+  That ""c"" sat in front of every ""sandbox was
+  stopped"" in this investigation — seen three
+  times and dismissed three times before it was
+  read as evidence.
+end note
+
+note as N_SPLIT_BOTH
+  And a read carrying a report BESIDE real typing
+  was all-or-nothing, so filtering it ate the
+  keystrokes too.
+end note
+
+note as N_SPLIT_PASTE
+  Bracketed paste makes both routine: the text,
+  its ""ESC[200~""/""ESC[201~"" markers and whatever
+  the terminal was still answering all land in
+  one read.
+end note
+
+note as N_SPLIT_HOLD
+  An unfinished sequence is HELD for the next
+  read, bounded by ""maxHeld"" (128B) so a lone ESC
+  keypress is never swallowed and no run can
+  hoard the buffer.
+end note
+
 @enduml

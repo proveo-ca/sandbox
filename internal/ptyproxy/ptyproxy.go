@@ -119,12 +119,26 @@ func (p *Proxy) setRestore(st *term.State) {
 
 func (p *Proxy) pumpIn() {
 	buf := make([]byte, 4096)
+	var held []byte // a partial escape sequence carried from the previous read
 	for {
 		n, err := p.In.Read(buf)
 		if n > 0 {
-			forward := p.DisableFilter || p.filter == nil || p.filter.keep(buf[:n])
+			// Filter per SEQUENCE, not per read. A reply split across two reads
+			// used to leak its tail as a keystroke, and a read carrying a report
+			// beside real typing was all-or-nothing.
+			// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+			chunk := buf[:n]
+			if len(held) > 0 {
+				chunk = append(held, chunk...)
+				held = nil
+			}
+			out := chunk
+			if !p.DisableFilter && p.filter != nil {
+				out, held = p.filter.split(chunk)
+			}
+			forward := len(out) > 0
 			if p.Tap != nil {
-				p.Tap(buf[:n], forward)
+				p.Tap(chunk, forward)
 			}
 			if !forward {
 				continue
@@ -133,13 +147,13 @@ func (p *Proxy) pumpIn() {
 			ch := p.overlayIn
 			p.mu.Unlock()
 			if ch != nil {
-				b := make([]byte, n)
-				copy(b, buf[:n])
+				b := make([]byte, len(out))
+				copy(b, out)
 				select {
 				case ch <- b:
 				default: // overlay already answered; drop rather than block the pump
 				}
-			} else if _, werr := p.masterFile().Write(buf[:n]); werr != nil {
+			} else if _, werr := p.masterFile().Write(out); werr != nil {
 				return
 			}
 		}
