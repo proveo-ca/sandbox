@@ -74,3 +74,41 @@ go test ./internal/provider/
 
 `TestRolesSpanningVendors` is the case that matters: roles pointed at two
 different vendors must attribute to both.
+
+## Re-rank the plan fallbacks
+
+`internal/provider` keeps a `planFallback` list per harness and billing side:
+tier 3 of model resolution, used when neither the operator's remembered answer
+nor their `.env` can authenticate. Unlike the catalog above, this list **is**
+rewritten on a sync — it is a recommendation, and recommendations go stale.
+
+```
+python3 scripts/rank-plan-fallbacks.py opencode-go --top 3
+```
+
+It fetches models.dev, drops ids whose names advertise them as provisional
+(`alpha`, `beta`, `preview`, `exp`, `free`), sorts what remains by
+`release_date`, and prints pasteable Go lines.
+
+**Read the excluded block before the ranked one.** That filter is a guess about
+naming, not a contract:
+
+- a model called neither alpha nor preview can still be unfit for an agent;
+- a good model tagged `-exp` gets dropped;
+- `free` is excluded because a free tier is not a subscription's default, not
+  because the model is bad.
+
+Sorting by recency alone is what makes the filter necessary at all: the newest
+OpenCode Go model at the time of writing was `omen-alpha`. models.dev carries
+`release_date`, `cost`, `limit.context` and capabilities — but no
+`recommended` field, and every Go model reports `tool_call: true`, so nothing
+in the data distinguishes production-ready from a preview. The judgement is
+yours; the script only removes the recall.
+
+Keep any id a human deliberately named, even when the ranking puts it lower —
+the list is ordered judgement, and `PlanFallback` walks it until one resolves,
+so a lower entry costs nothing until the ones above it are retired.
+
+After editing, `go test ./internal/provider/` — `TestPlanFallbacksAreRealModels`
+checks every id still resolves through the registry *and* still lands on the
+billing side it is filed under.

@@ -267,12 +267,17 @@ func normalizeIntent(model string) string {
 // degrades instead of breaking: drop muse-spark and glm-5.3 answers.
 // TestPlanFallbacksAreRealModels fails the build when the whole list goes
 // stale, which is the moment a human should look again.
+// Refresh with scripts/rank-plan-fallbacks.py, which ranks models.dev by
+// release_date after dropping ids that name themselves provisional — and
+// prints what it dropped, because that exclusion is a guess about naming and
+// not a contract. Read the excluded list before trusting the ranked one.
 // SPEC: _spec/internal/provider/model-catalog.puml
 var planFallback = map[string]map[Billing][]string{
 	"opencode": {
 		BillPlan: {
 			"opencode-go/muse-spark-1.3-contributor", // 2026-09-02, 1.05M ctx, $0.10/M in
 			"opencode-go/glm-5.3",                    // 2026-08-14, 1M ctx, flagship
+			"opencode-go/glm-5.3-flash",              // 2026-08-26, 1M ctx, $0.075/M in
 		},
 		BillMetered: nil, // Zen is metered like any provider key; nothing to prefer
 	},
@@ -280,8 +285,25 @@ var planFallback = map[string]map[Billing][]string{
 
 // PlanFallback returns the model to use for a harness on a billing side, or ""
 // when there is nothing better to offer than what the operator already has.
+// PlanFallback returns the first entry the registry still resolves, or "" when
+// the whole list has gone stale.
+//
+// BillUnknown is the unanswered case — a headless run, where nobody was asked a
+// billing question. Feasibility still applies there (a model with no credential
+// behind it is unrunnable whoever is watching), so tier 3 has to produce
+// something; it takes the plan list, which is the only side a gateway harness
+// populates. What it must NOT do is claim the operator chose a side.
 func PlanFallback(harness string, want Billing) string {
-	for _, model := range planFallback[strings.ToLower(strings.TrimSpace(harness))][want] {
+	sides := planFallback[strings.ToLower(strings.TrimSpace(harness))]
+	if want == BillUnknown {
+		for _, s := range []Billing{BillPlan, BillMetered} {
+			if len(sides[s]) > 0 {
+				want = s
+				break
+			}
+		}
+	}
+	for _, model := range sides[want] {
 		if p := ModelProvider(model); p != "" {
 			if _, ok := Lookup(p); ok {
 				return model

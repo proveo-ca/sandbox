@@ -253,3 +253,46 @@ func TestPlanFallbacksAreRealModels(t *testing.T) {
 		}
 	}
 }
+
+// Headless is the case this split exists for. Nobody was asked a billing
+// question, so no side is claimed — but a model with no credential behind it is
+// unrunnable whoever is watching, and launching on one only to warn to a log
+// nobody reads until the job fails is the worst of both.
+func TestFeasibilityAppliesWithNoAnswerGiven(t *testing.T) {
+	t.Parallel()
+	env := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
+	got, notes := ResolveRoles(nil, env, "opencode", BillUnknown, nil,
+		func(n string) bool { return n != "anthropic" })
+
+	want := PlanFallback("opencode", BillUnknown)
+	if want == "" {
+		t.Fatal("BillUnknown resolves no fallback, so a headless run has nowhere to land")
+	}
+	if got["ARCHITECT_MODEL"] != want {
+		t.Errorf("ARCHITECT_MODEL = %q, want %q — feasibility does not need an answer",
+			got["ARCHITECT_MODEL"], want)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "no credential") {
+		t.Errorf("notes = %v, want the skip reported", notes)
+	}
+	// It must not silently pick a side: unanswered resolves through the plan
+	// list because that is the only one populated, not because anyone chose it.
+	if BillUnknown == BillPlan {
+		t.Fatal("BillUnknown and BillPlan collapsed; an unanswered run would claim a side")
+	}
+}
+
+// And with an answer absent, a model on the "wrong" side is left alone — there
+// is no wrong side when nobody named one.
+func TestNoAnswerJudgesNoBillingSide(t *testing.T) {
+	t.Parallel()
+	r := Roles{"ARCHITECT_MODEL": "opencode/gpt-5.6-luna"} // Zen: metered
+	if got := r.BillingClashes(""); len(got) != 0 {
+		t.Errorf("BillingClashes with no answer = %v, want silence", got)
+	}
+	// Feasible on every count, so resolution leaves it exactly as written.
+	got, notes := ResolveRoles(nil, r, "opencode", BillUnknown, nil, func(string) bool { return true })
+	if got["ARCHITECT_MODEL"] != "opencode/gpt-5.6-luna" || len(notes) != 0 {
+		t.Errorf("rewrote a runnable model with no answer given: %v %v", got, notes)
+	}
+}

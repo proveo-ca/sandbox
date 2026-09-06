@@ -465,11 +465,18 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	// credential is absent or withheld launches a session that cannot make a
 	// single model call — then asks the operator to fix it from inside it.
 	// Anything feasible is left exactly as they wrote it.
-	if want, ok := provider.AnsweredBilling(p.AuthVar); ok {
+	// Feasibility applies ALWAYS; the billing side only when someone was asked.
+	// A model with no credential behind it is unrunnable whoever is watching, so
+	// a headless run must not launch on one and then warn to a log nobody reads
+	// until the job fails. But with no answer there is no side to judge against,
+	// so AnsweredBilling stays BillUnknown and nothing claims the operator picked
+	// one. SPEC: _spec/internal/credentials/credential-decisions.puml
+	{
 		held := map[string]bool{}
 		for _, name := range usable {
 			held[name] = true
 		}
+		want, _ := provider.AnsweredBilling(p.AuthVar)
 		env := provider.RolesFrom(rs.Creds.Lookup)
 		roles, notes := provider.ResolveRoles(p.RolesRemembered, env,
 			credentials.HarnessFamily(p.Target), want, withheld,
