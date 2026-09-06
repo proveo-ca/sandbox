@@ -88,11 +88,14 @@ python3 scripts/rank-plan-fallbacks.py opencode --top 3
 
 **Never rank `opencode-go`.** The script refuses it, and the reason is the one
 thing this list gets wrong most easily: holding `OPENCODE_API_KEY` does not say
-which plan it entitles — Zen and Go share the variable. A fallback named from
-the Go catalog assumes a subscription proveo cannot see, and when the key is a
-Zen key opencode answers "configured model is not valid" and silently falls
-through to whatever it likes. Observed once as Whisper Large V3 Turbo: a 2024
-speech-to-text model, driving a coding agent.
+which plan it entitles — Zen and Go share the variable, so a fallback named
+from the Go catalog asserts a subscription proveo cannot see.
+
+Worse, holding Go is not sufficient either. An operator who *did* have Go had
+that id rejected as "configured model is not valid", after which opencode fell
+through to Whisper Large V3 Turbo: a 2024 speech-to-text model, driving a
+coding agent. That cause is still unknown — the id resolves correctly
+headlessly — which is exactly why the fallback should not depend on it.
 
 A fallback is the model that **runs**, not the best one. Only zero-cost ids
 qualify, because those are what the gateway serves to any key.

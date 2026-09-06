@@ -303,16 +303,19 @@ func TestNoAnswerJudgesNoBillingSide(t *testing.T) {
 	}
 }
 
-// Holding OPENCODE_API_KEY does not tell you which PLAN it entitles — Zen and
-// Go share the variable, which is the central finding this package encodes. A
-// fallback of `opencode-go/muse-spark-1.3-contributor` therefore assumed Go,
-// and on a Zen key opencode answered "configured model is not valid" and
-// silently fell through to Whisper Large V3 Turbo on Groq: a 2024
-// speech-to-text model driving a coding agent, with no error the operator
-// could act on.
+// Holding OPENCODE_API_KEY does not say which PLAN it entitles — Zen and Go
+// share the variable, which is the central finding this package encodes. So a
+// fallback of `opencode-go/muse-spark-1.3-contributor` asserts a subscription
+// proveo cannot see.
 //
-// So a fallback may only name something the gateway serves to ANY key. A
-// plan-gated prefix is exactly the assumption proveo cannot make.
+// An operator who DID hold Go still had that id rejected as "configured model
+// is not valid", after which opencode fell through to Whisper Large V3 Turbo
+// on Groq — a 2024 speech-to-text model driving a coding agent. The cause is
+// unknown: the same id resolves correctly headlessly, through the entrypoint,
+// with the env var and with the broker sentinel.
+//
+// A fallback is therefore the model that RUNS. Free-tier ids depend on neither
+// the entitlement nor whatever went wrong there.
 func TestFallbacksNeverAssumeAnEntitlement(t *testing.T) {
 	t.Parallel()
 	for harness, sides := range planFallback {

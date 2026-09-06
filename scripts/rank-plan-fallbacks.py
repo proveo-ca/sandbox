@@ -14,12 +14,13 @@ contract: a model called neither alpha nor preview can still be unfit, and a
 good one tagged `-exp` gets dropped here. Read the excluded list before
 trusting the ranked one — that is the whole reason it is printed.
 
-ENTITLEMENT IS THE HARD PART, not recency. Holding OPENCODE_API_KEY does not
+RUNNABILITY IS THE HARD PART, not recency. Holding OPENCODE_API_KEY does not
 say which plan it entitles — Zen and Go share the variable — so a fallback named
-from the Go catalog assumes a subscription proveo cannot see. On a Zen key
-opencode answers "configured model is not valid" and silently falls through to
-whatever it likes; observed once as Whisper Large V3 Turbo, a 2024
-speech-to-text model, driving a coding agent.
+from the Go catalog asserts a subscription proveo cannot see. And holding Go is
+not sufficient either: an operator who had it still saw "configured model is not
+valid", after which opencode fell through to Whisper Large V3 Turbo, a 2024
+speech-to-text model, driving a coding agent. That cause is still unknown, which
+is the argument for a fallback that does not depend on it.
 
 So `opencode-go` is refused as a source outright, and `--free-only` (the
 default for gateway providers) keeps the ranking to ids the gateway serves to

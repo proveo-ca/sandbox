@@ -276,19 +276,24 @@ var planFallback = map[string]map[Billing][]string{
 	"opencode": {
 		// ENTITLEMENT-SAFE ONLY. Not the best model — the one that runs.
 		//
-		// Holding OPENCODE_API_KEY does not tell you which plan it entitles.
-		// That is the whole finding of this file: Zen and Go share the variable.
-		// A fallback of opencode-go/muse-spark-1.3-contributor therefore ASSUMED
-		// Go, and on a Zen key opencode answered "configured model is not valid"
-		// and silently fell through to Whisper Large V3 Turbo on Groq — a 2024
-		// speech-to-text model, driving a coding agent, with no error the
-		// operator could act on.
+		// A fallback is chosen to RUN, not to be the best available, because
+		// proveo cannot verify what a key will actually be allowed to do.
 		//
-		// So the list holds only ids the gateway serves to any key: the `-free`
-		// tier, which opencode.ai serves even unauthenticated. A Go subscriber
-		// who wants their plan names an opencode-go/ model themselves and tier 1
-		// or 2 honours it — proveo never has to guess an entitlement it cannot
-		// see.
+		// Holding OPENCODE_API_KEY does not say which plan it entitles: Zen and
+		// Go share the variable. So a fallback of
+		// opencode-go/muse-spark-1.3-contributor asserts a subscription proveo
+		// cannot see — and an operator who DOES hold Go still had it rejected as
+		// "configured model is not valid", after which opencode silently fell
+		// through to Whisper Large V3 Turbo on Groq: a 2024 speech-to-text
+		// model, driving a coding agent, with no error they could act on.
+		//
+		// That failure is NOT reproduced headlessly — the same id resolves
+		// correctly through this image's entrypoint, with the env var and even
+		// with the broker sentinel — so its cause is still unknown. Which is
+		// precisely the argument for the `-free` tier: it does not depend on
+		// the entitlement, and it did not depend on whatever went wrong there.
+		// A Go subscriber who wants their plan names an opencode-go/ model and
+		// tier 1 or 2 honours it.
 		BillPlan: {
 			"opencode/muse-spark-1.3-contributor-free", // $0, Zen free tier
 			"opencode/glm-5-free",                      // $0, fallback of the fallback
