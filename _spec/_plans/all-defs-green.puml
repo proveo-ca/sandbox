@@ -5,18 +5,20 @@ skinparam noteTextAlignment left
 ' covers: e2e/ladder_test.go, e2e/idle_test.go, defs/*/harness.manifest
 '
 ' ── THE BAR ────────────────────────────────────────────────────────────────
-' "Working" is not "it launched once for me". A def is GREEN when, on the sbx
-' backend, both of these hold for every image it declares:
+' "Working" is not "it launched once for me". A def is GREEN when EVERY LADDER
+' RUNG HOLDS on the sbx backend:
 '
-'   ladder   every rung holds — e2e/ladder_test.go, PROVEO_LADDER_TARGET=<def>
-'   idle     it reaches a prompt and survives 5m with zero input —
-'            e2e/idle_test.go, PROVEO_IDLE_TARGETS=<def>
+'   e2e/ladder_test.go, PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=<def>
 '
-' Both are needed and neither implies the other. opencode passed every ladder
-' rung while its idle behaviour was still unverified after the fix; cursor passed
-' idle long before its ladder was ever climbed. The ladder proves each LAYER can
-' hold a session; idle proves the assembled run survives being left alone, which
-' is the thing an operator actually does.
+' That is the release gate for all four defs, stated by the owner. The ladder is
+' the right instrument for it because a rung failure NAMES ITS LAYER, so "not
+' green" comes with an address rather than a symptom.
+'
+' e2e/idle_test.go stays complementary and is not the gate. It asks a different
+' question — does the assembled run survive being left alone — and neither test
+' implies the other: opencode passed every rung while its idle behaviour was
+' unverified, and cursor passed idle long before its ladder was climbed. Worth
+' running; not what blocks a release.
 '
 ' Docker+egress results do NOT satisfy this bar. Every reported failure has been
 ' on sbx, and the fallback path passed while sbx died — a sweep on docker
@@ -52,6 +54,11 @@ skinparam noteTextAlignment left
 ' It separates a dangling venv symlink, a non-executable interpreter, a wrong
 ' shebang, and a uid that cannot traverse /opt/cecli/bin. If it is the symlink,
 ' `python3 -m venv --copies` is the fix and a rung should keep watch on it.
+'
+' THE LADDER NOW ASKS THIS ITSELF. probeLaunch runs that enquiry inside the dead
+' rung's sandbox before teardown, because the sandbox outlives the session and a
+' manual command run later finds it gone. Best-effort by construction: a probe
+' that cannot run reports nothing rather than turning one failure into two.
 '
 ' ── WHAT IS NOT COVERED BY EITHER SUITE ────────────────────────────────────
 ' Eight images are declared across four defs, and the suites reach five of them.
@@ -94,10 +101,10 @@ BAR ARROW_ERROR GAP
 BAR ARROW_ERROR FLAKE
 
 note bottom of BAR
-  **Both, or neither counts.** The ladder proves
-  each LAYER holds a session; idle proves the
-  assembled run survives being left alone. Neither
-  implies the other.
+  **The gate is the ladder.** A rung failure names
+  its LAYER, so "not green" arrives with an
+  address. Idle is complementary and asks a
+  different question; it does not block.
 end note
 
 note bottom of BAR

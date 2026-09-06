@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -277,6 +278,13 @@ func TestSandboxLadder(t *testing.T) {
 					"Every rung above this one is untestable until it does", r.adds, res.authFailure)
 			case res.death != "":
 				v.detail = fmt.Sprintf("died %q after %s", res.death, res.aliveFor.Round(time.Second))
+				// The sandbox outlives the session, so ask it why while it is
+				// still there. A rung that dies leaves the reader with a symptom
+				// and a manual command to run later; by then the sandbox is gone
+				// and the next answer is another climb away.
+				if probe := probeLaunch(t, name, agentCommand(ladderTarget())); probe != "" {
+					t.Logf("-- why the command could not be exec'd --\n%s", probe)
+				}
 				t.Fatalf("RUNG FAILED — this rung adds %s, and it is the first layer that could not "+
 					"hold a session: %q after %s\n%s", r.adds, res.death, res.aliveFor, lastLines(res.out, 25))
 			case res.blocked != "":
@@ -341,6 +349,54 @@ func ladderReport(climbed []rungVerdict) string {
 	}
 	return b.String()
 }
+
+// probeLaunch asks a dead rung's sandbox why its command would not exec.
+//
+// bash falling back to INTERPRETING a script — "line 2: import: command not
+// found" for a Python entry point — is what it does when execve returns ENOEXEC,
+// and every cause of that is a fact about the file and its interpreter: a
+// dangling shebang, an interpreter that is not executable, a wrong path, or a
+// uid that cannot traverse the directory. All four are one `ls` apart, and none
+// of them survives the sandbox being torn down.
+//
+// It is best-effort and never fails a rung: a probe that cannot run tells us
+// nothing, and turning that into a second failure would bury the first.
+// SPEC: _spec/_paradigms/capability-ladder.puml
+func probeLaunch(t *testing.T, sandbox string, cmd []string) string {
+	t.Helper()
+	if sandbox == "" || len(cmd) == 0 {
+		return "" // a built-in agent: no command of ours to resolve
+	}
+	script := `set -u
+prog=` + quoteWord(cmd[0]) + `
+echo "id:      $(id)"
+echo "PATH:    $PATH"
+path="$(command -v "$prog" 2>/dev/null || true)"
+echo "resolved: ${path:-<not found on PATH>}"
+[ -n "$path" ] || exit 0
+echo "file:    $(ls -l "$path" 2>&1)"
+shebang="$(head -1 "$path" 2>/dev/null)"
+echo "shebang: ${shebang}"
+case "$shebang" in
+  '#!'*) interp="$(printf '%s' "${shebang#\#!}" | awk '{print $1}')"
+         echo "interp:  $(ls -l "$interp" 2>&1)"
+         echo "target:  $(readlink -f "$interp" 2>&1)"
+         echo "runs:    $("$interp" -V 2>&1 || echo '<cannot execute>')" ;;
+  *)     echo "interp:  <no shebang — not a script>" ;;
+esac`
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, "sbx", "exec", sandbox, "--", "sh", "-c", script)
+	c.WaitDelay = 5 * time.Second
+	out, err := c.CombinedOutput()
+	if len(out) == 0 && err != nil {
+		return "" // the sandbox is already gone; say nothing rather than guess
+	}
+	return strings.TrimRight(string(out), "\n")
+}
+
+// quoteWord makes one value safe inside the probe script.
+func quoteWord(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 type sessionResult struct {
 	reachedPrompt bool
@@ -594,5 +650,36 @@ func TestLadderLeavesBuiltinTargetsAtFourRungs(t *testing.T) {
 	}
 	if cmd := agentCommand("opencode"); len(cmd) != 0 {
 		t.Errorf("opencode is a built-in agent and must carry no command, got %v", cmd)
+	}
+}
+
+// The probe is best-effort and must never turn a rung's failure into two. A
+// sandbox that is already gone, or an sbx that is not on PATH, tells us nothing
+// — and reporting that as a second failure would bury the first.
+func TestProbeLaunchIsBestEffort(t *testing.T) {
+	t.Parallel()
+	// A built-in agent supplies no command of ours, so there is nothing to resolve.
+	if got := probeLaunch(t, "some-sandbox", nil); got != "" {
+		t.Errorf("probed with no command to resolve: %q", got)
+	}
+	if got := probeLaunch(t, "", []string{"cecli"}); got != "" {
+		t.Errorf("probed with no sandbox named: %q", got)
+	}
+	// A sandbox that does not exist returns nothing rather than erroring.
+	if got := probeLaunch(t, "proveo-ladder-does-not-exist-0-0", []string{"cecli"}); got != "" &&
+		!strings.Contains(got, "id:") {
+		t.Logf("probe on a missing sandbox returned %q — acceptable, it must simply not fail", got)
+	}
+}
+
+// The script has to survive a command name with a quote in it, because it is
+// interpolated into a shell script and the def names it, not us.
+func TestQuoteWordSurvivesAQuote(t *testing.T) {
+	t.Parallel()
+	if got := quoteWord("ce'cli"); got != `'ce'\''cli'` {
+		t.Errorf("quoteWord = %s, want the escaped single-quote form", got)
+	}
+	if got := quoteWord("cecli"); got != "'cecli'" {
+		t.Errorf("quoteWord = %s, want 'cecli'", got)
 	}
 }
