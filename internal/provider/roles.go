@@ -113,7 +113,7 @@ func (r Roles) WithheldKeys(withheld []string, answer string) []string {
 // at the one place the operator's own two answers disagree.
 // SPEC: _spec/internal/credentials/credential-decisions.puml
 func (r Roles) BillingClashes(answer string) []string {
-	want, ok := answeredBilling(answer)
+	want, ok := AnsweredBilling(answer)
 	if !ok {
 		return nil
 	}
@@ -134,11 +134,11 @@ func (r Roles) BillingClashes(answer string) []string {
 	return out
 }
 
-// answeredBilling maps the auth row's answer onto a billing side. The strings
+// AnsweredBilling maps the auth row's answer onto a billing side. The strings
 // are the row's, and live in internal/credentials; matching on them here rather
 // than importing keeps provider free of that dependency, and the contract test
 // pins the two spellings together.
-func answeredBilling(answer string) (Billing, bool) {
+func AnsweredBilling(answer string) (Billing, bool) {
 	switch strings.TrimSpace(strings.ToLower(answer)) {
 	case "subscription":
 		return BillPlan, true
@@ -155,12 +155,35 @@ func billingWord(b Billing) string {
 	return "per token"
 }
 
+// Canonical is the form the choice cache stores.
+//
+// It normalizes an INTENT — "Kimi K3" is something a human typed and wants
+// matched — but leaves a provider-qualified id exactly as written, because
+// that is not an intent, it is an address. normalizeIntent turns "." into "-",
+// which is harmless for `claude-opus-5` and destroys every dotted id opencode
+// serves: `opencode-go/glm-5.3` came back as `opencode-go/glm-5-3`, a model
+// that does not exist, on the second run of any operator who let the prompt
+// remember their answer.
+//
+// Anthropic ids carry no dots, which is why this survived: the defaults could
+// not trip it and only a Zen or Go model would.
+// SPEC: _spec/internal/agentsettings/choice-cache.puml
 func (r Roles) Canonical() map[string]string {
 	out := make(map[string]string, len(r))
 	for role, model := range r {
-		out[roleKey(role)] = normalizeIntent(model)
+		out[roleKey(role)] = canonicalModel(model)
 	}
 	return out
+}
+
+// canonicalModel keeps a provider-qualified id verbatim and normalizes anything
+// else. The slash is the same line the registry already draws between an
+// address it can route and a bare string it has to guess at.
+func canonicalModel(model string) string {
+	if trimmed := strings.TrimSpace(model); strings.Contains(trimmed, "/") {
+		return trimmed
+	}
+	return normalizeIntent(model)
 }
 
 func RolesFromCanonical(m map[string]string) Roles {
@@ -226,4 +249,83 @@ func normalizeIntent(model string) string {
 		s = strings.ReplaceAll(s, "--", "-")
 	}
 	return strings.Trim(s, "-")
+}
+
+// planFallback is the model a run falls back to when the operator's own choice
+// cannot authenticate on the side they picked, keyed by harness family and
+// billing side.
+//
+// opencode is the case that needs it. Its bridge default is
+// anthropic/claude-sonnet-4-5, so a Go subscriber holding ONLY OPENCODE_API_KEY
+// answers `subscription`, gets both plans registered from that one key — and
+// then lands on an anthropic model they have no key for. They skipped /connect
+// and hit /models instead; the in-session step only moved.
+//
+// muse-spark-1.3-contributor is a provisional pick, not a considered one: it is
+// a model the Go plan serves today. Go's lineup rotates (35 models at the time
+// of writing), so this WILL go stale, and TestPlanFallbacksAreRealModels is
+// what turns that into a test failure rather than a run that dies on an
+// unknown id. SPEC: _spec/internal/credentials/credential-decisions.puml
+var planFallback = map[string]map[Billing]string{
+	"opencode": {
+		BillPlan:    "opencode-go/muse-spark-1.3-contributor",
+		BillMetered: "", // Zen is metered like any provider key; nothing to prefer
+	},
+}
+
+// PlanFallback returns the model to use for a harness on a billing side, or ""
+// when there is nothing better to offer than what the operator already has.
+func PlanFallback(harness string, want Billing) string {
+	return planFallback[strings.ToLower(strings.TrimSpace(harness))][want]
+}
+
+// Feasible drops the role models this run cannot actually authenticate and
+// returns what it substituted, so the caller can say so.
+//
+// The operator's ARCHITECT_MODEL and friends are a PREFERENCE, not a mandate:
+// a value carried in a shell rc or a project .env was written for some other
+// run, and honouring it when the credential behind it is absent or withheld
+// produces a session that cannot make a single model call. Warning about that
+// and launching anyway asks the operator to fix it from inside a broken run.
+//
+// A model is unfeasible when its provider is withheld by the auth answer, or
+// when nothing on the host can authenticate it. Anything else is left exactly
+// as the operator wrote it. SPEC: _spec/internal/credentials/credential-decisions.puml
+func (r Roles) Feasible(harness string, want Billing, withheld []string, usable func(string) bool) (Roles, []string) {
+	fallback := PlanFallback(harness, want)
+	if fallback == "" || len(r) == 0 {
+		return r, nil
+	}
+	off := map[string]bool{}
+	for _, w := range withheld {
+		off[w] = true
+	}
+	out := make(Roles, len(r))
+	for k, v := range r {
+		out[k] = v
+	}
+	var swapped []string
+	for _, role := range RoleVars { // deterministic order
+		model, ok := r[role]
+		if !ok {
+			continue
+		}
+		p := ModelProvider(normalizeIntent(model))
+		switch {
+		case p == "":
+			continue // a bare or local id we do not judge
+		case off[p]:
+			swapped = append(swapped, fmt.Sprintf(
+				"%s=%s cannot run here — %s is withheld by this run's auth answer; using %s",
+				role, model, p, fallback))
+		case usable != nil && !usable(p):
+			swapped = append(swapped, fmt.Sprintf(
+				"%s=%s cannot run here — no credential for %s; using %s",
+				role, model, p, fallback))
+		default:
+			continue
+		}
+		out[role] = fallback
+	}
+	return out, swapped
 }

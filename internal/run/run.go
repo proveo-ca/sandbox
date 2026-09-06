@@ -460,6 +460,23 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
 		ui.Warnf("%s", msg)
 	}
+	// The operator's role vars are a PREFERENCE. A value carried in a shell rc
+	// or a project .env was written for some other run, and honouring one whose
+	// credential is absent or withheld launches a session that cannot make a
+	// single model call — then asks the operator to fix it from inside it.
+	// Anything feasible is left exactly as they wrote it.
+	if want, ok := provider.AnsweredBilling(p.AuthVar); ok {
+		held := map[string]bool{}
+		for _, name := range usable {
+			held[name] = true
+		}
+		roles, swapped := p.Roles.Feasible(credentials.HarnessFamily(p.Target), want,
+			withheld, func(n string) bool { return held[n] })
+		for _, msg := range swapped {
+			ui.Warnf("%s", msg)
+		}
+		p.Roles = roles
+	}
 	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
 		ui.Warnf("%s", r.Reason())
 	}
