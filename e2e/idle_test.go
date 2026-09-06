@@ -75,16 +75,12 @@ func promptMarkers(target string) []string {
 	}
 }
 
-// reachedPrompt reports whether the agent is up and waiting.
+// reachedPromptFor reports whether the agent is up and waiting.
 //
 // It matches the TUI's own frame rather than proveo's entrypoint banner. The
 // banner is not a reliable signal: it is printed before the agent starts, so a
 // session can be fully up without it having been the last thing said — and the
 // stock sbx image never prints it at all, which the ladder's rung 0 needs.
-func reachedPrompt(raw string) bool {
-	return reachedPromptFor(raw, "claudecode")
-}
-
 func reachedPromptFor(raw, target string) bool {
 	out := plain(raw)
 	for _, m := range promptMarkers(target) {
@@ -118,11 +114,38 @@ var deathMarkers = []string{
 // tmux cannot host this. `sbx run -t <image> shell <ws>` exits within seconds in a
 // detached pane with proveo uninvolved (see sbx_test.go), so the session needs a
 // REAL pty; pty.Start gives the child one without a multiplexer in between.
+// idleTargets are the harnesses to hold at a prompt. It defaults to claudecode
+// alone, which is what this test has always done; PROVEO_IDLE_TARGETS takes a
+// comma-separated list so a sweep can ask the same question of every def.
+//
+// Sweeping matters because the failure this test exists for — a session stopped
+// underneath a healthy agent — has only ever been reported on ONE harness at a
+// time, and a per-harness answer is what distinguishes "this agent exits" from
+// "sbx stops sessions".
+func idleTargets() []string {
+	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
+	if raw == "" {
+		return []string{"claudecode"}
+	}
+	var out []string
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 	if os.Getenv("PROVEO_IDLE_TEST") != "1" {
 		t.Skip("set PROVEO_IDLE_TEST=1 to run the idle-survival check (it waits on purpose, ~6 minutes)")
 	}
-	const target = "claudecode"
+	for _, target := range idleTargets() {
+		t.Run(target, func(t *testing.T) { idleAtPrompt(t, target) })
+	}
+}
+
+func idleAtPrompt(t *testing.T, target string) {
 	harnessImage(t, target) // skips unless docker and the image are both here
 	proveoBin := buildProveo(t)
 
@@ -182,7 +205,7 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 				t.Skipf("agent never reached a prompt (%q) — idle survival is untestable without a session", f)
 			}
 		}
-		if reachedPrompt(out) {
+		if reachedPromptFor(out, target) {
 			break
 		}
 		select {
