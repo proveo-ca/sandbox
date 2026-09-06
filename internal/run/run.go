@@ -1,6 +1,7 @@
 package run
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -27,7 +28,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/secretref"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -178,6 +178,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		rs.Creds.HostEnvFile = workspace.EnvFileSource(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}
 	rs.Creds.Lookup = credentials.ProviderLookup(rs.Creds.HostEnvFile)
+	p.HostEnvFile = rs.Creds.HostEnvFile
 
 	rs.Choices.EvidenceSet = false
 	if v := strings.ToLower(strings.TrimSpace(rs.Creds.Lookup(EvidenceVar))); v != "" {
@@ -366,7 +367,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 			"provider from where it runs")
 	}
 	if rs.Creds.FileLogin && !p.PrintOnly && strings.TrimSpace(p.AuthVar) == "" {
-		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv)); av != "" && strings.TrimSpace(rs.Creds.Lookup(av)) != "" {
+		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv), rs.Creds.Lookup); av != "" && strings.TrimSpace(rs.Creds.Lookup(av)) != "" {
 			ui.Hostf("%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
@@ -525,7 +526,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		rs.Model.OllamaGPU = sidecarOllamaGPU()
 	}
 
-	suppressedAuth := credentials.AuthSuppressor(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv))
+	suppressedAuth := credentials.AuthSuppressor(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv), rs.Creds.Lookup)
 	for _, e := range rs.Man.Env {
 		if strings.TrimSpace(rs.Creds.Lookup(e.Name)) == "" {
 			continue
@@ -691,18 +692,16 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			return true, nil
 		}
 		if len(rs.Creds.AuthMissingAtStart) > 0 {
-			if rs.Man.Subscription && !rs.Creds.LoggedIn {
-				credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
-				sh, _ := shell.Detect(os.Getenv("SHELL"))
-				return false, fmt.Errorf("%s needs a subscription login and the sbx backend cannot complete one:\n"+
-					"  the agent exits at its login prompt and the sandbox stops with it.\n"+
-					"  Mint a token on the host and export it:\n"+
-					"      claude setup-token\n"+
-					"      %s\n"+
-					"  Or use --egress-mode review, which runs on the docker backend where a login persists",
-					rs.Man.Name, sh.ExportLine("CLAUDE_CODE_OAUTH_TOKEN", "<token>"))
-			}
 			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
+			// Refuse only when NOTHING can authenticate. A missing vendor
+			// credential is not the same as no credential for a harness that
+			// also reads the operator's own provider keys.
+			if rs.Man.Subscription && !rs.Creds.LoggedIn {
+				if why := credentials.SandboxAuthRefusal(
+					rs.Man, p.Target, proveohome.Root(os.Getenv), rs.Creds.Lookup); why != "" {
+					return false, errors.New(why)
+				}
+			}
 		}
 		return true, sandbox.Run(in)
 	}

@@ -104,6 +104,28 @@ note bottom of VENDOR
   the operator cannot tell a revoked key from a proveo
   decision.
 
+  **There is no bring-your-own-key path, and now the prompt says so.**
+  Confirmed by Cursor staff on the forum ('Can I use provider API keys with
+  Cursor cli agent?'), answered //Cursor CLI doesn't support BYOK with your own
+  provider API keys yet ... the CLI only works with models through your Cursor
+  subscription//. The auth row draws ""usage credits"" anyway and gates it
+  with that reason: dropping the option silently is what left 'cursor ignores
+  my ANTHROPIC_API_KEY' as something an operator could only find out by
+  running. The manifest's ""providers: [cursor]"" is the machine-readable half
+  of the same fact.
+
+  Cursor's key is a PLAN credential despite the name — the registry marks it
+  ""Harness: cursor"", so no other harness is offered it as a spendable key
+  either. SPEC: _spec/internal/credentials/credential-decisions.puml
+
+  **The refusal used to speak claudecode's words.** On the sbx backend a
+  subscription harness with no declared credential was refused with a hardcoded
+  string: 'Mint a token on the host and export it: claude setup-token'. A
+  cursor run with no ""CURSOR_API_KEY"" got exactly that — instructions for a
+  different product, naming a variable cursor never reads. It now builds from
+  ""SubscriptionAuthHints"" for the harness it actually refused, and offers the
+  'export a provider key instead' line only where one would work.
+
   **So the posture is declared, not defaulted per-flag.**
   cursor's manifest declares ""capabilities: egress:[open] ·
   credentials:[forward] · providers:[cursor]"", which is the

@@ -19,9 +19,13 @@ type Params struct {
 	Roles                                                                       provider.Roles
 	Bridges                                                                     provider.BridgeTable
 	AuthVar                                                                     string
-	Evidence                                                                    string
-	Shell, PrintOnly                                                            bool
-	Extra                                                                       []string
+	// HostEnvFile is the host-side KEY=VALUE file the credential lookup resolved,
+	// so the auth row can name where a key actually came from rather than
+	// asserting "host env" over a value that lives in the project .env.
+	HostEnvFile      string
+	Evidence         string
+	Shell, PrintOnly bool
+	Extra            []string
 	// SPEC: _spec/internal/egress/teardown-and-signals.puml
 	ProxyImage      string
 	Clone, CloneSet bool

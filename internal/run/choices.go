@@ -51,10 +51,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
 		),
 	}
-	if auth := credentials.AvailableAuthVarsIn(man, lookup, p.Target, homeRoot); len(auth) > 1 {
-		form.Rows = append(form.Rows, applicableRows(
-			axisRow("auth", auth, auth, orElseFirst(p.AuthVar, auth)),
-		)...)
+	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
+		form.Rows = append(form.Rows, r)
 	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
@@ -95,6 +93,91 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.Evidence = v
 	}
 	return nil
+}
+
+// authRow asks how this run is BILLED — against a plan, or per token — and asks
+// every harness that has a plan of its own the same way. Every option is drawn;
+// an unavailable one is gated with the reason rather than dropped. cecli is the
+// one def with nothing to ask. SPEC: _spec/internal/choiceui/wireframe.puml
+func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile, chosen string) (choiceui.Row, bool) {
+	if !credentials.DeclaresSubscription(man) {
+		return choiceui.Row{}, false
+	}
+	available := credentials.AvailableAuthVarsIn(man, lookup, target, homeRoot)
+	if len(available) == 0 {
+		return choiceui.Row{}, false // nothing authenticates; run.go says so in full
+	}
+	// Riskier first — see credentials.AuthUsage.
+	opts := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
+	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), available))
+	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
+	// Gate every option the operator cannot take, each with its own reason.
+	// comingSoon reallocates Off per call, so gating two of three through it
+	// would silently un-gate the first.
+	r.Off = make([]bool, len(r.Options))
+	r.OffWhy = map[string]string{}
+	why := credentials.AuthWhyUnavailable(man, target, homeRoot)
+	var reasons []string
+	for i, opt := range r.Options {
+		if slices.Contains(available, opt) {
+			continue
+		}
+		r.Off[i] = true
+		r.OffWhy[opt] = why[opt]
+		reasons = append(reasons, opt+": "+why[opt])
+	}
+	r.Reason = strings.Join(reasons, " · ")
+	if r.Selected < len(r.Off) && r.Off[r.Selected] {
+		r.Selected = firstSelectableIn(&r)
+	}
+	return r, true
+}
+
+// authAnswer maps a remembered answer onto the row as it is drawn now: a cache
+// written before this row had classes holds a variable NAME.
+// SPEC: _spec/internal/agentsettings/choice-cache.puml
+func authAnswer(chosen string, available []string) string {
+	switch {
+	case chosen == "":
+		return ""
+	case slices.Contains(available, chosen):
+		return chosen
+	case chosen == credentials.AuthVarLogin:
+		return credentials.AuthSubscription
+	}
+	return "" // a variable name from an older cache: let availability decide
+}
+
+// authHelp says what each option IS, then what it is made of on this host — or,
+// for a gated one, the single sentence about why it is not on offer.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
+	backing := credentials.AuthBacking(man, lookup, target, homeRoot, envFile)
+	unavailable := credentials.AuthWhyUnavailable(man, target, homeRoot)
+	// What each option is. True whether or not it is on offer.
+	what := map[string]string{
+		credentials.AuthUsage:        "metered per token at each provider, on your own keys",
+		credentials.AuthSubscription: "billed against the plan " + man.Name + "'s vendor issues",
+		credentials.AuthLocal: "weights on this machine — nothing billed, and no credential " +
+			"for the agent or the egress hop to carry",
+	}
+	// What choosing it costs the other side. Only meaningful where it can be chosen.
+	withholds := map[string]string{
+		credentials.AuthUsage:        man.Name + "'s own credential is withheld",
+		credentials.AuthSubscription: "every provider key is withheld",
+	}
+	help := map[string]string{}
+	for opt, text := range what {
+		if b := backing[opt]; b != "" {
+			help[opt] = text + " · " + b
+			if w := withholds[opt]; w != "" {
+				help[opt] += " · " + w
+			}
+			continue
+		}
+		help[opt] = text + " · " + unavailable[opt]
+	}
+	return help
 }
 
 func evidenceRow(current string) choiceui.Row {
@@ -176,7 +259,7 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 }
 
 func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
-	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot)
+	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot, lookup)
 	effective := func(k string) string {
 		if suppressed(k) {
 			return ""

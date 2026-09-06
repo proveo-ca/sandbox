@@ -327,6 +327,9 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	if len(o.Providers) > 0 {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDERS="+strings.Join(o.Providers, ","))
 	}
+	// AuthVar is a variable NAME the broker prefers; the caller resolves the
+	// row's credential-shape answers ("login (proveo home)", "provider keys
+	// (host env)") to "" before they reach here, since neither names a variable.
 	if o.AuthVar != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)
 	}

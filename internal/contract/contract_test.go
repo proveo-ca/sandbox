@@ -208,9 +208,14 @@ func TestSubscriptionHarnesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// opencode is a subscription harness in the PROMPT sense the flag actually
+	// carries: never ask for this key ahead of time. Its vendor credential is
+	// optional — the same run authenticates on the operator's own provider keys —
+	// so an env-wizard prompt would demand a credential the run may never use.
 	want := map[string]string{
 		"claudecode": "CLAUDE_CODE_OAUTH_TOKEN",
 		"cursor":     "CURSOR_API_KEY",
+		"opencode":   "OPENCODE_API_KEY",
 	}
 	found := map[string]bool{}
 	for _, m := range ms {

@@ -9,7 +9,7 @@
 ' undifferentiated "add-ons" row put a Docker daemon beside a browser as though
 ' they answered the same question, and named only the first group because the
 ' divider was inferred from "the first multi-select row" rather than declared.
-' Source: internal/choiceui/choiceui.go draw(); cmd/proveo/main.go row builders.
+' Source: internal/choiceui/choiceui.go draw(); internal/run/choices.go row builders.
 '
 ' Salt possesses no conditional construct. Optionality is consequently encoded,
 ' never branched — the five encodings are demonstrated below and named in the
@@ -30,6 +30,55 @@
 '   still unbuilt ..... _spec/_plans/choiceui-viewport-proposals.puml (the side pane)
 ' This file stays the resolved layout of one screenful, at a size that holds it.
 
+' ── THE AUTH ROW IS AN AXIS, AND IT IS ORDERED BY RISK ─────────────────────
+' Three options, always drawn in this order, because the prompt labels the row's
+' horizontal as "◀ riskier ... safer ▶" and reading it left to right has to mean
+' something:
+'   usage credits ... metered per token against raw provider key material sitting
+'                     in the environment for the agent to read. Unbounded spend,
+'                     and the key is a file or a variable the agent can reach.
+'   subscription .... a fixed-cost plan credential, and where it is a login on
+'                     disk proveo suppresses env tokens over it. The failure this
+'                     row exists to stop runs one way only — a subscription run
+'                     silently billed per token, never the reverse.
+'   local model ..... the safe end. Weights on this machine: nothing billed, and
+'                     no credential for the agent or the egress hop to carry.
+'                     COMING SOON — `--local-model` already runs the Ollama
+'                     sidecar, but nothing routes THIS row to it, so it is drawn
+'                     and gated rather than left out. The axis is where an
+'                     operator looks to find out an option exists at all.
+'
+' AN UNAVAILABLE OPTION IS GATED, NEVER DROPPED. cursor's CLI has no
+' bring-your-own-key path, so "usage credits" is off with the reason attached —
+' dropping it is what made "cursor ignores my ANTHROPIC_API_KEY" something the
+' operator could only discover by running. The reason goes in OffWhy, per option,
+' so it appears under the option the cursor is on rather than as one row-wide
+' string; Reason keeps the joined form for the row.
+'
+' comingSoon is NOT used here. It reallocates Off on every call, so gating two of
+' three through it silently un-gates the first — the auth row gates its own
+' options and picks a new Selected when the remembered one landed on a gate.
+'
+' AND A GATED OPTION ON A SINGLE-SELECT ROW EXPLAINS ITSELF THROUGH Reason, NOT
+' OffWhy. cycle() skips an Off option on a single-select row — correctly, it
+' cannot be chosen — so the cursor never lands on it and the per-option OffWhy
+' is text nothing will ever display. helpLines suppressed the row-level Reason
+' the moment the row carried any Help, which is exactly the shape of the auth
+' row: cursor drew `usage credits` greyed out and said NOTHING about why, the
+' one thing drawing it was supposed to communicate. The egress row escaped this
+' only by carrying no Help map at all.
+'
+' A Multi row is not affected and keeps its old behaviour: cycle() moves onto
+' gated options there and toggle() refuses, so its OffWhy is reachable and
+' repeating Reason beside it would double the add-on rows up.
+'
+' THE HINT IS THE HALF THAT MAKES THE NOUNS MEAN SOMETHING. Under each option:
+' what it is, then what it is made of on THIS host — the variable names, the
+' project .env path when a key actually lives in one, the login file path when a
+' login is what will be spent — then what choosing it withholds. Without that the
+' operator picks between two abstractions and still cannot tell which credential
+' they are about to spend. SPEC: _spec/internal/credentials/credential-decisions.puml
+'
 title Choice prompt wireframe — resolved layout, and how a gated element is drawn
 
 {

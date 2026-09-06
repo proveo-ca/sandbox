@@ -26,6 +26,26 @@ ALIAS ARROW_MAIN P3 : prefix folded before lookup
 AMBIG ARROW_ERROR P3 : returns "" rather than guess
 ENTRY ARROW_ERROR GHOST : any of the four missing
 
+note bottom of ENTRY
+  **An AuthOption can be OWNED by a harness.** ""Harness"" is empty for a
+  general provider key any harness can send, and set where the credential is
+  some CLI's own plan: ""CLAUDE_CODE_OAUTH_TOKEN"" (claudecode),
+  ""CURSOR_API_KEY"" (cursor), ""OPENCODE_API_KEY"" (opencode).
+
+  It exists because the auth row was offering them as spendable keys.
+  ""CURSOR_API_KEY"" is set, real, and refused by every endpoint opencode can
+  reach — cursor's API answers ""cursor-agent"" and nothing else, confirmed by
+  Cursor staff on the forum: the CLI has no bring-your-own-key path. Detection
+  and brokering still see the whole entry; only ""AuthVarsFor(name, harness)""
+  filters, and only where the question is 'what can THIS run spend'.
+
+  ""OPENCODE_API_KEY"" carries both plans of one gateway — models.dev lists
+  env ['OPENCODE_API_KEY'] for opencode (Zen, pay-as-you-go) and for
+  ""opencode-go"" (the subscription) alike, which is why the alias above folds
+  to one route.
+  SPEC: _spec/internal/credentials/credential-decisions.puml
+end note
+
 note bottom of ALIAS
   **One route, two upstream ids.** models.dev lists OpenCode's gateway as
   ""opencode"" (Zen, pay-as-you-go, ""/zen/v1"") and ""opencode-go"" (Go, the

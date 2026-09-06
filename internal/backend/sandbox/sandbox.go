@@ -412,7 +412,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 		forwarded = append(forwarded, name)
 	}
-	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot)
+	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot, in.Lookup)
 	for _, e := range in.Man.Env {
 		if !e.Secret {
 			continue

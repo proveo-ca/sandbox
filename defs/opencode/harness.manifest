@@ -3,6 +3,11 @@ name: opencode
 description: Subagent-crew workflow (OpenCode, HITL oversight)
 egress: true
 docker: sbx
+# `subscription: true` is about the PROMPT, not a login flow: never ask for this
+# key ahead of time — the operator may be running on their own provider keys, or
+# on the gateway's free models with no key at all.
+# SPEC: _spec/defs/opencode/opencode-paradigm.puml
+subscription: true
 stability: candidate
 images:
   opencode: proveo/opencode:latest
@@ -21,6 +26,14 @@ home:
       container: /proveo-home/.local/share/opencode
       mode: rw
       deny: [auth.json]
+env:
+  - name: OPENCODE_API_KEY
+    description: OpenCode Zen / Go key — sign in at opencode.ai/auth and copy it
+    secret: true
 
+# No `provider:` pin and no `providers:` list, deliberately: opencode reaches its
+# own gateway OR any provider the operator holds a key for, and pinning either
+# side would make the other unreachable.
+# SPEC: _spec/internal/credentials/credential-decisions.puml
 capabilities:
   hosts: [.opencode.ai, models.dev]
