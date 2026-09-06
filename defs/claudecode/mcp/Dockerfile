@@ -33,7 +33,6 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
-    iptables \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 

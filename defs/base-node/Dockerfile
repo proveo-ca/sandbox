@@ -7,7 +7,19 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG NODE_MAJOR=22
 
 # SPEC: _spec/_plans/image-size-reduction.puml
-RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
+# The template ships Ubuntu's own nodejs (24.x, with npm 9.2.0). We pin the
+# major deliberately, so NodeSource still replaces it — but NodeSource publishes
+# per Ubuntu release, and the template's release moves with the template. A
+# missing repo is the likeliest build break of the rebase, so it says what to do
+# rather than failing inside a piped shell script.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
+RUN . /etc/os-release; \
+    { curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -; } \
+      || { echo "NodeSource has no repository for ${ID} ${VERSION_CODENAME} (${VERSION_ID})." >&2; \
+           echo "The template already carries node $(node -v 2>/dev/null || echo '?'):" >&2; \
+           echo "  either set NODE_MAJOR to that major and drop this layer," >&2; \
+           echo "  or pin SANDBOX_TEMPLATE to a tag on an Ubuntu release NodeSource supports." >&2; \
+           exit 1; } \
     && apt-get install -y --no-install-recommends nodejs unzip \
     && npm install -g pnpm@10.33.0 \
     && npm cache clean --force \

@@ -41,10 +41,11 @@ func TestBrowserLayerInstallsOneChromiumNotTwo(t *testing.T) {
 // Installed-Size 198,806 kB) and its only consumer is /opt/plantuml.jar. Since it
 // lives in the root of the lineage, every one of the published images paid for it.
 //
-// The replacement is a jlink runtime built in a throwaway stage: 72 MB measured,
-// rendering -tpng and -tsvg identically. This test pins the three things that make
-// that swap survivable rather than the size itself.
-func TestBaseRunsPlantUMLOnAJlinkedRuntime(t *testing.T) {
+// It was replaced first by a jlink runtime in a throwaway stage, and now by the
+// JDK the sandbox template already carries — free, because the lineage extends
+// that template rather than a bare distro. This test pins what makes the swap
+// survivable rather than the size itself.
+func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base/Dockerfile")
 
@@ -52,25 +53,24 @@ func TestBaseRunsPlantUMLOnAJlinkedRuntime(t *testing.T) {
 		t.Error("proveo/base must not apt-install default-jre-headless (194 MB in every " +
 			"descendant); the jre-builder stage provides a 72 MB runtime for plantuml.jar")
 	}
-	for _, want := range []string{
-		"FROM debian:trixie-slim AS jre-builder",
-		"jlink --add-modules",
-		"COPY --from=jre-builder /opt/jre /opt/jre",
-	} {
-		if !strings.Contains(df, want) {
-			t.Errorf("proveo/base lacks %q — the JRE arrives from a builder stage, not from apt", want)
-		}
+	// The jlink builder stage is gone with the rebase onto
+	// docker/sandbox-templates, which ships a FULL JDK 25 — measured in the
+	// registry: bin/javac, lib/libawt.so, lib/libfontmanager.so. That satisfies
+	// both consumers more completely than the pruned runtime did (plantuml needs
+	// java.desktop; jdtls needs an OSGi-capable JVM and provisions its own only
+	// when _java_major reports < 21, which 25 does not).
+	//
+	// So this stopped asserting the MECHANISM — a builder stage and a module
+	// list — and asserts the PROPERTY those existed to produce: a capable Java
+	// reachable at /opt/jre, that no descendant pays for via apt.
+	// SPEC: _spec/_devops/sandbox-template-rebase.puml
+	if strings.Contains(df, "jlink --add-modules") {
+		t.Error("the jlink stage is redundant on a template that ships a full JDK — " +
+			"two Java runtimes in one lineage is the cost this test exists to prevent")
 	}
-
-	// jdtls, not plantuml, sets the floor for the module list. _install_jdtls
-	// provisions its own Java only when `_java_major` reports < 21, and this runtime
-	// reports 21 — so it must be able to host an Eclipse/OSGi application. A prune to
-	// plantuml's own needs (59 MB) satisfies the gate and then fails jdtls at runtime.
-	for _, mod := range []string{"java.desktop", "java.compiler", "java.instrument", "jdk.attach", "jdk.jdi", "jdk.zipfs"} {
-		if !strings.Contains(df, mod) {
-			t.Errorf("jlink module %q missing: plantuml needs java.desktop, and jdtls needs the rest "+
-				"because it runs on the floor's java whenever _java_major says 21", mod)
-		}
+	if !strings.Contains(df, "ln -sfn \"${java_home}\" /opt/jre") {
+		t.Error("proveo/base must keep /opt/jre resolving to the template's JDK: JAVA_HOME " +
+			"and every downstream reference are written against that path, not an arch-specific one")
 	}
 
 	// Debian's libfontmanager.so links against the SYSTEM harfbuzz/freetype, which
@@ -79,13 +79,14 @@ func TestBaseRunsPlantUMLOnAJlinkedRuntime(t *testing.T) {
 	pkgs := installedPackages(dockerfileBody(t, "defs/base/Dockerfile"))
 	for _, pkg := range []string{"fontconfig", "fonts-dejavu-core", "libharfbuzz0b"} {
 		if !pkgs[pkg] {
-			t.Errorf("proveo/base must install %q — it came free with the distro JRE and does not "+
-				"come free with a jlink runtime", pkg)
+			t.Errorf("proveo/base must install %q — libfontmanager links the SYSTEM harfbuzz and "+
+				"freetype, and the sandbox template ships the JDK without them (verified in the "+
+				"registry: no libharfbuzz.so, no fontconfig in any template layer)", pkg)
 		}
 	}
 
 	if !strings.Contains(df, "/opt/jre/bin/java -Djava.awt.headless=true -jar /opt/plantuml.jar") {
-		t.Error("the plantuml shim must exec the jlink runtime by absolute path")
+		t.Error("the plantuml shim must exec the runtime by absolute path")
 	}
 	// `java` on PATH is what _install_jdtls probes, and what the build-time render asserts.
 	if !strings.Contains(df, `PATH="/opt/jre/bin:${PATH}"`) {
@@ -182,8 +183,16 @@ var harnessDockerfiles = []string{
 
 // The docker static tarball left every harness image: all eight of its binaries
 // (docker, dockerd, containerd, containerd-shim-runc-v2, ctr, runc, docker-proxy,
-// docker-init — 210 MB measured per image) overlap the sbx sandbox runtime that
-// owns the daemon, and sbx is the only backend a harness has.
+// docker-init — 210 MB measured per image).
+//
+// The REASON recorded here was wrong, and is corrected rather than deleted
+// because the wrong version is why four manifests promised a daemon no image
+// carried. It said sbx owns the daemon and the image need only flip the label.
+// sbx starts what the IMAGE ships, and with the tarball gone the image shipped
+// nothing: measured in a live sandbox as `docker: command not found`, no socket,
+// no dockerd process. The binaries now arrive from the sandbox-template base
+// instead — inherited once at the root rather than copy-pasted four times.
+// SPEC: _spec/_devops/sandbox-template-rebase.puml
 //
 // This test is a ratchet against a re-add, because a re-add is cheap to do by
 // copy-paste and expensive to notice: the four blocks were already four copies of
@@ -201,8 +210,8 @@ func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 			"ln -sf /usr/local/bin/dockerd",
 		} {
 			if strings.Contains(df, banned) {
-				t.Errorf("%s contains %q — the docker binaries were removed because they "+
-					"overlap sbx, which owns the daemon it starts from the start-docker label",
+				t.Errorf("%s contains %q — docker comes from the sandbox-template base now, "+
+					"so a hand-rolled tarball is a second copy shadowing the inherited one",
 					rel, banned)
 			}
 		}
@@ -226,9 +235,19 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 			t.Errorf("%s must keep the docker group — it is how a runtime uid reaches "+
 				"a root:docker socket", rel)
 		}
-		// A NAT chain needs iptables whoever builds it.
-		if !installedPackages(dockerfileBody(t, rel))["iptables"] {
-			t.Errorf("%s must keep iptables — the per-sandbox daemon builds its own NAT chain", rel)
+	}
+	// A NAT chain needs iptables whoever builds it — but it belongs ONCE, at the
+	// root of the lineage. It used to be installed by all four defs; the rebase
+	// moved it into proveo/base, and TestNoImageReinstallsWhatItsBaseAlreadyCarries
+	// is what caught the duplication.
+	// SPEC: _spec/_devops/sandbox-template-rebase.puml
+	if !installedPackages(dockerfileBody(t, "defs/base/Dockerfile"))["iptables"] {
+		t.Error("proveo/base must install iptables — the per-sandbox daemon builds its own " +
+			"NAT chain, and every harness inherits the base")
+	}
+	for _, rel := range harnessDockerfiles {
+		if installedPackages(dockerfileBody(t, rel))["iptables"] {
+			t.Errorf("%s reinstalls iptables, which proveo/base already carries", rel)
 		}
 	}
 }

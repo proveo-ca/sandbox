@@ -38,7 +38,6 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    iptables \
     unzip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

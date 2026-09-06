@@ -1,0 +1,154 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what docker/sandbox-templates actually ships, measured from the registry
+' covers: defs/base/Dockerfile
+' covers: defs/base/proveo-harden
+' Lineage and tagging: image-lineage-and-publish.puml (same directory).
+' Why the rebase happened: _spec/_plans/image-size-reduction.puml (Cut 4).
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   templates   : https://docs.docker.com/ai/sandboxes/customize/templates/
+'   customize   : https://docs.docker.com/ai/sandboxes/customize/
+'   shell agent : https://docs.docker.com/ai/sandboxes/agents/shell/
+'   tags        : https://hub.docker.com/r/docker/sandbox-templates/tags
+'   quickstart  : https://github.com/dockersamples/sbx-quickstart
+'
+' ── THE RULE WE WERE BREAKING ───────────────────────────────────────────────
+' "Custom templates are reusable sandbox images that EXTEND ONE OF THE BUILT-IN
+' agent environments with additional tools and configuration baked in."
+' proveo/base descended from debian:trixie-slim instead, so it inherited none of
+' what a sandbox is assumed to carry. Everything below was then re-derived by
+' hand, and the docker half was re-derived WRONG — see Cut 4.
+'
+' ── MEASURED FROM THE REGISTRY, 2026-09-06 ──────────────────────────────────
+' docker/sandbox-templates:shell-docker-0.5.0, linux/arm64, config blob read
+' directly (no daemon needed): auth.docker.io token -> registry-1.docker.io
+' manifest -> config blob; layers listed with `tar -tzv` off the blob stream.
+'
+'   base       ubuntu:questing (26.04)
+'   USER       agent
+'   WORKDIR    /home/agent/workspace
+'   ENTRYPOINT ["tini", "--"]     CMD ["bash"]
+'   LABEL      com.docker.sandboxes.start-docker = true   <- ALREADY SET
+'   ENV        PATH includes /home/agent/.local/bin and
+'              /usr/local/share/npm-global/bin
+'              NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+'              NO_PROXY=localhost,127.0.0.1,::1,172.17.0.0/16
+'              BASH_ENV=/etc/sandbox-persistent.sh
+'
+'   IDENTITY   agent:x:1000:1000::/home/agent:/bin/bash
+'              docker:x:1001:agent
+'              sudo:x:27:agent
+'              /etc/sudoers.d/agent -> "agent ALL=(ALL) NOPASSWD:ALL"
+'   Every one of those four lines is something a proveo def CONSTRUCTS BY HAND
+'   today, down to the docker group landing on gid 1001. The uid dance in
+'   defs/*/Dockerfile is not wrong; on this base it is redundant.
+'
+'   TOOLING    git gh jq rg tini docker(CLI, 43 MB) sudo.ws uv curl
+'              go 1.26, node, npm, python3.14, java 25
+'   ENGINE     dockerd 102 MB, containerd 40 MB, runc 11 MB, docker-proxy 3 MB
+'              (the -docker suffix is what carries these; plain tags have the
+'               CLI only, and a CLI with no daemon is the mistake Cut 4 made)
+'   SIZE       588.7 MB compressed across 15 layers
+'
+' ── THE SETUID TRAP, AND IT IS OURS ─────────────────────────────────────────
+' The template ships exactly three setuid/setgid files:
+'     -rwxr-sr-x  usr/bin/ssh-agent
+'     -rwsr-xr-x  usr/bin/sudo.ws            <- /usr/bin/sudo resolves here
+'     -rwsr-xr-x  usr/lib/openssh/ssh-keysign
+' proveo-harden runs `find -perm -4000 -exec chmod u-s`, so on this base it
+' DISARMS SUDO — and sudo is the agent user's only route to root. That is the
+' shape of the failure the claudecode record left open at "what remains is the
+' privilege": dockerd answering "Permission denied (you must be root)". That
+' record concluded "proveo-harden is not implicated"; it was measured on a base
+' with no sudo to strip, so the test was never like-for-like. sudo is now
+' exempt by name in proveo-harden. ssh-agent and ssh-keysign stay stripped:
+' neither is a privilege the harness uses, and keeping the cut narrow keeps the
+' posture change to the one binary that had to change.
+'
+' ── WHAT THE REBASE DOES NOT CHANGE ─────────────────────────────────────────
+' The per-def rename (agent -> claude/cursor/opencode/cecli, home symlinked back
+' to /home/agent) STAYS. defs/claudecode/tests/test_workspace.sh asserts both
+' halves — "HOME is /home/agent" and "/home/claude resolves to /home/agent" — so
+' collapsing it to the template's bare `agent` would be a one-line change that
+' reddens the suite. It is redundant on this base, not harmful.
+'
+' ── STILL OPEN ──────────────────────────────────────────────────────────────
+' Whether the RENAMED user needs its own sudo grant. The template grants
+' NOPASSWD:ALL to `agent` by name; after the rename that name belongs to a
+' recreated uid-1000 user, so the grant survives while the working user
+' (claude/cursor/cecli) has none. Our images shipped NO sudo at all until now,
+' so granting one is a posture change and is the operator's call, not a
+' packaging detail. Nothing is known to need it yet: sbx starts the daemon
+' itself and does not invoke dockerd through the agent's sudo (scoped sudo was
+' tried and changed nothing, byte-identical error).
+' ────────────────────────────────────────────────────────────────────────────
+
+title sandbox-template rebase — what the supported base already carries
+
+component "docs: custom templates\n\"extend one of the built-in\"" as DOCS <<cloud>>
+component "docker/sandbox-templates\nshell-docker-0.5.0" as TPL <<cloud>>
+
+node "what it carries" as CARRY <<host>> {
+  component "identity\nagent:1000 · docker:1001 · sudo" as ID <<app>>
+  component "engine\ndockerd containerd runc proxy" as ENG <<app>>
+  component "toolchain\ngo node python java git gh" as TOOL <<app>>
+}
+
+component "proveo/base\nwas debian:trixie-slim" as BASE <<app>>
+component "hand-built identity\nre-derived, and docker re-derived wrong" as HAND <<error>>
+component "proveo-harden\nchmod u-s on every setuid file" as HARD <<error>>
+component "sudo.ws\nthe agent's only route to root" as SUDO <<db>>
+
+DOCS ARROW_MAIN TPL : the supported base
+TPL ARROW_MAIN ID
+TPL ARROW_MAIN ENG
+TPL ARROW_MAIN TOOL
+TPL ARROW_MAIN BASE : rebased onto this
+BASE ARROW_QUEUE HAND : what the old base made us write
+HARD ARROW_ERROR SUDO : stripped the setuid bit
+SUDO ARROW_QUEUE ENG : privilege the daemon needed
+
+note bottom of TPL
+  **The `-docker` suffix is the whole product.**
+  Plain tags carry the client and no daemon, so a
+  sandbox built on one answers `docker` and then
+  fails to connect — the same half-provisioning
+  Cut 4 arrived at from the other direction.
+end note
+
+note bottom of ID
+  **Four lines we were writing by hand.** uid 1000
+  named agent, home /home/agent, a docker group on
+  gid 1001, and NOPASSWD sudo — our defs construct
+  each one, matching gid 1001 by coincidence
+  rather than by inheriting it.
+end note
+
+note bottom of HARD
+  **The harden pass disarms sudo on this base.** A
+  blanket chmod u-s takes the setuid bit off
+  sudo.ws, which is the agent user's only route to
+  root, so hardening and privilege collided in the
+  one binary nobody had measured.
+end note
+
+note bottom of SUDO
+  **Named in the old record, then acquitted.** It
+  was cleared on a base that shipped no sudo, so
+  the comparison was never like-for-like — the
+  acquittal measured an absence rather than the
+  binary it was meant to exonerate.
+end note
+
+note bottom of BASE
+  **A base off the supported path pays twice.** It
+  re-derives what the template gives, and it gets
+  no correction when a re-derivation is wrong —
+  which is how four manifests came to promise a
+  daemon that no image carried.
+end note
+
+@enduml
