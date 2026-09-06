@@ -178,6 +178,41 @@
 ' repair path instead. defs/cursor/tests/test_tools.sh WAS inverted, because it
 ' asserts what the IMAGE carries, and the image now deliberately carries nothing.
 '
+' ── MEASURED 2026-09-06: THE ASSUMPTION IS FALSE ─────────────────────────
+' Taken from INSIDE a live proveo claudecode sandbox (proveo-1788712286-63525),
+' which is the reading the section above asked for and could not get:
+'
+'   docker, dockerd, containerd, runc, docker-proxy  all "command not found"
+'   /var/run/docker.sock, /run/docker.sock           absent
+'   DOCKER_HOST                                      unset
+'   pgrep dockerd                                    no process
+'
+' The three things that STAYED are all present and correct — iptables at
+' /usr/sbin/iptables, group docker:x:1001 with claude and agent in it, and the
+' start-docker LABEL on the image — so the cut was applied exactly as designed.
+' It is the bet underneath it that lost: sbx supplies NEITHER the client NOR the
+' daemon. It reads start-docker off the image and starts what the image ships,
+' and the image now ships nothing, so nothing starts. That is the same shape as
+' the cecli defect — a promise whose executor was removed, not a promise the
+' runtime declined.
+'
+' This settles the disagreement recorded above in favour of the three AGAINST
+' entries. In particular retire-dind's "Server 29.7.2, measured" was reading the
+' tarball THESE LAYERS pinned, not a daemon sbx brought: remove the tarball and
+' the daemon goes with it.
+'
+' `docker: sbx` in all four manifests (manifest.DockerMode — "how the agent gets
+' a Docker daemon") is therefore a promise none of them keeps today. Two ways
+' out, and the choice is the operator's because it is 210 MB per image:
+'   RESTORE  put the static tarball back and reopen the privilege question the
+'            claudecode record left at "next step is sbx-side" — the daemon
+'            still failed to start for claudecode even when shipped.
+'   RETRACT  drop `docker: sbx` from the manifests and say plainly that a proveo
+'            sandbox has no daemon, which is honest and costs nothing.
+' Restoring the CLIENT alone (39 MB) is a third option only if some other daemon
+' is reachable; none is, so it would buy a client with nothing behind it — the
+' exact mistake this plan already records under "extracting only `docker`".
+'
 ' ── THE RECORD CLAUDECODE'S DOCKERFILE CARRIED, MOVED HERE ────────────────
 ' Preserved because the code it annotated is gone and it is the only account of
 ' what was tried. Verbatim, minus the line telling the reader to keep the version
