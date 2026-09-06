@@ -128,15 +128,50 @@ skinparam noteTextAlignment left
 '
 '     So E2 is a strict gain for the sbx path, at the cost of one unknown.
 '
-'     THE UNKNOWN, and it is the whole risk. SPEC-v2: "The user-side bindings
-'     file (~/.config/sbx/credentials.yaml) declares WHERE the credential lives
-'     — kits never declare discovery." proveo resolves keys itself (env, .env,
-'     keychain) and delivers them with `sbx secret set`. Whether that satisfies a
-'     kit's credentials[] binding, or whether the bindings file is separate and
-'     required, is NOT determined by the docs and cannot be tested without sbx.
-'     Operator probes it before any code is written — the alternative is
-'     designing against a plausible reading, which is the mistake that cost
-'     210 MB an image and four broken promises.
+'     MEASURED 2026-09-06, AND IT DECIDES THE SHAPE. A probe mixin declaring
+'     credentials for service "anthropic" was refused by sbx before the sandbox
+'     was created:
+'
+'       400 Bad Request: kit_artifacts: compose: credential for service
+'       "anthropic" defined in both "shell" and "credprobe"
+'
+'     The built-in agent ALREADY DECLARES that credential. sbx-kit-contract.puml
+'     recorded this rule from the vendor docs — "a mixin repeating a service the
+'     agent already declares is rejected outright" — and the probe is the first
+'     time it has been met head-on rather than read.
+'
+'     So E2 IS NOT AVAILABLE TO A MIXIN, which is what proveo contributes for
+'     every def backed by a built-in agent (claudecode -> claude, cursor,
+'     opencode). Those three cannot declare credentials[] at all, at any risk
+'     level, because the parent already did.
+'
+'     E2 IS ONLY REACHABLE ON THE E1 PATH. A `kind: sandbox` kit is a complete
+'     agent with no parent to collide with, so it MAY declare every shared block
+'     — credentials included. cecli is the one def in that position, and only
+'     because E1 put it there. The two experiments are one feature.
+'
+'     For the other three the equivalent would mean abandoning the vendor's
+'     built-in agent for a proveo- prefixed one (a built-in name cannot be
+'     shadowed), trading the agent wiring sbx maintains for a credential
+'     property sbx may already provide. Not obviously worth it, and not
+'     measured — see the open question below.
+'
+'     STILL OPEN, and cheap: since the built-in agents already declare these
+'     credentials, sbx may already be proxy-managing them, in which case the
+'     agent's env may ALREADY hold a sentinel and proveo's
+'     `sbx secret set ANTHROPIC_API_KEY` — which creates a service named after
+'     the ENV VAR, distinct from the `anthropic` service the bindings file uses
+'     — may be redundant or may be the very thing putting a real key in the
+'     process. One command answers it, and it needs no kit:
+'         sbx run shell . -- 'echo "${ANTHROPIC_API_KEY:-<unset>}"'
+'
+'     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
+'     carries bindings for anthropic, cursor, google, openai and xai, each a
+'     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
+'     side: `anthropic (oauth configured)` — sbx's own service, the one bindings
+'     reference — and `ANTHROPIC_API_KEY (stored)`, which is proveo's, named
+'     after the env var. A kit's credentials[].service resolves against the
+'     former, so any E2 work must set secrets under the SERVICE name.
 '
 '     Gated when built, like E1: credentials are the one subsystem where a wrong
 '     answer is not a degraded run but no run at all.
