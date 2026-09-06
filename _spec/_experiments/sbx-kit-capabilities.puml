@@ -1,0 +1,157 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: sbx capabilities proveo re-implements, and the one belief now falsified
+' covers: internal/sbx/kit.go
+' covers: internal/sbx/agents.go
+' The contract this corrects: _spec/internal/sbx/sbx-kit-contract.puml
+' The rebase that started it: _spec/_devops/sandbox-template-rebase.puml
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   SPEC-v2   : https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md
+'   kits      : https://docs.docker.com/ai/sandboxes/customize/kits/
+'   examples  : https://docs.docker.com/ai/sandboxes/customize/kit-examples/
+'   pi kit    : https://github.com/docker/sbx-kits-contrib/tree/main/pi
+'   contrib   : https://github.com/docker/sbx-kits-contrib
+'   sbx ssh   : https://www.ajeetraina.com/ssh-straight-into-your-agent-sandboxes-a-hands-on-look-at-sbx-ssh/
+'
+' ── FALSIFIED: "THE AGENT LIST IS CLOSED" ───────────────────────────────────
+' sbx-kit-contract.puml states, under AGENT IDENTITY: "`sbx run --help` prints a
+' CLOSED list ... A Kit cannot add to it ... An invented agent therefore never
+' resolves agents/<name>/spec.yml, its binding gate is skipped, and the
+' interactive session drops within seconds." That is true of `kind: mixin`, and
+' it is the reason proveo contributes a mixin beside a built-in agent.
+'
+' It is NOT true of `kind: sandbox`. SPEC-v2: "A sandbox kit is a COMPLETE AGENT.
+' It MUST declare a `sandbox:` block and MAY declare every shared block." Its
+' `name` is the identifier `sbx run <name> --kit <path>` selects. The refusal we
+' met — "built-in agents cannot be overridden by a kit" — is about SHADOWING an
+' existing name, which is a different operation from adding a new one.
+'
+' Two witnesses that this is the intended path, not a loophole:
+'   pi       a community kit for an agent sbx never shipped, with its own image
+'            (docker.io/sbx/pi-image), its own entrypoint, and credentials the
+'            sandbox proxy injects per request.
+'   copilot  WAS a built-in; the kit approach now "replaces that functionality
+'            for non-built-in agents".
+'
+' ── WHAT A SANDBOX KIT CAN DECLARE THAT proveo BUILDS BY HAND ───────────────
+'   sandbox.image        the image the sandbox boots from
+'   sandbox.entrypoint   fixed process prefix; [0] is the binary
+'   sandbox.command      {default, interactive} — the mode-specific tail
+'   credentials[].apiKey  inject[].domain + header, host-side proxy, per request
+'                         (domain MUST also appear in permissions.network.allow)
+'   volumes[]            block or tmpfs, path + size
+'   ports[]              inbound exposure
+'   agentInstructions    filename + content — the AI profile file
+'   setup.files[]        path + content + mode, written at startup
+'
+' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
+' E1  cecli as a first-class agent (`kind: sandbox`)
+'     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
+'     semantics, and the whole class of defect that made `-- cecli` run
+'     `bash cecli`. cecli declares its own entrypoint the way pi does.
+'     Cost: one spec.yaml + a published image. Risk: low, reversible.
+'
+' E2  sbx-native credential injection (credentials[].apiKey.inject)
+'     Overlaps internal/broker and internal/egressproxy on the sbx backend:
+'     both inject a key on-route to a named domain and withhold it elsewhere.
+'     Retires the most proveo-specific code of any item here. Risk: high —
+'     the DLP scanner and off-route stripping have no declared equivalent, so
+'     this is a REPLACEMENT only where those are not the point.
+'
+' E3  `sbx ssh` as the e2e entry path
+'     sbx-kit-contract records that the shell agent "does NOT survive a
+'     detached tmux pane", so e2e cannot drive an sbx session to a prompt and
+'     e2e/sbx_test.go skips. `sbx setup ssh` makes `ssh <name>.sbx` reach the
+'     sandbox through the daemon socket. Retires a SKIP, not code — which is
+'     why it may be the cheapest real win here.
+'
+' E4  per-agent `-docker` templates instead of shell-docker
+'     claudecode/cursor/opencode could extend claude-code-docker,
+'     cursor-agent-docker, opencode-docker and inherit the vendor's own agent
+'     wiring. Conflicts with _spec/_devops/agent-version-pin.puml, which pins
+'     and asserts exact versions; a template's preinstalled agent moves on the
+'     template's schedule. cecli has no variant, so shell-docker stays anyway.
+'
+' E5  branch mode / per-run worktrees
+'     sbx gives each run its own worktree under .sbx/. proveo has clone mode
+'     (_spec/internal/sbx/clone-workspace.puml). Likely overlapping, and the
+'     comparison has not been made.
+'
+' E6  agentInstructions + setup.files vs proveo-seed
+'     House rules and settings are composed by proveo-seed today. Some of that
+'     is declarable. The seed also runs on the docker backend, so this splits
+'     one mechanism into two — recorded as a question, not a proposal.
+'
+' NONE OF THESE IS MEASURED. Every line above is read from docs and one
+' community kit; nothing here has been run. The last time a plan in this tree
+' rested on a plausible reading of sbx's behaviour it cost 210 MB per image and
+' four manifests promising a daemon no image carried.
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — sbx Kit capabilities proveo re-implements
+
+component "SPEC-v2\nkind: sandbox is a COMPLETE AGENT" as SPEC <<cloud>>
+component "pi / copilot kits\nnon-built-in agents, shipped" as WIT <<cloud>>
+
+node "proveo today" as NOW <<host>> {
+  component "shell agent + -c wrapper\ncecli has no sbx agent" as SHELL <<error>>
+  component "internal/broker\ninject on-route · strip off-route" as BROKER <<app>>
+  component "proveo-seed\nhouse rules · settings · trust" as SEED <<app>>
+  component "e2e/sbx_test.go\nskips: no tmux-survivable session" as SKIP <<error>>
+}
+
+component "E1 cecli as kind: sandbox" as E1 <<db>>
+component "E2 credentials[].apiKey.inject" as E2 <<db>>
+component "E3 sbx ssh as the e2e entry" as E3 <<db>>
+
+SPEC ARROW_MAIN E1 : a name sbx run selects
+WIT ARROW_MAIN E1 : two working precedents
+SHELL ARROW_QUEUE E1 : what it would retire
+BROKER ARROW_QUEUE E2 : overlaps, does not equal
+SKIP ARROW_QUEUE E3 : retires a skip, not code
+SEED ARROW_QUEUE E2 : declarable in part
+
+note bottom of E1
+  **Closed to mixins, not to kits.** A sandbox kit
+  declares a complete agent and names it, so the
+  harness sbx has no agent for can stop borrowing
+  the shell's — and stop inheriting the shell's
+  argument semantics along with it.
+end note
+
+note bottom of E2
+  **Overlap is not equivalence.** sbx injects a
+  key per domain; the broker also STRIPS off-route
+  and runs a DLP scan on the way out. Taking the
+  first half while assuming the second rides along
+  loses the half nobody declared.
+end note
+
+note bottom of E3
+  **The cheapest item retires a skip.** A suite
+  that skips reports success by testing nothing,
+  and this one skips precisely where sbx sessions
+  live — so the gap sits under the backend proveo
+  actually ships on.
+end note
+
+note bottom of SHELL
+  **A borrowed agent brings its contract.** The
+  shell agent's rule for words after `--` is not
+  cecli's rule, and a def that borrows the launch
+  inherits every semantic attached to it, seen or
+  unseen.
+end note
+
+note bottom of SPEC
+  **Read before adopting, measured before ship.**
+  Every claim here comes from docs and one
+  community kit; none has been run, and the last
+  plan resting on a plausible reading cost 210 MB
+  an image and four broken promises.
+end note
+
+@enduml
