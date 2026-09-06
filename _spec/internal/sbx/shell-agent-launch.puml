@@ -1,0 +1,121 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how a def sbx has no built-in agent for is launched, and why -c
+' covers: internal/sbx/agents.go
+' covers: internal/backend/sandbox/sandbox.go
+' The Kit contract this sits inside: sbx-kit-contract.puml (same directory).
+' The instrument that found it: _spec/_paradigms/capability-ladder.puml
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────
+'   shell agent : https://docs.docker.com/ai/sandboxes/agents/shell/
+'   agent list  : https://docs.docker.com/ai/sandboxes/agents/
+'
+' ── THE DOCUMENTED RULE, QUOTED ─────────────────────────────────────────────
+' `sbx run shell` runs `bash -l`. For the words after `--`:
+'   FLAG-LEADING  (begins with "-")  APPENDED to `bash -l`
+'                                    -- -c "echo hi"  →  bash -l -c "echo hi"
+'   BARE WORD                        REPLACES the -l entirely
+'                                    -- cecli         →  bash cecli
+'
+' `bash <file>` is not `bash -c <file>`. Bash reads the file AS SHELL SOURCE,
+' and — when the name has no slash — searches PATH to find it. The interpreter
+' line is never consulted, because a shebang is honoured by execve and nothing
+' here execve's. So /opt/cecli/bin/cecli, a Python console script, was read as
+' shell: line 2 `import: not found`, line 3 `from: not found`.
+'
+' ── WHAT THAT ERROR IS NOT ──────────────────────────────────────────────────
+' It names no missing dependency. `import` is not a C symbol and not a Python
+' one — it is bash failing to find a COMMAND by that name, having already
+' decided the file is a shell script. The ladder's probe measured the file and
+' eliminated every such reading before the docs were consulted:
+'   file -rwxr-xr-x · shebang #!/opt/cecli/bin/python3 · interp → python3.13
+'   runs Python 3.13.5 · execve OK · first4 "# ! / o" (no BOM)
+' Python was present and the kernel would run the file. Only the CALLER was
+' wrong, which is why no change to the image or the def could have fixed it.
+'
+' ── THE LAUNCH proveo NOW WRITES ────────────────────────────────────────────
+'   -c "<script>" "proveo-<target>" [extra...]
+' Three parts, each load-bearing:
+'   -c        keeps `bash -l` and restores the shebang, since -c execs.
+'   $0 slot   bash -c takes the word after the script as $0; without a
+'             placeholder the first real argument is silently swallowed.
+'   script    prefers <target>-entrypoint, then /entrypoint.sh, then the bare
+'             binary. sbx's shell agent REPLACES the image ENTRYPOINT, so a
+'             launch naming only the binary would start the harness with none
+'             of the rule, evidence or house-rule arguments the def declares —
+'             a rung that goes green while dropping the def's contract.
+'
+' ── WHY THE TESTS HAD TO CHANGE TOO ─────────────────────────────────────────
+' Two tests asserted the command WAS the bare target name, so the suite was
+' pinning the defect rather than the contract. Both now assert the property
+' that matters — the first word after `--` begins with a dash — which fails
+' loudly if the bare form ever returns.
+' ────────────────────────────────────────────────────────────────────────────
+
+title sbx shell-agent launch — bare word replaces the login shell
+
+component "docs: sbx shell agent\nthe rule, stated by the vendor" as DOCS <<cloud>>
+
+node "proveo" as P <<host>> {
+  component "AgentFor(target)\nbuilt-in name, or shell + launch" as AF <<app>>
+  component "ShellLaunch\n-c script, $0 slot, extras" as SL <<app>>
+}
+
+component "sbx run shell <ws> -- <cmd>" as RUN <<app>>
+component "bash -l -c 'exec <entrypoint>'\nshebang honoured" as GOOD <<app>>
+component "bash <launcher>\nread as shell source" as BAD <<error>>
+component "import: not found\nblamed on a missing dependency" as ERR <<error>>
+component "capability ladder rung 2\nfirst layer that could not hold" as LAD <<db>>
+
+DOCS ARROW_MAIN SL : flag-leading is appended
+AF ARROW_MAIN SL : no built-in agent for this target
+SL ARROW_MAIN RUN : -c, script, $0, extras
+RUN ARROW_MAIN GOOD : first word is a flag
+RUN ARROW_ERROR BAD : first word is bare
+BAD ARROW_ERROR ERR : line 2 of a Python file
+LAD ARROW_QUEUE BAD : named the layer, not the cause
+DOCS ARROW_QUEUE LAD : the cause, once read
+
+note bottom of BAD
+  **A named script is sourced, not exec'd.** Bash
+  reads the file as shell and searches PATH for
+  it, so the interpreter line is never consulted
+  — the shebang works perfectly and is simply
+  never reached by this route.
+end note
+
+note bottom of ERR
+  **The error names no missing dependency.** It is
+  bash failing to find a command called import,
+  having already mistaken a Python file for shell
+  — the probe measured execve OK and Python 3.13
+  present before the docs settled it.
+end note
+
+note bottom of SL
+  **The $0 slot is not decoration.** bash -c reads
+  the word after the script as the shell name, so
+  a launch without a placeholder loses its first
+  real argument silently, which is the worst way
+  for an argument to go missing.
+end note
+
+note bottom of GOOD
+  **The entrypoint is preferred over the binary.**
+  sbx's shell agent replaces the image ENTRYPOINT,
+  so naming the binary alone starts the harness
+  without the rule and evidence arguments the def
+  declares — green, and quietly wrong.
+end note
+
+note bottom of LAD
+  **The ladder narrowed; the docs concluded.** It
+  proved the fault entered with the command and
+  nowhere below, which made one vendor page the
+  whole remaining question — measurement first,
+  then reading, and no guessing in between.
+end note
+
+@enduml

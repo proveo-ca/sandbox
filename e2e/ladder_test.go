@@ -75,6 +75,17 @@ func agentCommand(target string) []string {
 	return cmd
 }
 
+// launcherProgram is the binary a shell-agent def's launch ends up exec'ing —
+// the def's entrypoint when the image ships one, which is what the wrapper
+// prefers. It is what the probe inspects and what the report names, neither of
+// which wants the `-c` script the wrapper hands sbx.
+func launcherProgram(target string) string {
+	if !shellAgentTarget(target) {
+		return ""
+	}
+	return target + "-entrypoint"
+}
+
 // withCommand appends the `-- <command>` tail sbx expects.
 func withCommand(argv []string, cmd []string) []string {
 	if len(cmd) == 0 {
@@ -96,7 +107,8 @@ func ladderRungs() []rung {
 	// added together.
 	cmd := agentCommand(target)
 	withCmd := rung{
-		name: "2-agent-command", adds: "the def's own launcher as the sbx COMMAND (-- " + strings.Join(cmd, " ") + ")",
+		name: "2-agent-command", adds: "the def's own launcher as the sbx COMMAND (-- -c 'exec " +
+			launcherProgram(target) + "', wrapped so bash -l survives)",
 		argv: func(t *testing.T, work string) []string {
 			img := harnessImage(t, target)
 			freshTemplate(t, img)
@@ -282,7 +294,7 @@ func TestSandboxLadder(t *testing.T) {
 				// still there. A rung that dies leaves the reader with a symptom
 				// and a manual command to run later; by then the sandbox is gone
 				// and the next answer is another climb away.
-				if probe := probeLaunch(t, name, agentCommand(ladderTarget())); probe != "" {
+				if probe := probeLaunch(t, name, launcherProgram(ladderTarget())); probe != "" {
 					t.Logf("-- why the command could not be exec'd --\n%s", probe)
 				}
 				t.Fatalf("RUNG FAILED — this rung adds %s, and it is the first layer that could not "+
@@ -362,13 +374,16 @@ func ladderReport(climbed []rungVerdict) string {
 // It is best-effort and never fails a rung: a probe that cannot run tells us
 // nothing, and turning that into a second failure would bury the first.
 // SPEC: _spec/_paradigms/capability-ladder.puml
-func probeLaunch(t *testing.T, sandbox string, cmd []string) string {
+// probeLaunch inspects the LAUNCHER BINARY, so it takes the program name rather
+// than the sbx command — those stopped being the same word once the shell-agent
+// launch became a `-c` script, and passing cmd[0] here would have probed "-c".
+func probeLaunch(t *testing.T, sandbox string, prog string) string {
 	t.Helper()
-	if sandbox == "" || len(cmd) == 0 {
+	if sandbox == "" || prog == "" {
 		return "" // a built-in agent: no command of ours to resolve
 	}
 	script := `set -u
-prog=` + quoteWord(cmd[0]) + `
+prog=` + quoteWord(prog) + `
 echo "id:      $(id)"
 echo "PATH:    $PATH"
 path="$(command -v "$prog" 2>/dev/null || true)"
@@ -645,13 +660,21 @@ func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
 
 	// The command itself, and how it is appended, are pure and testable without
 	// a daemon; the image-bearing rungs are exercised by a real climb.
+	// This used to assert the command was the bare word "cecli", which is what
+	// sbx documents as REPLACING `bash -l` — the ladder was pinning the defect it
+	// was built to find. What matters after `--` is that the first word is a
+	// flag, so sbx appends it to the login shell instead.
 	cmd := agentCommand("cecli")
-	if len(cmd) != 1 || cmd[0] != "cecli" {
-		t.Errorf("agentCommand(cecli) = %v, want [cecli] — proveo passes it after --", cmd)
+	if len(cmd) == 0 || !strings.HasPrefix(cmd[0], "-") {
+		t.Errorf("agentCommand(cecli) = %v, want a flag-leading command — a bare word makes "+
+			"sbx run `bash <launcher>` and read it as a shell script", cmd)
 	}
 	got := withCommand([]string{"run", "shell", "/w"}, cmd)
-	if len(got) != 5 || got[3] != "--" || got[4] != "cecli" {
-		t.Errorf("withCommand = %v, want the `-- cecli` tail sbx expects", got)
+	if len(got) != 3+1+len(cmd) || got[3] != "--" {
+		t.Errorf("withCommand = %v, want the `-- <command>` tail sbx expects", got)
+	}
+	if got[4] != cmd[0] {
+		t.Errorf("withCommand reordered the command: %v", got)
 	}
 	if again := withCommand([]string{"run"}, nil); len(again) != 1 {
 		t.Errorf("withCommand with no command appended something: %v", again)
@@ -674,15 +697,15 @@ func TestLadderLeavesBuiltinTargetsAtFourRungs(t *testing.T) {
 // — and reporting that as a second failure would bury the first.
 func TestProbeLaunchIsBestEffort(t *testing.T) {
 	t.Parallel()
-	// A built-in agent supplies no command of ours, so there is nothing to resolve.
-	if got := probeLaunch(t, "some-sandbox", nil); got != "" {
+	// A built-in agent supplies no launcher of ours, so there is nothing to resolve.
+	if got := probeLaunch(t, "some-sandbox", ""); got != "" {
 		t.Errorf("probed with no command to resolve: %q", got)
 	}
-	if got := probeLaunch(t, "", []string{"cecli"}); got != "" {
+	if got := probeLaunch(t, "", "cecli"); got != "" {
 		t.Errorf("probed with no sandbox named: %q", got)
 	}
 	// A sandbox that does not exist returns nothing rather than erroring.
-	if got := probeLaunch(t, "proveo-ladder-does-not-exist-0-0", []string{"cecli"}); got != "" &&
+	if got := probeLaunch(t, "proveo-ladder-does-not-exist-0-0", "cecli"); got != "" &&
 		!strings.Contains(got, "id:") {
 		t.Logf("probe on a missing sandbox returned %q — acceptable, it must simply not fail", got)
 	}

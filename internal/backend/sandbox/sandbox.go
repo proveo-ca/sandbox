@@ -502,9 +502,17 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 
 	agent, launch := sbx.AgentFor(in.Target)
-	command := in.Extra
-	if len(command) == 0 {
-		command = launch
+	command := launch
+	if len(in.Extra) > 0 {
+		// Extras replace the launch, and for a shell-agent def they must go
+		// through the same wrapper: handed to sbx as bare words they would
+		// REPLACE `bash -l` and be read as a script file, which is the defect
+		// that killed cecli. SPEC: _spec/_paradigms/capability-ladder.puml
+		if agent == sbx.ShellAgent {
+			command = sbx.ShellLaunch(in.Target, in.Extra)
+		} else {
+			command = in.Extra
+		}
 	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent

@@ -829,16 +829,21 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 		"docker-agent": true, "droid": true, "gemini": true, "kiro": true,
 		"opencode": true, "shell": true,
 	}
+	// This table used to pin the command as the bare target name, which froze the
+	// very defect that killed cecli: sbx drops `bash -l` for a bare word and reads
+	// the launcher as a shell script. The shape now belongs to
+	// TestShellAgentCommandIsFlagLeading; what this test owns is that every target
+	// resolves to an agent sbx actually ships.
 	for _, c := range []struct {
-		target  string
-		agent   string
-		command []string
+		target string
+		agent  string
+		launch bool
 	}{
-		{"claudecode", "claude", nil},
-		{"cursor", "cursor", nil},
-		{"opencode", "opencode", nil},
-		{"cecli", ShellAgent, []string{"cecli"}},
-		{"some-future-harness", ShellAgent, []string{"some-future-harness"}},
+		{"claudecode", "claude", false},
+		{"cursor", "cursor", false},
+		{"opencode", "opencode", false},
+		{"cecli", ShellAgent, true},
+		{"some-future-harness", ShellAgent, true},
 	} {
 		agent, command := AgentFor(c.target)
 		if agent != c.agent {
@@ -847,8 +852,8 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 		if !sbxKnows[agent] {
 			t.Errorf("AgentFor(%q) resolved %q, which sbx does not ship", c.target, agent)
 		}
-		if strings.Join(command, " ") != strings.Join(c.command, " ") {
-			t.Errorf("AgentFor(%q) command = %v, want %v", c.target, command, c.command)
+		if got := IsShellLaunch(command); got != c.launch {
+			t.Errorf("AgentFor(%q) command = %v, want a wrapped shell launch = %v", c.target, command, c.launch)
 		}
 	}
 	// A built-in owns its own launch: handing it a command would put our word in
