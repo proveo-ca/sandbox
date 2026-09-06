@@ -14,8 +14,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 # else's schedule. The tarball has no distro coupling at all.
 #
 # The template already carries Ubuntu's nodejs (24.x with npm 9.2.0). This
-# REPLACES it on PATH: /usr/local/bin precedes /usr/bin, and the version is
-# asserted below so a silent fallback to the distro copy fails the build.
+# REPLACES it outright. Putting /usr/local/bin ahead on PATH is not enough: the
+# distro copy stays on disk and `type -a node` reports two, which
+# e2e TestToolchainShipsNoDuplicateBinaries reads as one tool installed in two
+# layers — and it is right to. NodeSource used to replace the package in place,
+# so the duplicate is new with the tarball. Purging the distro nodejs after the
+# tarball lands removes 361 packages (Ubuntu's node-* module set) and 293 MB
+# from /usr, measured — the version and the resolved path are then asserted so a
+# silent fallback to a distro copy fails the build.
 #
 # xz-utils is installed BEFORE the extract, not after: `tar -J` shells out to xz,
 # and the template is not guaranteed to carry it. Ordering it after the extract
@@ -41,6 +47,10 @@ RUN set -e; \
     rm -f /tmp/node.tar.xz; \
     test "$(node --version)" = "v${NODE_VERSION}"; \
     npt="$(npm --version)"; echo "npm ${npt} from the pinned tarball"; \
+    apt-get purge -y --auto-remove nodejs npm; \
+    hash -r; \
+    test "$(command -v node)" = "/usr/local/bin/node"; \
+    test "$(node --version)" = "v${NODE_VERSION}"; \
     npm install -g pnpm@10.33.0; \
     npm cache clean --force; \
     rm -rf /usr/include/node /usr/local/include/node; \
