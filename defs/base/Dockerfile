@@ -107,17 +107,18 @@ RUN curl -fsSL -o /opt/plantuml.jar \
     && rm -rf /tmp/* /var/tmp/* /root/.cache \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-# The daemon the template ships must survive the harden pass and be reachable
-# from the runtime uid. Both are inherited, and both are asserted here so a
-# base that quietly loses either fails at BUILD time rather than in a sandbox.
+# The daemon the template ships must be present, and the runtime uid reaches it
+# through the docker GROUP — measured: dockerd runs as root from init, the
+# socket is root:docker, and no sudo is involved. So the harden pass must leave
+# nothing setuid, and a base that regresses either fails at BUILD time rather
+# than in a sandbox.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN set -e; \
     command -v docker  >/dev/null || { echo "template lost the docker client" >&2; exit 1; }; \
     command -v dockerd >/dev/null || { echo "not a -docker template: no Engine" >&2; exit 1; }; \
     getent group docker >/dev/null || { echo "no docker group" >&2; exit 1; }; \
-    sudo_bin="$(readlink -f "$(command -v sudo)")"; \
-    test -n "${sudo_bin}" || { echo "no sudo in the template" >&2; exit 1; }; \
-    test -u "${sudo_bin}" || { echo "proveo-harden disarmed sudo (${sudo_bin})" >&2; exit 1; }
+    left="$(find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null)"; \
+    [ -z "${left}" ] || { echo "harden pass left setuid/setgid files:" >&2; echo "${left}" >&2; exit 1; }
 
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \

@@ -27,7 +27,9 @@ skinparam noteTextAlignment left
 ' directly (no daemon needed): auth.docker.io token -> registry-1.docker.io
 ' manifest -> config blob; layers listed with `tar -tzv` off the blob stream.
 '
-'   base       ubuntu:questing (26.04)
+'   base       LABEL says ubuntu:questing; the running image reports
+'              VERSION_ID=26.04, VERSION_CODENAME=resolute — apt fetches from
+'              ports.ubuntu.com/ubuntu-ports resolute/*, so the label is stale
 '   USER       agent
 '   WORKDIR    /home/agent/workspace
 '   ENTRYPOINT ["tini", "--"]     CMD ["bash"]
@@ -52,6 +54,30 @@ skinparam noteTextAlignment left
 '              (the -docker suffix is what carries these; plain tags have the
 '               CLI only, and a CLI with no daemon is the mistake Cut 4 made)
 '   SIZE       588.7 MB compressed across 15 layers
+'
+' ── CORRECTED BY MEASUREMENT: THE SETUID EXEMPTION WAS WRONG ───────────────
+' Everything in the next section is the reasoning that led to exempting sudo
+' from proveo-harden. The reasoning was plausible, the hypothesis was testable,
+' and once docker existed in a sandbox it was tested and FAILED:
+'
+'   dockerd   root, PPID 1 — started by the VM's init, not by anyone's sudo
+'   sudo      no process, ever; and `sudo -n true` from the runtime user
+'             answers "a password is required" — the template's NOPASSWD grant
+'             names `agent`, and after the per-def rename the working user holds
+'             only the password-gated `sudo` group
+'   socket    srw-rw---- root:docker, and `docker ps` answers for the runtime
+'             uid through the DOCKER GROUP with no sudo anywhere
+'
+' So the exemption protected a privilege nothing uses, and it cost the "no
+' setuid binaries" contract asserted by test_security.sh in claudecode, cursor
+' and opencode — which is how it was caught: `mise run test-images` against the
+' LOCAL build, red on exactly that line. The blanket strip is restored.
+'
+' The section below is kept because the trap it describes is real — a blanket
+' chmod u-s does disarm the template's sudo — and only the CONCLUSION drawn from
+' it was wrong. What the old record left at "next step is sbx-side" is now
+' answered: sbx starts the daemon as root itself, and the packaging question was
+' never the privilege question.
 '
 ' ── THE SETUID TRAP, AND IT IS OURS ─────────────────────────────────────────
 ' The template ships exactly three setuid/setgid files:

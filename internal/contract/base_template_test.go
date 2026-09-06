@@ -98,25 +98,35 @@ func TestBaseTemplateCarriesTheEngine(t *testing.T) {
 	}
 }
 
-// proveo-harden strips setuid bits. On this base that would disarm sudo, which
-// is the agent user's only route to root — and the daemon needs root.
-func TestHardenPassExemptsSudo(t *testing.T) {
+// proveo-harden strips EVERY setuid/setgid bit, sudo included.
+//
+// The rebase brought a setuid /usr/bin/sudo.ws into the lineage and it was
+// exempted here on the hypothesis that the harden pass was the missing
+// privilege behind dockerd's "Permission denied (you must be root)". Measured
+// in a live sandbox, that is false: dockerd runs as root with PPID 1 from the
+// VM's init, no sudo process exists, the runtime user cannot sudo anyway (the
+// NOPASSWD grant names `agent`, the renamed user only has the password-gated
+// group), and the socket is reached through the docker GROUP. The exemption
+// bought nothing used and cost the no-setuid contract that
+// defs/{claudecode,cursor,opencode}/tests/test_security.sh assert.
+// SPEC: _spec/_devops/sandbox-template-rebase.puml
+func TestHardenPassStripsEverySetuidBinary(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/proveo-harden"))
-	if !strings.Contains(src, "sudo.ws") {
-		t.Fatal("proveo-harden does not name sudo.ws, so a blanket chmod u-s disarms " +
-			"/usr/bin/sudo and the sandbox agent loses its only route to root")
-	}
-	if !regexp.MustCompile(`\*/sudo(\.ws)?\)[^\n]*continue`).MatchString(src) &&
-		!strings.Contains(src, "*/sudo|*/sudo.ws") {
-		t.Error("sudo is mentioned but not actually skipped by the stripping loop")
-	}
-	// The exemption must stay narrow: a harden pass that skips everything is not
-	// a harden pass.
-	for _, must := range []string{"-perm -4000", "-perm -2000", "chmod u-s,g-s"} {
+
+	for _, must := range []string{"-perm -4000", "-perm -2000", "chmod u-s", "chmod g-s"} {
 		if !strings.Contains(src, must) {
 			t.Errorf("proveo-harden no longer strips setuid/setgid (%q missing)", must)
 		}
+	}
+	// Any skip-list resurrects the defect three security suites assert against.
+	if regexp.MustCompile(`\*/sudo(\.ws)?\)`).MatchString(src) {
+		t.Error("proveo-harden exempts sudo again — measured unnecessary (dockerd starts as " +
+			"root from init; the socket is reached via the docker group) and it breaks the " +
+			"no-setuid-binaries contract in three defs")
+	}
+	if strings.Contains(src, "continue") {
+		t.Error("the stripping loop skips something; the pass is meant to be blanket")
 	}
 }
 
@@ -126,7 +136,7 @@ func TestHardenPassExemptsSudo(t *testing.T) {
 func TestBaseAssertsWhatItInherits(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
-	for _, probe := range []string{"command -v docker", "command -v dockerd", "readlink -f \"$(command -v sudo)\""} {
+	for _, probe := range []string{"command -v docker", "command -v dockerd", "-perm -4000"} {
 		if !strings.Contains(src, probe) {
 			t.Errorf("base does not verify %q at build time", probe)
 		}

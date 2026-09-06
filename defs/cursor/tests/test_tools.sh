@@ -28,7 +28,11 @@ assert_failure "bun stays out of the runtime-free cursor image (it lives in prov
 # SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/_plans/image-size-reduction.puml
 assert_success "docker client comes from the sandbox template" "$IMAGE" "command -v docker"
 assert_success "docker Engine comes from the -docker template variant" "$IMAGE" "command -v dockerd"
-assert_success "sudo keeps its setuid bit through the harden pass" "$IMAGE" "test -u /usr/bin/sudo.ws"
+# The template ships a setuid sudo; the harden pass must still take it. Measured:
+# dockerd runs as root from the VM's init and the socket is reached through the
+# docker group, so nothing in the daemon path needs it.
+assert_failure "harden pass leaves no setuid binary, sudo included" "$IMAGE" \
+  "find / -xdev -perm -4000 -type f 2>/dev/null | grep -q ."
 assert_success "shared verification lib is baked" "$IMAGE" \
   'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'
 
