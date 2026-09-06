@@ -81,6 +81,11 @@ LABEL com.docker.sandboxes.start-docker="true"
 WORKDIR /app
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+# The sbx Kit names this as its ONE startup command for every target
+# (internal/sbx SeedCommand), so an image that runs on sbx and does not ship
+# it fails startup with exit 127 and seeds nothing.
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
