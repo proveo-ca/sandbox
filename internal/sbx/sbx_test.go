@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -870,27 +869,60 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 // `docker info` and `docker ps` each took over two minutes to return. MemoryLimit
 // runs on every sbx launch including `--print`, so an unbounded call turns a slow
 // daemon into a proveo that hangs with nothing on screen.
-func TestMemoryLimitSurvivesAHangingDaemon(t *testing.T) {
+//
+// THE BOUND IS ON THE CALL, NOT THE PROCESS, and the difference is the whole
+// test. A context kills the command we started; Output() waits on the stdout
+// PIPE, which any grandchild that inherited it keeps open afterwards. So this
+// drives the real bounded path with a command that forks — the shell dies on
+// schedule and `sleep` holds the pipe — and asserts it comes back anyway.
+//
+// The previous version of this test asserted nothing. It replaced the
+// sh.DockerMemTotal seam with a fake, so no production boundedness was on the
+// path at all; it measured whether the FAKE returned. And the fake was
+// `sh -c "sleep 60"` under a 50ms context, which is precisely the hazard above:
+// it took the full 60s, the 5s deadline fired, and the failure blamed
+// "the daemon call is unbounded" while pointing at code that already had a
+// deadline. Unobservable property, and a stand-in that reproduced the bug it
+// was standing in for.
+func TestBoundedReturnsWhenAChildOutlivesTheKill(t *testing.T) {
+	t.Parallel()
+	t0 := time.Now()
+	// `sh -c` forks: the deadline reaches the shell, never the sleep.
+	if _, err := boundedWith(50*time.Millisecond, "sh", "-c", "sleep 60"); err == nil {
+		t.Error("a command killed at its deadline must report the kill")
+	}
+	// Generous: the point is "not the child's own 60s", not a tight bound.
+	if elapsed := time.Since(t0); elapsed > 10*time.Second {
+		t.Errorf("boundedWith took %v — the deadline bounded the process and left the "+
+			"call waiting on a pipe the grandchild still holds", elapsed.Round(time.Millisecond))
+	}
+}
+
+// A command that does NOT fork must not pay the grace period: the ordinary path
+// returns as soon as the process is gone.
+func TestBoundedDoesNotWaitOutTheGraceOnAWellBehavedChild(t *testing.T) {
+	t.Parallel()
+	t0 := time.Now()
+	if _, err := boundedWith(50*time.Millisecond, "sleep", "60"); err == nil {
+		t.Error("a command killed at its deadline must report the kill")
+	}
+	if elapsed := time.Since(t0); elapsed >= boundedGrace {
+		t.Errorf("boundedWith took %v on a direct child; the grace period is a ceiling "+
+			"for the orphan case, not a floor for every call", elapsed.Round(time.Millisecond))
+	}
+}
+
+// And the decision MemoryLimit makes on top of it: an unreadable daemon means no
+// -m flag, which leaves sbx's own default in place. That is the documented
+// fallback, not a failure.
+func TestMemoryLimitYieldsNoLimitWhenTheDaemonCannotAnswer(t *testing.T) {
 	orig := sh.DockerMemTotal
 	t.Cleanup(func() { sh.DockerMemTotal = orig })
+	t.Setenv(EnvMemory, "")
 
-	sh.DockerMemTotal = func() ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-		// `sleep 60` stands in for the wedged daemon; the context is what must end it.
-		return exec.CommandContext(ctx, "sh", "-c", "sleep 60").Output()
-	}
-	done := make(chan string, 1)
-	go func() { done <- MemoryLimit() }()
-	select {
-	case got := <-done:
-		// An unreadable daemon means no -m flag, which leaves sbx's own default in
-		// place. That is the documented fallback, not a failure.
-		if got != "" {
-			t.Errorf("a daemon that never answers must yield no limit, got %q", got)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("MemoryLimit did not return: the daemon call is unbounded, and every launch hangs with it")
+	sh.DockerMemTotal = func() ([]byte, error) { return nil, context.DeadlineExceeded }
+	if got := MemoryLimit(); got != "" {
+		t.Errorf("a daemon that never answers must yield no limit, got %q", got)
 	}
 }
 
@@ -1123,6 +1155,88 @@ func TestAuthLoginArgs(t *testing.T) {
 	for _, tc := range [][2]string{{"cursor", "/w"}, {"", "/w"}, {"claude", ""}} {
 		if a := AuthLoginArgs(tc[0], tc[1]); a != nil {
 			t.Errorf("AuthLoginArgs(%q, %q) = %v, want nil", tc[0], tc[1], a)
+		}
+	}
+}
+
+// boundedCombined carries the same guarantee as bounded for the readers that
+// need stderr — sbx prints its daemon diagnostics there, so they cannot use
+// Output() and would otherwise have been the calls left without a deadline.
+func TestBoundedCombinedIsBoundedToo(t *testing.T) {
+	t.Parallel()
+	t0 := time.Now()
+	if _, err := boundedCombinedWith(50*time.Millisecond, "sh", "-c", "sleep 60"); err == nil {
+		t.Error("a command killed at its deadline must report the kill")
+	}
+	if elapsed := time.Since(t0); elapsed > 10*time.Second {
+		t.Errorf("boundedCombined took %v — the call outlived its own deadline",
+			elapsed.Round(time.Millisecond))
+	}
+}
+
+// Every read-only interrogation of the daemon runs in front of a launch, so a
+// wedged daemon must not be able to hang the operator there. This is the list
+// that had no deadline at all: Version matters most, since sbx.Available()
+// reaches it on the same pre-launch path as MemoryLimit.
+//
+// It drives the REAL closures through a fake `sbx` on PATH, so it asserts the
+// WIRING rather than the helper — a call that quietly stops going through
+// bounded() is the regression worth catching, and from the helper's side it
+// looks identical.
+//
+// The fake exits at once and leaves an orphan holding the pipe, which is the
+// cheap way to ask this question: the answer then turns on WaitDelay alone
+// rather than on sitting out the real 10s deadline four times. The four run
+// concurrently as goroutines rather than parallel subtests, because the PATH
+// this needs is process-wide and the package is full of t.Parallel() tests.
+//
+// The write path is deliberately absent. TemplateLoad, TemplateRemove and
+// SecretSet are the operation the operator is WAITING for — an image load runs
+// for minutes by design, and a deadline there aborts the work instead of
+// protecting anyone from it.
+func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	// Exits immediately; the backgrounded sleep inherits stdout and holds the
+	// pipe open long after its parent is gone.
+	script := "#!/bin/sh\nsleep 30 &\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, Binary), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cli := defaultCLI()
+	calls := map[string]func() ([]byte, error){
+		"Version":      cli.Version,
+		"TemplateList": cli.TemplateList,
+		"SandboxList":  cli.SandboxList,
+		"SecretList":   cli.SecretList,
+	}
+	type result struct {
+		name    string
+		elapsed time.Duration
+	}
+	done := make(chan result, len(calls))
+	for name, call := range calls {
+		go func() {
+			t0 := time.Now()
+			_, _ = call()
+			done <- result{name, time.Since(t0)}
+		}()
+	}
+	// Comfortably above the grace period, far below the orphan's 30s hold: the
+	// gap between "WaitDelay closed the pipe" and "the call waited the orphan
+	// out" is what this measures.
+	ceiling := boundedGrace + 5*time.Second
+	deadline := time.After(ceiling)
+	for range calls {
+		select {
+		case r := <-done:
+			if r.elapsed > ceiling {
+				t.Errorf("%s took %v — it runs before a launch, so a wedged daemon hangs "+
+					"proveo with a blank screen", r.name, r.elapsed.Round(time.Millisecond))
+			}
+		case <-deadline:
+			t.Fatalf("a read-only daemon call never returned within %v — it is not bounded", ceiling)
 		}
 	}
 }
