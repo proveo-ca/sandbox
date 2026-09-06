@@ -6,6 +6,7 @@ package e2e
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -176,7 +177,25 @@ func idleAtPrompt(t *testing.T, target string) {
 	startup := durationEnv(t, "PROVEO_IDLE_STARTUP", 5*time.Minute) // image load can be slow
 	work := t.TempDir()
 
-	args := append(childEnvArgsNoCredential(t), proveoBin, "run", target, "--input", work)
+	// Record every byte the agent is sent, and what the filter decided about it.
+	// Three theories about this failure have been built on inference and two
+	// collapsed; the tap is the one thing that reports what actually arrived. It
+	// is dumped only on failure, so a passing sweep stays quiet.
+	trace := filepath.Join(t.TempDir(), "stdin.trace")
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		b, err := os.ReadFile(trace)
+		if err != nil || len(b) == 0 {
+			t.Logf("stdin trace: nothing recorded (%v) — the agent was sent no input at all", err)
+			return
+		}
+		t.Logf("-- stdin trace (what the agent was sent, and the verdict) --\n%s", b)
+	})
+
+	args := append(childEnvArgsNoCredential(t), "PROVEO_TRACE_STDIN="+trace,
+		proveoBin, "run", target, "--input", work)
 	cmd := exec.Command("env", args...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
