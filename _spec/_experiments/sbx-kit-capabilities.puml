@@ -48,7 +48,7 @@ skinparam noteTextAlignment left
 '   setup.files[]        path + content + mode, written at startup
 '
 ' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
-' E1  cecli as a first-class agent (`kind: sandbox`)   -- BUILT, UNMEASURED
+' E1  cecli as a first-class agent (`kind: sandbox`)   -- BUILT, HOST-BLOCKED
 '     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
 '     semantics, and the whole class of defect that made `-- cecli` run
 '     `bash cecli`. cecli declares its own entrypoint the way pi does.
@@ -83,12 +83,63 @@ skinparam noteTextAlignment left
 '     it. Red means the docs promise something sbx does not do for a kit built
 '     this way, and the gate stays off — which is the whole reason it is a gate.
 '
-' E2  sbx-native credential injection (credentials[].apiKey.inject)
-'     Overlaps internal/broker and internal/egressproxy on the sbx backend:
-'     both inject a key on-route to a named domain and withhold it elsewhere.
-'     Retires the most proveo-specific code of any item here. Risk: high —
-'     the DLP scanner and off-route stripping have no declared equivalent, so
-'     this is a REPLACEMENT only where those are not the point.
+'     CANNOT BE CLIMBED FROM INSIDE A SANDBOX, measured 2026-09-06. Two
+'     independent blocks, and neither is a policy against recursion:
+'       the sbx CLI is not installed in any proveo image — nothing in defs/
+'         fetches it, and it is a HOST tool that creates microVMs
+'       /dev/kvm does not exist in the sandbox and no kvm module is loaded
+'     Docker's install requirements: "If you're running inside a virtual machine
+'     or virtual desktop infrastructure environment, the environment must support
+'     NESTED VIRTUALIZATION." sbx nests where the platform exposes KVM; this
+'     sandbox does not expose it, so the ladder is a host-side measurement.
+'     Everything below the sbx boundary IS verified here: `mise run build all`
+'     (14 images) and `mise run test-images` (351 passed, 0 failed) both green.
+'
+' E2  sbx-native credential injection (credentials[].apiKey)  -- RESCOPED
+'
+'     THE ENTRY BELOW WAS WRONG IN BOTH DIRECTIONS, and the correction makes it
+'     a smaller and better experiment. It read: "Overlaps internal/broker and
+'     internal/egressproxy on the sbx backend ... Retires the most proveo-specific
+'     code of any item here. Risk: high — the DLP scanner and off-route stripping
+'     have no declared equivalent."
+'
+'     Measured in the tree: internal/backend/sandbox imports NEITHER broker NOR
+'     egresspolicy NOR egressproxy. The broker runs on the docker+egress backend
+'     only. So on sbx nothing is retired — and nothing is lost either, because
+'     the DLP scan does not run there to begin with.
+'
+'     What IS true is smaller and worth fixing. sandbox.Spec's addSecret reads
+'     `v := in.Lookup(name)` — the REAL key — and hands it to `sbx secret set`,
+'     so on the sbx backend THE AGENT PROCESS HOLDS THE REAL CREDENTIAL. proveo's
+'     own sentinel (entrypoint.DefaultSentinel, "proveo-brokered") is applied in
+'     internal/run for the brokered path, not here.
+'
+'     sbx offers exactly the missing half: `credentials[].apiKey.proxyManaged:
+'     true` sets the named env var to a SENTINEL and injects the real value
+'     host-side, per request, only into `inject[].domain` with `header`/`format`
+'     — and that domain MUST also appear in permissions.network.allow.
+'
+'     THE OFF-ROUTE STRIP IS SUBSUMED, not lost. broker.Apply deletes
+'     authorization/x-api-key/x-goog-api-key/api-key/proxy-authorization from any
+'     request whose host is off-route. On sbx the baseline is deny-all or
+'     balanced (_spec/internal/sbx/policy-baseline.puml), so an unallowlisted
+'     host is BLOCKED outright rather than merely stripped — a strictly stronger
+'     outcome for the same threat.
+'
+'     So E2 is a strict gain for the sbx path, at the cost of one unknown.
+'
+'     THE UNKNOWN, and it is the whole risk. SPEC-v2: "The user-side bindings
+'     file (~/.config/sbx/credentials.yaml) declares WHERE the credential lives
+'     — kits never declare discovery." proveo resolves keys itself (env, .env,
+'     keychain) and delivers them with `sbx secret set`. Whether that satisfies a
+'     kit's credentials[] binding, or whether the bindings file is separate and
+'     required, is NOT determined by the docs and cannot be tested without sbx.
+'     Operator probes it before any code is written — the alternative is
+'     designing against a plausible reading, which is the mistake that cost
+'     210 MB an image and four broken promises.
+'
+'     Gated when built, like E1: credentials are the one subsystem where a wrong
+'     answer is not a degraded run but no run at all.
 '
 ' E3  `sbx ssh` as the e2e entry path
 '     sbx-kit-contract records that the shell agent "does NOT survive a
