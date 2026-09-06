@@ -18,6 +18,10 @@ type Kit struct {
 	Permissions   KitPermissions `yaml:"permissions,omitempty"`
 	Environment   *KitEnv        `yaml:"environment,omitempty"`
 	Setup         *KitSetup      `yaml:"setup,omitempty"`
+	// Sandbox turns this Kit from a mixin into a COMPLETE AGENT, and is the
+	// field that lets a harness sbx ships no agent for stop borrowing one.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	Sandbox *KitSandbox `yaml:"sandbox,omitempty"`
 }
 
 // KitEnv carries values RESOLVED ON THE HOST.
@@ -46,10 +50,26 @@ func SeedCommand(target string) KitCommand {
 	}
 }
 
-// KitSandbox names the image and what runs in it.
+// KitSandbox names the image and what runs in it. SPEC-v2: "A sandbox kit is a
+// COMPLETE AGENT. It MUST declare a `sandbox:` block and MAY declare every
+// shared block", and its `name` is what `sbx run <name> --kit <path>` selects.
+//
+// Entrypoint and Command are BOTH omitempty on purpose. The def's image already
+// declares ENTRYPOINT ["dumb-init", "--", "<target>-entrypoint"] and CMD
+// ["<target>"], and that pair is what the docker backend runs and what works
+// there. Restating it here would be a second copy free to drift from the first,
+// so the Kit names the image and lets the image speak. If a measurement shows
+// sbx requires the prefix explicitly, it goes in then and not before.
 type KitSandbox struct {
-	Image      string   `yaml:"image"`
-	Entrypoint []string `yaml:"entrypoint,omitempty"`
+	Image      string             `yaml:"image"`
+	Entrypoint []string           `yaml:"entrypoint,omitempty"`
+	Command    *KitSandboxCommand `yaml:"command,omitempty"`
+}
+
+// KitSandboxCommand is the mode-specific tail appended to the entrypoint.
+type KitSandboxCommand struct {
+	Default     []string `yaml:"default,omitempty"`
+	Interactive []string `yaml:"interactive,omitempty"`
 }
 
 // KitPermissions carries the network policy.

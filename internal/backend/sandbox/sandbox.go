@@ -514,6 +514,16 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			command = in.Extra
 		}
 	}
+	// A def sbx has no built-in agent for can declare one of its own instead of
+	// borrowing `shell` — and borrowing `shell` means inheriting its rule for the
+	// words after `--`, which is what made `-- cecli` run `bash cecli`. With its
+	// own agent there is no bash in between: the image's ENTRYPOINT runs, exactly
+	// as it does on the docker backend, so extras pass through as bare words.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(in.Target)
+	if ownAgent {
+		agent, command = sbx.AgentName(in.Target), in.Extra
+	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}
@@ -540,6 +550,18 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
 		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
 		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(in.Target)}},
+	}
+	if ownAgent {
+		// The shared blocks above are kept verbatim — SPEC-v2 says a sandbox kit
+		// "MAY declare every shared block" — and only the identity changes. The
+		// name MUST equal the agent sbx is asked to run, because that name is the
+		// selector; the proveo- prefix keeps it off the built-in list it may not
+		// shadow.
+		kit.Kind = "sandbox"
+		kit.Name = cfg.Agent
+		kit.DisplayName = in.Target + " (proveo)"
+		kit.Description = "proveo harness " + in.Target + ": image, launch, reachability and the seed step."
+		kit.Sandbox = &sbx.KitSandbox{Image: in.Image}
 	}
 	return cfg, kit, secrets
 }

@@ -66,7 +66,24 @@ func sbxAgentFor(t *testing.T, target string) string {
 // instrument could not reach. It gets an extra rung instead: the command is a
 // thing being added, so it is a rung of its own rather than a passenger on the
 // image's. SPEC: _spec/_paradigms/capability-ladder.puml
-func shellAgentTarget(target string) bool { return sbx.BuiltinAgent(target) == "" }
+func shellAgentTarget(target string) bool {
+	// With PROVEO_SBX_AGENT_KIT the def declares a COMPLETE AGENT of its own, so
+	// it borrows nothing and there is no command rung to insert: the launch
+	// arrives with the Kit at rung 3 instead.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	return sbx.BuiltinAgent(target) == "" && !sbx.DeclaresOwnAgent(target)
+}
+
+// kitAgentFor names the agent for a rung that CARRIES the Kit. Only there can a
+// def name an agent of its own: the name is declared by the Kit, so a rung
+// without one must still ask sbx for a stock agent.
+func kitAgentFor(t *testing.T, target string) string {
+	t.Helper()
+	if sbx.DeclaresOwnAgent(target) {
+		return sbx.AgentName(target)
+	}
+	return sbxAgentFor(t, target)
+}
 
 // agentCommand is what proveo appends after `--` for a shell-agent target, and
 // nothing for a built-in one, whose agent name already carries its launch.
@@ -169,7 +186,7 @@ func baseRungs(target string) []rung {
 				// faithful reproduction of nothing, so the rung mounts it too.
 				home := proveohome.Root(os.Getenv)
 				return append([]string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit},
-					append(credentialArgs(t, target), sbxAgentFor(t, target), work, home)...)
+					append(credentialArgs(t, target), kitAgentFor(t, target), work, home)...)
 			},
 		},
 	}
@@ -720,5 +737,49 @@ func TestQuoteWordSurvivesAQuote(t *testing.T) {
 	}
 	if got := quoteWord("cecli"); got != "'cecli'" {
 		t.Errorf("quoteWord = %s, want 'cecli'", got)
+	}
+}
+
+// The gate rearranges the ladder rather than adding to it: with an agent of its
+// own a def borrows nothing, so the command rung that existed to introduce the
+// borrowed launch has nothing left to introduce.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
+	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
+
+	borrowed := ladderRungs()
+	if len(borrowed) != 5 {
+		t.Fatalf("borrowed-shell ladder has %d rungs, want 5", len(borrowed))
+	}
+	if !shellAgentTarget("cecli") {
+		t.Error("without the gate cecli must borrow the shell agent")
+	}
+
+	t.Setenv(sbx.EnvAgentKit, "1")
+	own := ladderRungs()
+	if len(own) != 4 {
+		t.Fatalf("own-agent ladder has %d rungs, want 4 — the command rung should be gone", len(own))
+	}
+	for _, r := range own {
+		if strings.Contains(r.name, "agent-command") {
+			t.Errorf("rung %q survived: with its own agent there is no borrowed command", r.name)
+		}
+	}
+	if shellAgentTarget("cecli") {
+		t.Error("with the gate cecli declares its own agent and borrows nothing")
+	}
+}
+
+// Only a rung carrying the Kit may name an agent of ours: the Kit is what
+// declares the name, so a rung without one must ask sbx for a stock agent or
+// sbx has nothing to resolve.
+func TestOnlyTheKitRungNamesOurOwnAgent(t *testing.T) {
+	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
+	t.Setenv(sbx.EnvAgentKit, "1")
+	if got := kitAgentFor(t, "cecli"); got != sbx.AgentName("cecli") {
+		t.Errorf("kit rung agent = %q, want %q", got, sbx.AgentName("cecli"))
+	}
+	if got, _ := sbx.AgentFor("cecli"); got != sbx.ShellAgent {
+		t.Errorf("rungs below the Kit must still use a stock agent, got %q", got)
 	}
 }

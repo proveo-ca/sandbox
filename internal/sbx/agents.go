@@ -2,6 +2,7 @@
 package sbx
 
 import (
+	"os"
 	"sort"
 	"strings"
 )
@@ -68,6 +69,31 @@ func shellQuote(s string) string {
 }
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }
+
+// EnvAgentKit opts a def with no built-in sbx agent into being declared as a
+// COMPLETE AGENT (`kind: sandbox`) instead of borrowing sbx's `shell`.
+//
+// It is a gate rather than a switch because nothing about it is measured yet.
+// The shell path works — it was fixed and negative-checked — and replacing a
+// measured fix with a read-from-the-docs alternative is the move this tree has
+// already paid for twice. The ladder can climb both; whichever survives becomes
+// the default. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
+
+func AgentKitEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAgentKit))) {
+	case "on", "1", "yes", "true", "enable", "enabled":
+		return true
+	}
+	return false
+}
+
+// DeclaresOwnAgent reports whether THIS run should render a sandbox Kit naming
+// its own agent. Built-in targets never do: sbx refuses a Kit that shadows one
+// ("built-in agents cannot be overridden by a kit").
+func DeclaresOwnAgent(target string) bool {
+	return target != "" && BuiltinAgent(target) == "" && AgentKitEnabled()
+}
 
 func SbxTargets() []string {
 	out := make([]string, 0, len(builtinAgent))

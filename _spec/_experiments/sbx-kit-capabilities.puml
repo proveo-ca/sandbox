@@ -48,11 +48,40 @@ skinparam noteTextAlignment left
 '   setup.files[]        path + content + mode, written at startup
 '
 ' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
-' E1  cecli as a first-class agent (`kind: sandbox`)
+' E1  cecli as a first-class agent (`kind: sandbox`)   -- BUILT, UNMEASURED
 '     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
 '     semantics, and the whole class of defect that made `-- cecli` run
 '     `bash cecli`. cecli declares its own entrypoint the way pi does.
-'     Cost: one spec.yaml + a published image. Risk: low, reversible.
+'
+'     SHIPPED BEHIND A GATE: PROVEO_SBX_AGENT_KIT. Off, a def with no built-in
+'     agent borrows `shell` with the flag-leading launch, which is the path that
+'     WAS measured and negative-checked. On, sandbox.Spec renders
+'     `kind: sandbox`, names the agent proveo-<target>, and passes extras as
+'     bare words — there is no bash in between to reinterpret them.
+'
+'     The Kit names the IMAGE and stops there. The def already declares
+'     ENTRYPOINT ["dumb-init","--","<target>-entrypoint"] and CMD ["<target>"],
+'     and that pair is what the docker backend runs and what works there.
+'     Restating it in the Kit would be a second copy free to drift from the
+'     first. If sbx turns out to need the prefix declared, it goes in then.
+'
+'     Only the IDENTITY changes: permissions, environment and setup are carried
+'     across byte-for-byte, asserted as a diff against the mixin built from the
+'     same Input rather than against fixed values — the first version of that
+'     test asserted a non-empty allowlist and was measuring its own fixture.
+'
+'     HOW TO MEASURE IT. The gate rearranges the ladder instead of adding to it:
+'     with an agent of its own there is no borrowed command, so the 5-rung
+'     shell-agent ladder collapses back to 4 and the launch arrives with the Kit
+'     at rung 3. Only a rung CARRYING the Kit may name our agent, because the
+'     Kit is what declares the name.
+'
+'         PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=cecli \
+'         PROVEO_SBX_AGENT_KIT=1 go test -tags e2e ./e2e/ -run Ladder -v
+'
+'     Green on rung 3 means the borrowed shell can go and sbx.ShellLaunch with
+'     it. Red means the docs promise something sbx does not do for a kit built
+'     this way, and the gate stays off — which is the whole reason it is a gate.
 '
 ' E2  sbx-native credential injection (credentials[].apiKey.inject)
 '     Overlaps internal/broker and internal/egressproxy on the sbx backend:
