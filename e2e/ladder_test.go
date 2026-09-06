@@ -255,11 +255,44 @@ func renderPostureKit(t *testing.T, work, target string) string {
 	}
 	for _, line := range strings.Split(plain(string(out)), " ") {
 		if strings.HasSuffix(line, "/sbx/kit/spec.yaml") {
+			assertKitShape(t, line, target)
 			return strings.TrimSuffix(line, "/spec.yaml")
 		}
 	}
 	t.Skip("proveo --print named no kit directory")
 	return ""
+}
+
+// assertKitShape reads the Kit the rung is about to hand sbx and states which
+// shape it actually is, because the rung's PASS does not say so on its own.
+//
+// With PROVEO_SBX_AGENT_KIT the rung names agent proveo-<target>, which only a
+// `kind: sandbox` Kit declares. A mixin plus that agent name would be an agent
+// sbx cannot resolve — it would drop in seconds rather than hold a prompt, so a
+// 45s PASS already implies the sandbox Kit. Implies is not measures: the gate
+// travels through `env` into a subprocess, and a green rung that silently
+// rendered a MIXIN would be this suite's fourth test measuring its own setup.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func assertKitShape(t *testing.T, specPath, target string) {
+	t.Helper()
+	b, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("rendered kit unreadable: %v", err)
+	}
+	body := string(b)
+	wantKind, wantName := "kind: mixin", ""
+	if sbx.DeclaresOwnAgent(target) {
+		wantKind, wantName = "kind: sandbox", "name: "+sbx.AgentName(target)
+	}
+	if !strings.Contains(body, wantKind) {
+		t.Fatalf("rendered Kit is not %q — the gate did not reach the renderer, so the "+
+			"rung would prove nothing about it:\n%s", wantKind, body)
+	}
+	if wantName != "" && !strings.Contains(body, wantName) {
+		t.Fatalf("sandbox Kit does not declare %q; the agent name IS the selector:\n%s",
+			wantName, body)
+	}
+	t.Logf("kit shape measured: %s%s", wantKind, map[bool]string{true: ", " + wantName}[wantName != ""])
 }
 
 func TestSandboxLadder(t *testing.T) {

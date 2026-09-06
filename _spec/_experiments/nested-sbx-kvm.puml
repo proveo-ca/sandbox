@@ -1,0 +1,135 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: can a proveo sandbox run sbx inside itself, and can the image do it
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/base/Dockerfile
+' Why it came up: E1 in sbx-kit-capabilities.puml is host-blocked; the ladder
+' cannot be climbed from inside a sandbox, so the question is whether it could be.
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE SHORT ANSWER ────────────────────────────────────────────────────────
+' No image change can do this, and defs/claudecode/mcp/Dockerfile is the wrong
+' file to edit. /dev/kvm is a DEVICE NODE supplied by the runtime; an image
+' layer cannot ship one. Everything the image CAN do (install the sbx CLI, add
+' the user to a kvm group) is inert without the device.
+'
+' ── SOURCES ─────────────────────────────────────────────────────────────────
+'   sbx install reqs : https://docs.docker.com/ai/sandboxes/install/
+'   Arm install guide: https://learn.arm.com/install-guides/sbx/
+'   Apple nested virt: https://developer.apple.com/documentation/virtualization
+'                      (M3+ and macOS 15 Sequoia; M1/M2 excluded)
+'
+' Docker states the condition plainly, and it is a condition rather than a ban:
+'   "If you're running inside a virtual machine or virtual desktop
+'    infrastructure environment, the environment must support NESTED
+'    VIRTUALIZATION."
+' Arm's guide adds the blunt version: "KVM does not typically work on virtual
+' machines. It requires bare metal."
+'
+' ── MEASURED INSIDE A LIVE proveo SANDBOX, 2026-09-06 ───────────────────────
+' Four independent blocks, in the order they would have to fall:
+'
+'   1. NO DEVICE.  /dev is a 65 MB tmpfs carrying 15 nodes — core fd full mqueue
+'      null ptmx pts random shm std{err,in,out} tty urandom zero. No kvm, and
+'      no image layer can add one: /dev is mounted at runtime.
+'
+'   2. NO CAPABILITY.  CapEff is 0000000000000000 — the agent container holds
+'      ZERO capabilities. Without CAP_MKNOD nothing can create the node even as
+'      root, and without CAP_SYS_MODULE nothing can insert a driver.
+'
+'   3. NO MODULE.  /lib/modules/7.0.12 is empty and lsmod shows no kvm. There is
+'      no kvm_arm64 to load into the microVM's kernel even given the capability.
+'
+'   4. NO CLI.  Nothing in defs/ fetches sbx. It is a HOST tool that creates
+'      microVMs, and no proveo image has ever shipped it.
+'
+' Note the shape: a sandbox is a CONTAINER INSIDE A MICROVM, so 1-3 are the
+' microVM's kernel and the container's capability set — two layers, neither of
+' which the Dockerfile reaches.
+'
+' ── WHAT WOULD ACTUALLY HAVE TO CHANGE ──────────────────────────────────────
+' In order, and only the last row is ours:
+'
+'   host CPU      Apple Silicon M3 or later — M1/M2 cannot, same ARMv8.6-A
+'                 extension but nested virt is restricted to M3-series
+'   host OS       macOS 15 Sequoia or later
+'   sbx guest     the microVM kernel must carry kvm_arm64
+'   sbx runtime   must expose /dev/kvm into the agent container, which today
+'                 runs with an empty capability set
+'   proveo image  install the sbx CLI  <- the only row a Dockerfile can do
+'
+' The middle two are sbx features that do not exist as far as the CLI reference
+' documents: no --device, no --privileged, no --cap-add is published for
+' `sbx run`. So this is an upstream request (docker/sbx-releases), not a
+' packaging task.
+'
+' ── RECOMMENDATION: DO NOT BUILD IT ─────────────────────────────────────────
+' The ladder is a HOST measurement and that is not a defect. E1 was verified on
+' the host in minutes; making it verifiable in-sandbox would need a chip
+' upgrade, an OS floor, two sbx features and an image change — to reach the same
+' answer. Recorded so the next reader does not re-derive the chain.
+'
+' If it is ever wanted, the first gate is cheap and host-side:
+'   sysctl -n machdep.cpu.brand_string     # must read M3 or later
+'   sw_vers -productVersion                # must be 15.x or later
+' Both green, and the question becomes an sbx feature request rather than a
+' proveo one.
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — nested sbx: what would have to change, and where
+
+component "host CPU\nApple Silicon M3+ · macOS 15+" as CPU <<cloud>>
+component "sbx on the host\ncreates the microVM" as SBX <<cloud>>
+
+node "proveo sandbox" as BOX <<host>> {
+  component "microVM kernel 7.0.12\nno kvm module · empty /lib/modules" as KERN <<error>>
+  component "agent container\nCapEff 0x0 · /dev tmpfs, 15 nodes" as CT <<error>>
+  component "proveo image\ndefs/claudecode/mcp/Dockerfile" as IMG <<app>>
+}
+
+component "sbx CLI\nthe only row an image can add" as CLI <<db>>
+
+CPU ARROW_MAIN SBX : nested virt, if M3+
+SBX ARROW_MAIN KERN : would have to carry kvm_arm64
+KERN ARROW_MAIN CT : would have to expose /dev/kvm
+CT ARROW_ERROR IMG : zero caps — cannot mknod
+IMG ARROW_QUEUE CLI : inert without the device
+
+note bottom of CT
+  **Zero capabilities is the hard floor.** CapEff
+  reads 0000000000000000, so even root inside the
+  container cannot mknod the device or insert a
+  module — the image is arguing with the runtime,
+  and the runtime does not lose.
+end note
+
+note bottom of IMG
+  **A Dockerfile cannot ship a device node.** /dev
+  is mounted at runtime as a 65 MB tmpfs, so a
+  layer that creates /dev/kvm is overwritten
+  before the first process runs.
+end note
+
+note bottom of KERN
+  **The guest kernel has no kvm to load.**
+  /lib/modules for 7.0.12 is empty and lsmod shows
+  none, so the module path is closed before the
+  capability question is even reached.
+end note
+
+note bottom of CPU
+  **The floor is a chip, not a flag.** M1 and M2
+  share the ARMv8.6-A extension but Apple limits
+  nested virt to M3 and later, on macOS 15+, so
+  no configuration reaches it below that.
+end note
+
+note bottom of SBX
+  **Two of the five rows are upstream.** No
+  --device, --privileged or --cap-add is published
+  for sbx run, so exposing KVM is a feature ask
+  rather than something proveo can package.
+end note
+
+@enduml
