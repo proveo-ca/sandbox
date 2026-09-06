@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runlog"
 )
 
@@ -289,5 +290,29 @@ func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
 					tc.mode, tc.creds, tc.sandboxed, got, tc.wantNot)
 			}
 		})
+	}
+}
+
+// The remembered answer is per-agent and deliberate; the .env value is ambient
+// and was written for some other run. MergeRoles ran the other way round, so an
+// ARCHITECT_MODEL exported once in a shell rc silently overrode the answer the
+// operator had just given this agent at the prompt — every run, with nothing
+// said. Nothing pinned the order, which is how it stayed reversed.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func TestMergeRolesPrefersTheRememberedAnswer(t *testing.T) {
+	t.Parallel()
+	env := provider.Roles{
+		"ARCHITECT_MODEL": "anthropic/claude-opus-5",
+		"SMALL_MODEL":     "anthropic/claude-haiku-4-5",
+	}
+	remembered := map[string]string{"main": "opencode-go/glm-5.3"}
+
+	got := MergeRoles(env, remembered)
+	if got["ARCHITECT_MODEL"] != "opencode-go/glm-5.3" {
+		t.Errorf("ARCHITECT_MODEL = %q, want the remembered answer to win", got["ARCHITECT_MODEL"])
+	}
+	// A role the operator never answered still takes the ambient value.
+	if got["SMALL_MODEL"] != "anthropic/claude-haiku-4-5" {
+		t.Errorf("SMALL_MODEL = %q, want the .env value where no answer exists", got["SMALL_MODEL"])
 	}
 }

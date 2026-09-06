@@ -470,12 +470,16 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 		for _, name := range usable {
 			held[name] = true
 		}
-		roles, swapped := p.Roles.Feasible(credentials.HarnessFamily(p.Target), want,
-			withheld, func(n string) bool { return held[n] })
-		for _, msg := range swapped {
+		env := provider.RolesFrom(rs.Creds.Lookup)
+		roles, notes := provider.ResolveRoles(p.RolesRemembered, env,
+			credentials.HarnessFamily(p.Target), want, withheld,
+			func(n string) bool { return held[n] })
+		for _, msg := range notes {
 			ui.Warnf("%s", msg)
 		}
-		p.Roles = roles
+		for role, model := range roles {
+			p.Roles[role] = model
+		}
 	}
 	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
 		ui.Warnf("%s", r.Reason())

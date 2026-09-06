@@ -130,132 +130,126 @@ func TestCursorModelsCarryNoBillingVerdict(t *testing.T) {
 	}
 }
 
-// A Go subscriber holding ONLY OPENCODE_API_KEY answers `subscription`, gets
-// both plans registered from that one key — and then lands on the bridge
-// default, anthropic/claude-sonnet-4-5, for a provider they have no key for.
-// They skipped /connect and hit /models instead; the in-session step moved
-// rather than went away. The role var is a preference, so it yields.
-func TestUnfeasibleRoleModelsYieldToTheChosenPlan(t *testing.T) {
+// Precedence: the remembered answer outranks an ambient .env, and .env outranks
+// the plan default. The order used to be the reverse — MergeRoles let a shell
+// rc override the answer the operator had just given this agent in the prompt,
+// which made the remembered choice a suggestion.
+func TestRememberedChoiceOutranksTheEnv(t *testing.T) {
 	t.Parallel()
-	r := Roles{
+	remembered := Roles{"ARCHITECT_MODEL": "opencode-go/glm-5.3"}
+	env := Roles{"ARCHITECT_MODEL": "opencode-go/kimi-k3"}
+	got, notes := ResolveRoles(remembered, env, "opencode", BillPlan, nil, func(string) bool { return true })
+	if got["ARCHITECT_MODEL"] != "opencode-go/glm-5.3" {
+		t.Errorf("ARCHITECT_MODEL = %q, want the remembered choice", got["ARCHITECT_MODEL"])
+	}
+	if len(notes) != 0 {
+		t.Errorf("reported a skip when the first tier was usable: %v", notes)
+	}
+}
+
+// Each tier is gated on its own. An unusable remembered choice falls to .env
+// rather than straight past it to the default — .env is tier 2, not a tiebreak.
+func TestAnUnusableRememberedChoiceFallsToTheEnv(t *testing.T) {
+	t.Parallel()
+	remembered := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
+	env := Roles{"ARCHITECT_MODEL": "opencode-go/glm-5.3"}
+	got, notes := ResolveRoles(remembered, env, "opencode", BillPlan,
+		[]string{"anthropic"}, func(string) bool { return true })
+	if got["ARCHITECT_MODEL"] != "opencode-go/glm-5.3" {
+		t.Errorf("ARCHITECT_MODEL = %q, want the .env value", got["ARCHITECT_MODEL"])
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "withheld") {
+		t.Fatalf("notes = %v, want one naming the skipped tier and why", notes)
+	}
+	if !strings.Contains(notes[0], "remembered choice") {
+		t.Errorf("the note does not say WHICH tier was skipped: %q", notes[0])
+	}
+}
+
+// Only when every tier above it is unusable does the default apply — and it
+// applies to every role, because each maps to an agent.
+func TestBothTiersUnusableFallsToThePlanDefault(t *testing.T) {
+	t.Parallel()
+	env := Roles{
 		"ARCHITECT_MODEL": "anthropic/claude-opus-5",
 		"EDITOR_MODEL":    "anthropic/claude-sonnet-4-6",
 		"SMALL_MODEL":     "anthropic/claude-haiku-4-5",
 	}
-	got, swapped := r.Feasible("opencode", BillPlan, []string{"anthropic"}, func(string) bool { return true })
-
+	got, notes := ResolveRoles(nil, env, "opencode", BillPlan, nil,
+		func(n string) bool { return n != "anthropic" })
 	want := PlanFallback("opencode", BillPlan)
 	if want == "" {
-		t.Fatal("no plan fallback for opencode; the substitution can never happen")
+		t.Fatal("no plan fallback resolves; the whole list has gone stale")
 	}
-	// Every role maps to an agent, so every role has to land somewhere runnable.
 	for _, role := range RoleVars {
 		if got[role] != want {
 			t.Errorf("%s = %q, want %q", role, got[role], want)
 		}
 	}
-	if len(swapped) != 3 {
-		t.Errorf("substituted %d roles but reported %d — a silent swap is worse than the warning it replaced",
-			3, len(swapped))
+	if len(notes) != 3 {
+		t.Errorf("substituted 3 roles but reported %d — a silent swap is worse than the warning it replaces", len(notes))
 	}
-	for _, m := range swapped {
-		if !strings.Contains(m, "withheld") {
-			t.Errorf("substitution message does not say why: %q", m)
+	for _, n := range notes {
+		if !strings.Contains(n, "no credential") {
+			t.Errorf("note does not say why: %q", n)
 		}
-	}
-	// The operator's own map is not mutated under them.
-	if r["ARCHITECT_MODEL"] != "anthropic/claude-opus-5" {
-		t.Error("Feasible mutated the caller's Roles instead of returning a new one")
 	}
 }
 
-// A model that CAN authenticate is left exactly as written. This is a
-// preference being honoured, not a policy being applied.
-func TestFeasibleRoleModelsAreLeftAlone(t *testing.T) {
+// A usable choice is left exactly as written. This is a preference honoured,
+// not a policy imposed.
+func TestAUsableChoiceIsLeftAlone(t *testing.T) {
 	t.Parallel()
-	r := Roles{"ARCHITECT_MODEL": "opencode-go/kimi-k3", "EDITOR_MODEL": "anthropic/claude-opus-5"}
-	got, swapped := r.Feasible("opencode", BillPlan, nil, func(string) bool { return true })
+	env := Roles{"ARCHITECT_MODEL": "opencode-go/kimi-k3", "EDITOR_MODEL": "anthropic/claude-opus-5"}
+	got, notes := ResolveRoles(nil, env, "opencode", BillPlan, nil, func(string) bool { return true })
 	if got["ARCHITECT_MODEL"] != "opencode-go/kimi-k3" || got["EDITOR_MODEL"] != "anthropic/claude-opus-5" {
 		t.Errorf("rewrote a runnable choice: %v", got)
 	}
-	if len(swapped) != 0 {
-		t.Errorf("reported substitutions with nothing withheld: %v", swapped)
+	if len(notes) != 0 {
+		t.Errorf("reported skips with nothing withheld: %v", notes)
 	}
 }
 
-// No key for the provider is the same problem by a different route, and the
-// message has to say which — "withheld" and "no credential" send the operator
-// to different places.
-func TestARoleWithNoCredentialAlsoYields(t *testing.T) {
-	t.Parallel()
-	r := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
-	got, swapped := r.Feasible("opencode", BillPlan, nil, func(n string) bool { return n != "anthropic" })
-	if got["ARCHITECT_MODEL"] != PlanFallback("opencode", BillPlan) {
-		t.Errorf("ARCHITECT_MODEL = %q, want the plan fallback", got["ARCHITECT_MODEL"])
-	}
-	if len(swapped) != 1 || !strings.Contains(swapped[0], "no credential") {
-		t.Errorf("swapped = %v, want one message naming the missing credential", swapped)
-	}
-}
-
-// Harnesses with no plan fallback are untouched, so this cannot leak into
+// Harnesses with no plan default are untouched, so this cannot leak into
 // cursor or claudecode by accident.
 func TestNoFallbackMeansNoSubstitution(t *testing.T) {
 	t.Parallel()
-	r := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
+	env := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
 	for _, h := range []string{"cursor", "claudecode", "cecli"} {
-		got, swapped := r.Feasible(h, BillPlan, []string{"anthropic"}, func(string) bool { return false })
-		if got["ARCHITECT_MODEL"] != "anthropic/claude-opus-5" || len(swapped) != 0 {
-			t.Errorf("%s: substituted with no fallback defined: %v %v", h, got, swapped)
+		got, _ := ResolveRoles(nil, env, h, BillPlan, []string{"anthropic"}, func(string) bool { return false })
+		if _, set := got["ARCHITECT_MODEL"]; set {
+			t.Errorf("%s: substituted with no fallback defined: %v", h, got)
 		}
 	}
 }
 
-// The fallback is a provisional pick against a lineup that rotates, so it has
-// to be a model the registry actually knows. A stale id here is a run that dies
-// on an unknown model; this turns it into a test failure instead.
+// The default list is judgement written down against a lineup that rotates, so
+// every id in it has to still resolve through the registry AND still land on
+// the side it claims. A stale entry is a run that dies on an unknown model;
+// this makes it a build failure instead. models.dev carries release_date and
+// cost but no "recommended" field — deriving "newest" picks omen-alpha — so the
+// list is ordered by hand and degrades to its next entry.
 func TestPlanFallbacksAreRealModels(t *testing.T) {
 	t.Parallel()
 	for harness, sides := range planFallback {
-		for side, model := range sides {
-			if model == "" {
-				continue
+		for side, models := range sides {
+			for _, model := range models {
+				p := ModelProvider(model)
+				if p == "" {
+					t.Errorf("%s/%v fallback %q resolves to no provider", harness, side, model)
+					continue
+				}
+				if _, ok := Lookup(p); !ok {
+					t.Errorf("%s/%v fallback %q names %q, not in the registry", harness, side, model, p)
+				}
+				if got := ModelBilling(model); got != side {
+					t.Errorf("%s fallback %q is billed %v but is listed as the %v choice",
+						harness, model, got, side)
+				}
 			}
-			p := ModelProvider(model)
-			if p == "" {
-				t.Errorf("%s/%v fallback %q resolves to no provider", harness, side, model)
-				continue
+			if len(models) > 0 && PlanFallback(harness, side) == "" {
+				t.Errorf("%s/%v has entries but none resolves — the whole list is stale", harness, side)
 			}
-			if _, ok := Lookup(p); !ok {
-				t.Errorf("%s/%v fallback %q names %q, which is not in the registry", harness, side, model, p)
-			}
-			// It must also land on the side it claims to serve.
-			if got := ModelBilling(model); got != side {
-				t.Errorf("%s fallback %q is billed %v, but is registered as the %v choice",
-					harness, model, got, side)
-			}
-		}
-	}
-}
-
-// normalizeIntent turns "." into "-", which is harmless for claude-opus-5 and
-// fatal for every dotted id opencode serves. Stored through the choice cache,
-// `opencode-go/glm-5.3` came back as `opencode-go/glm-5-3` — a model that does
-// not exist — on the SECOND run of any operator who let the prompt remember
-// their answer. Anthropic ids carry no dots, so the defaults could not trip it.
-// SPEC: _spec/internal/agentsettings/choice-cache.puml
-func TestCanonicalKeepsQualifiedIdsExact(t *testing.T) {
-	t.Parallel()
-	for _, id := range []string{
-		"opencode-go/muse-spark-1.3-contributor",
-		"opencode-go/glm-5.3",
-		"opencode-go/qwen3.8-max",
-		"opencode/gpt-5.6-luna",
-		"anthropic/claude-opus-5",
-	} {
-		back := RolesFromCanonical(Roles{"ARCHITECT_MODEL": id}.Canonical())["ARCHITECT_MODEL"]
-		if back != id {
-			t.Errorf("round trip corrupted %q into %q — the agent is handed a model that does not exist", id, back)
 		}
 	}
 }

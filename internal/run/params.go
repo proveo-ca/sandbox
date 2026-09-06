@@ -17,8 +17,13 @@ type Params struct {
 	Addons                                                                      []string
 	AddonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
 	Roles                                                                       provider.Roles
-	Bridges                                                                     provider.BridgeTable
-	AuthVar                                                                     string
+	// RolesRemembered is this agent's own saved answer, kept APART from Roles so
+	// model resolution can see the tiers separately: a remembered choice outranks
+	// an ambient .env, and each is skipped independently when it cannot
+	// authenticate. SPEC: _spec/internal/credentials/credential-decisions.puml
+	RolesRemembered provider.Roles
+	Bridges         provider.BridgeTable
+	AuthVar         string
 	// HostEnvFile is the host-side KEY=VALUE file the credential lookup resolved,
 	// so the auth row can name where a key actually came from rather than
 	// asserting "host env" over a value that lives in the project .env.
@@ -88,6 +93,13 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
+	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
+	// Kept apart, not merged: resolution needs the tiers separately so a
+	// remembered choice can outrank an ambient .env and each can be skipped on
+	// its own when it cannot authenticate. Roles stays the merged view for every
+	// reader that predates the cascade; ResolveRoles replaces it once the auth
+	// answer is known. SPEC: _spec/internal/credentials/credential-decisions.puml
+	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
 	p.Roles = posture.MergeRoles(provider.RolesFrom(lookup), cached.Models)
 }
 

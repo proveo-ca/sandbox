@@ -251,81 +251,117 @@ func normalizeIntent(model string) string {
 	return strings.Trim(s, "-")
 }
 
-// planFallback is the model a run falls back to when the operator's own choice
-// cannot authenticate on the side they picked, keyed by harness family and
-// billing side.
+// planFallback is tier 3 of model resolution: what a run uses when neither the
+// operator's remembered answer nor their .env can authenticate on the side they
+// picked. Ordered — the first id the registry still resolves wins.
 //
-// opencode is the case that needs it. Its bridge default is
-// anthropic/claude-sonnet-4-5, so a Go subscriber holding ONLY OPENCODE_API_KEY
-// answers `subscription`, gets both plans registered from that one key — and
-// then lands on an anthropic model they have no key for. They skipped /connect
-// and hit /models instead; the in-session step only moved.
+// It is a LIST because the alternative is a pin that rots silently. Go rotated
+// 35 models at the time of writing, and models.dev — opencode's own registry,
+// and the source proveo already syncs — carries release_date, cost, context and
+// capabilities for every one of them. What it does not carry is an opinion:
+// there is no "recommended" field, and deriving "newest" picks `omen-alpha`,
+// with `hy4-preview` and `ox-alpha-free` close behind. A registry can say what
+// exists; it cannot say what is safe to point an agent at.
 //
-// muse-spark-1.3-contributor is a provisional pick, not a considered one: it is
-// a model the Go plan serves today. Go's lineup rotates (35 models at the time
-// of writing), so this WILL go stale, and TestPlanFallbacksAreRealModels is
-// what turns that into a test failure rather than a run that dies on an
-// unknown id. SPEC: _spec/internal/credentials/credential-decisions.puml
-var planFallback = map[string]map[Billing]string{
+// So the judgement stays here, written down and reviewable, and the list
+// degrades instead of breaking: drop muse-spark and glm-5.3 answers.
+// TestPlanFallbacksAreRealModels fails the build when the whole list goes
+// stale, which is the moment a human should look again.
+// SPEC: _spec/internal/provider/model-catalog.puml
+var planFallback = map[string]map[Billing][]string{
 	"opencode": {
-		BillPlan:    "opencode-go/muse-spark-1.3-contributor",
-		BillMetered: "", // Zen is metered like any provider key; nothing to prefer
+		BillPlan: {
+			"opencode-go/muse-spark-1.3-contributor", // 2026-09-02, 1.05M ctx, $0.10/M in
+			"opencode-go/glm-5.3",                    // 2026-08-14, 1M ctx, flagship
+		},
+		BillMetered: nil, // Zen is metered like any provider key; nothing to prefer
 	},
 }
 
 // PlanFallback returns the model to use for a harness on a billing side, or ""
 // when there is nothing better to offer than what the operator already has.
 func PlanFallback(harness string, want Billing) string {
-	return planFallback[strings.ToLower(strings.TrimSpace(harness))][want]
+	for _, model := range planFallback[strings.ToLower(strings.TrimSpace(harness))][want] {
+		if p := ModelProvider(model); p != "" {
+			if _, ok := Lookup(p); ok {
+				return model
+			}
+		}
+	}
+	return ""
 }
 
-// Feasible drops the role models this run cannot actually authenticate and
-// returns what it substituted, so the caller can say so.
+// ResolveRoles picks each role's model by precedence, skipping any tier whose
+// model cannot authenticate for this run:
 //
-// The operator's ARCHITECT_MODEL and friends are a PREFERENCE, not a mandate:
-// a value carried in a shell rc or a project .env was written for some other
-// run, and honouring it when the credential behind it is absent or withheld
-// produces a session that cannot make a single model call. Warning about that
-// and launching anyway asks the operator to fix it from inside a broken run.
+//  1. the remembered answer  — this agent's own saved preference, the most
+//     specific and most recent thing the operator said
+//  2. the .env / shell value — ambient, written for some other run
+//  3. the plan default       — planFallback, ordered
 //
-// A model is unfeasible when its provider is withheld by the auth answer, or
-// when nothing on the host can authenticate it. Anything else is left exactly
-// as the operator wrote it. SPEC: _spec/internal/credentials/credential-decisions.puml
-func (r Roles) Feasible(harness string, want Billing, withheld []string, usable func(string) bool) (Roles, []string) {
-	fallback := PlanFallback(harness, want)
-	if fallback == "" || len(r) == 0 {
-		return r, nil
-	}
+// The order used to be the reverse of that: MergeRoles let an ambient
+// ARCHITECT_MODEL override the answer the operator had just given this agent
+// in the prompt, which made the remembered choice a suggestion.
+//
+// Feasibility is a gate on EVERY tier, not just one. A tier that names a
+// provider this run has no credential for, or one its auth answer withholds,
+// is skipped and the next is tried — because honouring it produces a session
+// that cannot make a single model call and then asks the operator to fix it
+// from inside the broken run.
+//
+// Every skip is reported. A silent substitution is worse than the warning it
+// replaces: the operator is owed the reason their typed value was not used.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func ResolveRoles(remembered, env Roles, harness string, want Billing,
+	withheld []string, usable func(string) bool) (Roles, []string) {
 	off := map[string]bool{}
 	for _, w := range withheld {
 		off[w] = true
 	}
-	out := make(Roles, len(r))
-	for k, v := range r {
-		out[k] = v
-	}
-	var swapped []string
-	for _, role := range RoleVars { // deterministic order
-		model, ok := r[role]
-		if !ok {
-			continue
-		}
+	// why reports the reason a tier cannot be used, or "" when it can.
+	why := func(model string) string {
 		p := ModelProvider(normalizeIntent(model))
 		switch {
 		case p == "":
-			continue // a bare or local id we do not judge
+			return "" // a bare or local id we do not judge
 		case off[p]:
-			swapped = append(swapped, fmt.Sprintf(
-				"%s=%s cannot run here — %s is withheld by this run's auth answer; using %s",
-				role, model, p, fallback))
+			return p + " is withheld by this run's auth answer"
 		case usable != nil && !usable(p):
-			swapped = append(swapped, fmt.Sprintf(
-				"%s=%s cannot run here — no credential for %s; using %s",
-				role, model, p, fallback))
-		default:
-			continue
+			return "no credential for " + p
 		}
-		out[role] = fallback
+		return ""
 	}
-	return out, swapped
+
+	fallback := PlanFallback(harness, want)
+	out, notes := Roles{}, []string(nil)
+	for _, role := range RoleVars { // deterministic order
+		var skipped []string
+		picked := ""
+		for _, tier := range []struct{ src, model string }{
+			{"remembered choice", remembered[role]},
+			{".env", env[role]},
+		} {
+			if tier.model == "" {
+				continue
+			}
+			if reason := why(tier.model); reason != "" {
+				skipped = append(skipped, fmt.Sprintf("%s (%s: %s)", tier.model, tier.src, reason))
+				continue
+			}
+			picked = tier.model
+			break
+		}
+		if picked == "" && len(skipped) > 0 && fallback != "" {
+			picked = fallback
+		}
+		if picked == "" {
+			continue // nothing to say; the bridge default applies as before
+		}
+		out[role] = picked
+		if len(skipped) > 0 {
+			notes = append(notes, fmt.Sprintf("%s: using %s — skipped %s",
+				role, picked, strings.Join(skipped, ", ")))
+		}
+	}
+	return out, notes
 }
