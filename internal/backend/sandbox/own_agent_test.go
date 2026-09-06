@@ -180,30 +180,131 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 // it silently loses a property every other def gets for free.
 //
 // Measured: on the stock shell agent the env holds "proxy-managed", because
-// `shell` declares the credential and sbx's host-side proxy injects the real
-// value per request. Under the gate, cecli stops borrowing `shell` and runs an
-// agent whose Kit declares nothing — so nothing proxy-manages it and the real
-// key reaches the process. That is a credential DOWNGRADE hidden inside a
-// launch fix, which is precisely what the gate exists to catch.
-//
-// This test fails until sbx.Kit can express credentials[] and the sandbox kit
-// populates it. It is the gate's release condition, written down rather than
-// remembered. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
-func TestOwnAgentMustDeclareItsOwnCredentials(t *testing.T) {
+// `shell` declares the credential and sbx injects host-side per request. An
+// agent that declares nothing gets no such treatment and the real key lands in
+// the process — a credential downgrade hidden inside a launch fix. This was the
+// gate's release condition; it now asserts rather than skips.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
-	_, kit := specFor(t, "cecli")
+	in := specInput("cecli")
+	in.Detected = []string{"anthropic"}
+	in.Lookup = func(k string) string {
+		if k == "ANTHROPIC_API_KEY" {
+			return "sk-ant-real-key"
+		}
+		return ""
+	}
+	_, kit, secrets := Spec(in)
 
-	if kit.Sandbox == nil {
-		t.Fatal("gate on but no sandbox block — the rest of this test is meaningless")
+	if len(kit.Credentials) == 0 {
+		t.Fatal("sandbox kit declares no credentials — the agent would hold the real key " +
+			"where borrowing `shell` gave it a sentinel")
 	}
-	b, err := yaml.Marshal(kit)
-	if err != nil {
-		t.Fatal(err)
+	var c *sbx.KitCredential
+	for i := range kit.Credentials {
+		if kit.Credentials[i].Service == "anthropic" {
+			c = &kit.Credentials[i]
+		}
 	}
-	if !strings.Contains(string(b), "credentials:") {
-		t.Skip("KNOWN GAP, and the gate's release condition: a sandbox kit declares its " +
-			"own agent, so it must declare its own credentials[] — otherwise cecli goes " +
-			"from the sentinel it gets by borrowing `shell` to a real key in the agent " +
-			"process. Do not default PROVEO_SBX_AGENT_KIT on until this passes.")
+	if c == nil {
+		t.Fatalf("no credential for service anthropic: %+v", kit.Credentials)
+	}
+	if c.APIKey == nil || !c.APIKey.ProxyManaged {
+		t.Fatal("proxyManaged is the entire point: without it the env var holds the credential")
+	}
+	if c.APIKey.Name != "ANTHROPIC_API_KEY" {
+		t.Errorf("apiKey.name = %q, want the env var the agent reads", c.APIKey.Name)
+	}
+	if len(c.APIKey.Inject) == 0 {
+		t.Fatal("a sentinel with no inject target attaches the value nowhere")
+	}
+	for _, inj := range c.APIKey.Inject {
+		if inj.Header == "" || inj.Domain == "" {
+			t.Errorf("incomplete inject: %+v", inj)
+		}
+	}
+
+	// sbx resolves credentials[].service against a secret stored under the
+	// SERVICE name; proveo has always stored under the env-var name.
+	var haveService bool
+	for _, kv := range secrets {
+		if kv[0] == "anthropic" {
+			haveService = true
+		}
+	}
+	if !haveService {
+		t.Error("no secret stored under the service name `anthropic`, so the declaration " +
+			"resolves against nothing")
+	}
+}
+
+// SPEC-v2: every injected domain MUST also appear in permissions.network.allow.
+//
+// The fixture deliberately DIVERGES the two inputs: in.Detected is empty, so
+// credentials.ReachableHosts contributes nothing to the allowlist, while
+// in.Lookup still carries the key, so provider.Detect finds anthropic and the
+// credential is built. That is the case the widening exists for, and without it
+// this test fails.
+//
+// The first version set in.Detected too, which put the domain in allow by the
+// other path — it passed with the widening deleted, measuring its own fixture
+// rather than the contract.
+func TestInjectDomainsAreAllowlisted(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	in := specInput("cecli")
+	in.Detected = nil
+	in.Lookup = func(k string) string {
+		if k == "ANTHROPIC_API_KEY" {
+			return "sk-ant-real-key"
+		}
+		return ""
+	}
+	_, kit, _ := Spec(in)
+
+	if len(kit.Credentials) == 0 {
+		t.Fatal("no credential built from the lookup alone — the fixture no longer " +
+			"diverges the two inputs and the test would prove nothing")
+	}
+
+	allowed := map[string]bool{}
+	for _, a := range kit.Permissions.Network.Allow {
+		allowed[a] = true
+	}
+	for _, c := range kit.Credentials {
+		if c.APIKey == nil {
+			continue
+		}
+		for _, inj := range c.APIKey.Inject {
+			if !allowed[inj.Domain] {
+				t.Errorf("credential %q injects into %q, which is not in network.allow — "+
+					"sbx refuses that", c.Service, inj.Domain)
+			}
+		}
+	}
+}
+
+// A mixin must declare NO credentials at any time: sbx refuses one repeating a
+// service its parent already declares, and every built-in-backed def ships a
+// mixin. Measured as `400 ... defined in both "shell" and "credprobe"`.
+func TestMixinNeverDeclaresCredentials(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	for _, target := range []string{"claudecode", "cursor", "opencode"} {
+		in := specInput(target)
+		in.Detected = []string{"anthropic"}
+		in.Lookup = func(k string) string {
+			if k == "ANTHROPIC_API_KEY" {
+				return "sk-ant-real-key"
+			}
+			return ""
+		}
+		_, kit, _ := Spec(in)
+		if kit.Kind != "mixin" {
+			t.Fatalf("%s: kind = %q, want mixin", target, kit.Kind)
+		}
+		if len(kit.Credentials) != 0 {
+			t.Errorf("%s: mixin declares %d credentials — sbx refuses a service the built-in "+
+				"agent already declares", target, len(kit.Credentials))
+		}
 	}
 }

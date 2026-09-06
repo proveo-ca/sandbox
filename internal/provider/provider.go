@@ -35,6 +35,11 @@ type Resolved struct {
 	Query  string
 	Value  string // empty => no injectable key present; strip + pass-through only
 	EnvVar string // which credential was chosen, for reporting
+	// Bearer records the SCHEME rather than leaving it to be sniffed back out of
+	// Value. A sbx Kit declares injection as a format string ("Bearer %s" vs
+	// "%s") and never sees the value, so the scheme has to survive on its own.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	Bearer bool
 }
 
 func bearer(envVar string) []AuthOption {
@@ -220,6 +225,7 @@ func ResolveWith(name, preferVar string, getenv func(string) string) (Resolved, 
 		r.Header = a.Header
 		r.Query = a.Query
 		r.EnvVar = a.EnvVar
+		r.Bearer = a.Bearer
 		if a.Bearer {
 			r.Value = "Bearer " + v
 		} else {

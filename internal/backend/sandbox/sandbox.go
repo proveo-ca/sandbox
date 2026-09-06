@@ -541,6 +541,23 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
+	var creds []sbx.KitCredential
+	if ownAgent {
+		var domains []string
+		creds, domains, secrets = agentCredentials(in, secrets)
+		// SPEC-v2: every domain a credential injects into MUST also appear in
+		// permissions.network.allow. Widening here rather than trusting the two
+		// lists to agree — they are built from different inputs and a domain
+		// missing from allow is a credential sbx will refuse to attach.
+		for _, d := range domains {
+			if !hosts[d] {
+				hosts[d] = true
+				allow = append(allow, d)
+			}
+		}
+		sort.Strings(allow)
+	}
+
 	kit := sbx.Kit{
 		SchemaVersion: sbx.KitSchemaVersionV2,
 		Kind:          "mixin",
@@ -562,6 +579,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		kit.DisplayName = in.Target + " (proveo)"
 		kit.Description = "proveo harness " + in.Target + ": image, launch, reachability and the seed step."
 		kit.Sandbox = &sbx.KitSandbox{Image: in.Image}
+		kit.Credentials = creds
 	}
 	return cfg, kit, secrets
 }
@@ -783,4 +801,79 @@ func Selected(man manifest.Manifest) bool {
 	}
 	ok, _ := sbx.Available()
 	return ok
+}
+
+// agentCredentials builds the credentials[] block a def declaring its OWN agent
+// must carry, from proveo's own provider registry so the Kit and the broker
+// cannot drift apart. Both answer the same question — which key may be attached
+// to which host, under which header — and the registry is where that already
+// lives.
+//
+// A def backed by a BUILT-IN agent must not call this: sbx refuses a kit
+// repeating a service its parent declares ("defined in both"), and the built-in
+// already proxy-manages these. Only a `kind: sandbox` kit has no parent.
+//
+// It also returns the secrets to add. sbx resolves credentials[].service against
+// a secret stored under the SERVICE name (`anthropic`), while proveo has always
+// stored under the ENV VAR name (`ANTHROPIC_API_KEY`) — both were visible side
+// by side in `sbx secret ls`. The env-var entry is kept, because the gate-off
+// path still relies on it; the service entry is added so the declaration
+// resolves.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
+	var (
+		creds   []sbx.KitCredential
+		domains []string
+	)
+	seen := map[string]bool{}
+	for _, name := range provider.Detect(in.Lookup) {
+		if seen[name] || !in.Man.Capabilities.AllowsProvider(name) {
+			continue
+		}
+		r, ok := provider.ResolveWith(name, in.AuthVar, in.Lookup)
+		// !ok is a signed-request provider (AWS SigV4 and friends): nothing to
+		// attach as a header, so nothing to proxy-manage.
+		if !ok || r.EnvVar == "" || len(r.Hosts) == 0 {
+			continue
+		}
+		// A query-parameter credential has no expression in a Kit: sbx injects
+		// into a HEADER. Declaring the service without a usable inject would
+		// sentinel the variable and then attach the value nowhere, which is worse
+		// than leaving it alone.
+		if r.Header == "" || r.Query != "" {
+			continue
+		}
+		format := "%s"
+		if r.Bearer {
+			format = "Bearer %s"
+		}
+		inject := make([]sbx.KitCredInject, 0, len(r.Hosts))
+		for _, h := range r.Hosts {
+			inject = append(inject, sbx.KitCredInject{Domain: h, Header: r.Header, Format: format})
+			domains = append(domains, h)
+		}
+		creds = append(creds, sbx.KitCredential{
+			Service: name,
+			APIKey: &sbx.KitCredAPIKey{
+				Name:         r.EnvVar,
+				ProxyManaged: true,
+				Inject:       inject,
+			},
+		})
+		if v := strings.TrimSpace(in.Lookup(r.EnvVar)); v != "" {
+			secrets = appendSecret(secrets, name, v)
+		}
+		seen[name] = true
+	}
+	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
+	return creds, domains, secrets
+}
+
+func appendSecret(secrets [][2]string, name, value string) [][2]string {
+	for _, kv := range secrets {
+		if kv[0] == name {
+			return secrets
+		}
+	}
+	return append(secrets, [2]string{name, value})
 }

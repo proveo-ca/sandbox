@@ -192,6 +192,51 @@ skinparam noteTextAlignment left
 '     declare its own credentials, under the SERVICE name the bindings use, or
 '     it silently loses the property every other def gets for free.
 '
+'     ── BUILT ──────────────────────────────────────────────────────────────
+'     sbx.Kit now carries Credentials, and the sandbox-kit branch of
+'     sandbox.Spec fills it from proveo's OWN provider registry — the same
+'     source the broker uses, so the two cannot drift. Both answer one question:
+'     which key attaches to which host under which header.
+'
+'     WHAT IS SKIPPED, AND WHY. A provider is left out when it is not
+'     broker-injectable at all (signed requests: bedrock, azure, vertex —
+'     nothing to attach), when no key is present, or when it authenticates by
+'     QUERY PARAMETER. sbx injects into a header and has no query form, so
+'     declaring such a service would sentinel the variable and then attach the
+'     value nowhere — strictly worse than leaving it alone.
+'
+'     THE SECRET IS STORED TWICE, on purpose. sbx resolves credentials[].service
+'     against a secret under the SERVICE name; proveo has always stored under
+'     the ENV VAR name, and `sbx secret ls` showed both shapes coexisting. The
+'     env-var entry stays because the gate-off path still relies on it.
+'
+'     provider.Resolved gained a Bearer field. The Kit declares injection as a
+'     FORMAT STRING ("Bearer %s" vs "%s") and never sees the value, so the
+'     scheme has to survive on its own rather than be sniffed back out of a
+'     prefixed Value.
+'
+'     ── WHAT STILL BLOCKS DEFAULTING THE GATE ON ───────────────────────────
+'     One measurement, and it is cheap. Everything above is verified in Go —
+'     ten tests, five negative checks that all fire — but nothing has been run
+'     against a real sbx, and credentials are the subsystem where a wrong answer
+'     is not a degraded run but NO run.
+'
+'     Two specific unknowns the render exposes:
+'       DOMAIN FORM. proveo's registry stores hosts as suffix patterns
+'         (".anthropic.com"), and that is what the Kit now emits. sbx's own
+'         bindings file uses both ".anthropic.com" and "api.anthropic.com", but
+'         the kit EXAMPLE in the docs uses the bare host. If sbx rejects the
+'         dotted form in inject[].domain it fails at create time with a 400.
+'       SERVICE SECRET. Whether `sbx secret set anthropic <api key>` is accepted
+'         for a service whose stored credential is currently an OAuth login.
+'
+'     Both fall out of one command:
+'         PROVEO_SBX_AGENT_KIT=1 PROVEO_LADDER_TEST=1 \
+'         PROVEO_LADDER_TARGET=cecli go test -tags e2e ./e2e/ -run Ladder -v
+'     Rung 3 carries the Kit. Green means the declaration parses, the domains
+'     are accepted and the agent still reaches a prompt; a 400 names which of
+'     the two guesses was wrong.
+'
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
 '     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
