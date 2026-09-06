@@ -103,6 +103,12 @@ func classifyTerminalReport(b []byte) reportKind {
 			if isNumericParams(body[:len(body)-1]) {
 				return reportReply
 			}
+		case 'u': // CSI ? flags u — the kitty keyboard protocol's flag report
+			// opencode's TUI pushes its own flags with CSI > 5 u and then asks
+			// what stuck. Unclassified, the ANSWER arrived as keystrokes.
+			if body[0] == '?' && isNumericParams(body[1:len(body)-1]) {
+				return reportReply
+			}
 		case 'M', 'm': // CSI < b;x;y M|m (SGR) · CSI b;x;y M (urxvt)
 			if body[0] == '<' && isNumericParams(body[1:len(body)-1]) {
 				return reportMouse
@@ -112,6 +118,13 @@ func classifyTerminalReport(b []byte) reportKind {
 			}
 		}
 	case 'P': // DCS … ST — XTVERSION and friends
+		if bytes.HasSuffix(b, []byte{0x1b, '\\'}) {
+			return reportReply
+		}
+	case '_': // APC … ST — the kitty GRAPHICS protocol's answer
+		// Queried as ESC_Gi=<id>,a=q,…ESC\ and answered ESC_Gi=<id>;OK ESC\.
+		// opencode probes with i=31337 on startup, so this is not exotic: it is
+		// the first thing the terminal says back to it.
 		if bytes.HasSuffix(b, []byte{0x1b, '\\'}) {
 			return reportReply
 		}

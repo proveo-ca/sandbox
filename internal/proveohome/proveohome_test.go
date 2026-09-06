@@ -191,3 +191,63 @@ func TestResumeArgs(t *testing.T) {
 		}
 	}
 }
+
+// The scrub is the default because a denied file is a CREDENTIAL and the proveo
+// home is mounted rw into every later run of that harness — persisting one lets
+// any subsequent agent session read it.
+//
+// But the default costs something real: opencode's Go plan needs /connect in
+// the TUI, and scrubbing auth.json means re-doing that every single run. So it
+// is opt-out, per machine, by an operator who has weighed that.
+// SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
+func TestDeniedLoginsPersistOnlyWhenAskedFor(t *testing.T) {
+	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
+		Host: "opencode/share", Container: "/proveo-home/.local/share/opencode",
+		Mode: "rw", Deny: []string{"auth.json"},
+	}}}
+
+	write := func(root string) string {
+		t.Helper()
+		p := filepath.Join(root, "opencode", "share", "auth.json")
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(`{"opencode":{"key":"x"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// Default: the next run removes it, so /connect must be repeated.
+	root := t.TempDir()
+	p := write(root)
+	if _, err := Prepare(home, func(k string) string {
+		if k == "PROVEO_HOME" {
+			return root
+		}
+		return ""
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("auth.json survived a default run; a credential now sits in every later session's home")
+	}
+
+	// Opted in: it survives, which is the whole point.
+	root = t.TempDir()
+	p = write(root)
+	if _, err := Prepare(home, func(k string) string {
+		switch k {
+		case "PROVEO_HOME":
+			return root
+		case EnvKeepLogins:
+			return "1"
+		}
+		return ""
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("%s=1 did not keep the login: %v", EnvKeepLogins, err)
+	}
+}

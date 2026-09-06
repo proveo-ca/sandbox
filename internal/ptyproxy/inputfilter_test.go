@@ -287,3 +287,54 @@ func TestReplayOfTheCapturedMouseTrace(t *testing.T) {
 		}
 	}
 }
+
+// The two replies opencode 1.18.29 actually provokes on startup, neither of
+// which the filter knew. Its TUI opens with a kitty GRAPHICS probe
+// (ESC_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA ESC\) and a kitty KEYBOARD push
+// (CSI > 5 u), and the terminal's answers to both were classified as
+// reportNone — so they reached the application as keystrokes.
+//
+// Observed in a real session: the pane filled with `Gi=31337,…`, `^[[18~`
+// (F7), `^[[19~` (F8) and bare digits, and every crash ended with a stray `c`
+// immediately before the error — the tail of a DA1 reply whose prefix had been
+// consumed. SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		b    []byte
+	}{
+		{"kitty graphics answer (APC)", []byte("\x1b_Gi=31337;OK\x1b\\")},
+		{"kitty graphics error (APC)", []byte("\x1b_Gi=31337;ENOTSUPPORTED\x1b\\")},
+		{"kitty keyboard flags (CSI ? u)", []byte("\x1b[?5u")},
+		{"kitty keyboard flags, zero", []byte("\x1b[?0u")},
+	} {
+		if got := classifyTerminalReport(tc.b); got != reportReply {
+			t.Errorf("%s: classified %v, want reportReply — it reaches the agent as input",
+				tc.name, got)
+		}
+	}
+}
+
+// The narrowness matters as much as the catch: a real F3 is CSI 1 ; 5 u under
+// the kitty protocol, and swallowing genuine keys would be a worse bug than
+// the one this fixes.
+func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		b    []byte
+	}{
+		{"kitty-encoded keypress", []byte("\x1b[1;5u")}, // no '?' — a key, not a report
+		{"F7", []byte("\x1b[18~")},
+		{"F8", []byte("\x1b[19~")},
+		{"plain letter c", []byte("c")},
+		{"arrow up", []byte("\x1b[A")},
+		{"APC that never terminates", []byte("\x1b_Gi=1;OK")},
+	} {
+		if got := classifyTerminalReport(tc.b); got != reportNone {
+			t.Errorf("%s: classified %v, want reportNone — the agent must still see it",
+				tc.name, got)
+		}
+	}
+}

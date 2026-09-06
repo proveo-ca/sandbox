@@ -117,4 +117,39 @@ note bottom of TAP
   very behaviour under investigation. Through the pty the child keeps its
   terminal either way.
 end note
+note as N_KITTY_GAP
+  **Two replies it did not know, and opencode
+  provokes BOTH on startup.** A kitty GRAPHICS
+  probe (APC) and a kitty KEYBOARD push
+  (""CSI > 5 u""), each answered by the terminal.
+end note
+
+note as N_KITTY_APC
+  ""ESC _ Gi=31337;OK ESC\\"" is APC — ""b[1] == '_'""
+  was simply absent from the switch, so the
+  answer classified as ""reportNone"" and reached
+  the agent as keystrokes.
+end note
+
+note as N_KITTY_U
+  ""ESC [ ? <flags> u"" had no ""'u'"" case either.
+  The guard is ""body[0] == '?'"": a kitty-encoded
+  KEYPRESS is ""CSI 1;5 u"" with no '?', and
+  swallowing real keys would be the worse bug.
+end note
+
+note as N_KITTY_SEEN
+  Observed in a live session: the pane filling
+  with ""Gi=31337,…"", ""^[[18~"" (F7), ""^[[19~"" (F8)
+  and bare digits — terminal answers arriving as
+  input.
+end note
+
+note as N_KITTY_TAIL
+  And every crash ended ""cERROR: sandbox … was
+  stopped"" — that stray ""c"" is the tail of a DA1
+  reply whose prefix went elsewhere. Three
+  sightings before it was read as a clue.
+end note
+
 @enduml
