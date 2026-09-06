@@ -66,6 +66,95 @@ func (r Roles) MissingKeys(detected []string) []string {
 	return out
 }
 
+// WithheldKeys names each role pointing at a provider this run's auth answer
+// keeps off the wire. It is deliberately NOT MissingKeys: that one says "which
+// is not set", and here the key is set, present and deliberately withheld —
+// sending the operator to export a key they already have is the wrong errand.
+//
+// The clash is real and has to be said out loud. The auth row answers how the
+// run is BILLED and the role vars answer which MODELS; when they contradict,
+// proveo cannot pick a winner without overriding something the operator typed.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func (r Roles) WithheldKeys(withheld []string, answer string) []string {
+	off := map[string]bool{}
+	for _, w := range withheld {
+		off[w] = true
+	}
+	var out []string
+	for _, role := range RoleVars { // deterministic order
+		model, ok := r[role]
+		if !ok {
+			continue
+		}
+		p := ModelProvider(normalizeIntent(model))
+		if p == "" || !off[p] {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"%s=%s routes to %s, which the %q auth answer withholds — point it at the "+
+				"chosen provider, or answer the auth row differently", role, model, p, answer))
+	}
+	return out
+}
+
+// BillingClashes names each role whose MODEL contradicts the billing side the
+// operator answered — the case one credential cannot express.
+//
+// OpenCode is the whole reason this exists. Zen (pay-as-you-go) and Go (the
+// $10/mo subscription) are one gateway on one OPENCODE_API_KEY, distinguished
+// only by the model prefix: opencode-go/<m> spends the plan, opencode/<m>
+// spends the Zen balance. So an operator can answer "subscription", hold
+// exactly the right key, and still be billed per token because the role names
+// a Zen model. No credential check can catch that; only the id can.
+//
+// It warns and does not block. Go falls back to the Zen balance once its limits
+// are spent when 'Use balance' is enabled, so even a correct opencode-go/ id
+// can become metered mid-run — proveo cannot promise a billing side, only point
+// at the one place the operator's own two answers disagree.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func (r Roles) BillingClashes(answer string) []string {
+	want, ok := answeredBilling(answer)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, role := range RoleVars { // deterministic order
+		model, present := r[role]
+		if !present {
+			continue
+		}
+		got := ModelBilling(normalizeIntent(model))
+		if got == BillUnknown || got == want {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"%s=%s is billed %s, but the auth row was answered %q — one key serves both, "+
+				"so the model id is what decides", role, model, billingWord(got), answer))
+	}
+	return out
+}
+
+// answeredBilling maps the auth row's answer onto a billing side. The strings
+// are the row's, and live in internal/credentials; matching on them here rather
+// than importing keeps provider free of that dependency, and the contract test
+// pins the two spellings together.
+func answeredBilling(answer string) (Billing, bool) {
+	switch strings.TrimSpace(strings.ToLower(answer)) {
+	case "subscription":
+		return BillPlan, true
+	case "usage credits":
+		return BillMetered, true
+	}
+	return BillUnknown, false
+}
+
+func billingWord(b Billing) string {
+	if b == BillPlan {
+		return "against a plan"
+	}
+	return "per token"
+}
+
 func (r Roles) Canonical() map[string]string {
 	out := make(map[string]string, len(r))
 	for role, model := range r {

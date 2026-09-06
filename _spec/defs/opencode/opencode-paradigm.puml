@@ -112,7 +112,26 @@ note bottom of EP
   yield to a usable provider key now.
   SPEC: _spec/internal/credentials/credential-decisions.puml
 
-  The TUI's ""/connect"" (""opencode auth login"") is the wrong place: it writes
+**Zen and Go are two BILLING sides on one key, and only the model id
+  separates them.** Zen is pay-as-you-go against a balance
+  (""opencode/<model>"", 102 models); Go is the $10/mo subscription
+  (""opencode-go/<model>"", 35 models, dollar-based limits). models.dev lists
+  ""OPENCODE_API_KEY"" as the env for BOTH.
+
+  So the auth row cannot settle the bill by naming a credential — the key
+  buys either — and it says so instead of pretending otherwise. The row backs
+  both options with the same key, and ""Roles.BillingClashes"" warns when the
+  answer and the model prefix disagree: answering 'subscription' while
+  ""ARCHITECT_MODEL=opencode/gpt-5-nano"" spends the Zen balance.
+
+  It warns and never blocks. With 'Use balance' enabled Go falls back to the
+  Zen balance once its limits are spent, so even a correct ""opencode-go/"" id
+  can turn metered mid-run. ""providerAliases"" folds ""opencode-go"" into
+  ""opencode"" for routing — one host, one key, one broker route — so
+  ""ModelBilling"" reads the raw prefix before that fold.
+  SPEC: _spec/internal/credentials/credential-decisions.puml
+
+    The TUI's ""/connect"" (""opencode auth login"") is the wrong place: it writes
   ""~/.local/share/opencode/auth.json"", which the manifest's share mount
   **denies** — the proveo home scrubs it on every run so login tokens never
   persist there. The entrypoint's no-key warning names ""OPENCODE_API_KEY""

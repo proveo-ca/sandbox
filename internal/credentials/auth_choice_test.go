@@ -75,8 +75,10 @@ func TestOnlyHeldClassesAreAvailable(t *testing.T) {
 	if got := AvailableAuthVars(man, lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); !slices.Equal(got, []string{AuthUsage}) {
 		t.Errorf("with only a provider key, available = %v, want %v", got, []string{AuthUsage})
 	}
-	if got := AvailableAuthVars(man, lookupOf(map[string]string{"OPENCODE_API_KEY": "zen"})); !slices.Equal(got, []string{AuthSubscription}) {
-		t.Errorf("with only the plan key, available = %v, want %v", got, []string{AuthSubscription})
+	// The gateway key alone offers BOTH: opencode-go/<m> spends the Go plan,
+	// opencode/<m> spends the Zen balance, and one OPENCODE_API_KEY buys either.
+	if got := AvailableAuthVars(man, lookupOf(map[string]string{"OPENCODE_API_KEY": "zen"})); !slices.Equal(got, []string{AuthUsage, AuthSubscription}) {
+		t.Errorf("with only the gateway key, available = %v, want both sides", got)
 	}
 	if got := AvailableAuthVars(man, lookupOf(nil)); len(got) != 0 {
 		t.Errorf("with nothing set, available = %v, want none", got)
@@ -104,14 +106,23 @@ func TestSameProviderAlternativesBecomeClasses(t *testing.T) {
 
 // cursor's CLI has no bring-your-own-key path at all, so the manifest's
 // single-vendor providers list filters the operator's keys out.
-func TestVendorPinnedHarnessCannotBeBilledAsUsage(t *testing.T) {
+// "Usage credits" means two different things and cursor separates them. It has
+// no BRING-YOUR-OWN-KEY path — an ANTHROPIC_API_KEY authenticates nothing there
+// — but it does bill metered: Cursor spends the plan's included usage first and
+// usage-based overage after, on one CURSOR_API_KEY. So both sides are offered,
+// and VendorPinnedWhy stays the explanation for the BYOK half only.
+func TestVendorPinnedHarnessStillHasAMeteredSide(t *testing.T) {
 	t.Parallel()
 	man := cursorMan()
 	got := AvailableAuthVars(man, lookupOf(map[string]string{
 		"CURSOR_API_KEY": "cur", "ANTHROPIC_API_KEY": "sk",
 	}))
-	if !slices.Equal(got, []string{AuthSubscription}) {
-		t.Errorf("available = %v, want the plan only", got)
+	if !slices.Equal(got, []string{AuthUsage, AuthSubscription}) {
+		t.Errorf("available = %v, want both sides — the plan, then overage", got)
+	}
+	// The operator's own key is still not a thing cursor can send.
+	if keys := ProviderKeyVars(man, lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); len(keys) != 0 {
+		t.Errorf("cursor was offered BYOK keys it cannot send: %v", keys)
 	}
 	if why := VendorPinnedWhy(man); why == "" || !strings.Contains(why, "cursor") {
 		t.Errorf("VendorPinnedWhy = %q, want a reason naming the vendor", why)

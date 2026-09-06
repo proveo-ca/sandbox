@@ -426,7 +426,21 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 	ui.Section(ui.SectionEgress)
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
-	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man, rs.Creds.Detected, rs.Creds.Lookup, brokerEnabled())
+	// The auth answer has to reach the BROKER, not just the container's env. The
+	// broker injects on-route at the egress hop by design, so withholding a key
+	// from the agent while the proxy still attaches it to that provider's own
+	// requests leaves the answer true of the environment and false of the wire.
+	// Detected stays honest about what the host holds; only what is INJECTED
+	// narrows. SPEC: _spec/internal/credentials/credential-decisions.puml
+	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
+		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
+	usable := credentials.UsableProviders(rs.Man, rs.Creds.Detected, rs.Creds.Lookup)
+	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man,
+		credentials.Without(usable, withheld), rs.Creds.Lookup, brokerEnabled())
+	if len(withheld) > 0 {
+		ui.Hostf("auth %q: %s withheld from the egress broker too, not just the agent's environment",
+			p.AuthVar, strings.Join(withheld, ", "))
+	}
 	if reason := credentials.BrokerOffReason(p.forwards(), rs.Creds.Brokered, rs.Creds.Detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
@@ -435,6 +449,15 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 			len(rs.Creds.Brokered), strings.Join(rs.Creds.Brokered, ", "))
 	}
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
+		ui.Warnf("%s", msg)
+	}
+	// A role pointing at a provider the answer withholds is a contradiction
+	// proveo cannot resolve without overriding something the operator typed:
+	// the auth row says how the run is billed, the role vars say which models.
+	for _, msg := range p.Roles.WithheldKeys(withheld, p.AuthVar) {
+		ui.Warnf("%s", msg)
+	}
+	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
 		ui.Warnf("%s", msg)
 	}
 	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {

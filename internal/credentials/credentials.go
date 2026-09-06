@@ -92,7 +92,11 @@ func AvailableAuthVars(man manifest.Manifest, lookup func(string) string) []stri
 // riskier first. Empty means nothing can authenticate at all.
 func AvailableAuthVarsIn(man manifest.Manifest, lookup func(string) string, target, homeRoot string) []string {
 	var out []string
-	if len(ProviderKeyVars(man, lookup)) > 0 {
+	// DualSidedVars: one gateway credential that buys a plan AND metered usage
+	// puts BOTH options on offer by itself — opencode with only OPENCODE_API_KEY
+	// can spend the Go plan or the Zen balance, and the key says nothing about
+	// which. Requiring a separate provider key for the usage side hid that.
+	if len(ProviderKeyVars(man, lookup)) > 0 || len(DualSidedVars(man, lookup)) > 0 {
 		out = append(out, AuthUsage)
 	}
 	if len(SubscriptionVars(man, lookup)) > 0 || HasPersistedLogin(target, homeRoot) {
@@ -157,6 +161,87 @@ func ProviderKeyVars(man manifest.Manifest, lookup func(string) string) []string
 	return out
 }
 
+// WithheldProviders lists the providers this run's auth answer keeps OFF THE
+// WIRE — every one of whose set credentials the suppressor withholds.
+//
+// It exists because suppression stopped at the container's environment. The
+// broker injects on-route at the egress hop by design, so an answer of
+// "subscription" withheld ANTHROPIC_API_KEY from the agent and then had the
+// proxy attach it to every request bound for .anthropic.com anyway. Observed:
+// `auth var subscription` beside `brokered anthropic,cursor,openai,xai,google,
+// opencode` — six providers on the wire for a run that named one side.
+// SPEC: _spec/internal/credentials/credential-decisions.puml
+func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
+	lookup func(string) string, detected []string) []string {
+	if strings.TrimSpace(chosen) == "" {
+		return nil // no answer, nothing withheld
+	}
+	suppress := AuthSuppressor(man, target, chosen, homeRoot, lookup)
+	family := HarnessFamily(man.Name)
+	var out []string
+	for _, name := range detected {
+		held, gone := 0, 0
+		for _, v := range provider.AuthVarsFor(name, family) {
+			if strings.TrimSpace(lookup(v)) == "" {
+				continue
+			}
+			held++
+			if suppress(v) {
+				gone++
+			}
+		}
+		// Withheld only when EVERY credential it could have used is gone. A
+		// provider still holding one usable variable is still reachable.
+		if held > 0 && held == gone {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// UsableProviders drops the providers this harness can send NO credential to.
+//
+// Detection is host-wide, so an opencode run on a developer's machine detects
+// cursor — and brokered it, which meant the egress proxy stood ready to attach
+// CURSOR_API_KEY to requests opencode has no way to make and cursor's API would
+// refuse. A route for a credential this harness may not send is reach it cannot
+// use, and sbx shows that list to the operator for approval.
+// SPEC: _spec/internal/provider/provider-registry.puml
+func UsableProviders(man manifest.Manifest, detected []string, lookup func(string) string) []string {
+	family := HarnessFamily(man.Name)
+	out := make([]string, 0, len(detected))
+	for _, name := range detected {
+		// A provider with no Auth options at all (bedrock, azure, vertex) is
+		// detected but never broker-injectable; it is dropped here rather than
+		// silently resolving to nothing later.
+		for _, v := range provider.AuthVarsFor(name, family) {
+			if strings.TrimSpace(lookup(v)) != "" {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// Without drops the withheld providers from a detected set.
+func Without(providers, drop []string) []string {
+	if len(drop) == 0 {
+		return providers
+	}
+	gone := make(map[string]bool, len(drop))
+	for _, d := range drop {
+		gone[d] = true
+	}
+	out := make([]string, 0, len(providers))
+	for _, p := range providers {
+		if !gone[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // VendorPinnedWhy explains why a harness cannot be billed as usage credits, or
 // "" when it can. A `providers:` list of exactly the harness's own vendor is the
 // declaration that all inference transits that vendor — cursor, whose CLI has no
@@ -194,8 +279,16 @@ func AuthBacking(man manifest.Manifest, lookup func(string) string, target, home
 	}
 
 	backing := map[string]string{}
-	if keys := ProviderKeyVars(man, lookup); len(keys) > 0 {
-		backing[AuthUsage] = from(keys)
+	usage := ProviderKeyVars(man, lookup)
+	// A vendor gateway that sells BOTH a plan and metered usage on one key backs
+	// both sides of this row, and filing it under one was wrong: opencode's key
+	// buys the Go plan (opencode-go/<m>) or spends the Zen balance
+	// (opencode/<m>), and only the model id says which.
+	if dual := DualSidedVars(man, lookup); len(dual) > 0 {
+		usage = append(usage, dual...)
+	}
+	if len(usage) > 0 {
+		backing[AuthUsage] = from(usage)
 	}
 
 	var plan []string
@@ -214,6 +307,37 @@ func AuthBacking(man manifest.Manifest, lookup func(string) string, target, home
 		backing[AuthSubscription] = strings.Join(plan, " · ")
 	}
 	return backing
+}
+
+// DualSidedVars are this harness's own credentials that buy a plan AND metered
+// usage, so they back both options rather than settling the question. The split
+// lives in the model id (opencode) or entirely on the vendor's side (cursor's
+// plan allowance, then usage-based overage on one CURSOR_API_KEY).
+func DualSidedVars(man manifest.Manifest, lookup func(string) string) []string {
+	var out []string
+	for _, v := range SubscriptionVars(man, lookup) {
+		if provider.SplitsBilling(ProviderOfKeyVar(v)) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// BillingCaveat is what the row must admit when the credential does not settle
+// the bill: naming a side there is a preference the vendor may not honour.
+func BillingCaveat(man manifest.Manifest, lookup func(string) string) string {
+	if len(DualSidedVars(man, lookup)) == 0 {
+		return ""
+	}
+	switch HarnessFamily(man.Name) {
+	case "opencode":
+		return "one key buys both — `opencode-go/<model>` spends the Go plan, " +
+			"`opencode/<model>` spends the Zen balance, so the MODEL decides, not this row"
+	case "cursor":
+		return "one key buys both — Cursor bills your plan's included usage first and " +
+			"usage-based overage after, on its own side, so this row cannot decide it"
+	}
+	return "one key buys both a plan and metered usage, so this row cannot decide which"
 }
 
 // AuthWhyUnavailable is the other half: what the operator would have to produce

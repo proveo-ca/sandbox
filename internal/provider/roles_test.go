@@ -74,3 +74,55 @@ func TestCanonicalRoundTrip(t *testing.T) {
 		t.Error("an unset role must stay unset")
 	}
 }
+
+// One credential cannot express OpenCode's two plans. Zen (pay-as-you-go) and
+// Go (the $10/mo subscription) are one gateway on one OPENCODE_API_KEY, split
+// only by the model prefix — so an operator can answer "subscription", hold
+// exactly the right key, and still be metered because the role names a Zen
+// model. Only the id catches that.
+func TestBillingClashesReadThePrefixNotTheKey(t *testing.T) {
+	t.Parallel()
+	if got := ModelBilling("opencode-go/kimi-k3"); got != BillPlan {
+		t.Errorf("opencode-go/ = %v, want BillPlan", got)
+	}
+	if got := ModelBilling("opencode/gpt-5-nano"); got != BillMetered {
+		t.Errorf("opencode/ = %v, want BillMetered — that is the Zen balance", got)
+	}
+	// Both fold to the same broker route, which is why the raw prefix is read.
+	if ModelProvider("opencode-go/kimi-k3") != ModelProvider("opencode/gpt-5-nano") {
+		t.Error("the alias fold changed; ModelBilling depends on it staying one route")
+	}
+
+	r := Roles{"ARCHITECT_MODEL": "opencode/gpt-5-nano"}
+	msgs := r.BillingClashes("subscription")
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "per token") {
+		t.Fatalf("BillingClashes = %v, want the Zen model flagged against a plan answer", msgs)
+	}
+	// The right prefix for that answer is silent.
+	goRole := Roles{"ARCHITECT_MODEL": "opencode-go/kimi-k3"}
+	if got := goRole.BillingClashes("subscription"); len(got) != 0 {
+		t.Errorf("BillingClashes = %v, want silence", got)
+	}
+	// And the mirror.
+	if got := r.BillingClashes("usage credits"); len(got) != 0 {
+		t.Errorf("a Zen model under a metered answer is no clash, got %v", got)
+	}
+	// An unanswered row judges nothing.
+	if got := r.BillingClashes(""); len(got) != 0 {
+		t.Errorf("BillingClashes with no answer = %v, want silence", got)
+	}
+}
+
+// Cursor's split is on the vendor's side, so no id can be judged against it.
+func TestCursorModelsCarryNoBillingVerdict(t *testing.T) {
+	t.Parallel()
+	if got := ModelBilling("cursor/some-model"); got != BillUnknown {
+		t.Errorf("cursor/ = %v, want BillUnknown — Cursor decides plan vs overage", got)
+	}
+	if !SplitsBilling("cursor") || !SplitsBilling("opencode") {
+		t.Error("both gateways sell a plan AND metered usage on one credential")
+	}
+	if SplitsBilling("anthropic") {
+		t.Error("anthropic's key is metered and its token is the plan — the credential decides")
+	}
+}
