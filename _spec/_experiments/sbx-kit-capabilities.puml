@@ -156,14 +156,41 @@ skinparam noteTextAlignment left
 '     property sbx may already provide. Not obviously worth it, and not
 '     measured — see the open question below.
 '
-'     STILL OPEN, and cheap: since the built-in agents already declare these
-'     credentials, sbx may already be proxy-managing them, in which case the
-'     agent's env may ALREADY hold a sentinel and proveo's
-'     `sbx secret set ANTHROPIC_API_KEY` — which creates a service named after
-'     the ENV VAR, distinct from the `anthropic` service the bindings file uses
-'     — may be redundant or may be the very thing putting a real key in the
-'     process. One command answers it, and it needs no kit:
-'         sbx run shell . -- 'echo "${ANTHROPIC_API_KEY:-<unset>}"'
+'     ANSWERED, and it inverts the experiment. On the stock shell agent:
+'         sbx run shell . -- -c 'echo "VALUE: ${ANTHROPIC_API_KEY:-<unset>}"'
+'         VALUE: proxy-managed
+'
+'     sbx ALREADY DOES E2 for every def backed by a built-in agent. The agent's
+'     env holds the sentinel, not the key; the host-side proxy injects. There is
+'     nothing to build for claudecode, cursor or opencode — which is fortunate,
+'     because the "defined in both" refusal above means we could not have built
+'     it for them anyway. The two facts are the same fact seen from either side:
+'     the credential is the AGENT's to declare, and the built-ins declare it.
+'
+'     (Note the probe command: the first version used a BARE first word after
+'     `--` and sbx ran `bash '<the whole string>'`, which failed with "No such
+'     file or directory" — the identical defect as `-- cecli`, in a command
+'     written to test something else. shell-agent-launch.puml draws this exact
+'     case. `-c` leads with a flag and is appended instead.)
+'
+'     ── AND IT EXPOSES A REGRESSION INSIDE E1 ──────────────────────────────
+'     Follow the two measurements together:
+'       gate OFF  cecli borrows `shell`, `shell` declares the credential,
+'                 so cecli's env holds a SENTINEL
+'       gate ON   cecli runs agent proveo-cecli from OUR sandbox kit, and
+'                 sbx.Kit has no Credentials field at all — nothing declares
+'                 the credential, so nothing proxy-manages it
+'
+'     E1 therefore risks moving cecli from sentinel to REAL KEY in the agent
+'     process: a credential downgrade hidden inside a launch fix. It is exactly
+'     the class of defect the gate exists to catch, and it is why the gate must
+'     not be defaulted on until sbx.Kit can declare credentials[] and the
+'     cecli kit does.
+'
+'     So E2's remaining work is not an enhancement for three defs. It is a
+'     PREREQUISITE for one: the def that declares its own agent must also
+'     declare its own credentials, under the SERVICE name the bindings use, or
+'     it silently loses the property every other def gets for free.
 '
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a

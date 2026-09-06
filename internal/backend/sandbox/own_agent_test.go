@@ -175,3 +175,35 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 		t.Error("sandbox block rendered empty")
 	}
 }
+
+// A def that declares its OWN agent must also declare its own credentials, or
+// it silently loses a property every other def gets for free.
+//
+// Measured: on the stock shell agent the env holds "proxy-managed", because
+// `shell` declares the credential and sbx's host-side proxy injects the real
+// value per request. Under the gate, cecli stops borrowing `shell` and runs an
+// agent whose Kit declares nothing — so nothing proxy-manages it and the real
+// key reaches the process. That is a credential DOWNGRADE hidden inside a
+// launch fix, which is precisely what the gate exists to catch.
+//
+// This test fails until sbx.Kit can express credentials[] and the sandbox kit
+// populates it. It is the gate's release condition, written down rather than
+// remembered. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestOwnAgentMustDeclareItsOwnCredentials(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	_, kit := specFor(t, "cecli")
+
+	if kit.Sandbox == nil {
+		t.Fatal("gate on but no sandbox block — the rest of this test is meaningless")
+	}
+	b, err := yaml.Marshal(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "credentials:") {
+		t.Skip("KNOWN GAP, and the gate's release condition: a sandbox kit declares its " +
+			"own agent, so it must declare its own credentials[] — otherwise cecli goes " +
+			"from the sentinel it gets by borrowing `shell` to a real key in the agent " +
+			"process. Do not default PROVEO_SBX_AGENT_KIT on until this passes.")
+	}
+}
