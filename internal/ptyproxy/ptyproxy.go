@@ -226,15 +226,14 @@ func (p *Proxy) deliver(out []byte) bool {
 	return err == nil
 }
 
-func (p *Proxy) pumpOut() {
+func (p *Proxy) pumpOut() { p.pumpOutFrom(p.masterFile()) }
+
+func (p *Proxy) pumpOutFrom(m io.Reader) {
 	buf := make([]byte, 32*1024)
-	m := p.masterFile()
 	for {
 		n, err := m.Read(buf)
 		if n > 0 {
-			if p.OutTap != nil {
-				p.OutTap(buf[:n])
-			}
+			p.onChildOutput(buf[:n])
 			p.mu.Lock()
 			if p.suspended {
 				p.buffered = append(p.buffered, buf[:n]...)
@@ -249,6 +248,18 @@ func (p *Proxy) pumpOut() {
 		if err != nil {
 			return
 		}
+	}
+}
+
+// onChildOutput feeds the transcript tap and the mouse-tracking watch: the
+// child announces its mouse modes on the same stream it paints on.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func (p *Proxy) onChildOutput(b []byte) {
+	if p.OutTap != nil {
+		p.OutTap(b)
+	}
+	if !p.DisableFilter && p.filter != nil {
+		p.filter.mouse.observe(b)
 	}
 }
 

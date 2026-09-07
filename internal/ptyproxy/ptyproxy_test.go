@@ -387,3 +387,51 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 		})
 	}
 }
+
+// The out pump is where mouse tracking is learned: no PTY needed, the child's
+// bytes are the whole input.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestChildOutputEnablesMouseForwardingThroughTheOutPump(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close(); _ = outW.Close() }()
+
+	p := New(nil, outW)
+	p.DropReports = true
+	p.filter.dropReplies = true
+
+	drag := []byte("\x1b[<32;10;5M")
+	if p.filter.keep(drag) {
+		t.Errorf("keep(%q) = true before the child asked for mouse reports", drag)
+	}
+	p.pumpOutFrom(strings.NewReader("\x1b[?1049h\x1b[?1002;1006h"))
+	if !p.filter.keep(drag) {
+		t.Errorf("keep(%q) = false after the child enabled mouse tracking on its output", drag)
+	}
+}
+
+// The tap must still see everything the tracker reads.
+func TestOutPumpTapAndMouseTrackerBothSeeTheOutput(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close(); _ = outW.Close() }()
+
+	var tapped []byte
+	p := New(nil, outW)
+	p.OutTap = func(b []byte) { tapped = append(tapped, b...) }
+	out := "painting\x1b[?1003h"
+	p.pumpOutFrom(strings.NewReader(out))
+
+	if diff := cmp.Diff(out, string(tapped)); diff != "" {
+		t.Errorf("OutTap over %q mismatch (-want +got):\n%s", out, diff)
+	}
+	if !p.filter.mouse.enabled() {
+		t.Errorf("pumpOutFrom(%q): mouse tracking not learned", out)
+	}
+}

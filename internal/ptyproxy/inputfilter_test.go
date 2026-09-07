@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // The captured bytes from the run that produced a user message nobody typed.
@@ -389,5 +391,135 @@ func TestPlainTypingPassesThroughUnchanged(t *testing.T) {
 		if string(fwd) != in || len(held) != 0 {
 			t.Errorf("split(%q) = %q, held %q; want it verbatim", in, fwd, held)
 		}
+	}
+}
+
+// The application announces mouse tracking on its OUTPUT stream; the filter
+// reads that to decide whether an incoming mouse report was asked for.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestMouseTrackingFollowsTheChildsModeSets(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		reads []string
+		want  bool
+	}{
+		{"no mode sets at all", []string{"hello world"}, false},
+		{"1000 click tracking", []string{"\x1b[?1000h"}, true},
+		{"1002 button drag", []string{"\x1b[?1002h"}, true},
+		{"1003 any motion", []string{"\x1b[?1003h"}, true},
+		{"multi-param set in one sequence", []string{"\x1b[?1002;1006h"}, true},
+		{"an encoding alone reports nothing", []string{"\x1b[?1006h"}, false},
+		{"bracketed paste is not mouse", []string{"\x1b[?2004h"}, false},
+		{"alt screen is not mouse", []string{"\x1b[?1049h"}, false},
+		{"enabled then disabled", []string{"\x1b[?1002h", "\x1b[?1002l"}, false},
+		{"one of two disabled leaves tracking on", []string{"\x1b[?1000;1002h", "\x1b[?1002l"}, true},
+		{"params split across two reads", []string{"\x1b[?10", "02h"}, true},
+		{"escape split from its body", []string{"paint\x1b", "[?1003h"}, true},
+		{"final byte split off", []string{"\x1b[?1003", "h"}, true},
+		{"disable split across two reads", []string{"\x1b[?1003h", "\x1b[?100", "3l"}, false},
+		{"buried in a repaint", []string{"hi\x1b[2J\x1b[?1002h\x1b[H"}, true},
+		{"opencode's start-up bundle", []string{"\x1b[?1049h\x1b[?1002h\x1b[?1006h"}, true},
+		{"and its shutdown bundle", []string{"\x1b[?1049h\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1006l\x1b[?1049l"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newInputFilter()
+			for _, r := range tc.reads {
+				f.mouse.observe([]byte(r))
+			}
+			if got := f.mouse.enabled(); got != tc.want {
+				t.Errorf("observe(%q): mouse.enabled() = %v, want %v", tc.reads, got, tc.want)
+			}
+		})
+	}
+}
+
+// The reported bug: opencode turns tracking on, so a drag is input it asked
+// for and must reach it even on the sbx path that drops unasked-for reports.
+func TestMouseInputReachesAnAgentThatTurnedTrackingOn(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true // what sandbox.go's DropReports sets
+	f.mouse.observe([]byte("\x1b[?1002;1006h"))
+
+	for _, tc := range []struct {
+		name string
+		b    []byte
+	}{
+		{"press", mouseSGRPress},
+		{"release", mouseSGRRelease},
+		{"drag motion", mouseSGRMotion},
+		{"wheel up", []byte("\x1b[<64;10;5M")},
+		{"wheel down", []byte("\x1b[<65;10;5M")},
+		{"urxvt encoding", mouseURXVT},
+		{"x10 encoding", mouseX10},
+	} {
+		if !f.keep(tc.b) {
+			t.Errorf("keep(%q) = false for a %s while tracking is on; nothing in the TUI is selectable", tc.b, tc.name)
+		}
+	}
+	// split() is the real entry point: a drag arriving mid-read must survive too.
+	fwd, held := f.split([]byte("\x1b[<32;10;5M"))
+	if string(fwd) != "\x1b[<32;10;5M" || len(held) != 0 {
+		t.Errorf("split(drag) = %q, held %q; want the drag forwarded whole", fwd, held)
+	}
+}
+
+// With tracking off the captured trace must filter exactly as before: that is
+// the behaviour TestReplayOfTheCapturedMouseTrace pins.
+func TestCapturedMouseTraceStaysFilteredWhileTrackingIsOff(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	// Output the child really wrote, none of which starts mouse reporting.
+	f.mouse.observe([]byte("\x1b[?1049h\x1b[?2004h\x1b[?1006h\x1b[?25l"))
+
+	reads := [][]byte{
+		[]byte("\x1b[?6c"),
+		[]byte("\x1b[I"),
+		[]byte("\x1b[<35;1;46M"), []byte("\x1b[<35;2;45M"), []byte("\x1b[<35;3;45M"),
+		[]byte("/"), []byte("c"), []byte("o"), []byte("l"), []byte("o"), []byte("r"),
+		[]byte(" "), []byte("r"), []byte("e"), []byte("d"), []byte("\r"),
+	}
+	want := []string{"/", "c", "o", "l", "o", "r", " ", "r", "e", "d", "\r"}
+
+	var got []string
+	for _, r := range reads {
+		if f.keep(r) {
+			got = append(got, string(r))
+		}
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("replay of the captured trace with tracking off mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Tracking turned off again must stop forwarding: an app that exits its TUI
+// leaves the prompt stream it was the whole point of the drop knob.
+func TestMouseForwardingStopsWhenTheAppTurnsTrackingOff(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	f.mouse.observe([]byte("\x1b[?1002h"))
+	if !f.keep(mouseSGRMotion) {
+		t.Errorf("keep(%q) = false while tracking is on", mouseSGRMotion)
+	}
+	f.mouse.observe([]byte("\x1b[?1002l"))
+	if f.keep(mouseSGRMotion) {
+		t.Errorf("keep(%q) = true after the app turned tracking off", mouseSGRMotion)
+	}
+}
+
+// A run of output that never completes a mode set must not be hoarded.
+func TestMouseTrackerDoesNotHoardUnterminatedOutput(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.mouse.observe(append([]byte("\x1b["), bytes.Repeat([]byte("1;"), maxModeCarry)...))
+	f.mouse.mu.Lock()
+	held := len(f.mouse.carry)
+	f.mouse.mu.Unlock()
+	if held != 0 {
+		t.Errorf("carried %d bytes of child output; beyond maxModeCarry it must be dropped", held)
 	}
 }

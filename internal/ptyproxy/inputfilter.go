@@ -3,7 +3,9 @@ package ptyproxy
 
 import (
 	"bytes"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,6 +14,9 @@ type inputFilter struct {
 	dropReplies bool
 	window      time.Duration
 	now         func() time.Time
+
+	// mouse is fed from the child's OUTPUT stream by the out pump.
+	mouse mouseTracker
 
 	mu     sync.Mutex
 	recent []seenReply
@@ -37,7 +42,7 @@ const (
 	reportNone  reportKind = iota // keystrokes, pastes, anything not a report
 	reportFocus                   // DEC mode 1004 focus in/out
 	reportReply                   // an answer to a query the application sent
-	reportMouse                   // DEC 1000/1006/1015/1016 mouse press, release or motion
+	reportMouse                   // DEC 9/1000/1001/1002/1003 press, release or motion
 )
 
 func (f *inputFilter) keep(b []byte) bool {
@@ -45,6 +50,11 @@ func (f *inputFilter) keep(b []byte) bool {
 	case reportFocus:
 		return !f.dropFocus
 	case reportMouse:
+		// Wanted exactly while the application has mouse tracking on, which it
+		// announces on its own output stream. Off, it is an unasked-for report.
+		if f.mouse.enabled() {
+			return true
+		}
 		return !f.dropReplies
 	case reportReply:
 		if f.dropReplies {
@@ -141,6 +151,108 @@ func isNumericParams(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// mouseTracker follows the DEC private modes that make a terminal SEND mouse
+// reports, read off the child's output stream.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+type mouseTracker struct {
+	// on is read by keep() on the input pump and written by observe() on the
+	// output pump: an atomic keeps the input path off the parser's lock.
+	on atomic.Bool
+
+	// mu guards the multi-field parser state, which only the output pump
+	// touches today but which cannot be made atomic as a unit.
+	mu    sync.Mutex
+	modes uint16
+	carry []byte
+}
+
+// maxModeCarry bounds the partial CSI held between two output reads.
+const maxModeCarry = 128
+
+func (t *mouseTracker) enabled() bool { return t.on.Load() }
+
+// observe scans one chunk of child output for CSI ? Ps [;Ps…] h / l.
+func (t *mouseTracker) observe(b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	buf := b
+	if len(t.carry) > 0 {
+		buf = append(t.carry, b...)
+		t.carry = nil
+	}
+	for i := 0; i < len(buf); {
+		if buf[i] != 0x1b {
+			i++
+			continue
+		}
+		if i+1 >= len(buf) {
+			t.hold(buf[i:])
+			return
+		}
+		if buf[i+1] != '[' {
+			i += 2
+			continue
+		}
+		j := i + 2
+		for j < len(buf) && buf[j] >= 0x20 && buf[j] < 0x40 { // params and intermediates
+			j++
+		}
+		if j == len(buf) { // the final byte is in the next read
+			t.hold(buf[i:])
+			return
+		}
+		if final := buf[j]; (final == 'h' || final == 'l') && buf[i+2] == '?' {
+			t.apply(buf[i+3:j], final == 'h')
+		}
+		i = j + 1
+	}
+}
+
+func (t *mouseTracker) hold(b []byte) {
+	if len(b) > maxModeCarry {
+		return // too long to be a mode set: do not hoard the child's output
+	}
+	t.carry = append([]byte(nil), b...)
+}
+
+func (t *mouseTracker) apply(params []byte, set bool) {
+	for _, p := range bytes.Split(params, []byte(";")) {
+		n, err := strconv.Atoi(string(p))
+		if err != nil {
+			continue
+		}
+		bit := mouseModeBit(n)
+		if bit == 0 {
+			continue
+		}
+		if set {
+			t.modes |= bit
+		} else {
+			t.modes &^= bit
+		}
+	}
+	t.on.Store(t.modes != 0)
+}
+
+// mouseModeBit maps the modes that start and stop reporting. The encodings
+// (1005/1006/1015/1016) only change a report's shape, so a terminal sends
+// nothing for them alone and they must not hold tracking on by themselves.
+func mouseModeBit(mode int) uint16 {
+	switch mode {
+	case 9: // X10 press-only
+		return 1 << 0
+	case 1000: // press and release
+		return 1 << 1
+	case 1001: // highlight tracking
+		return 1 << 2
+	case 1002: // button-drag
+		return 1 << 3
+	case 1003: // any-motion
+		return 1 << 4
+	}
+	return 0
 }
 
 const maxHeld = 128
