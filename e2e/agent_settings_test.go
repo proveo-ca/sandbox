@@ -48,7 +48,7 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	// waits for — the second run has to re-enter the cached choice, which only happens once the
 	// agent actually starts. Without this the
 	// test spends its full timeout and reports a missing credential as a defect.
-	// SPEC: _spec/tests/30-e2e.puml
+	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 
 	home, work := t.TempDir(), t.TempDir()

@@ -32,7 +32,7 @@ func TestReviewTierConsentGate(t *testing.T) {
 	// waits for — the consent overlay only renders for a session that got far enough to make a
 	// request. Without this the
 	// test spends its full timeout and reports a missing credential as a defect.
-	// SPEC: _spec/tests/30-e2e.puml
+	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 	requireReviewTier(t)
 
