@@ -44,6 +44,12 @@ func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
+	// An unauthenticated opencode session never reaches the state this test
+	// waits for — the second run has to re-enter the cached choice, which only happens once the
+	// agent actually starts. Without this the
+	// test spends its full timeout and reports a missing credential as a defect.
+	// SPEC: _spec/tests/30-e2e.puml
+	requireHarnessCredential(t, target)
 
 	home, work := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".proveo"), 0o755); err != nil {
