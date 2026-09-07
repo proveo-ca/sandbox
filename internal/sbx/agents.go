@@ -70,22 +70,37 @@ func shellQuote(s string) string {
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }
 
-// EnvAgentKit opts a def with no built-in sbx agent into being declared as a
-// COMPLETE AGENT (`kind: sandbox`) instead of borrowing sbx's `shell`.
+// EnvAgentKit is now an OPT-OUT. A def with no built-in sbx agent declares
+// itself a COMPLETE AGENT (`kind: sandbox`) rather than borrowing sbx's
+// `shell`, and PROVEO_SBX_AGENT_KIT=0 restores the borrowed path.
 //
-// It is a gate rather than a switch because nothing about it is measured yet.
-// The shell path works — it was fixed and negative-checked — and replacing a
-// measured fix with a read-from-the-docs alternative is the move this tree has
-// already paid for twice. The ladder can climb both; whichever survives becomes
-// the default. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+// It shipped as an opt-IN because nothing about it was measured. It is now
+// measured, on a real host, in this order:
+//
+//	the Kit registers an agent      `kit shape measured: kind: sandbox,
+//	                                 name: proveo-cecli`, ladder 4/4
+//	a real run reaches the harness  `cecli@proveo-...:sandbox$`
+//	the credential is proxy-managed `"proxy-managed" with the block,
+//	                                 "<unset>" without` — a CONTROL run, so
+//	                                 the declaration is what causes it
+//
+// The borrowed path stays reachable because it is the one with the running
+// hours, and because a launch that cannot start is worth an escape hatch.
+//
+// WHAT DEFAULTING ON COSTS: sbx asks for consent the first time a service is
+// injected — once per service, recorded in ~/.config/sbx/credentials.yaml, and
+// it asks even for a credential it already holds. An unattended agent stops on
+// that prompt. proveo only declares services sbx already has a secret for,
+// which narrows it, but the first gated run on a fresh credentials.yaml is
+// interactive. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
 
 func AgentKitEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAgentKit))) {
-	case "on", "1", "yes", "true", "enable", "enabled":
-		return true
+	case "off", "0", "no", "false", "disable", "disabled":
+		return false
 	}
-	return false
+	return true
 }
 
 // DeclaresOwnAgent reports whether THIS run should render a sandbox Kit naming

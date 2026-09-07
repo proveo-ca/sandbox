@@ -25,11 +25,12 @@ func specFor(t *testing.T, target string, extra ...string) (sbx.RunConfig, sbx.K
 	return cfg, kit
 }
 
-// The gate is OFF by default, and default means the measured path: cecli borrows
-// sbx's shell agent with a flag-leading command. Replacing a fix that was
-// negative-checked with one read out of the docs is the move this tree has
-// already paid for twice. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
-func TestWithoutTheGateCecliStillBorrowsTheShellAgent(t *testing.T) {
+// The borrowed-shell path stays REACHABLE after the default flipped, because it
+// is the one with the running hours and because a launch that cannot start is
+// worth an escape hatch. PROVEO_SBX_AGENT_KIT=0 is now what selects it.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestOptingOutStillBorrowsTheShellAgent(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "0")
 	cfg, kit := specFor(t, "cecli")
 	if cfg.Agent != sbx.ShellAgent {
 		t.Errorf("agent = %q, want the shell agent while the gate is off", cfg.Agent)
@@ -46,8 +47,7 @@ func TestWithoutTheGateCecliStillBorrowsTheShellAgent(t *testing.T) {
 // is not the name: it is that no bash sits between sbx and the image's
 // ENTRYPOINT, so the shell agent's rule for words after `--` stops applying.
 func TestOwnAgentReplacesTheBorrowedShell(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
-	cfg, kit := specFor(t, "cecli")
+	cfg, kit := specFor(t, "cecli") // no env: the kit path is the DEFAULT now
 
 	if want := sbx.AgentName("cecli"); cfg.Agent != want {
 		t.Errorf("agent = %q, want %q", cfg.Agent, want)
@@ -83,6 +83,9 @@ func TestOwnAgentReplacesTheBorrowedShell(t *testing.T) {
 // non-empty") measures the fixture instead, and this one first failed for
 // exactly that reason.
 func TestOwnAgentChangesIdentityAndNothingElse(t *testing.T) {
+	// Opt OUT to get the mixin, then back in: the kit path is the default now,
+	// so the comparison has to name both sides explicitly.
+	t.Setenv(sbx.EnvAgentKit, "0")
 	_, mixin := specFor(t, "cecli")
 	t.Setenv(sbx.EnvAgentKit, "1")
 	_, own := specFor(t, "cecli")
@@ -364,5 +367,46 @@ func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 			t.Fatal("Spec would store a secret under the SERVICE name, overwriting whatever " +
 				"the operator has there — measured doing exactly that to an OAuth login")
 		}
+	}
+}
+
+// The DEFAULT is the contract now, so it is asserted rather than left implied.
+// A def with no built-in sbx agent declares its own; every def backed by one
+// keeps its mixin, because sbx refuses a kit that shadows a built-in name.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestAgentKitIsTheDefaultForDefsWithNoBuiltinAgent(t *testing.T) {
+	if !sbx.AgentKitEnabled() {
+		t.Fatal("PROVEO_SBX_AGENT_KIT defaults OFF — the flip did not take, or the " +
+			"environment is overriding it")
+	}
+	withStoredSecrets(t, "anthropic")
+
+	cfg, kit := specFor(t, "cecli")
+	if kit.Kind != "sandbox" || cfg.Agent != sbx.AgentName("cecli") {
+		t.Errorf("cecli: kind=%q agent=%q, want a sandbox kit naming proveo-cecli",
+			kit.Kind, cfg.Agent)
+	}
+	for _, target := range []string{"claudecode", "cursor", "opencode"} {
+		cfg, kit := specFor(t, target)
+		if kit.Kind != "mixin" {
+			t.Errorf("%s: kind=%q, want mixin — sbx refuses a kit shadowing a built-in", target, kit.Kind)
+		}
+		if strings.HasPrefix(cfg.Agent, "proveo-") {
+			t.Errorf("%s: agent=%q shadows a built-in", target, cfg.Agent)
+		}
+	}
+}
+
+// The escape hatch has to work, or the default is not reversible in the field.
+func TestOptOutIsHonouredForEverySpelling(t *testing.T) {
+	for _, v := range []string{"0", "off", "no", "false", "disable", "disabled", "OFF"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv(sbx.EnvAgentKit, v)
+			cfg, kit := specFor(t, "cecli")
+			if kit.Kind != "mixin" || cfg.Agent != sbx.ShellAgent {
+				t.Errorf("%s=%q gave kind=%q agent=%q, want the borrowed shell path",
+					sbx.EnvAgentKit, v, kit.Kind, cfg.Agent)
+			}
+		})
 	}
 }

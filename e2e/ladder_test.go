@@ -691,7 +691,11 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 // The command is a thing being added, so it earns a rung. Folding it into the
 // image rung would add two things at once and forfeit the attribution the whole
 // method rests on. SPEC: _spec/_paradigms/capability-ladder.puml
+// Opt OUT explicitly: with the kit path defaulted on, cecli declares its own
+// agent and this shape stops applying — which is correct, and would otherwise
+// make the test skip silently rather than assert the borrowed ladder still works.
 func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "0")
 	if !shellAgentTarget("cecli") {
 		t.Skip("cecli gained a built-in sbx agent; this shape no longer applies")
 	}
@@ -790,6 +794,7 @@ func TestQuoteWordSurvivesAQuote(t *testing.T) {
 func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
 	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
 
+	t.Setenv(sbx.EnvAgentKit, "0") // the kit path is the default now; opt OUT to borrow
 	borrowed := ladderRungs()
 	if len(borrowed) != 5 {
 		t.Fatalf("borrowed-shell ladder has %d rungs, want 5", len(borrowed))

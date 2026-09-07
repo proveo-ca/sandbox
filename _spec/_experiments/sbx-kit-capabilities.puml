@@ -48,16 +48,34 @@ skinparam noteTextAlignment left
 '   setup.files[]        path + content + mode, written at startup
 '
 ' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
-' E1  cecli as a first-class agent (`kind: sandbox`)   -- BUILT, HOST-BLOCKED
+' E1  cecli as a first-class agent (`kind: sandbox`)   -- ADOPTED, DEFAULT ON
 '     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
 '     semantics, and the whole class of defect that made `-- cecli` run
 '     `bash cecli`. cecli declares its own entrypoint the way pi does.
 '
-'     SHIPPED BEHIND A GATE: PROVEO_SBX_AGENT_KIT. Off, a def with no built-in
-'     agent borrows `shell` with the flag-leading launch, which is the path that
-'     WAS measured and negative-checked. On, sandbox.Spec renders
-'     `kind: sandbox`, names the agent proveo-<target>, and passes extras as
-'     bare words — there is no bash in between to reinterpret them.
+'     DEFAULT ON since 2026-09-07; PROVEO_SBX_AGENT_KIT=0 is the opt-OUT. A def
+'     with no built-in agent renders `kind: sandbox`, names the agent
+'     proveo-<target>, and passes extras as bare words — no bash in between to
+'     reinterpret them. The borrowed path stays reachable because it has the
+'     running hours, and because a launch that cannot start deserves an escape
+'     hatch.
+'
+'     WHAT WAS MEASURED BEFORE FLIPPING, in order:
+'       kit registers an agent   `kit shape measured: kind: sandbox,
+'                                 name: proveo-cecli`; ladder 4/4 gate-on
+'       a real run works         `cecli@proveo-1788742241-52218:sandbox$`
+'       credential proxy-managed `"proxy-managed" with the block, "<unset>"
+'                                 without` — a CONTROL pass, run again after
+'                                 the credential path changed, so the green
+'                                 does not predate the code it tests
+'
+'     THE COST, and it belongs in a release note rather than in a surprise: sbx
+'     asks for consent the first time a service is injected. Once per service,
+'     recorded in ~/.config/sbx/credentials.yaml, and it asks even for a
+'     credential it already holds — the screen reads "(stored)" and still
+'     prompts. An unattended agent stops there. proveo declares only services
+'     sbx already has a secret for, which narrows it, but the first gated run on
+'     a fresh credentials.yaml is interactive.
 '
 '     The Kit names the IMAGE and stops there. The def already declares
 '     ENTRYPOINT ["dumb-init","--","<target>-entrypoint"] and CMD ["<target>"],
