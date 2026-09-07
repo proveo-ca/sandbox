@@ -425,13 +425,35 @@ skinparam noteTextAlignment left
 '     the operator has not yet bound. That is a real cost for an unattended
 '     agent and belongs in the release note, not in a surprise.
 '
-'     ── ONE MORE THING THE RUN SURFACED ────────────────────────────────────
+'     ── THE FLAVOR LABEL WARNING: DIAGNOSED, DELIBERATELY NOT FIXED ────────
 '         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
 '           you are using "proveo-cecli".
-'     sbx associates a loaded template with the AGENT it was loaded for, and
-'     freshTemplate loads ours for `shell`. Non-fatal today — every rung still
-'     held — but it means the image store is keyed by an agent name that E1
-'     changes, and that is worth settling before the gate defaults on.
+'
+'     CAUSE, measured on the built image: it inherits
+'         com.docker.sandboxes.flavor = shell-docker
+'     from docker/sandbox-templates:shell-docker, and sbx reads that label to
+'     decide which agent an image belongs to. Under E1 the agent is
+'     proveo-cecli, so the two disagree. Nothing else is involved — it is not
+'     freshTemplate, and not how the template was loaded.
+'
+'     LEFT AS IS, on the operator's call 2026-09-07. The label describes WHAT
+'     THE IMAGE IS BUILT FROM, and that is still shell-docker; overwriting it
+'     with "proveo-cecli" would assert an identity sbx never issued. The label
+'     sits in sbx's own namespace and nothing tells us what else reads it —
+'     `template ls`, store keying, a future feature — so changing it is exactly
+'     the kind of guess this tree has already paid for twice (210 MB an image,
+'     and a sudo exemption that broke three security suites).
+'
+'     It is not costless: a warning on every gated run trains operators to
+'     ignore warnings. If it is ever fixed, the order is ASK THEN CHANGE —
+'     what does com.docker.sandboxes.flavor govern beyond this message? That
+'     joins the KVM question (no --device on `sbx run`) as an upstream-shaped
+'     item; two findings may be worth one issue rather than three guesses.
+'
+'     EVIDENCE IT IS COSMETIC TODAY, and it is only evidence, not proof:
+'         ladder gate-off   5/5 rungs held
+'         ladder gate-on    4/4 rungs held
+'         real proveo run   reached cecli@...:sandbox$
 '
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
