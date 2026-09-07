@@ -1,6 +1,5 @@
 // Package runlog gives every run a transcript under PROVEO_HOME/logs so a
 // failure can be diagnosed after the fact.
-//
 // SPEC: _spec/internal/runlog/run-transcript.puml
 package runlog
 

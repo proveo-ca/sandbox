@@ -7,6 +7,46 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
+' purpose: the live egress topology Layer 3 stands up, and the three suites that
+'          drive it — chain/CA, policy enforcement, broker-env mount
+' covers: internal/egress/integration_test.go
+' covers: internal/egress/**
+'
+' ── THREE SUITES OVER ONE TOPOLOGY, ALL GATED THE SAME WAY ──────────────────
+' Each of the three checks PROVEO_EGRESS_INTEGRATION=1 and `docker` on PATH and
+' skips otherwise, on top of the `//go:build integration` tag. Each stages its own
+' squid config, builds a plan with BuildPlan, applies it with ExecRunner, registers
+' plan.Teardown through t.Cleanup, and waits on plan.CAWaitPath (25s) before making
+' a single request. Waits are conditions, never sleep-only: waitCond polls at 200ms
+' and waitHTTPThroughProxy retries until curl reports exactly 200, reporting the
+' last code and error when it gives up. The squid log dir is chmod 0777 so the
+' squid image's own user can write to it whatever uid it runs as.
+'
+' 1. CHAIN + CA (TestFirewallIntegration). No provider pinned, so reads are allowed
+'    by default. A real HTTPS GET to example.com must succeed through
+'    agent → proxy → squid → internet with the generated CA trusted; the decrypted
+'    request must appear in flows.ndjson; and a `--noproxy '*'` request must FAIL,
+'    because the --internal agent network has no direct egress.
+'
+' 2. POLICY, END TO END THROUGH THE REAL MITM (TestFirewallPolicyIntegration). A
+'    pinned provider (anthropic) gives the policy both a provider host and a secret
+'    to protect — a fake `sk-ant-FAKE-SECRET-0123456789` written into broker.env.
+'    A read is allowed; three shapes must each be blocked BEFORE leaving:
+'      * a write (POST) to a non-allowlisted host,
+'      * a GET to an exfil sink (webhook.site),
+'      * a request carrying the known secret in the query string.
+'    "Blocked" is read from curl's exit status — a policy block aborts the request,
+'    so `curl -fsS` fails. Two further assertions make the block auditable rather
+'    than merely effective: flows.ndjson must record `"decision":"blocked"`, and it
+'    must NOT contain the secret value anywhere.
+'
+' 3. BROKER-ENV MOUNT (TestFirewallBrokerEnvMountIntegration). Proves the wiring a
+'    host-side broker.env depends on, by inspecting the plan BEFORE applying it:
+'    the proxy sidecar must carry PROVEO_EGRESS_PROVIDERS=cursor and
+'    PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env, and must bind-mount the inject
+'    dir at /broker:ro. The topology must then still serve HTTPS, so a correct
+'    mount cannot be traded for a broken chain.
+
 title Layer 3 · Infra integration — real containers, no model\n(-tags=integration + PROVEO_EGRESS_INTEGRATION=1)
 
 actor "integration test\n(BuildPlan + ExecRunner)\n//go:build integration" as Test <<actor>>
@@ -51,5 +91,21 @@ t.Cleanup, env gate + docker LookPath skip. Orchestration stays BuildPlan
 (no testcontainers-go — would duplicate owned topology).
 Credential inject/strip proven in-process (egressproxy); this layer proves
 network topology + broker mount wiring.
+end note
+
+note bottom of Flows
+  **A block must be auditable, not just effective.**
+  The suite asserts ""'decision':'blocked'"" is
+  recorded AND that the fake secret never shows in
+  the log — a proxy that blocks by logging the value
+  it protected has moved the leak, not closed it.
+end note
+
+note bottom of Squid
+  **Three block shapes, one allowed read.** A POST
+  to a non-allowlisted host, a GET to an exfil sink,
+  and the secret in a query string each fail before
+  leaving — ""curl -fsS"" exiting non-zero IS the
+  evidence, since a block aborts the request.
 end note
 @enduml

@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/clean/clean-lifecycle.puml
-//
-// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package main
 
 import (
@@ -153,7 +151,7 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// that made it. SPEC: _spec/_plans/retire-dind.puml
+	// SPEC: _spec/_paradigms/retire-dind.puml
 	for _, line := range dockerLines("ps", "-a", "--filter", "name=proveo-dind-",
 		"--format", "{{.Names}}\t{{.State}}") {
 		if f := strings.SplitN(line, "\t", 2); len(f) == 2 {

@@ -22,9 +22,6 @@ func lockedForm() *Form {
 	}
 }
 
-// A locked row reports a FACT the operator cannot change, and its options are
-// the only statement of what that fact implies. The cursor used to skip it, so
-// they were unreadable.
 func TestLockedRowIsHoverableButNeverChangeable(t *testing.T) {
 	f := lockedForm()
 	// The cursor starts on something answerable, never on the fact.
@@ -64,9 +61,6 @@ func TestLockedRowIsHoverableButNeverChangeable(t *testing.T) {
 	}
 }
 
-// The reason has ONE home: the help block, on hover. It used to trail the
-// options clipped to whatever width was left, which meant the row's only
-// runnable command existed nowhere in full.
 func TestLockedRowReasonLivesOnlyInTheHelpBlock(t *testing.T) {
 	t.Parallel()
 	f := lockedForm()

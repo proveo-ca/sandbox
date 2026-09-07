@@ -184,9 +184,6 @@ configure_cecli_mcp "$3"`
 	})
 }
 
-// The image half. Serena is pinned for the reason the layer was deleted the
-// first time: an unpinned install shipped a version skew that left the server
-// dead on every boot. Same shape as agentPins.
 func TestCecliImagePinsSerena(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

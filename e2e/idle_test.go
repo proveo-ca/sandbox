@@ -19,18 +19,11 @@ import (
 // runIDPattern finds the sandbox/run name proveo prints, so teardown can name it.
 var runIDPattern = regexp.MustCompile(`proveo-\d+-\d+`)
 
-// authFailures are the outputs that mean the agent never reached a prompt. They
-// SKIP rather than fail: a session that could not start proves nothing either way
-// about whether an idle one survives, and reporting that as a failure would send
-// the reader after the wrong thing.
 var authFailures = []string{
 	"Failed to authenticate",
 	"Credit balance is too low",
 	"needs a subscription login",
 	"Please run /login",
-	// The TUI reports it in the status bar rather than as an error, and the agent
-	// then exits — which is the whole failure this suite exists to distinguish
-	// from a session that was stopped underneath a HEALTHY agent.
 	"Not logged in",
 	"Run /login",
 	// cursor-agent's first-run screen. It IS at a prompt, but the only key it
@@ -38,10 +31,6 @@ var authFailures = []string{
 	"Press any key to log in",
 }
 
-// ansiSeq matches the escape sequences a TUI writes. Stripping them is not
-// cosmetic: the status bar is laid out with cursor-positioning escapes BETWEEN
-// words, so "Not logged in" reaches the buffer as "Not\x1b[177Glogged\x1b[184Gin"
-// and every plain substring match for it silently fails.
 var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[]P][^\x1b\x07]*(?:\x1b\\|\x07)|\x1b.`)
 
 // plain renders terminal output as the words a reader would see, so a marker can
@@ -50,19 +39,11 @@ func plain(s string) string {
 	return strings.Join(strings.Fields(ansiSeq.ReplaceAllString(s, " ")), " ")
 }
 
-// blockedMarkers are screens that WAIT for a human. The session is alive but can
-// never proceed unattended, which is a different fault from dying and must not be
-// reported as one — Claude Code's first-run theme picker is the one that bit us,
-// and it appears whenever HOME names a path with no config in it.
 var blockedMarkers = []string{
 	"Choose the text style",
 	"Let's get started",
 }
 
-// promptMarkers are the strings each harness's OWN TUI paints when it is up and
-// waiting. One row per target, because "reached a prompt" is not a shared shape:
-// matching Claude Code's frame against a cursor session reported a healthy agent
-// as a hang for 481 seconds, which is a test failing rather than a def failing.
 func promptMarkers(target string) []string {
 	switch target {
 	case "cursor":
@@ -76,12 +57,6 @@ func promptMarkers(target string) []string {
 	}
 }
 
-// reachedPromptFor reports whether the agent is up and waiting.
-//
-// It matches the TUI's own frame rather than proveo's entrypoint banner. The
-// banner is not a reliable signal: it is printed before the agent starts, so a
-// session can be fully up without it having been the last thing said — and the
-// stock sbx image never prints it at all, which the ladder's rung 0 needs.
 func reachedPromptFor(raw, target string) bool {
 	out := plain(raw)
 	for _, m := range promptMarkers(target) {
@@ -99,30 +74,6 @@ var deathMarkers = []string{
 	"agent exited with code",
 }
 
-// An operator who walks away has to come back to a live session. Every failure in
-// this class looked identical from outside — "sandbox was stopped", the run
-// reported as failed — and none could be told apart from a session that simply
-// ended, because nothing was ever watching an IDLE one. The auto-stop grace
-// period is 30s after the session disconnects, so a five-minute wait clears it by
-// an order of magnitude.
-//
-// The test therefore does the one thing no other case here does: it reaches a
-// prompt and then does NOTHING, longer than any timer in the stack, and asserts
-// the agent is still there. It spends no model call — an agent sitting at its
-// prompt has not been asked anything — and it types nothing, which is the point:
-// input is the variable being held at zero.
-//
-// tmux cannot host this. `sbx run -t <image> shell <ws>` exits within seconds in a
-// detached pane with proveo uninvolved (see sbx_test.go), so the session needs a
-// REAL pty; pty.Start gives the child one without a multiplexer in between.
-// detectBackend reads which backend actually ran, from more than one witness.
-//
-// It keyed on proveo's own "backend: docker sandboxes (sbx)" line alone, and a
-// real sweep mislabelled an sbx run as docker+egress — while that same output
-// carried `.../sbx/policy-log.json`, `.../sbx/kit` and "Created sandbox". The
-// label is not cosmetic: the "was the session stopped underneath the agent?"
-// assertion at the end only fires when it says sbx, so a wrong label silently
-// skips the check this test exists for.
 func detectBackend(raw string) string {
 	out := plain(raw)
 	for _, m := range []string{
@@ -138,14 +89,6 @@ func detectBackend(raw string) string {
 	return "docker+egress"
 }
 
-// idleTargets are the harnesses to hold at a prompt. It defaults to claudecode
-// alone, which is what this test has always done; PROVEO_IDLE_TARGETS takes a
-// comma-separated list so a sweep can ask the same question of every def.
-//
-// Sweeping matters because the failure this test exists for — a session stopped
-// underneath a healthy agent — has only ever been reported on ONE harness at a
-// time, and a per-harness answer is what distinguishes "this agent exits" from
-// "sbx stops sessions".
 func idleTargets() []string {
 	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
 	if raw == "" {
@@ -177,10 +120,6 @@ func idleAtPrompt(t *testing.T, target string) {
 	startup := durationEnv(t, "PROVEO_IDLE_STARTUP", 5*time.Minute) // image load can be slow
 	work := t.TempDir()
 
-	// Record every byte the agent is sent, and what the filter decided about it.
-	// Three theories about this failure have been built on inference and two
-	// collapsed; the tap is the one thing that reports what actually arrived. It
-	// is dumped only on failure, so a passing sweep stays quiet.
 	trace := filepath.Join(t.TempDir(), "stdin.trace")
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -303,9 +242,6 @@ func idleAtPrompt(t *testing.T, target string) {
 		"an operator can step away this long and come back to a live session", target, idle)
 }
 
-// sandboxRunning reports whether sbx still lists name as running. An unreadable
-// listing is reported as running: this is a corroborating check, and failing the
-// test because `sbx ls` hiccuped would blame the agent for the tool.
 func sandboxRunning(name string) bool {
 	out, err := exec.Command("sbx", "ls").CombinedOutput()
 	if err != nil {
@@ -331,9 +267,6 @@ func lastLines(s string, n int) string {
 	return "── last output ──\n" + strings.Join(out, "\n")
 }
 
-// A real sweep mislabelled an sbx run as docker+egress. That matters because
-// the "session stopped underneath the agent" assertion only fires on sbx, so a
-// wrong label silently skips the check this whole test exists for.
 func TestDetectBackendReadsMoreThanProveosOwnLine(t *testing.T) {
 	t.Parallel()
 	// Every one of these appeared in the output of a run that WAS sbx.

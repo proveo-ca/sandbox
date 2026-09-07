@@ -93,9 +93,9 @@ func TestSaveIsOwnerOnly(t *testing.T) {
 	}
 }
 
-// TestModelsSurviveSaveAndLoad covers the round trip the run path relies on: a
-// session that set three roles must come back with them, so an operator does not
-// retype ARCHITECT_MODEL/EDITOR_MODEL/SMALL_MODEL on every run.
+// TestModelsSurviveSaveAndLoad covers the round trip the run path relies on:
+// a session that set three roles must come back with them, so an operator
+// does not retype ARCHITECT_MODEL/EDITOR_MODEL/SMALL_MODEL on every run.
 func TestModelsSurviveSaveAndLoad(t *testing.T) {
 	root := t.TempDir()
 	caps := manifest.Capabilities{Egress: []string{"allowlist"}, Credentials: []string{"broker"}}
@@ -127,10 +127,6 @@ func TestModelsSurviveSaveAndLoad(t *testing.T) {
 	}
 }
 
-// Models are the operator's choice, not a capability, so a manifest change must
-// discard the axes (which may no longer be valid) without being able to take the
-// model assignment with it — the entry is dropped as a whole, and the next run
-// re-reads the roles from the environment rather than inheriting a stale set.
 func TestModelsAreNotPartOfTheFingerprint(t *testing.T) {
 	caps := manifest.Capabilities{Egress: []string{"allowlist"}}
 	a := Fingerprint(caps)

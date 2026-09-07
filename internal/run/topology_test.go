@@ -40,9 +40,6 @@ func TestFrameAgreesWithTheForm(t *testing.T) {
 	}
 }
 
-// One lane always survives. deny-all is the ABSENCE of an allow rule and the Kit
-// can only add, so the agent still reaches its model — a frame with no lane at
-// all would say it cannot think.
 func TestEveryPostureLeavesTheProviderReachable(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -89,10 +86,6 @@ func TestHopNamesTheRightParty(t *testing.T) {
 	}
 }
 
-// Speaking is read the same way the RUN reads it. It used to come from a
-// checkbox pair whose "neither ticked" state quietly meant default and whose
-// Selected was only the cursor; as one radio there is no third state to
-// disagree about, and the figure cannot drift from the run.
 func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 	t.Parallel()
 	proj := topologyOf(manifest.Manifest{}, "opencode", false, "open", "broker")
@@ -143,11 +136,6 @@ func TestFocusMapsRowsToElements(t *testing.T) {
 	}
 }
 
-// The tier crosses from posture to choiceui with no translation, because the
-// two names denote ONE type. stripGlyphs used to sit here doing the conversion
-// and collapsing "off" to ASCII on the way; the collapse now lives in
-// choiceui.glyphsFor, asserted by TestGlyphsOffDrawsTheASCIISet, and this is
-// the guard that the two vocabularies have not drifted back apart.
 func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -164,10 +152,6 @@ func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 	}
 }
 
-// The cursor harness declares one egress mode AND one credential mode, so
-// applicableRows drops BOTH rows and the form answers "" to each. Reading the
-// form alone drew a "mitm + squid" hop for a run whose plan is a bare bridge
-// network with no sidecar — the strip inventing a boundary that is not there.
 func TestBothAxesFallBackWhenTheirRowWasDropped(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{evidenceRow(EvidenceDefault)}}
@@ -183,9 +167,6 @@ func TestBothAxesFallBackWhenTheirRowWasDropped(t *testing.T) {
 	}
 }
 
-// proveo could not read the host baseline, so it may be anything. Drawing the
-// most permissive posture and captioning it "the host allows every destination"
-// would state as fact the one thing nobody measured.
 func TestAnUnreadableBaselineIsDrawnAtItsTightest(t *testing.T) {
 	t.Parallel()
 	lane, open, refused := lanesOf("unreadable", true)
@@ -229,5 +210,59 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 		if got := interfaceOf(f); got != c.want {
 			t.Errorf("browser=%v chrome=%v: %q, want %q", c.browser, c.chrome, got, c.want)
 		}
+	}
+}
+
+// SPEC: _spec/internal/choiceui/topology-strip.puml
+func TestTheFigureFollowsTheHoveredBaseline(t *testing.T) {
+	t.Parallel()
+	const egressRowIdx = 0
+	form := &choiceui.Form{Rows: []choiceui.Row{{
+		Label:    "egress",
+		Options:  []string{"allow-all", "balanced", "deny-all"},
+		Locked:   true,
+		Selected: 2, // the host is on deny-all
+	}}}
+
+	cases := []struct {
+		name          string
+		hover, cursor int
+		wantTier      string
+		open, refused int
+	}{
+		{"hovering balanced previews balanced", 1, egressRowIdx, "balanced", 2, 1},
+		{"hovering allow-all previews allow-all", 0, egressRowIdx, "allow-all", 3, 0},
+		{"hovering deny-all matches the host", 2, egressRowIdx, "deny-all", 1, 2},
+		// The cursor elsewhere means nobody is reading this row: show what is
+		// actually in force.
+		{"cursor on another row shows the selection", 1, 7, "deny-all", 1, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			form.Rows[egressRowIdx].Hover = tc.hover
+			if got := egressTier(form, tc.cursor, "open"); got != tc.wantTier {
+				t.Fatalf("egressTier = %q, want %q", got, tc.wantTier)
+			}
+			_, open, refused := lanesOf(tc.wantTier, true)
+			if open != tc.open || refused != tc.refused {
+				t.Errorf("lanesOf(%q) = %d open, %d refused; want %d and %d",
+					tc.wantTier, open, refused, tc.open, tc.refused)
+			}
+		})
+	}
+}
+
+// An unlocked row (the docker tiers) is chosen, not hovered, so the figure must
+// keep following the selection there.
+func TestAnUnlockedEgressRowStillFollowsTheSelection(t *testing.T) {
+	t.Parallel()
+	form := &choiceui.Form{Rows: []choiceui.Row{{
+		Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1, Hover: 2,
+	}}}
+	if got := egressTier(form, 0, "open"); got != "allowlist" {
+		t.Fatalf("egressTier = %q, want the selection", got)
+	}
+	if got := egressTier(&choiceui.Form{}, 0, "open"); got != "open" {
+		t.Fatalf("with no egress row at all, egressTier = %q, want the fallback", got)
 	}
 }

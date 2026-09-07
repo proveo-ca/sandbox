@@ -1,6 +1,4 @@
-// Command proveo is the harness CLI.
-//
-// SPEC: _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/_plans/retire-dind.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// SPEC: _spec/overview.puml, _spec/cmd/proveo/usage.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/egress-boundary.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 package main
 
 import (
@@ -80,14 +78,14 @@ func main() {
 				return doList()
 			}
 			if flagInit {
-				return doInit()
+				return doInit(initOptions{})
 			}
 			return cmd.Help()
 		},
 	}
 	root.SetVersionTemplate("{{printf \"%s version %s\\n\" .Name .Version}}")
 	root.Flags().BoolVar(&flagLS, "ls", false, "List available harness targets")
-	root.Flags().BoolVar(&flagInit, "init", false, "Create a project .env from provider API keys already in the environment")
+	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if !cmd.HasParent() {
@@ -302,8 +300,9 @@ func doSetup(printOnly bool) error {
 }
 
 func onPath(dir string) bool {
+	dir = filepath.Clean(dir)
 	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
-		if p == dir {
+		if p != "" && filepath.Clean(p) == dir {
 			return true
 		}
 	}

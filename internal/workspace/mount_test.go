@@ -590,12 +590,6 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 
 	spec.EgressMode, spec.Credentials = "open", "forward"
 	got, _, links := spec.Plan()
-	// The .env target appears TWICE, and that is pre-existing rather than new:
-	// envMounts resolves the symlink for the scope mount and envOverlay carries the
-	// escaping target in, and both fire for a .env that points outside the
-	// workspace. Docker accepts two identical binds, so it is a redundancy and not
-	// a fault — encoded here so the next reader does not take it for one. (It is
-	// also the shape of this repo's own .env, which is a symlink to ~/base.env.)
 	wantForward := []runner.Mount{
 		{Host: root, Container: "/app"},
 		{Host: hostEnv, Container: "/app/.env", ReadOnly: true},
@@ -644,9 +638,6 @@ func TestMountPlanSkipsLinksInPrunedAndDeepDirs(t *testing.T) {
 	}
 }
 
-// linkedWorktree builds the on-disk shape `git worktree add` produces: the tree's
-// .git is a FILE pointing at <main>/.git/worktrees/<name>, whose commondir points
-// back up to the shared .git. Returns the worktree tree and the common dir.
 func linkedWorktree(t *testing.T, base, name string) (tree, common string) {
 	t.Helper()
 	common = filepath.Join(base, "main", ".git")

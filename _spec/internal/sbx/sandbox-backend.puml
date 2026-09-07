@@ -2,13 +2,67 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
 ' purpose: how a run reaches the sbx backend, what it hands over, and what it refuses
-' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/**
 ' covers: internal/sbx/sbx.go
 ' covers: internal/sbx/exec.go
 ' covers: internal/sbx/run.go
 ' covers: internal/sbx/agents.go
-' covers: internal/run/run.go (selectBackend)
+' covers: internal/sbx/limits.go
+' covers: internal/run/run.go
+' covers: e2e/idle_test.go
+' covers: e2e/chrome_bridge_sbx_test.go
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
+'
+' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
+' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
+' does NOTHING, longer than any timer in the stack, and asserts the agent is
+' still there — input is the variable being held at zero. sbx's auto-stop fires
+' 30s after the session DISCONNECTS, so the default 5-minute wait clears it by an
+' order of magnitude. It spends no model call: an agent sitting at its prompt has
+' not been asked anything. Gated behind PROVEO_IDLE_TEST=1 because it waits on
+' purpose (~6 minutes), with PROVEO_IDLE_FOR / PROVEO_IDLE_STARTUP as the knobs.
+'
+' It needs a REAL pty (`pty.Start`), not tmux: `sbx run -t <image> shell <ws>`
+' exits within seconds in a detached pane with proveo uninvolved (see
+' e2e/sbx_test.go). The pty is sized 50x200 first — a TUI that cannot read the
+' window size draws one character per line and the banner never appears in a
+' recognisable form.
+'
+' ── FOUR VERDICTS, NOT TWO, AND THE READINGS THAT COST TIME ─────────────────
+' "the agent is gone" is only one of the ways this run ends, and reporting the
+' others as failures sends the reader after the wrong thing:
+'   SKIP    an auth failure — "Failed to authenticate", "Credit balance is too
+'           low", "Please run /login", "Not logged in", cursor-agent's "Press any
+'           key to log in". A session that could not start proves nothing either
+'           way. Claude Code reports "Not logged in" in the STATUS BAR and then
+'           exits, which is exactly the failure this suite must distinguish from
+'           a session stopped underneath a HEALTHY agent.
+'   BLOCKED a screen that WAITS for a human — Claude Code's first-run theme
+'           picker ("Choose the text style", "Let's get started"), which appears
+'           whenever HOME names a path with no config in it. Alive, but it can
+'           never proceed unattended: a different fault from dying.
+'   ALIVE   the harness's OWN TUI frame. "reached a prompt" is not a shared
+'           shape, so there is one marker row per target (cursor · opencode ·
+'           cecli · claudecode). Matching Claude Code's frame against a cursor
+'           session reported a healthy agent as a hang for 481 seconds — a test
+'           failing rather than a def failing.
+'   DEAD    "was stopped" · "kept for diagnosis" · "agent exited with code".
+'
+' The markers are matched against ANSI-stripped text, and that is not cosmetic:
+' the status bar is laid out with cursor-positioning escapes BETWEEN words, so
+' "Not logged in" reaches the buffer as "Not\x1b[177Glogged\x1b[184Gin" and every
+' plain substring match for it silently fails.
+'
+' Prompt detection reads the TUI's own frame rather than proveo's entrypoint
+' banner: the banner is printed BEFORE the agent starts, so a session can be
+' fully up without it being the last thing said — and the stock sbx image never
+' prints it at all, which the ladder's rung 0 needs.
+'
+' PROVEO_IDLE_TARGETS takes a comma-separated list (default: claudecode alone).
+' Sweeping matters because this failure has only ever been reported on ONE
+' harness at a time, and a per-harness answer is what separates "this agent
+' exits" from "sbx stops sessions". The open case is opencode — see
+' _spec/_paradigms/capability-ladder.puml.
 '
 ' ── Authoritative sbx references. The Kit spec is the source of truth for every
 ' field below. Deriving the shape from sbx's rejection messages instead produced a
@@ -90,7 +144,7 @@ end note
 
 note left of FB
   **Fallback contract:** EVERY harness declares ""docker: sbx"" now
-  (_spec/_plans/retire-dind.puml), so nothing runs here by declaration — a run
+  (_spec/_paradigms/retire-dind.puml), so nothing runs here by declaration — a run
   lands here only when the gate above fails, or when ""PROVEO_SBX=0"" or
   ""--egress-mode review"" asks for it. Def-local shell suites keep covering the
   fallback images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
@@ -510,6 +564,33 @@ note top of SBX
   PATH that exits at once and leaves an orphan
   holding the pipe — a call that stops going
   through ""bounded()"" is the regression to catch.
+end note
+
+note as Idle #F4F9FB
+  **Which backend ran is read from FOUR witnesses, not from proveo's own line.**
+
+  ""detectBackend"" keyed on ""backend: docker sandboxes (sbx)"" alone, and a real
+  sweep mislabelled an sbx run as docker+egress — while that same output carried
+  ""Created sandbox "", "".../sbx/kit"" and "".../sbx/policy-log\.json"". The label
+  is not cosmetic: the "was the session stopped underneath the agent?" assertion
+  fires only when it says sbx, so a wrong label silently SKIPS the check the
+  whole test exists for. Pinned by a unit test over both directions, from output
+  a real run produced.
+
+  **Liveness is corroborating, so an unreadable listing reads as alive.**
+  ""sbx ls"" is consulted for the sandbox name proveo printed (""proveo-\d+-\d+"");
+  a listing that errors reports "running", because failing the test because
+  ""sbx ls"" hiccuped would blame the agent for the tool. Listed NOWHERE is the
+  failure — that is the sandbox being gone.
+
+  **The probe cleans up after itself.** A kept sandbox outlives the test process,
+  so teardown runs ""sbx rm --force <name>"" on the name scraped from the output;
+  otherwise the next run trips over it.
+
+  **Every byte sent to the agent is taped, and dumped only on failure.** Three
+  theories about this class of failure were built on inference and two collapsed;
+  ""PROVEO_TRACE_STDIN"" is the one thing that reports what actually arrived, and
+  a passing sweep stays quiet.
 end note
 
 @enduml

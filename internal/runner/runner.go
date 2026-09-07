@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/runner/hardened-run-argv.puml
-//
-// SPEC: _spec/internal/runner/hardened-run-argv.puml
 package runner
 
 import "fmt"

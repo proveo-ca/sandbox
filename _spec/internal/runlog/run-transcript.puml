@@ -1,5 +1,57 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what one run leaves behind to be read afterwards, and why the verdict has to be written before Do returns
+' covers: internal/runlog/runlog.go
+' covers: internal/ui/ui.go
+' covers: internal/run/run.go (Do, recordOutcome)
+' covers: internal/backend/sandbox/sandbox.go (KeptLines, the failure path in Run)
+' covers: internal/runlog/runlog_test.go
+' covers: internal/run/outcome_test.go
+' covers: internal/ui/ui_test.go
+'   the three records the failure line offers . _spec/internal/sbx/sandbox-backend.puml
+'   the tail's pty seam ...................... _spec/internal/ptyproxy/terminal-report-filter.puml
+'   the work the same teardown rescues ....... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE TRANSCRIPT PROMISED SOMETHING IT DID NOT HOLD ──────────────────────
+' `kept for diagnosis` points the operator at this file and promises "every line
+' this run printed". It recorded neither the exit code nor the agent's output —
+' the two things anyone opening it after a failure is there for.
+'
+' Both gaps have the same shape: the interesting event happened where the log
+' could not see it.
+'
+'   THE EXIT CODE. `main` exits with the AGENT's own code via os.Exit and prints
+'   nothing — deliberately, so a script wrapping proveo reads the agent's status
+'   and not proveo's opinion of it. Any OTHER error is printed by `main` AFTER
+'   `Do` has returned, and `Do` closes the log on its way out. So in the one
+'   case there was nothing to write, and in the other there was nobody left to
+'   write it.
+'
+'   THE AGENT'S LAST OUTPUT. The tail block was written straight to os.Stderr,
+'   bypassing ui.TeeTo entirely. It reached the terminal, which is where an
+'   operator sitting at the run already had it, and never reached the file the
+'   same paragraph tells them to go and read.
+'
+' ── recordOutcome: WRITE THE VERDICT WHILE THE LOG IS STILL OPEN ───────────
+' `Do` wraps its own result: `return recordOutcome(execute(...))`, inside `Do`,
+' before the deferred Close. The channel it uses depends on who else is going to
+' print, and getting that wrong doubles a line on screen instead of dropping it:
+'
+'   ExitError      through ui — terminal AND log. `main` prints nothing for
+'                  this case, so ui is the only voice there is.
+'   any other err  through ui.Logf — LOG ONLY. `main` still owns printing it,
+'                  and a second copy on stderr would be proveo saying the same
+'                  sentence twice.
+'   nil            through ui.Logf. "the agent exited 0" is worth having in a
+'                  transcript being diffed against a broken run, and worth
+'                  nothing on a terminal that just watched it happen.
+'
+' The agent tail now goes through ui as well. Tail.push already strips ANSI and
+' control characters, so what lands in the log is greppable — the same property
+' the status tee exists to preserve, applied to the one block that had been
+' routed around it.
 title Run transcript — making a denial diagnosable after the fact
 
 node "PROVEO_HOME/logs" as HOME <<host>> {
@@ -12,7 +64,11 @@ node "proveo run" as RUN <<host>> {
   component "ui.TeeTo\nstatus lines, ANSI stripped" as TEE <<app>>
   component "rl.Fields\nresolved posture" as FIELDS <<app>>
   component "captureSidecarLogs\nteardown, before --rm" as CAP <<app>>
+  component "recordOutcome\ninside Do, while the log is open" as OUT <<app>>
+  component "tail of the agent's last output\nANSI-stripped by Tail.push" as ATAIL <<app>>
 }
+
+component "main's os.Exit(agent code)\nprints nothing, and the log is closed" as OSEXIT <<error>>
 
 database "egress state dir\nflows.ndjson · squid/logs\ninspector.log · squid.log" as EG <<db>>
 
@@ -22,6 +78,10 @@ TEE ARROW_MAIN LOG
 FIELDS ARROW_MAIN LOG
 CAP ARROW_MAIN EG : docker logs → file
 LOG ARROW_OPTIONAL EG : records where the evidence lives
+OUT ARROW_MAIN TEE : ""ExitError"" → terminal + log
+OUT ARROW_MAIN LOG : any other error → ""ui.Logf"", log only
+ATAIL ARROW_MAIN TEE : through ui, no longer straight to stderr
+OSEXIT ARROW_ERROR LOG : what recordOutcome runs ahead of
 
 note right of OPEN
   **Opened before anything can fail.** A run that dies during
@@ -108,6 +168,30 @@ note bottom of LOG
   them. Naming the transcript at startup ONLY is naming it to someone who has no
   reason yet to look — see ""_spec/internal/sbx/sandbox-backend\.puml"" for the
   three records that failure line now offers.
+end note
+
+note bottom of OUT
+  **The verdict, written before Do returns.** An
+  ""ExitError"" goes through ui because ""main"" prints
+  nothing for it; every other error goes to the LOG
+  ONLY, because ""main"" still owns printing it and a
+  second copy would say the same sentence twice.
+end note
+
+note bottom of OSEXIT
+  **Why the log held no verdict.** ""main"" exits with
+  the AGENT's code so a wrapping script reads that
+  and not proveo's opinion — and any other error is
+  printed after ""Do"" returned and the log closed.
+  Nothing was left to write it.
+end note
+
+note bottom of ATAIL
+  **It printed where the log could not see it.** The
+  block went straight to ""os.Stderr"", so it reached
+  the operator who already had it and never the file
+  the same paragraph sends them to. Routed through
+  ui, it is teed and stays greppable.
 end note
 
 note bottom of FIELDS

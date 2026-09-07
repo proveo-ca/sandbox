@@ -19,17 +19,11 @@ func commentFree(body string) string {
 	return strings.Join(kept, "\n")
 }
 
-// aliasPaths are the spellings of the harness-named home, which is a SYMLINK to
-// /home/agent. A SUBPATH of it (…/.claude) resolves to a real directory and is
-// fine; the bare path is the link itself.
 var aliasPaths = map[string]bool{
 	"/home/${USER_NAME}": true,
 	"/home/$USER_NAME":   true,
 }
 
-// chownTargets returns the operands of every `chown` in a Dockerfile body: the
-// statement is split on `&&` so one command's arguments are not confused with the
-// next's, then the owner spec and any flags are dropped.
 func chownTargets(body string) map[string][]string {
 	out := map[string][]string{}
 	joined := strings.ReplaceAll(body, "\\\n", " ")
@@ -63,24 +57,6 @@ func chownTargets(body string) map[string][]string {
 	return out
 }
 
-// A Dockerfile that aliases the harness name to /home/agent must never `chown -R`
-// the ALIAS.
-//
-// mkdir -p follows a symlink, so directories created through /home/${USER_NAME}
-// land in the real home owned by root. chown -R does NOT follow it, so aiming the
-// chown at the link changes only the link and leaves everything under it
-// root-owned. Nothing in the build fails, and `ls -l /home/${USER_NAME}` even
-// reports the right owner — because that IS the link. The agent dies later, on its
-// first write:
-//
-//	mkdir: cannot create directory '/home/agent/.config/opencode/agents':
-//	Permission denied
-//
-// Measured on proveo/opencode:local, 2026-09-05: .config, .config/opencode and
-// .local/share/opencode were all 0:0 beneath a /home/agent owned by 1000:1000.
-// cursor chowns /home/agent and claudecode chowns /home/${USER_NAME}/.claude;
-// both end at a real directory, which is why opencode alone failed the detached
-// smoke suite while its build reported success.
 func TestNoDockerfileChownsTheHomeSymlink(t *testing.T) {
 	t.Parallel()
 

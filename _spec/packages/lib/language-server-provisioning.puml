@@ -2,8 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Language-server provisioning — §8 of the shared entrypoint lib
 
-' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp,
-'         configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
+' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp, configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
 ' covers: internal/contract/lsp_config_parity_test.go
 ' covers: internal/sbx/kit.go (SeedCommand)
 

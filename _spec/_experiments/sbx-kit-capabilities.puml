@@ -4,6 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: sbx capabilities proveo re-implements, and the one belief now falsified
 ' covers: internal/sbx/kit.go
 ' covers: internal/sbx/agents.go
+' covers: internal/backend/sandbox/**
+' covers: internal/provider/provider.go
+' covers: e2e/ladder_test.go
 ' The contract this corrects: _spec/internal/sbx/sbx-kit-contract.puml
 ' The rebase that started it: _spec/_devops/sandbox-template-rebase.puml
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -239,6 +242,29 @@ skinparam noteTextAlignment left
 '     FORMAT STRING ("Bearer %s" vs "%s") and never sees the value, so the
 '     scheme has to survive on its own rather than be sniffed back out of a
 '     prefixed Value.
+'
+'     THE ALLOWLIST IS WIDENED FROM THE CREDENTIAL, NOT TRUSTED TO MATCH IT.
+'     SPEC-v2 requires every inject[].domain to appear in
+'     permissions.network.allow too, and the two lists are built from DIFFERENT
+'     inputs: allow comes from credentials.ReachableHosts over in.Detected,
+'     the credential from provider.Detect over in.Lookup. sandbox.Spec adds any
+'     injected domain missing from allow rather than assuming they agree — a
+'     domain absent from allow is a credential sbx refuses to attach.
+'
+'     Its test had to DIVERGE the two inputs to mean anything: in.Detected empty
+'     so ReachableHosts contributes nothing, in.Lookup still carrying the key so
+'     the credential is built. The first version set both, which put the domain
+'     in allow by the other path and passed with the widening deleted — the
+'     fixture-measuring failure this file keeps counting.
+'
+'     TWO SEAMS THE BUILT VERSION NEEDED, both small and both load-bearing:
+'       storedSecretNames is a var, so a test can state which services sbx holds
+'         without a live daemon. It is the only thing deciding whether a
+'         credential is declared, so a test that could not control it would
+'         either need sbx running or would assert nothing.
+'       `--shell` still selects sbx's own shell. The gate must not steal an
+'         explicit request for the stock agent, and a built-in-backed def must
+'         never reach it at all — sbx refuses a Kit shadowing a built-in name.
 '
 '     ── WHAT STILL BLOCKS DEFAULTING THE GATE ON ───────────────────────────
 '     One measurement, and it is cheap. Everything above is verified in Go —

@@ -94,10 +94,6 @@ func TestOverlaySuspendsBothPumps(t *testing.T) {
 	}
 }
 
-// The overlay must be the ONLY reader of stdin for its duration. A pump that
-// keeps reading swallows the operator's answer, which is the contention this
-// package exists to remove — and it fails closed, so it looks like a denial
-// rather than a bug.
 func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	t.Parallel()
 	inR, inW, err := os.Pipe()
@@ -108,9 +104,6 @@ func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Deliberately NOT deferred: closing a file the pump is still reading tears the
-	// fd down underneath it, which the race detector reports as a data race against
-	// anything else touching that file. The pipes die with the test process.
 	_ = outR
 	p := New(inR, outW)
 	cmd := exec.Command("cat") // echoes whatever the pump forwards
@@ -142,9 +135,6 @@ func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	_ = cmd.Process.Kill()
 }
 
-// tcell must read through the pump's hand-off, never /dev/tty. A screen that
-// opens the tty itself becomes a second reader: the modal renders and then takes
-// no keystrokes, which is what a real run showed.
 func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
 	t.Parallel()
 	fed := make(chan []byte, 1)
@@ -169,14 +159,6 @@ func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
 	}
 }
 
-// The tap is what finally gives an INTERACTIVE run a record of the agent's last
-// words. The tail is normally taken by teeing os/exec's Stdout, and os/exec hands
-// the child a real terminal only when that field is an *os.File — so teeing it costs
-// the agent its tty and the tail was simply skipped. A run that died at its prompt
-// then had no tail AND no transcript, and "sandbox was stopped" was the whole report.
-//
-// Both properties are asserted together, because either alone is the bug: the child
-// must still get a TTY, and the tap must still see what it wrote.
 func TestOutTapCopiesChildOutputWithoutCostingTheChildItsTTY(t *testing.T) {
 	t.Parallel()
 	outR, outW, err := os.Pipe()
@@ -257,10 +239,6 @@ func TestOutTapIsOptional(t *testing.T) {
 	}
 }
 
-// DropReports has to REACH the pump. A flag set on the struct and never read
-// looks right in review and changes nothing on the wire, which is precisely the
-// shape of the defect it exists to close — so this drives a real report through
-// a real Run and asks the tap what happened to it.
 func TestDropReportsReachesTheInputPump(t *testing.T) {
 	t.Parallel()
 	lone := "\x1b[?6c" // the VT102 DA reply that killed proveo-1787852436-14907

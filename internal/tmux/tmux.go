@@ -1,7 +1,5 @@
 // SPEC: _spec/tests/testing-strategy.puml,
 // _spec/tests/40-agent-e2e-components.puml
-//
-// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/40-agent-e2e-components.puml
 package tmux
 
 import (
@@ -58,7 +56,7 @@ func (s *Session) Enter() error {
 	return err
 }
 
-// SendKeys sends named keys (e.g.
+// SendKeys sends named keys to the session.
 func (s *Session) SendKeys(keys ...string) error {
 	_, err := s.run(append([]string{"send-keys", "-t", s.Name}, keys...)...)
 	return err

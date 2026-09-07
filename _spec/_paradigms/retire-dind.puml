@@ -1,8 +1,16 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: retire the privileged dind sidecar and make sbx the only way an agent gets a daemon
+' covers: internal/manifest/**
+' covers: internal/run/**
+' covers: internal/egress/plan.go
+' covers: internal/sbx/agents.go, internal/sbx/sbx_test.go
+' covers: cmd/proveo/main.go, cmd/proveo/clean.go
+' covers: internal/contract/contract_test.go
+' covers: e2e/sbx_test.go, e2e/hello_world_test.go
 ' session: d2ff9d04-cba3-46b5-87d6-698c921c9ede
-' APPLIED — all four steps landed. _spec/_plans/ is exempt from the SPEC-reference rule.
+' APPLIED 2026 — all four steps landed; kept as the decision record for why
+' no privileged sidecar exists. Cited from the source it constrains.
 '
 ' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
 ' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images
@@ -54,6 +62,61 @@
 ' `AgentArgs` and the `--internal` flag on the created network, which is the
 ' property the old invariant was really protecting.
 '
+' ── WHAT THE RETIREMENT LEFT BEHIND, AND HOW EACH REMNANT BEHAVES ─────────
+' Four places still know the word `dind`, and each is deliberate.
+'
+' 1. THE MANIFEST REFUSES IT BY NAME. `docker: dind` is not merely unknown to
+'    Validate — it has its own case, so the error says the privileged sidecar is
+'    retired rather than reading like a typo. Two retired KEYS are parsed for
+'    the same reason (`dind:` and `sandbox_docker:` under the retired block): a
+'    def still carrying one is asking for something gone, and silence would let
+'    it look honoured. The only two answers left are one daemon and none.
+'
+' 2. A CACHED CHOICE IS DROPPED, NOT TRANSLATED. normalizeAddons discards both
+'    spellings an older run may have remembered — `dind` and `docker (dind)` —
+'    because there is no equivalent offer to carry them to, and the sandbox box
+'    is re-ticked by the gate on every run anyway. Translating them would invent
+'    consent for a different thing.
+'
+' 3. THE TIER GATE OUTLIVED THE SIDECAR IT WAS WRITTEN FOR. `gateAddons` lost
+'    its dind arm but not its job: the Claude in Chrome bridge is now the only
+'    add-on it governs, and it governs it on the DOCKER backend, where an
+'    intercepting tier leaves the agent no route to the host.
+'
+' 4. `PROVEO_DIND` SAYS SO RATHER THAN STAYING SILENT. Its whole remaining job
+'    is the warning. An operator who exported it in a shell rc months ago reads
+'    a missing sidecar as a broken run; a silent no-op tells them nothing. The
+'    e2e suites pin it to 0 for the opposite reason — so an operator's exported
+'    value cannot put the retirement warning into a screen they match on.
+'
+' ── AND ONE RESERVATION INVERTED ──────────────────────────────────────────
+' The contract suite used to assert BOTH directions: a subscription harness must
+' set `docker: sbx`, and a non-subscription one must NOT. That second arm
+' reserved the sandbox for the two vendor harnesses and left opencode and cecli
+' on the privileged sidecar. It is deliberately GONE. sbx is where every harness
+' runs; subscription now decides only HOW a credential gets there.
+'
+' The daemon-coverage guard collapsed the same way. It used to PARTITION two
+' branches so neither could report success by testing nothing; with one branch
+' left, the guard is the simpler and stronger claim — every def that promises a
+' daemon is in the sbx branch, checked against every def rather than a tracked
+' subset, and the branch is asserted NON-EMPTY.
+'
+' ── THE CLIENT INSIDE THE SANDBOX IS NOT proveo'S TO PROMISE ──────────────
+' `docker: sbx` promises a DAEMON. Whether a docker CLIENT is on PATH inside the
+' sandbox is neither stable nor ours: cursor's sandbox has one and claudecode's
+' does not, from images that both install it, because `sbx create` re-bakes the
+' template (_spec/_experiments/docker-sandbox.puml) and the claude-flavoured
+' bake drops it. Pinning it either way would encode an sbx implementation
+' detail as a proveo contract.
+'
+' It is still NAMED when it bites. assertDockerServerReachable separates
+' "command not found" from "cannot connect to the docker daemon", because the
+' two need different repairs — the first is sbx-side or a manifest that should
+' stop declaring `docker: sbx`, the second is a daemon that did not come up.
+' TestDindHarnessesShipADockerClient asserted this for the privileged-sidecar
+' branch, where the image alone decided the answer; that branch is retired.
+'
 ' WHAT DID NOT HAPPEN, ON PURPOSE. mitmproxy and Squid still stand, the docker
 ' backend still answers `PROVEO_SBX=0` and `--egress-mode review`, and the review
 ' tier is therefore still implemented. `clean` still sweeps `proveo-dind-*`: a
@@ -89,7 +152,7 @@
 ' the PROVEO_SBX=0 fallback keeps review, the flow record and Chrome alive AND
 ' keeps (d) open. That trade is the "one backend, or two?" question below, and
 ' secret-custody is a third voice in it.
-title APPLIED — retire dind: one privileged sidecar, and what went with it
+title No privileged sidecar — how dind was retired, and what went with it
 
 component "**dind sidecar** — what retires\n""--privileged"", sibling daemon, agent-reachable" as DIND <<error>>
 component "internal/dind\nfive gates, a prompt, a scope scan" as GATE <<app>>

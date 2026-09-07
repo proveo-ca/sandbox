@@ -3,6 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: why the agent's commits carry a resolved identity, and the precedence that resolves it
 ' covers: internal/gitidentity/gitidentity.go
+' covers: internal/gitidentity/**
 '
 ' ── AN UNSET IDENTITY FAILS LATE AND BADLY ─────────────────────────────────
 ' A container has no git identity of its own. Without one the agent works

@@ -151,7 +151,11 @@ note over LIB
 
   **Unresolvable is a refusal, never a silent ""latest"".** Falling back to the
   dist-tag would reopen the hole in the one place — offline, behind a
-  proxy — where nobody is watching the build log.
+  proxy — where nobody is watching the build log. It prints NOTHING on
+  stdout when it fails, because a caller would bake whatever it printed,
+  and the stderr line names ""<ARG>=<x\.y\.z>"" as the way out. An ecosystem
+  it does not know is refused the same way ("unknown ecosystem"), rather
+  than being treated as one of the three it does.
 end note
 
 note over LBL

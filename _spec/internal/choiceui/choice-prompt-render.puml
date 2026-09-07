@@ -1,5 +1,12 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what the choice prompt draws, what may be offered, and where the cursor may rest
+' covers: internal/choiceui/choiceui.go, internal/choiceui/consent.go
+' covers: internal/choiceui/choiceui_test.go, internal/choiceui/consent_test.go
+' covers: internal/choiceui/hover_test.go, internal/choiceui/gated_reason_test.go
+' covers: internal/choiceui/pane_test.go
+' covers: cmd/proveo/main.go
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
 ' row-gating helpers (applicableRows, comingSoon, gateAddons, gateReview) lands here (batches 3 and 6).
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
@@ -56,7 +63,7 @@
 ' execution plane is one of these, since a run has exactly one place it runs.
 ' Storage stays a checkbox set because "neither" is REACHABLE there. Execution
 ' keeps the checkbox model for a weaker reason now: retiring the privileged
-' sidecar (_spec/_plans/retire-dind.puml) left it with one box, greyed and
+' sidecar (_spec/_paradigms/retire-dind.puml) left it with one box, greyed and
 ' ticked, so it states a fact rather than offering a choice — and a radio of one
 ' would read as a question. Divider is declared rather than inferred: it used to be "the first
 ' multi-select row", which silently meant only one group could ever be named.
@@ -108,6 +115,29 @@
 ' exists to confirm a credential and network posture, and silently CHANGING a
 ' posture nobody can see is worse than the truncation the viewport replaced —
 ' accepting one unseen is bad enough, and esc is always the answer to that.
+'
+' ── A HELP LINE HAS A PREFIX ONLY WHEN IT HAS A REASON ─────────────────────
+' "off: " on its own is still a field, and an option that is merely AVAILABLE
+' was printing that bare prefix under itself — a label announcing nothing. An
+' available option says what it DOES and stops there; the prefix belongs to the
+' explanation, so with no explanation there is no prefix and no line.
+'
+' ── THE HEADER'S ACCENT IS A VOCABULARY, NOT AN EMPHASIS ───────────────────
+' putHeader styles a header row by what each piece IS, never by where it sits:
+' MARKERS take the accent and CONTENT stays body-styled, so the eye can find
+' the row's structure without reading it. The label, every `key=` in a
+' multi-slot row, and every glyph are markers; model ids, LSP server names and
+' provider names are content. A parenthetical state is a third thing — a
+' description of the fact rather than the fact — and takes the aside style.
+'
+' The rule arrived from two rows that broke it in opposite directions.
+' `llms:` accented only up to the label, so every slot after it rendered as
+' body text and the row read as one model mattering more than the others — the
+' same half-highlighted failure the wireframe records. `lsp:` had the inverse
+' risk: its glyphs and its server names sit in one string, and accenting the
+' names would make the content compete with the markers meant to index it.
+' `git: <repo> on <branch> (<state>)` is what pins the aside: a reader scans
+' that row for the BRANCH.
 '
 ' ── THE PAINT ORDER THE REGIONS DEPEND ON ──────────────────────────────────
 ' Topology is called at PAINT time on every frame, so it tracks the cursor —
@@ -272,6 +302,14 @@ note top of HDR
   unbounded value, so the roles are printed in
   the header beside the repository instead of
   becoming a selectable row of their own.
+end note
+
+note bottom of HDR
+  **Markers accent, content does not.** The
+  label, each ""key="" and each glyph index the
+  row; model ids, server names and providers are
+  what the row says. A ""(state)"" aside is a
+  description of the fact, so it is italic.
 end note
 
 note bottom of HDR

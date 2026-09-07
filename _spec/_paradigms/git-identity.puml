@@ -1,5 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how a commit made inside the container becomes attributable without mounting the host's gitconfig
+' covers: internal/gitidentity/**
+' covers: packages/lib/entrypoint-lib.sh
+' covers: cmd/proveo/main.go
+' covers: e2e/git_access_test.go
+' Ownership and worktree scoping: _spec/internal/workspace/git-mount-by-scope.puml.
 title Git identity & context — commits attributable, no host gitconfig mounted
 
 node "Host" as HOST <<host>> {

@@ -155,9 +155,6 @@ func TestReplayOfTheCapturedZellijTrace(t *testing.T) {
 	}
 }
 
-// A far end that reads its input as a prompt stream never queried anything, so
-// no report is owed to it and the FIRST copy is already one too many. The dedup
-// rule cannot express that: it forwards the first copy by construction.
 func TestDropRepliesRemovesEvenAnUnpairedReport(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -191,10 +188,6 @@ func TestDropRepliesStillNeverDropsKeystrokes(t *testing.T) {
 	}
 }
 
-// The exact read that killed proveo-1787852436-14907: ONE VT102 Device
-// Attributes reply, five seconds into a run, with no duplicate to mark it as
-// surplus and nothing on the sbx side that had queried. Under the default rule
-// it is forwarded — which is the bug, so the default is asserted here too.
 func TestTheLoneReplyThatKilledTheSbxRun(t *testing.T) {
 	t.Parallel()
 	lone := []byte("\x1b[?6c")
@@ -289,16 +282,7 @@ func TestReplayOfTheCapturedMouseTrace(t *testing.T) {
 	}
 }
 
-// The two replies opencode 1.18.29 actually provokes on startup, neither of
-// which the filter knew. Its TUI opens with a kitty GRAPHICS probe
-// (ESC_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA ESC\) and a kitty KEYBOARD push
-// (CSI > 5 u), and the terminal's answers to both were classified as
-// reportNone — so they reached the application as keystrokes.
-//
-// Observed in a real session: the pane filled with `Gi=31337,…`, `^[[18~`
-// (F7), `^[[19~` (F8) and bare digits, and every crash ended with a stray `c`
-// immediately before the error — the tail of a DA1 reply whose prefix had been
-// consumed. SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -317,9 +301,6 @@ func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 	}
 }
 
-// The narrowness matters as much as the catch: a real F3 is CSI 1 ; 5 u under
-// the kitty protocol, and swallowing genuine keys would be a worse bug than
-// the one this fixes.
 func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -340,14 +321,6 @@ func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 	}
 }
 
-// The sequence from a real crashed session, byte for byte:
-//
-//	^[[200~sk-…^[[201~cERROR: sandbox "…" was stopped
-//
-// A bracketed paste, then a lone `c` — the tail of a DA1 reply whose head
-// arrived in the previous read. keep() judged one whole read, so the fragment
-// failed the len<3 guard and reached the agent as a keystroke. That `c` sat in
-// front of every "sandbox was stopped" in this investigation.
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	t.Parallel()
@@ -372,9 +345,6 @@ func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	}
 }
 
-// A read carrying a report BESIDE real typing was all-or-nothing: filtering it
-// ate the keystrokes too. Bracketed paste makes that routine — the pasted text,
-// its markers, and whatever the terminal was still answering land together.
 func TestAPasteSurvivesAReportInTheSameRead(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -390,9 +360,6 @@ func TestAPasteSurvivesAReportInTheSameRead(t *testing.T) {
 	}
 }
 
-// A lone ESC keypress must not be held hostage waiting for a sequence that
-// never comes, and an over-long run claiming to be an escape must not swallow
-// the buffer.
 func TestUnfinishedEscapesDoNotStallInput(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()

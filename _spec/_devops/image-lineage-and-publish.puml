@@ -9,7 +9,14 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' covers: defs/*/ensure.sh
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/helpers.sh
+' covers: defs/sidecars/*/Dockerfile
 ' covers: internal/maintain/**
+' covers: cmd/proveo/maintain_cmd.go
+' covers: cmd/proveo/provision.go
+' covers: internal/contract/image_resolution_test.go
+' covers: internal/contract/import_boundary_test.go
+' covers: e2e/docker-detached-smoke.sh
+' covers: lib/registry.sh
 '
 ' ── EVERY build.sh HAS THE SAME SHAPE ───────────────────────────────────────
 '   IMAGE="${PROVEO_<X>_IMAGE:-proveo/<x>:latest}"   env override wins outright
@@ -54,6 +61,17 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' A repo-root context is what makes the root .dockerignore load-bearing: without
 ' it, 201 MB of node_modules and .git reach the daemon on every harness build.
 '
+' A THIRD SHAPE, AND IT CONSTRAINS THE GO TREE. The sidecars build Go from a
+' PARTIAL context: defs/sidecars/egress-proxy/Dockerfile copies go.mod, cmd/ and
+' internal/ — no root-level .go files and no defs/ tree. So any package under
+' internal/ that imports the ROOT package (where the embeds live) makes that
+' image fail with "no required module provides package". The root package is for
+' main packages to hand down: internal/manifest takes an fs.FS for exactly this
+' reason, and internal/provider now does too. Two contract tests hold it — no
+' internal package may import the root, and `go list -deps ./cmd/proveo-egress`
+' must not reach it either, because enumerating deps is cheap and a full docker
+' build is not. Neither existed when the bridge tables were first embedded.
+'
 ' ── TWO SHELL HELPERS WITH NON-OBVIOUS BODIES ───────────────────────────────
 ' proveo_image_created prints an image's build time as epoch seconds and is the
 ' shell twin of posture's dockerImageCreated. The fraction is trimmed BEFORE
@@ -76,6 +94,18 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 '
 ' Only :latest is ever resolved by proveo_resolve_image. An explicit :v2 or a
 ' digest is a deliberate choice by the caller and is returned untouched.
+'
+' ── ONE RULE, IN ONE PLACE — AND THE SECOND OPINION IS BANNED ───────────────
+' The smoke suite grew its own `for tag in local latest`, which prefers :local
+' by EXISTENCE rather than by recency. That is the shadow running the other way:
+' a stale local build shadowed an image pulled a minute ago while the run read
+' as coverage of the newer one. A second opinion about which image is current is
+' worse than none, so a contract test refuses that loop anywhere under defs/,
+' e2e/ and scripts/, and a second one runs the shell resolver and
+' maintain.ResolveImage over the same table — local newer, local older, no local
+' build, local only, neither present, an explicit tag, an explicit :local — and
+' fails if they disagree. Two implementations of "prefer the newer build" that
+' disagree is a suite vouching for an image the run never uses.
 
 node "defs/ build scripts" as HOST <<host>> {
   component "proveo_image_ref\n<env-var> <repo> <tag>" as REF <<app>>

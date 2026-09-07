@@ -1,5 +1,5 @@
-// Package proveo embeds the harness manifests and the Squid config into the Go
-// binaries so the CLI (cmd/proveo) is self-contained and works without the
+// Package proveo embeds the harness manifests and the Squid config into the
+// Go binaries so the CLI (cmd/proveo) is self-contained and works without the
 // defs/ tree on disk.
 package proveo
 
@@ -10,8 +10,8 @@ import "embed"
 //go:embed defs/*/harness.manifest
 var Manifests embed.FS
 
-// ModelBridges holds every defs/bridges/<harness>.tsv: how the shared role vars
-// become the env vars a harness actually reads.
+// ModelBridges holds every defs/bridges/<harness>.tsv: how the shared role
+// vars become the env vars a harness actually reads.
 //
 //go:embed defs/bridges/*.tsv
 var ModelBridges embed.FS

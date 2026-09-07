@@ -10,11 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// Notes in _spec/ are 2-5 lines of at most 50 columns. The ceiling forces one idea per
-// anchor; the floor keeps every note the same shape so none reads as an afterthought
-// label. This is a ratchet, not a sweep: only files listed here are enforced, and a file
-// joins the list once its notes are rewritten. The point is that a compliant file cannot
-// silently regress while the backlog is worked through.
 var specNotesEnforced = []string{
 	"_spec/_devops/release-gate.puml",
 	"_spec/_experiments/sbx-driving-a-session.puml",
@@ -41,7 +36,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/secret-custody.puml",
 	"_spec/internal/secretref/secret-references.puml",
 	"_spec/internal/sbx/oauth-provisioning.puml",
-	"_spec/_plans/retire-dind.puml",
+	"_spec/_paradigms/retire-dind.puml",
 	"_spec/_plans/workspace-env-key.puml",
 	"_spec/_plans/config-seeding-and-persistence.puml",
 	"_spec/_plans/claude-in-chrome-reachability.puml",
@@ -62,11 +57,8 @@ const (
 )
 
 var (
-	noteOpen = regexp.MustCompile(`^note\s+(?:top|bottom|left|right)\s+of\s+\S+\s*$`)
-	noteAs   = regexp.MustCompile(`^note\s+as\s+\S+\s*$`)
-	// `note over X` and `note over X, Y` are the same box under a different keyword.
-	// Omitting them exempted a whole note form from the rule: credential-boundary
-	// carries 21 of them and the checker reported it as having no notes at all.
+	noteOpen   = regexp.MustCompile(`^note\s+(?:top|bottom|left|right)\s+of\s+\S+\s*$`)
+	noteAs     = regexp.MustCompile(`^note\s+as\s+\S+\s*$`)
 	noteOver   = regexp.MustCompile(`^note\s+over\s+[^:]+$`)
 	noteInline = regexp.MustCompile(`^\s*note\s+(?:(?:top|bottom|left|right)\s+of|over)\s+[^:]*:`)
 )
@@ -98,10 +90,6 @@ func parseSpecNotes(src string) []specNote {
 	return out
 }
 
-// unwrappable reports a line holding one unbroken token — a bare URL is the case
-// that matters. The column cap exists to force prose density, and a link has none
-// to force: no rewrite makes it shorter, so capping it would only push sources out
-// of the notes and back into comments nobody renders.
 func unwrappable(line string) bool {
 	t := strings.TrimSpace(line)
 	t = strings.TrimPrefix(t, "- ")

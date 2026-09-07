@@ -30,9 +30,6 @@ func TestPenAdvancesByDisplayWidth(t *testing.T) {
 	}
 }
 
-// A zero-width rune joins the cell before it instead of taking a column. U+FE0F
-// is the case that matters: it is what makes a variation-selected emoji two
-// runes and one grapheme, and it is why emoji were kept out of the strip.
 func TestPenAttachesZeroWidthRunes(t *testing.T) {
 	t.Parallel()
 	s := tcell.NewSimulationScreen("UTF-8")

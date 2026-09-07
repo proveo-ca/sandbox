@@ -4,6 +4,8 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 skinparam linetype ortho
+' purpose: what a claudecode container is made of and where each part comes from
+' covers: defs/claudecode/**
 
 left to right direction
 

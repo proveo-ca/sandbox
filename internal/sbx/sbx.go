@@ -1,8 +1,6 @@
 // SPEC: _spec/internal/sbx/sandbox-backend.puml,
 // _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml,
 // _spec/minimum_requirements.puml
-//
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml, _spec/minimum_requirements.puml
 package sbx
 
 import (
@@ -17,14 +15,7 @@ import (
 // Binary is the Docker Sandboxes CLI this package drives.
 const Binary = "sbx"
 
-// MinVersion is the oldest sbx whose CLI surface this package targets. proveo
-// owns the version rather than leaving it to whatever the operator's package
-// manager happens to hold: sbx is pre-GA and its surface moves, so a host that
-// is merely "installed" is not a host that can be driven. v0.35 → v0.39 alone
-// moved workspaces from `-v host:container` to positional paths, replaced the
-// image positional with `--template`, made `rm` refuse to run non-interactively
-// without `--force`, and rewrote the Kit schema — every one of which fails at
-// run time, deep inside a sandbox the operator cannot see.
+// MinVersion is the oldest sbx whose CLI surface this package targets.
 const MinVersion = "0.39.0"
 
 var (

@@ -1,5 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how a loose operator intent becomes an id a harness accepts, in two phases
+' covers: internal/provider/roles.go, internal/provider/roles_test.go
+' covers: internal/posture/posture.go, internal/posture/posture_test.go
+' covers: cmd/proveo/main.go
+' the tier order and its feasibility gate live in
+' _spec/internal/credentials/credential-decisions.puml
 title PLAN — model resolution: operator intent to harness id, in two phases
 
 component "operator intent\nARCHITECT_MODEL=kimi-3\nEDITOR_MODEL=grok-4.5\nSMALL_MODEL=grok-4.5-fast" as INTENT <<app>>
@@ -78,6 +84,18 @@ note bottom of NORM
   fuzzy: two candidates means **list them and stop**, because guessing
   wrong spends the operator's money on the wrong model and reads as
   success.
+end note
+
+note bottom of NORM
+  **A slash-bearing id skips normalization entirely.** ""Roles.Canonical"" treats
+  ""provider/model"" as an ADDRESS rather than an intent and stores it verbatim,
+  because the dot rule above returned ""opencode-go/glm-5.3"" as
+  ""opencode-go/glm-5-3"" — a model that does not exist — on the second run of
+  anyone who let the prompt remember their answer. It survived because anthropic
+  ids carry no dots, so only a Zen or Go model could trip it.
+
+  Bare strings are still normalized. The slash is the same line the registry
+  already draws between an address it can route and a string it has to guess at.
 end note
 
 note bottom of CACHE

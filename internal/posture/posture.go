@@ -1,8 +1,4 @@
 // SPEC: _spec/internal/posture/one-value-two-renderings.puml Package posture
-// renders the decisions a run has already made — once, for two readers: the
-// header a human reads before launch, and the run-log block a human reads after
-// a failure.
-//
 // SPEC: _spec/internal/posture/one-value-two-renderings.puml
 package posture
 
@@ -265,9 +261,7 @@ type Posture struct {
 	Workspace      string
 }
 
-// Fields renders the run-log block. runlog.Log.Fields sorts the keys, so the
-// ORDER is already stable; what was not pinned is the SET, which is what the
-// posture golden covers.
+// Fields renders the run-log block.
 func (p Posture) Fields() map[string]string {
 	return map[string]string{
 		"target":          p.Target,

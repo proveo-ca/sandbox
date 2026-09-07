@@ -10,14 +10,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 )
 
-// The posture of run proveo-1788665157-82784, exactly as it was logged:
-//
-//	auth var   subscription
-//	brokered   anthropic,cursor,openai,xai,google,opencode
-//
-// The answer withheld those keys from the agent's environment and the broker
-// injected every one of them on-route anyway, because suppression stopped at
-// the container. Six providers on the wire for a run that named one side.
 func TestTheAnswerReachesTheBrokerNotJustTheEnvironment(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
@@ -116,9 +108,6 @@ func TestVendorPinnedRunWithholdsNothing(t *testing.T) {
 	}
 }
 
-// One credential that buys BOTH a plan and metered usage backs both options.
-// Filing OPENCODE_API_KEY under "subscription" alone told the operator the key
-// settles the bill; it does not — the model id does.
 func TestAGatewayCredentialBacksBothSides(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{

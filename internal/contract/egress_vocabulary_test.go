@@ -52,11 +52,7 @@ func TestContainerBoundarySpeaksOnlyCanonicalTiers(t *testing.T) {
 		}
 	}
 
-	// The host-bridge gate is the last reader of "which tier leaves the agent a
-	// route to the host". It used to be the daemon gate too — dind.ModeSupported,
-	// asking the same question for a privileged sidecar — and the predicate
-	// outlived the sidecar (_spec/_plans/retire-dind.puml). Same vocabulary, same
-	// one tier, so the same assertion still belongs here.
+	// outlived the sidecar (_spec/_paradigms/retire-dind.puml). Same vocabulary, same
 	for _, tier := range modes {
 		if want := tier == "open"; chromebridge.TierSupported(tier, "forward") != want {
 			t.Errorf("chromebridge.TierSupported(%q, forward) = %v, want %v", tier, !want, want)

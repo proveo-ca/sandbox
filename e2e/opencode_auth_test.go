@@ -16,15 +16,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// opencodeKeyVar is the one credential both OpenCode plans read: Zen
-// (pay-as-you-go) and Go (the subscription). opencode takes it from the
-// environment ahead of auth.json, which is what lets the login happen on the
-// host before launch and never inside the sandbox.
 const opencodeKeyVar = "OPENCODE_API_KEY"
 
-// TestOpenCodeAuth asserts the CREDENTIAL BOUNDARY for OpenCode's own gateway:
-// that OPENCODE_API_KEY still authenticates after crossing the egress layer.
-// Its GET /v1/models is PUBLIC, so the probe is a one-token paid completion.
+// TestOpenCodeAuth asserts the CREDENTIAL BOUNDARY for OpenCode's own
+// gateway: that OPENCODE_API_KEY still authenticates after crossing the
+// egress layer.
 // SPEC: _spec/_paradigms/credential-boundary.puml
 func TestOpenCodeAuth(t *testing.T) {
 	requireHarness(t, "opencode")
@@ -50,10 +46,6 @@ func TestOpenCodeAuth(t *testing.T) {
 	}
 }
 
-// opencodeAuthCase is one OpenCode plan: its base URL and the cheapest PAID model
-// it served when this was written (models.dev, 2026-09-01). Paid on purpose — see
-// TestOpenCodeAuth. If a model is retired the host-side check skips with the
-// status rather than failing the boundary.
 type opencodeAuthCase struct {
 	name  string
 	base  string
@@ -65,15 +57,6 @@ var opencodeAuth = []opencodeAuthCase{
 	{name: "go", base: "https://opencode.ai/zen/go/v1", model: "glm-5.3-flash"},
 }
 
-// opencodeSessionHeader is required from 2026-09-06. OpenCode mailed to say
-// requests without it "may error", and named the two user-agents at fault: "Go
-// HTTP client" and "curl" — which are precisely the two probes below, the
-// host-side precondition and the in-container assertion. Neither set it.
-//
-// The value must be ONE stable id per conversation, so each probe case gets its
-// own, stable for the life of the process: the two halves of a case are asking
-// the same question of the same endpoint and should not look like two
-// conversations, while zen and go are genuinely separate.
 const opencodeSessionHeader = "x-opencode-session"
 
 func (c opencodeAuthCase) session() string {

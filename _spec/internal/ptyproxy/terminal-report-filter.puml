@@ -1,9 +1,65 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: which bytes arriving on stdin are a terminal ANSWERING, and which of those an agent may see
+' covers: internal/ptyproxy/inputfilter.go, internal/ptyproxy/inputfilter_test.go
+' covers: internal/ptyproxy/ptyproxy.go, internal/ptyproxy/ptyproxy_test.go
+' covers: cmd/proveo/main.go
+'   the pty the filter sits on ..... _spec/internal/reviewgate/pty-review-proxy.puml
+'   the tap that recorded all this . _spec/internal/agentio/agent-terminal-io.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE RECOGNISED SET IS CLOSED, AND EVERYTHING ELSE IS A KEYSTROKE ───────
+' `classifyTerminalReport` names the sequences it knows and calls everything
+' else `reportNone`, which is forwarded. The asymmetry is deliberate and runs
+' the safe way: an unrecognised REPORT reaching the agent is the bug this file
+' documents, and an unrecognised KEYSTROKE eaten is a worse one. Every gap found
+' so far — the kitty pair, the mouse encodings — was closed by ADDING a case,
+' never by widening a default.
+'
+' The whole set, so a future gap is visible as an absence rather than guessed at:
+'   reportFocus ... `CSI I` / `CSI O`, a body of exactly one byte (DEC 1004).
+'   reportReply ... `CSI ? … c` and `CSI > … c` — Primary/Secondary Device
+'                   Attributes; `CSI ? … $ y` — DECRPM, the answer to a mode
+'                   query; `CSI <digits;> R` — the cursor position report;
+'                   `CSI ? <flags> u` — the kitty keyboard flag report;
+'                   `DCS … ST` — XTVERSION and friends; `APC … ST` — the kitty
+'                   GRAPHICS answer; `OSC … ST`-or-BEL — colour and palette.
+'   reportMouse ... `CSI M` plus exactly three more bytes (X10), `CSI < … M|m`
+'                   (SGR), and `CSI <digits;> M` (urxvt).
+' The parameter guards are load-bearing in one direction only: they exist so a
+' real key is never classified as an answer, never the reverse.
+'
+' ── A SEQUENCE IS FOUND BY ITS TERMINATOR, NEVER BY A LENGTH ───────────────
+' `escEnd` recognises the terminator each introducer actually uses: CSI runs its
+' parameters up to a final byte in 0x40..0x7e; DCS, OSC, APC and PM (`ESC P`,
+' `ESC ]`, `ESC _`, `ESC ^`) run to ST (`ESC \`) or BEL (0x07). ANYTHING ELSE IS
+' TWO BYTES — `ESC` plus one — an Alt-keypress or an introducer proveo does not
+' parse. Scanning on past an unknown introducer instead is how one stray ESC
+' would swallow the rest of the buffer, keystrokes included.
+'
+' Incomplete is a third answer, not a rounding of the other two: the fragment is
+' neither forwarded nor dropped, it is HELD for the next read.
+'
+' ── THE WINDOW IS A STATEMENT ABOUT WHO ASKED, NOT ABOUT WHEN ──────────────
+' `DefaultReplyWindow` (2s) is how close together two IDENTICAL reports must
+' arrive to read as one terminal answering twice rather than as the application
+' asking twice. Further apart is a genuine second query, and a genuine second
+' query is owed a genuine second answer — so the window is a claim about
+' authorship, and the 2s is only how long that claim stays plausible.
+'
+' ── THE VERBATIM EVIDENCE THE NOTES BELOW COMPRESS ─────────────────────────
+' opencode 1.18.29 opens with BOTH kitty probes. The graphics one goes out as
+'   ESC _ Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA ESC \
+' and the keyboard one as `CSI > 5 u`; the terminal's answers to each were
+' `reportNone` and arrived as typing.
+'
+' The read that ended a real crashed session, byte for byte:
+'   ^[[200~sk-…^[[201~cERROR: sandbox "…" was stopped
+' A bracketed paste, then a lone `c` — the tail of a DA1 reply whose head came
+' in the previous read.
+'
 title Terminal reports — filtered before they become prompts
-
-' covers: internal/ptyproxy/inputfilter.go, internal/ptyproxy/ptyproxy.go,
-'         cmd/proveo/main.go
 
 node "Operator's terminal stack" as TERM <<host>> {
   component "terminal emulator" as EMU <<host>>

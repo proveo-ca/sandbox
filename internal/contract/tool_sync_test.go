@@ -120,10 +120,6 @@ func TestToolSyncRefusesAnUnknownMode(t *testing.T) {
 	}
 }
 
-// Ordering is load-bearing twice over. _proveo_tool_path puts the tree on PATH
-// and every installer step gates on `command -v`, so a restore that lands after
-// provisioning is a run that reinstalls the toolchain beside the one it just
-// copied in — slower than no persistence at all, and silently so.
 func TestSeedRestoresToolchainsBeforeProvisioning(t *testing.T) {
 	t.Parallel()
 	seed := seedBody(t, entrypointLib(t))

@@ -24,30 +24,15 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestCredentialForwardingIntegrity asserts that provider API keys land in the
-// EGRESS layer ONLY. Two complementary halves, both over random per-run values so
-// no real secret is involved:
-//
-//	isolation (every agent, deterministic) — the firewall launch plan carries only
-//	  the "proveo-brokered" sentinel for each provider secret, never a raw key. The
-//	  --print dry-run builds the agent's docker command with the exact same env code
-//	  path as a real run, so this is faithful and needs no containers.
-//
-//	egress integrity (live) — a vendor-pinned agent (cursor) brokers ALL provider
-//	  keys; the broker.env bind-mounted into the egress-proxy receives each one
-//	  byte-for-byte. broker.env is agent-independent, so one agent proves the path.
-//
-//	go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v
+// TestCredentialForwardingIntegrity asserts that provider API keys land in
+// the EGRESS layer ONLY. Two complementary halves, both over random per-run
+// values so no real secret is involved:
 func TestCredentialForwardingIntegrity(t *testing.T) {
 	proveoBin := buildProveo(t)
 	keys := provider.KeyVars()
 	if len(keys) == 0 {
 		t.Fatal("provider.KeyVars() is empty")
 	}
-	// cursor is absent by design: it declares capabilities egress:[open]
-	// credentials:[forward], so it has no egress layer to be isolated from and
-	// forwards the REAL key rather than a sentinel. Its contract is asserted by
-	// TestCursorEgressException instead.
 	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode cecli"))
 
 	// Isolation — deterministic, one subtest per agent (parallel: pure --print).
@@ -67,13 +52,8 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 }
 
 // TestProjectDotEnvAtEgressLayer launches both unpinned (OpenCode) and
-// vendor-pinned (Cursor) harness plans through real Docker firewall topologies.
-// Each key exists only in the project's .env: the egress sidecar must receive the
-// raw value byte-for-byte while the agent gets only the sentinel and a masked
-// /app/.env. A lightweight probe image keeps this credential-path test independent
-// of either agent CLI's release/install state.
-//
-//	go test -tags=e2e ./e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
+// vendor-pinned (Cursor) harness plans through real Docker firewall
+// topologies.
 func TestProjectDotEnvAtEgressLayer(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
@@ -87,10 +67,6 @@ func TestProjectDotEnvAtEgressLayer(t *testing.T) {
 		target string
 		key    string
 	}{
-		// cursor is deliberately absent: it declares capabilities egress:[open]
-		// credentials:[forward], so it runs with no MITM and its key reaches the
-		// container intact. There is no egress layer to receive it, which is the
-		// property this test asserts.
 		{target: "opencode", key: "MOONSHOT_API_KEY"},
 	}
 	for _, tc := range tests {
@@ -124,9 +100,6 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		t.Fatal(err)
 	}
 
-	// Seed the choice cache so the form opens pre-selected on the tier this test
-	// needs. Seeding alone is NOT enough to skip it: the prompt always shows so the
-	// operator sees the posture they are launching, so the run below must accept it.
 	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
 
 	forceClean(proveoBin)
@@ -138,9 +111,6 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		forceCleanIfCrowded(proveoBin)
 	})
 
-	// Remove every provider detection variable so the provider can only be
-	// detected from work/.env. Preserve infrastructure variables such as
-	// DOCKER_HOST, which may point at a remote daemon.
 	cmd := []string{"env"}
 	seenDetect := map[string]bool{}
 	for _, name := range provider.Names() {
@@ -160,9 +130,6 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 		"PROVEO_HOME="+filepath.Join(home, "proveo"),
 		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
 		"PROVEO_AUTO_PROVISION=1",
-		// HOME is overridden above, which hides ~/.docker and so the active context.
-		// Without this the CLI silently falls back to /var/run/docker.sock and every
-		// docker call — starting with the image pull — hangs.
 		"DOCKER_HOST="+dockerHost(t),
 		proveoBin, "run", target,
 		"--image", "ubuntu:24.04",
@@ -213,11 +180,6 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 	}
 
 	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
-	// The two backends keep a secret out of the plan by different means, so the
-	// assertion has to know which one it is reading. docker declares the sentinel in
-	// argv; sbx puts nothing there at all and hands values to `sbx secret set` on
-	// stdin. Read blind, an sbx plan satisfied the sentinel loop by containing no
-	// keys to check — zero of N, reported as "all forwarded".
 	sandbox := isSbxArgv(agentCmd)
 	declared := 0
 	for _, k := range keys {
@@ -254,15 +216,7 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
-	// An isolated HOME is what makes driving the prompt deterministic: the first
-	// run of a harness prompts and caches the answer, so a shared HOME would leak
-	// into the developer's real settings AND skip the prompt on every later run.
 	home := t.TempDir()
-	// PROVEO_SBX=off, because this half inspects proveo's OWN egress topology — the
-	// "-egress" container and the broker.env bind-mounted into it. claudecode takes
-	// the sandbox backend wherever sbx is installed, and sbx brings its own
-	// credential proxy instead, so unpinned there is no egress container to find and
-	// the probe burns its 120s timeout before failing for an unrelated reason.
 	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t), "PROVEO_SBX=off"}
 	for _, k := range keys {
 		v := randToken()
@@ -283,11 +237,6 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 		}
 	})
 
-	// claudecode, not cursor: cursor now declares capabilities egress:[open]
-	// credentials:[forward], so it has no MITM and therefore no broker at all.
-	// claudecode declares providers:[anthropic], which narrows the detected set to
-	// one and is precisely what ARMS the broker — with every key detected the
-	// broker refuses to pin and there is no broker.env to inspect.
 	cmd := append(append([]string(nil), kv...),
 		proveoBin, "run", "claudecode", "--egress-mode", "allowlist", "--shell", "--input", work)
 	if err := sess.Start(200, 50, cmd...); err != nil {
@@ -316,12 +265,9 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 }
 
 // TestCursorEgressException asserts the cursor exception, now expressed as
-// declared capabilities rather than a target-name special case: cursor's manifest
-// pins egress:[open] credentials:[forward] because its vendor TLS cannot be
-// intercepted. The default therefore forwards the REAL key with no MITM, and an
-// explicitly requested unsupported axis is REFUSED with the reason — not silently
-// rewritten, and no longer a warn-and-continue that hands over a dead sentinel.
-// Deterministic (--print, no containers).
+// declared capabilities rather than a target-name special case: cursor's
+// manifest pins egress:[open] credentials:[forward] because its vendor TLS
+// cannot be intercepted.
 func TestCursorEgressException(t *testing.T) {
 	proveoBin := buildProveo(t)
 
@@ -375,9 +321,6 @@ func runPrintErr(t *testing.T, proveoBin, target string, extra ...string) (strin
 	return string(out), err
 }
 
-// seedAgentSettings pre-writes ~/.proveo/agent-settings.yml for target so the
-// run enters its cached choice instead of prompting. The fingerprint is computed
-// from the def's real capabilities, so this stays correct if they change.
 func seedAgentSettings(t *testing.T, proveoHome, target, egressMode, credentials string) {
 	t.Helper()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -448,10 +391,6 @@ func requireLiveStack(t *testing.T) {
 	}
 }
 
-// anyImagePresent returns whichever tag of repo exists locally. The tag policy
-// resolves a local build to :local and reserves :latest for a published artifact,
-// so a guard naming one tag skipped the entire suite whenever the developer had
-// built the other — and a cleanup naming one removed nothing.
 func anyImagePresent(t *testing.T, repo string) (string, bool) {
 	t.Helper()
 	for _, tag := range []string{maintain.LocalTag, maintain.PublishTag} {
@@ -462,10 +401,6 @@ func anyImagePresent(t *testing.T, repo string) (string, bool) {
 	return "", false
 }
 
-// printEnforcedPlan runs `proveo run <agent> --egress-mode allowlist --print` with
-// the random provider keys set (and any real ones stripped), returning its output.
-// printEnforcedPlan renders an agent's plan on the enforced tier, where every
-// declared secret must reach the container as the sentinel.
 func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
 	work := t.TempDir()
@@ -531,10 +466,6 @@ func repoRoot(t *testing.T) string {
 
 func forceClean(proveoBin string) { _ = exec.Command(proveoBin, "clean", "--force").Run() }
 
-// forceCleanIfCrowded is the per-test teardown: `proveo clean --force` removes
-// EVERY proveo container, so running it after each test can tear down a sibling
-// still coming up. Below a small threshold that risk outweighs the benefit —
-// leave them for the suite-level clean and only sweep when they accumulate.
 const cleanThreshold = 10
 
 func forceCleanIfCrowded(proveoBin string) {

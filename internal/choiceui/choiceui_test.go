@@ -368,9 +368,6 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	}
 }
 
-// The models row carries a label and several KEY=value pairs at once. Accenting
-// stopped at the label before, so every slot after "llms:" rendered as body text
-// and the row read as one model mattering more than the others.
 func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 	t.Parallel()
 	var accented, body []string
@@ -475,9 +472,6 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 	}
 }
 
-// The picker could only ever explain what it had taken away: Reason is written
-// when an option is gated off, so the add-ons that were available and ticked
-// carried no text at all. Help describes the option the cursor is on.
 func TestCursorRowDescribesTheOptionUnderTheCursor(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{

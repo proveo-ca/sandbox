@@ -8,14 +8,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 )
 
-// The run-log posture block is what an operator reads AFTER a failure, and until
-// now nothing asserted it. runlog sorts the keys, so the order was already stable;
-// what was unpinned is the SET and the WORDING — a row could appear, vanish or
-// change its sentence and no test would notice.
-//
-// One golden per backend, because the two differ in exactly the places that have
-// been wrong before: who enforces egress, what evidence exists, and whether an sbx
-// MCP gateway is even a question.
 func TestPostureGolden(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -55,10 +47,6 @@ func TestPostureGolden(t *testing.T) {
 	}
 }
 
-// The header and the run-log block are rendered from ONE value. This pins the
-// property the split was made for: every row the block reports is non-empty for a
-// fully-resolved run, so a field added to Posture and left unset fails here rather
-// than printing "(unset)" to an operator mid-incident.
 func TestPostureRendersEveryRowItDeclares(t *testing.T) {
 	t.Parallel()
 	full := posture.Posture{

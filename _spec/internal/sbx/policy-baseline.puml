@@ -5,6 +5,10 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/sbx.go
 ' covers: internal/run/choices.go
 ' covers: internal/sbx/baseline_test.go
+' covers: internal/sbx/policy.go
+' covers: internal/sbx/baseline_live_test.go
+' covers: internal/run/topology.go
+' covers: e2e/sbx_egress_test.go
 '
 ' ── THE ROW WAS DEAD ───────────────────────────────────────────────────────
 ' On the sbx backend the egress axis offered open | allowlist | review and none

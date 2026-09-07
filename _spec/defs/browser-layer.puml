@@ -11,6 +11,7 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' covers: defs/cursor/tests/test_tools.sh
 ' covers: defs/opencode/tests/test_tools.sh
 ' covers: defs/claudecode/tests/test_tools.sh
+' covers: internal/contract/browser_layer_test.go
 '
 ' ── ONE CHROMIUM, ENFORCED BY A GUARD RATHER THAN BY A COMMENT ──────────────
 ' PLAYWRIGHT_VERSION=1.61.0, PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright.

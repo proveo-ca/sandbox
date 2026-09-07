@@ -10,16 +10,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-// classicRenderer is the pair of switches that say "classic" across Claude Code
-// versions: CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 is the documented opt-out from
-// 2.1.132, CLAUDE_CODE_NO_FLICKER=0 the older one.
 var classicRenderer = map[string]string{
 	"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1",
 	"CLAUDE_CODE_NO_FLICKER":               "0",
 }
 
-// The classic renderer is part of agent evidence, and the MANIFEST is the
-// declaration both backends read.
 // SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 func TestClaudecodeManifestDefaultsTheClassicRenderer(t *testing.T) {
 	t.Parallel()

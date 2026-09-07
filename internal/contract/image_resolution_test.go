@@ -13,9 +13,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
-// fakeDocker answers `docker image inspect <ref> --format {{.Created}}` from a
-// table in $FAKE_IMAGES, and exits non-zero for anything absent — the same signal
-// a host gives for an image it does not have.
 const fakeDocker = `#!/usr/bin/env bash
 [ "$1" = image ] && [ "$2" = inspect ] || exit 1
 ref="$3"
@@ -26,9 +23,6 @@ done
 exit 1
 `
 
-// The shell resolver every def's test.sh goes through must agree with the one the
-// runner uses. Two implementations of "prefer the newer build" that disagree is a
-// suite testing a different image than the run it is supposed to vouch for.
 func TestShellImageResolverMatchesResolveImage(t *testing.T) {
 	t.Parallel()
 
@@ -105,11 +99,6 @@ func TestShellImageResolverMatchesResolveImage(t *testing.T) {
 	}
 }
 
-// Every def test script must go through the resolver rather than pinning the
-// publish tag. proveo_docker_build REFUSES to --load :latest, so a suite that
-// hard-defaults to it can only ever exercise what the registry last published —
-// never the tree the author is standing in. build.sh is exempt: :latest is
-// legitimately its publish target.
 func TestDefTestScriptsResolveRatherThanPinThePublishTag(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -152,11 +141,6 @@ func TestDefTestScriptsResolveRatherThanPinThePublishTag(t *testing.T) {
 	}
 }
 
-// One rule, in one place. The smoke suite grew its own `for tag in local latest`
-// that preferred :local by EXISTENCE, so a stale local build shadowed an image
-// pulled a minute ago while the run read as coverage of the newer one — the exact
-// failure maintain.ResolveImage's doc comment warns about. A second opinion about
-// which image is current is worse than none.
 func TestNoAdHocLocalOverLatestResolvers(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

@@ -36,18 +36,6 @@ func dockerNamesMatching(t *testing.T, sid string) []string {
 	return found
 }
 
-// The docker+egress backend brings up sidecars and a network, and tears them down
-// through ONE cleanup closure guarded by sync.Once — reached either by defer on
-// the normal path or by the SIGINT handler. No golden can see that: a plan golden
-// asserts what would be created, never what survives an interrupt.
-//
-// This is the behaviour an operator actually notices when it breaks. An orphaned
-// Squid holds its network, the next run's create fails on a name clash, and the
-// error names a container the operator never asked for.
-//
-// It runs on a REAL docker daemon against a REAL signal because the failure mode
-// is precisely the one a fake cannot reproduce: cleanup that works when called
-// twice from one goroutine but not when defer and the handler race.
 func TestSIGINTTearsDownEgressSidecars(t *testing.T) {
 	if os.Getenv("PROVEO_SIGNAL_TEST") != "1" {
 		t.Skip("set PROVEO_SIGNAL_TEST=1 to run the SIGINT teardown check (needs docker, ~90s)")

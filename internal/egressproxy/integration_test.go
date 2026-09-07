@@ -11,9 +11,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/broker"
 )
 
-// recordingTransport captures the request the proxy would send upstream (after
-// the broker modifier has run) and returns a canned 200 — so the test asserts
-// exactly what leaves the proxy, per destination host.
 type recordingTransport struct {
 	mu  sync.Mutex
 	got map[string]http.Header // host -> outbound headers
@@ -41,10 +38,10 @@ func (rt *recordingTransport) headers(host string) http.Header {
 	return rt.got[host]
 }
 
-// TestBrokerThroughProxy drives real HTTP requests through the assembled martian
-// proxy and asserts the credential broker end-to-end: the pinned provider host
-// receives the injected credential; every other host has its credential headers
-// stripped. This exercises the full modifier chain, not just broker.Apply.
+// TestBrokerThroughProxy drives real HTTP requests through the assembled
+// martian proxy and asserts the credential broker end-to-end: the pinned
+// provider host receives the injected credential; every other host has its
+// credential headers stripped.
 func TestBrokerThroughProxy(t *testing.T) {
 	p, _, closer, err := build(Config{
 		Broker: broker.Config{

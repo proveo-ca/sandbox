@@ -1,4 +1,8 @@
 @startuml
+' purpose: what a harness.manifest declares, and which reader consumes each field
+' covers: internal/manifest/**
+' covers: defs/*/harness.manifest
+' covers: embed.go
 ' ── agentEnv IS A THIRD KIND OF VARIABLE, AND THE DISTINCTION MATTERS ──────
 ' NAME: value pairs handed to the agent on EVERY backend unless the operator
 ' sets NAME themselves. It is neither `env` — variables the OPERATOR supplies,
@@ -80,7 +84,7 @@ note right of M
   offer, auth prompts, build/test/deploy registry.
   **""docker:"" is an ENUM with one value left.** It names how a
   harness's containerisation need is met, and after
-  _spec/_plans/retire-dind.puml there is one way to meet it:
+  _spec/_paradigms/retire-dind.puml there is one way to meet it:
   ""sbx"", where the microVM IS the isolation and the daemon runs
   inside it. Absent means no daemon reaches the agent.
   ""dind"" — a privileged sibling the agent could call — is not

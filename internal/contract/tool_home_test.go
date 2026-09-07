@@ -35,11 +35,6 @@ printf '%s' "$(` + expr + `)"`
 	return string(out)
 }
 
-// The arch fold names a DIRECTORY that a docker run and an sbx run on one host
-// both reach, so the two halves of proveo must agree on the spelling exactly.
-// A disagreement puts amd64 binaries where an arm64 sandbox resolves them
-// through `command -v` — the wrong-arch trap the LSP eligibility check exists
-// to prevent, arriving from the other side.
 func TestContainerPlatformFoldMatchesGo(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -62,9 +57,6 @@ func TestDurableHomePrefersTheHostPath(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 
-	// A real directory, because entrypoint-lib.sh rewrites an unwritable HOME to
-	// /tmp at source time — the same guard that makes an arbitrary run-as uid
-	// usable, and it would otherwise silently answer this test for us.
 	agent, host := t.TempDir(), t.TempDir()
 
 	docker := runToolHome(t, bash, "aarch64",
@@ -135,9 +127,6 @@ func TestToolStoreIsEmptyWhereNothingNeedsCarrying(t *testing.T) {
 	}
 }
 
-// mise's five directories move as a group. A data dir without a config dir
-// leaves `mise use -g` recording a global config the next run never reads, so
-// the tools are on disk and nothing knows they are.
 func TestToolPathExportsTheWholeMiseGroup(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -171,9 +160,6 @@ func TestToolPathExportsTheWholeMiseGroup(t *testing.T) {
 	}
 }
 
-// The relocation is only real if nothing still installs into the agent home.
-// One missed site is a tool that reinstalls on every sbx open while the rest
-// persist, which reads as "persistence is flaky" rather than as a missed line.
 func TestNoToolPathStillTargetsTheAgentHome(t *testing.T) {
 	t.Parallel()
 	src := entrypointLib(t)

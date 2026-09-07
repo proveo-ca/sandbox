@@ -60,9 +60,6 @@ func TestUnattributableModelIsSilent(t *testing.T) {
 	}
 }
 
-// An INTENT is normalized — "Kimi K3" is something a human typed and wants
-// matched. A provider-qualified id is not an intent, it is an address, and it
-// survives verbatim; see TestCanonicalKeepsQualifiedIdsExact.
 func TestCanonicalRoundTrip(t *testing.T) {
 	r := Roles{"ARCHITECT_MODEL": "Kimi K3", "SMALL_MODEL": "grok-4.5-fast"}
 	stored := r.Canonical()
@@ -78,11 +75,6 @@ func TestCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
-// One credential cannot express OpenCode's two plans. Zen (pay-as-you-go) and
-// Go (the $10/mo subscription) are one gateway on one OPENCODE_API_KEY, split
-// only by the model prefix — so an operator can answer "subscription", hold
-// exactly the right key, and still be metered because the role names a Zen
-// model. Only the id catches that.
 func TestBillingClashesReadThePrefixNotTheKey(t *testing.T) {
 	t.Parallel()
 	if got := ModelBilling("opencode-go/kimi-k3"); got != BillPlan {
@@ -130,10 +122,6 @@ func TestCursorModelsCarryNoBillingVerdict(t *testing.T) {
 	}
 }
 
-// Precedence: the remembered answer outranks an ambient .env, and .env outranks
-// the plan default. The order used to be the reverse — MergeRoles let a shell
-// rc override the answer the operator had just given this agent in the prompt,
-// which made the remembered choice a suggestion.
 func TestRememberedChoiceOutranksTheEnv(t *testing.T) {
 	t.Parallel()
 	remembered := Roles{"ARCHITECT_MODEL": "opencode-go/glm-5.3"}
@@ -223,12 +211,6 @@ func TestNoFallbackMeansNoSubstitution(t *testing.T) {
 	}
 }
 
-// The default list is judgement written down against a lineup that rotates, so
-// every id in it has to still resolve through the registry AND still land on
-// the side it claims. A stale entry is a run that dies on an unknown model;
-// this makes it a build failure instead. models.dev carries release_date and
-// cost but no "recommended" field — deriving "newest" picks omen-alpha — so the
-// list is ordered by hand and degrades to its next entry.
 func TestPlanFallbacksAreRealModels(t *testing.T) {
 	t.Parallel()
 	for harness, sides := range planFallback {
@@ -242,11 +224,6 @@ func TestPlanFallbacksAreRealModels(t *testing.T) {
 				if _, ok := Lookup(p); !ok {
 					t.Errorf("%s/%v fallback %q names %q, not in the registry", harness, side, model, p)
 				}
-				// A fallback must not spend a side the operator did not choose.
-				// Matching the side satisfies that; so does costing nothing,
-				// which is the entitlement-safe escape: proveo cannot see which
-				// plan a key entitles, so a free id is the only thing it can
-				// pick without assuming one.
 				if got := ModelBilling(model); got != side && !IsFreeTier(model) {
 					t.Errorf("%s fallback %q is billed %v, is listed as the %v choice, "+
 						"and is not free — it would spend a side nobody chose",
@@ -260,10 +237,6 @@ func TestPlanFallbacksAreRealModels(t *testing.T) {
 	}
 }
 
-// Headless is the case this split exists for. Nobody was asked a billing
-// question, so no side is claimed — but a model with no credential behind it is
-// unrunnable whoever is watching, and launching on one only to warn to a log
-// nobody reads until the job fails is the worst of both.
 func TestFeasibilityAppliesWithNoAnswerGiven(t *testing.T) {
 	t.Parallel()
 	env := Roles{"ARCHITECT_MODEL": "anthropic/claude-opus-5"}
@@ -303,19 +276,6 @@ func TestNoAnswerJudgesNoBillingSide(t *testing.T) {
 	}
 }
 
-// Holding OPENCODE_API_KEY does not say which PLAN it entitles — Zen and Go
-// share the variable, which is the central finding this package encodes. So a
-// fallback of `opencode-go/muse-spark-1.3-contributor` asserts a subscription
-// proveo cannot see.
-//
-// An operator who DID hold Go still had that id rejected as "configured model
-// is not valid", after which opencode fell through to Whisper Large V3 Turbo
-// on Groq — a 2024 speech-to-text model driving a coding agent. The cause is
-// unknown: the same id resolves correctly headlessly, through the entrypoint,
-// with the env var and with the broker sentinel.
-//
-// A fallback is therefore the model that RUNS. Free-tier ids depend on neither
-// the entitlement nor whatever went wrong there.
 func TestFallbacksNeverAssumeAnEntitlement(t *testing.T) {
 	t.Parallel()
 	for harness, sides := range planFallback {

@@ -2,7 +2,6 @@
 
 // Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be
 // drawn over the agent's full-screen TUI and dismissed without corrupting it.
-//
 // SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml
 package ptyproxy
 
@@ -123,9 +122,6 @@ func (p *Proxy) pumpIn() {
 	for {
 		n, err := p.In.Read(buf)
 		if n > 0 {
-			// Filter per SEQUENCE, not per read. A reply split across two reads
-			// used to leak its tail as a keystroke, and a read carrying a report
-			// beside real typing was all-or-nothing.
 			// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 			chunk := buf[:n]
 			if len(held) > 0 {

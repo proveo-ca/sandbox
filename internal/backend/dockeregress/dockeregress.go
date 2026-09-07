@@ -1,10 +1,5 @@
-// SPEC: _spec/internal/egress/teardown-and-signals.puml,
+// SPEC: _spec/internal/egress/teardown-and-signals.puml
 // _spec/internal/egress/teardown-and-signals.puml Package dockeregress is the
-// docker+egress backend: Assemble PLANS a run and Exec EXECUTES one — the same
-// split as internal/backend/sandbox, which is what lets cmd/proveo SELECT a
-// backend instead of branching on a bool that six other places also read.
-//
-// SPEC: _spec/internal/egress/teardown-and-signals.puml, _spec/internal/egress/teardown-and-signals.puml
 package dockeregress
 
 import (
@@ -78,17 +73,14 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		HostBridge:      in.HostBridge,
 		ProviderDomains: in.ProviderDomains,
 		ReviewSocket:    in.ReviewSocket,
-		// The plan wants a variable NAME for the broker to prefer. The row's
-		// credential-shape answers name no variable, so they resolve to nothing
-		// here rather than reaching the sidecar as one proveo invented.
-		AuthVar:        brokerAuthVar(in.AuthVar),
-		WriteHosts:     in.WriteHosts,
-		ProviderHosts:  in.ProviderHosts,
-		ConfDir:        filepath.Join(in.EgDir, "mitmproxy", "confdir"),
-		FlowsDir:       filepath.Join(in.EgDir, "mitmproxy", "flows"),
-		SquidConfigDir: filepath.Join(in.EgDir, "squid", "config"),
-		SquidLogDir:    filepath.Join(in.EgDir, "squid", "logs"),
-		SquidImage:     in.SquidImage, ProxyImage: in.ProxyImage, OllamaImage: in.OllamaImage,
+		AuthVar:         brokerAuthVar(in.AuthVar),
+		WriteHosts:      in.WriteHosts,
+		ProviderHosts:   in.ProviderHosts,
+		ConfDir:         filepath.Join(in.EgDir, "mitmproxy", "confdir"),
+		FlowsDir:        filepath.Join(in.EgDir, "mitmproxy", "flows"),
+		SquidConfigDir:  filepath.Join(in.EgDir, "squid", "config"),
+		SquidLogDir:     filepath.Join(in.EgDir, "squid", "logs"),
+		SquidImage:      in.SquidImage, ProxyImage: in.ProxyImage, OllamaImage: in.OllamaImage,
 	})
 	if err != nil {
 		return egress.Plan{}, runner.Config{}, err
@@ -255,9 +247,6 @@ func waitForFile(path string, timeout time.Duration) error {
 	}
 }
 
-// brokerAuthVar keeps credential-shape answers out of the sidecar's environment:
-// the egress broker looks the value up as an env var name, and "login (proveo
-// home)" is not one.
 func brokerAuthVar(v string) string {
 	if credentials.IsAuthSentinel(v) {
 		return ""

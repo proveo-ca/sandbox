@@ -11,10 +11,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// A clone-mode workspace list has to be FLAT. sbx mounts every positional at its
-// own host path and clones only into an empty workspace, so a bind under the repo
-// is a bind inside the clone target — the clone is then skipped without a word and
-// the agent starts in an empty root-owned directory (proveo-1788366117-41470).
 func TestSplitNestedKeepsTheRootAndItsSiblingsOnly(t *testing.T) {
 	t.Parallel()
 	root := "/Users/op/repo"
@@ -60,9 +56,6 @@ func TestNestedRelIsStrictAndSlashSeparated(t *testing.T) {
 	}
 }
 
-// The lift runs only for an output dir that IS nested — a sibling output dir was
-// mounted live and has nothing to lift — and it unpacks under the repo root, so
-// the archive's relative members land on the same path they had in the clone.
 func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T) {
 	t.Parallel()
 	in := Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/repo/reports"}
@@ -98,9 +91,6 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 	})
 }
 
-// The viewport is offered only where there is a browser to show AND a port to
-// show it on, and it is the caller who picks the port — Spec must stay pure, or
-// a --print plan would depend on which ports this machine has free.
 func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -121,5 +111,74 @@ func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
 	}
 	if p := FreeLoopbackPort(); p <= 0 {
 		t.Errorf("FreeLoopbackPort returned %d — the viewport needs a port before the sandbox exists", p)
+	}
+}
+
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
+	t.Parallel()
+	in := Input{Clone: true, RepoRoot: "/repo"}
+	cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: "/repo"}}}
+
+	ok := func(int, string, error) cloneCarry {
+		return func(Input, sbx.RunConfig) (int, string, error) { return 0, "", nil }
+	}(0, "", nil)
+	fail := func(Input, sbx.RunConfig) (int, string, error) {
+		return 1, "connection refused", errors.New("exit status 128")
+	}
+	empty := func(Input, sbx.RunConfig) (int, string, error) {
+		return sbx.CloneBundleEmpty, "", errors.New("exit status 4")
+	}
+
+	cases := []struct {
+		name       string
+		running    bool
+		remote     cloneCarry
+		bundle     cloneCarry
+		wantRemote bool
+		wantBundle bool
+		want       bool
+	}{
+		{"a running sandbox negotiates over its remote", true, ok, ok, true, false, true},
+		{"a stopped sandbox goes straight to the bundle", false, ok, ok, false, true, true},
+		{"a remote that refuses falls back to the bundle", true, fail, ok, true, true, true},
+		{"nothing new is not a failure", false, ok, empty, false, true, false},
+		{"both routes failing reports rather than pretends", false, fail, fail, false, true, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sawRemote, sawBundle bool
+			remote := func(i Input, c sbx.RunConfig) (int, string, error) { sawRemote = true; return tc.remote(i, c) }
+			bundle := func(i Input, c sbx.RunConfig) (int, string, error) { sawBundle = true; return tc.bundle(i, c) }
+
+			if got := carryClone(in, cfg, tc.running, remote, bundle); got != tc.want {
+				t.Errorf("carryClone = %v, want %v", got, tc.want)
+			}
+			if sawRemote != tc.wantRemote {
+				t.Errorf("remote used = %v, want %v", sawRemote, tc.wantRemote)
+			}
+			if sawBundle != tc.wantBundle {
+				t.Errorf("bundle used = %v, want %v", sawBundle, tc.wantBundle)
+			}
+		})
+	}
+}
+
+func TestCloneRescueUsesATransportThatWorksOnAStoppedSandbox(t *testing.T) {
+	t.Parallel()
+	lines := CloneRescueLines("proveo-1-2", "/host/repo", "/host/repo")
+	joined := strings.Join(lines, "\n")
+
+	if strings.Contains(joined, "git fetch sandbox-proveo-1-2") {
+		t.Errorf("the recipe still reaches for the daemon that is not listening:\n%s", joined)
+	}
+	for _, want := range []string{"sbx exec -w / proveo-1-2", "bundle create", "git -C /host/repo fetch", "refs/proveo/proveo-1-2/*"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("rescue recipe lacks %q:\n%s", want, joined)
+		}
+	}
+	if got := CloneRescueLines("sb", "", "/repo"); got != nil {
+		t.Errorf("no workspace means no recipe to give, got %v", got)
 	}
 }

@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/manifest/harness-manifest-schema.puml
-//
-// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 package manifest
 
 import (
@@ -74,8 +72,7 @@ type Manifest struct {
 // DockerMode is how a harness hands its agent a Docker daemon, and after
 // retiring the privileged sidecar there is exactly one way: `sbx` runs the
 // agent in a sandbox VM that has its own daemon, behind a boundary.
-//
-// longer implements. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 type DockerMode string
 
 const (
@@ -133,9 +130,9 @@ func (m Manifest) MissingEnv(getenv func(string) string) []EnvVar {
 	return out
 }
 
-// AgentEnvPairs renders agentEnv as NAME=value in name order — a map's order is
-// not an argv's, and the plan goldens read the argv — with the operator's own
-// value, when they set one, in place of the default.
+// AgentEnvPairs renders agentEnv as NAME=value in name order — a map's order
+// is not an argv's, and the plan goldens read the argv — with the operator's
+// own value, when they set one, in place of the default.
 func (m Manifest) AgentEnvPairs(lookup func(string) string) []string {
 	names := make([]string, 0, len(m.AgentEnv))
 	for k := range m.AgentEnv {

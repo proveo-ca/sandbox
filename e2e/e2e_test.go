@@ -2,22 +2,7 @@
 
 // SPEC: _spec/tests/40-agent-e2e-components.puml, _spec/tests/41-agent-e2e-sequence.puml
 
-// Package e2e is the agent end-to-end suite. It (1) runs a real harness image,
-// (2) attaches a LOCAL model (Ollama), (3) drives the agent NON-INTERACTIVELY
-// (`opencode run --auto`, task from argv), and (4) asserts observable SIDE
-// EFFECTS on the host — the mounted sample workspace was seen, files were
-// changed, and a page was scraped over egress — never the model's prose. The
-// e2e build tag is the only gate; each test then skips on its own missing
-// prerequisites (see preconditions_test.go), so it never fails CI for missing
-// infra.
-//
-//	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
-//	  go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 360s
-//
-// The harness is opencode-specific here: `run --auto --agent build` is opencode's
-// non-interactive form. opencode is the default target and (as of this writing)
-// the one with working local-model support — see defs/opencode/entrypoint.sh
-// (configure_opencode_local_model), the fix this very test surfaced.
+// Package e2e is the agent end-to-end suite.
 package e2e
 
 import (
@@ -33,16 +18,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestPromptfulE2E runs a real harness image with a LOCAL model, drives the agent
-// NON-INTERACTIVELY through ONE deterministic task, and asserts the SIDE EFFECTS
-// on the host rather than the model's prose:
-//
-//	samples/ mounted → FROM_SAMPLE.txt == the mounted README's first line
-//	files changed     → DONE.txt contains the marker
-//	web scraped        → SCRAPED.html contains example.com's stable title
-//
-// Handing the model one exact shell command keeps the small local model reliable
-// while still exercising the full run → local-LLM → tool-call → side-effect loop.
+// TestPromptfulE2E runs a real harness image with a LOCAL model, drives the
+// agent NON-INTERACTIVELY through ONE deterministic task, and asserts the
+// SIDE EFFECTS on the host rather than the model's prose:
 func TestPromptfulE2E(t *testing.T) {
 	requireTmux(t)
 	requireDocker(t)
@@ -61,18 +39,6 @@ func TestPromptfulE2E(t *testing.T) {
 	// Mount a COPY of the sample monorepo so the tracked sample stays pristine;
 	// the agent edits the copy and we assert the host-side side effects.
 	work := copySampleWorkspace(t)
-	// This suite runs entirely on the LOCAL model, so the workspace must carry no
-	// project .env at all. Two separate reasons, both fatal:
-	//
-	//	samples/.env is a symlink into the repo root, so `cp -a` leaves a DANGLING
-	//	link here — and this posture bind-mounts the workspace .env rather than
-	//	masking it, which makes a dangling link a broken mount source.
-	//
-	//	A REAL .env is worse than a dangling one. The entrypoint sources the mounted
-	//	file after docker has applied `-e`, so the repo's ARCHITECT_MODEL wins over
-	//	the ollama/* alias --local-model just bridged in, and the main agent goes to
-	//	the cloud provider — which is exactly the credential this suite is built to
-	//	not need.
 	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
 	sampleAnchor := firstLine(t, filepath.Join(work, "README.md"))
@@ -86,29 +52,6 @@ func TestPromptfulE2E(t *testing.T) {
 	sess := tmux.New(fmt.Sprintf("proveo-e2e-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
-	// Drive the harness NON-INTERACTIVELY: everything after `--` is forwarded to the
-	// agent, so `opencode run --auto --agent build <task>` executes the task from
-	// argv (--auto approves the sandboxed local model's tool calls) and exits. No
-	// keystrokes, so no TUI readiness race. tmux only supplies the PTY the harness's
-	// `docker run -it` requires.
-	//
-	// `open` + `forward` is the plain-bridge posture, and this suite needs BOTH
-	// halves of it. It is the only shape that reaches the HOST's Ollama
-	// (host.docker.internal): every other tier puts the agent on an internal
-	// network with DNS blackholed, so the only reachable model server is the
-	// sidecar — which on macOS has no GPU and generates at CPU speed. It is also
-	// what gives curl an internet-capable bridge to example.com.
-	//
-	// Naming both axes is the post-rename spelling of what this test always asked
-	// for. It said `--egress-mode broker` back when one flag carried network tier
-	// AND credential handling; `broker` now aliases to the `open` TIER alone and
-	// credentials default to brokering, which lands in the intercepting branch and
-	// silently demotes the model to the CPU sidecar.
-	//
-	// --scope . selects the repo root non-interactively, and PROVEO_WIZARD=off
-	// keeps the sub-project picker and the choice form off this PTY — the run then
-	// takes the manifest defaults for every axis these flags do not name, instead
-	// of whatever the operator's remembered posture happens to hold.
 	if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
 		"--egress-mode", "open", "--credentials", "forward",
 		"--local-model", model, "--input", work, "--scope", ".",
@@ -116,10 +59,6 @@ func TestPromptfulE2E(t *testing.T) {
 		t.Fatalf("start session: %v", err)
 	}
 
-	// Poll host-side for ALL THREE side effects (prose-independent). Generous
-	// enough for a small local model on GPU to churn through the full harness
-	// context (seeded crew + AGENTS.md) + a runtime provider-package install; this
-	// suite is opt-in, not on CI's critical path.
 	deadline := time.Now().Add(4 * time.Minute)
 	for {
 		mounted := strings.Contains(readIn(work, "FROM_SAMPLE.txt"), sampleAnchor)  // samples/ mounted

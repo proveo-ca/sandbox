@@ -1,9 +1,4 @@
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml Package chromebridge is the
-// HOST half of the Claude in Chrome bridge: a TCP listener that, per
-// connection, dials the newest native-host socket at
-// /tmp/claude-mcp-browser-bridge-<username>/<pid>.sock and pipes bytes both
-// ways, guarded by a per-run token.
-//
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 package chromebridge
 
@@ -209,8 +204,8 @@ func (r *Relay) Token() string { return r.token }
 func (r *Relay) ContainerAddr() string { return ContainerHost + ":" + strconv.Itoa(r.Port()) }
 
 // Env are the two variables the agent container needs, in runner.Config.Env
-// form: the address as KEY=VALUE, the token as a bare name (the caller sets it
-// in its own environment, see SetTokenEnv).
+// form: the address as KEY=VALUE, the token as a bare name (the caller sets
+// it in its own environment, see SetTokenEnv).
 func (r *Relay) Env() []string { return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken} }
 
 // SetTokenEnv exports the token into this process so a bare `-e

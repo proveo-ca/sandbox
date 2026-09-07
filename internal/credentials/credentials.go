@@ -1,8 +1,6 @@
 // SPEC: _spec/_paradigms/credential-boundary.puml,
+// _spec/internal/credentials/credential-decisions.puml
 // _spec/internal/credentials/credential-decisions.puml Package credentials
-// decides what a run authenticates with, and writes nothing else.
-//
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml
 package credentials
 
 import (
@@ -52,10 +50,6 @@ func FilterProviders(detected []string, c manifest.Capabilities) []string {
 	return out
 }
 
-// The auth row asks ONE question — is this run billed against a PLAN, or
-// metered per token — and every harness but cecli answers it the same way. The
-// variables and files behind each side are the HINT, resolved per host by
-// AuthBacking. Declared riskier-first: that is the axis the prompt draws.
 // SPEC: _spec/internal/credentials/credential-decisions.puml,
 // _spec/internal/choiceui/wireframe.puml
 const (
@@ -63,19 +57,14 @@ const (
 	AuthUsage = "usage credits"
 	// AuthSubscription bills against a plan: the vendor's own key or login.
 	AuthSubscription = "subscription"
-	// AuthLocal is the safe end and is not wired up yet: drawn and gated, because
-	// the axis is where an operator finds out an option exists at all.
 	// SPEC: _spec/internal/choiceui/wireframe.puml
 	AuthLocal = "local model"
-	// AuthVarLogin is no longer offered — a login IS a subscription — but
-	// remembered answers in ~/.proveo still carry it, so it stays resolvable.
 	// SPEC: _spec/internal/agentsettings/choice-cache.puml
 	AuthVarLogin = "login (proveo home)"
 )
 
-// IsAuthSentinel reports whether an auth answer names a credential CLASS rather
-// than an environment variable. Anything that reaches a `-e NAME` or the
-// broker's preferred-variable hint has to be filtered through this first.
+// IsAuthSentinel reports whether an auth answer names a credential CLASS
+// rather than an environment variable.
 func IsAuthSentinel(v string) bool {
 	switch strings.TrimSpace(v) {
 	case AuthUsage, AuthSubscription, AuthLocal, AuthVarLogin:
@@ -92,10 +81,6 @@ func AvailableAuthVars(man manifest.Manifest, lookup func(string) string) []stri
 // riskier first. Empty means nothing can authenticate at all.
 func AvailableAuthVarsIn(man manifest.Manifest, lookup func(string) string, target, homeRoot string) []string {
 	var out []string
-	// DualSidedVars: one gateway credential that buys a plan AND metered usage
-	// puts BOTH options on offer by itself — opencode with only OPENCODE_API_KEY
-	// can spend the Go plan or the Zen balance, and the key says nothing about
-	// which. Requiring a separate provider key for the usage side hid that.
 	if len(ProviderKeyVars(man, lookup)) > 0 || len(DualSidedVars(man, lookup)) > 0 {
 		out = append(out, AuthUsage)
 	}
@@ -105,11 +90,9 @@ func AvailableAuthVarsIn(man manifest.Manifest, lookup func(string) string, targ
 	return out
 }
 
-// HasUsableAuth reports whether ANYTHING can authenticate this run: a login on
-// disk, the harness's own plan credential, or — where the harness reads them —
-// the operator's per-provider keys. It is the guard on every "this harness has
-// no credential" path, which is a question about the RUN and not about the
-// declared variable. SPEC: _spec/internal/credentials/credential-decisions.puml
+// HasUsableAuth reports whether ANYTHING can authenticate this run: a login
+// on disk, the harness's own plan credential, or — where the harness reads
+// them — the operator's per-provider keys.
 func HasUsableAuth(man manifest.Manifest, target, homeRoot string, lookup func(string) string) bool {
 	return len(AvailableAuthVarsIn(man, lookup, target, homeRoot)) > 0
 }
@@ -126,9 +109,7 @@ func SubscriptionVars(man manifest.Manifest, lookup func(string) string) []strin
 	return out
 }
 
-// DeclaresSubscription reports whether the harness has a plan side at all. cecli
-// is the one def that does not: it is an aider fork with no vendor of its own,
-// so there is no question to put to the operator and no row to draw.
+// DeclaresSubscription reports whether the harness has a plan side at all.
 func DeclaresSubscription(man manifest.Manifest) bool { return len(subscriptionNames(man)) > 0 }
 
 func subscriptionNames(man manifest.Manifest) map[string]bool {
@@ -141,8 +122,8 @@ func subscriptionNames(man manifest.Manifest) map[string]bool {
 	return out
 }
 
-// ProviderKeyVars lists the per-provider keys this harness may actually use: set
-// on the host, belonging to a provider the manifest allows, and not the
+// ProviderKeyVars lists the per-provider keys this harness may actually use:
+// set on the host, belonging to a provider the manifest allows, and not the
 // harness's own declared credential.
 func ProviderKeyVars(man manifest.Manifest, lookup func(string) string) []string {
 	own := subscriptionNames(man)
@@ -163,13 +144,6 @@ func ProviderKeyVars(man manifest.Manifest, lookup func(string) string) []string
 
 // WithheldProviders lists the providers this run's auth answer keeps OFF THE
 // WIRE — every one of whose set credentials the suppressor withholds.
-//
-// It exists because suppression stopped at the container's environment. The
-// broker injects on-route at the egress hop by design, so an answer of
-// "subscription" withheld ANTHROPIC_API_KEY from the agent and then had the
-// proxy attach it to every request bound for .anthropic.com anyway. Observed:
-// `auth var subscription` beside `brokered anthropic,cursor,openai,xai,google,
-// opencode` — six providers on the wire for a run that named one side.
 // SPEC: _spec/internal/credentials/credential-decisions.puml
 func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
 	lookup func(string) string, detected []string) []string {
@@ -200,20 +174,11 @@ func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
 }
 
 // UsableProviders drops the providers this harness can send NO credential to.
-//
-// Detection is host-wide, so an opencode run on a developer's machine detects
-// cursor — and brokered it, which meant the egress proxy stood ready to attach
-// CURSOR_API_KEY to requests opencode has no way to make and cursor's API would
-// refuse. A route for a credential this harness may not send is reach it cannot
-// use, and sbx shows that list to the operator for approval.
 // SPEC: _spec/internal/provider/provider-registry.puml
 func UsableProviders(man manifest.Manifest, detected []string, lookup func(string) string) []string {
 	family := HarnessFamily(man.Name)
 	out := make([]string, 0, len(detected))
 	for _, name := range detected {
-		// A provider with no Auth options at all (bedrock, azure, vertex) is
-		// detected but never broker-injectable; it is dropped here rather than
-		// silently resolving to nothing later.
 		for _, v := range provider.AuthVarsFor(name, family) {
 			if strings.TrimSpace(lookup(v)) != "" {
 				out = append(out, name)
@@ -242,10 +207,8 @@ func Without(providers, drop []string) []string {
 	return out
 }
 
-// VendorPinnedWhy explains why a harness cannot be billed as usage credits, or
-// "" when it can. A `providers:` list of exactly the harness's own vendor is the
-// declaration that all inference transits that vendor — cursor, whose CLI has no
-// bring-your-own-key path at all. SPEC: _spec/defs/cursor/cursor-paradigm.puml
+// VendorPinnedWhy explains why a harness cannot be billed as usage credits,
+// or "" when it can.
 func VendorPinnedWhy(man manifest.Manifest) string {
 	if len(man.Capabilities.Providers) != 1 {
 		return ""
@@ -262,7 +225,7 @@ func VendorPinnedWhy(man manifest.Manifest) string {
 
 // AuthBacking is what each option is MADE of on this host: the variables it
 // reads and the files it reads them from — three different credentials with
-// three different bills. SPEC: _spec/internal/choiceui/wireframe.puml
+// three different bills.
 func AuthBacking(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
 	inFile := ParseEnvFile(envFile)
 	from := func(names []string) string {
@@ -280,10 +243,6 @@ func AuthBacking(man manifest.Manifest, lookup func(string) string, target, home
 
 	backing := map[string]string{}
 	usage := ProviderKeyVars(man, lookup)
-	// A vendor gateway that sells BOTH a plan and metered usage on one key backs
-	// both sides of this row, and filing it under one was wrong: opencode's key
-	// buys the Go plan (opencode-go/<m>) or spends the Zen balance
-	// (opencode/<m>), and only the model id says which.
 	if dual := DualSidedVars(man, lookup); len(dual) > 0 {
 		usage = append(usage, dual...)
 	}
@@ -309,10 +268,8 @@ func AuthBacking(man manifest.Manifest, lookup func(string) string, target, home
 	return backing
 }
 
-// DualSidedVars are this harness's own credentials that buy a plan AND metered
-// usage, so they back both options rather than settling the question. The split
-// lives in the model id (opencode) or entirely on the vendor's side (cursor's
-// plan allowance, then usage-based overage on one CURSOR_API_KEY).
+// DualSidedVars are this harness's own credentials that buy a plan AND
+// metered usage, so they back both options rather than settling the question.
 func DualSidedVars(man manifest.Manifest, lookup func(string) string) []string {
 	var out []string
 	for _, v := range SubscriptionVars(man, lookup) {
@@ -429,8 +386,7 @@ var subscriptionLoginFiles = map[string][]string{
 }
 
 // EffectiveAuthVar resolves an answer to the ONE variable the broker should
-// prefer, or "" when the answer names no variable at all. It still accepts a
-// bare variable name: remembered answers predate the two-class row.
+// prefer, or "" when the answer names no variable at all.
 // SPEC: _spec/internal/agentsettings/choice-cache.puml
 func EffectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) string {
 	switch v := strings.TrimSpace(chosen); v {
@@ -542,9 +498,7 @@ func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, look
 	chosen = strings.TrimSpace(chosen)
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)
 	usableLogin = usableLogin && !staleLogin
-	// An explicit "subscription" lands here too when a login is on disk: the
-	// login IS the plan credential and out-ranks an env token of the same
-	// provider. SPEC: _spec/_paradigms/credential-boundary.puml
+	// SPEC: _spec/_paradigms/credential-boundary.puml
 	if chosen == AuthVarLogin || ((chosen == "" || chosen == AuthSubscription) && usableLogin) {
 		owned := map[string]bool{}
 		for _, e := range man.Env {
@@ -567,9 +521,6 @@ func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, look
 	}
 	auth := EffectiveAuthVar(man, target, chosen, homeRoot, lookup)
 	if (chosen == AuthSubscription || subscriptionNames(man)[auth]) && VendorPinnedWhy(man) == "" {
-		// The far side of the same choice: a harness that can read either must
-		// not read BOTH once the operator has said which. Vendor-pinned
-		// harnesses are exempt — they have no far side.
 		return func(k string) bool {
 			switch {
 			case k == auth:

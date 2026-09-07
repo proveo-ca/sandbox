@@ -25,9 +25,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// The execution row offers ONE daemon or none — after retire-dind there is no
-// second one to offer, so the row states the single fact rather than presenting a
-// choice. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx} {
@@ -48,9 +46,6 @@ func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
 	}
 }
 
-// The two planes answer different questions, and every box belongs to exactly
-// one of them: an undifferentiated row put a Docker daemon beside a browser as
-// though they were the same kind of choice.
 func TestEachPlaneOffersOnlyItsOwnKindOfChoice(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
@@ -98,9 +93,6 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 			t.Errorf("%q is greyed with no explanation", o)
 		}
 	}
-	// "host" and the TUI state facts, so neither is reported as a run option. The
-	// sandbox is greyed for the opposite reason — it is compulsory — and dropping
-	// it here would report the run as taking the weaker backend.
 	if !exec.Off[1] || !exec.On[1] {
 		t.Error("an available sandbox must be greyed and TICKED: it is compulsory, not optional")
 	}
@@ -109,10 +101,7 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 	}
 }
 
-// The tier gate outlived the sidecar it was written for: the Claude in Chrome
-// bridge is now the only add-on it governs, and it governs it on the DOCKER
-// backend, where an intercepting tier leaves the agent no route to the host.
-// SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestGateAddonsEgressStillGatesTheHostBridge(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
@@ -145,9 +134,6 @@ func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
 	}
 }
 
-// The two levels are one answer, so they are one radio. They used to be a
-// checkbox pair kept exclusive by a gate, which left "neither ticked" reachable
-// and quietly meaning default — a state the picker could not explain.
 func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	t.Parallel()
 	r := evidenceRow(EvidenceVerbose)
@@ -285,9 +271,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	if !sawManifestHost {
 		t.Errorf("allowlist missing manifest hosts: %v", kit.Permissions.Network.Allow)
 	}
-	// Credentials are NOT declared here any more. The built-in agent's own kit
-	// declares service "anthropic", and a mixin repeating it is rejected outright
-	// ("defined in both") — sbx's proxy does the injection either way.
 	if kit.Kind != "mixin" {
 		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
 	}
@@ -391,9 +374,6 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	if len(secrets) == 0 {
 		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
 	}
-	// The secret still goes to sbx's store host-side, but the Kit no longer NAMES
-	// it: the built-in agent declares service "anthropic" itself, and a mixin
-	// repeating it is rejected ("defined in both").
 	var named bool
 	for _, kv := range secrets {
 		if kv[0] == "CLAUDE_CODE_OAUTH_TOKEN" {
@@ -425,10 +405,6 @@ func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
 	}
 }
 
-// The two browsers are different things — a Chromium inside the sandbox versus
-// the operator's own Chrome over the bridge — so a harness that has both is
-// offered both, and one that declares no host-browser client is never sold a
-// bridge it cannot use.
 func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
@@ -455,16 +431,8 @@ func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T)
 	}
 }
 
-// The host-browser box is gated three ways, each re-evaluated on every toggle:
-// the host preflight (Chrome + native host, a /login session), the tier (open +
-// forward is the only one with a route to the host), and the sandbox box (a VM
-// cannot name the host). The reason on the row names the one that applied.
 func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 	t.Parallel()
-	// The two boxes live in DIFFERENT groups now — the daemon is an execution
-	// choice and the browser an interface one — so the exclusion between them is
-	// read across the form rather than along one slice. chrome() and sandbox()
-	// name the rows so the assertions below say which plane they are about.
 	row := func(sandboxOn bool) *choiceui.Form {
 		return &choiceui.Form{Rows: []choiceui.Row{
 			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{sandboxOn}},
@@ -479,8 +447,6 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 
-	// A ticked sandbox no longer excludes it: a sandbox reaches the host's
-	// loopback through host.docker.internal on every baseline, so the bridge has
 	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
 	f = row(true)
 	gateAddons(f, "open", "forward", "", "")
@@ -543,10 +509,6 @@ func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
 	}
 }
 
-// The credential half must consult the proveo home, not just the environment: an
-// ANTHROPIC_API_KEY exported beside a persisted /login does not displace it, and
-// Claude Code reads the store either way. Only the credential half is asserted —
-// whether a native host is listening is the operator's Chrome, not this test's.
 func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -573,10 +535,6 @@ func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
 	}
 }
 
-// The sandbox stopped being an add-on decision: a harness that declares sbx runs
-// there whenever the host allows it. A remembered answer written before the lock
-// — or one with the box cleared — must no longer be able to route the run to the
-// weaker docker backend, so every Params below has to agree with the host test.
 func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{Name: "claudecode", Docker: manifest.DockerSbx}
@@ -597,9 +555,6 @@ func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
 	}
 }
 
-// The compulsory tick happens INSIDE gateAddons, so anything gating on it must
-// read the row's options rather than On — or the first paint, the one an Enter
-// can accept outright, is computed from a state that no longer exists.
 func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 	t.Parallel()
 	form := func() *choiceui.Form {
@@ -709,10 +664,7 @@ func TestTheDockerAddonStartsChecked(t *testing.T) {
 	}
 }
 
-// A cached choice from before retire-dind may still name the privileged sidecar,
-// in either of its two spellings. Both are DROPPED rather than translated: there
-// is no equivalent offer to carry them to, and the sandbox box is re-ticked by the
-// gate on every run anyway. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	t.Parallel()
 	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox})
@@ -721,12 +673,6 @@ func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	}
 }
 
-// The DLP's on-provider exemption cannot be derived from detected keys alone. A
-// subscription harness authenticates INSIDE the sandbox, so nothing is
-// detectable host-side, yet the token it mints there still has to reach the
-// vendor — the manifest's declared providers are the only statement of where
-// that is. Deriving the set from detection alone made the exemption empty for
-// exactly the harness that needs it most.
 func TestPolicyProviderHostsCoversDeclaredAndDetected(t *testing.T) {
 	t.Parallel()
 	subscription := manifest.Capabilities{Providers: []string{"anthropic"}}
@@ -752,12 +698,7 @@ func TestPolicyProviderHostsCoversDeclaredAndDetected(t *testing.T) {
 	}
 }
 
-// The cache seeds a prompt and is never an authority of its own, so a run with
-// no prompt to seed takes the manifest default
 // (_spec/internal/agentsettings/choice-cache.puml). Applying it headlessly let
-// the last interactive session decide a later run's security posture: an e2e run
-// that asked for the default `--credentials broker` silently got `forward`, and
-// with it a `browser` image variant it never selected.
 func TestCacheOnlyAppliesWhereThereIsAPromptToSeed(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -803,10 +744,6 @@ func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
 	}
 }
 
-// The egress axis must name what actually governs the backend in front of the
-// operator. On docker that is proveo's tier; on sbx the tier is inert — the Kit
-// allowlist is derived from capabilities and providers, never from the tier — and
-// the real lever is sbx's host-wide baseline, which proveo reports but never sets.
 func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 	man := manifest.Manifest{}
 
@@ -838,9 +775,6 @@ func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 		}
 	})
 
-	// One sample, identical for every baseline, and it must carry the reset: `sbx
-	// policy init` on its own is rejected once the host is initialized, so a hint
-	// without it would print a command that fails.
 	t.Run("the change hint is uniform and runnable", func(t *testing.T) {
 		orig := policyBaseline
 		t.Cleanup(func() { policyBaseline = orig })
@@ -972,9 +906,6 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 	}
 }
 
-// claudecodeMan is the harness shape the Chrome gate reasons about: a
-// subscription harness whose declared secrets are the two anthropic auth vars,
-// which is what AuthSuppressor scopes the login's suppression to.
 func claudecodeMan() manifest.Manifest {
 	return manifest.Manifest{
 		Name: "claudecode", Subscription: true, Docker: manifest.DockerSbx,
@@ -985,9 +916,6 @@ func claudecodeMan() manifest.Manifest {
 	}
 }
 
-// A CLAUDE_CODE_OAUTH_TOKEN exported on the host is NOT the session's
-// credential when a usable login is mounted beside it. Both halves come from
-// AuthSuppressor, so they cannot disagree.
 func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -1069,9 +997,6 @@ func blankedHome(t *testing.T) string {
 	return home
 }
 
-// A husk decides nothing when an env token is carrying the session: the token's
-// scopes are the whole answer, and greying the box over the file refused a
-// bridge that works.
 func TestChromeGateIgnoresABlankedHomeWhenTheEnvTokenCarriesTheSession(t *testing.T) {
 	t.Parallel()
 	home := blankedHome(t)
@@ -1089,9 +1014,6 @@ func TestChromeGateIgnoresABlankedHomeWhenTheEnvTokenCarriesTheSession(t *testin
 	}
 }
 
-// The remedy has to name WHERE. On macOS `/login` on the HOST writes to the
-// Keychain, which the container cannot read — so following that advice leaves
-// the operator with no credential of any kind.
 func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
 	t.Parallel()
 	unscoped := func(k string) string {
@@ -1111,10 +1033,7 @@ func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
 	}
 }
 
-// PROVEO_DIND is retired and its whole remaining job is to SAY so. A no-op that
-// stays silent tells an operator who exported it in a shell rc months ago
-// nothing, and they read the missing sidecar as a broken run.
-// SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
 	for _, c := range []struct {
 		value string

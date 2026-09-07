@@ -29,10 +29,6 @@ func TestRoot(t *testing.T) {
 	}
 }
 
-// The durable root is where sessions, logs and provisioned toolchains live, so
-// resolving it to "." puts all three inside the operator's repository. HOME is
-// set by Git Bash on Windows and by nothing else, which is why a PowerShell
-// proveo needs USERPROFILE and its domain-joined fallback.
 func TestUserHomeAcrossHostOSes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -192,13 +188,6 @@ func TestResumeArgs(t *testing.T) {
 	}
 }
 
-// The scrub is the default because a denied file is a CREDENTIAL and the proveo
-// home is mounted rw into every later run of that harness — persisting one lets
-// any subsequent agent session read it.
-//
-// But the default costs something real: opencode's Go plan needs /connect in
-// the TUI, and scrubbing auth.json means re-doing that every single run. So it
-// is opt-out, per machine, by an operator who has weighed that.
 // SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
 func TestDeniedLoginsPersistOnlyWhenAskedFor(t *testing.T) {
 	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{

@@ -7,6 +7,8 @@ skinparam noteTextAlignment left
 ' purpose: the sbx Kit contract proveo writes against — schema, handoff, session, exit
 ' covers: internal/sbx/**
 ' covers: cmd/proveo/main.go
+' covers: internal/contract/lsp_config_parity_test.go
+' covers: internal/contract/seed_command_shipped_test.go
 ' Backend selection and the fallback path: sandbox-backend.puml (same directory).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '

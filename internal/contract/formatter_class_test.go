@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// opencode's 24 built-in formatters are DISABLED BY DEFAULT — omitting the key
-// is the off state — so a workspace carrying prettier and oxfmt formatted
-// nothing until proveo turned the registry on. This is the switch.
 func TestOpencodeFormatterRegistryIsEnabled(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

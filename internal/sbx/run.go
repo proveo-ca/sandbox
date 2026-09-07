@@ -2,6 +2,7 @@ package sbx
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -175,6 +176,50 @@ func CloneFetchArgs(repoRoot, name string) []string {
 	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(name),
 		"+refs/heads/*:" + CloneRefs(name) + "/*"}
 }
+
+// CloneBundleEmpty is the exit status the bundle script reserves for "the clone
+// holds no commit the host does not already have".
+const CloneBundleEmpty = 4
+
+// hexOnly guards what goes into the bundle script.
+var hexOnly = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+
+// CloneBundleArgs streams a git bundle of the clone's branches on stdout.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func CloneBundleArgs(name, workdir string, have []string) []string {
+	var tips []string
+	for _, h := range have {
+		if hexOnly.MatchString(strings.ToLower(strings.TrimSpace(h))) {
+			tips = append(tips, strings.ToLower(strings.TrimSpace(h)))
+		}
+	}
+	script := "cd " + bashQuote(workdir) + " || exit 1\n" + "ex=\n"
+	if len(tips) > 0 {
+		// `for c in ; do` is a syntax error.
+		script += "for c in " + strings.Join(tips, " ") + "; do\n" +
+			"  git cat-file -e \"$c^{commit}\" 2>/dev/null && ex=\"$ex ^$c\"\n" +
+			"done\n"
+	}
+	script += "git rev-list --branches $ex -n 1 2>/dev/null | grep -q . || exit " +
+		strconv.Itoa(CloneBundleEmpty) + "\n" +
+		"git bundle create --quiet - --branches $ex\n"
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c", script}
+}
+
+// CloneBundleFetchArgs fetches the streamed bundle into proveo's own refs.
+func CloneBundleFetchArgs(repoRoot, bundle, name string) []string {
+	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", bundle,
+		"+refs/heads/*:" + CloneRefs(name) + "/*"}
+}
+
+// CloneHostTipsArgs lists the host's own branch tips, which become the bundle's
+// exclusion list.
+func CloneHostTipsArgs(repoRoot string) []string {
+	return []string{"-C", repoRoot, "for-each-ref", "--format=%(objectname)", "refs/heads"}
+}
+
+// CloneHostTipsCap bounds that list.
+const CloneHostTipsCap = 64
 
 const (
 	CDPRelayPort   = 9222 // the relay listens here, on every interface; this is what is published

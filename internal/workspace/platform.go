@@ -1,6 +1,4 @@
 // SPEC: _spec/packages/lib/dependency-trees.puml
-//
-// SPEC: _spec/packages/lib/dependency-trees.puml
 package workspace
 
 import (

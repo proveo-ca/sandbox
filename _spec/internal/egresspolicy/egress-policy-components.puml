@@ -5,6 +5,8 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 skinparam linetype ortho
+' purpose: the pieces a policy decision is assembled from, and which layer owns each one
+' covers: internal/egresspolicy/**
 
 left to right direction
 

@@ -1,5 +1,10 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how a published CLI release is resolved, verified and installed over the CDN
+' covers: internal/cdn/**
+' covers: cmd/proveo/update.go
+' covers: apps/cli/public/cli/**
+' covers: scripts/stage-cli-cdn.sh
 title Distribution + self-update — install.sh and `proveo update`
 
 actor "Consumer" as USER

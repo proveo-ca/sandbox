@@ -36,10 +36,6 @@ func sortedFields(s string) []string {
 	return f
 }
 
-// The image seeds a list of official plugins; the seed step enables from a table.
-// A plugin in one and not the other is either baked and never enabled (dead
-// weight) or enabled without a cache to load from (a prompt to install — the very
-// thing the seed exists to remove).
 func TestSeededLspPluginsMatchTheEnablementTable(t *testing.T) {
 	t.Parallel()
 	df, err := os.ReadFile(filepath.Join(repoRoot(t), "defs", "claudecode", "mcp", "Dockerfile"))
@@ -95,9 +91,6 @@ func TestSeedEnablesOfficialLspPluginsOnlyForPresentBinaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The seed as `claude plugin install` leaves it under CLAUDE_CODE_PLUGIN_CACHE_DIR:
-	// records beside the caches (only typescript-lsp recorded; the rest exercise the
-	// directory fallback).
 	if err := os.MkdirAll(filepath.Join(seed, "marketplaces", "claude-plugins-official"), 0o755); err != nil {
 		t.Fatal(err)
 	}

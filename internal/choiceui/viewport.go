@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/choiceui/viewport.puml
-//
-// SPEC: _spec/internal/choiceui/viewport.puml
 package choiceui
 
 const (

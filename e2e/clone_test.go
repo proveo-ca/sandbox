@@ -12,22 +12,9 @@ import (
 	"testing"
 )
 
-// machO is the 64-bit Mach-O magic. A dependency tree built on macOS is full of
-// files that start with these four bytes, and a Linux container cannot load a
-// single one of them — which is the whole reason the reinstall exists.
 var machO = []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c}
 
 // TestCloneLeavesTheHostTreeAlone is the regression guard for the ping-pong.
-//
-// Without --clone the sandbox rebuilds the foreign tree IN PLACE, so the operator
-// gets Linux binaries in their own checkout, their host build breaks, they
-// reinstall for macOS, and the next run finds a foreign tree again. One reinstall
-// each way, forever. The escape is that sbx builds the workspace by CLONING the
-// host repo over a git daemon, so only TRACKED files cross the boundary.
-//
-// The assertion is deliberately about BYTES on the host rather than about the
-// clone being empty: "the sandbox did not write my checkout" is the promise
-// --clone makes to the operator, and it is the one that would go silently wrong.
 func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -52,9 +39,6 @@ func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
 
-	// Two facts, one exec: the clone really is a clone (its origin is the git
-	// daemon sbx stands up, not the host path), and the foreign tree did not
-	// come along for the ride.
 	probe := exec.Command("sbx", "exec", name, "--", "sh", "-c",
 		"cd "+work+" && printf 'origin=%s\\ndeps=%s\\n' "+
 			"\"$(git remote get-url origin 2>/dev/null)\" "+

@@ -75,10 +75,7 @@ func renderDockerPlan(plan egress.Plan, agent runner.Config) string {
 	for _, i := range plan.Images {
 		fmt.Fprintln(&b, i)
 	}
-	// agentNetwork= used to sit between usesSquid and proxyContainer. The field it
-	// rendered existed for one reader — the privileged sidecar attaching to the
-	// agent's network — and went with it (_spec/_plans/retire-dind.puml). The
-	// network itself is still visible in the argv and in the networks section.
+	// agent's network — and went with it (_spec/_paradigms/retire-dind.puml). The
 	section(&b, "flags")
 	fmt.Fprintf(&b, "usesSquid=%v\nproxyContainer=%s\nsquidContainer=%s\nollamaContainer=%s\ncaWaitPath=%s\nneedsLifecycle=%v\n",
 		plan.UsesSquid, plan.ProxyContainer, plan.SquidContainer,
@@ -263,8 +260,6 @@ func TestSandboxPlanGolden(t *testing.T) {
 			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
 			{Name: "ANTHROPIC_BASE_URL"},
 		},
-		// The real manifest declares one, and it is what the config sync is driven
-		// by — so the plan an operator inspects has to show it.
 		// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 		Home: manifest.Home{
 			Enabled: true,

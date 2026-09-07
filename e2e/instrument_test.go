@@ -16,20 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// This file is the shared instrumentation for the tmux-driven e2e layer. Every
-// assertion that can time out should fail through it, because the failures that
-// cost the most to diagnose are the ones that report nothing useful.
-//
-// Three rules, each learned from a failure that hid its own cause:
-//
-//  1. Snapshot the scrollback WHILE the session is alive. Capturing only at the
-//     moment of failure returns "no server running" once the run has exited, which
-//     hides whatever it printed on the way out.
-//  2. A single empty capture is not death. tmux returns nothing mid-redraw and
-//     during long output (an image pull), so only consecutive misses count.
-//  3. Always include exited containers. "started and died" and "never started"
-//     are different faults and look identical without it.
-
 // deadAfter is how many consecutive empty captures mean the pane is really gone.
 const deadAfter = 4
 
@@ -89,22 +75,14 @@ func (w *watcher) tick() (alive bool) {
 // Screen is the freshest scrollback seen while the session was alive.
 func (w *watcher) Screen() string { return w.lastScreen }
 
-// credentialUnavailable matches a pane where the run reached the agent and the
-// AGENT then had nothing usable to authenticate with — a key the provider refuses,
-// or one with no balance left to spend.
-//
-// Deliberately narrow. It must name the credential and nothing else: broadening it
-// to any early exit would let a real adapter defect leave as a skip.
 var credentialUnavailable = regexp.MustCompile(`(?i)` +
 	`credit balance is too low|` +
 	`insufficient (credits?|quota|balance)|` +
 	`authentication_error|invalid x-api-key|invalid api key`)
 
-// Fatalf fails the test with the message plus full diagnostics — unless the pane
-// says the credential was the problem, which Layer 4 treats as a missing
-// prerequisite rather than a defect. A sandbox whose agent exits for want of a
-// spendable credential never exercised the boundary under test, so failing on it
-// buries the next real regression under a condition of the host.
+// Fatalf fails the test with the message plus full diagnostics — unless the
+// pane says the credential was the problem, which Layer 4 treats as a missing
+// prerequisite rather than a defect.
 func (w *watcher) Fatalf(format string, args ...any) {
 	w.t.Helper()
 	if m := credentialUnavailable.FindString(w.lastScreen); m != "" {
@@ -114,9 +92,6 @@ func (w *watcher) Fatalf(format string, args ...any) {
 	w.t.Fatalf(format+"%s", append(args, diagnostics(w.lastScreen))...)
 }
 
-// harnessSecrets are the credential variables target's own manifest declares, in
-// declaration order. Read from the def rather than restated, so a harness that
-// changes what it authenticates with cannot drift out of the callers below.
 func harnessSecrets(t *testing.T, target string) []string {
 	t.Helper()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -137,18 +112,12 @@ func harnessSecrets(t *testing.T, target string) []string {
 	return out
 }
 
-// requireHarnessCredential skips unless the credential target actually spends is
-// present on the host. Read from the def's own manifest rather than restated, so a
-// harness that changes what it authenticates with cannot drift out of this guard.
 func requireHarnessCredential(t *testing.T, target string) {
 	t.Helper()
 	declared := harnessSecrets(t, target)
 	if len(declared) == 0 {
 		return // nothing to spend; the harness authenticates some other way
 	}
-	// hostEnvValue, not os.Getenv: this suite resolves a credential from the process
-	// environment OR the repo .env, and checking only the first would skip a run the
-	// developer had in fact provisioned.
 	for _, k := range declared {
 		if strings.TrimSpace(hostEnvValue(t, k)) != "" {
 			return
@@ -176,19 +145,6 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 	}
 }
 
-// waitForContainerShell blocks until the agent shell inside the container is
-// accepting input. The prompt is the signal that the WHOLE topology came up —
-// sidecars, networks, CA trust — because proveo only hands the PTY over once the
-// container is running, so anything that fails earlier fails here with the
-// scrollback attached rather than as a confusing timeout further down.
-//
-// tmux trims trailing whitespace, so the prompt reads "…:/app$" with nothing
-// after it; matching on "$ " never fires. Every def now shares the one workspace
-// layout, so /app is the workdir — /workspace stays accepted only so an older
-// image does not fail the wait. Both are DOCKER mount points: a sandbox run mounts
-// a workspace at its own host path, so a caller that has not pinned PROVEO_SBX=off
-// will wait here until its deadline for a prompt that cannot appear.
-// image still matches while the rebuilt ones roll out.
 func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 	t.Helper()
 	w.until("the agent shell", timeout, func() bool {
@@ -205,13 +161,6 @@ func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 	})
 }
 
-// acceptChoicePrompt accepts the pre-selected choice form. Anchored on the key
-// hint rather than the title: the title is copy and has been reworded once, which
-// broke a test that waited on it.
-//
-// Seeding agent-settings.yml does NOT skip this — the prompt always shows so the
-// operator sees the posture they are launching — so any test that starts a run on
-// a TTY has to answer it.
 func acceptChoicePrompt(t *testing.T, sess *tmux.Session, target string) {
 	t.Helper()
 	w := newWatcher(t, sess)

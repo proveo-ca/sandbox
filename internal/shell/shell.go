@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/shell/setup-path.puml
-//
-// SPEC: _spec/internal/shell/setup-path.puml
 package shell
 
 import (
@@ -11,6 +9,11 @@ import (
 // Marker delimits the block proveo appends to a shell rc, so it can be detected
 // (idempotency) and removed later.
 const Marker = "# added by `proveo setup` — proveo on PATH"
+
+// SbxMarker is the same idea for the OTHER directory proveo puts on PATH: the
+// sbx prefix, written by `proveo init`.
+// SPEC: _spec/internal/shell/setup-path.puml
+const SbxMarker = "# added by `proveo init` — sbx on PATH"
 
 // Shell describes one shell's rc location and PATH syntax.
 type Shell struct {
@@ -84,6 +87,11 @@ func (s Shell) ExportLine(name, value string) string {
 // Block is the full snippet appended to the rc file (marker + PATH line).
 func (s Shell) Block(binDir string) string {
 	return "\n" + Marker + "\n" + s.PathLine(binDir) + "\n"
+}
+
+// SbxBlock is Block for the sbx prefix's bin directory.
+func (s Shell) SbxBlock(binDir string) string {
+	return "\n" + SbxMarker + "\n" + s.PathLine(binDir) + "\n"
 }
 
 func AlreadyConfigured(rcContent, binDir string) bool {

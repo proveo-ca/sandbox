@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/choiceui/topology-strip.puml
-//
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (

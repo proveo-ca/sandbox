@@ -20,9 +20,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// isSbxArgv reports whether a rendered agent command is the sandbox rendering
-// rather than the docker one. The two carry the proveo home differently, so an
-// assertion about mounts or HOME has to know which it is looking at.
 func isSbxArgv(agentCmd string) bool {
 	return strings.HasPrefix(strings.TrimSpace(agentCmd), "sbx run")
 }
@@ -31,13 +28,8 @@ func isSbxArgv(agentCmd string) bool {
 // PROVEO_HOME: plan wiring for every harness, auth scrubbing, resume argv
 // forwarding, clean --homes, and (when images exist) live --shell + resume
 // round-trips that never bind host IDE homes.
-//
-//	go test -tags=e2e ./e2e/ -run ProveoHomePersistence -v
 func TestProveoHomePersistence(t *testing.T) {
 	proveoBin := buildProveo(t)
-	// Read once, from proveo's own plan. Restating "proveo/cursor:latest" stopped
-	// matching the container under test the day the tag policy shipped: a local
-	// build resolves to :local, and :latest now names a published artifact only.
 	cursorImage := harnessImageRef(t, proveoBin, "cursor")
 
 	t.Run("print_plan_mounts_all_agents", func(t *testing.T) {
@@ -63,19 +55,7 @@ func TestProveoHomePersistence(t *testing.T) {
 				if !strings.Contains(out, "proveo home: "+home) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
 				}
-				// One decision, two renderings — and the assertions differ because the
-				// renderings do. sbx mounts the proveo home at its HOST path and
-				// passes it positionally, so `-v host:/proveo-home` and
-				// HOME=/proveo-home describe a shape claudecode and cursor stopped
-				// taking when the sandbox backend became first-class. Asserting the
-				// docker form for every harness left this subtest red for both of
-				// them, which is the drift a backend-blind expectation invites.
 				if isSbxArgv(agentCmd) {
-					// sbx mounts the proveo home at its HOST path and passes it
-					// positionally, and it deliberately sets NEITHER HOME nor
-					// PROVEO_HOME — see sandbox.Home. Redirecting HOME orphaned the
-					// credential sbx's own proxy writes under the image's home, and
-					// the agent then reported "Not logged in" (ladder rung 3).
 					if !strings.Contains(agentCmd, " "+home) {
 						t.Errorf("sbx argv does not carry the proveo home as a workspace:\n%s", agentCmd)
 					}
@@ -97,11 +77,6 @@ func TestProveoHomePersistence(t *testing.T) {
 						t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
 							home, proveohome.ContainerHome, agentCmd)
 					}
-					// Docker is unchanged: it runs the agent as the HOST's uid, so the
-					// image's passwd entry is wrong and HOME must be redirected.
-					// Matched with the flag attached: "HOME=x" is a substring of
-					// "PROVEO_HOME=x", so the looser form passed whenever the other
-					// variable was present and the assertion proved nothing.
 					containerHome := proveohome.ContainerHome
 					if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
 						t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
@@ -130,11 +105,6 @@ func TestProveoHomePersistence(t *testing.T) {
 		}
 	})
 
-	// A login already sitting in the proveo home IS the credential. Injecting an
-	// auth variable for the same provider does not add a second one — it overrides
-	// the file, and a subscription run then authenticates as the API. The variable
-	// is exported here precisely because that is the case which used to slip
-	// through: nothing was missing, so nothing warned.
 	t.Run("login_file_suppresses_that_providers_auth_vars", func(t *testing.T) {
 		t.Parallel()
 		home := t.TempDir()
@@ -199,10 +169,6 @@ func TestProveoHomePersistence(t *testing.T) {
 
 		ls := agentCommandLine(t, runPrintWithHome(t, proveoBin, home, "cursor",
 			"--ls", "--input", work))
-		// Asserted as the trailing agent command, not as "<image> ls". That older
-		// form was stale twice over: the tag policy resolves a local build to
-		// :local, and only the docker rendering puts the command straight after the
-		// image — sbx passes it after the workspaces and a "--".
 		if !strings.HasSuffix(strings.TrimSpace(ls), " ls") {
 			t.Errorf("cursor --ls should forward as the agent command ls:\n%s", ls)
 		}
@@ -389,9 +355,6 @@ func requireLiveCursorHome(t *testing.T, cursorImage string) {
 	}
 }
 
-// dockerVisibleHomeWork returns PROVEO_HOME + workspace dirs the Docker daemon
-// can bind-mount. In containerized Docker hosts, process /tmp is invisible to
-// the daemon; the repo's .cache/e2e path is shared.
 func dockerVisibleHomeWork(t *testing.T) (home, work string) {
 	t.Helper()
 	cache := filepath.Join(repoRoot(t), ".cache", "e2e")
@@ -404,11 +367,6 @@ func dockerVisibleHomeWork(t *testing.T) (home, work string) {
 
 func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work string, extra ...string) {
 	t.Helper()
-	// PROVEO_SBX=off is load-bearing, the same way it is in git_access_test and
-	// scope_mounts_test: these subtests inspect a DOCKER container — its ancestor
-	// image and its mount table — and cursor takes the sandbox backend wherever sbx
-	// is installed. Unpinned, no container with that ancestor ever appears and the
-	// probe spends its full 120s timeout before failing for the wrong reason.
 	cmd := append([]string{
 		"env",
 		"PROVEO_HOME=" + home,
@@ -423,10 +381,6 @@ func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work str
 	}
 }
 
-// dismissCapabilityPicker accepts the run's choice form. The old add-on picker it
-// waited on ("tab to add") was folded into that single form; seeding a cached
-// answer does not skip it, because the form always shows the posture being
-// launched.
 func dismissCapabilityPicker(t *testing.T, sess *tmux.Session) {
 	t.Helper()
 	acceptChoicePrompt(t, sess, "cursor")
@@ -445,9 +399,6 @@ func seedCursorChat(t *testing.T, proveoHome, chatID, title string) {
 	if err := os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// "tests/e2e" is where this lived before 7086892 moved the tree to "e2e".
-	// The fixture moved; this path did not, so the test has been failing on a
-	// missing file rather than on anything it asserts.
 	src := filepath.Join(repoRoot(t), "e2e", "testdata", "cursor-empty-store.db")
 	in, err := os.ReadFile(src)
 	if err != nil {
@@ -495,9 +446,6 @@ func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...str
 	return string(out)
 }
 
-// harnessImageRef returns the image reference proveo would actually run for target,
-// read out of its own rendered plan rather than restated here. Both renderings are
-// handled: sbx names it after -t, docker positions it before the agent command.
 func harnessImageRef(t *testing.T, proveoBin, target string) string {
 	t.Helper()
 	argv := agentCommandLine(t, runPrintWithHome(t, proveoBin, t.TempDir(), target, "--input", t.TempDir()))

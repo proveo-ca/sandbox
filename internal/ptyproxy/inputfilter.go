@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
-//
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 package ptyproxy
 
 import (
@@ -24,9 +22,9 @@ type seenReply struct {
 	at time.Time
 }
 
-// DefaultReplyWindow is how close together two IDENTICAL reports must arrive to
-// be read as one terminal answering twice rather than the application asking
-// twice.
+// DefaultReplyWindow is how close together two IDENTICAL reports must arrive
+// to be read as one terminal answering twice rather than the application
+// asking twice.
 const DefaultReplyWindow = 2 * time.Second
 
 func newInputFilter() *inputFilter {
@@ -122,9 +120,6 @@ func classifyTerminalReport(b []byte) reportKind {
 			return reportReply
 		}
 	case '_': // APC … ST — the kitty GRAPHICS protocol's answer
-		// Queried as ESC_Gi=<id>,a=q,…ESC\ and answered ESC_Gi=<id>;OK ESC\.
-		// opencode probes with i=31337 on startup, so this is not exotic: it is
-		// the first thing the terminal says back to it.
 		if bytes.HasSuffix(b, []byte{0x1b, '\\'}) {
 			return reportReply
 		}
@@ -148,23 +143,8 @@ func isNumericParams(b []byte) bool {
 	return true
 }
 
-// maxHeld bounds how much of an unfinished escape sequence is carried into the
-// next read. A terminal reply is tens of bytes; anything longer is not one, and
-// holding real input hostage is worse than passing a report through.
 const maxHeld = 128
 
-// split walks a chunk and returns the bytes to forward, plus any trailing
-// PARTIAL escape sequence to carry into the next read.
-//
-// keep() judged one whole read at a time, which is wrong twice over. A reply
-// arriving split across reads left a fragment — `ESC[?62;` then `c` — and the
-// second piece failed the len<3 guard and reached the agent as a keystroke;
-// that is the stray `c` sitting in front of every "sandbox was stopped". And a
-// chunk carrying a report BESIDE real typing was all-or-nothing, so filtering
-// it meant eating the keystrokes with it. Bracketed paste makes both routine:
-// the pasted text, its ESC[200~/ESC[201~ markers and whatever the terminal was
-// still answering all land in one read.
-//
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	for i := 0; i < len(b); {
@@ -196,10 +176,6 @@ func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	return forward, nil
 }
 
-// escEnd returns the length of the escape sequence starting at b[0] and whether
-// it is complete. It recognises the terminators each introducer actually uses;
-// anything unknown is treated as a two-byte ESC pair rather than swallowing the
-// rest of the buffer.
 func escEnd(b []byte) (int, bool) {
 	if len(b) < 2 {
 		return 0, false

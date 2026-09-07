@@ -15,13 +15,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// The plan goldens in golden_test.go call dockeregress.Assemble and sandbox.Spec
-// DIRECTLY, so they pin the backends and say nothing about the resolve path that
-// feeds them. That path — workspace, credentials, posture, backend selection — is
-// what move 6 restructures, and until this test it had no fast coverage at all:
-// only the e2e ladder drove it, which is slow and skips without credentials.
-//
-// This renders a whole `--print` run and pins the bytes. See
 // _spec/internal/run/run-spec.puml (MOVE 6, PROOF).
 func TestRunResolveGolden(t *testing.T) {
 	for _, tc := range []struct {
@@ -68,28 +61,15 @@ func renderRun(t *testing.T, target, image, mode, creds, sbx string) string {
 	envFile := filepath.Join(t.TempDir(), "empty.env")
 	mustWrite(t, envFile, "")
 
-	// Every credential the resolve path can see, pinned to empty: otherwise the
-	// operator's own keys decide which providers are "detected" and the golden
-	// becomes a property of whoever ran it.
 	for _, k := range provider.KeyVars() {
 		t.Setenv(k, "")
 	}
-	// The same rule, and the same reason, for everything else the resolve path
-	// reads off the environment. These were NOT pinned, so a developer with
-	// ARCHITECT_MODEL exported got three `-e ..._MODEL=` flags, a DARK_MODE flag,
-	// an `------ egress ------` section and three keyless-role warnings that the
-	// recorded golden had never seen — a diff that says nothing about the resolve
-	// path and everything about whose shell ran the test.
 	for _, k := range entrypoint.ConfigVars {
 		t.Setenv(k, "")
 	}
 	for _, k := range provider.RoleVars {
 		t.Setenv(k, "")
 	}
-	// The gh mount is a real line of the plan, so pinning it OFF would drop
-	// coverage. Pin it to a directory the test creates instead: always present,
-	// always at a path scrubRun can rewrite. Unpinned it stat-ed the developer's
-	// own ~/.config/gh, so the line existed only for developers who use gh.
 	ghDir := filepath.Join(t.TempDir(), "gh")
 	if err := os.MkdirAll(ghDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -125,9 +105,6 @@ func capture(t *testing.T, fn func()) string {
 	}
 	so, se, ud := os.Stdout, os.Stderr, ui.Default
 	os.Stdout, os.Stderr = w, w
-	// ui.Default caches os.Stderr at init, so swapping the files is not enough.
-	// The anonymous wrapper hides *os.File, which is what makes ui render plain
-	// text instead of colour escapes.
 	ui.Default = ui.New(struct{ io.Writer }{w})
 	done := make(chan string, 1)
 	go func() {
@@ -145,12 +122,6 @@ var (
 	reSid  = regexp.MustCompile(`proveo-\d+-\d+`)
 	reTmp  = regexp.MustCompile(`/(?:private/)?(?:var|tmp)/[^\s"',:]*`)
 	rePort = regexp.MustCompile(`127\.0\.0\.1:\d+`)
-	// The agent runs as the INVOKING user, so `--user 501:20` is a fact about the
-	// macOS laptop that recorded the golden and `--user 1000:1000` a fact about
-	// every Linux CI runner. There is no env override to pin — and there should
-	// not be one, since a test-only switch on the uid the agent runs as is
-	// production surface for a test's convenience. It is a display property, so
-	// it scrubs like the session id.
 	reUser = regexp.MustCompile(`--user \d+:\d+`)
 )
 

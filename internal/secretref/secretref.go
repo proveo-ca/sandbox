@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/secretref/secret-references.puml
-//
-// SPEC: _spec/internal/secretref/secret-references.puml
 package secretref
 
 import (
@@ -145,6 +143,10 @@ func (r *Resolver) resolve(name string, ref Ref) Result {
 	}
 	return Result{Outcome: Failed, Source: name, Detail: "unknown scheme " + ref.Scheme}
 }
+
+// HasKeychain says whether this resolver's host has a login Keychain at all.
+// SPEC: _spec/internal/secretref/secret-references.puml
+func (r *Resolver) HasKeychain() bool { return r.goos() == "darwin" }
 
 // Keychain reads one generic-password entry. account may be empty to match on
 // the service alone.

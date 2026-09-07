@@ -1,0 +1,382 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
+' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, initRows, baselineRow)
+' covers: internal/sbx/install.go (Release, Host, DetectHost, PlanFor, Packaged, Provenance, Prereqs, Stage, Probe, ServerState, VersionAt)
+' covers: internal/shell/shell.go (SbxMarker, SbxBlock)
+' covers: apps/cli/public/cli/install.sh (run_init)
+' covers: apps/cli/public/cli/install.ps1
+' covers: apps/cli/public/cli/uninstall.sh (remove_setup_markers)
+' covers: cmd/proveo/init_test.go
+' covers: cmd/proveo/init_tui_test.go
+' covers: internal/sbx/install_test.go
+' covers: e2e/init_test.go
+' covers: apps/cli/public/cli/tests/run_tests.sh
+'   the backend this readies ....... _spec/internal/sbx/sandbox-backend.puml
+'   how the binary arrives ......... _spec/internal/cdn/distribution-update.puml
+'   the prompt it borrows .......... _spec/internal/choiceui/wireframe.puml
+'   what one host can carry ........ _spec/minimum_requirements.puml
+'   the boundary the old init broke  _spec/_paradigms/credential-boundary.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT INIT USED TO BE, AND WHY THAT WAS THE WRONG OBJECT ────────────────
+' It wrote a project `.env` holding every provider key it could find in the
+' host environment. Two things were wrong with that, and they compound.
+'
+' It authored nothing that was needed. Provider keys are read from the
+' environment and from a project `.env` at RUN time, by workspace.EnvFileSource
+' and provider.Detect, whether or not init ever ran. Writing the file changed
+' no behaviour; it only moved secrets onto disk.
+'
+' And it moved them to the one place the product warns about. A `.env` inside
+' the sandbox workspace is sourced by the agent prelude with `set -a`, so the
+' key becomes AGENT ENVIRONMENT whatever egress tier the run picked — proveo
+' says so out loud on every run that finds one. An init that created that file
+' was arguing with the rest of the product, in the product's own voice.
+'
+' ── WHAT ACTUALLY BLOCKS A FIRST RUN ───────────────────────────────────────
+' The backend, every time. Measured on proveo-1788799575-162088 (linux/amd64,
+' SELinux enforcing, 2026-09-07): the sandbox was created, ran ~90s, exited
+' non-zero and printed NOTHING. `tail.Lines()` was empty, so there was no agent
+' output to show; main exits with the agent's own code and prints no diagnosis;
+' the run log therefore held a full posture and not one line about the failure.
+'
+' Every condition below fails in exactly that shape — a sandbox that dies with
+' nothing in it — and every one of them is knowable BEFORE a run:
+'
+'   sbx absent or older than MinVersion    Available() already refuses
+'   /dev/kvm missing                       the microVM cannot boot
+'   the user outside the kvm group         it can boot, and this user cannot
+'   no mkfs.ext4 (e2fsprogs)               the release installer exits 2
+'   never logged in                        pulls fail deep inside a run
+'   sandboxd not running                   sbx is fine; there is no backend
+'
+' So init is a PRE-FLIGHT that installs, not an installer that pre-flights.
+' Passing checks are printed too: an operator debugging a dead sandbox needs to
+' read that KVM was looked at and was fine, not merely that nothing complained.
+'
+' ── TWO KINDS OF UNMET PREREQUISITE, AND ONLY ONE STOPS THE INSTALL ────────
+' Stage splits them because they are NOT the same host condition, and collapsing
+' them into one gate makes init useless exactly where it is needed most.
+'
+'   BlocksInstall  no asset exists for this platform, or the release's own
+'                  installer will refuse to run. install.sh checks for mkfs.ext4
+'                  and exits 2 before it copies a single file; downloading
+'                  100 MB to watch that happen is not a better answer than
+'                  saying so first. Nothing good follows — refuse here.
+'   BlocksRun      /dev/kvm absent, the user outside the kvm group, the Windows
+'                  hypervisor platform not enabled. Install ANYWAY.
+'                  `usermod -aG kvm` only takes effect after a re-login, so a
+'                  gate that refuses to install until the group is right cannot
+'                  be satisfied by anything init is able to do. Installing is
+'                  progress the operator keeps; the RUN is what has to wait.
+'   BlocksNothing  worth saying and blocks neither — SELinux enforcing.
+'
+' So a run-blocker is reported LAST and as an ERROR, after the install and the
+' sign-in that could still be done. init promised a host that can run an agent
+' and did not deliver one, which a script must see as a non-zero exit; what it
+' DID deliver, the operator keeps.
+'
+' ── SELINUX IS A WARNING, AND THE RPM IS NOT THE FIX ───────────────────────
+' The linux tarball ships an AppArmor profile and installs it when AppArmor is
+' active. It ships NOTHING for SELinux. On an enforcing host the shim can be
+' denied the operations a microVM needs, and a denied shim looks exactly like an
+' agent that died instantly — with nothing in proveo's log to say why.
+'
+' This advice USED to say "prefer the rockylinux8 package", on the reasoning
+' that a distro package carries the distro's own policy. Measured 2026-09-07 on
+' linux/amd64 with SELinux enforcing: the rpm was installed and the agents still
+' died instantly, exactly as with the tarball. So the package is not known to
+' carry a policy that fixes this, and recommending it sent the operator through
+' a root install for nothing.
+'
+' What is left is honest and still actionable: the denial log
+' (`sudo ausearch -m avc -ts recent`), and `setenforce 0` briefly to CONFIRM
+' the diagnosis before anyone writes a policy module — a confirmation step, not
+' a resting state. It stays a warning and not a blocker because one measured
+' host is not grounds for refusing every enforcing host a run.
+'
+' ── INIT IS THE CDN INSTALLER'S SECOND HALF ────────────────────────────────
+' `curl … | bash` used to end with a printed suggestion that Docker might be
+' missing. It now ends by running `proveo init`, because the install is not
+' finished until there is a backend: a proveo on PATH with no sbx behind it can
+' do exactly nothing, and the operator finds that out one `proveo run` later.
+'
+' Two properties of that environment are easy to get wrong, and both were
+' measured wrong first.
+'
+' STDIN IS THE SCRIPT, not the terminal. A prompt reading stdin would consume
+' the rest of install.sh. /dev/tty is the terminal however stdin was
+' redirected — but `[[ -r /dev/tty ]]` is TRUE on a host with no controlling
+' terminal for the process group, and the redirect then fails and takes the
+' whole call with it. Measured in the install suite: init was never reached and
+' the failure was indistinguishable from a host that cannot run sbx. So the
+' installer tests the OPEN (`{ : </dev/tty; } 2>/dev/null`) and falls back to
+' `--yes`.
+'
+' AND A NOT-READY HOST IS NOT A FAILED INSTALL. init exits non-zero when the
+' host cannot run a sandbox, which is a correct verdict about the host; under
+' `set -e` that would abort the installer and leave the operator believing
+' proveo did not install. It is caught, explained, and the installer succeeds.
+'
+' `PROVEO_SKIP_INIT` opts out. The install suite sets it wherever the case is
+' about where the binary lands, because the real init would pull a hundred
+' megabytes of sbx onto whatever machine runs the tests.
+'
+' ── WHAT IS ASKED, AND WHAT IS NEVER ASKED ─────────────────────────────────
+' The decisions are a VALUE (initDecisions) and the prompt only edits it. That
+' shape is forced by the post-install path: the same decisions must be
+' answerable by a person at a screen and by defaults nobody was asked for, and
+' only the second is testable without a terminal. Defaults are the contract.
+'
+' Asked, through the same choiceui the run picker uses:
+'   install ....... release tarball (rootless) | distro package (root, and no
+'                   published digest covers it) | keep what is installed
+'   prefix ........ ~/.docker/sbx | /usr/local — collapsed to one option when
+'                   --prefix already said
+'   PATH .......... write the shell rc | print the line
+'   sign in ....... now | later
+'   sbx setup ..... now | later
+'   baseline ...... only when the host currently allows every host
+'
+' A row a flag already settled is drawn LOCKED with the flag named, never
+' dropped: a prompt that silently omits what the command line decided teaches
+' the operator that the flag did nothing.
+'
+' A terminal is required at BOTH ends before anything is asked — the form draws
+' through tcell, which needs a real screen, and reads keys from stdin. Either
+' one missing is a legitimate answer ("no terminal to ask through") and not a
+' failure, and the defaults are then printed so the operator finds out
+' afterwards what was chosen for them.
+'
+' The network baseline is the one default that does nothing. It is host-wide and
+' outlives every run, so proveo will offer to bind it and will not bind it on a
+' host whose owner was not at the keyboard. Every other default acts, because
+' every other default is about this install.
+'
+' The rc block carries its OWN marker (`proveo init` — sbx on PATH) rather than
+' reusing the `proveo setup` one, and shell.AlreadyConfigured is deliberately
+' not used for it: that returns true when the rc holds proveo's own marker,
+' which it does, because the CDN installer put it there minutes earlier. Asking
+' about THIS directory is the only question with the right answer. The
+' uninstaller strips both markers.
+'
+' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
+' Every platform lands the same layout — <prefix>/bin/sbx beside a
+' <prefix>/libexec holding the kernel, the erofs rootfs and the shim. That is
+' not proveo's invention: it is what the linux tarball's own install.sh builds,
+' and what the darwin tarball already IS (bin/, libexec/, completions/ at the
+' root, no installer inside). So one prefix answers both, ~/.docker/sbx, the
+' installer's own default. Windows is the exception because the MSI owns
+' placement and puts sbx on PATH itself.
+'
+' Nothing in the plan escalates. The rootless tarball is the default precisely
+' so init asks for no password; the distro package is OFFERED because on an RPM
+' host it is the better answer, and silently choosing the rootless path there
+' would hide that.
+'
+' The prefix is NOT on PATH the moment the install finishes — install.sh says so
+' itself — so `sbx login` afterwards is driven by absolute path. Calling "sbx"
+' there would miss, or worse, drive the older binary this run just replaced.
+'
+' ── THE PLAN IS A PURE FUNCTION OF A HOST VALUE ────────────────────────────
+' PlanFor takes a Host rather than reading runtime.GOOS, and Prereqs takes a
+' Probe rather than stat-ing and LookPath-ing on its own. Same reason for both:
+' every platform proveo claims to support has to be table-testable from whatever
+' machine runs the tests, not only the one the test binary happens to be on. The
+' install path is the one place where "works on my machine" is worth nothing.
+'
+' The Linux plan RUNS the tarball's own install.sh rather than a transcription
+' of its steps. That script lays out libexec, installs the AppArmor profile
+' where AppArmor is active, and skips the GPU shim on arm64 — a copy of it here
+' would be a second source of truth that drifts on the next release. The darwin
+' tarball needs no installer because it IS the prefix, and it ships
+' libexec/mkfs.ext4, so the e2fsprogs prerequisite the Linux tarball leaves to
+' the host does not arise there at all.
+'
+' ── THE PACKAGE IS OFFERED; THE REPOSITORY IS ONLY NAMED ───────────────────
+' Packaged is EXECUTABLE — the release's own .deb or .rpm through the host's
+' package manager — so the choice between rootless and system-wide is one the
+' operator can make rather than read about. It buys the distro's packaging at
+' the price of root, and costs the digest: no provenance subject covers the .deb
+' or the .rpm, so what prints there is the sha256 that was COMPUTED, said out
+' loud as unverified. The release ships one .deb per Ubuntu generation and a
+' single rockylinux8 .rpm for the whole RPM family; an unrecognised distro gets
+' none, which is not an error — the tarball plan never needed to know the
+' distro. When the package wins, placement belongs to the package manager, so
+' the plan's Bin and Prefix are cleared exactly as they are for the MSI.
+'
+' Alt is only PRINTED, and only on apt hosts. It installs from a repository
+' instead of from this release, so proveo cannot pin what it lands — and the
+' documented Linux path (`get.docker.com` + `apt install docker-sbx`) has no
+' published dnf equivalent. Naming an apt command on a Rocky host would be
+' advice that cannot be followed, so nothing is named there.
+'
+' ── REFUSE THE PREFIX BEFORE DOWNLOADING INTO IT, AND STAY IDEMPOTENT ──────
+' /usr/local is an offered choice and it is the one that lands on a prefix this
+' user cannot write — checked BEFORE a hundred megabytes go into a temp dir to
+' be unpacked into it. The check walks UP to the nearest directory that exists,
+' because the prefix itself usually does not: /usr/local/sbx is absent,
+' /usr/local is there, and /usr/local's permissions are what decide. It probes
+' by CREATING a file rather than reading permission bits — the bits are not the
+' whole answer (a read-only mount, an ACL), and cmd/proveo builds for windows,
+' where there is no unix.Access to call.
+'
+' The installed version is read from the PREFIX first and PATH second. Asking
+' PATH alone made init non-idempotent: the release's installer leaves the prefix
+' off PATH by design, so a re-run concluded "sbx is not on PATH" and downloaded
+' the whole release again, however many times it was invoked.
+'
+' ── THE DIGEST IS PUBLISHED FOR SOME ASSETS AND NOT OTHERS ─────────────────
+' The release ships no checksums file. It ships in-toto SLSA statements whose
+' subject[].digest.sha256 covers the artifact the BUILD produced — which for
+' some assets is byte-identical to what the release publishes and for others is
+' not. Measured against v0.42.0 on 2026-09-07 by streaming each asset:
+'
+'   DockerSandboxes-linux-amd64.tar.gz == static/linux/amd64/docker-sbx_0.42.0.tgz
+'     a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7   MATCH
+'   DockerSandboxes-linux-arm64.tar.gz == static/linux/arm64/docker-sbx_0.42.0.tgz
+'     5f16183d26f90dc98014c2abac83e4a1d13aa04390a9512b54867096ef87db89   MATCH
+'   DockerSandboxes-darwin.tar.gz      vs sandboxes-v0.42.0.darwin-arm64.tar.gz
+'     1780e195... vs b4bae3c1...                                        DIFFERENT
+'   DockerSandboxes.msi                vs sandboxes-v0.42.0.windows-amd64.tar.gz
+'     a .tar.gz cannot be the .msi                                      NO PAIR
+'
+' So Linux verifies and the other two report the digest they computed without
+' claiming it was checked. A uniform pretence either way would be worse:
+' claiming verification everywhere would fail darwin installs over a digest that
+' never described those bytes, and skipping it everywhere would throw away the
+' one trustworthy digest proveo holds — on the platform whose plan EXECUTES a
+' shell script out of the archive. Which is why the check runs before anything
+' is unpacked: verifying afterwards is verifying what already ran.
+'
+' The subject is matched by NAME. These statements carry a list, and taking
+' subject[0] would silently verify against whatever a future build puts first.
+'
+' ── THE PIN IS NOT THE FLOOR ───────────────────────────────────────────────
+' Release (0.42.0) is what init hands you. MinVersion (0.39.0) is what the run
+' path refuses below. A host already carrying something in between is LEFT
+' ALONE — refusing a working 0.40 to install 0.42 would be proveo taking a
+' decision that is not its to take. The one invariant is that Release may never
+' be the older of the two, or init would produce a host its own backend rejects;
+' a test asserts it, because the two constants live in different lines of the
+' same file and only one of them ever gets bumped.
+'
+' Assets are addressed by exact tag and the GitHub API is never consulted, so
+' init works behind a proxy that allows github.com and nothing else, and cannot
+' be surprised by a tag that moved.
+'
+' `sbx setup` is part of finishing an install because 0.42.0 stopped opening the
+' wizard on its own. Before that release an operator met it whether they wanted
+' to or not; after it, a host nobody sets up stays half-configured with no
+' prompt to say so. A declined wizard is not a failed init — the daemon check is
+' the verdict.
+title proveo init — readying the host, not the repository
+
+actor "operator" as OP
+
+node "the host" as HOST <<host>> {
+  component "proveo init\ndetect · check · install · login · verify" as INIT <<app>>
+  database "<prefix>/bin/sbx\n+ libexec: kernel, rootfs, shim" as PREFIX <<db>>
+  component "sandboxd\nthe backend a run actually needs" as DAEMON <<cloud>>
+}
+
+cloud "github.com/docker/sbx-releases\nv0.42.0 — assets only, never the API" as REL <<cloud>> {
+  database "DockerSandboxes-<os>-<arch>.tar.gz" as ASSET <<db>>
+  database "*.provenance.json\nin-toto SLSA subject digest" as PROV <<db>>
+}
+
+component "no /dev/kvm · not in kvm group\nno e2fsprogs" as BLOCK <<error>>
+component "SELinux enforcing\nnot fixed by the rpm either" as SEL <<error>>
+component "a project .env of provider keys\nwhat init used to write" as ENV <<error>>
+
+component "install.sh\ncurl | bash — stdin is the SCRIPT" as CDN <<script>>
+component "choiceui prompt\nlocked rows still drawn" as ASK <<app>>
+
+CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
+INIT ARROW_QUEUE ASK : when there is someone to ask
+OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · baseline
+OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
+INIT ARROW_MAIN ASSET : download by exact tag
+PROV ARROW_MAIN INIT : the digest, checked BEFORE unpacking
+INIT ARROW_MAIN PREFIX : the release's own installer, no root
+INIT ARROW_QUEUE DAEMON : ""sbx login"" · ""sbx setup"" · ""version --json""
+DAEMON ARROW_MAIN INIT : ""server.state"": running | unavailable
+BLOCK ARROW_ERROR INIT : blocks the INSTALL, or only the RUN
+SEL ARROW_ERROR INIT : warn, and say where to look
+INIT ARROW_ERROR ENV : no longer written
+
+note right of INIT
+  **A pre-flight that installs.** Every check it
+  makes fails LATE otherwise — as a sandbox that
+  dies with no agent output, no exit code in the
+  run log, and a full posture above it. Passing
+  checks print too, or silence proves nothing.
+end note
+
+note bottom of BLOCK
+  **Two stages, not one gate.** No mkfs.ext4 stops
+  the INSTALL — install.sh exits 2 before copying a
+  file. The kvm group only stops the RUN: ""usermod""
+  needs a re-login, so refusing to install would be
+  a gate nothing init can do would satisfy.
+end note
+
+note bottom of ENV
+  **It authored nothing that was needed.** Keys are
+  read from the environment and a project ""\.env""
+  at run time regardless. Writing the file only
+  moved secrets onto disk — into the workspace the
+  agent prelude sources with ""set -a"".
+end note
+
+note bottom of PROV
+  **Verifiable on Linux only, measured not assumed.**
+  The subject digest matches the released bytes for
+  both linux arches and matches neither the darwin
+  tarball nor the MSI. Matched by subject NAME:
+  ""subject[0]"" would verify the wrong artifact.
+end note
+
+note bottom of SEL
+  **A denied shim looks like an instant death.** And
+  the rpm is NOT the fix: measured 2026-09-07, an
+  enforcing host still died instantly with the
+  rockylinux8 package installed. What is left is
+  ""ausearch -m avc"" and a brief ""setenforce 0"".
+end note
+
+note bottom of CDN
+  **The install is not done without a backend.**
+  ""[[ -r /dev/tty ]]"" is true where the open still
+  fails, so the script tests the OPEN. A non-zero
+  init means the HOST is not ready, not that proveo
+  failed — caught, explained, exit 0.
+end note
+
+note bottom of ASK
+  **Defaults are the contract; the form edits them.**
+  A post-install run may have no screen, so every
+  decision must also have an answer nobody was
+  asked for. The baseline is the only default that
+  does nothing — it is host-wide.
+end note
+
+note bottom of PREFIX
+  **Not on PATH yet, and login knows it.** install.sh
+  prints the export line itself, so init drives the
+  binary it just placed by ABSOLUTE PATH — calling
+  ""sbx"" would miss, or drive the older one this run
+  was replacing.
+end note
+
+note bottom of DAEMON
+  **The only check about the backend.** Everything
+  else interrogates the CLI. A current sbx in front
+  of a daemon that never came up is exactly the
+  shape that produces a run with no output at all;
+  ""server\.state"" was added in 0.42 to say so.
+end note
+@enduml

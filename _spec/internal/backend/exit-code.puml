@@ -3,6 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: why a package exists for one type, and why the interface it was created for is never written
 ' covers: internal/backend/backend.go
+' covers: internal/backend/backend_test.go
 '
 ' ── ONE TYPE, AND THAT IS THE FINISHED STATE ───────────────────────────────
 ' The package was created during the cmd/proveo decomposition to hold what the

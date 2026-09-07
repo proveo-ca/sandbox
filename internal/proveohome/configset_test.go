@@ -24,9 +24,6 @@ func TestConfigSetEncodesTheManifestsOwnDeclaration(t *testing.T) {
 	}
 }
 
-// HOME is not redirected on the sandbox backend: the agent reads $HOME/.claude,
-// never /proveo-home/.claude. A container path outside proveo home has no
-// agent-relative form, and guessing one would write config where nothing looks.
 func TestConfigSetDropsWhatItCannotExpress(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

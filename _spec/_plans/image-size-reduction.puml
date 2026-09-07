@@ -2,6 +2,11 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: cut the fleet's image weight where it actually is, and settle whether
 '          the `-browser` variants should invert to layers on the harness images
+' covers: defs/**/Dockerfile
+' covers: .dockerignore
+' covers: internal/contract/image_size_test.go
+' covers: internal/contract/dockerfile_correctness_test.go
+' covers: e2e/sbx_test.go
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
 ' PARTLY APPLIED — cuts 1-12 landed 2026-09-05. 13 and the inversion are open.
 ' _spec/_plans/ is exempt from the SPEC-reference rule.
@@ -162,7 +167,7 @@
 '
 '   FOR   the operator's call: sbx is the only backend, and a sandbox runtime that
 '         starts a daemon plausibly brings its own.
-'   AGAINST  _spec/_plans/retire-dind.puml records "Server 29.7.2, measured" inside
+'   AGAINST  _spec/_paradigms/retire-dind.puml records "Server 29.7.2, measured" inside
 '         a proveo sandbox — and 29.7.2 is exactly the DOCKER_VERSION these four
 '         layers pinned. A daemon sbx brought would answer with sbx's version.
 '   AGAINST  claudecode's own record (preserved below) states plainly that sbx's

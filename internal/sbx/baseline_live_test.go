@@ -4,9 +4,6 @@ package sbx
 
 import "testing"
 
-// Run with: go test -tags livesbx ./internal/sbx/ -run TestPolicyBaselineLive -v
-// It reads the HOST's real sbx baseline and asserts nothing about which one it
-// is, only that the classification is readable and one of the three sbx names.
 func TestPolicyBaselineLive(t *testing.T) {
 	name, ok := PolicyBaseline()
 	t.Logf("host sbx baseline = %q (known=%v)", name, ok)

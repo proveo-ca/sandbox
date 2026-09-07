@@ -1,5 +1,4 @@
 // Package choiceui renders the one-shot harness choice prompt.
-//
 // SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/agentsettings/choice-cache.puml
 package choiceui
 
@@ -77,18 +76,6 @@ func (r *Row) helpLines(width int) []helpLine {
 	return out
 }
 
-// unreachableGate reports a row whose gated options can never be reached, so the
-// per-option OffWhy under the cursor can never be read.
-//
-// cycle() skips an Off option on a single-select row — correctly, it cannot be
-// chosen — which also means the cursor never lands on it. A Multi row has no
-// such problem: cycle() moves onto gated options there and toggle() refuses,
-// which is how the add-on rows show their reasons.
-//
-// The row-level Reason is the only place left, and it was being suppressed by
-// the branch above the moment the row carried any Help at all. That is how the
-// auth row drew "usage credits" greyed out on cursor and said nothing about
-// why — the one thing drawing it was supposed to communicate.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (r *Row) unreachableGate() bool {
 	if r.Multi || r.Locked {
@@ -201,7 +188,6 @@ func (f *Form) Run() (confirmed bool, err error) {
 		case *tcell.EventResize:
 			screen.Sync()
 		case *tcell.EventKey:
-			tick.bump()
 			if !f.navigable(screen) {
 				switch ev.Key() {
 				case tcell.KeyEscape, tcell.KeyCtrlC:

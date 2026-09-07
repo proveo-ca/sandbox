@@ -39,6 +39,7 @@ title claudecode paradigm — ML blackbox algorithm (spec → plan → implement
 
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/claudecode_renderer_test.go
 
 actor "Developer\ngoal + stopping condition" as DEV
 
@@ -119,7 +120,7 @@ note right of CLI
   never took the privileged sibling — its permission
   posture depends on the boundary that sidecar's one
   allowed mode removes — and now nothing does
-  (_spec/_plans/retire-dind.puml). ""docker: sbx"" is the
+  (_spec/_paradigms/retire-dind.puml). ""docker: sbx"" is the
   whole story: the image carries
   ""com.docker.sandboxes.start-docker"" and the daemon runs
   in the microVM, behind the boundary.

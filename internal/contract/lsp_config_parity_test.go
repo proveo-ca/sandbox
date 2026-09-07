@@ -11,13 +11,6 @@ import (
 	"testing"
 )
 
-// configWiring is the table, mirrored: every (class, harness) pair that has a
-// config surface, and the shared-lib function that writes it.
-//
-// The WIRE step is the last one in the provisioning chain (detect → provide →
-// probe → wire) and the only one that knows a harness's config format. It is
-// also the one easiest to leave in a def, because on the docker backend a def
-// entrypoint runs and nothing looks wrong.
 var configWiring = []struct {
 	class, target, fn string
 }{
@@ -29,17 +22,6 @@ var configWiring = []struct {
 	{"plugin", "claudecode", "configure_claude_plugins"},
 }
 
-// On sbx the Kit's only startup command is `proveo-seed <target>` and the image
-// ENTRYPOINT never runs (see sbx.SeedCommand / internal/backend/sandbox). So a
-// wiring step reachable only from defs/<harness>/entrypoint.sh reaches the docker
-// backend alone: opencode and cursor came up on the sandbox backend with every
-// language server installed by proveo_provision_toolchain and none of them
-// configured, which looks exactly like "no code intelligence in this harness".
-//
-// Reachability now runs through the class table, so this follows the same
-// indirection the seed does: the seed calls one entry point, the table names the
-// function, and the lib defines it. A break anywhere on that path is a class
-// that silently stops being wired.
 func TestConfigWiringIsReachableFromTheSeed(t *testing.T) {
 	t.Parallel()
 	src := entrypointLib(t)
@@ -75,10 +57,6 @@ func TestConfigWiringIsReachableFromTheSeed(t *testing.T) {
 	}
 }
 
-// The plugin row exports PROVEO_CLAUDE_LSP_OFFICIAL and the lsp row reads it to
-// decide which languages to yield. Wire lsp first and proveo-lsp declares a
-// language an official plugin already serves — two servers on one extension, and
-// one of them never starts.
 func TestPluginClassIsWiredBeforeLsp(t *testing.T) {
 	t.Parallel()
 	classes := classOrder(t, entrypointLib(t))
@@ -133,9 +111,6 @@ func indexOf(ss []string, want string) int {
 	return -1
 }
 
-// The same rule from the other side: a def entrypoint may not own a wiring step.
-// Defining one there is how the drift happened the first time — it works on
-// docker, so nothing fails until someone opens the harness under sbx.
 func TestDefEntrypointsDoNotOwnLspWiring(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -166,9 +141,6 @@ func TestDefEntrypointsDoNotOwnLspWiring(t *testing.T) {
 	}
 }
 
-// The moved functions must still WRITE the config they used to write from the
-// def entrypoint — same format, same setdefault semantics — now sourced from the
-// shared lib and pointed at the agent home rather than a bare $HOME.
 func TestConfigureOpencodeLspWritesTheUserConfig(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -214,9 +186,6 @@ func TestConfigureOpencodeLspWritesTheUserConfig(t *testing.T) {
 	}
 }
 
-// cursor reaches language servers through MCP, and the workspace it indexes must
-// be the SCAN ROOT: /app is the docker container path and does not exist on sbx,
-// where the tree is mounted at its own host path.
 func TestConfigureCursorLspTargetsTheScanRoot(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

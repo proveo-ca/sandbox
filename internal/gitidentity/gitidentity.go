@@ -1,7 +1,5 @@
 // SPEC: _spec/_paradigms/git-identity.puml,
 // _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
-//
-// SPEC: _spec/_paradigms/git-identity.puml, _spec/_paradigms/harness-paradigms.puml, _spec/components.puml
 package gitidentity
 
 import (

@@ -1,5 +1,8 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the docker argv proveo hardens a run with, and where each restriction comes from
+' covers: internal/runner/**
+' covers: cmd/proveo/main.go
 ' Destination diagram — prose from internal/runner/{runner,pids}.go lands here (batch 6).
 title Hardened run argv — one docker-run builder, one pids ceiling
 

@@ -26,9 +26,6 @@ func newTempRepo(t *testing.T) string {
 	return seedRepo(t, t.TempDir())
 }
 
-// newTempMonorepo seeds a repo with a sub-project plus paths that a subdir scope
-// will NOT mount, which is what makes the whole-repo index diverge from the
-// container's partial worktree.
 func newTempMonorepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -78,9 +75,6 @@ func hostUIDGID(t *testing.T) string {
 	return strings.TrimSpace(string(out)) + ":" + strings.TrimSpace(string(gout))
 }
 
-// Every harness must be able to READ history and WRITE to .git — agents commit,
-// amend and branch as ordinary work. Runs a full cycle against a throwaway repo
-// so nothing touches the developer's tree.
 func TestGitIsWritableInEveryHarness(t *testing.T) {
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {
@@ -121,10 +115,6 @@ echo "GIT_WRITE_OK"`
 	}
 }
 
-// Regression guard for the ownership abort. Under a subdir scope /app is the
-// IMAGE's directory rather than a bind mount, so its owner differs from the
-// run-as uid and git refuses outright with "dubious ownership" until
-// ensure_git_safe_directory declares it safe.
 func TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID(t *testing.T) {
 	img := harnessImage(t, "opencode")
 	repo := newTempRepo(t)
@@ -157,10 +147,6 @@ ensure_git_safe_directory /app >/dev/null 2>&1
 	}
 }
 
-// workspaceMountArgs asks the real planner what it would mount for this harness
-// against repo, and returns only the workspace binds. Going through `--print`
-// rather than hand-writing `-v repo:/app` is what makes this an assertion about
-// proveo: a harness that pinned .git read-only would emit that override here.
 func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []string {
 	t.Helper()
 	in := repo
@@ -168,24 +154,12 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 		in = input[0]
 	}
 	bin := buildProveo(t)
-	// --credentials forward is load-bearing, not incidental: it is the only posture
-	// that carries the project .env INTO the container. Under the default broker the
-	// credential policy masks that path with /dev/null instead, so the escaping-.env
-	// mount these probes assert would not exist at all.
 	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", in, "--print")
-	// PROVEO_SBX=off is load-bearing: these probes SCRAPE -v specs out of the
-	// printed plan and then run `docker run` themselves. On a host with sbx
-	// installed the printed plan is the SANDBOX argv, which carries no -v at all —
-	// so without this the scrape yields nothing and the probe runs against an
-	// unmounted container while still looking like a pass.
 	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
-	// Filter by CONTAINER destination, not host prefix: a worktree's shared .git
-	// and an escaping .env symlink both resolve to paths OUTSIDE the workspace,
-	// so a host-prefix filter silently drops the very mounts under test.
 	fields := strings.Fields(string(out))
 	var args []string
 	for i := 0; i < len(fields)-1; i++ {
@@ -207,14 +181,6 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 			args = append(args, "-v", spec)
 		}
 	}
-	// Two guards, because a scrape can fail in two different ways. Zero mounts is
-	// the loud one, already covered above. The quiet one is scraping the WRONG
-	// PLAN: on a host with sbx installed the printed plan is the sandbox argv, and
-	// sbx takes workspaces as positional paths rather than -v — so once the adapter
-	// emits the v0.39 shape this helper would read a plan with no mounts in it at
-	// all. PROVEO_SBX=off pins the docker plan; this says so out loud if it stops
-	// working, and it does not depend on the mount SHAPE (a subdir scope mounts
-	// /app/<rel>, not /app, so matching on the root would fail for real plans).
 	if !strings.Contains(string(out), "docker run") {
 		t.Fatalf("scraped a plan that is not the docker backend for %s — the probe would "+
 			"run against mounts it never read\n--- plan ---\n%s", target, out)
@@ -222,11 +188,6 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 	return args
 }
 
-// Git must be usable in BOTH scope modes. At the repo root that is nearly free;
-// under a subdir scope the container's worktree root is /app while only part of
-// the repo is mounted there, so without scope_git_worktree git reports every
-// unmounted tracked path as deleted — and `git commit -a` would commit those
-// deletions.
 func TestGitIsUsableInEveryScopeMode(t *testing.T) {
 	const target = "opencode"
 	img := harnessImage(t, target)
@@ -294,12 +255,6 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// A LINKED worktree is the hard case: its .git is a FILE pointing into the main
-// repo, and two pointer files hold HOST paths that do not exist in the
-// container. Left incoherent, git marks the worktree prunable — so a routine
-// `git worktree prune` (reachable through gc) deletes the host's registration,
-// and any tool doing its own discovery fails outright. Asserts the container
-// view is coherent, writes land, and the HOST worktree survives intact.
 func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
 	for _, name := range []string{"claudecode", "opencode"} { // one layout, two workspace shapes
 		t.Run(name, func(t *testing.T) {

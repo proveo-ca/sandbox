@@ -18,11 +18,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// The sbx twin of TestChromeBridgeCarriesTheHostSocketIntoTheContainer. Asserts
-// the two things that differ there: the relay survives the startup exec that
-// backgrounds it, and the connect comes from a SEPARATE exec.
-//
-//	go test -tags=e2e ./e2e/ -run ChromeBridgeOnSbx -v
 func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 	if _, err := exec.LookPath(sbx.Binary); err != nil {
 		t.Skipf("%s not on PATH", sbx.Binary)
@@ -97,9 +92,6 @@ func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 		}
 	})
 
-	// 1. The startup-shaped exec: the seed's helper backgrounds the relay, then
-	//    this exec exits. Env is passed here because the Kit's env is what
-	//    carries it in a real run.
 	start := fmt.Sprintf(`set -e
 export HOME=/tmp
 export %s=%q
@@ -127,9 +119,6 @@ head -n1 /tmp/proveo-chrome-bridge.sock-path
 	}
 	t.Logf("relay socket inside the sandbox: %s", sock)
 
-	// 2. A SEPARATE exec, after the first one exited: this is the assertion that
-	//    the backgrounded relay survived, and it stands exactly where Claude
-	//    Code's claude-in-chrome MCP server connects.
 	probe := fmt.Sprintf(`set -e
 test -S %q || { echo "socket gone after the startup exec exited"; exit 4; }
 node -e '
@@ -149,9 +138,6 @@ node -e '
 		t.Fatalf("the five hops did not carry the bytes:\n%s", out)
 	}
 
-	// 3. The token is what stands between anything else on the machine and the
-	//    operator's browser. A connection that does not present it is closed
-	//    before a byte reaches the native host.
 	bad := fmt.Sprintf(`set -e
 node -e '
   const net = require("net");

@@ -198,8 +198,6 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 	}
 }
 
-// ScopeGate is a table over CREDENTIAL SHAPES, not over variable names — the
-// axis Claude Code actually decides on.
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
 	t.Parallel()
@@ -278,9 +276,6 @@ func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
 // accepted scopes, so the fix is visible without reading Claude Code's log.
 func TestScopeGateRefusalsNameTheScopesThatWouldWork(t *testing.T) {
 	t.Parallel()
-	// Every refusal ends in something the operator can DO. Where the fix is a
-	// scope, the refusal names the scopes; where it is signing in, it says so —
-	// listing three scopes at someone holding an API key is noise, not help.
 	for _, c := range []struct {
 		vars map[string]string
 		want []string
@@ -298,9 +293,6 @@ func TestScopeGateRefusalsNameTheScopesThatWouldWork(t *testing.T) {
 				t.Errorf("%q does not name %s", why, s)
 			}
 		}
-		// Brief: one clause and an action, not a paragraph. The cap is generous
-		// because two of these must spell out variable names 23 characters long
-		// before they can say anything; it is here to stop prose returning.
 		if len(why) > 150 {
 			t.Errorf("refusal is %d chars, too long to read in a row: %q", len(why), why)
 		}

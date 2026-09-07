@@ -3,7 +3,16 @@
 skinparam noteTextAlignment left
 title Claude in Chrome from a sandbox — the native host socket, carried across the boundary
 
-' covers: internal/chromebridge/** (ScopeGate), defs/claudecode/mcp/proveo-lib/chrome-bridge.js, packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok), internal/run/choices.go, internal/egress/plan.go (HostBridge)
+' covers: internal/chromebridge/** (ScopeGate)
+' covers: defs/claudecode/mcp/proveo-lib/chrome-bridge.js
+' covers: packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok)
+' covers: internal/run/choices.go
+' covers: internal/egress/plan.go (HostBridge)
+' covers: internal/chromebridge/chromebridge_test.go
+' covers: internal/entrypoint/parity_test.go
+' covers: internal/contract/browser_layer_test.go
+' covers: e2e/chrome_bridge_sbx_test.go
+' covers: e2e/chrome_bridge_test.go
 '
 ' ── WHY A RELAY EXISTS AT ALL ──────────────────────────────────────────────
 ' Claude Code's browser integration is two processes on one machine: the

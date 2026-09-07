@@ -127,9 +127,6 @@ func TestDecisionsAreReported(t *testing.T) {
 	}
 }
 
-// The fallback socket must live in its OWN directory. The caller bind-mounts
-// filepath.Dir(socket) into a sidecar, so a bare file in TempDir would expose
-// every host temp file to the agent.
 func TestFallbackSocketGetsItsOwnDirectory(t *testing.T) {
 	t.Parallel()
 	deep := t.TempDir()

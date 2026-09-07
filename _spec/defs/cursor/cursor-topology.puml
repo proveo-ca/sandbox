@@ -3,6 +3,8 @@
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80
+' purpose: what a cursor container is made of and where each part comes from
+' covers: defs/cursor/**
 
 left to right direction
 

@@ -2,6 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the one design language every proveo terminal surface renders in, and why the status stream had to join it
 ' covers: internal/ui/**, internal/posture/posture.go, internal/choiceui/topology.go
+' covers: internal/contract/tui_vocabulary_test.go
 '   the prompt that already obeyed it .. _spec/internal/choiceui/choice-prompt-render.puml
 '   its glyph + width rules ............ _spec/internal/choiceui/topology-strip.puml
 '   its region budget .................. _spec/internal/choiceui/viewport.puml
@@ -31,9 +32,22 @@
 '
 ' The six roles are the identity's own — the same names, the same colours the
 ' diagrams in this tree are drawn with, so a component that is <<host>> on a
-' diagram prints host-cyan in a terminal. Two of the six carry no verb yet
-' (cloud has three sites, async has one); the role exists because the identity
-' has six, and a role with no caller is documented rather than invented.
+' diagram prints host-cyan in a terminal.
+'
+' UPDATE — all six carry a verb now. This section used to read "two of the six
+' carry no verb yet (cloud has three sites, async has one)"; the pairing is
+' complete and PINNED IN BOTH DIRECTIONS: Hostf/Appf/Asyncf/Cloudf/Storef/Dangerf
+' against RoleHost/App/Async/Cloud/Store/Error, and each verb must exist as a
+' Printer method AND as a package-level helper or `ui.Verbf` does not compile.
+' A role with no verb is API nobody can reach; a verb naming no role prints
+' undecorated and says nothing about the layer it came from.
+'
+' ── THE STRUCTURAL HALF OF THE BAN ────────────────────────────────────────
+' No exported verb in internal/ui may take a caller-supplied glyph: a parameter
+' named icon, glyph, mark, prefix or emoji is refused outright. Iconf took one,
+' and that is how one package came to hold 23 marks no single file ever
+' declared. Banning the runes without banning the PARAMETER leaves the door
+' open — the vocabulary just reopens under a different spelling.
 '
 ' ── SEVERITY IS A GLYPH, ROLE IS A COLOUR ─────────────────────────────────
 ' Both, so neither is load-bearing alone. spec-conventions requires edge intent
@@ -66,6 +80,35 @@
 ' they are ASKED rather than assumed — measured the way the writer will paint
 ' them — and they are the BANNER's vocabulary: dots interrupting rules. The
 ' figure already draws the run that way; the stream now marks its lines that way.
+'
+' ── THE BAN, BY CODEPOINT CLASS ───────────────────────────────────────────
+' Stated four ways because any one alone leaks, and each rule is a CLASS rather
+' than a hand-picked list:
+'   U+FE00-FE0F    variation selectors — the disagreement itself
+'   U+1F000-1FAFF  the pictographic planes, where most offenders live
+'   U+200D         zero-width joiner — the sequence it builds has no
+'                  predictable width at all
+'   U+E0020-E007F  tag characters — invisible, and they change what the rune
+'                  before them draws
+'   Emoji_Presentation=Yes below U+1F000, as ranges from Unicode's
+'                  emoji-data.txt — the symbols that render as emoji with NO
+'                  variation selector to give them away
+'
+' That last class is the one nobody expects, and its trap is U+26AA / U+26AB:
+' they READ as the language's own dot and paint two columns wide. What the
+' ranges leave OUT is the design language itself, asserted by CODEPOINT rather
+' than by glyph so the assertion cannot be broken by the thing it asserts —
+' U+2713, U+26A0, U+00D7, U+25CF, U+2500 and the rest of the frame, U+2192 and
+' the arrowheads, the pulse mote U+2022, the clip ellipsis U+2026 and the middot
+' U+00B7 all stay legal.
+'
+' COMMENTS ARE SCANNED TOO. Exempting them looked reasonable — the design
+' language ought to be able to name what it excludes — and it is exactly the
+' loophole that let the first draft of the checker carry twelve emoji in the
+' switch that banned them, and the green tick and red cross in the doc comment
+' of the test asserting they are unnecessary. A rune is nameable by its
+' codepoint; the glyph adds nothing a comment needs, and its presence teaches
+' the next reader that the rule has an inside voice.
 '
 ' ── THE STREAM IS GROUPED THE WAY THE FORM IS ─────────────────────────────
 ' A divider names the concern the lines under it belong to, and the names are the
@@ -162,6 +205,14 @@ note right of ROLE
   ""●"" in front of it. ""Iconf(icon, …)"" — which took the
   decoration as an argument — is gone, and with it the
   23-glyph vocabulary no single file ever held.
+end note
+
+note right of ROLE
+  **The pairing is pinned in both directions.**
+  Six verbs, six roles, each verb a Printer method
+  AND a package helper. A role with no verb is API
+  nobody can reach; a verb naming no role prints
+  undecorated and hides its layer.
 end note
 
 note bottom of MARK

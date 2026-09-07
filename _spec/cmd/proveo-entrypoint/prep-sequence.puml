@@ -1,5 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the order proveo-entrypoint prep runs its steps in, and what each one depends on
+' covers: cmd/proveo-entrypoint/**
 title Entrypoint startup — the correct order for a def using the Go prelude
 
 participant "docker run\n-w /app -e …" as DOCKER <<host>>

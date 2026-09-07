@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: what happens when a workspace reference points outside the mounted tree
+' covers: internal/workspace/mount.go
+' covers: internal/workspace/mount_test.go
+' covers: cmd/proveo/main.go
 ' SPEC source (the logic this diagram tracks):
 '   internal/workspace/mount.go — MountSpec.Plan, linkMounts, refuseLinkTarget, escapingEnvFile
 '   cmd/proveo/main.go          — reportLinks (operator-facing record of each decision)

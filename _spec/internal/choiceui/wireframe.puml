@@ -1,5 +1,9 @@
 @startsalt
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the resolved layout of one screenful, and how a gated element is drawn in it
+' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
+' covers: internal/run/choices.go
+' covers: internal/provider/slots.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
@@ -27,7 +31,7 @@
 '   the mechanism ..... _spec/internal/choiceui/topology-strip.puml
 '   the regions ....... _spec/internal/choiceui/viewport.puml
 '   every frame ....... _spec/internal/choiceui/topology-states.puml
-'   still unbuilt ..... _spec/_plans/choiceui-viewport-proposals.puml (the side pane)
+'   still unbuilt ..... _spec/internal/choiceui/figure-fidelities.puml (the side pane)
 ' This file stays the resolved layout of one screenful, at a size that holds it.
 
 ' ── THE AUTH ROW IS AN AXIS, AND IT IS ORDERED BY RISK ─────────────────────

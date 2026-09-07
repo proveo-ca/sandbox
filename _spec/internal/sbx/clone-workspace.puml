@@ -4,8 +4,13 @@ skinparam noteTextAlignment left
 ' purpose: why the sandbox edits a private clone by default, and how the work gets back
 ' covers: internal/run/run.go (decideClone, predictClone)
 ' covers: internal/sbx/run.go (CloneSnapshotArgs, CloneFetchArgs, CloneLiftArgs)
-' covers: internal/backend/sandbox/sandbox.go (PreserveClone, liftClonedOutput)
-' covers: internal/run/clone_test.go, internal/sbx/clone_test.go, e2e/clone_test.go
+' covers: internal/sbx/run.go (CloneBundleArgs, CloneBundleEmpty, CloneBundleFetchArgs, CloneHostTipsArgs, CloneHostTipsCap)
+' covers: internal/backend/sandbox/sandbox.go (PreserveClone, carryClone, fetchViaRemote, bundleViaSbx, hostTips, CloneRescueLines, liftClonedOutput)
+' covers: internal/run/clone_test.go
+' covers: internal/sbx/clone_test.go
+' covers: e2e/clone_test.go
+' covers: internal/backend/sandbox/sandbox_test.go
+' covers: e2e/clone_output_test.go
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -52,6 +57,64 @@ skinparam noteTextAlignment left
 ' sandbox, and `git remote remove` deletes refs/remotes/<remote>/* with it.
 ' refs/proveo/ is proveo's own and outlives both.
 '
+' ── THE ONE LEG THAT COULD NOT WORK WHEN IT WAS NEEDED ─────────────────────
+' The `sandbox-<name>` git remote is served by a DAEMON that lives only while
+' the sandbox RUNS. And the case this whole mechanism exists for is an agent
+' that CRASHED — which leaves the sandbox STOPPED. So the single transport home
+' depended on precisely the condition the failure takes away.
+'
+' Measured on run proveo-1788799575-162088 (2026-09-07). Same sandbox, same
+' moment, three copy-outs:
+'
+'   snapshot commit over `sbx exec`   SUCCEEDED
+'   output-dir tar over `sbx exec`    SUCCEEDED
+'   ref fetch over the git remote     refused, errno=Connection refused
+'                                     on 127.0.0.1
+'
+' Nothing else about the sandbox had gone away. The difference is only that
+' `sbx exec` does not need the daemon to be listening, and the remote does.
+'
+' Two more things pointed the wrong way. `PreserveClone` guarded on sbx.Exists
+' and not sbx.Running, so it ALWAYS attempted the doomed fetch. And the fallback
+' it printed — "if the sandbox still exists, `git fetch sandbox-<name>` by hand"
+' — failed identically, while the very next line offered `sbx rm --force`, which
+' DESTROYS the work the operator had just been sent to rescue.
+'
+' ── THE FIX: RUNNING NEGOTIATES, STOPPED STREAMS ───────────────────────────
+' Two transports, chosen by state and not by hope. A RUNNING sandbox still
+' negotiates over its git remote: that is cheap and incremental, and git works
+' out what the host is missing. A STOPPED one — or a running one whose remote
+' refuses, which is tried first and reported as a NOTE before falling through —
+' streams `git bundle create --quiet - --branches` out over `sbx exec`, and the
+' host fetches that bundle into the SAME refs/proveo/<name>/*. A bundle is a
+' valid git remote, so the destination refspec is identical and the work lands
+' in the same place whichever leg carried it.
+'
+' The bundle is BOUNDED by an exclusion list, or it would carry the whole
+' history. The list is the host's own branch tips (CloneHostTipsArgs, capped at
+' CloneHostTipsCap = 64), filtered IN THE CONTAINER with `git cat-file -e` down
+' to the ones the clone actually has. An id the clone does not know is skipped
+' silently, which is exactly what makes an over-broad list SAFE: more exclusions
+' only make the bundle smaller, so a repository with thousands of branches is an
+' argv-length problem and never a correctness one. What ships is the agent's new
+' commits, not the repository.
+'
+' Exit 4 (CloneBundleEmpty) means "the clone holds no commit the host lacks".
+' That is a NOTE and not a failure: nothing went wrong and there is nothing to
+' carry, and reporting it as an error teaches the operator to ignore the one
+' line that matters on the day something does go wrong.
+'
+' The tip list is interpolated into a shell script, so a candidate that is not a
+' plain object name is DROPPED rather than quoted — a ref name can hold almost
+' any byte, and none of them belong in an argv proveo builds by hand. And
+' `for c in ; do` is a syntax error, so the loop is emitted only when there is
+' something to loop over; no tips means no exclusions, which is a correct bundle
+' and merely a larger one.
+'
+' The rescue recipe printed on total failure uses exec+bundle too. Printing the
+' daemon recipe there was printing the leg that had just been measured refusing
+' connections.
+'
 ' The output dir is copied out separately, as a tar stream on stdout. Untracked
 ' and usually gitignored, deliverables are exactly what the ref fetch leaves
 ' behind. The archive's members are relative to the clone root, so unpacking
@@ -75,7 +138,10 @@ node "sbx sandbox" as BOX <<app>> {
   component "git clone\ninto an EMPTY workspace, on the VM's own disk" as CLONE <<app>>
   component "the agent" as AGENT <<app>>
   component "snapshot commit\nonly when the tree is dirty" as SNAP <<app>>
+  component "git bundle --branches\nstreamed out over ""sbx exec""" as BUNDLE <<app>>
 }
+
+component "the sandbox-<name> git daemon\nlistening only while the sandbox RUNS" as GITD <<error>>
 
 component "virtiofs passthrough\ndirectory entry vanishes under a running agent" as VFS <<error>>
 component "a nested bind under the repo\nleaves the clone target non-empty" as NESTED <<error>>
@@ -85,7 +151,10 @@ OP ARROW_MAIN CLONE : ""--clone"", the default since 2026-09-01
 SRC ARROW_MAIN CLONE : read once
 CLONE ARROW_MAIN AGENT : a workspace on the VM's disk
 AGENT ARROW_MAIN SNAP : at teardown, if dirty
-SNAP ARROW_MAIN REFS : fetch every branch
+SNAP ARROW_MAIN GITD : RUNNING: negotiate over the remote
+GITD ARROW_MAIN REFS : ""+refs/heads/*:refs/proveo/<sid>/*""
+SNAP ARROW_MAIN BUNDLE : STOPPED, or the remote refused
+BUNDLE ARROW_MAIN REFS : the SAME refspec, from a bundle file
 AGENT ARROW_QUEUE OUT : tar on stdout, unpacked host-side
 CLONE ARROW_ERROR VFS : what clone avoids
 CLONE ARROW_ERROR TREES : what clone keeps out
@@ -112,6 +181,22 @@ note bottom of SNAP
   drops the clone with the VM, and an agent that
   stopped mid-edit has nothing to push — so the
   snapshot is what makes the fetch carry the work.
+end note
+
+note bottom of GITD
+  **It dies with the crash it exists for.**
+  Measured on proveo-1788799575-162088, 2026-09-07:
+  ""errno=Connection refused"" on 127.0.0.1, while
+  the snapshot commit and the output tar succeeded
+  over ""sbx exec"" on that same stopped sandbox.
+end note
+
+note bottom of BUNDLE
+  **Bounded, so it carries the work and not the
+  history.** The host's branch tips (capped at 64)
+  are filtered IN THE CONTAINER by ""git cat-file
+  -e"", so an over-broad list is safe. Exit 4 means
+  "nothing the host lacks" — a note, not a failure.
 end note
 
 note bottom of REFS

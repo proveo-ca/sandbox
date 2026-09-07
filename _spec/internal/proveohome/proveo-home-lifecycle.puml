@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the proveo home is scrubbed, mounted and resumed from, and how sbx differs
+' covers: internal/proveohome/**
+' covers: e2e/resume_test.go
+' covers: e2e/home_test.go
 title Proveo home lifecycle — scrub, mount, resume
 
 participant "cmd/proveo\nrun" as RUN <<app>>

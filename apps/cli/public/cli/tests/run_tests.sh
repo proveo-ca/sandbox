@@ -134,6 +134,60 @@ EOF
   chmod +x "$bin_dir/curl"
 }
 
+# stage_stub_cdn builds a CDN whose proveo binary is a stub that RECORDS its
+# argv. The suite needs it because install.sh now runs `proveo init` as a
+# post-install step, and the real binary would reach GitHub and install sbx —
+# a 100 MB download inside a unit suite, on whatever host happens to run it.
+stage_stub_cdn() {
+  local dir="$1" asset="$2" log="$3"
+  mkdir -p "$dir/bin"
+  cat > "$dir/bin/$asset" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$log"
+case "\$1" in
+  setup) exit 0 ;;
+  init)  echo "stub proveo init reached"; exit 0 ;;
+esac
+exit 0
+EOF
+  chmod +x "$dir/bin/$asset"
+  cp "$CLI_ROOT/latest.json" "$dir/latest.json"
+  cp "$CLI_ROOT/uninstall.sh" "$dir/uninstall.sh"
+  local sum
+  if command -v sha256sum >/dev/null 2>&1; then
+    sum="$(sha256sum "$dir/bin/$asset" | awk '{print $1}')"
+  else
+    sum="$(shasum -a 256 "$dir/bin/$asset" | awk '{print $1}')"
+  fi
+  printf '%s  %s\n' "$sum" "$asset" > "$dir/checksums.txt"
+}
+
+assert_file_contains() {
+  local desc="$1" file="$2" expected="$3"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  LAST_OUTPUT=""
+  if [[ -f "$file" ]] && grep -Fq "$expected" "$file"; then
+    record_pass "$desc"
+  else
+    LAST_OUTPUT="$(cat "$file" 2>/dev/null || echo "missing $file")"
+    record_fail "$desc"
+    printf ' Expected %s to contain: %s\n' "$file" "$expected"
+  fi
+}
+
+assert_file_lacks() {
+  local desc="$1" file="$2" unexpected="$3"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  LAST_OUTPUT=""
+  if [[ ! -f "$file" ]] || ! grep -Fq "$unexpected" "$file"; then
+    record_pass "$desc"
+  else
+    LAST_OUTPUT="$(cat "$file")"
+    record_fail "$desc"
+    printf ' Expected %s NOT to contain: %s\n' "$file" "$unexpected"
+  fi
+}
+
 platform_asset() {
   local os arch
   case "$(uname -s)" in
@@ -188,6 +242,9 @@ main() {
   mkdir -p "$install_home" "$install_fake_bin"
   make_fake_curl "$install_fake_bin"
 
+  # PROVEO_SKIP_INIT keeps the sbx bootstrap out of this case: it is about
+  # where the binary lands, and the real `proveo init` would download a
+  # hundred megabytes of sbx onto the machine running the suite.
   assert_output_contains \
     "install.sh installs Go proveo" \
     "proveo v${channel_version} installed to:" \
@@ -198,6 +255,7 @@ main() {
     PROVEO_INSTALL_ROOT="$install_root" \
     PROVEO_ASSET_BASE_URL="file://$CLI_ROOT" \
     PROVEO_CLI_BASE_URL="file://$CLI_ROOT" \
+    PROVEO_SKIP_INIT=1 \
     "$INSTALL_SCRIPT"
 
   assert_file_exists "install writes proveo binary" "$install_root/bin/proveo"
@@ -232,6 +290,87 @@ main() {
     PROVEO_INSTALL_ROOT="$TEMP_ROOT/install-bad" \
     PROVEO_ASSET_BASE_URL="file://$bad_cdn" \
     PROVEO_CLI_BASE_URL="file://$bad_cdn" \
+    PROVEO_SKIP_INIT=1 \
+    "$INSTALL_SCRIPT"
+
+  # --- the post-install sbx bootstrap ---
+
+  local stub_cdn="$TEMP_ROOT/stub-cdn"
+  local stub_log="$TEMP_ROOT/stub-argv.log"
+  stage_stub_cdn "$stub_cdn" "$asset" "$stub_log"
+
+  assert_output_contains \
+    "install.sh runs the sbx bootstrap after placing the binary" \
+    "Setting up the sbx backend" \
+    env \
+    HOME="$TEMP_ROOT/home-init" \
+    SHELL=/bin/bash \
+    PATH="$install_fake_bin:$PATH" \
+    PROVEO_INSTALL_ROOT="$TEMP_ROOT/install-init" \
+    PROVEO_ASSET_BASE_URL="file://$stub_cdn" \
+    PROVEO_CLI_BASE_URL="file://$stub_cdn" \
+    "$INSTALL_SCRIPT"
+  assert_file_contains "the bootstrap invokes \`proveo init\`" "$stub_log" "init"
+
+  local skip_log="$TEMP_ROOT/stub-argv-skip.log"
+  stage_stub_cdn "$stub_cdn" "$asset" "$skip_log"
+  assert_output_contains \
+    "PROVEO_SKIP_INIT opts out of the bootstrap" \
+    "Skipping the sbx bootstrap" \
+    env \
+    HOME="$TEMP_ROOT/home-skip" \
+    SHELL=/bin/bash \
+    PATH="$install_fake_bin:$PATH" \
+    PROVEO_INSTALL_ROOT="$TEMP_ROOT/install-skip" \
+    PROVEO_ASSET_BASE_URL="file://$stub_cdn" \
+    PROVEO_CLI_BASE_URL="file://$stub_cdn" \
+    PROVEO_SKIP_INIT=1 \
+    "$INSTALL_SCRIPT"
+  assert_file_lacks "the skipped bootstrap never calls init" "$skip_log" "init"
+
+  # A host that cannot yet run a sandbox is a verdict about the HOST. proveo is
+  # installed either way, so a non-zero init must not fail the installer.
+  local failing_cdn="$TEMP_ROOT/failing-cdn"
+  local failing_log="$TEMP_ROOT/stub-argv-fail.log"
+  stage_stub_cdn "$failing_cdn" "$asset" "$failing_log"
+  cat > "$failing_cdn/bin/$asset" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$failing_log"
+case "\$1" in
+  setup) exit 0 ;;
+  init)  echo "host not ready to run: KVM device"; exit 1 ;;
+esac
+exit 0
+EOF
+  chmod +x "$failing_cdn/bin/$asset"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$(sha256sum "$failing_cdn/bin/$asset" | awk '{print $1}')" "$asset" > "$failing_cdn/checksums.txt"
+  else
+    printf '%s  %s\n' "$(shasum -a 256 "$failing_cdn/bin/$asset" | awk '{print $1}')" "$asset" > "$failing_cdn/checksums.txt"
+  fi
+
+  assert_output_contains \
+    "a host that cannot run sbx yet does not fail the install" \
+    "host not ready to run" \
+    env \
+    HOME="$TEMP_ROOT/home-notready" \
+    SHELL=/bin/bash \
+    PATH="$install_fake_bin:$PATH" \
+    PROVEO_INSTALL_ROOT="$TEMP_ROOT/install-notready" \
+    PROVEO_ASSET_BASE_URL="file://$failing_cdn" \
+    PROVEO_CLI_BASE_URL="file://$failing_cdn" \
+    "$INSTALL_SCRIPT"
+  assert_file_contains "the not-ready case reached init" "$failing_log" "init"
+  assert_output_contains \
+    "and says how to finish once the host is fixed" \
+    "proveo itself is installed" \
+    env \
+    HOME="$TEMP_ROOT/home-notready2" \
+    SHELL=/bin/bash \
+    PATH="$install_fake_bin:$PATH" \
+    PROVEO_INSTALL_ROOT="$TEMP_ROOT/install-notready2" \
+    PROVEO_ASSET_BASE_URL="file://$failing_cdn" \
+    PROVEO_CLI_BASE_URL="file://$failing_cdn" \
     "$INSTALL_SCRIPT"
 
   assert_success \

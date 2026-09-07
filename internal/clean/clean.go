@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/clean/clean-lifecycle.puml
-//
-// SPEC: _spec/internal/clean/clean-lifecycle.puml
 package clean
 
 // Container is a proveo-managed container.

@@ -1,4 +1,10 @@
 @startuml
+' purpose: how a run's networks and sidecars are torn down exactly once, on the normal path and on SIGINT
+' covers: internal/egress/**
+' covers: internal/backend/dockeregress/**
+' covers: internal/run/params.go
+' covers: e2e/signal_test.go
+' covers: cmd/proveo/main.go
 ' ── THE SIDECAR IMAGE GETS THE HARNESS'S RECENCY RULE ──────────────────────
 ' Settled in cmd/proveo rather than in the run spec, so a --print plan rendered
 ' by a test never depends on what the host happens to have built.
@@ -85,7 +91,7 @@ note right of ONCE
   A privileged DinD sibling could exist with NO egress topology — brokered
   credentials, no local model — so there was no lifecycle teardown to hang
   its cleanup on, and the bare path needed a signal handler of its own for
-  it alone. With the sidecar gone (_spec/_plans/retire-dind.puml) the bare
+  it alone. With the sidecar gone (_spec/_paradigms/retire-dind.puml) the bare
   path has nothing to tear down and takes ""ExecAgentWithProxy"" directly.
   The once-guard stays: it is the lifecycle branch's own requirement.
 end note
@@ -171,7 +177,7 @@ note right of DOWN
   **What comes down: sidecars, networks, the inject dir.** The privileged
   DinD sibling used to be a fourth thing here — attached by ""--link"" or by
   a network alias, cleaned up through the same once-guarded func. It is
-  retired (_spec/_plans/retire-dind.puml), so this path no longer removes
+  retired (_spec/_paradigms/retire-dind.puml), so this path no longer removes
   a container proveo started with ""--privileged"".
 end note
 @enduml

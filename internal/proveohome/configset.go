@@ -1,6 +1,4 @@
 // SPEC: _spec/_plans/config-seeding-and-persistence.puml
-//
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 package proveohome
 
 import (

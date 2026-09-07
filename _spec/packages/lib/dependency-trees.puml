@@ -2,10 +2,14 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Workspace dependency trees — one table, isolated by copy, installed before the agent
 
-' covers: packages/lib/entrypoint-lib.sh, internal/workspace/deps.go,
-'         internal/workspace/mount.go, internal/run/run.go,
-'         defs/opencode/entrypoint.sh, defs/cursor/entrypoint.sh,
-'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/workspace/deps.go
+' covers: internal/workspace/mount.go
+' covers: internal/run/run.go
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/workspace/platform.go
 '
 ' ── WHAT THE IN-CONTAINER STEP DOES, IN ORDER, PER PROJECT ─────────────────

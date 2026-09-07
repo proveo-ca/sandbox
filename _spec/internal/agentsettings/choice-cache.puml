@@ -4,6 +4,44 @@
 ' covers: internal/agentsettings/**
 ' covers: internal/choiceui/**
 ' covers: internal/wsscan/**
+' covers: e2e/agent_settings_test.go
+'
+' ── WHAT AN E2E RUN HAS TO DO TO OBSERVE ANY OF THIS ────────────────────────
+' The form is the cache's only door in BOTH directions — it is where a remembered
+' answer is shown and where the answer to remember is given — so a run with the
+' wizard off has nothing here to assert — and, for the same reason, takes the
+' MANIFEST defaults rather than the operator's remembered posture. The harness e2e
+' suites disable it by default for exactly that reason; the suite that is ABOUT the
+' form turns it back on (`PROVEO_WIZARD=on`, which wins as a later NAME=value
+' operand to env(1)). An empty workspace keeps the sub-project picker away, leaving
+' the choice form as the only prompt on the PTY.
+'
+' Seeding agent-settings.yml is NOT a way to skip the prompt. The prompt still
+' appears — that is the whole rule above — so any test that starts a run on a TTY
+' has to answer it, and the accept is anchored on the key hint ("enter accept")
+' rather than the form's title, which is copy and has been reworded once.
+'
+' ── THE EVIDENCE THE E2E LANE RECORDS ───────────────────────────────────────
+' TestAgentSettingsPersistAcrossRuns drives two runs of opencode against one
+' isolated HOME and reads the result from agent-settings.yml:
+'   * the FIRST run must persist `egress: allowlist` and `credentials: broker` —
+'     opencode's manifest defaults — and a NON-EMPTY fingerprint. A persisted choice
+'     with no fingerprint is the failure mode where a manifest change could never
+'     invalidate it.
+'   * the file is then hand-edited to `egress: open`, and the SECOND run must
+'     RE-ENTER that value and must NOT overwrite it. A machine default overwriting a
+'     human's remembered answer is the cache acting as an authority in the opposite
+'     direction.
+' The tier is read from the AGENT's own environment — the session echoes
+' `PROVEO_EGRESS_MODE` inside the container and only a line that is exactly the
+' expansion counts, since the shell echoes the command line too. That is the honest
+' signal that the choice took effect, rather than anything proveo printed host-side.
+'
+' Isolating HOME is what makes any of this deterministic: a shared HOME would leak
+' into the developer's real settings AND skip the prompt on every later run. It also
+' hides ~/.docker and with it the active context, so DOCKER_HOST has to be pinned
+' explicitly or every docker call falls back to /var/run/docker.sock and hangs.
+
 title Choice cache — the prompt always appears; the cache only seeds it
 
 component "manifest ""capabilities""\negress · credentials · providers" as CAP <<app>>
@@ -22,6 +60,21 @@ STORE ARROW_OPTIONAL RES : remembered answer
 RES ARROW_MAIN TUI : seeds the selection
 TUI ARROW_MAIN STORE : Remember
 HEADLESS ARROW_QUEUE RES : manifest default, logged
+
+note left of TUI
+  **The form is the only door, both ways.** With the
+  wizard off there is no remembered answer shown and
+  none taken, so the run uses manifest defaults —
+  an e2e lane asserting the cache must turn the
+  wizard back ON before there is anything to see.
+end note
+
+note left of FILE
+  **Read the tier from the AGENT's own env.** The
+  e2e lane echoes ""PROVEO_EGRESS_MODE"" inside the
+  container: what proveo printed host-side is an
+  intention, and the container's env is the fact.
+end note
 
 note right of TUI
   **The matrix is data, not code.** A harness's constraint is declared in its

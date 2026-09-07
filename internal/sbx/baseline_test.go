@@ -2,11 +2,6 @@ package sbx
 
 import "testing"
 
-// The shape sbx prints for `policy inspect local-policy`. Only allow-all was
-// observable on the development host — changing the baseline needs
-// `sbx policy reset`, which clears every policy including per-sandbox Kit ones —
-// so the balanced and deny-all fixtures are built from that same table shape.
-// If sbx changes the table, TestPolicyBaselineLive is what catches it.
 const header = `Policy:      local-policy
 Policy ID:   local-policy
 Source:      local

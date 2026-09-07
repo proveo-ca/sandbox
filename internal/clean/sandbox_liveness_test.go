@@ -6,11 +6,6 @@ import (
 	"testing"
 )
 
-// An sbx run has no egress sidecar and no dind, so before sandboxes were
-// counted this gate read "nothing is running" on that backend every time — while
-// an sbx run copies its toolchains into this very tree at teardown. A prune that
-// races that copy leaves the store half written: a tree that satisfies
-// `command -v` on the next run and fails on first exec.
 func TestToolsPruneHeldBackByALiveSandbox(t *testing.T) {
 	t.Parallel()
 	inv := Inventory{

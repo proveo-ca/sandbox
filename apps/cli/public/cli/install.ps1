@@ -81,12 +81,37 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Write-Host "  https://docs.docker.com/get-docker/"
 }
 
+# The second half of the install: the sbx backend proveo runs on.
+#
+# `irm … | iex` leaves the pipeline, not the console, on the input side, so the
+# prompt is given the console explicitly. And init exits non-zero on a host that
+# cannot yet run a sandbox (hypervisor platform not enabled, say) — a correct
+# verdict about the host, not a failed proveo install, so it is reported and
+# does not fail this script.
+if ($env:PROVEO_SKIP_INIT) {
+  Write-Host ""
+  Write-Host "Skipping the sbx bootstrap (PROVEO_SKIP_INIT is set). Run it later with:"
+  Write-Host "  proveo init"
+} else {
+  Write-Host ""
+  Write-Host "Setting up the sbx backend…"
+  $initArgs = @('init')
+  if (-not [Environment]::UserInteractive) { $initArgs += '--yes' }
+  & (Join-Path $BinDir 'proveo.exe') @initArgs
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "The sbx backend is not ready yet — the lines above say which condition failed"
+    Write-Host "and how to fix it. proveo itself is installed. Once the host is fixed:"
+    Write-Host "  proveo init"
+  }
+}
+
 Write-Host ""
 Write-Host "proveo v$Version installed to:"
 Write-Host "  $BinDir\proveo.exe"
 Write-Host ""
 Write-Host "Open a new terminal, then try:"
 Write-Host "  proveo version"
-Write-Host "  proveo update --check"
+Write-Host "  proveo init --print"
 Write-Host "  proveo ls"
 Write-Host "  proveo uninstall"

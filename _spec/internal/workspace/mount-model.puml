@@ -6,6 +6,7 @@
 title Mount model — two layouts, one scope resolver, secrets decided by egress
 
 ' covers: internal/workspace/mount.go
+' covers: internal/workspace/**
 
 node "Scope resolution" as SCOPE <<host>> {
   component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>

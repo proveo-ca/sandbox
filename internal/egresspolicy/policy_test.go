@@ -21,9 +21,6 @@ func newReq(t *testing.T, method, rawurl, body string) *http.Request {
 	return req
 }
 
-// tableCfg is the shared policy for the decision table: anthropic is the pinned
-// provider, github is a write-allowlisted (non-provider) host, three sinks are
-// denied, and DLP knows one exact secret plus generic patterns. Budget off here.
 func tableCfg() Config {
 	return Config{
 		ProviderHosts:     []string{".anthropic.com"},
@@ -85,9 +82,6 @@ func TestDecideBodyRestored(t *testing.T) {
 	}
 }
 
-// A body larger than the scan window must still forward intact (streamed, not
-// buffered whole), a secret inside the first maxBodyScan bytes is caught, and a
-// secret only beyond the window is not — the documented bounded-memory tradeoff.
 func TestDecideLargeBodyStreamsPastScanWindow(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-ant-SECRETKEY-123456"
@@ -157,9 +151,6 @@ func TestBudget(t *testing.T) {
 func TestDecideConnect(t *testing.T) {
 	t.Parallel()
 	p := New(Config{WriteHosts: []string{"api.github.com"}, DenySinks: []string{"webhook.site"}})
-	// CONNECT is tunnel setup — allowed past the sink deny so the MITM can decrypt
-	// and enforce the real inner request. (Blocking CONNECT would break every
-	// HTTPS read, since CONNECT is not a read method.)
 	if d := p.Decide(newReq(t, "CONNECT", "https://example.com:443", "")); !d.Allow {
 		t.Errorf("CONNECT to a normal host must be allowed, got %+v", d)
 	}

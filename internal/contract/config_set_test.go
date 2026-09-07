@@ -10,9 +10,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 )
 
-// Every shipped harness must be fully expressible as a config set, or its
-// configuration silently stops persisting on the sandbox backend — the exact
-// failure this whole mechanism exists to close.
 func TestEveryHarnessHomeMountReachesTheConfigSet(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)

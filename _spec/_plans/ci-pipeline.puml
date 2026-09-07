@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the gates `mise run ci` already enforces locally, and the runners a real CI would need to run them on every push
+' covers: mise.toml
+' covers: .golangci.yml
+' would touch: .github/workflows/** (does not exist yet — that absence IS the plan)
 title PLANNED — a self-defending pipeline (no CI exists yet)
 
 actor "push / PR" as PUSH

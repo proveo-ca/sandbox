@@ -226,10 +226,6 @@ func flattenSidecars(p egress.Plan) []string {
 	return out
 }
 
-// C6 regression: only the agent's own exit propagates as a bare exit code.
-// A failed helper subprocess (docker pull, build.sh) also wraps an
-// *exec.ExitError, and swallowing it would exit silently — it must NOT match
-// the agent-exit type.
 func TestAgentExitDiscrimination(t *testing.T) {
 	t.Parallel()
 	var ae backend.ExitError
@@ -268,22 +264,6 @@ func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	detected := provider.Detect(lookup)
 	if len(detected) != 1 || detected[0] != "cursor" {
 		t.Fatalf("Detect(lookup from pwd .env) = %v, want [cursor]", detected)
-	}
-}
-
-func TestInitAdvertisesOnlyRegisteredKeys(t *testing.T) {
-	t.Parallel()
-	known := map[string]bool{}
-	for _, name := range provider.Names() {
-		e, _ := provider.Lookup(name)
-		for _, k := range e.Detect {
-			known[k] = true
-		}
-	}
-	for _, k := range initProviderKeys {
-		if !known[k] {
-			t.Errorf("proveo --init offers %q but no provider registers it — it can never be used", k)
-		}
 	}
 }
 
@@ -367,10 +347,6 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 		DataDir:  dataDir,
 	}
 	cfg, _, secrets := sandbox.Spec(in)
-	// --shell selects sbx's OWN shell agent; it does not pass a command. Launch-shaped
-	// work belongs to the built-in agent, so the earlier expectation here — Command
-	// == [bash] — described something sbx never honoured: it started the harness's
-	// agent and handed "bash" to it as an argument, and the shell never opened.
 	if cfg.Agent != sbx.ShellAgent {
 		t.Errorf("shell mode agent = %q, want %q", cfg.Agent, sbx.ShellAgent)
 	}
@@ -392,9 +368,6 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 	if !found {
 		t.Errorf("data dir mount missing from %+v", cfg.Mounts)
 	}
-	// There is no Workdir on an sbx run — the CLI has no -w and mounts each
-	// workspace at its own HOST path, so where the harness landed is conveyed in
-	// the environment instead.
 	var sawWorkdir bool
 	for _, e := range cfg.Env {
 		if strings.HasPrefix(e, "PROVEO_WORKDIR=") {
@@ -433,11 +406,6 @@ func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
 	}
 }
 
-// The transcript is written into sandbox-LOCAL volumes, and the copy-out used to
-// sit on the SUCCESS path only — so agentTranscript searched a host home the failed
-// session had never written to and reported "no evidence" on every failed sbx run,
-// however much the agent had said before it died. Both exits take the same copy-out
-// now, which is what this pins.
 func TestSaveSandboxStateCopiesOutWhenThereAreVolumes(t *testing.T) {
 	t.Parallel()
 	env := []string{"HOME=/home/u", sbx.StateHomeVar + "=/home/u/.proveo"}
@@ -459,10 +427,6 @@ func TestSaveSandboxStateCopiesOutWhenThereAreVolumes(t *testing.T) {
 		t.Errorf("argv drifted\n got %q\nwant %q", calls[0], want)
 	}
 
-	// Every reason there is nothing to copy is a no-op, NOT an error. A docker run
-	// keeps its home on the host, and a run that died before sbx created anything
-	// has no volumes to read — reporting either as "resume state not preserved"
-	// warns about work that was never owed.
 	for _, tc := range []struct {
 		why    string
 		name   string
@@ -524,10 +488,6 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 		t.Errorf("without a host login the API key must still be stored, got %v", noHome)
 	}
 
-	// A home carrying a login makes THE FILE the credential, so nothing is stored for
-	// that provider. This assertion used to read the other way — a login meant the
-	// harness's own token was stored — and that is what put an env token in front of
-	// the mounted login and authenticated a subscription run as the API.
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
@@ -562,9 +522,6 @@ func TestSbxBackendSetsNeitherHome(t *testing.T) {
 	if !slices.Contains(got, "KEEP=1") {
 		t.Errorf("unrelated environment must pass through, got %v", got)
 	}
-	// The redirect is gone, but the persistence it bought is not: the host path is
-	// published as a POINTER the seed and teardown copy state through. Without it
-	// resume state stays in the volumes sbx destroys with the sandbox.
 	if !slices.Contains(got, sbx.StateHomeVar+"=/Users/p/.proveo") {
 		t.Errorf("the host path for resume state must be published, got %v", got)
 	}
@@ -591,9 +548,7 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(joined, "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
-	// Toolchains are installed on the VM's own disk and only reach the operator
-	// here, so a teardown that forgets them throws away everything the run
-	// provisioned. SPEC: _spec/_plans/config-seeding-and-persistence.puml
+	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	if !strings.Contains(joined, "proveo_sync_tools save") {
 		t.Errorf("teardown must also carry the toolchain tree out: %v", got)
 	}
@@ -624,43 +579,37 @@ func TestSbxHomeLeavesUnrelatedRunsAlone(t *testing.T) {
 	}
 }
 
+// The DEF picks the agent. A variant target is another image of the same def,
+// so claudecode-browser is served by `claude` and not by an agent of its own.
 func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
 	t.Parallel()
-	base := sandbox.Input{
-		Man:    manifest.Manifest{Name: "claudecode"},
-		Lookup: func(string) string { return "" },
-	}
-	for _, c := range []struct {
-		target, want string
-		shell        bool
+	tests := []struct {
+		name, def, target, want string
+		shell                   bool
 	}{
-		{target: "claudecode", want: "claude"},
-		{target: "cursor", want: "cursor"},
-		{target: "claudecode", want: sbx.ShellAgent, shell: true},
-		{target: "cursor", want: sbx.ShellAgent, shell: true},
-	} {
-		in := base
-		in.Target, in.Image, in.Shell = c.target, "proveo/x:local", c.shell
-		if cfg, _, _ := sandbox.Spec(in); cfg.Agent != c.want {
-			t.Errorf("target %q shell=%v: agent = %q, want %q", c.target, c.shell, cfg.Agent, c.want)
-		}
+		{name: "claudecode", def: "claudecode", target: "claudecode", want: "claude"},
+		{name: "claudecode variant", def: "claudecode", target: "claudecode-browser", want: "claude"},
+		{name: "cursor", def: "cursor", target: "cursor", want: "cursor"},
+		{name: "cursor variant", def: "cursor", target: "cursor-browser", want: "cursor"},
+		{name: "claudecode shell", def: "claudecode", target: "claudecode", want: sbx.ShellAgent, shell: true},
+		{name: "cursor shell", def: "cursor", target: "cursor", want: sbx.ShellAgent, shell: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := sandbox.Input{
+				Man:    manifest.Manifest{Name: tc.def},
+				Lookup: func(string) string { return "" },
+				Target: tc.target, Image: "proveo/x:local", Shell: tc.shell,
+			}
+			if cfg, _, _ := sandbox.Spec(in); cfg.Agent != tc.want {
+				t.Errorf("Spec(def %q, target %q, shell=%v).Agent = %q, want %q",
+					tc.def, tc.target, tc.shell, cfg.Agent, tc.want)
+			}
+		})
 	}
 }
 
-// A suppressed credential is OMITTED, never stated as empty — the same as the
-// docker path.
-//
-// This test asserted the opposite, on the theory that sbx's global secret store
-// would inject a stale value in front of the mounted login. Probed against sbx
-// v0.39.0 with ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN both in the global
-// store and no -e flag: both arrive UNSET. sbx attaches service secrets as proxy
-// headers and writes the harness credential to ~/.claude/.credentials.json; it
-// never exports them as environment variables, so there was nothing to override.
-//
-// The empty value was the failure, not the guard. An agent reads a SET variable as
-// a chosen credential whatever its value, and claudecode ranks both of these above
-// the login on disk — so a blank one took the slot the login needed and left an
-// unattended run at a prompt asking it to approve a key that authenticates nothing.
 func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -836,10 +785,6 @@ func TestStoreHoldsMatchesOnlyTheHarnessOwnCredentials(t *testing.T) {
 	}
 }
 
-// agentEnv is proveo's opinion about the agent, delivered on the backend whose
-// agent never runs the image entrypoint. The default lands when the operator is
-// silent, gives way when they are not, and reaches both the -e argv and the Kit's
-// environment block — the posture proveo publishes.
 func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{Name: "claudecode", AgentEnv: map[string]string{

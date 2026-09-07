@@ -10,10 +10,6 @@ import (
 	"testing"
 )
 
-// Bun is part of the TypeScript floor (defs/base-node) the way node and pnpm are:
-// one of each shipped, pinned, and every Node consumer inherits it. The pin is by
-// version AND by the digests the release publishes, for both architectures the
-// fleet builds.
 func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
 	t.Parallel()
 	df := dockerfileBody(t, imageDockerfiles["proveo/base-node"])
@@ -25,13 +21,6 @@ func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
 		regexp.MustCompile(`ln -sfn bun /usr/local/bin/bunx`),
 		regexp.MustCompile(`test "\$\(bun --version\)" = "\$\{BUN_VERSION\}"`),
 
-		// Node is pinned the same way bun is, and for the same reason. This used
-		// to pin the NodeSource apt line instead — the MECHANISM — and the rebase
-		// onto docker/sandbox-templates retired it: NodeSource publishes per
-		// Ubuntu release, so a base whose Node depends on a third party having
-		// packaged the exact release the TEMPLATE ships breaks on someone else's
-		// schedule. The property is what matters: one Node, pinned by version and
-		// digest, verified after install.
 		// SPEC: _spec/_devops/sandbox-template-rebase.puml
 		regexp.MustCompile(`(?m)^ARG NODE_VERSION=\d+\.\d+\.\d+$`),
 		regexp.MustCompile(`(?m)^ARG NODE_SHA256_X64=[0-9a-f]{64}$`),
@@ -81,10 +70,6 @@ func TestSeedChoosesBunInstallForABunLockfile(t *testing.T) {
 	}
 }
 
-// bunHarness drives ensure_node_toolchain with FAKE tools on PATH — bun reports a
-// chosen version, corepack and mise only log what they were asked — so the pin
-// logic is observable without a registry or an image. node is the real one: the
-// helper reads package.json through it.
 type bunHarness struct {
 	t    *testing.T
 	bash string

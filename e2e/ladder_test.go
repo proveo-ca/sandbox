@@ -32,19 +32,6 @@ type rung struct {
 	argv func(t *testing.T, work string) []string
 }
 
-// The ladder answers the question three wrong root causes could not: WHICH layer
-// owns the failure. Each rung adds one thing, so the first rung that fails names
-// its owner outright instead of leaving it to inference.
-//
-// Rung 0 matters most and is the one nobody had run: stock sbx, stock image, no
-// proveo at all. If a subscription cannot hold a session THERE, then nothing
-// above it is proveo's bug — and Docker's own tracker says as much, with
-// CLAUDE_CODE_OAUTH_TOKEN unsupported (sbx-releases#11) and the forward proxy
-// rewriting the Authorization header on api.anthropic.com (sbx-releases#210).
-// ladderTarget is the def under test. It is a knob because the sbx fixes this
-// suite proved for claudecode were applied to cursor by SYMMETRY, not by
-// measurement — and an image contract that has only ever been checked against one
-// harness is a contract with one data point.
 func ladderTarget() string { return env("PROVEO_LADDER_TARGET", "claudecode") }
 
 // sbxAgentFor maps the def to the sbx agent that runs it, the same mapping
@@ -57,27 +44,12 @@ func sbxAgentFor(t *testing.T, target string) string {
 	return agent
 }
 
-// shellAgentTarget reports a def sbx has no BUILT-IN agent for. Those run under
-// the stock `shell` agent with the def's own launcher as the COMMAND — proveo
-// passes `-- cecli` — which means the def's entrypoint does not execute until
-// that command is added.
-//
-// The ladder used to skip these outright ("no sbx agent — docker only"), so the
-// one harness whose failure is still unexplained was also the one the
-// instrument could not reach. It gets an extra rung instead: the command is a
-// thing being added, so it is a rung of its own rather than a passenger on the
-// image's. SPEC: _spec/_paradigms/capability-ladder.puml
+// SPEC: _spec/_paradigms/capability-ladder.puml
 func shellAgentTarget(target string) bool {
-	// With PROVEO_SBX_AGENT_KIT the def declares a COMPLETE AGENT of its own, so
-	// it borrows nothing and there is no command rung to insert: the launch
-	// arrives with the Kit at rung 3 instead.
 	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 	return sbx.BuiltinAgent(target) == "" && !sbx.DeclaresOwnAgent(target)
 }
 
-// kitAgentFor names the agent for a rung that CARRIES the Kit. Only there can a
-// def name an agent of its own: the name is declared by the Kit, so a rung
-// without one must still ask sbx for a stock agent.
 func kitAgentFor(t *testing.T, target string) string {
 	t.Helper()
 	if sbx.DeclaresOwnAgent(target) {
@@ -93,10 +65,6 @@ func agentCommand(target string) []string {
 	return cmd
 }
 
-// launcherProgram is the binary a shell-agent def's launch ends up exec'ing —
-// the def's entrypoint when the image ships one, which is what the wrapper
-// prefers. It is what the probe inspects and what the report names, neither of
-// which wants the `-c` script the wrapper hands sbx.
 func launcherProgram(target string) string {
 	if !shellAgentTarget(target) {
 		return ""
@@ -118,11 +86,6 @@ func ladderRungs() []rung {
 	if !shellAgentTarget(target) {
 		return rungs
 	}
-	// A shell-agent def's entrypoint does not run until the COMMAND is added, so
-	// every rung below carries none and one rung introduces it. Without this the
-	// image rungs measure a bare shell in our image — real, but not the thing
-	// that failed. It is inserted after the base image so the two are never
-	// added together.
 	cmd := agentCommand(target)
 	withCmd := rung{
 		name: "2-agent-command", adds: "the def's own launcher as the sbx COMMAND (-- -c 'exec " +
@@ -180,11 +143,6 @@ func baseRungs(target string) []rung {
 				kit := renderPostureKit(t, work, target)
 				img := harnessImage(t, target)
 				freshTemplate(t, img)
-				// The proveo home is a WORKSPACE in a real run, and the mixin points
-				// HOME at it. Without the mount, HOME names a path that does not
-				// exist, Claude Code finds no config and opens its first-run theme
-				// picker — which blocks on a keypress that never comes. That is a
-				// faithful reproduction of nothing, so the rung mounts it too.
 				home := proveohome.Root(os.Getenv)
 				return append([]string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit},
 					append(credentialArgs(t, target), kitAgentFor(t, target), work, home)...)
@@ -193,14 +151,6 @@ func baseRungs(target string) []rung {
 	}
 }
 
-// freshTemplate hands the CURRENT image to sbx's own store before a rung uses it.
-//
-// sbx keeps its own copy, so a `docker build` does not reach it: the first climb
-// of this ladder reported rung 1 failing against a template SIXTEEN HOURS old,
-// which is a test proving something about an artifact nobody was shipping. It
-// goes through proveo's production reload rather than comparing ids by hand,
-// because `sbx create` re-bakes a template and rewrites the id column — the very
-// reason internal/sbx keeps receipts instead of trusting that column.
 func freshTemplate(t *testing.T, image string) {
 	t.Helper()
 	if err := sbx.ReloadTemplate(image, func(f string, a ...any) { t.Logf(f, a...) }); err != nil {
@@ -208,18 +158,6 @@ func freshTemplate(t *testing.T, image string) {
 	}
 }
 
-// credentialArgs forwards the harness's declared secrets the way proveo does.
-//
-// The rungs drive sbx DIRECTLY, so none of proveo's credential work happens: the
-// first cursor climb reported "not logged in" on every rung above 0 while
-// CURSOR_API_KEY sat in both the host env and sbx's store, because nothing was
-// passing it. `-e NAME` with no value is sbx's take-it-from-the-environment form,
-// which is exactly what `proveo run cursor --print` emits for a
-// `credentials: [forward]` harness.
-//
-// Secrets absent from the environment are skipped rather than passed empty: an
-// empty value overrides sbx's own stored secret and turns a working credential
-// into a broken one.
 func credentialArgs(t *testing.T, target string) []string {
 	t.Helper()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -250,10 +188,6 @@ func renderPostureKit(t *testing.T, work, target string) string {
 	return renderPostureKitEnv(t, work, target, nil)
 }
 
-// renderPostureKitEnv renders the Kit with EXTRA environment applied after the
-// unsets. `env -u X X=v` sets X: the assignment is processed after the removal,
-// which is what lets a caller put a credential back that
-// childEnvArgsNoCredential deliberately took away.
 func renderPostureKitEnv(t *testing.T, work, target string, extra []string) string {
 	t.Helper()
 	bin := buildProveo(t)
@@ -273,15 +207,6 @@ func renderPostureKitEnv(t *testing.T, work, target string, extra []string) stri
 	return ""
 }
 
-// assertKitShape reads the Kit the rung is about to hand sbx and states which
-// shape it actually is, because the rung's PASS does not say so on its own.
-//
-// With PROVEO_SBX_AGENT_KIT the rung names agent proveo-<target>, which only a
-// `kind: sandbox` Kit declares. A mixin plus that agent name would be an agent
-// sbx cannot resolve — it would drop in seconds rather than hold a prompt, so a
-// 45s PASS already implies the sandbox Kit. Implies is not measures: the gate
-// travels through `env` into a subprocess, and a green rung that silently
-// rendered a MIXIN would be this suite's fourth test measuring its own setup.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func assertKitShape(t *testing.T, specPath, target string) {
 	t.Helper()
@@ -316,10 +241,6 @@ func TestSandboxLadder(t *testing.T) {
 	hold := durationEnv(t, "PROVEO_LADDER_HOLD", 45*time.Second)
 	startup := durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute)
 
-	// The ladder's whole promise is that the FIRST failing rung names its owner,
-	// and Go's own output does not deliver it: four subtest lines say which rungs
-	// failed but not which failure is the one that matters, and every rung above
-	// the first inherits its breakage. So the verdict is printed here, once.
 	var climbed []rungVerdict
 	t.Cleanup(func() { reportLadder(t, climbed) })
 
@@ -350,10 +271,6 @@ func TestSandboxLadder(t *testing.T) {
 					"Every rung above this one is untestable until it does", r.adds, res.authFailure)
 			case res.death != "":
 				v.detail = fmt.Sprintf("died %q after %s", res.death, res.aliveFor.Round(time.Second))
-				// The sandbox outlives the session, so ask it why while it is
-				// still there. A rung that dies leaves the reader with a symptom
-				// and a manual command to run later; by then the sandbox is gone
-				// and the next answer is another climb away.
 				if probe := probeLaunch(t, name, launcherProgram(ladderTarget())); probe != "" {
 					t.Logf("-- why the command could not be exec'd --\n%s", probe)
 				}
@@ -376,9 +293,6 @@ func TestSandboxLadder(t *testing.T) {
 // rungVerdict is one rung's outcome, kept so the ladder can name the owner.
 type rungVerdict struct{ name, adds, verdict, detail string }
 
-// reportLadder prints the table and the attribution. Only the FIRST failure is
-// an accusation: every rung contains all the rungs below it, so the ones above
-// the first break inherit that break and say nothing of their own.
 func reportLadder(t *testing.T, climbed []rungVerdict) {
 	if len(climbed) == 0 {
 		return
@@ -422,21 +336,7 @@ func ladderReport(climbed []rungVerdict) string {
 	return b.String()
 }
 
-// probeLaunch asks a dead rung's sandbox why its command would not exec.
-//
-// bash falling back to INTERPRETING a script — "line 2: import: command not
-// found" for a Python entry point — is what it does when execve returns ENOEXEC,
-// and every cause of that is a fact about the file and its interpreter: a
-// dangling shebang, an interpreter that is not executable, a wrong path, or a
-// uid that cannot traverse the directory. All four are one `ls` apart, and none
-// of them survives the sandbox being torn down.
-//
-// It is best-effort and never fails a rung: a probe that cannot run tells us
-// nothing, and turning that into a second failure would bury the first.
 // SPEC: _spec/_paradigms/capability-ladder.puml
-// probeLaunch inspects the LAUNCHER BINARY, so it takes the program name rather
-// than the sbx command — those stopped being the same word once the shell-agent
-// launch became a `-c` script, and passing cmd[0] here would have probed "-c".
 func probeLaunch(t *testing.T, sandbox string, prog string) string {
 	t.Helper()
 	if sandbox == "" || prog == "" {
@@ -498,9 +398,6 @@ type sessionResult struct {
 	out           string
 }
 
-// holdSbxSession drives sbx on a REAL pty — tmux cannot host an sbx session, which
-// e2e/sbx_test.go already records — reaches a prompt, then holds with zero
-// input and reports what happened.
 func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) sessionResult {
 	target := ladderTarget()
 	t.Helper()
@@ -620,17 +517,6 @@ func sbxReadyForTests() (bool, string) {
 	return true, ""
 }
 
-// The ladder's promise is that the FIRST failing rung names its owner, and Go's
-// own output does not deliver it: four subtest lines say WHICH rungs failed but
-// not which failure matters, nor why. A real run against opencode printed
-//
-//	--- PASS: TestSandboxLadder/0-bare-sbx-agent
-//	--- FAIL: TestSandboxLadder/1-proveo-base-image
-//	--- FAIL: TestSandboxLadder/2-proveo-browser-image
-//	--- FAIL: TestSandboxLadder/3-proveo-mixin-and-seed
-//
-// and left the reader to work out that only rung 1 is an accusation and the two
-// above it merely inherit its breakage.
 // SPEC: _spec/_paradigms/capability-ladder.puml
 func TestLadderReportNamesTheFirstFailure(t *testing.T) {
 	t.Parallel()
@@ -683,17 +569,7 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 	}
 }
 
-// A def sbx has no built-in agent for runs under the stock `shell` agent with
-// its own launcher as the COMMAND — proveo passes `-- cecli`. The ladder used to
-// skip those outright, so cecli, whose failure is still unexplained, was the one
-// harness the instrument could not reach.
-//
-// The command is a thing being added, so it earns a rung. Folding it into the
-// image rung would add two things at once and forfeit the attribution the whole
-// method rests on. SPEC: _spec/_paradigms/capability-ladder.puml
-// Opt OUT explicitly: with the kit path defaulted on, cecli declares its own
-// agent and this shape stops applying — which is correct, and would otherwise
-// make the test skip silently rather than assert the borrowed ladder still works.
+// SPEC: _spec/_paradigms/capability-ladder.puml
 func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "0")
 	if !shellAgentTarget("cecli") {
@@ -714,20 +590,11 @@ func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
 		}
 	}
 
-	// Rung 0 must stay stock: no image, and NO command. `cecli` does not exist in
-	// the stock image, so passing it there would fail for a reason that is not
-	// the one under test. (Rung 0 needs no docker, so it is safe to build here.)
 	zero := rungs[0].argv(t, t.TempDir())
 	if contains(zero, "-t") || contains(zero, "--") {
 		t.Errorf("rung 0 is not stock — it names an image or a command: %v", zero)
 	}
 
-	// The command itself, and how it is appended, are pure and testable without
-	// a daemon; the image-bearing rungs are exercised by a real climb.
-	// This used to assert the command was the bare word "cecli", which is what
-	// sbx documents as REPLACING `bash -l` — the ladder was pinning the defect it
-	// was built to find. What matters after `--` is that the first word is a
-	// flag, so sbx appends it to the login shell instead.
 	cmd := agentCommand("cecli")
 	if len(cmd) == 0 || !strings.HasPrefix(cmd[0], "-") {
 		t.Errorf("agentCommand(cecli) = %v, want a flag-leading command — a bare word makes "+
@@ -756,9 +623,6 @@ func TestLadderLeavesBuiltinTargetsAtFourRungs(t *testing.T) {
 	}
 }
 
-// The probe is best-effort and must never turn a rung's failure into two. A
-// sandbox that is already gone, or an sbx that is not on PATH, tells us nothing
-// — and reporting that as a second failure would bury the first.
 func TestProbeLaunchIsBestEffort(t *testing.T) {
 	t.Parallel()
 	// A built-in agent supplies no launcher of ours, so there is nothing to resolve.
@@ -787,9 +651,6 @@ func TestQuoteWordSurvivesAQuote(t *testing.T) {
 	}
 }
 
-// The gate rearranges the ladder rather than adding to it: with an agent of its
-// own a def borrows nothing, so the command rung that existed to introduce the
-// borrowed launch has nothing left to introduce.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
 	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
@@ -818,9 +679,6 @@ func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
 	}
 }
 
-// Only a rung carrying the Kit may name an agent of ours: the Kit is what
-// declares the name, so a rung without one must ask sbx for a stock agent or
-// sbx has nothing to resolve.
 func TestOnlyTheKitRungNamesOurOwnAgent(t *testing.T) {
 	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
 	t.Setenv(sbx.EnvAgentKit, "1")
@@ -832,22 +690,8 @@ func TestOnlyTheKitRungNamesOurOwnAgent(t *testing.T) {
 	}
 }
 
-// dummyAPIKey is deliberately not a working credential. proxyManaged means the
-// agent never receives the value, so the sentinel arrives whether or not the key
-// is real — which is exactly what makes this assertion free to run.
 const dummyAPIKey = "sk-ant-proveo-ladder-dummy-do-not-use"
 
-// credOpen/credClose DELIMIT the probed value. Session output reaches the test
-// through plain(), which collapses every run of whitespace — newlines included —
-// into single spaces, so there are no lines left to parse and an unterminated
-// marker would swallow whatever the session printed next. Delimiters also let an
-// EMPTY value be distinguished from a missing one.
-//
-// The test asserts the marker was seen before it looks at any value. The first
-// version of this test read the variable with `sbx exec` AFTER the session had
-// ended, got sbx's "ERROR: no sandbox named …" back as if it were the value, and
-// PASSED — because its switch named three failures and treated everything else
-// as success. A probe that cannot run must fail, never pass.
 const (
 	credOpen  = "PROVEO_CRED_VALUE["
 	credClose = "]"
@@ -855,27 +699,6 @@ const (
 
 // TestSandboxKitProxyManagesTheCredential asserts the property E1 would
 // otherwise silently drop.
-//
-// A def declaring its OWN agent must declare its own credentials, or it loses
-// what every built-in-backed def gets free: sbx sets the variable to a sentinel
-// and injects the real value host-side per request. Without it the variable is
-// UNSET — measured by this test's own control pass — so the agent cannot
-// authenticate at all.
-//
-// The dummyAPIKey branch below stays even though no run has produced it. It
-// guards the WORSE outcome: a leak would be silent where an unset variable is
-// loud, and an assertion that only covers what has been seen is how a suite
-// stops noticing.
-//
-// The ladder cannot catch that. childEnvArgsNoCredential unsets every
-// provider.DetectVars() entry so a climb never spends a key, so nothing is
-// detected and the Kit renders with zero credentials: every rung passes while
-// proving nothing. Measured: `credentials in kit: 0`.
-//
-// So this puts ONE credential back — a dummy — and reads the variable IN THE
-// AGENT PROCESS, which is the only place it means anything. The Kit under test
-// is the one proveo renders; only the entrypoint is swapped, so the credentials
-// block is the real one rather than a hand-copy that can drift.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
@@ -919,11 +742,6 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		t.Fatalf("the Kit embeds the credential VALUE; it must name the variable only:\n%s", raw)
 	}
 
-	// Keep only services sbx already holds a secret for. Declaring one it does
-	// not know makes sbx ask a human for consent, and the run blocks — measured.
-	// The alternative, storing the secret from here, is not available: `sbx
-	// secret set` is HOST-WIDE and outlives the run, so a test doing it would
-	// overwrite the operator's real credential with a dummy.
 	known := sbxKnownServices(t)
 	kept := kit.Credentials[:0]
 	var dropped []string
@@ -960,11 +778,6 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 			"secret, so the agent cannot authenticate at all", got)
 	}
 
-	// THE CONTROL. "A sentinel appeared" is not the claim; "our declaration
-	// CAUSED it" is. This suite has produced five green results that measured
-	// something other than their subject, so run the identical Kit with the
-	// credentials block removed. If the value is unchanged it came from
-	// somewhere else, and the assertion above proves nothing.
 	bare := kit
 	bare.Credentials = nil
 	ctl := runCredProbe(t, target, work, bare, "control")
@@ -976,9 +789,6 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 	t.Logf("✅ proxy-managed BECAUSE we declare it: %q with the block, %q without", got, ctl)
 }
 
-// runCredProbe writes the Kit, starts a sandbox, and returns what the agent
-// process actually held. Every way of failing to MEASURE is fatal — a probe
-// that cannot run must never report a value.
 func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) string {
 	t.Helper()
 	out, err := yaml.Marshal(kit)
@@ -1033,13 +843,6 @@ func credValueFrom(out string) (string, bool) {
 	return strings.TrimSpace(rest[:j]), true
 }
 
-// credValueFrom's bool is the whole safety property, so it is pinned here.
-//
-// The first version of the credential test had no such bool: it read the
-// variable with `sbx exec` after the session had ended, sbx answered "ERROR: no
-// sandbox named …", and the switch — which named three failures and treated
-// everything else as success — PASSED on that error text. A probe that cannot
-// run must fail, never pass.
 func TestCredValueFromFailsWhenTheMarkerIsAbsent(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -1065,9 +868,6 @@ func TestCredValueFromFailsWhenTheMarkerIsAbsent(t *testing.T) {
 	}
 }
 
-// sbxKnownServices lists the service names sbx already holds a secret for, so a
-// probe can declare only those. Reading the store is safe; writing to it is not
-// — `sbx secret set` is host-wide and outlives the run.
 func sbxKnownServices(t *testing.T) map[string]bool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -1087,11 +887,6 @@ func sbxKnownServices(t *testing.T) map[string]bool {
 	return known
 }
 
-// sbxKnownServices parses `sbx secret ls`, whose shape is a real dependency and
-// not obvious from the call site. Both naming schemes appear in it side by side:
-// sbx's own service names (anthropic) and the ENV-VAR-named entries proveo has
-// always written (ANTHROPIC_API_KEY). A kit's credentials[].service resolves
-// against the former.
 func TestSbxSecretLsParsesServiceNames(t *testing.T) {
 	t.Parallel()
 	const sample = `SCOPE      TYPE      NAME                      SECRET

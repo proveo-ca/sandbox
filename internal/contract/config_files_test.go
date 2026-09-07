@@ -13,11 +13,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 )
 
-// docker binds the WHOLE proveo home, so a file at its root persists without
-// anyone naming it. sbx copies a named, DIRECTORY-shaped set instead — so
-// claudecode's ~/.claude.json (accepted workspace trust, Chrome onboarding, the
-// operator's own MCP servers) and cecli's ~/.cecli.conf.yml were rebuilt from
-// scratch on every sandbox open, silently.
 func TestHarnessesDeclareTheirHomeRootConfigFiles(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)

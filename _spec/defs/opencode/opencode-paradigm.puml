@@ -91,8 +91,7 @@ note bottom of EP
   exported in the shell rc or a gitignored "".env"" is the whole login: proveo
   detects it like any provider key (""internal/provider"" entry ""opencode""),
   brokers it in firewall mode — the agent holds a sentinel, the egress proxy
-  injects the real bearer on "".opencode.ai"" only — and ""proveo --init""
-  offers it.
+  injects the real bearer on "".opencode.ai"" only.
 
   **The def DECLARES it now, and that is what 'unaware' meant.** For a long
   while the manifest listed no ""env:"" at all, so ""OPENCODE_API_KEY"" was a

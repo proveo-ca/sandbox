@@ -2,6 +2,10 @@
 ' SPEC source: internal/egresspolicy/policy.go
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
+' purpose: the order a single request is decided in, and where each verdict can come from
+' covers: internal/egresspolicy/policy.go
+' covers: internal/egresspolicy/secrets.go
+' covers: internal/egresspolicy/policy_test.go
 
 title Egress Policy — ""Decide(req)"" sequence (off-provider)
 

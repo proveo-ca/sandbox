@@ -1,5 +1,10 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the egress tiers proveo offers, the vocabulary they share, and what each one enforces
+' covers: internal/egress/**
+' covers: internal/contract/egress_vocabulary_test.go
+' covers: e2e/review_tier_test.go
+' covers: cmd/proveo/main.go
 title Egress tiers — cumulative network policy, credentials on their own axis
 
 node "internal/egress" as PKG <<host>> {
@@ -97,7 +102,7 @@ note bottom of BYPASS
   **A third case is gone rather than answered.** The privileged DinD
   sibling needed an internet-capable agent network, which reopened a
   path around the injector and made brokering a paper guarantee; it is
-  retired (_spec/_plans/retire-dind.puml), and sbx replaces it with a
+  retired (_spec/_paradigms/retire-dind.puml), and sbx replaces it with a
   daemon whose egress the Kit allowlist confines.
 
   **And it is the one posture with no record.** A plain bridge means no

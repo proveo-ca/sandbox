@@ -15,23 +15,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestReviewTierConsentGate is the only test that exercises the review tier as a
-// whole. Its parts are unit-tested — the gate's cache and fail-closed paths, the
-// PTY proxy's pumps, the plan's socket mount — but a consent gate fails silently
-// OPEN at the seams, so the integration is what matters:
-//
-//   - a real CONNECT from inside the container reaches the host-side gate over the
-//     bind-mounted unix socket
-//   - the overlay draws on the operator's terminal while the agent holds the PTY
-//   - "n" denies and the agent sees a blocked connection (not a hang)
-//   - "y" allows, and the answer is cached so the same host is not asked twice
+// TestReviewTierConsentGate is the only test that exercises the review tier
+// as a whole.
 func TestReviewTierConsentGate(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
-	// An unauthenticated opencode session never reaches the state this test
-	// waits for — the consent overlay only renders for a session that got far enough to make a
-	// request. Without this the
-	// test spends its full timeout and reports a missing credential as a defect.
 	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 	requireReviewTier(t)
@@ -69,10 +57,6 @@ func TestReviewTierConsentGate(t *testing.T) {
 	acceptChoicePrompt(t, sess, target)
 
 	w := newWatcher(t, sess)
-	// The container shell is the signal that the topology came up and the agent is
-	// running on the PTY proveo owns.
-	// tmux trims trailing whitespace, so the prompt reads "...:/app$" with nothing
-	// after it — matching on "$ " never fires.
 	w.until("the agent shell", 4*time.Minute, func() bool {
 		scr := w.Screen()
 		return strings.Contains(scr, "@") && (strings.Contains(scr, ":/app$") ||

@@ -1,6 +1,4 @@
 // SPEC: _spec/_paradigms/credential-boundary.puml
-//
-// SPEC: _spec/_paradigms/credential-boundary.puml
 package credentials
 
 import (
@@ -34,9 +32,6 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 			Login: "agent login",
 		},
 	},
-	// No Login command: opencode's `/connect` writes
-	// ~/.local/share/opencode/auth.json, which the manifest's share mount denies
-	// and the proveo home scrubs on every run. The host export IS the login here.
 	"opencode": {
 		"OPENCODE_API_KEY": {
 			HowTo: "sign in at opencode.ai/auth and copy the key — one key for both plans, " +
@@ -47,9 +42,7 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 
 // SandboxAuthRefusal is what `proveo run` says when a subscription harness
 // reaches the sbx backend with nothing to authenticate with — the agent would
-// exit at its login prompt and the sandbox stop with it. It returns "" whenever
-// SOME credential is available, and speaks for the harness it refused rather
-// than in claudecode's words. SPEC: _spec/internal/sbx/oauth-provisioning.puml
+// exit at its login prompt and the sandbox stop with it.
 func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup func(string) string) string {
 	if HasUsableAuth(man, target, homeRoot, lookup) {
 		return ""

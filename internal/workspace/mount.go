@@ -2,8 +2,6 @@
 // _spec/internal/workspace/mount-symlink-escape.puml,
 // _spec/internal/workspace/worktree-git-linkage.puml,
 // _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
-//
-// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/workspace/worktree-git-linkage.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
 package workspace
 
 import (
@@ -236,9 +234,9 @@ const (
 	worktreeGitDirFile = "gitdir" // replaces <common>/worktrees/<name>/gitdir
 )
 
-// PrepareWorktreeLinks materialises the two container-only pointer files for a
-// linked worktree under root and returns the directory holding them, for the
-// caller to assign to WorktreeLinkDir.
+// PrepareWorktreeLinks materialises the two container-only pointer files for
+// a linked worktree under root and returns the directory holding them, for
+// the caller to assign to WorktreeLinkDir.
 func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok || root == "" {

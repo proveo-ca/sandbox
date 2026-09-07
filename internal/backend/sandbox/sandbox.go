@@ -1,8 +1,5 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml,
+// SPEC: _spec/internal/sbx/sandbox-backend.puml
 // _spec/internal/sbx/sandbox-backend.puml Package sandbox is the sbx backend:
-// it PLANS a run (Spec) and it EXECUTES one (Run).
-//
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/sandbox-backend.puml
 package sandbox
 
 import (
@@ -33,9 +30,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
-// EvidenceVar and unallowlistedProbe are this backend's own: the first is the
-// name it writes into the Kit environment, the second the host it asks sbx
-// about to learn whether the daemon's baseline allows everything.
 const (
 	EvidenceVar        = "PROVEO_AGENT_EVIDENCE"
 	unallowlistedProbe = "proveo-egress-probe.invalid"
@@ -130,13 +124,113 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 		}
 	}
 	liftClonedOutput(in, cfg, liftViaSbx)
-	fetch := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...)
-	if out, err := fetch.CombinedOutput(); err != nil {
-		ui.Warnf("clone: fetch from %s failed (%v): %s — if the sandbox still exists, `git fetch %s` by hand",
-			sbx.CloneRemote(cfg.Name), err, strings.TrimSpace(string(out)), sbx.CloneRemote(cfg.Name))
+	if !carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx) {
 		return
 	}
-	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref", "--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
+	reportCloneRefs(in, cfg)
+}
+
+// cloneCarry is one route home: the sbx exit code (for the empty sentinel),
+// output worth quoting, and the error.
+type cloneCarry func(in Input, cfg sbx.RunConfig) (int, string, error)
+
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry) bool {
+	if running {
+		if _, out, err := viaRemote(in, cfg); err == nil {
+			return true
+		} else {
+			ui.Notef("clone: the sandbox's git remote did not answer (%v: %s) — carrying the branches out over `sbx exec` instead",
+				err, strings.TrimSpace(out))
+		}
+	}
+	code, out, err := viaBundle(in, cfg)
+	switch {
+	case err == nil:
+		return true
+	case code == sbx.CloneBundleEmpty:
+		ui.Notef("clone: the agent left no commit this repository does not already have")
+		return false
+	default:
+		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
+		for _, l := range CloneRescueLines(cfg.Name, FirstHost(cfg.Mounts), in.RepoRoot) {
+			ui.Notef("%s", l)
+		}
+		return false
+	}
+}
+
+// CloneRescueLines is the by-hand recipe, using the transport that works on a
+// stopped sandbox. SPEC: _spec/internal/sbx/clone-workspace.puml
+func CloneRescueLines(name, workdir, repoRoot string) []string {
+	if workdir == "" || repoRoot == "" {
+		return nil
+	}
+	bundle := "/tmp/" + name + ".bundle"
+	return []string{
+		fmt.Sprintf("while %s exists: `sbx exec -w / %s -- git -C %s bundle create - --all > %s`",
+			name, name, workdir, bundle),
+		fmt.Sprintf("then: `git -C %s fetch %s '+refs/heads/*:%s/*'`", repoRoot, bundle, sbx.CloneRefs(name)),
+	}
+}
+
+func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
+	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...).CombinedOutput()
+	return exitCodeOf(err), string(out), err
+}
+
+func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
+	wd := FirstHost(cfg.Mounts)
+	if wd == "" {
+		return -1, "", errors.New("no workspace mount to bundle from")
+	}
+	f, err := os.CreateTemp("", "proveo-clone-*.bundle")
+	if err != nil {
+		return -1, "", err
+	}
+	path := f.Name()
+	defer func() { _ = os.Remove(path) }()
+
+	src := exec.Command(sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.RepoRoot))...)
+	var errb strings.Builder
+	src.Stdout, src.Stderr = f, &errb
+	runErr := src.Run()
+	if cerr := f.Close(); runErr == nil && cerr != nil {
+		return -1, errb.String(), cerr
+	}
+	if runErr != nil {
+		return exitCodeOf(runErr), errb.String(), runErr
+	}
+	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, cfg.Name)...).CombinedOutput()
+	if err != nil {
+		return exitCodeOf(err), errb.String() + string(out), err
+	}
+	return 0, "", nil
+}
+
+func hostTips(repoRoot string) []string {
+	out, err := exec.Command("git", sbx.CloneHostTipsArgs(repoRoot)...).Output()
+	if err != nil {
+		return nil
+	}
+	tips := strings.Fields(string(out))
+	if len(tips) > sbx.CloneHostTipsCap {
+		tips = tips[:sbx.CloneHostTipsCap]
+	}
+	return tips
+}
+
+func exitCodeOf(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+func reportCloneRefs(in Input, cfg sbx.RunConfig) {
+	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
+		"--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
 	names := strings.Fields(string(refs))
 	if len(names) == 0 {
 		ui.Notef("clone: the agent left no branches to fetch")
@@ -354,22 +448,43 @@ type Input struct {
 	Evidence               string // was params.evidenceOrDefault()
 	Forwards               bool   // was params.forwards()
 	Man                    manifest.Manifest
-	Sid, EgDir             string
-	Mounts                 []runner.Mount
-	Workdir                string
-	Lookup                 func(string) string
-	Detected               []string
-	GitEnv                 []string
-	HomeEnv                []string
-	BridgeEnv              []string
-	ScopeRel               string
-	WorktreeFallback       bool
-	WorktreeEnv            []string
-	DataDir                string
-	Memory                 string
-	CPUs                   int
-	HomeRoot               string
-	RunLog                 string
+	// ImageEntrypoint reads the image's declared ENTRYPOINT; a sandbox Kit needs
+	// it verbatim. Injected so Spec stays testable without docker.
+	ImageEntrypoint  func(image string) []string
+	Sid, EgDir       string
+	Mounts           []runner.Mount
+	Workdir          string
+	Lookup           func(string) string
+	Detected         []string
+	GitEnv           []string
+	HomeEnv          []string
+	BridgeEnv        []string
+	ScopeRel         string
+	WorktreeFallback bool
+	WorktreeEnv      []string
+	DataDir          string
+	Memory           string
+	CPUs             int
+	HomeRoot         string
+	RunLog           string
+}
+
+// imageEntrypoint reads the image's declared ENTRYPOINT, or nothing when the
+// image cannot be inspected.
+func imageEntrypoint(in Input) []string {
+	if in.ImageEntrypoint == nil || in.Image == "" {
+		return nil
+	}
+	return in.ImageEntrypoint(in.Image)
+}
+
+// Harness is the def a target belongs to. One manifest owns several targets —
+// its variant images — and they all share the def's sbx agent and launch.
+func Harness(in Input) string {
+	if in.Man.Name != "" {
+		return in.Man.Name
+	}
+	return in.Target
 }
 
 func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
@@ -501,28 +616,27 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 
-	agent, launch := sbx.AgentFor(in.Target)
+	harness := Harness(in)
+	agent, launch := sbx.AgentFor(harness)
 	command := launch
 	if len(in.Extra) > 0 {
-		// Extras replace the launch, and for a shell-agent def they must go
-		// through the same wrapper: handed to sbx as bare words they would
-		// REPLACE `bash -l` and be read as a script file, which is the defect
-		// that killed cecli. SPEC: _spec/_paradigms/capability-ladder.puml
+		// SPEC: _spec/_paradigms/capability-ladder.puml
 		if agent == sbx.ShellAgent {
-			command = sbx.ShellLaunch(in.Target, in.Extra)
+			command = sbx.ShellLaunch(harness, in.Extra)
 		} else {
 			command = in.Extra
 		}
 	}
-	// A def sbx has no built-in agent for can declare one of its own instead of
-	// borrowing `shell` — and borrowing `shell` means inheriting its rule for the
-	// words after `--`, which is what made `-- cecli` run `bash cecli`. With its
-	// own agent there is no bash in between: the image's ENTRYPOINT runs, exactly
-	// as it does on the docker backend, so extras pass through as bare words.
 	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
-	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(in.Target)
+	entrypoint := imageEntrypoint(in)
+	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(harness)
+	if ownAgent && len(entrypoint) == 0 {
+		ownAgent = false
+		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s runs under sbx's shell agent rather than one of its own",
+			in.Image, harness)
+	}
 	if ownAgent {
-		agent, command = sbx.AgentName(in.Target), in.Extra
+		agent, command = sbx.AgentName(harness), in.Extra
 	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
@@ -545,10 +659,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if ownAgent {
 		var domains []string
 		creds, domains, secrets = agentCredentials(in, secrets)
-		// SPEC-v2: every domain a credential injects into MUST also appear in
-		// permissions.network.allow. Widening here rather than trusting the two
-		// lists to agree — they are built from different inputs and a domain
-		// missing from allow is a credential sbx will refuse to attach.
 		for _, d := range domains {
 			if !hosts[d] {
 				hosts[d] = true
@@ -569,16 +679,11 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(in.Target)}},
 	}
 	if ownAgent {
-		// The shared blocks above are kept verbatim — SPEC-v2 says a sandbox kit
-		// "MAY declare every shared block" — and only the identity changes. The
-		// name MUST equal the agent sbx is asked to run, because that name is the
-		// selector; the proveo- prefix keeps it off the built-in list it may not
-		// shadow.
 		kit.Kind = "sandbox"
 		kit.Name = cfg.Agent
 		kit.DisplayName = in.Target + " (proveo)"
 		kit.Description = "proveo harness " + in.Target + ": image, launch, reachability and the seed step."
-		kit.Sandbox = &sbx.KitSandbox{Image: in.Image}
+		kit.Sandbox = &sbx.KitSandbox{Image: in.Image, Entrypoint: entrypoint}
 		kit.Credentials = creds
 	}
 	return cfg, kit, secrets
@@ -711,11 +816,11 @@ func Run(in Input) error {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
 				said = true
-				fmt.Fprintf(os.Stderr, "\n── last output from the agent ──\n")
+				ui.Section(ui.SectionResults)
+				ui.Hostf("last output from the agent:")
 				for _, l := range lines {
-					fmt.Fprintf(os.Stderr, "  %s\n", l)
+					ui.Notef("%s", l)
 				}
-				fmt.Fprintf(os.Stderr, "───────────────────────────────\n")
 			}
 			restarted := !sbx.Running(cfg.Name)
 			PreserveClone(in, cfg)
@@ -803,39 +908,7 @@ func Selected(man manifest.Manifest) bool {
 	return ok
 }
 
-// agentCredentials builds the credentials[] block a def declaring its OWN agent
-// must carry, from proveo's own provider registry so the Kit and the broker
-// cannot drift apart. Both answer the same question — which key may be attached
-// to which host, under which header — and the registry is where that already
-// lives.
-//
-// A def backed by a BUILT-IN agent must not call this: sbx refuses a kit
-// repeating a service its parent declares ("defined in both"), and the built-in
-// already proxy-manages these. Only a `kind: sandbox` kit has no parent.
-//
-// IT DECLARES ONLY WHAT sbx ALREADY HOLDS, and writes nothing. sbx resolves
-// credentials[].service against a secret stored under the SERVICE name
-// (`anthropic`), while proveo stores under the ENV VAR name
-// (`ANTHROPIC_API_KEY`) — both appear in `sbx secret ls`. The obvious move is to
-// store the service name too, and it was wrong twice over:
-//
-//	IT OVERWRITES. Measured in a real run: the operator's `anthropic (oauth
-//	configured)` entry was replaced by an API key, silently, because
-//	`sbx secret set` takes --force and the store is HOST-WIDE and outlives the
-//	run. proveo warns about that store's reach and must not then trample it.
-//
-//	IT DOES NOT BUY CONSENT. Also measured: sbx prompts for a credential it
-//	holds — the screen reads "(stored)" and still asks — because approval is
-//	recorded in the BINDINGS file, not the secret store. Storing more secrets
-//	adds prompts rather than removing them.
-//
-// So a service with nothing stored is skipped. sbx would prompt for it, and an
-// unattended agent hangs on that prompt.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
-// storedSecretNames is a variable so tests can state which services sbx holds
-// without a live daemon. The real list is the only thing that decides whether a
-// credential is declared, so a test that could not control it would either need
-// sbx running or would assert nothing.
 var storedSecretNames = sbx.StoredSecretNames
 
 func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
@@ -858,10 +931,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		if !ok || r.EnvVar == "" || len(r.Hosts) == 0 {
 			continue
 		}
-		// A query-parameter credential has no expression in a Kit: sbx injects
-		// into a HEADER. Declaring the service without a usable inject would
-		// sentinel the variable and then attach the value nowhere, which is worse
-		// than leaving it alone.
 		if r.Header == "" || r.Query != "" {
 			continue
 		}

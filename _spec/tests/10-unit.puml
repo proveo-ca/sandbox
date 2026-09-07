@@ -7,6 +7,10 @@ skinparam shadowing false
 skinparam packageStyle rectangle
 left to right direction
 
+' purpose: the Layer-1 unit lane — which packages carry pure-logic tests, and the
+'          conventions they share
+' covers: internal/*/*_test.go
+
 title Layer 1 · Unit — components under test (go test -race -cover)
 
 actor "go test -race\n-test.gocoverdir=cov/unit" as GoTest <<actor>>
@@ -33,7 +37,7 @@ Pkgs ..> Cmp : cmp.Diff
 GoTest --> CovDir : write counters
 
 note bottom of Pkgs
-Conventions (docs/go-testing-standards.md): table-driven + t.Run subtests,
+Conventions (e2e/go-testing-standards.md): table-driven + t.Run subtests,
 t.Parallel, go-cmp with got/want+input messages, golden files, no assert libs.
 Injectable runners (tmux, workspace git, egress Runner) keep I/O out of unit tests.
 Docker Layer 3/4 files use build tags and are **excluded** from this lane.

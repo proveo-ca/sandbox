@@ -1,7 +1,5 @@
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml,
 // _spec/internal/choiceui/wireframe.puml
-//
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml
 package run
 
 import (
@@ -95,10 +93,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	return nil
 }
 
-// authRow asks how this run is BILLED — against a plan, or per token — and asks
-// every harness that has a plan of its own the same way. Every option is drawn;
-// an unavailable one is gated with the reason rather than dropped. cecli is the
-// one def with nothing to ask. SPEC: _spec/internal/choiceui/wireframe.puml
+// SPEC: _spec/internal/choiceui/wireframe.puml
 func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile, chosen string) (choiceui.Row, bool) {
 	if !credentials.DeclaresSubscription(man) {
 		return choiceui.Row{}, false
@@ -111,9 +106,6 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	opts := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
 	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), available))
 	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
-	// Gate every option the operator cannot take, each with its own reason.
-	// comingSoon reallocates Off per call, so gating two of three through it
-	// would silently un-gate the first.
 	r.Off = make([]bool, len(r.Options))
 	r.OffWhy = map[string]string{}
 	why := credentials.AuthWhyUnavailable(man, target, homeRoot)
@@ -133,8 +125,6 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	return r, true
 }
 
-// authAnswer maps a remembered answer onto the row as it is drawn now: a cache
-// written before this row had classes holds a variable NAME.
 // SPEC: _spec/internal/agentsettings/choice-cache.puml
 func authAnswer(chosen string, available []string) string {
 	switch {
@@ -148,16 +138,10 @@ func authAnswer(chosen string, available []string) string {
 	return "" // a variable name from an older cache: let availability decide
 }
 
-// authHelp says what each option IS, then what it is made of on this host — or,
-// for a gated one, the single sentence about why it is not on offer.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
 	backing := credentials.AuthBacking(man, lookup, target, homeRoot, envFile)
 	unavailable := credentials.AuthWhyUnavailable(man, target, homeRoot)
-	// What each option is. True whether or not it is on offer — and for usage
-	// that depends on the harness: most spend the operator's OWN keys, but a
-	// vendor-pinned CLI has no bring-your-own-key path at all and meters against
-	// the vendor's own account instead.
 	usageIs := "metered per token at each provider, on your own keys"
 	if credentials.VendorPinnedWhy(man) != "" {
 		usageIs = "metered by the vendor beyond the plan's included usage — there is no " +
@@ -185,9 +169,6 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 		}
 		help[opt] = text + " · " + unavailable[opt]
 	}
-	// Where one credential buys both sides, saying "choosing this withholds the
-	// other" would be a promise proveo cannot keep — the vendor decides, or the
-	// model id does. Replace that clause with the caveat.
 	if caveat := credentials.BillingCaveat(man, lookup); caveat != "" {
 		for _, opt := range []string{credentials.AuthUsage, credentials.AuthSubscription} {
 			if b := backing[opt]; b != "" {
@@ -459,7 +440,7 @@ var addonHelp = map[string]string{
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
-// SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func executionOptions(man manifest.Manifest) []string {
 	opts := []string{addonHost}
 	if man.Docker == manifest.DockerSbx {
@@ -543,7 +524,7 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// selection. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {
