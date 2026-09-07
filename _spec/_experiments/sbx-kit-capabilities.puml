@@ -237,6 +237,29 @@ skinparam noteTextAlignment left
 '     are accepted and the agent still reaches a prompt; a 400 names which of
 '     the two guesses was wrong.
 '
+'     ── RUN 2026-09-07: E1 CONFIRMED, CREDENTIALS UNTOUCHED ────────────────
+'     Every rung held, and the shape assertion printed what it measured:
+'         kit shape measured: kind: sandbox, name: proveo-cecli
+'     So the sandbox kit registers an agent, sbx resolves proveo-cecli, and the
+'     session reaches a prompt and holds 45s. E1 is measured, not inferred.
+'
+'     The credentials block was NOT exercised, and the ladder CANNOT exercise
+'     it. childEnvArgsNoCredential unsets every provider.DetectVars() entry so
+'     a climb never spends a real key — by design, and correct. With nothing
+'     detected, provider.Detect returns nothing and the kit renders with ZERO
+'     credentials. Confirmed by rendering under the ladder's own environment:
+'     `credentials in kit: 0, secrets: 0`.
+'
+'     Reading that PASS as "credentials work" would be the sixth green result
+'     this session that measured its own setup. It measured E1, which is real,
+'     and nothing else.
+'
+'     WHAT DOES EXERCISE IT: a standalone `kind: sandbox` kit carrying the
+'     block verbatim with a DUMMY key. proxyManaged means the agent never sees
+'     the value, so a dummy proves everything that matters — that the block
+'     parses, that a suffix-pattern domain is accepted, and that the variable
+'     arrives as a sentinel — without spending a real credential.
+'
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
 '     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
