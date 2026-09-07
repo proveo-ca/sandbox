@@ -939,42 +939,7 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		`printf '` + credOpen + `%s` + credClose + `\n' "${ANTHROPIC_API_KEY-<unset>}"; sleep 5`}
 	kit.Sandbox.Command = nil
 	kit.Setup = nil
-	probeDir := t.TempDir()
-	out, err := yaml.Marshal(kit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(probeDir, "spec.yaml"), out, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	img := harnessImage(t, target)
-	freshTemplate(t, img)
-	name := fmt.Sprintf("proveo-credprobe-%s-%d", target, os.Getpid())
-	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
-
-	argv := append([]string{"run", "--name", name, "-t", img, "--kit", probeDir},
-		kitAgentFor(t, target), work)
-	res := holdSbxSession(t, argv,
-		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
-		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second))
-
-	// A credential sbx has no stored secret for makes it ASK, and an unattended
-	// run stops there. That is a distinct fault from a refused block or a dead
-	// sandbox, and it must be reported as one rather than as "nothing measured".
-	if strings.Contains(plain(res.out), "wants to use these credentials") {
-		t.Fatalf("sbx asked for consent instead of starting: a declared credential has no "+
-			"stored secret under its SERVICE name, so the run blocks on a human.\n"+
-			"-- rendered Kit --\n%s\n-- session --\n%s", out, lastLines(res.out, 20))
-	}
-
-	got, seen := credValueFrom(res.out)
-	if !seen {
-		t.Fatalf("the probe never printed %q, so nothing was measured — the sandbox may have "+
-			"refused the credentials block or never started. death=%q\n"+
-			"-- rendered Kit --\n%s\n-- session --\n%s",
-			credOpen, res.death, out, lastLines(res.out, 30))
-	}
+	got := runCredProbe(t, target, work, kit, "declared")
 	switch got {
 	case dummyAPIKey:
 		t.Fatalf("the agent holds the REAL credential — proxyManaged did not take effect, and " +
@@ -983,8 +948,62 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		t.Fatalf("the variable is %q in the agent: the declaration resolved against no stored "+
 			"secret, so the agent cannot authenticate at all", got)
 	}
-	t.Logf("✅ credential is proxy-managed: ANTHROPIC_API_KEY holds %q in the agent process, "+
-		"not the key", got)
+
+	// THE CONTROL. "A sentinel appeared" is not the claim; "our declaration
+	// CAUSED it" is. This suite has produced five green results that measured
+	// something other than their subject, so run the identical Kit with the
+	// credentials block removed. If the value is unchanged it came from
+	// somewhere else, and the assertion above proves nothing.
+	bare := kit
+	bare.Credentials = nil
+	ctl := runCredProbe(t, target, work, bare, "control")
+	if ctl == got {
+		t.Fatalf("the SAME value (%q) appears with and WITHOUT the credentials block, so the "+
+			"declaration is not what produces it — this test would pass with the feature "+
+			"deleted", got)
+	}
+	t.Logf("✅ proxy-managed BECAUSE we declare it: %q with the block, %q without", got, ctl)
+}
+
+// runCredProbe writes the Kit, starts a sandbox, and returns what the agent
+// process actually held. Every way of failing to MEASURE is fatal — a probe
+// that cannot run must never report a value.
+func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) string {
+	t.Helper()
+	out, err := yaml.Marshal(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	img := harnessImage(t, target)
+	freshTemplate(t, img)
+	name := fmt.Sprintf("proveo-credprobe-%s-%s-%d", target, label, os.Getpid())
+	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
+
+	argv := append([]string{"run", "--name", name, "-t", img, "--kit", dir},
+		kitAgentFor(t, target), work)
+	res := holdSbxSession(t, argv,
+		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
+		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second))
+
+	// A credential sbx has no stored secret for makes it ASK, and an unattended
+	// run stops there — a distinct fault from a refused block or a dead sandbox.
+	if strings.Contains(plain(res.out), "wants to use these credentials") {
+		t.Fatalf("[%s] sbx asked for consent instead of starting: a declared credential has "+
+			"no stored secret under its SERVICE name, so the run blocks on a human.\n"+
+			"-- Kit --\n%s\n-- session --\n%s", label, out, lastLines(res.out, 20))
+	}
+	v, seen := credValueFrom(res.out)
+	if !seen {
+		t.Fatalf("[%s] the probe never printed %q, so nothing was measured — the sandbox may "+
+			"have refused the Kit or never started. death=%q\n-- Kit --\n%s\n-- session --\n%s",
+			label, credOpen, res.death, out, lastLines(res.out, 30))
+	}
+	return v
 }
 
 // credValueFrom returns the probed value and whether the marker was seen at all.

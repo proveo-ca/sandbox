@@ -360,6 +360,22 @@ skinparam noteTextAlignment left
 '     `sbx secret ls` instead and declares only services sbx already knows,
 '     skipping with a reason when there are none.
 '
+'     ── MEASURED 2026-09-07: THE SENTINEL REACHES THE AGENT ────────────────
+'         not declaring [opencode]: sbx holds no secret for them
+'         ✅ ANTHROPIC_API_KEY holds "proxy-managed" in the agent process
+'
+'     Read in the agent process, from proveo's own rendered Kit, with the marker
+'     seen. So a def declaring its own agent DOES keep the property, and E1's
+'     downgrade is closed by measurement rather than by argument.
+'
+'     A CONTROL WAS ADDED BEFORE TRUSTING IT. "A sentinel appeared" is not the
+'     claim; "our declaration caused it" is. Five green results in this session
+'     measured something other than their subject, so the test now runs the
+'     IDENTICAL Kit twice — once with credentials[], once with the block removed
+'     — and fails if the value is the same both times. Without that, the test
+'     would pass with the feature deleted, which is the definition of the defect
+'     it exists to catch.
+'
 '     ── ONE MORE THING THE RUN SURFACED ────────────────────────────────────
 '         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
 '           you are using "proveo-cecli".
