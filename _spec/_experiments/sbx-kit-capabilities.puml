@@ -376,6 +376,48 @@ skinparam noteTextAlignment left
 '     would pass with the feature deleted, which is the definition of the defect
 '     it exists to catch.
 '
+'     ── REAL RUN 2026-09-07: THE GATE WORKS, AND COST TWO THINGS ───────────
+'         PROVEO_SBX_AGENT_KIT=1 proveo run cecli --input .
+'         agent      proveo-cecli
+'         ✓ Created sandbox proveo-1788742241-52218
+'         cecli@proveo-1788742241-52218:sandbox$
+'
+'     E1 works end to end on the real path: proveo renders the Kit, sbx resolves
+'     proveo-cecli, the harness reaches its prompt. Not a ladder, not a probe —
+'     the thing itself.
+'
+'     TWO DEFECTS THE RUN EXPOSED, BOTH MINE, BOTH NOW FIXED.
+'
+'     1. STORING THE SERVICE SECRET OVERWRITES THE OPERATOR'S. The run printed
+'        `sandbox secret: anthropic (host-side injection)` and saved it — over an
+'        entry that `sbx secret ls` had shown as `anthropic (oauth configured)`.
+'        `sbx secret set` takes --force, and the store is HOST-WIDE and outlives
+'        the run; proveo warns about that reach itself and must not then trample
+'        it. The count doubled too: 5 secrets became 10, five of them new
+'        service-named entries.
+'
+'        Fixed: proveo writes NO service-named secret. It declares only services
+'        sbx ALREADY holds, read via sbx.StoredSecretNames().
+'
+'     2. STORING IT DOES NOT BUY CONSENT ANYWAY. The prompt appeared for a
+'        credential the screen itself marked `(stored)`:
+'            opencode  API key → sent to .opencode.ai   (stored)
+'            [A]pprove all · [R]eview each · [N]o:
+'        So approval is recorded in the BINDINGS file, not the secret store —
+'        `✓ Binding saved to ~/.config/sbx/credentials.yaml`. Storing more
+'        secrets adds prompts rather than removing them, which is the opposite
+'        of the reasoning that put the write there.
+'
+'     WHY ONLY opencode WAS REVIEWED. The operator chose [R]eview each and saw
+'     one item, which looked wrong and is not: the bindings file already carried
+'     anthropic, cursor, google, openai and xai from earlier use. opencode was
+'     the only service without a binding, so it was the only one needing review.
+'
+'     CONSENT IS ONE-TIME, PER SERVICE, and it persists in credentials.yaml. So
+'     the gate CAN default on; the cost is a first-run approval for any service
+'     the operator has not yet bound. That is a real cost for an unattended
+'     agent and belongs in the release note, not in a surprise.
+'
 '     ── ONE MORE THING THE RUN SURFACED ────────────────────────────────────
 '         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
 '           you are using "proveo-cecli".

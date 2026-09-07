@@ -187,6 +187,7 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
+	withStoredSecrets(t, "anthropic")
 	in := specInput("cecli")
 	in.Detected = []string{"anthropic"}
 	in.Lookup = func(k string) string {
@@ -225,17 +226,17 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 		}
 	}
 
-	// sbx resolves credentials[].service against a secret stored under the
-	// SERVICE name; proveo has always stored under the env-var name.
-	var haveService bool
+	// The declaration resolves against a secret sbx ALREADY holds — which is why
+	// a service with nothing stored is not declared at all. proveo must not
+	// supply it: see TestSpecNeverStoresAServiceNamedSecret for what that cost.
+	if len(secrets) == 0 {
+		t.Error("no secrets at all — the env-var entries the gate-off path relies on are gone")
+	}
 	for _, kv := range secrets {
 		if kv[0] == "anthropic" {
-			haveService = true
+			t.Fatal("Spec stored a secret under the SERVICE name, which overwrites the " +
+				"operator's own entry in a host-wide store")
 		}
-	}
-	if !haveService {
-		t.Error("no secret stored under the service name `anthropic`, so the declaration " +
-			"resolves against nothing")
 	}
 }
 
@@ -252,6 +253,7 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 // rather than the contract.
 func TestInjectDomainsAreAllowlisted(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
+	withStoredSecrets(t, "anthropic")
 	in := specInput("cecli")
 	in.Detected = nil
 	in.Lookup = func(k string) string {
@@ -289,6 +291,7 @@ func TestInjectDomainsAreAllowlisted(t *testing.T) {
 // mixin. Measured as `400 ... defined in both "shell" and "credprobe"`.
 func TestMixinNeverDeclaresCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
+	withStoredSecrets(t, "anthropic")
 	for _, target := range []string{"claudecode", "cursor", "opencode"} {
 		in := specInput(target)
 		in.Detected = []string{"anthropic"}
@@ -305,6 +308,60 @@ func TestMixinNeverDeclaresCredentials(t *testing.T) {
 		if len(kit.Credentials) != 0 {
 			t.Errorf("%s: mixin declares %d credentials — sbx refuses a service the built-in "+
 				"agent already declares", target, len(kit.Credentials))
+		}
+	}
+}
+
+// withStoredSecrets states which services sbx holds a secret for, for the
+// duration of one test.
+func withStoredSecrets(t *testing.T, names ...string) {
+	t.Helper()
+	prev := storedSecretNames
+	storedSecretNames = func() []string { return names }
+	t.Cleanup(func() { storedSecretNames = prev })
+}
+
+// A service sbx holds no secret for must NOT be declared: sbx prompts for it and
+// an unattended agent hangs on the prompt. Measured in a real run — the screen
+// reads "(stored)" for one it has and still asks, so approval lives in the
+// bindings file, not the secret store.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestUnstoredServicesAreNotDeclared(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	withStoredSecrets(t) // sbx holds nothing
+	in := specInput("cecli")
+	in.Lookup = func(k string) string {
+		if k == "ANTHROPIC_API_KEY" {
+			return "sk-ant-real-key"
+		}
+		return ""
+	}
+	_, kit, _ := Spec(in)
+	if len(kit.Credentials) != 0 {
+		t.Errorf("declared %d credentials sbx has no secret for — each one is a prompt an "+
+			"unattended run stops on", len(kit.Credentials))
+	}
+}
+
+// proveo must not write the SERVICE-named secret. Measured in a real run: the
+// operator's `anthropic (oauth configured)` entry was replaced by an API key,
+// because sbx secret set takes --force and the store is host-wide and outlives
+// the run.
+func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	withStoredSecrets(t, "anthropic")
+	in := specInput("cecli")
+	in.Lookup = func(k string) string {
+		if k == "ANTHROPIC_API_KEY" {
+			return "sk-ant-real-key"
+		}
+		return ""
+	}
+	_, _, secrets := Spec(in)
+	for _, kv := range secrets {
+		if kv[0] == "anthropic" {
+			t.Fatal("Spec would store a secret under the SERVICE name, overwriting whatever " +
+				"the operator has there — measured doing exactly that to an OAuth login")
 		}
 	}
 }

@@ -813,18 +813,40 @@ func Selected(man manifest.Manifest) bool {
 // repeating a service its parent declares ("defined in both"), and the built-in
 // already proxy-manages these. Only a `kind: sandbox` kit has no parent.
 //
-// It also returns the secrets to add. sbx resolves credentials[].service against
-// a secret stored under the SERVICE name (`anthropic`), while proveo has always
-// stored under the ENV VAR name (`ANTHROPIC_API_KEY`) — both were visible side
-// by side in `sbx secret ls`. The env-var entry is kept, because the gate-off
-// path still relies on it; the service entry is added so the declaration
-// resolves.
+// IT DECLARES ONLY WHAT sbx ALREADY HOLDS, and writes nothing. sbx resolves
+// credentials[].service against a secret stored under the SERVICE name
+// (`anthropic`), while proveo stores under the ENV VAR name
+// (`ANTHROPIC_API_KEY`) — both appear in `sbx secret ls`. The obvious move is to
+// store the service name too, and it was wrong twice over:
+//
+//	IT OVERWRITES. Measured in a real run: the operator's `anthropic (oauth
+//	configured)` entry was replaced by an API key, silently, because
+//	`sbx secret set` takes --force and the store is HOST-WIDE and outlives the
+//	run. proveo warns about that store's reach and must not then trample it.
+//
+//	IT DOES NOT BUY CONSENT. Also measured: sbx prompts for a credential it
+//	holds — the screen reads "(stored)" and still asks — because approval is
+//	recorded in the BINDINGS file, not the secret store. Storing more secrets
+//	adds prompts rather than removing them.
+//
+// So a service with nothing stored is skipped. sbx would prompt for it, and an
+// unattended agent hangs on that prompt.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+// storedSecretNames is a variable so tests can state which services sbx holds
+// without a live daemon. The real list is the only thing that decides whether a
+// credential is declared, so a test that could not control it would either need
+// sbx running or would assert nothing.
+var storedSecretNames = sbx.StoredSecretNames
+
 func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
 	var (
 		creds   []sbx.KitCredential
 		domains []string
 	)
+	stored := map[string]bool{}
+	for _, n := range storedSecretNames() {
+		stored[n] = true
+	}
 	seen := map[string]bool{}
 	for _, name := range provider.Detect(in.Lookup) {
 		if seen[name] || !in.Man.Capabilities.AllowsProvider(name) {
@@ -841,6 +863,11 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		// sentinel the variable and then attach the value nowhere, which is worse
 		// than leaving it alone.
 		if r.Header == "" || r.Query != "" {
+			continue
+		}
+		// Nothing stored under the service name: sbx would ask a human, and an
+		// unattended run stops there.
+		if !stored[name] {
 			continue
 		}
 		format := "%s"
@@ -860,20 +887,8 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 				Inject:       inject,
 			},
 		})
-		if v := strings.TrimSpace(in.Lookup(r.EnvVar)); v != "" {
-			secrets = appendSecret(secrets, name, v)
-		}
 		seen[name] = true
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
 	return creds, domains, secrets
-}
-
-func appendSecret(secrets [][2]string, name, value string) [][2]string {
-	for _, kv := range secrets {
-		if kv[0] == name {
-			return secrets
-		}
-	}
-	return append(secrets, [2]string{name, value})
 }
