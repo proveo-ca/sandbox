@@ -329,6 +329,45 @@ skinparam noteTextAlignment left
 '         unterminated marker would swallow whatever printed next and an empty
 '         value would be indistinguishable from a missing one
 '
+'     ── AND THE CORRECTED TEST FOUND SOMETHING REAL ────────────────────────
+'     Its first honest failure was worth more than the false pass:
+'
+'         This kit wants to use these credentials:
+'           opencode     API key → sent to .opencode.ai   (not set)
+'         [A]pprove all · [R]eview each · [N]o:
+'
+'     DECLARING A CREDENTIAL sbx HOLDS NO SECRET FOR MAKES IT ASK. The run stops
+'     on a human, which for an unattended agent is a hang. This is the same
+'     class as the blockedMarkers idle_test.go already tracks — alive, but
+'     unable to proceed — and it is the last real obstacle to defaulting the
+'     gate on.
+'
+'     WHY THAT KIT DECLARED opencode WITH NOTHING STORED: the credential is
+'     declared from proveo's lookup, which found a key on the host, but the
+'     SECRET is stored by proveo's Run path — and the test renders the Kit with
+'     `--print` and then calls `sbx run` itself, bypassing it. So the Kit named
+'     a service sbx had nothing under.
+'
+'     Which means the open question is narrower than it looks: in a REAL proveo
+'     run the service-named secret is stored before `sbx run` (Spec returns the
+'     secrets, Run sets them, then builds argv), so the prompt may not appear at
+'     all. Whether storing a secret also counts as approval is not known, and it
+'     is exactly what decides whether the gate can default on.
+'
+'     THE TEST MUST NOT SETTLE IT BY WRITING. `sbx secret set` is HOST-WIDE and
+'     outlives the run — proveo warns about this itself — so a test that stored
+'     a dummy would overwrite the operator's real credential. It now reads
+'     `sbx secret ls` instead and declares only services sbx already knows,
+'     skipping with a reason when there are none.
+'
+'     ── ONE MORE THING THE RUN SURFACED ────────────────────────────────────
+'         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
+'           you are using "proveo-cecli".
+'     sbx associates a loaded template with the AGENT it was loaded for, and
+'     freshTemplate loads ours for `shell`. Non-fatal today — every rung still
+'     held — but it means the image store is keyed by an agent name that E1
+'     changes, and that is worth settling before the gate defaults on.
+'
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
 '     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by

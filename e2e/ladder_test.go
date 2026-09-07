@@ -908,6 +908,31 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		t.Fatalf("the Kit embeds the credential VALUE; it must name the variable only:\n%s", raw)
 	}
 
+	// Keep only services sbx already holds a secret for. Declaring one it does
+	// not know makes sbx ask a human for consent, and the run blocks — measured.
+	// The alternative, storing the secret from here, is not available: `sbx
+	// secret set` is HOST-WIDE and outlives the run, so a test doing it would
+	// overwrite the operator's real credential with a dummy.
+	known := sbxKnownServices(t)
+	kept := kit.Credentials[:0]
+	var dropped []string
+	for _, c := range kit.Credentials {
+		if known[c.Service] {
+			kept = append(kept, c)
+			continue
+		}
+		dropped = append(dropped, c.Service)
+	}
+	kit.Credentials = kept
+	if len(dropped) > 0 {
+		t.Logf("not declaring %v: sbx holds no secret for them, and declaring one it does "+
+			"not know makes it prompt", dropped)
+	}
+	if len(kit.Credentials) == 0 {
+		t.Skipf("sbx holds no secret for any service proveo declares (%v) — nothing to "+
+			"measure without writing to the host-wide store", dropped)
+	}
+
 	// Swap ONLY the entrypoint, so the value is observable in the agent process.
 	// The seed goes with it: proveo-seed expects the harness, not a bare shell.
 	kit.Sandbox.Entrypoint = []string{"bash", "-lc",
@@ -934,11 +959,21 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
 		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second))
 
+	// A credential sbx has no stored secret for makes it ASK, and an unattended
+	// run stops there. That is a distinct fault from a refused block or a dead
+	// sandbox, and it must be reported as one rather than as "nothing measured".
+	if strings.Contains(plain(res.out), "wants to use these credentials") {
+		t.Fatalf("sbx asked for consent instead of starting: a declared credential has no "+
+			"stored secret under its SERVICE name, so the run blocks on a human.\n"+
+			"-- rendered Kit --\n%s\n-- session --\n%s", out, lastLines(res.out, 20))
+	}
+
 	got, seen := credValueFrom(res.out)
 	if !seen {
 		t.Fatalf("the probe never printed %q, so nothing was measured — the sandbox may have "+
-			"refused the credentials block or never started. death=%q\n%s",
-			credOpen, res.death, lastLines(res.out, 30))
+			"refused the credentials block or never started. death=%q\n"+
+			"-- rendered Kit --\n%s\n-- session --\n%s",
+			credOpen, res.death, out, lastLines(res.out, 30))
 	}
 	switch got {
 	case dummyAPIKey:
@@ -997,5 +1032,60 @@ func TestCredValueFromFailsWhenTheMarkerIsAbsent(t *testing.T) {
 				t.Errorf("value = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// sbxKnownServices lists the service names sbx already holds a secret for, so a
+// probe can declare only those. Reading the store is safe; writing to it is not
+// — `sbx secret set` is host-wide and outlives the run.
+func sbxKnownServices(t *testing.T) map[string]bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "sbx", "secret", "ls").CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot read the sbx secret store: %v\n%s", err, out)
+	}
+	known := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// SCOPE TYPE NAME SECRET — the name is the third column.
+		if len(f) >= 3 && f[1] == "service" {
+			known[f[2]] = true
+		}
+	}
+	return known
+}
+
+// sbxKnownServices parses `sbx secret ls`, whose shape is a real dependency and
+// not obvious from the call site. Both naming schemes appear in it side by side:
+// sbx's own service names (anthropic) and the ENV-VAR-named entries proveo has
+// always written (ANTHROPIC_API_KEY). A kit's credentials[].service resolves
+// against the former.
+func TestSbxSecretLsParsesServiceNames(t *testing.T) {
+	t.Parallel()
+	const sample = `SCOPE      TYPE      NAME                      SECRET
+(global)   service   ANTHROPIC_API_KEY         (stored)
+(global)   service   anthropic                 (oauth configured)
+(global)   service   github                    (stored)
+(global)   env       SOME_ENV                  (stored)
+`
+	known := map[string]bool{}
+	for _, line := range strings.Split(sample, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[1] == "service" {
+			known[f[2]] = true
+		}
+	}
+	for _, want := range []string{"anthropic", "ANTHROPIC_API_KEY", "github"} {
+		if !known[want] {
+			t.Errorf("did not parse %q out of the store listing", want)
+		}
+	}
+	if known["SOME_ENV"] {
+		t.Error("parsed a non-service row as a service")
+	}
+	if known["NAME"] {
+		t.Error("parsed the header row as a service")
 	}
 }
