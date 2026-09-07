@@ -65,8 +65,10 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 		if err := os.MkdirAll(host, 0o700); err != nil {
 			return Plan{}, fmt.Errorf("proveo home: mkdir %s: %w", host, err)
 		}
-		if err := scrubDeny(host, m.Deny); err != nil {
-			return Plan{}, err
+		if !keepDeniedLogins(getenv) {
+			if err := scrubDeny(host, m.Deny); err != nil {
+				return Plan{}, err
+			}
 		}
 	}
 	return Plan{
@@ -78,6 +80,32 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 		}},
 		Env: []string{"HOME=" + ContainerHome, "PROVEO_HOME=" + ContainerHome},
 	}, nil
+}
+
+// EnvKeepLogins suppresses the deny-scrub, so a login the agent performs INSIDE
+// a run survives into the next one.
+const EnvKeepLogins = "PROVEO_KEEP_AGENT_LOGINS"
+
+// keepDeniedLogins reports whether the operator has opted into persisting them.
+//
+// The default is to scrub, and the reason is worth stating plainly: a denied
+// file is a CREDENTIAL — opencode's auth.json, cursor's — and the proveo home
+// is mounted rw into every later run of that harness. Persisting one means any
+// subsequent agent session can read it, which is a different posture from the
+// broker, where the key stays host-side and the agent only ever sees the
+// `proveo-brokered` sentinel.
+//
+// It exists because the default costs something real: opencode's Go plan needs
+// `/connect` in the TUI, and scrubbing auth.json means re-doing that every
+// single run. Opting in is a decision an operator can make for their own
+// machine; it is not one proveo should make for everyone.
+// SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
+func keepDeniedLogins(getenv func(string) string) bool {
+	switch strings.ToLower(strings.TrimSpace(getenv(EnvKeepLogins))) {
+	case "1", "on", "yes", "true":
+		return true
+	}
+	return false
 }
 
 func scrubDeny(dir string, deny []string) error {

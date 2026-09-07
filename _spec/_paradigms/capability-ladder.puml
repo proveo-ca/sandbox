@@ -1,0 +1,128 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how proveo attributes a failure to a LAYER instead of arguing about it
+' covers: e2e/ladder_test.go
+'
+' ── THE METHOD ─────────────────────────────────────────────────────────────
+' Start with the smallest thing that can run an agent at all — stock sbx, stock
+' image, no proveo — and add exactly ONE capability per rung. Run the same
+' scenario at each. The first rung that fails NAMES ITS OWNER, because it is the
+' only rung that introduced anything.
+'
+' The alternative is what this replaces: a whole stack under test at once, a
+' symptom visible only at the top, and a root cause argued from inference. That
+' argument has been lost repeatedly. Three wrong root causes preceded the ladder
+' for one failure, and the sequence of a debugging session is a poor instrument —
+' the thing you changed last is not the thing that broke.
+'
+' ── THE RUNGS ──────────────────────────────────────────────────────────────
+'   0  bare sbx agent      stock sbx agent, stock image, no proveo whatsoever
+'   1  proveo base image   the harness image (-t) and nothing else
+'   2  browser variant     the same, swapped for the -browser image
+'   3  posture Kit + seed  proveo's allowlist, env and seed (LSPs, toolchain),
+'                          plus the proveo home mounted as a workspace
+'
+' RUNG 0 IS THE ONE THAT MATTERS and the one nobody runs first. It answers a
+' question no amount of reading proveo can: is this proveo's bug at all? A
+' failure there is upstream's, and the record already holds two — sbx does not
+' support CLAUDE_CODE_OAUTH_TOKEN (sbx-releases#11) and its forward proxy
+' rewrites the Authorization header on api.anthropic.com (sbx-releases#210).
+' Neither is fixable here, and both would have been chased in proveo without it.
+'
+' RUNG 3 MOUNTS THE PROVEO HOME DELIBERATELY. The mixin points HOME at it; drop
+' the mount and HOME names a path that does not exist, the agent finds no config
+' and opens a first-run picker that blocks on a keypress no automation sends.
+' A rung that reproduces nothing is worse than no rung.
+'
+' ── A DEF WITH NO BUILT-IN AGENT GETS AN EXTRA RUNG ───────────────────────
+' sbx has built-in agents for claudecode, cursor and opencode; their agent name
+' carries the launch. cecli has none, so it runs under the stock `shell` agent
+' with its own launcher as the COMMAND — proveo appends `-- cecli`.
+'
+' That matters because the def's entrypoint does not execute until the command is
+' added. An image rung without it measures a bare shell inside our image: real,
+' but not the thing that failed. So the command is its own rung, inserted after
+' the base image, and every rung above keeps it:
+'
+'   0  bare sbx shell     stock agent, stock image, NO command
+'   1  proveo base image  the image, still no command
+'   2  agent command      `-- cecli` — the def's entrypoint runs from here
+'   3  browser variant
+'   4  posture Kit + seed
+'
+' Rung 0 deliberately carries no command: `cecli` does not exist in the stock
+' image, so passing it there would fail for a reason that is not under test.
+'
+' The ladder used to SKIP these defs outright — "no sbx agent, docker only" —
+' which left the one harness whose failure is still unexplained as the one the
+' instrument could not reach.
+'
+' ── ONE HARNESS IS ONE DATA POINT ──────────────────────────────────────────
+' PROVEO_LADDER_TARGET selects the def, defaulting to claudecode. It is a knob
+' rather than a constant because the sbx fixes this suite proved for claudecode
+' were carried to cursor by SYMMETRY, not by measurement — and a contract checked
+' against one harness is a contract with one data point.
+'
+' The open case is opencode: it dies IDLE on sbx with no input at all, at roughly
+' startup + 30s, while cursor and claudecode survive the same wait
+' (e2e/idle_test.go, SPEC: _spec/internal/sbx/sandbox-backend.puml). Rung 0
+' against opencode is the unrun experiment that would settle whether proveo is
+' involved.
+title Capability ladder — add one thing per rung, and the first failure names its owner
+
+node "rung 0 — bare sbx" as R0 <<cloud>> {
+  component "stock sbx agent\nstock image · no proveo" as A0 <<app>>
+}
+node "rung 1 — proveo image" as R1 <<host>> {
+  component "harness image (-t)" as A1 <<app>>
+}
+node "rung 2 — browser variant" as R2 <<host>> {
+  component "-browser image" as A2 <<app>>
+}
+node "rung 3 — posture Kit" as R3 <<host>> {
+  component "allowlist · env · seed\n+ proveo home mounted" as A3 <<app>>
+}
+component "the first rung that FAILS\nowns the failure" as OWNER <<error>>
+
+A0 ARROW_MAIN A1 : + the image
+A1 ARROW_MAIN A2 : + the browser layer
+A2 ARROW_MAIN A3 : + proveo's posture
+R0 ARROW_ERROR OWNER : upstream's bug
+R1 ARROW_ERROR OWNER : the image's
+R2 ARROW_ERROR OWNER : the browser layer's
+R3 ARROW_ERROR OWNER : proveo's own
+
+note bottom of R0
+  **Rung 0 is the one nobody runs first.** It
+  answers what reading proveo cannot: is it
+  proveo's bug at all?
+end note
+
+note bottom of R0
+  Two upstream failures are on record here:
+  ""sbx-releases#11"" and #210. Both would have
+  been chased inside proveo without this rung.
+end note
+
+note bottom of R3
+  **The proveo home is mounted on purpose.** The
+  mixin points HOME at it; without the mount the
+  agent finds no config and blocks on a first-run
+  picker no automation answers.
+end note
+
+note bottom of OWNER
+  **One thing per rung, or the method is gone.**
+  Two additions and a failure names two suspects,
+  which is the position the ladder exists to
+  leave.
+end note
+
+note bottom of OWNER
+  ""PROVEO_LADDER_TARGET"" selects the def. The
+  sbx fixes proved for claudecode reached cursor
+  by symmetry, not measurement — one harness is
+  one data point.
+end note
+@enduml

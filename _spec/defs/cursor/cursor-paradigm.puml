@@ -114,7 +114,20 @@ note bottom of VENDOR
   running. The manifest's ""providers: [cursor]"" is the machine-readable half
   of the same fact.
 
-  Cursor's key is a PLAN credential despite the name — the registry marks it
+**Metered and plan are BOTH real here, and the split is Cursor's to make.**
+  One ""CURSOR_API_KEY"" spends the plan's included usage first and
+  usage-based overage after, on Cursor's side, where proveo can see neither.
+  So cursor's models carry no billing verdict and the auth row offers both
+  sides while saying outright that it cannot decide between them.
+
+  Gating the usage option was wrong twice over: cursor CAN be billed metered,
+  and an operator whose ""ANTHROPIC_API_KEY"" does nothing here still needs to
+  be told why. "Usage credits" means two different things —
+  bring-your-own-key, which cursor lacks, and metered spend on the vendor's
+  own gateway, which it has. ""VendorPinnedWhy"" now explains the BYOK half
+  alone.
+
+    Cursor's key is a PLAN credential despite the name — the registry marks it
   ""Harness: cursor"", so no other harness is offered it as a spendable key
   either. SPEC: _spec/internal/credentials/credential-decisions.puml
 

@@ -6,6 +6,7 @@ package e2e
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -75,16 +76,12 @@ func promptMarkers(target string) []string {
 	}
 }
 
-// reachedPrompt reports whether the agent is up and waiting.
+// reachedPromptFor reports whether the agent is up and waiting.
 //
 // It matches the TUI's own frame rather than proveo's entrypoint banner. The
 // banner is not a reliable signal: it is printed before the agent starts, so a
 // session can be fully up without it having been the last thing said — and the
 // stock sbx image never prints it at all, which the ladder's rung 0 needs.
-func reachedPrompt(raw string) bool {
-	return reachedPromptFor(raw, "claudecode")
-}
-
 func reachedPromptFor(raw, target string) bool {
 	out := plain(raw)
 	for _, m := range promptMarkers(target) {
@@ -118,11 +115,61 @@ var deathMarkers = []string{
 // tmux cannot host this. `sbx run -t <image> shell <ws>` exits within seconds in a
 // detached pane with proveo uninvolved (see sbx_test.go), so the session needs a
 // REAL pty; pty.Start gives the child one without a multiplexer in between.
+// detectBackend reads which backend actually ran, from more than one witness.
+//
+// It keyed on proveo's own "backend: docker sandboxes (sbx)" line alone, and a
+// real sweep mislabelled an sbx run as docker+egress — while that same output
+// carried `.../sbx/policy-log.json`, `.../sbx/kit` and "Created sandbox". The
+// label is not cosmetic: the "was the session stopped underneath the agent?"
+// assertion at the end only fires when it says sbx, so a wrong label silently
+// skips the check this test exists for.
+func detectBackend(raw string) string {
+	out := plain(raw)
+	for _, m := range []string{
+		"docker sandboxes (sbx)", // proveo's own backend line
+		"Created sandbox ",       // sbx's
+		"/sbx/kit",               // the kit path in the posture block
+		"/sbx/policy-log.json",   // the egress record
+	} {
+		if strings.Contains(out, m) {
+			return "sbx"
+		}
+	}
+	return "docker+egress"
+}
+
+// idleTargets are the harnesses to hold at a prompt. It defaults to claudecode
+// alone, which is what this test has always done; PROVEO_IDLE_TARGETS takes a
+// comma-separated list so a sweep can ask the same question of every def.
+//
+// Sweeping matters because the failure this test exists for — a session stopped
+// underneath a healthy agent — has only ever been reported on ONE harness at a
+// time, and a per-harness answer is what distinguishes "this agent exits" from
+// "sbx stops sessions".
+func idleTargets() []string {
+	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
+	if raw == "" {
+		return []string{"claudecode"}
+	}
+	var out []string
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 	if os.Getenv("PROVEO_IDLE_TEST") != "1" {
 		t.Skip("set PROVEO_IDLE_TEST=1 to run the idle-survival check (it waits on purpose, ~6 minutes)")
 	}
-	const target = "claudecode"
+	for _, target := range idleTargets() {
+		t.Run(target, func(t *testing.T) { idleAtPrompt(t, target) })
+	}
+}
+
+func idleAtPrompt(t *testing.T, target string) {
 	harnessImage(t, target) // skips unless docker and the image are both here
 	proveoBin := buildProveo(t)
 
@@ -130,7 +177,25 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 	startup := durationEnv(t, "PROVEO_IDLE_STARTUP", 5*time.Minute) // image load can be slow
 	work := t.TempDir()
 
-	args := append(childEnvArgsNoCredential(t), proveoBin, "run", target, "--input", work)
+	// Record every byte the agent is sent, and what the filter decided about it.
+	// Three theories about this failure have been built on inference and two
+	// collapsed; the tap is the one thing that reports what actually arrived. It
+	// is dumped only on failure, so a passing sweep stays quiet.
+	trace := filepath.Join(t.TempDir(), "stdin.trace")
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		b, err := os.ReadFile(trace)
+		if err != nil || len(b) == 0 {
+			t.Logf("stdin trace: nothing recorded (%v) — the agent was sent no input at all", err)
+			return
+		}
+		t.Logf("-- stdin trace (what the agent was sent, and the verdict) --\n%s", b)
+	})
+
+	args := append(childEnvArgsNoCredential(t), "PROVEO_TRACE_STDIN="+trace,
+		proveoBin, "run", target, "--input", work)
 	cmd := exec.Command("env", args...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -182,7 +247,7 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 				t.Skipf("agent never reached a prompt (%q) — idle survival is untestable without a session", f)
 			}
 		}
-		if reachedPrompt(out) {
+		if reachedPromptFor(out, target) {
 			break
 		}
 		select {
@@ -195,10 +260,7 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	backend := "docker+egress"
-	if strings.Contains(plain(seen()), "docker sandboxes (sbx)") {
-		backend = "sbx"
-	}
+	backend := detectBackend(seen())
 	t.Logf("agent reached a prompt on the %s backend — now waiting %s with ZERO input", backend, idle)
 
 	// ── do nothing, on purpose ───────────────────────────────────────────────
@@ -267,4 +329,32 @@ func lastLines(s string, n int) string {
 		out = append([]string{lines[i]}, out...)
 	}
 	return "── last output ──\n" + strings.Join(out, "\n")
+}
+
+// A real sweep mislabelled an sbx run as docker+egress. That matters because
+// the "session stopped underneath the agent" assertion only fires on sbx, so a
+// wrong label silently skips the check this whole test exists for.
+func TestDetectBackendReadsMoreThanProveosOwnLine(t *testing.T) {
+	t.Parallel()
+	// Every one of these appeared in the output of a run that WAS sbx.
+	for _, witness := range []string{
+		"● backend: docker sandboxes (sbx)",
+		"✓ Created sandbox proveo-1788711006-59906",
+		"  kit        /Users/x/.local/state/proveo/egress/proveo-1/sbx/kit",
+		"● egress record: /Users/x/.local/state/proveo/egress/proveo-1/sbx/policy-log.json",
+	} {
+		if got := detectBackend(witness); got != "sbx" {
+			t.Errorf("detectBackend(%q) = %q, want sbx", witness, got)
+		}
+	}
+	// And a genuine docker run must not be misread the other way.
+	for _, witness := range []string{
+		"● backend: docker + egress sidecars",
+		"docker run -d --rm --name proveo-1-squid",
+		"",
+	} {
+		if got := detectBackend(witness); got != "docker+egress" {
+			t.Errorf("detectBackend(%q) = %q, want docker+egress", witness, got)
+		}
+	}
 }

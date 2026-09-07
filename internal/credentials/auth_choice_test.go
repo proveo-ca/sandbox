@@ -75,8 +75,10 @@ func TestOnlyHeldClassesAreAvailable(t *testing.T) {
 	if got := AvailableAuthVars(man, lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); !slices.Equal(got, []string{AuthUsage}) {
 		t.Errorf("with only a provider key, available = %v, want %v", got, []string{AuthUsage})
 	}
-	if got := AvailableAuthVars(man, lookupOf(map[string]string{"OPENCODE_API_KEY": "zen"})); !slices.Equal(got, []string{AuthSubscription}) {
-		t.Errorf("with only the plan key, available = %v, want %v", got, []string{AuthSubscription})
+	// The gateway key alone offers BOTH: opencode-go/<m> spends the Go plan,
+	// opencode/<m> spends the Zen balance, and one OPENCODE_API_KEY buys either.
+	if got := AvailableAuthVars(man, lookupOf(map[string]string{"OPENCODE_API_KEY": "zen"})); !slices.Equal(got, []string{AuthUsage, AuthSubscription}) {
+		t.Errorf("with only the gateway key, available = %v, want both sides", got)
 	}
 	if got := AvailableAuthVars(man, lookupOf(nil)); len(got) != 0 {
 		t.Errorf("with nothing set, available = %v, want none", got)
@@ -104,14 +106,23 @@ func TestSameProviderAlternativesBecomeClasses(t *testing.T) {
 
 // cursor's CLI has no bring-your-own-key path at all, so the manifest's
 // single-vendor providers list filters the operator's keys out.
-func TestVendorPinnedHarnessCannotBeBilledAsUsage(t *testing.T) {
+// "Usage credits" means two different things and cursor separates them. It has
+// no BRING-YOUR-OWN-KEY path — an ANTHROPIC_API_KEY authenticates nothing there
+// — but it does bill metered: Cursor spends the plan's included usage first and
+// usage-based overage after, on one CURSOR_API_KEY. So both sides are offered,
+// and VendorPinnedWhy stays the explanation for the BYOK half only.
+func TestVendorPinnedHarnessStillHasAMeteredSide(t *testing.T) {
 	t.Parallel()
 	man := cursorMan()
 	got := AvailableAuthVars(man, lookupOf(map[string]string{
 		"CURSOR_API_KEY": "cur", "ANTHROPIC_API_KEY": "sk",
 	}))
-	if !slices.Equal(got, []string{AuthSubscription}) {
-		t.Errorf("available = %v, want the plan only", got)
+	if !slices.Equal(got, []string{AuthUsage, AuthSubscription}) {
+		t.Errorf("available = %v, want both sides — the plan, then overage", got)
+	}
+	// The operator's own key is still not a thing cursor can send.
+	if keys := ProviderKeyVars(man, lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); len(keys) != 0 {
+		t.Errorf("cursor was offered BYOK keys it cannot send: %v", keys)
 	}
 	if why := VendorPinnedWhy(man); why == "" || !strings.Contains(why, "cursor") {
 		t.Errorf("VendorPinnedWhy = %q, want a reason naming the vendor", why)
@@ -363,5 +374,69 @@ func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 	// Its own plan credential is still ITS plan, not a provider key.
 	if v := ProviderKeyVars(cursorMan(), held); slices.Contains(v, "CURSOR_API_KEY") {
 		t.Errorf("cursor's own plan key was classed as usage credits: %v", v)
+	}
+}
+
+// A stored or mounted credential OUTRANKS an ambient .env value, and the
+// suppressor is only half of enforcing that: the caller must consult it
+// everywhere a variable can be set, not just where the manifest declares one.
+//
+// run.go had two loops. The first, over the manifest's declared env, honoured
+// the suppressor. The second, over provider.KeyVars(), did not — and its
+// "already added?" guard only skipped names the FIRST loop had ACCEPTED, so a
+// variable the first loop declined fell through and got a sentinel anyway.
+//
+// A sentinel in that slot is not a harmless placeholder. An agent reads a SET
+// variable as a chosen credential whatever it holds, so it displaces the login
+// on disk — which is the misbilling this whole boundary exists to prevent:
+// a subscription run authenticating as the API.
+// SPEC: _spec/_paradigms/credential-boundary.puml
+func TestAMountedLoginOutranksAnAmbientEnvValue(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cred := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"live"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	// Both of anthropic's credentials exported, as an ordinary host has them.
+	lookup := lookupOf(map[string]string{
+		"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "sk", "OPENAI_API_KEY": "oa",
+	})
+	suppress := AuthSuppressor(man, "claudecode", "", home, lookup)
+
+	// The login is the credential, so BOTH anthropic variables must be withheld —
+	// the declared one and the one only provider.KeyVars() knows about.
+	for _, k := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		if !suppress(k) {
+			t.Errorf("%s is not withheld, so it lands beside a mounted login and displaces it", k)
+		}
+	}
+	// And only that provider's: a login for anthropic says nothing about openai.
+	if suppress("OPENAI_API_KEY") {
+		t.Error("an anthropic login removed reach to a different provider")
+	}
+}
+
+// The same precedence with no login on disk: nothing is withheld, because there
+// is no stored credential to outrank anything.
+func TestWithoutAStoredCredentialTheEnvStands(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{
+		Name: "claudecode", Subscription: true,
+		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
+		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
+	}
+	lookup := lookupOf(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok"})
+	suppress := AuthSuppressor(man, "claudecode", "", t.TempDir(), lookup)
+	if suppress("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("withheld the only credential the run has")
 	}
 }

@@ -277,4 +277,46 @@ note bottom of PROMPT
   PROMPT. The agent answers that string, or
   just 'sh', then exits, and the sandbox with it.
 end note
+note as N_SEED_SHIPPED
+  **The Kit NAMES it; the image has to SHIP it.**
+  ""SeedCommand"" registers
+  ""/usr/local/bin/proveo-seed"" for every sbx
+  target, unconditionally.
+end note
+
+note as N_SEED_127
+  opencode and cecli never copied it, so every
+  sbx run failed startup with ""exit=127"" and
+  seeded nothing — no subagents, no settings, no
+  workspace trust.
+end note
+
+note as N_SEED_SILENT
+  It was silent for the whole of its life. Nothing
+  in Go could see it: the Kit registers the step
+  either way, and the e2e check asserts the KIT
+  has it, never that the IMAGE does.
+end note
+
+note as N_SEED_FOUND
+  Surfaced only from a crashed session's
+  ""/var/log/sbx-kit-startup.log"", where the
+  dispatcher failure sits four seconds before the
+  run ended.
+end note
+
+note as N_SEED_GUARD
+  ""TestEverySbxImageShipsTheKitsStartupCommand""
+  is the seam: it walks each sbx image's
+  ""ARG BASE_IMAGE"" chain, so inheritance counts
+  and solidity is right not to restate it.
+end note
+
+note as N_SEED_VARIANT
+  It covers the ""-browser"" variants too. They
+  rebuild the SAME Dockerfile against
+  base-node-browser — and the crashed run was
+  ""proveo/opencode-browser:local"".
+end note
+
 @enduml

@@ -68,19 +68,19 @@ func TestResolve(t *testing.T) {
 			name: "anthropic oauth fallback is bearer", provider: "anthropic",
 			env:    map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth"},
 			wantOK: true,
-			want:   Resolved{Hosts: []string{".anthropic.com"}, Header: "authorization", Value: "Bearer oauth", EnvVar: "CLAUDE_CODE_OAUTH_TOKEN"},
+			want:   Resolved{Hosts: []string{".anthropic.com"}, Header: "authorization", Value: "Bearer oauth", EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Bearer: true},
 		},
 		{
 			name: "openai is bearer", provider: "openai",
 			env:    map[string]string{"OPENAI_API_KEY": "sk-o"},
 			wantOK: true,
-			want:   Resolved{Hosts: []string{".openai.com"}, Header: "authorization", Value: "Bearer sk-o", EnvVar: "OPENAI_API_KEY"},
+			want:   Resolved{Hosts: []string{".openai.com"}, Header: "authorization", Value: "Bearer sk-o", EnvVar: "OPENAI_API_KEY", Bearer: true},
 		},
 		{
 			name: "moonshot is bearer", provider: "moonshot",
 			env:    map[string]string{"MOONSHOT_API_KEY": "sk-m"},
 			wantOK: true,
-			want:   Resolved{Hosts: []string{".moonshot.ai", ".kimi.com"}, Header: "authorization", Value: "Bearer sk-m", EnvVar: "MOONSHOT_API_KEY"},
+			want:   Resolved{Hosts: []string{".moonshot.ai", ".kimi.com"}, Header: "authorization", Value: "Bearer sk-m", EnvVar: "MOONSHOT_API_KEY", Bearer: true},
 		},
 		{
 			name: "google uses header not bearer", provider: "google",
@@ -99,7 +99,7 @@ func TestResolve(t *testing.T) {
 			name: "opencode is bearer on .opencode.ai", provider: "opencode",
 			env:    map[string]string{"OPENCODE_API_KEY": "oc-key"},
 			wantOK: true,
-			want:   Resolved{Hosts: []string{".opencode.ai"}, Header: "authorization", Value: "Bearer oc-key", EnvVar: "OPENCODE_API_KEY"},
+			want:   Resolved{Hosts: []string{".opencode.ai"}, Header: "authorization", Value: "Bearer oc-key", EnvVar: "OPENCODE_API_KEY", Bearer: true},
 		},
 	}
 	for _, tc := range tests {

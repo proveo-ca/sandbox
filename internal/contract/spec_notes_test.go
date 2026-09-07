@@ -16,6 +16,12 @@ import (
 // joins the list once its notes are rewritten. The point is that a compliant file cannot
 // silently regress while the backlog is worked through.
 var specNotesEnforced = []string{
+	"_spec/_devops/release-gate.puml",
+	"_spec/_experiments/sbx-driving-a-session.puml",
+	"_spec/_experiments/nested-sbx-kvm.puml",
+	"_spec/_experiments/sbx-kit-capabilities.puml",
+	"_spec/_devops/sandbox-template-rebase.puml",
+	"_spec/internal/sbx/shell-agent-launch.puml",
 	"_spec/internal/backend/exit-code.puml",
 	"_spec/internal/broker/off-route-stripping.puml",
 	"_spec/internal/contract/what-a-contract-test-is.puml",
@@ -45,6 +51,8 @@ var specNotesEnforced = []string{
 	"_spec/defs/harden-pass.puml",
 	"_spec/defs/base-image-layers.puml",
 	"_spec/defs/harness-image-layers.puml",
+	"_spec/_paradigms/capability-ladder.puml",
+	"_spec/_plans/all-defs-green.puml",
 }
 
 const (

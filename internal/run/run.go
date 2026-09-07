@@ -426,7 +426,21 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 	ui.Section(ui.SectionEgress)
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
-	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man, rs.Creds.Detected, rs.Creds.Lookup, brokerEnabled())
+	// The auth answer has to reach the BROKER, not just the container's env. The
+	// broker injects on-route at the egress hop by design, so withholding a key
+	// from the agent while the proxy still attaches it to that provider's own
+	// requests leaves the answer true of the environment and false of the wire.
+	// Detected stays honest about what the host holds; only what is INJECTED
+	// narrows. SPEC: _spec/internal/credentials/credential-decisions.puml
+	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
+		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
+	usable := credentials.UsableProviders(rs.Man, rs.Creds.Detected, rs.Creds.Lookup)
+	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man,
+		credentials.Without(usable, withheld), rs.Creds.Lookup, brokerEnabled())
+	if len(withheld) > 0 {
+		ui.Hostf("auth %q: %s withheld from the egress broker too, not just the agent's environment",
+			p.AuthVar, strings.Join(withheld, ", "))
+	}
 	if reason := credentials.BrokerOffReason(p.forwards(), rs.Creds.Brokered, rs.Creds.Detected, brokerEnabled()); reason != "" {
 		ui.Warnf("%s", reason)
 	}
@@ -436,6 +450,43 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
+	}
+	// A role pointing at a provider the answer withholds is a contradiction
+	// proveo cannot resolve without overriding something the operator typed:
+	// the auth row says how the run is billed, the role vars say which models.
+	for _, msg := range p.Roles.WithheldKeys(withheld, p.AuthVar) {
+		ui.Warnf("%s", msg)
+	}
+	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
+		ui.Warnf("%s", msg)
+	}
+	// The operator's role vars are a PREFERENCE. A value carried in a shell rc
+	// or a project .env was written for some other run, and honouring one whose
+	// credential is absent or withheld launches a session that cannot make a
+	// single model call — then asks the operator to fix it from inside it.
+	// Anything feasible is left exactly as they wrote it.
+	// Feasibility applies ALWAYS; the billing side only when someone was asked.
+	// A model with no credential behind it is unrunnable whoever is watching, so
+	// a headless run must not launch on one and then warn to a log nobody reads
+	// until the job fails. But with no answer there is no side to judge against,
+	// so AnsweredBilling stays BillUnknown and nothing claims the operator picked
+	// one. SPEC: _spec/internal/credentials/credential-decisions.puml
+	{
+		held := map[string]bool{}
+		for _, name := range usable {
+			held[name] = true
+		}
+		want, _ := provider.AnsweredBilling(p.AuthVar)
+		env := provider.RolesFrom(rs.Creds.Lookup)
+		roles, notes := provider.ResolveRoles(p.RolesRemembered, env,
+			credentials.HarnessFamily(p.Target), want, withheld,
+			func(n string) bool { return held[n] })
+		for _, msg := range notes {
+			ui.Warnf("%s", msg)
+		}
+		for role, model := range roles {
+			p.Roles[role] = model
+		}
 	}
 	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
 		ui.Warnf("%s", r.Reason())
@@ -549,6 +600,16 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 	if !p.forwards() {
 		for _, k := range provider.KeyVars() {
 			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
+				continue
+			}
+			// The loop above already declined this one, and re-adding it here
+			// undid that decision. A mounted login IS the credential, and an
+			// agent reads a SET variable as a chosen credential whatever it
+			// holds — so a sentinel in that slot is not a harmless placeholder,
+			// it displaces the file. The `already` guard below only skips names
+			// the first loop ACCEPTED, so a suppressed one fell straight through
+			// to here. SPEC: _spec/_paradigms/credential-boundary.puml
+			if suppressedAuth(k) {
 				continue
 			}
 			already := false

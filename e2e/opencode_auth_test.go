@@ -65,6 +65,21 @@ var opencodeAuth = []opencodeAuthCase{
 	{name: "go", base: "https://opencode.ai/zen/go/v1", model: "glm-5.3-flash"},
 }
 
+// opencodeSessionHeader is required from 2026-09-06. OpenCode mailed to say
+// requests without it "may error", and named the two user-agents at fault: "Go
+// HTTP client" and "curl" — which are precisely the two probes below, the
+// host-side precondition and the in-container assertion. Neither set it.
+//
+// The value must be ONE stable id per conversation, so each probe case gets its
+// own, stable for the life of the process: the two halves of a case are asking
+// the same question of the same endpoint and should not look like two
+// conversations, while zen and go are genuinely separate.
+const opencodeSessionHeader = "x-opencode-session"
+
+func (c opencodeAuthCase) session() string {
+	return fmt.Sprintf("proveo-e2e-%s-%d", c.name, os.Getpid())
+}
+
 func (c opencodeAuthCase) body() string {
 	return fmt.Sprintf(`{"model":"%s","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`, c.model)
 }
@@ -120,6 +135,7 @@ func opencodeProbeLine(c opencodeAuthCase, creds string) string {
 	// pane; --max-time keeps a blocked request from hanging the shell.
 	b.WriteString(`curl -sS --max-time 60 -o /dev/null -w 'PROBE=%{http_code}\n' -X POST`)
 	b.WriteString(` -H 'content-type: application/json'`)
+	fmt.Fprintf(&b, ` -H '%s: %s'`, opencodeSessionHeader, c.session())
 	if creds == "forward" {
 		// Double-quoted so the shell expands it: the secret is read from the
 		// container's own env and never travels on this test's argv.
@@ -153,6 +169,7 @@ func opencodeCompletionStatus(c opencodeAuthCase, token string) int {
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("authorization", "Bearer "+token)
+	req.Header.Set(opencodeSessionHeader, c.session())
 	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
 	if err != nil {
 		return 0

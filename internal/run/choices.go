@@ -154,9 +154,17 @@ func authAnswer(chosen string, available []string) string {
 func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
 	backing := credentials.AuthBacking(man, lookup, target, homeRoot, envFile)
 	unavailable := credentials.AuthWhyUnavailable(man, target, homeRoot)
-	// What each option is. True whether or not it is on offer.
+	// What each option is. True whether or not it is on offer — and for usage
+	// that depends on the harness: most spend the operator's OWN keys, but a
+	// vendor-pinned CLI has no bring-your-own-key path at all and meters against
+	// the vendor's own account instead.
+	usageIs := "metered per token at each provider, on your own keys"
+	if credentials.VendorPinnedWhy(man) != "" {
+		usageIs = "metered by the vendor beyond the plan's included usage — there is no " +
+			"bring-your-own-key path, so a provider key of yours authenticates nothing here"
+	}
 	what := map[string]string{
-		credentials.AuthUsage:        "metered per token at each provider, on your own keys",
+		credentials.AuthUsage:        usageIs,
 		credentials.AuthSubscription: "billed against the plan " + man.Name + "'s vendor issues",
 		credentials.AuthLocal: "weights on this machine — nothing billed, and no credential " +
 			"for the agent or the egress hop to carry",
@@ -176,6 +184,16 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 			continue
 		}
 		help[opt] = text + " · " + unavailable[opt]
+	}
+	// Where one credential buys both sides, saying "choosing this withholds the
+	// other" would be a promise proveo cannot keep — the vendor decides, or the
+	// model id does. Replace that clause with the caveat.
+	if caveat := credentials.BillingCaveat(man, lookup); caveat != "" {
+		for _, opt := range []string{credentials.AuthUsage, credentials.AuthSubscription} {
+			if b := backing[opt]; b != "" {
+				help[opt] = what[opt] + " · " + b + " · " + caveat
+			}
+		}
 	}
 	return help
 }

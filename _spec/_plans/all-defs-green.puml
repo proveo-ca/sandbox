@@ -1,0 +1,176 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what "all defs working" has to mean before release, and the ordered work to get there
+' covers: e2e/ladder_test.go, e2e/idle_test.go, defs/*/harness.manifest
+'
+' ── THE BAR ────────────────────────────────────────────────────────────────
+' "Working" is not "it launched once for me". A def is GREEN when EVERY LADDER
+' RUNG HOLDS on the sbx backend:
+'
+'   e2e/ladder_test.go, PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=<def>
+'
+' That is the release gate for all four defs, stated by the owner. The ladder is
+' the right instrument for it because a rung failure NAMES ITS LAYER, so "not
+' green" comes with an address rather than a symptom.
+'
+' e2e/idle_test.go stays complementary and is not the gate. It asks a different
+' question — does the assembled run survive being left alone — and neither test
+' implies the other: opencode passed every rung while its idle behaviour was
+' unverified, and cursor passed idle long before its ladder was climbed. Worth
+' running; not what blocks a release.
+'
+' Docker+egress results do NOT satisfy this bar. Every reported failure has been
+' on sbx, and the fallback path passed while sbx died — a sweep on docker
+' answered a question nobody asked.
+'
+' ── WHERE EACH DEF STANDS ──────────────────────────────────────────────────
+'   claudecode   LADDER GREEN — all four rungs, base and browser images.
+'   cursor       LADDER GREEN — all four rungs, base and browser images.
+'   opencode     LADDER GREEN — all four rungs, after the `opencode opencode`
+'                fix. Three of four defs now meet the gate.
+'   cecli        ladder rung 2 FAILS. The one remaining blocker, and the
+'                measurement is STALE: the image it ran against was built at
+'                03:18 and the entrypoint fix landed at 10:02, so that climb
+'                judged code that is no longer in the tree. Rebuild before
+'                reading anything into it.
+'
+' ── THE BLOCKER ────────────────────────────────────────────────────────────
+' cecli rung 2 — adding `-- cecli` as the sbx COMMAND — dies in ~3s with
+' `/opt/cecli/bin/cecli: line 2: import: command not found`: bash falling back to
+' INTERPRETING a Python entry point, which is what it does when execve returns
+' ENOEXEC. Rung 1 held, so the image is exonerated; only the launch is broken.
+'
+' Ruled out already: proveo-harden (strips setuid/setgid only, never the exec
+' bit), python3 being removed after the venv (nothing purges it, single stage),
+' and our entrypoint failing to run (it runs — ENTRYPOINT is dumb-init --
+' cecli-entrypoint, and the bash fallback is what prints those lines).
+'
+' AND FOUR MORE CAUSES ARE NOW ELIMINATED, by the probe rather than by argument:
+'
+'   id        uid=1000(cecli) — the running user, not a stranger to the file
+'   file      -rwxr-xr-x, resolvable on PATH at /opt/cecli/bin/cecli
+'   shebang   #!/opt/cecli/bin/python3
+'   interp    a symlink resolving to /usr/bin/python3.13
+'   runs      Python 3.13.5
+'
+' So the interpreter exists, is executable by the running uid, and works. A
+' dangling symlink, a non-executable interpreter, a wrong shebang path and a uid
+' that cannot traverse the directory are all ruled out by measurement.
+'
+' AND THEN THE LAST TWO WENT TOO. A rebuilt image, climbed again:
+'
+'   execve:  OK — the kernel runs it, so the shebang is honoured here
+'   first4:   # ! / o
+'
+' The kernel runs the file. There is no BOM. NOTHING IS WRONG WITH IT, and the
+' session interpreted it anyway.
+'
+' Only one shape survives that, and it reproduces exactly outside the sandbox:
+'
+'   exec'd            Traceback (most recent call last):     <- python ran it
+'   sh <file>         /tmp/fake: 2: import: not found
+'                     /tmp/fake: 3: from: not found
+'
+' Same lines, same tokens, same words as cecli's failure. Handing a file to a
+' shell IGNORES its shebang; only exec honours it. So the launcher is running
+' the resolved path AS A SHELL SCRIPT.
+'
+' It is not our entrypoint. Both the old allowlist and the new guard reach
+' `exec cecli`, and execve of that path demonstrably works — so the entrypoint
+' is not what runs it. Rung 0 (shell agent, NO command) holds, and rung 2 (shell
+' agent PLUS command) dies, which puts it in sbx's handling of the command for a
+' def with no built-in agent. The probe now runs both invocations side by side
+' inside the sandbox, so the next climb proves that in situ rather than by
+' analogy.
+'
+' Still unknown, and NOT to be guessed at — three theories died that way on the
+' opencode hunt before the ladder settled it in 103 seconds. Should the probe
+' ever be unavailable, this answers the same question by hand on a host with
+' sbx:
+'
+'   sbx run -t proveo/cecli:local shell /tmp -- sh -c \
+'     'ls -l /opt/cecli/bin/python3; readlink -f /opt/cecli/bin/python3; \
+'      /opt/cecli/bin/python3 -V; head -1 /opt/cecli/bin/cecli; id'
+'
+' It separates a dangling venv symlink, a non-executable interpreter, a wrong
+' shebang, and a uid that cannot traverse /opt/cecli/bin. If it is the symlink,
+' `python3 -m venv --copies` is the fix and a rung should keep watch on it.
+'
+' THE LADDER NOW ASKS THIS ITSELF. probeLaunch runs that enquiry inside the dead
+' rung's sandbox before teardown, because the sandbox outlives the session and a
+' manual command run later finds it gone. Best-effort by construction: a probe
+' that cannot run reports nothing rather than turning one failure into two.
+'
+' ── WHAT IS NOT COVERED BY EITHER SUITE ────────────────────────────────────
+' Eight images are declared across four defs, and the suites reach five of them.
+'
+'   claudecode-solidity   no suite touches it. It builds FROM the claudecode
+'                         image, so it inherits that layer's verdict, but the
+'                         solidity toolchain on top is unmeasured.
+'   cecli-browser         does not exist. The ladder SKIPPED rung 3 for cecli
+'                         because the image is not built. Decide whether that is
+'                         deliberate — cecli may simply not want one — and record
+'                         the answer either way, because a skip that means
+'                         "absent by design" and a skip that means "we forgot"
+'                         are indistinguishable in the output.
+'
+' ── AND A RED THAT IS NOBODY'S FEATURE ─────────────────────────────────────
+' internal/ptyproxy's two PTY tests fail roughly one run in three, at the same
+' rate on a clean tree as on any branch. They spawn real ptys and do not survive
+' -count=2 at all. Left alone they will redden the release CI at random and train
+' everyone to re-run, which is how a real failure gets waved through.
+title Plan — every def green before release
+
+card "THE BAR (sbx, per def)" as BAR <<host>> {
+  component "ladder: every rung holds" as L <<app>>
+  component "idle: 5m at a prompt, zero input" as I <<app>>
+}
+card "claudecode" as CC <<app>>
+card "cursor" as CU <<app>>
+card "opencode" as OC <<app>>
+card "cecli" as CE <<error>>
+component "cecli rung 2 — ENOEXEC on the venv entry point" as BLOCK <<error>>
+component "unmeasured: claudecode-solidity · cecli-browser" as GAP <<error>>
+component "flaky: internal/ptyproxy PTY tests" as FLAKE <<error>>
+
+BAR ARROW_MAIN CC
+BAR ARROW_MAIN CU
+BAR ARROW_MAIN OC
+BAR ARROW_MAIN CE
+CE ARROW_ERROR BLOCK
+BAR ARROW_ERROR GAP
+BAR ARROW_ERROR FLAKE
+
+note bottom of BAR
+  **The gate is the ladder.** A rung failure names
+  its LAYER, so "not green" arrives with an
+  address. Idle is complementary and asks a
+  different question; it does not block.
+end note
+
+note bottom of BAR
+  Docker+egress results do not satisfy it. Every
+  reported failure has been on sbx, and the
+  fallback passed while sbx died.
+end note
+
+note bottom of BLOCK
+  Rung 1 held, so the IMAGE is fine and only the
+  launch is broken. One command separates the
+  remaining causes; do not add a fifth theory
+  before running it.
+end note
+
+note bottom of GAP
+  A skip that means "absent by design" and one
+  that means "we forgot" look identical in the
+  output. Record which cecli-browser is.
+end note
+
+note bottom of FLAKE
+  ~1 run in 3, same on a clean tree. Left alone it
+  trains everyone to re-run a red CI, which is how
+  a real failure gets waved through.
+end note
+@enduml

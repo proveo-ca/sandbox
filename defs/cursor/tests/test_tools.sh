@@ -20,9 +20,19 @@ assert_output_matches \
 assert_success "git is installed" "$IMAGE" "git --version"
 assert_success "gh is installed" "$IMAGE" "gh --version"
 assert_failure "bun stays out of the runtime-free cursor image (it lives in proveo/base-node)" "$IMAGE" "command -v bun"
-# SPEC: _spec/_plans/image-size-reduction.puml
-assert_failure "no docker binaries in the image (sbx owns the daemon and the client)" "$IMAGE" "command -v docker"
-assert_failure "no dockerd in the image (210 MB of tarball that overlapped sbx)" "$IMAGE" "command -v dockerd"
+# Re-inverted with the rebase onto docker/sandbox-templates. These asserted
+# ABSENCE while the image was expected to get docker from sbx at runtime; that
+# assumption was measured false (no client, no daemon, no socket in a live
+# sandbox). The -docker template carries both, so presence is the contract again
+# — and `docker: sbx` in the manifest is a promise the image can keep.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/_plans/image-size-reduction.puml
+assert_success "docker client comes from the sandbox template" "$IMAGE" "command -v docker"
+assert_success "docker Engine comes from the -docker template variant" "$IMAGE" "command -v dockerd"
+# The template ships a setuid sudo; the harden pass must still take it. Measured:
+# dockerd runs as root from the VM's init and the socket is reached through the
+# docker group, so nothing in the daemon path needs it.
+assert_failure "harden pass leaves no setuid binary, sudo included" "$IMAGE" \
+  "find / -xdev -perm -4000 -type f 2>/dev/null | grep -q ."
 assert_success "shared verification lib is baked" "$IMAGE" \
   'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'
 

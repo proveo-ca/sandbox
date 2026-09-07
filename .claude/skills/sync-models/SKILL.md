@@ -74,3 +74,55 @@ go test ./internal/provider/
 
 `TestRolesSpanningVendors` is the case that matters: roles pointed at two
 different vendors must attribute to both.
+
+## Re-rank the plan fallbacks
+
+`internal/provider` keeps a `planFallback` list per harness and billing side:
+tier 3 of model resolution, used when neither the operator's remembered answer
+nor their `.env` can authenticate. Unlike the catalog above, this list **is**
+rewritten on a sync — it is a recommendation, and recommendations go stale.
+
+```
+python3 scripts/rank-plan-fallbacks.py opencode --top 3
+```
+
+**Never rank `opencode-go`.** The script refuses it, and the reason is the one
+thing this list gets wrong most easily: holding `OPENCODE_API_KEY` does not say
+which plan it entitles — Zen and Go share the variable, so a fallback named
+from the Go catalog asserts a subscription proveo cannot see.
+
+Worse, holding Go is not sufficient either. An operator who *did* have Go had
+that id rejected as "configured model is not valid", after which opencode fell
+through to Whisper Large V3 Turbo: a 2024 speech-to-text model, driving a
+coding agent. That cause is still unknown — the id resolves correctly
+headlessly — which is exactly why the fallback should not depend on it.
+
+A fallback is the model that **runs**, not the best one. Only zero-cost ids
+qualify, because those are what the gateway serves to any key.
+
+It fetches models.dev, keeps only zero-cost ids, drops the rest and anything
+whose name advertises it as provisional (`alpha`, `beta`, `preview`, `exp`),
+sorts what remains by `release_date`, and prints pasteable Go lines.
+
+**Read the excluded block before the ranked one.** That filter is a guess about
+naming, not a contract:
+
+- a model called neither alpha nor preview can still be unfit for an agent;
+- a good model tagged `-exp` gets dropped;
+- a priced model is excluded because proveo cannot see whether this key can pay
+  for it, not because it is worse.
+
+Sorting by recency alone is what makes the filter necessary at all: the newest
+OpenCode Go model at the time of writing was `omen-alpha`. models.dev carries
+`release_date`, `cost`, `limit.context` and capabilities — but no
+`recommended` field, and every Go model reports `tool_call: true`, so nothing
+in the data distinguishes production-ready from a preview. The judgement is
+yours; the script only removes the recall.
+
+Keep any id a human deliberately named, even when the ranking puts it lower —
+the list is ordered judgement, and `PlanFallback` walks it until one resolves,
+so a lower entry costs nothing until the ones above it are retired.
+
+After editing, `go test ./internal/provider/` — `TestPlanFallbacksAreRealModels`
+checks every id still resolves through the registry *and* still lands on the
+billing side it is filed under.

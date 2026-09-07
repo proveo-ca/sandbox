@@ -29,7 +29,15 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-RUN usermod -d /home/agent -m "${USER_NAME}" \
+# An inherited WORKDIR under /home/agent can be recreated by the builder between
+# RUN steps, and usermod refuses to move a home onto a path that exists. rmdir
+# clears ONLY an empty stub — real content still fails loudly rather than being
+# silently discarded. SPEC: _spec/_devops/sandbox-template-rebase.puml
+RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then \
+      rmdir /home/agent/workspace 2>/dev/null || true; \
+      rmdir /home/agent 2>/dev/null || true; \
+      usermod -d /home/agent -m "${USER_NAME}"; \
+    fi \
  && if ! getent group agent >/dev/null; then groupadd -o -g "${USER_ID}" agent; fi \
  && if ! getent passwd agent >/dev/null; then \
       useradd -o -u "${USER_ID}" -g "${USER_ID}" -M -d /home/agent -s /bin/bash agent; \
@@ -38,7 +46,6 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    iptables \
     unzip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

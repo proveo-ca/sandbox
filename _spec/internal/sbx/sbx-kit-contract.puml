@@ -72,6 +72,10 @@ skinparam noteTextAlignment left
 ' succeeds.
 
 ' ── AGENT IDENTITY: proveo names none ───────────────────────────────────────
+' CORRECTED 2026-09-06 — read the amendment below before trusting this section.
+' What follows is true of `kind: mixin`, which is what proveo writes, and FALSE
+' as a statement about Kits in general. See _spec/_experiments/sbx-kit-capabilities.puml.
+'
 ' `sbx run --help` prints a CLOSED list — claude, codex, copilot, cursor,
 ' docker-agent, droid, gemini, kiro, opencode, shell. A Kit cannot add to it,
 ' naming one after a built-in is refused ("built-in agents cannot be overridden
@@ -85,6 +89,24 @@ skinparam noteTextAlignment left
 '   proveo mixin   : reachability, host-resolved env, the seed step
 ' Credentials in particular must NOT be declared twice — a mixin repeating a
 ' service the agent already declares is rejected outright ("defined in both").
+'
+' ── AMENDMENT: `kind: sandbox` DOES REGISTER A NEW AGENT ───────────────────
+' The paragraph above generalised a mixin's limit into a property of Kits, and
+' that is wrong. SPEC-v2: "A sandbox kit is a COMPLETE AGENT. It MUST declare a
+' `sandbox:` block and MAY declare every shared block." Its `name` is exactly
+' what `sbx run <name> --kit <path>` selects.
+'
+' The refusal we met — "built-in agents cannot be overridden by a kit" — is
+' about SHADOWING an existing name. Adding a new one is a different operation
+' and is the documented path: the contrib `pi` kit is an agent sbx never
+' shipped, with its own image and entrypoint, and copilot MOVED from built-in
+' to kit, the approach now described as replacing built-ins for non-built-in
+' agents.
+'
+' This matters most for cecli, the one harness with no built-in agent, which
+' currently borrows `shell` and inherits its argument semantics — the cause of
+' the `bash cecli` defect in _spec/internal/sbx/shell-agent-launch.puml. Not
+' adopted: unmeasured, and tracked as E1 in the experiments spec.
 '
 ' ── CREDENTIALS: THREE SOURCES, AND ONLY TWO ARE PROVEO'S ───────────────────
 '   the Kit          declares names and headers; proveo decides what to inject

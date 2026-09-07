@@ -1,0 +1,580 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: sbx capabilities proveo re-implements, and the one belief now falsified
+' covers: internal/sbx/kit.go
+' covers: internal/sbx/agents.go
+' The contract this corrects: _spec/internal/sbx/sbx-kit-contract.puml
+' The rebase that started it: _spec/_devops/sandbox-template-rebase.puml
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   SPEC-v2   : https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md
+'   kits      : https://docs.docker.com/ai/sandboxes/customize/kits/
+'   examples  : https://docs.docker.com/ai/sandboxes/customize/kit-examples/
+'   pi kit    : https://github.com/docker/sbx-kits-contrib/tree/main/pi
+'   contrib   : https://github.com/docker/sbx-kits-contrib
+'   sbx ssh   : https://www.ajeetraina.com/ssh-straight-into-your-agent-sandboxes-a-hands-on-look-at-sbx-ssh/
+'
+' ── FALSIFIED: "THE AGENT LIST IS CLOSED" ───────────────────────────────────
+' sbx-kit-contract.puml states, under AGENT IDENTITY: "`sbx run --help` prints a
+' CLOSED list ... A Kit cannot add to it ... An invented agent therefore never
+' resolves agents/<name>/spec.yml, its binding gate is skipped, and the
+' interactive session drops within seconds." That is true of `kind: mixin`, and
+' it is the reason proveo contributes a mixin beside a built-in agent.
+'
+' It is NOT true of `kind: sandbox`. SPEC-v2: "A sandbox kit is a COMPLETE AGENT.
+' It MUST declare a `sandbox:` block and MAY declare every shared block." Its
+' `name` is the identifier `sbx run <name> --kit <path>` selects. The refusal we
+' met — "built-in agents cannot be overridden by a kit" — is about SHADOWING an
+' existing name, which is a different operation from adding a new one.
+'
+' Two witnesses that this is the intended path, not a loophole:
+'   pi       a community kit for an agent sbx never shipped, with its own image
+'            (docker.io/sbx/pi-image), its own entrypoint, and credentials the
+'            sandbox proxy injects per request.
+'   copilot  WAS a built-in; the kit approach now "replaces that functionality
+'            for non-built-in agents".
+'
+' ── WHAT A SANDBOX KIT CAN DECLARE THAT proveo BUILDS BY HAND ───────────────
+'   sandbox.image        the image the sandbox boots from
+'   sandbox.entrypoint   fixed process prefix; [0] is the binary
+'   sandbox.command      {default, interactive} — the mode-specific tail
+'   credentials[].apiKey  inject[].domain + header, host-side proxy, per request
+'                         (domain MUST also appear in permissions.network.allow)
+'   volumes[]            block or tmpfs, path + size
+'   ports[]              inbound exposure
+'   agentInstructions    filename + content — the AI profile file
+'   setup.files[]        path + content + mode, written at startup
+'
+' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
+' E1  cecli as a first-class agent (`kind: sandbox`)   -- ADOPTED, DEFAULT ON
+'     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
+'     semantics, and the whole class of defect that made `-- cecli` run
+'     `bash cecli`. cecli declares its own entrypoint the way pi does.
+'
+'     DEFAULT ON since 2026-09-07; PROVEO_SBX_AGENT_KIT=0 is the opt-OUT. A def
+'     with no built-in agent renders `kind: sandbox`, names the agent
+'     proveo-<target>, and passes extras as bare words — no bash in between to
+'     reinterpret them. The borrowed path stays reachable because it has the
+'     running hours, and because a launch that cannot start deserves an escape
+'     hatch.
+'
+'     WHAT WAS MEASURED BEFORE FLIPPING, in order:
+'       kit registers an agent   `kit shape measured: kind: sandbox,
+'                                 name: proveo-cecli`; ladder 4/4 gate-on
+'       a real run works         `cecli@proveo-1788742241-52218:sandbox$`
+'       credential proxy-managed `"proxy-managed" with the block, "<unset>"
+'                                 without` — a CONTROL pass, run again after
+'                                 the credential path changed, so the green
+'                                 does not predate the code it tests
+'
+'     THE COST, and it belongs in a release note rather than in a surprise: sbx
+'     asks for consent the first time a service is injected. Once per service,
+'     recorded in ~/.config/sbx/credentials.yaml, and it asks even for a
+'     credential it already holds — the screen reads "(stored)" and still
+'     prompts. An unattended agent stops there. proveo declares only services
+'     sbx already has a secret for, which narrows it, but the first gated run on
+'     a fresh credentials.yaml is interactive.
+'
+'     The Kit names the IMAGE and stops there. The def already declares
+'     ENTRYPOINT ["dumb-init","--","<target>-entrypoint"] and CMD ["<target>"],
+'     and that pair is what the docker backend runs and what works there.
+'     Restating it in the Kit would be a second copy free to drift from the
+'     first. If sbx turns out to need the prefix declared, it goes in then.
+'
+'     Only the IDENTITY changes: permissions, environment and setup are carried
+'     across byte-for-byte, asserted as a diff against the mixin built from the
+'     same Input rather than against fixed values — the first version of that
+'     test asserted a non-empty allowlist and was measuring its own fixture.
+'
+'     HOW TO MEASURE IT. The gate rearranges the ladder instead of adding to it:
+'     with an agent of its own there is no borrowed command, so the 5-rung
+'     shell-agent ladder collapses back to 4 and the launch arrives with the Kit
+'     at rung 3. Only a rung CARRYING the Kit may name our agent, because the
+'     Kit is what declares the name.
+'
+'         PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=cecli \
+'         PROVEO_SBX_AGENT_KIT=1 go test -tags e2e ./e2e/ -run Ladder -v
+'
+'     Green on rung 3 means the borrowed shell can go and sbx.ShellLaunch with
+'     it. Red means the docs promise something sbx does not do for a kit built
+'     this way, and the gate stays off — which is the whole reason it is a gate.
+'
+'     CANNOT BE CLIMBED FROM INSIDE A SANDBOX, measured 2026-09-06. Two
+'     independent blocks, and neither is a policy against recursion:
+'       the sbx CLI is not installed in any proveo image — nothing in defs/
+'         fetches it, and it is a HOST tool that creates microVMs
+'       /dev/kvm does not exist in the sandbox and no kvm module is loaded
+'     Docker's install requirements: "If you're running inside a virtual machine
+'     or virtual desktop infrastructure environment, the environment must support
+'     NESTED VIRTUALIZATION." sbx nests where the platform exposes KVM; this
+'     sandbox does not expose it, so the ladder is a host-side measurement.
+'     Everything below the sbx boundary IS verified here: `mise run build all`
+'     (14 images) and `mise run test-images` (351 passed, 0 failed) both green.
+'
+' E2  sbx-native credential injection (credentials[].apiKey)  -- RESCOPED
+'
+'     THE ENTRY BELOW WAS WRONG IN BOTH DIRECTIONS, and the correction makes it
+'     a smaller and better experiment. It read: "Overlaps internal/broker and
+'     internal/egressproxy on the sbx backend ... Retires the most proveo-specific
+'     code of any item here. Risk: high — the DLP scanner and off-route stripping
+'     have no declared equivalent."
+'
+'     Measured in the tree: internal/backend/sandbox imports NEITHER broker NOR
+'     egresspolicy NOR egressproxy. The broker runs on the docker+egress backend
+'     only. So on sbx nothing is retired — and nothing is lost either, because
+'     the DLP scan does not run there to begin with.
+'
+'     What IS true is smaller and worth fixing. sandbox.Spec's addSecret reads
+'     `v := in.Lookup(name)` — the REAL key — and hands it to `sbx secret set`,
+'     so on the sbx backend THE AGENT PROCESS HOLDS THE REAL CREDENTIAL. proveo's
+'     own sentinel (entrypoint.DefaultSentinel, "proveo-brokered") is applied in
+'     internal/run for the brokered path, not here.
+'
+'     sbx offers exactly the missing half: `credentials[].apiKey.proxyManaged:
+'     true` sets the named env var to a SENTINEL and injects the real value
+'     host-side, per request, only into `inject[].domain` with `header`/`format`
+'     — and that domain MUST also appear in permissions.network.allow.
+'
+'     THE OFF-ROUTE STRIP IS SUBSUMED, not lost. broker.Apply deletes
+'     authorization/x-api-key/x-goog-api-key/api-key/proxy-authorization from any
+'     request whose host is off-route. On sbx the baseline is deny-all or
+'     balanced (_spec/internal/sbx/policy-baseline.puml), so an unallowlisted
+'     host is BLOCKED outright rather than merely stripped — a strictly stronger
+'     outcome for the same threat.
+'
+'     So E2 is a strict gain for the sbx path, at the cost of one unknown.
+'
+'     MEASURED 2026-09-06, AND IT DECIDES THE SHAPE. A probe mixin declaring
+'     credentials for service "anthropic" was refused by sbx before the sandbox
+'     was created:
+'
+'       400 Bad Request: kit_artifacts: compose: credential for service
+'       "anthropic" defined in both "shell" and "credprobe"
+'
+'     The built-in agent ALREADY DECLARES that credential. sbx-kit-contract.puml
+'     recorded this rule from the vendor docs — "a mixin repeating a service the
+'     agent already declares is rejected outright" — and the probe is the first
+'     time it has been met head-on rather than read.
+'
+'     So E2 IS NOT AVAILABLE TO A MIXIN, which is what proveo contributes for
+'     every def backed by a built-in agent (claudecode -> claude, cursor,
+'     opencode). Those three cannot declare credentials[] at all, at any risk
+'     level, because the parent already did.
+'
+'     E2 IS ONLY REACHABLE ON THE E1 PATH. A `kind: sandbox` kit is a complete
+'     agent with no parent to collide with, so it MAY declare every shared block
+'     — credentials included. cecli is the one def in that position, and only
+'     because E1 put it there. The two experiments are one feature.
+'
+'     For the other three the equivalent would mean abandoning the vendor's
+'     built-in agent for a proveo- prefixed one (a built-in name cannot be
+'     shadowed), trading the agent wiring sbx maintains for a credential
+'     property sbx may already provide. Not obviously worth it, and not
+'     measured — see the open question below.
+'
+'     ANSWERED, and it inverts the experiment. On the stock shell agent:
+'         sbx run shell . -- -c 'echo "VALUE: ${ANTHROPIC_API_KEY:-<unset>}"'
+'         VALUE: proxy-managed
+'
+'     sbx ALREADY DOES E2 for every def backed by a built-in agent. The agent's
+'     env holds the sentinel, not the key; the host-side proxy injects. There is
+'     nothing to build for claudecode, cursor or opencode — which is fortunate,
+'     because the "defined in both" refusal above means we could not have built
+'     it for them anyway. The two facts are the same fact seen from either side:
+'     the credential is the AGENT's to declare, and the built-ins declare it.
+'
+'     (Note the probe command: the first version used a BARE first word after
+'     `--` and sbx ran `bash '<the whole string>'`, which failed with "No such
+'     file or directory" — the identical defect as `-- cecli`, in a command
+'     written to test something else. shell-agent-launch.puml draws this exact
+'     case. `-c` leads with a flag and is appended instead.)
+'
+'     ── AND IT EXPOSES A REGRESSION INSIDE E1 ──────────────────────────────
+'     Follow the two measurements together:
+'       gate OFF  cecli borrows `shell`, `shell` declares the credential,
+'                 so cecli's env holds a SENTINEL
+'       gate ON   cecli runs agent proveo-cecli from OUR sandbox kit, and
+'                 sbx.Kit has no Credentials field at all — nothing declares
+'                 the credential, so nothing proxy-manages it
+'
+'     E1 therefore risks moving cecli from a sentinel to NO CREDENTIAL AT ALL:
+'     a downgrade hidden inside a launch fix. It is exactly the class of defect
+'     the gate exists to catch, and it is why the gate must not be defaulted on
+'     until sbx.Kit can declare credentials[] and the cecli kit does.
+'
+'     CORRECTED after the control run measured it. This paragraph first read
+'     "from sentinel to REAL KEY in the agent process", and repeated that
+'     wording into three source comments. The control — the same Kit with the
+'     credentials block removed — put the variable at `<unset>`, not at the key.
+'     The overstatement made the defect sound like a LEAK; it is a failure to
+'     authenticate. Both are worth fixing and only one is a security regression,
+'     so the distinction is not pedantry.
+'
+'     So E2's remaining work is not an enhancement for three defs. It is a
+'     PREREQUISITE for one: the def that declares its own agent must also
+'     declare its own credentials, under the SERVICE name the bindings use, or
+'     it silently loses the property every other def gets for free.
+'
+'     ── BUILT ──────────────────────────────────────────────────────────────
+'     sbx.Kit now carries Credentials, and the sandbox-kit branch of
+'     sandbox.Spec fills it from proveo's OWN provider registry — the same
+'     source the broker uses, so the two cannot drift. Both answer one question:
+'     which key attaches to which host under which header.
+'
+'     WHAT IS SKIPPED, AND WHY. A provider is left out when it is not
+'     broker-injectable at all (signed requests: bedrock, azure, vertex —
+'     nothing to attach), when no key is present, or when it authenticates by
+'     QUERY PARAMETER. sbx injects into a header and has no query form, so
+'     declaring such a service would sentinel the variable and then attach the
+'     value nowhere — strictly worse than leaving it alone.
+'
+'     THE SECRET IS STORED TWICE, on purpose. sbx resolves credentials[].service
+'     against a secret under the SERVICE name; proveo has always stored under
+'     the ENV VAR name, and `sbx secret ls` showed both shapes coexisting. The
+'     env-var entry stays because the gate-off path still relies on it.
+'
+'     provider.Resolved gained a Bearer field. The Kit declares injection as a
+'     FORMAT STRING ("Bearer %s" vs "%s") and never sees the value, so the
+'     scheme has to survive on its own rather than be sniffed back out of a
+'     prefixed Value.
+'
+'     ── WHAT STILL BLOCKS DEFAULTING THE GATE ON ───────────────────────────
+'     One measurement, and it is cheap. Everything above is verified in Go —
+'     ten tests, five negative checks that all fire — but nothing has been run
+'     against a real sbx, and credentials are the subsystem where a wrong answer
+'     is not a degraded run but NO run.
+'
+'     Two specific unknowns the render exposes:
+'       DOMAIN FORM. proveo's registry stores hosts as suffix patterns
+'         (".anthropic.com"), and that is what the Kit now emits. sbx's own
+'         bindings file uses both ".anthropic.com" and "api.anthropic.com", but
+'         the kit EXAMPLE in the docs uses the bare host. If sbx rejects the
+'         dotted form in inject[].domain it fails at create time with a 400.
+'       SERVICE SECRET. Whether `sbx secret set anthropic <api key>` is accepted
+'         for a service whose stored credential is currently an OAuth login.
+'
+'     Both fall out of one command:
+'         PROVEO_SBX_AGENT_KIT=1 PROVEO_LADDER_TEST=1 \
+'         PROVEO_LADDER_TARGET=cecli go test -tags e2e ./e2e/ -run Ladder -v
+'     Rung 3 carries the Kit. Green means the declaration parses, the domains
+'     are accepted and the agent still reaches a prompt; a 400 names which of
+'     the two guesses was wrong.
+'
+'     ── RUN 2026-09-07: E1 CONFIRMED, CREDENTIALS UNTOUCHED ────────────────
+'     Every rung held, and the shape assertion printed what it measured:
+'         kit shape measured: kind: sandbox, name: proveo-cecli
+'     So the sandbox kit registers an agent, sbx resolves proveo-cecli, and the
+'     session reaches a prompt and holds 45s. E1 is measured, not inferred.
+'
+'     The credentials block was NOT exercised, and the ladder CANNOT exercise
+'     it. childEnvArgsNoCredential unsets every provider.DetectVars() entry so
+'     a climb never spends a real key — by design, and correct. With nothing
+'     detected, provider.Detect returns nothing and the kit renders with ZERO
+'     credentials. Confirmed by rendering under the ladder's own environment:
+'     `credentials in kit: 0, secrets: 0`.
+'
+'     Reading that PASS as "credentials work" would be the sixth green result
+'     this session that measured its own setup. It measured E1, which is real,
+'     and nothing else.
+'
+'     WHAT DOES EXERCISE IT: a standalone `kind: sandbox` kit carrying the
+'     block verbatim with a DUMMY key. proxyManaged means the agent never sees
+'     the value, so a dummy proves everything that matters — that the block
+'     parses, that a suffix-pattern domain is accepted, and that the variable
+'     arrives as a sentinel — without spending a real credential.
+'
+'     ── PROBED 2026-09-07: BOTH GUESSES GOOD ───────────────────────────────
+'         sbx run credprobe-own . --kit /tmp/cp3
+'         ✓ Created sandbox credprobe-own-sandbox
+'         VALUE: proxy-managed
+'
+'     A `kind: sandbox` kit declaring credentials[] is ACCEPTED — no "defined in
+'     both", no 400 — which is the other half of the mixin refusal: the
+'     credential belongs to whoever declares the agent, and this kit does.
+'
+'     The SUFFIX-PATTERN domain is accepted. proveo's registry stores hosts as
+'     ".anthropic.com" and that is what the Kit emits; the docs example uses a
+'     bare host, so this was a guess. It is not one now, and the builder needs
+'     no change.
+'
+'     And the variable arrives as a SENTINEL. That closes the downgrade E1
+'     opened: a def declaring its own agent now keeps the property it would
+'     otherwise have silently lost.
+'
+'     STILL UNPROVEN, and deliberately so: whether the proxy can INJECT a
+'     working value for a service whose stored credential is an OAuth login.
+'     The sentinel appears either way — it follows from the declaration, not
+'     from the secret resolving — so only a real API call settles it. The
+'     downgrade risk is closed regardless: every outcome here is a LOUD failure
+'     — a sentinel that cannot authenticate, or an unset variable — and none is
+'     a silent leak.
+'
+'     ── ASSERTED IN THE SUITE ──────────────────────────────────────────────
+'     e2e TestSandboxKitProxyManagesTheCredential does what the ladder cannot:
+'     it puts ONE credential back — a dummy — renders proveo's real Kit, starts
+'     the sandbox, and asks the LIVE sandbox what the agent actually holds. It
+'     fails loudly on the dummy (the downgrade), on <unset> (a declaration
+'     resolving against nothing), and on a Kit that renders no credentials at
+'     all with a key present.
+'
+'     It rests on one property of env(1): options are parsed before assignments,
+'     so `env -u X X=v` SETS X, while the reverse order makes env treat -u as a
+'     filename and fail. Two unit tests pin that, because it is invisible at the
+'     call site and fatal if inverted.
+'
+'     ── THE FIRST VERSION OF THAT TEST PASSED FALSELY ──────────────────────
+'     Worth keeping, because it is the sixth in this session and the first one
+'     written to PREVENT exactly this class:
+'
+'         ✅ credential is proxy-managed: ANTHROPIC_API_KEY holds
+'         "ERROR: no sandbox named 'proveo-credprobe-cecli-49376' ..."
+'
+'     Two faults compounding. It read the variable with `sbx exec` AFTER the
+'     session ended, by which time sbx had removed the sandbox — so the probe
+'     could not run. And probeCredential returned sbx's ERROR TEXT as if it were
+'     a value, which the switch accepted because it named three failure cases
+'     and treated everything else as success.
+'
+'     The rule that came out of it: A PROBE THAT CANNOT RUN MUST FAIL, NEVER
+'     PASS. An assertion whose default branch is success will eventually be fed
+'     something that is not a measurement, and it will say yes.
+'
+'     Rewritten to read the variable IN THE AGENT PROCESS — the only place it
+'     means anything — by swapping the Kit's entrypoint and reading the session
+'     output. The credentials block under test is still the one proveo renders;
+'     only the entrypoint changes, so it cannot drift from a hand-copy.
+'
+'     Two parsing details the rewrite forced, both now pinned by table tests:
+'       session output reaches the test through plain(), which collapses EVERY
+'         run of whitespace including newlines, so there are no lines to parse —
+'         which is why renderPostureKit splits on spaces
+'       so the value is DELIMITED, PROVEO_CRED_VALUE[...], because an
+'         unterminated marker would swallow whatever printed next and an empty
+'         value would be indistinguishable from a missing one
+'
+'     ── AND THE CORRECTED TEST FOUND SOMETHING REAL ────────────────────────
+'     Its first honest failure was worth more than the false pass:
+'
+'         This kit wants to use these credentials:
+'           opencode     API key → sent to .opencode.ai   (not set)
+'         [A]pprove all · [R]eview each · [N]o:
+'
+'     DECLARING A CREDENTIAL sbx HOLDS NO SECRET FOR MAKES IT ASK. The run stops
+'     on a human, which for an unattended agent is a hang. This is the same
+'     class as the blockedMarkers idle_test.go already tracks — alive, but
+'     unable to proceed — and it is the last real obstacle to defaulting the
+'     gate on.
+'
+'     WHY THAT KIT DECLARED opencode WITH NOTHING STORED: the credential is
+'     declared from proveo's lookup, which found a key on the host, but the
+'     SECRET is stored by proveo's Run path — and the test renders the Kit with
+'     `--print` and then calls `sbx run` itself, bypassing it. So the Kit named
+'     a service sbx had nothing under.
+'
+'     Which means the open question is narrower than it looks: in a REAL proveo
+'     run the service-named secret is stored before `sbx run` (Spec returns the
+'     secrets, Run sets them, then builds argv), so the prompt may not appear at
+'     all. Whether storing a secret also counts as approval is not known, and it
+'     is exactly what decides whether the gate can default on.
+'
+'     THE TEST MUST NOT SETTLE IT BY WRITING. `sbx secret set` is HOST-WIDE and
+'     outlives the run — proveo warns about this itself — so a test that stored
+'     a dummy would overwrite the operator's real credential. It now reads
+'     `sbx secret ls` instead and declares only services sbx already knows,
+'     skipping with a reason when there are none.
+'
+'     ── MEASURED 2026-09-07: THE SENTINEL REACHES THE AGENT ────────────────
+'         not declaring [opencode]: sbx holds no secret for them
+'         ✅ ANTHROPIC_API_KEY holds "proxy-managed" in the agent process
+'
+'     Read in the agent process, from proveo's own rendered Kit, with the marker
+'     seen. So a def declaring its own agent DOES keep the property, and E1's
+'     downgrade is closed by measurement rather than by argument.
+'
+'     A CONTROL WAS ADDED BEFORE TRUSTING IT. "A sentinel appeared" is not the
+'     claim; "our declaration caused it" is. Five green results in this session
+'     measured something other than their subject, so the test now runs the
+'     IDENTICAL Kit twice — once with credentials[], once with the block removed
+'     — and fails if the value is the same both times. Without that, the test
+'     would pass with the feature deleted, which is the definition of the defect
+'     it exists to catch.
+'
+'     ── REAL RUN 2026-09-07: THE GATE WORKS, AND COST TWO THINGS ───────────
+'         PROVEO_SBX_AGENT_KIT=1 proveo run cecli --input .
+'         agent      proveo-cecli
+'         ✓ Created sandbox proveo-1788742241-52218
+'         cecli@proveo-1788742241-52218:sandbox$
+'
+'     E1 works end to end on the real path: proveo renders the Kit, sbx resolves
+'     proveo-cecli, the harness reaches its prompt. Not a ladder, not a probe —
+'     the thing itself.
+'
+'     TWO DEFECTS THE RUN EXPOSED, BOTH MINE, BOTH NOW FIXED.
+'
+'     1. STORING THE SERVICE SECRET OVERWRITES THE OPERATOR'S. The run printed
+'        `sandbox secret: anthropic (host-side injection)` and saved it — over an
+'        entry that `sbx secret ls` had shown as `anthropic (oauth configured)`.
+'        `sbx secret set` takes --force, and the store is HOST-WIDE and outlives
+'        the run; proveo warns about that reach itself and must not then trample
+'        it. The count doubled too: 5 secrets became 10, five of them new
+'        service-named entries.
+'
+'        Fixed: proveo writes NO service-named secret. It declares only services
+'        sbx ALREADY holds, read via sbx.StoredSecretNames().
+'
+'     2. STORING IT DOES NOT BUY CONSENT ANYWAY. The prompt appeared for a
+'        credential the screen itself marked `(stored)`:
+'            opencode  API key → sent to .opencode.ai   (stored)
+'            [A]pprove all · [R]eview each · [N]o:
+'        So approval is recorded in the BINDINGS file, not the secret store —
+'        `✓ Binding saved to ~/.config/sbx/credentials.yaml`. Storing more
+'        secrets adds prompts rather than removing them, which is the opposite
+'        of the reasoning that put the write there.
+'
+'     WHY ONLY opencode WAS REVIEWED. The operator chose [R]eview each and saw
+'     one item, which looked wrong and is not: the bindings file already carried
+'     anthropic, cursor, google, openai and xai from earlier use. opencode was
+'     the only service without a binding, so it was the only one needing review.
+'
+'     CONSENT IS ONE-TIME, PER SERVICE, and it persists in credentials.yaml. So
+'     the gate CAN default on; the cost is a first-run approval for any service
+'     the operator has not yet bound. That is a real cost for an unattended
+'     agent and belongs in the release note, not in a surprise.
+'
+'     ── THE FLAVOR LABEL WARNING: DIAGNOSED, DELIBERATELY NOT FIXED ────────
+'         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
+'           you are using "proveo-cecli".
+'
+'     CAUSE, measured on the built image: it inherits
+'         com.docker.sandboxes.flavor = shell-docker
+'     from docker/sandbox-templates:shell-docker, and sbx reads that label to
+'     decide which agent an image belongs to. Under E1 the agent is
+'     proveo-cecli, so the two disagree. Nothing else is involved — it is not
+'     freshTemplate, and not how the template was loaded.
+'
+'     LEFT AS IS, on the operator's call 2026-09-07. The label describes WHAT
+'     THE IMAGE IS BUILT FROM, and that is still shell-docker; overwriting it
+'     with "proveo-cecli" would assert an identity sbx never issued. The label
+'     sits in sbx's own namespace and nothing tells us what else reads it —
+'     `template ls`, store keying, a future feature — so changing it is exactly
+'     the kind of guess this tree has already paid for twice (210 MB an image,
+'     and a sudo exemption that broke three security suites).
+'
+'     It is not costless: a warning on every gated run trains operators to
+'     ignore warnings. If it is ever fixed, the order is ASK THEN CHANGE —
+'     what does com.docker.sandboxes.flavor govern beyond this message? That
+'     joins the KVM question (no --device on `sbx run`) as an upstream-shaped
+'     item; two findings may be worth one issue rather than three guesses.
+'
+'     EVIDENCE IT IS COSMETIC TODAY, and it is only evidence, not proof:
+'         ladder gate-off   5/5 rungs held
+'         ladder gate-on    4/4 rungs held
+'         real proveo run   reached cecli@...:sandbox$
+'
+'     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
+'     carries bindings for anthropic, cursor, google, openai and xai, each a
+'     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
+'     side: `anthropic (oauth configured)` — sbx's own service, the one bindings
+'     reference — and `ANTHROPIC_API_KEY (stored)`, which is proveo's, named
+'     after the env var. A kit's credentials[].service resolves against the
+'     former, so any E2 work must set secrets under the SERVICE name.
+'
+'     Gated when built, like E1: credentials are the one subsystem where a wrong
+'     answer is not a degraded run but no run at all.
+'
+' E3  `sbx ssh` as the e2e entry path
+'     sbx-kit-contract records that the shell agent "does NOT survive a
+'     detached tmux pane", so e2e cannot drive an sbx session to a prompt and
+'     e2e/sbx_test.go skips. `sbx setup ssh` makes `ssh <name>.sbx` reach the
+'     sandbox through the daemon socket. Retires a SKIP, not code — which is
+'     why it may be the cheapest real win here.
+'
+' E4  per-agent `-docker` templates instead of shell-docker
+'     claudecode/cursor/opencode could extend claude-code-docker,
+'     cursor-agent-docker, opencode-docker and inherit the vendor's own agent
+'     wiring. Conflicts with _spec/_devops/agent-version-pin.puml, which pins
+'     and asserts exact versions; a template's preinstalled agent moves on the
+'     template's schedule. cecli has no variant, so shell-docker stays anyway.
+'
+' E5  branch mode / per-run worktrees
+'     sbx gives each run its own worktree under .sbx/. proveo has clone mode
+'     (_spec/internal/sbx/clone-workspace.puml). Likely overlapping, and the
+'     comparison has not been made.
+'
+' E6  agentInstructions + setup.files vs proveo-seed
+'     House rules and settings are composed by proveo-seed today. Some of that
+'     is declarable. The seed also runs on the docker backend, so this splits
+'     one mechanism into two — recorded as a question, not a proposal.
+'
+' NONE OF THESE IS MEASURED. Every line above is read from docs and one
+' community kit; nothing here has been run. The last time a plan in this tree
+' rested on a plausible reading of sbx's behaviour it cost 210 MB per image and
+' four manifests promising a daemon no image carried.
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — sbx Kit capabilities proveo re-implements
+
+component "SPEC-v2\nkind: sandbox is a COMPLETE AGENT" as SPEC <<cloud>>
+component "pi / copilot kits\nnon-built-in agents, shipped" as WIT <<cloud>>
+
+node "proveo today" as NOW <<host>> {
+  component "shell agent + -c wrapper\ncecli has no sbx agent" as SHELL <<error>>
+  component "internal/broker\ninject on-route · strip off-route" as BROKER <<app>>
+  component "proveo-seed\nhouse rules · settings · trust" as SEED <<app>>
+  component "e2e/sbx_test.go\nskips: no tmux-survivable session" as SKIP <<error>>
+}
+
+component "E1 cecli as kind: sandbox" as E1 <<db>>
+component "E2 credentials[].apiKey.inject" as E2 <<db>>
+component "E3 sbx ssh as the e2e entry" as E3 <<db>>
+
+SPEC ARROW_MAIN E1 : a name sbx run selects
+WIT ARROW_MAIN E1 : two working precedents
+SHELL ARROW_QUEUE E1 : what it would retire
+BROKER ARROW_QUEUE E2 : overlaps, does not equal
+SKIP ARROW_QUEUE E3 : retires a skip, not code
+SEED ARROW_QUEUE E2 : declarable in part
+
+note bottom of E1
+  **Closed to mixins, not to kits.** A sandbox kit
+  declares a complete agent and names it, so the
+  harness sbx has no agent for can stop borrowing
+  the shell's — and stop inheriting the shell's
+  argument semantics along with it.
+end note
+
+note bottom of E2
+  **Overlap is not equivalence.** sbx injects a
+  key per domain; the broker also STRIPS off-route
+  and runs a DLP scan on the way out. Taking the
+  first half while assuming the second rides along
+  loses the half nobody declared.
+end note
+
+note bottom of E3
+  **The cheapest item retires a skip.** A suite
+  that skips reports success by testing nothing,
+  and this one skips precisely where sbx sessions
+  live — so the gap sits under the backend proveo
+  actually ships on.
+end note
+
+note bottom of SHELL
+  **A borrowed agent brings its contract.** The
+  shell agent's rule for words after `--` is not
+  cecli's rule, and a def that borrows the launch
+  inherits every semantic attached to it, seen or
+  unseen.
+end note
+
+note bottom of SPEC
+  **Read before adopting, measured before ship.**
+  Every claim here comes from docs and one
+  community kit; none has been run, and the last
+  plan resting on a plausible reading cost 210 MB
+  an image and four broken promises.
+end note
+
+@enduml

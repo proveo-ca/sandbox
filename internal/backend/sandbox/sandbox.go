@@ -502,9 +502,27 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 
 	agent, launch := sbx.AgentFor(in.Target)
-	command := in.Extra
-	if len(command) == 0 {
-		command = launch
+	command := launch
+	if len(in.Extra) > 0 {
+		// Extras replace the launch, and for a shell-agent def they must go
+		// through the same wrapper: handed to sbx as bare words they would
+		// REPLACE `bash -l` and be read as a script file, which is the defect
+		// that killed cecli. SPEC: _spec/_paradigms/capability-ladder.puml
+		if agent == sbx.ShellAgent {
+			command = sbx.ShellLaunch(in.Target, in.Extra)
+		} else {
+			command = in.Extra
+		}
+	}
+	// A def sbx has no built-in agent for can declare one of its own instead of
+	// borrowing `shell` — and borrowing `shell` means inheriting its rule for the
+	// words after `--`, which is what made `-- cecli` run `bash cecli`. With its
+	// own agent there is no bash in between: the image's ENTRYPOINT runs, exactly
+	// as it does on the docker backend, so extras pass through as bare words.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(in.Target)
+	if ownAgent {
+		agent, command = sbx.AgentName(in.Target), in.Extra
 	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
@@ -523,6 +541,23 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
+	var creds []sbx.KitCredential
+	if ownAgent {
+		var domains []string
+		creds, domains, secrets = agentCredentials(in, secrets)
+		// SPEC-v2: every domain a credential injects into MUST also appear in
+		// permissions.network.allow. Widening here rather than trusting the two
+		// lists to agree — they are built from different inputs and a domain
+		// missing from allow is a credential sbx will refuse to attach.
+		for _, d := range domains {
+			if !hosts[d] {
+				hosts[d] = true
+				allow = append(allow, d)
+			}
+		}
+		sort.Strings(allow)
+	}
+
 	kit := sbx.Kit{
 		SchemaVersion: sbx.KitSchemaVersionV2,
 		Kind:          "mixin",
@@ -532,6 +567,19 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
 		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
 		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(in.Target)}},
+	}
+	if ownAgent {
+		// The shared blocks above are kept verbatim — SPEC-v2 says a sandbox kit
+		// "MAY declare every shared block" — and only the identity changes. The
+		// name MUST equal the agent sbx is asked to run, because that name is the
+		// selector; the proveo- prefix keeps it off the built-in list it may not
+		// shadow.
+		kit.Kind = "sandbox"
+		kit.Name = cfg.Agent
+		kit.DisplayName = in.Target + " (proveo)"
+		kit.Description = "proveo harness " + in.Target + ": image, launch, reachability and the seed step."
+		kit.Sandbox = &sbx.KitSandbox{Image: in.Image}
+		kit.Credentials = creds
 	}
 	return cfg, kit, secrets
 }
@@ -753,4 +801,94 @@ func Selected(man manifest.Manifest) bool {
 	}
 	ok, _ := sbx.Available()
 	return ok
+}
+
+// agentCredentials builds the credentials[] block a def declaring its OWN agent
+// must carry, from proveo's own provider registry so the Kit and the broker
+// cannot drift apart. Both answer the same question — which key may be attached
+// to which host, under which header — and the registry is where that already
+// lives.
+//
+// A def backed by a BUILT-IN agent must not call this: sbx refuses a kit
+// repeating a service its parent declares ("defined in both"), and the built-in
+// already proxy-manages these. Only a `kind: sandbox` kit has no parent.
+//
+// IT DECLARES ONLY WHAT sbx ALREADY HOLDS, and writes nothing. sbx resolves
+// credentials[].service against a secret stored under the SERVICE name
+// (`anthropic`), while proveo stores under the ENV VAR name
+// (`ANTHROPIC_API_KEY`) — both appear in `sbx secret ls`. The obvious move is to
+// store the service name too, and it was wrong twice over:
+//
+//	IT OVERWRITES. Measured in a real run: the operator's `anthropic (oauth
+//	configured)` entry was replaced by an API key, silently, because
+//	`sbx secret set` takes --force and the store is HOST-WIDE and outlives the
+//	run. proveo warns about that store's reach and must not then trample it.
+//
+//	IT DOES NOT BUY CONSENT. Also measured: sbx prompts for a credential it
+//	holds — the screen reads "(stored)" and still asks — because approval is
+//	recorded in the BINDINGS file, not the secret store. Storing more secrets
+//	adds prompts rather than removing them.
+//
+// So a service with nothing stored is skipped. sbx would prompt for it, and an
+// unattended agent hangs on that prompt.
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+// storedSecretNames is a variable so tests can state which services sbx holds
+// without a live daemon. The real list is the only thing that decides whether a
+// credential is declared, so a test that could not control it would either need
+// sbx running or would assert nothing.
+var storedSecretNames = sbx.StoredSecretNames
+
+func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
+	var (
+		creds   []sbx.KitCredential
+		domains []string
+	)
+	stored := map[string]bool{}
+	for _, n := range storedSecretNames() {
+		stored[n] = true
+	}
+	seen := map[string]bool{}
+	for _, name := range provider.Detect(in.Lookup) {
+		if seen[name] || !in.Man.Capabilities.AllowsProvider(name) {
+			continue
+		}
+		r, ok := provider.ResolveWith(name, in.AuthVar, in.Lookup)
+		// !ok is a signed-request provider (AWS SigV4 and friends): nothing to
+		// attach as a header, so nothing to proxy-manage.
+		if !ok || r.EnvVar == "" || len(r.Hosts) == 0 {
+			continue
+		}
+		// A query-parameter credential has no expression in a Kit: sbx injects
+		// into a HEADER. Declaring the service without a usable inject would
+		// sentinel the variable and then attach the value nowhere, which is worse
+		// than leaving it alone.
+		if r.Header == "" || r.Query != "" {
+			continue
+		}
+		// Nothing stored under the service name: sbx would ask a human, and an
+		// unattended run stops there.
+		if !stored[name] {
+			continue
+		}
+		format := "%s"
+		if r.Bearer {
+			format = "Bearer %s"
+		}
+		inject := make([]sbx.KitCredInject, 0, len(r.Hosts))
+		for _, h := range r.Hosts {
+			inject = append(inject, sbx.KitCredInject{Domain: h, Header: r.Header, Format: format})
+			domains = append(domains, h)
+		}
+		creds = append(creds, sbx.KitCredential{
+			Service: name,
+			APIKey: &sbx.KitCredAPIKey{
+				Name:         r.EnvVar,
+				ProxyManaged: true,
+				Inject:       inject,
+			},
+		})
+		seen[name] = true
+	}
+	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
+	return creds, domains, secrets
 }

@@ -100,27 +100,32 @@ func TestAuthRowOffersBothLiveSidesForOpenCode(t *testing.T) {
 	}
 }
 
-// cursor gets the same row with usage gated and the reason attached. Dropping it
-// is what left "cursor ignores my ANTHROPIC_API_KEY" as something the operator
-// could only discover by running.
-func TestAuthRowGatesUsageForAVendorPinnedHarness(t *testing.T) {
+// cursor separates the two meanings of "usage credits". It has no
+// bring-your-own-key path — that fact has to appear — but it DOES bill metered:
+// the plan's included usage first, usage-based overage after, on one key. So
+// both sides are selectable and the BYOK fact lives in the hint, not in a gate.
+func TestAVendorPinnedHarnessSaysWhyYourOwnKeyIsNotThePoint(t *testing.T) {
 	t.Parallel()
 	r, ok := authRow(cursorMan(), env(map[string]string{
 		"CURSOR_API_KEY": "cur", "ANTHROPIC_API_KEY": "sk",
 	}), "cursor", "", "", "")
 	if !ok {
-		t.Fatal("no auth row: the operator is never told why their provider key is ignored")
+		t.Fatal("no auth row: the operator is never told how cursor bills")
 	}
 	i := slices.Index(r.Options, credentials.AuthUsage)
-	if !r.Off[i] {
-		t.Error("usage credits selectable on a CLI with no bring-your-own-key path")
+	if r.Off[i] {
+		t.Error("usage gated, but cursor does meter — overage beyond the plan")
 	}
-	if r.Selected == i {
-		t.Error("the row opened on the option that cannot be chosen")
+	h := r.Help[credentials.AuthUsage]
+	if !strings.Contains(h, "bring-your-own-key") {
+		t.Errorf("usage help = %q, want the BYOK fact — an ANTHROPIC_API_KEY does nothing here", h)
 	}
-	if !strings.Contains(r.Reason+r.Help[credentials.AuthUsage], "cursor") {
-		t.Errorf("nothing names the vendor everything transits: reason=%q help=%q",
-			r.Reason, r.Help[credentials.AuthUsage])
+	if strings.Contains(h, "on your own keys") {
+		t.Errorf("usage help = %q, but cursor cannot send your own keys", h)
+	}
+	if !strings.Contains(r.Help[credentials.AuthSubscription], "overage") {
+		t.Errorf("plan help = %q, want the caveat that Cursor decides the split",
+			r.Help[credentials.AuthSubscription])
 	}
 }
 

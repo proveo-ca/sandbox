@@ -58,3 +58,18 @@ else
   FAILURES+=("proveo.agent.version label is set")
   printf "${RED}FAIL${NC} [%d] proveo.agent.version label is set (image predates the pin — proveo build opencode)\n" "$TESTS_RUN"
 fi
+
+# The sbx Kit's ONE startup command is `/usr/local/bin/proveo-seed <target>`
+# (internal/sbx SeedCommand), registered for every sbx target whether or not the
+# image can run it. opencode and cecli shipped without it for their whole lives,
+# so every sbx run failed startup with `exit=127` and seeded nothing — no
+# subagents, no settings, no workspace trust — and nothing said so until a
+# crashed session's /var/log/sbx-kit-startup.log was read.
+#
+# internal/contract asserts the DOCKERFILE copies it. This asserts the IMAGE has
+# it, which is the half that was actually missing.
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+assert_success \
+  "ships the Kit's startup command (/usr/local/bin/proveo-seed)" \
+  "$IMAGE" \
+  "test -x /usr/local/bin/proveo-seed"

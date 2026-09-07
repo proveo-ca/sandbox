@@ -24,11 +24,28 @@ func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
 		regexp.MustCompile(`sha256sum -c`),
 		regexp.MustCompile(`ln -sfn bun /usr/local/bin/bunx`),
 		regexp.MustCompile(`test "\$\(bun --version\)" = "\$\{BUN_VERSION\}"`),
-		regexp.MustCompile(`apt-get install -y --no-install-recommends nodejs unzip`),
+
+		// Node is pinned the same way bun is, and for the same reason. This used
+		// to pin the NodeSource apt line instead — the MECHANISM — and the rebase
+		// onto docker/sandbox-templates retired it: NodeSource publishes per
+		// Ubuntu release, so a base whose Node depends on a third party having
+		// packaged the exact release the TEMPLATE ships breaks on someone else's
+		// schedule. The property is what matters: one Node, pinned by version and
+		// digest, verified after install.
+		// SPEC: _spec/_devops/sandbox-template-rebase.puml
+		regexp.MustCompile(`(?m)^ARG NODE_VERSION=\d+\.\d+\.\d+$`),
+		regexp.MustCompile(`(?m)^ARG NODE_SHA256_X64=[0-9a-f]{64}$`),
+		regexp.MustCompile(`(?m)^ARG NODE_SHA256_ARM64=[0-9a-f]{64}$`),
+		regexp.MustCompile(`test "\$\(node --version\)" = "v\$\{NODE_VERSION\}"`),
 	} {
 		if !want.MatchString(df) {
 			t.Errorf("defs/base-node/Dockerfile lacks %s", want)
 		}
+	}
+	// A distro repo for node is exactly the coupling the tarball removed.
+	if strings.Contains(df, "deb.nodesource.com") {
+		t.Error("base-node is back on NodeSource, which publishes per Ubuntu release — " +
+			"the template's release moves independently of it")
 	}
 	for _, banned := range []string{"npm install -g bun", "bun.sh/install", "bun.com/install"} {
 		if strings.Contains(df, banned) && !strings.Contains(df, "not `npm install -g bun`") {

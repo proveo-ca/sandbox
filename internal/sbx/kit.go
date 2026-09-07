@@ -18,6 +18,53 @@ type Kit struct {
 	Permissions   KitPermissions `yaml:"permissions,omitempty"`
 	Environment   *KitEnv        `yaml:"environment,omitempty"`
 	Setup         *KitSetup      `yaml:"setup,omitempty"`
+	// Sandbox turns this Kit from a mixin into a COMPLETE AGENT, and is the
+	// field that lets a harness sbx ships no agent for stop borrowing one.
+	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	Sandbox *KitSandbox `yaml:"sandbox,omitempty"`
+	// Credentials may only be declared by a kit that IS the agent. A mixin
+	// repeating a service its parent already declares is refused outright —
+	// measured: `400 ... credential for service "anthropic" defined in both
+	// "shell" and "credprobe"`. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	Credentials []KitCredential `yaml:"credentials,omitempty"`
+}
+
+// KitCredential is one service sbx should hold on the agent's behalf.
+//
+// This is the half a def LOSES by declaring its own agent. A built-in agent
+// declares its credentials, so sbx sets the env var to a sentinel and injects
+// the real value host-side per request — measured on the stock shell agent as
+// `VALUE: proxy-managed`. An agent that declares none gets no such treatment:
+// measured with a control run, the variable is UNSET, so the agent cannot
+// authenticate at all.
+//
+// The variable being absent rather than leaked is worth stating precisely,
+// because the two failures want different responses. This one is loud — the
+// agent fails to authenticate and says so. A leak would be silent, and would
+// make declaring your own agent a security regression rather than a broken
+// one. It is the second that never happens.
+type KitCredential struct {
+	Service  string         `yaml:"service"`
+	Required bool           `yaml:"required,omitempty"`
+	APIKey   *KitCredAPIKey `yaml:"apiKey,omitempty"`
+}
+
+// KitCredAPIKey names the env var to sentinel and where the value may go.
+type KitCredAPIKey struct {
+	Name string `yaml:"name"`
+	// ProxyManaged is the entire point: with it the named variable holds a
+	// sentinel in the agent process and the host-side proxy attaches the real
+	// value. Without it the variable holds the credential.
+	ProxyManaged bool            `yaml:"proxyManaged,omitempty"`
+	Inject       []KitCredInject `yaml:"inject,omitempty"`
+}
+
+// KitCredInject is one destination the value may be attached to. SPEC-v2:
+// every domain here MUST also appear in permissions.network.allow.
+type KitCredInject struct {
+	Domain string `yaml:"domain"`
+	Header string `yaml:"header"`
+	Format string `yaml:"format,omitempty"`
 }
 
 // KitEnv carries values RESOLVED ON THE HOST.
@@ -46,10 +93,26 @@ func SeedCommand(target string) KitCommand {
 	}
 }
 
-// KitSandbox names the image and what runs in it.
+// KitSandbox names the image and what runs in it. SPEC-v2: "A sandbox kit is a
+// COMPLETE AGENT. It MUST declare a `sandbox:` block and MAY declare every
+// shared block", and its `name` is what `sbx run <name> --kit <path>` selects.
+//
+// Entrypoint and Command are BOTH omitempty on purpose. The def's image already
+// declares ENTRYPOINT ["dumb-init", "--", "<target>-entrypoint"] and CMD
+// ["<target>"], and that pair is what the docker backend runs and what works
+// there. Restating it here would be a second copy free to drift from the first,
+// so the Kit names the image and lets the image speak. If a measurement shows
+// sbx requires the prefix explicitly, it goes in then and not before.
 type KitSandbox struct {
-	Image      string   `yaml:"image"`
-	Entrypoint []string `yaml:"entrypoint,omitempty"`
+	Image      string             `yaml:"image"`
+	Entrypoint []string           `yaml:"entrypoint,omitempty"`
+	Command    *KitSandboxCommand `yaml:"command,omitempty"`
+}
+
+// KitSandboxCommand is the mode-specific tail appended to the entrypoint.
+type KitSandboxCommand struct {
+	Default     []string `yaml:"default,omitempty"`
+	Interactive []string `yaml:"interactive,omitempty"`
 }
 
 // KitPermissions carries the network policy.

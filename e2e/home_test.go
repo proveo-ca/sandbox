@@ -445,7 +445,10 @@ func seedCursorChat(t *testing.T, proveoHome, chatID, title string) {
 	if err := os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	src := filepath.Join(repoRoot(t), "tests", "e2e", "testdata", "cursor-empty-store.db")
+	// "tests/e2e" is where this lived before 7086892 moved the tree to "e2e".
+	// The fixture moved; this path did not, so the test has been failing on a
+	// missing file rather than on anything it asserts.
+	src := filepath.Join(repoRoot(t), "e2e", "testdata", "cursor-empty-store.db")
 	in, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatalf("read chat store fixture: %v", err)

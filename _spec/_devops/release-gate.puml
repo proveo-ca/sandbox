@@ -1,0 +1,128 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what must be green before publishing images, and where each part runs
+' covers: mise.toml
+' covers: e2e/ladder_test.go
+' Lineage and tags: image-lineage-and-publish.puml (same directory).
+' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE GATE IS IN TWO HALVES, AND THAT IS NOT A CHOICE ─────────────────────
+' A proveo sandbox has docker but NOT sbx: the CLI is in no proveo image, and
+' /dev/kvm does not exist there with no kvm module loaded. So the sbx-backed
+' checks cannot run where the rest of them do, and a release gate that lives
+' only in one place would either skip them or refuse to run at all.
+'
+' IN-SANDBOX (or any host with docker):
+'   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/
+'   2  go test ./...                     unit + contract
+'   3  mise run build all                every image from source
+'   4  mise run test-images              11 suites across all four defs
+'   5  go test -tags e2e ./e2e/          the non-sbx e2e suite
+'
+' ON THE HOST ONLY, because each needs sbx:
+'   6  the ladder, PER DEF — one climb per target, not one climb:
+'        for t in cecli claudecode cursor opencode; do
+'          PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=$t \
+'            go test -tags e2e ./e2e/ -run Ladder -v
+'        done
+'      claudecode is the DEFAULT target, so a bare run measures only it. The
+'      sbx fixes this suite proved for claudecode were applied to cursor by
+'      SYMMETRY rather than measurement — a contract with one data point.
+'   7  the credential control:
+'        PROVEO_SBX_AGENT_KIT=1 PROVEO_LADDER_TEST=1 \
+'        PROVEO_LADDER_TARGET=cecli go test -tags e2e ./e2e/ \
+'          -run ProxyManagesTheCredential -v
+'      It runs the SAME Kit twice, with and without credentials[], and fails if
+'      both give the same value — so it proves the declaration CAUSES the
+'      sentinel rather than merely coinciding with it.
+'
+' ── WHAT A GREEN GATE DOES NOT COVER ────────────────────────────────────────
+' Stated because a checklist read as complete is worse than one read as partial:
+'
+'   amd64.  Every measurement in this branch is arm64. `deploy` pushes
+'     amd64+arm64, so the publish is the first amd64 compile. The node tarball
+'     picks per-arch with a pinned sha256 for each and the purge is dpkg, so it
+'     is arch-independent BY INSPECTION — which is not a build.
+'
+'   the first-run consent prompt. With PROVEO_SBX_AGENT_KIT defaulted on, sbx
+'     asks before injecting a service the operator has not yet bound — once per
+'     service, recorded in ~/.config/sbx/credentials.yaml, and it asks even for
+'     a credential it already holds. An UNATTENDED agent stops there. No test
+'     covers it because it is interactive by definition.
+'
+'   TestProjectDotEnvAtEgressLayer/opencode is RED and unexplained. It runs a
+'     stock ubuntu:24.04 image on the docker backend, so neither the base
+'     rebase nor the agent-kit default can reach it.
+'
+' ── LEAKED STATE POISONS THE RESULT, AND HID FOR HOURS ──────────────────────
+' Two proveo/opencode:local containers ran for SIX HOURS after the sessions
+' that started them were killed, each holding a *-mitm-net network. They were
+' invisible to `docker ps -a | grep proveo` because docker had named them
+' `romantic_haibt` and `tender_rhodes` — proveo starts them without --name, so
+' MATCH ON THE IMAGE, NEVER THE NAME:
+'     docker ps -a --filter ancestor=proveo/opencode:local
+' Removing them changed the dotenv failure from a 5m timeout to "session exited
+' before a new -egress container", which is a different and more useful fault.
+' The underlying defect is a teardown that does not run when a session is
+' killed; cmd/proveo/clean.go exists for it and nothing invoked it.
+' ────────────────────────────────────────────────────────────────────────────
+
+title Release gate — two halves, because sbx is host-only
+
+node "in-sandbox · docker only" as BOX <<host>> {
+  component "build + vet + go test" as GO <<app>>
+  component "build all\n14 images from source" as BUILD <<app>>
+  component "test-images\n11 suites · 4 defs" as TI <<app>>
+  component "e2e minus sbx" as E2E <<app>>
+}
+
+node "host only · needs sbx" as HOST <<host>> {
+  component "ladder × 4 defs\ncecli claudecode cursor opencode" as LAD <<db>>
+  component "credential control\nsame Kit, with and without" as CRED <<db>>
+}
+
+component "deploy all\namd64 + arm64 --push" as PUB <<cloud>>
+component "not covered\namd64 · consent prompt · dotenv" as GAP <<error>>
+
+GO ARROW_MAIN BUILD
+BUILD ARROW_MAIN TI
+TI ARROW_MAIN E2E
+E2E ARROW_MAIN LAD : hand off to the host
+LAD ARROW_MAIN CRED
+CRED ARROW_MAIN PUB : only now
+GAP ARROW_ERROR PUB : known blind spots
+
+note bottom of LAD
+  **One climb per def, not one climb.** The
+  target defaults to claudecode, so a bare run
+  measures a quarter of the fleet — and cursor
+  inherited its fixes by symmetry rather than
+  measurement.
+end note
+
+note bottom of GAP
+  **A checklist read as complete is worse than
+  one read as partial.** amd64 has never been
+  compiled here, the consent prompt is
+  interactive by definition, and one e2e test
+  is red for reasons still unknown.
+end note
+
+note bottom of TI
+  **It prefers :local and PULLS otherwise.** A
+  suite run without building first tested a
+  seven-day-old published image and reported
+  success — build all comes first for that
+  reason, not for tidiness.
+end note
+
+note bottom of CRED
+  **It proves causation, not coincidence.** The
+  same Kit runs twice, with the credentials
+  block and without, and an identical result
+  either way fails the test.
+end note
+
+@enduml

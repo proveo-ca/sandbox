@@ -1,9 +1,36 @@
 #!/bin/sh
+# proveo-harden strips setuid/setgid bits and removes a couple of network
+# probes. It runs after every package-installing layer.
+#
+# SUDO IS NOT EXEMPT, and the record of why matters more than the rule.
+#
+# The rebase onto docker/sandbox-templates brought a setuid /usr/bin/sudo.ws
+# into the lineage for the first time — the template's `agent` user reaches root
+# through it. That looked like the missing privilege behind the dockerd failure
+# recorded in _spec/_plans/image-size-reduction.puml ("Permission denied (you
+# must be root)"), so sudo was exempted here on that hypothesis.
+#
+# The hypothesis was then MEASURED inside a live sandbox and is false:
+#   dockerd runs as root with PPID 1 — started by the VM's init, not by anyone's
+#     sudo; there is no sudo process at all
+#   the runtime user cannot sudo regardless: the template's NOPASSWD grant names
+#     `agent`, and after the per-def rename the working user is only in the
+#     `sudo` group, which asks for a password that does not exist
+#   the daemon is reached through the DOCKER GROUP — srw-rw---- root:docker, and
+#     `docker ps` answers for the runtime uid with no sudo anywhere
+#
+# So the exemption bought nothing that is used, and cost the "no setuid
+# binaries" contract that defs/{claudecode,cursor,opencode}/tests/test_security.sh
+# assert. The blanket strip is back.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/defs/harden-pass.puml
+
 if [ "$#" -eq 0 ]; then
   set -- /
 fi
+
 for root in "$@"; do
   find "$root" -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true
   find "$root" -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
 done
+
 rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true

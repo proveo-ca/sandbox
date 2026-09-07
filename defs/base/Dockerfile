@@ -1,4 +1,12 @@
 # SPEC: _spec/components.puml, _spec/_runtimes/toolchain-provisioning.puml
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
+
+# DECLARED BEFORE THE FIRST FROM, and it must stay there. An ARG written after a
+# FROM belongs to THAT BUILD STAGE, so a copy sitting between the builder stage
+# and the runtime stage is invisible to `FROM ${SANDBOX_TEMPLATE}` — buildx warns
+# "UndefinedArgInFrom" and then fails with "base name should not be blank".
+# Only the global scope, above every FROM, reaches a FROM line.
+ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
 
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
 WORKDIR /src
@@ -9,37 +17,66 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 
-# SPEC: _spec/_plans/image-size-reduction.puml
-FROM debian:trixie-slim AS jre-builder
-RUN apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends openjdk-21-jdk-headless binutils \
-    && jlink --add-modules \
-         java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.sql,java.xml,jdk.attach,jdk.compiler,jdk.crypto.ec,jdk.jartool,jdk.jdi,jdk.unsupported,jdk.zipfs \
-         --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output /opt/jre \
-    && /opt/jre/bin/java -version
+# ── THE SUPPORTED BASE ──────────────────────────────────────────────────────
+# "Custom templates are reusable sandbox images that EXTEND ONE OF THE BUILT-IN
+# agent environments" — docs.docker.com/ai/sandboxes/customize/templates/. This
+# used to descend from debian:trixie-slim, which inherited none of what sbx
+# assumes a sandbox carries and left every def re-deriving it: uid 1000 named
+# agent, /home/agent, a docker group on gid 1001, sudo. All four arrive here.
+#
+# The `-docker` suffix is not cosmetic. Plain tags ship the docker CLIENT only;
+# the Engine (dockerd, containerd, runc, docker-proxy) rides the -docker
+# variants. A client with no daemon behind it is exactly what `docker: sbx`
+# promised and no proveo image delivered.
+#
+FROM ${SANDBOX_TEMPLATE}
 
-FROM debian:trixie-slim
-
+# Re-declared: an ARG consumed by FROM does not survive into the build stage,
+# so the LABEL at the foot would otherwise record an empty template.
+ARG SANDBOX_TEMPLATE
 ARG DEBIAN_FRONTEND=noninteractive
+
+# The template's runtime user is `agent`; the build steps below are root's.
+# Downstream layers (base-node, base-node-lsp, the defs) apt-install and
+# npm -g, so this image ends as root and each LEAF def declares its own USER.
+USER root
+
+# The template sets WORKDIR /home/agent/workspace, and BuildKit RECREATES a
+# missing working directory before every RUN. Downstream defs rename uid 1000
+# and move /home/agent aside, so an inherited workdir underneath it reappears
+# between two RUN steps and the move back fails with "directory /home/agent
+# exists". The Debian base this replaced had no WORKDIR, so `/` is what the
+# lineage always had; leaf defs set their own (/app, /workspace).
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
+WORKDIR /
 
 COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
 COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 
+# Only what the template does NOT already carry. It ships git, gh, jq, rg,
+# curl, ca-certificates, tini, sudo, uv, and the go/node/python/java
+# toolchains, so the GitHub CLI keyring dance this file used to perform is
+# gone with the package it installed.
+# SPEC: _spec/_plans/image-size-reduction.puml
 RUN apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-         -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-         > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-       git gh bash dumb-init passwd jq tmux ripgrep graphviz \
+       dumb-init passwd tmux graphviz iptables \
        fontconfig fonts-dejavu-core libharfbuzz0b \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-COPY --from=jre-builder /opt/jre /opt/jre
+# The jlink'd JRE is gone: the template ships a full JDK 25. /opt/jre stays as
+# a SYMLINK so JAVA_HOME and every downstream reference to it keep working
+# without knowing the arch-specific path underneath.
+RUN set -e; \
+    java_bin="$(command -v java || true)"; \
+    [ -n "${java_bin}" ] || java_bin="$(ls -d /usr/lib/jvm/*/bin/java 2>/dev/null | head -n1)"; \
+    [ -n "${java_bin}" ] || { echo "the template ships no java: plantuml and jdtls both need one" >&2; exit 1; }; \
+    java_bin="$(readlink -f "${java_bin}")"; \
+    java_home="${java_bin%/bin/java}"; \
+    test -x "${java_home}/bin/java" || { echo "resolved java_home ${java_home} has no bin/java" >&2; exit 1; }; \
+    ln -sfn "${java_home}" /opt/jre; \
+    /opt/jre/bin/java -version
 
 ENV JAVA_HOME=/opt/jre \
     PATH="/opt/jre/bin:${PATH}"
@@ -70,9 +107,23 @@ RUN curl -fsSL -o /opt/plantuml.jar \
     && rm -rf /tmp/* /var/tmp/* /root/.cache \
     && /usr/local/sbin/proveo-harden /usr /opt
 
+# The daemon the template ships must be present, and the runtime uid reaches it
+# through the docker GROUP — measured: dockerd runs as root from init, the
+# socket is root:docker, and no sudo is involved. So the harden pass must leave
+# nothing setuid, and a base that regresses either fails at BUILD time rather
+# than in a sandbox.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
+RUN set -e; \
+    command -v docker  >/dev/null || { echo "template lost the docker client" >&2; exit 1; }; \
+    command -v dockerd >/dev/null || { echo "not a -docker template: no Engine" >&2; exit 1; }; \
+    getent group docker >/dev/null || { echo "no docker group" >&2; exit 1; }; \
+    left="$(find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null)"; \
+    [ -z "${left}" ] || { echo "harden pass left setuid/setgid files:" >&2; echo "${left}" >&2; exit 1; }
+
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 LABEL security.hardened=true \
-      org.opencontainers.image.title="proveo harness base"
+      org.opencontainers.image.title="proveo harness base" \
+      proveo.base.template="${SANDBOX_TEMPLATE}"

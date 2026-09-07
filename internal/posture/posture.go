@@ -220,10 +220,10 @@ func Observability(mode, credentials string, sandboxed bool) string {
 
 func MergeRoles(explicit provider.Roles, remembered map[string]string) provider.Roles {
 	out := provider.Roles{}
-	for k, v := range explicit {
+	for k, v := range provider.RolesFromCanonical(remembered) {
 		out[k] = v
 	}
-	for k, v := range provider.RolesFromCanonical(remembered) {
+	for k, v := range explicit {
 		if _, set := out[k]; !set {
 			out[k] = v
 		}

@@ -178,6 +178,63 @@
 ' repair path instead. defs/cursor/tests/test_tools.sh WAS inverted, because it
 ' asserts what the IMAGE carries, and the image now deliberately carries nothing.
 '
+' ── MEASURED 2026-09-06: THE ASSUMPTION IS FALSE ─────────────────────────
+' Taken from INSIDE a live proveo claudecode sandbox (proveo-1788712286-63525),
+' which is the reading the section above asked for and could not get:
+'
+'   docker, dockerd, containerd, runc, docker-proxy  all "command not found"
+'   /var/run/docker.sock, /run/docker.sock           absent
+'   DOCKER_HOST                                      unset
+'   pgrep dockerd                                    no process
+'
+' The three things that STAYED are all present and correct — iptables at
+' /usr/sbin/iptables, group docker:x:1001 with claude and agent in it, and the
+' start-docker LABEL on the image — so the cut was applied exactly as designed.
+' It is the bet underneath it that lost. sbx reads start-docker off the image and
+' starts WHAT THE IMAGE SHIPS; the image now ships nothing, so nothing starts.
+' Same shape as the cecli defect: a promise whose executor was removed, not a
+' promise the runtime declined.
+'
+' This settles the disagreement recorded above in favour of the three AGAINST
+' entries. In particular retire-dind's "Server 29.7.2, measured" was reading the
+' tarball THESE LAYERS pinned, not a daemon sbx brought: remove the tarball and
+' the daemon goes with it.
+'
+' ── AMENDED SAME DAY: THE FIRST WORDING BLAMED THE WRONG PARTY ─────────────
+' This entry first read "sbx supplies NEITHER the client NOR the daemon". True of
+' OUR images, and false as a statement about sbx, which is how it was phrased.
+' The docs settle it (_spec/_devops/sandbox-template-rebase.puml quotes them):
+'
+'   docker/sandbox-templates ships the docker CLI in EVERY variant, and the full
+'   Engine in the `-docker` ones. "Custom templates are reusable sandbox images
+'   that EXTEND ONE OF THE BUILT-IN agent environments."
+'
+' proveo/base descended from debian:trixie-slim, so it extended nothing and
+' inherited nothing. sbx was never asked for a daemon and never withheld one. The
+' operator's call — "since we migrated to sbx, everything that either overlaps or
+' gets on its way" — was right about the overlap and wrong only about which
+' artifact carried it: the overlap was with the TEMPLATE, not with the runtime,
+' and the way to stop paying for it was to inherit rather than to delete.
+'
+' ── RESOLVED: REBASED, NOT RESTORED OR RETRACTED ──────────────────────────
+' The two ways out recorded here were RESTORE (re-add 210 MB per image, reopening
+' the privilege question) and RETRACT (drop `docker: sbx` and admit no daemon).
+' Both were superseded by a third the docs name and this plan had not considered:
+' extend the supported base. proveo/base now builds FROM
+' docker/sandbox-templates:shell-docker-0.5.0, and `docker: sbx` becomes a
+' promise the image can keep — at zero marginal packaging cost, because the
+' binaries arrive in the base rather than in four copy-pasted layers.
+'
+' Cut 4 therefore STANDS as written: no harness image ships the static tarball,
+' and TestNoHarnessImageShipsDockerBinaries still ratchets against a re-add. What
+' changed is where docker comes from, not whether we hand-install it.
+'
+' The privilege question the claudecode record left at "next step is sbx-side"
+' also moves. The template's `agent` reaches root through a setuid /usr/bin/sudo
+' — and proveo-harden's blanket `chmod u-s` disarms exactly that. The record
+' acquitted proveo-harden, but on a base carrying no sudo to strip, so the test
+' was never like-for-like. sudo is now exempt by name.
+'
 ' ── THE RECORD CLAUDECODE'S DOCKERFILE CARRIED, MOVED HERE ────────────────
 ' Preserved because the code it annotated is gone and it is the only account of
 ' what was tried. Verbatim, minus the line telling the reader to keep the version
