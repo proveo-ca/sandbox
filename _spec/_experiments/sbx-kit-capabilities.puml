@@ -260,6 +260,45 @@ skinparam noteTextAlignment left
 '     parses, that a suffix-pattern domain is accepted, and that the variable
 '     arrives as a sentinel — without spending a real credential.
 '
+'     ── PROBED 2026-09-07: BOTH GUESSES GOOD ───────────────────────────────
+'         sbx run credprobe-own . --kit /tmp/cp3
+'         ✓ Created sandbox credprobe-own-sandbox
+'         VALUE: proxy-managed
+'
+'     A `kind: sandbox` kit declaring credentials[] is ACCEPTED — no "defined in
+'     both", no 400 — which is the other half of the mixin refusal: the
+'     credential belongs to whoever declares the agent, and this kit does.
+'
+'     The SUFFIX-PATTERN domain is accepted. proveo's registry stores hosts as
+'     ".anthropic.com" and that is what the Kit emits; the docs example uses a
+'     bare host, so this was a guess. It is not one now, and the builder needs
+'     no change.
+'
+'     And the variable arrives as a SENTINEL. That closes the downgrade E1
+'     opened: a def declaring its own agent now keeps the property it would
+'     otherwise have silently lost.
+'
+'     STILL UNPROVEN, and deliberately so: whether the proxy can INJECT a
+'     working value for a service whose stored credential is an OAuth login.
+'     The sentinel appears either way — it follows from the declaration, not
+'     from the secret resolving — so only a real API call settles it. The
+'     downgrade risk is closed regardless, because a sentinel that fails to
+'     authenticate is a visible error, and a real key in the agent process is
+'     not.
+'
+'     ── ASSERTED IN THE SUITE ──────────────────────────────────────────────
+'     e2e TestSandboxKitProxyManagesTheCredential does what the ladder cannot:
+'     it puts ONE credential back — a dummy — renders proveo's real Kit, starts
+'     the sandbox, and asks the LIVE sandbox what the agent actually holds. It
+'     fails loudly on the dummy (the downgrade), on <unset> (a declaration
+'     resolving against nothing), and on a Kit that renders no credentials at
+'     all with a key present.
+'
+'     It rests on one property of env(1): options are parsed before assignments,
+'     so `env -u X X=v` SETS X, while the reverse order makes env treat -u as a
+'     filename and fail. Two unit tests pin that, because it is invisible at the
+'     call site and fatal if inverted.
+'
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
 '     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
