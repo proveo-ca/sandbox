@@ -1,0 +1,286 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the decision space around deleting the docker+egress backend and keeping mitmproxy as observability only
+' would touch: internal/backend/dockeregress/** (the backend that would be deleted)
+' would touch: internal/egress/**, internal/egressproxy/**, cmd/proveo-egress/**
+' would touch: internal/reviewgate/**, internal/ptyproxy/**
+' would touch: internal/provider/provider.go (the ACL field, once nothing consumes it)
+' would touch: internal/run/run.go (buildPosture's EgressTier), internal/backend/sandbox/sandbox.go
+' session: b2e065e3-98e9-4974-ae9e-86990b8b1c81
+' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule — nothing here
+' is cited from source because nothing here has landed. This file states a
+' DECISION SPACE. Every measured fact is marked MEASURED; everything else is a
+' QUESTION and is written as one. No option below is chosen.
+'
+'   what kept this backend alive  _spec/_paradigms/retire-dind.puml (APPLIED)
+'   what waits on deleting it ... _spec/_plans/secret-custody.puml (item d)
+'   the escape hatch's own plan . _spec/_plans/host-execution-fallback.puml
+'   the observability half ...... _spec/internal/egressproxy/mitm-and-flow-record.puml
+'   the tiers at stake .......... _spec/internal/egress/egress-tiers.puml
+'   the consent flow at stake ... _spec/internal/reviewgate/pty-review-proxy.puml
+'   what enforces on sbx ........ _spec/internal/sbx/policy-baseline.puml
+'   the boundary being restated . _spec/_paradigms/egress-boundary.puml
+'   the credential half ......... _spec/_paradigms/credential-boundary.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE PROPOSAL, STATED ONCE AND NOT ARGUED FOR ───────────────────────────
+' Delete the docker+egress backend. sbx becomes the only sandbox. mitmproxy
+' survives ONLY as an observability tool — the flow recorder — and never again
+' as an enforcement hop. That is the operator's proposal. This plan records it,
+' records what is measurably true around it, and then asks what it costs. It
+' does not accept it.
+'
+' ── WHAT IS ALREADY TRUE — MEASURED ────────────────────────────────────────
+' 1. THERE ARE TWO ENFORCEMENT MODELS, NOT ONE WITH A SWITCH.
+'    docker+egress: a mitm proxy chained to Squid, governed by proveo's own
+'    tiers `open` / `allowlist` / `review` (internal/egress).
+'    sbx: NO proveo proxy at all. `posture.EnforcedBy(true)` prints
+'    "sbx — Kit network allowlist + credential proxy (proveo runs no Squid or
+'    MITM)". The run log says it in those words.
+'
+' 2. retire-dind DELIBERATELY KEPT THIS BACKEND. Its SCOPE section says the
+'    fate of mitmproxy and Squid is "deliberately NOT decided here — they serve
+'    the docker backend, which survives this change as the PROVEO_SBX=0
+'    fallback". That plan is APPLIED; this one is the decision it declined.
+'
+' 3. secret-custody (d) IS BLOCKED ON EXACTLY THIS. Its ledger reads:
+'    "retire-dind landed and kept the docker backend, so (d) now waits on
+'    deleting it". `WriteBrokerEnv` still writes `broker.env` on that path.
+'    That plan now cross-references this file, so the dependency is no longer
+'    pointing at a decision with no home.
+'
+' 4. THE OBSERVABILITY HALF IS ALREADY SPECIFIED AND ALREADY NARROW.
+'    mitm-and-flow-record.puml documents flows.ndjson as host, method, path and
+'    status, with NO query string, headers or body — the query is stripped
+'    because the broker can inject a credential as `?key=`. That is the half
+'    the proposal would keep, and it is already the safe half.
+'
+' ── THE FORCING EXAMPLE — A DEFECT MEASURED TODAY ──────────────────────────
+' This is the clearest argument that having two models has a running cost, and
+' it is recorded verbatim rather than paraphrased.
+'
+'   internal/backend/sandbox/sandbox.go:677 writes the Kit allowlist
+'   UNCONDITIONALLY:
+'       Permissions: sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}}
+'   where `allow` is built at ~490-503 from the def's `Capabilities.Hosts`
+'   plus `credentials.ReachableHosts(in.Detected)`.
+'   THE EGRESS TIER IS NEVER CONSULTED IN THAT PATH.
+'
+'   internal/run/run.go:487 sets the reported posture from
+'       EgressTier: p.Mode
+'   which is proveo's DOCKER-backend tier.
+'
+' So an sbx run PRINTS `egress tier: open` while WRITING a narrow allowlist
+' that `open` cannot widen. An operator with an allow-all host baseline found
+' `https://api.x.ai/v1/models/` blocked and reasonably expected "open" to mean
+' open. `.x.ai` is in `internal/provider/provider.go` as both an ACL
+' (`dstdomain .x.ai`) and a broker host — but it only enters the Kit allowlist
+' if the run DETECTS an x.ai key, and no tier can add it.
+'
+' `WarnBaseline` (internal/backend/sandbox/sandbox.go:868) already half-admits
+' this: "the tier below describes proveo's intent, not what sandboxd will
+' enforce". But it fires ONLY when the global sbx baseline is allow-all, and it
+' never says the tier is inert against the Kit allowlist. The half-admission is
+' evidence of the split, not a fix for it.
+'
+' ── THE OPEN QUESTIONS. NONE OF THESE IS ANSWERED HERE ─────────────────────
+' Q1. WHAT BECOMES OF THE TIER VOCABULARY? Does `open` / `allowlist` / `review`
+'     survive as declared INTENT, mapped onto sbx's baseline plus the Kit
+'     allowlist — or is it retired with the backend it describes? The x.ai case
+'     forces the question either way: today the word and the enforcement
+'     disagree, and both a mapping and a retirement would end that.
+'
+' Q2. WHERE DOES THE REVIEW GATE GO? `internal/reviewgate` and its consent flow
+'     are built on the docker proxy chain — a CONNECT hook plus a pty proveo
+'     owns (pty-review-proxy.puml). sbx has no equivalent hop. Is `review`
+'     retired, reimplemented on some other seat, or deferred to the sandbox
+'     vendor? retire-dind already noted it "stops being proveo's to give"; that
+'     was an observation, not a decision.
+'
+' Q3. CAN MITM OBSERVE ON sbx AT ALL? sbx runs no proveo proxy. Keeping mitm as
+'     observability means finding it a seat on a backend that has none — or
+'     accepting that flow records become docker-only, which under this proposal
+'     means gone. retire-dind's legend sketches ONE route (chain proveo's
+'     inspector into sbx's own proxy via the Kit's `environment.variables`, with
+'     `PROVEO_EGRESS_UPSTREAM` already existing) and lists its costs: proveo's
+'     CA must be trusted inside the sandbox, sbx injects credentials at ITS
+'     proxy so chain order matters, and the NO_PROXY-as-regex hazard is live.
+'     Sketched is not chosen. Which is it: a seat, or no flow record?
+'
+' Q4. WHAT HAPPENS TO THE SQUID ACL VOCABULARY? `provider.Entry` carries BOTH
+'     `ACL` (a `dstdomain …` body for Squid) and `Hosts` (broker inject/strip,
+'     and what feeds the sbx Kit). If Squid goes, `ACL` has no consumer. Is it
+'     deleted, or is it the only machine-readable statement of a provider's
+'     domain set and therefore worth keeping under a different name? Deleting a
+'     field is easy; deleting the only place a fact is written down is not.
+'
+' Q5. WHAT ACTUALLY UNBLOCKS secret-custody (d)? (d) is "a plaintext credential
+'     in a mounted file". Deleting the backend removes the mounted-home shape.
+'     Does it also remove `broker.env`, or does a surviving observability mitm
+'     still need a credential from somewhere — moving the prerequisite a third
+'     time rather than closing it? The answer decides whether (d) is unblocked
+'     or merely re-pointed.
+'
+' Q6. WHAT IS THE MIGRATION SIGNAL FOR `PROVEO_SBX=0`? Today it selects a
+'     different container. After this it selects something else entirely, and
+'     what that something is has its own plan
+'     (_spec/_plans/host-execution-fallback.puml). Does the variable warn and
+'     no-op the way `PROVEO_DIND` does, hard-fail, or silently change meaning?
+'     Silently is the one answer retire-dind already rejected once.
+title PLANNED — retire docker+egress: what the second backend still holds, and what has nowhere to go
+
+component "**docker+egress backend**\nwhat the proposal would delete" as DOCKER <<error>>
+
+node "what lives inside it today" as INSIDE <<host>> {
+  component "mitmproxy\nenforcement hop AND flow recorder" as MITM <<app>>
+  component "Squid\n""dstdomain"" ACLs from provider.Entry" as SQUID <<app>>
+  component "internal/reviewgate + ptyproxy\nCONNECT hook + a pty proveo owns" as REV <<app>>
+  component "internal/egress tiers\nopen · allowlist · review" as TIERS <<app>>
+}
+
+component "sbx backend\nKit allowlist + sbx's own credential proxy" as SBX <<app>>
+database "flows.ndjson\nhost · method · path · status" as FLOWS <<db>>
+cloud "sbx's proxy — the only route out\n""gateway.docker.internal:3128""" as SBXPROXY <<cloud>>
+
+component "**the defect**\nprinted tier vs written allowlist" as DEFECT <<error>>
+component "secret-custody (d)\nplaintext credential in a mounted file" as CUSTODY <<error>>
+component "provider.ACL\nno consumer once Squid goes" as ACL <<error>>
+component "the PROVEO_SBX=0 escape hatch\nstops meaning: the other container" as ESCAPE <<error>>
+
+DOCKER ARROW_MAIN INSIDE
+TIERS ARROW_MAIN SQUID
+TIERS ARROW_MAIN MITM
+REV ARROW_MAIN MITM
+MITM ARROW_QUEUE FLOWS
+SQUID ARROW_MAIN ACL
+DOCKER ARROW_ERROR SBX : deleted — but not replaced part for part
+SBX ARROW_ERROR REV : no hop to ask on
+SBX ARROW_ERROR FLOWS : no proveo proxy to record at
+MITM ARROW_OPTIONAL SBXPROXY : Q3 — a seat, or nothing?
+TIERS ARROW_ERROR DEFECT
+SBX ARROW_ERROR DEFECT
+DOCKER ARROW_ERROR CUSTODY : while it lives, (d) stays open
+DOCKER ARROW_ERROR ESCAPE : see host-execution-fallback
+
+note bottom of DEFECT
+  **MEASURED. The tier never reaches the Kit.**
+  ""sandbox.go:677"" writes the allowlist
+  unconditionally from harness hosts plus
+  reachable hosts. Nothing on that path reads
+  the tier, so ""open"" cannot widen it.
+end note
+
+note top of DEFECT
+  **MEASURED. The run says both things.**
+  ""run.go:487"" reports ""EgressTier: p.Mode"" —
+  the DOCKER tier — on an sbx run. Printed
+  ""open"", enforced narrow. That is one
+  vocabulary describing another's boundary.
+end note
+
+note bottom of DEFECT
+  **The x.ai case is the forcing example.**
+  An allow-all host baseline, tier ""open"", and
+  ""api.x.ai/v1/models/"" blocked anyway: that
+  domain enters the Kit only if a key is DETECTED.
+  "Open" named an intent nobody enforced.
+end note
+
+note top of DEFECT
+  **""WarnBaseline"" half-admits it already.**
+  It says the tier "describes proveo's intent,
+  not what sandboxd will enforce" — but only
+  when the global baseline is allow-all, and
+  never that the tier is inert. Evidence, not fix.
+end note
+
+note bottom of TIERS
+  **Q1 — intent, or retirement?** Do
+  open/allowlist/review survive as a declared
+  intent mapped onto sbx's baseline and Kit, or
+  go with the backend? Unanswered here. Both
+  answers end the disagreement above.
+end note
+
+note bottom of REV
+  **Q2 — where does consent live?** The gate
+  needs a CONNECT hook and a pty proveo owns.
+  sbx offers neither. Retired, reimplemented, or
+  deferred to the vendor? retire-dind observed
+  the problem; it did not decide it.
+end note
+
+note bottom of MITM
+  **Q3 — can it observe on sbx at all?**
+  Keeping mitm as observability needs a seat on
+  a backend that runs no proveo proxy. Chaining
+  into sbx's own proxy is SKETCHED in
+  retire-dind, not chosen. Seat, or no record?
+end note
+
+note top of FLOWS
+  **What would survive is already the safe
+  half.** host, method, path, status — no
+  query, no headers, no body, because the
+  broker can inject ""?key="". Nothing about
+  keeping this needs the enforcement hop.
+end note
+
+note bottom of ACL
+  **Q4 — delete the field, or the fact?**
+  ""provider.Entry"" carries ""ACL"" for Squid and
+  ""Hosts"" for the broker and the Kit. If Squid
+  goes, ""ACL"" has no reader — but it may be the
+  only written-down form of a provider's domains.
+end note
+
+note bottom of CUSTODY
+  **Q5 — unblocked, or moved again?**
+  (d) waits on deleting this backend. Does
+  deleting it also retire ""broker.env"", or does
+  a surviving mitm still need a key from
+  somewhere — a third move, not a close?
+end note
+
+note top of CUSTODY
+  **The prerequisite has moved twice already.**
+  First "retire the sidecar", then "delete the
+  backend". A plan that moves it a third time
+  should say so out loud rather than claim a
+  close. This one claims nothing.
+end note
+
+note bottom of ESCAPE
+  **Q6 — what does the operator see?**
+  ""PROVEO_SBX=0"" today picks another container.
+  After this it picks something categorically
+  different. Warn-and-no-op, hard-fail, or
+  silent? Silent was already rejected once.
+end note
+
+note top of SBX
+  **This plan does not assume sbx is enough.**
+  It is the only backend the proposal leaves.
+  Whether that is a security win depends on the
+  six answers above, not on the deletion — and
+  none of them is settled in this file.
+end note
+
+legend bottom
+  **What this plan is, and is not**
+  ==
+  **IS** — a record of one proposal, four measured facts, one measured defect, and six
+  questions with no answers written into them.
+  --
+  **IS NOT** — a decision, a sequence of steps, or a design. There is deliberately no
+  ordered plan here: an order implies the destination is chosen, and it is not.
+  ==
+  **The one thing this file DOES settle**: secret-custody's item (d) now cross-references
+  a real path instead of an unnamed future decision, in both directions.
+  --
+  **The one thing it hands off**: what ""PROVEO_SBX=0"" would then mean is a separate and
+  larger question, because the answer stops being "a container". See
+  _spec/_plans/host-execution-fallback.puml.
+end legend
+@enduml
