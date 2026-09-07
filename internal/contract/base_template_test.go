@@ -202,3 +202,40 @@ func readFileOrFail(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// The ladder-all verdict has misread `go test` output twice, in opposite
+// directions, so the pattern it greps is pinned here.
+//
+//  1. a SKIP exits 0, so an unchecked exit status reported PASS for four defs
+//     on a host with no sbx — four climbs that never happened
+//  2. the fix grepped for "--- SKIP: TestSandboxLadder" unanchored, which also
+//     matches the four-space-indented SUBTEST line. cecli passed all its rungs
+//     with only its browser rung skipped (no cecli-browser image), and was
+//     reported as not-run
+//
+// Go prints the top-level result flush left and indents subtests, so the anchor
+// is the whole correctness of the line.
+// SPEC: _spec/_devops/release-gate.puml
+func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "mise.toml"))
+	if !strings.Contains(src, `'^--- SKIP: TestSandboxLadder [(]'`) {
+		t.Fatal("ladder-all's skip grep is not anchored at column 0 with a bracketed '(' — " +
+			"an unanchored pattern matches the indented SUBTEST line and reports a def that " +
+			"climbed every rung as not-run")
+	}
+
+	// The two shapes it has to tell apart, verbatim from real runs.
+	ranButOneRungSkipped := "--- PASS: TestSandboxLadder (168.93s)\n" +
+		"    --- SKIP: TestSandboxLadder/2-proveo-browser-image (0.14s)\n"
+	neverRan := "    ladder_test.go:314: sbx not available: sbx not on PATH\n" +
+		"--- SKIP: TestSandboxLadder (0.00s)\n"
+
+	re := regexp.MustCompile(`(?m)^--- SKIP: TestSandboxLadder [(]`)
+	if re.MatchString(ranButOneRungSkipped) {
+		t.Error("a def that climbed every rung, with one rung skipped, reads as not-run")
+	}
+	if !re.MatchString(neverRan) {
+		t.Error("a ladder that never ran reads as having run — the gate would certify nothing")
+	}
+}

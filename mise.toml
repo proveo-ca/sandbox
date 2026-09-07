@@ -231,7 +231,20 @@ for t in "${targets[@]}"; do
   # A SKIP EXITS 0. Reading that as PASS is how a release gate certifies a
   # climb that never happened -- an earlier version of this task did exactly
   # that and reported PASS for all four defs on a host with no sbx.
-  if grep -q -- '--- SKIP: TestSandboxLadder' "$log"; then
+  #
+  # ANCHORED AT COLUMN 0, and that is the whole correctness of this line. Go
+  # indents SUBTEST results by four spaces and prints the top-level result flush
+  # left, so an unanchored '--- SKIP: TestSandboxLadder' also matches
+  # '    --- SKIP: TestSandboxLadder/2-proveo-browser-image'. It did: cecli
+  # climbed all four rungs and PASSED, its browser rung skipped because no
+  # cecli-browser image exists, and this task reported the def as not-run. The
+  # other three have browser images, so nothing skipped and they read correctly
+  # -- which is how one bug produced three right answers and one wrong one.
+  #
+  # [(] not \\(: `run` is a TOML basic string, so a backslash starts a TOML
+  # escape and the config fails to LOAD -- the same trap as \\033 above. A
+  # bracket expression needs no escape and cannot be eaten.
+  if grep -qE -- '^--- SKIP: TestSandboxLadder [(]' "$log"; then
     why="$(sed -n 's/.*sbx not available: //p' "$log" | head -1)"
     verdicts+=("SKIP $t ${why:-the ladder did not run}")
     rc=1
