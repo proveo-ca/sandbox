@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // Usable must refuse a headless run: pipes are not terminals, so there is no
@@ -297,6 +299,90 @@ func TestDropReportsReachesTheInputPump(t *testing.T) {
 			case <-done:
 			case <-time.After(10 * time.Second):
 				t.Fatal("Run did not return")
+			}
+		})
+	}
+}
+
+// A lone ESC is one byte, so escEnd reports it incomplete and split() can only
+// hold it — the pump has to decide it was a keypress. Held forever, opencode's
+// ctrl+p modal could not be closed and the NEXT key went out as an Alt-chord.
+func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
+	t.Parallel()
+	type step struct {
+		in   string
+		want []string // chunks the child must receive before the next input
+	}
+	for _, tc := range []struct {
+		name    string
+		escIdle time.Duration
+		steps   []step
+	}{
+		{
+			name:    "lone escape reaches the agent so a modal can close",
+			escIdle: 20 * time.Millisecond,
+			steps:   []step{{in: "\x1b", want: []string{"\x1b"}}},
+		},
+		{
+			name:    "the key after an escape is its own keystroke, not alt-key",
+			escIdle: 20 * time.Millisecond,
+			steps: []step{
+				{in: "\x1b", want: []string{"\x1b"}},
+				{in: "k", want: []string{"k"}},
+			},
+		},
+		{
+			// A long idle proves the continuation wins the race, not the timer.
+			name:    "an escape split across reads is still assembled",
+			escIdle: 10 * time.Second,
+			steps: []step{
+				{in: "\x1b["},
+				{in: "A", want: []string{"\x1b[A"}},
+			},
+		},
+		{
+			name:    "a focus report split across reads is still dropped",
+			escIdle: 10 * time.Second,
+			steps: []step{
+				{in: "\x1b["},
+				{in: "I"},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			feed := make(chan []byte, 8)
+			sink := make(chan []byte, 16)
+			p := New(os.Stdin, os.Stdout)
+			p.escIdle = tc.escIdle
+			p.overlayIn = sink // a PTY-free sink on the pump's normal write path
+			go p.pumpInFrom(&chanReader{ch: feed})
+			t.Cleanup(func() { close(feed) })
+
+			var typed, got, want []string
+			for _, s := range tc.steps {
+				feed <- []byte(s.in)
+				typed = append(typed, s.in)
+				want = append(want, s.want...)
+				for range s.want {
+					select {
+					case b := <-sink:
+						got = append(got, string(b))
+					case <-time.After(5 * time.Second):
+						t.Errorf("pumpInFrom(%q) delivered %q, want %q — input never reached the agent", typed, got, want)
+						return
+					}
+				}
+			}
+			// Nothing beyond what was typed may follow.
+			select {
+			case b := <-sink:
+				got = append(got, string(b))
+			case <-time.After(100 * time.Millisecond):
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("pumpInFrom(%q) delivered mismatch (-want +got):\n%s", typed, diff)
 			}
 		})
 	}

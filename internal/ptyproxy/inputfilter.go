@@ -160,7 +160,8 @@ func (f *inputFilter) split(b []byte) (forward, held []byte) {
 		end, complete := escEnd(b[i:])
 		if !complete {
 			// Unfinished: hold it for the next read, unless it is implausibly
-			// long — a lone ESC keypress must not be swallowed forever.
+			// long. The pump releases a held prefix after DefaultEscIdle, so a
+			// lone ESC keypress is not swallowed waiting for a continuation.
 			if len(b)-i <= maxHeld {
 				return forward, append(held, b[i:]...)
 			}

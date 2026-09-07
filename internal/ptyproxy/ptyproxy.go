@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/term"
@@ -35,6 +36,8 @@ type Proxy struct {
 
 	DropReports bool
 
+	escIdle time.Duration
+
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
@@ -43,7 +46,7 @@ type Proxy struct {
 }
 
 func New(in, out *os.File) *Proxy {
-	return &Proxy{In: in, Out: out, filter: newInputFilter()}
+	return &Proxy{In: in, Out: out, filter: newInputFilter(), escIdle: DefaultEscIdle}
 }
 
 func Usable(in, out *os.File) bool {
@@ -116,47 +119,111 @@ func (p *Proxy) setRestore(st *term.State) {
 	p.mu.Unlock()
 }
 
-func (p *Proxy) pumpIn() {
-	buf := make([]byte, 4096)
-	var held []byte // a partial escape sequence carried from the previous read
-	for {
-		n, err := p.In.Read(buf)
-		if n > 0 {
-			// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
-			chunk := buf[:n]
-			if len(held) > 0 {
-				chunk = append(held, chunk...)
-				held = nil
+// DefaultEscIdle is how long a partial escape waits for its continuation
+// before being forwarded as the keypress it is. 25-50ms is the conventional
+// terminal ESC timeout (vim's ttimeoutlen, kitty's esc-timeout); 40ms sits
+// mid-band — long enough that a real Alt-chord or CSI split across two reads
+// still arrives whole, short enough to feel instant.
+const DefaultEscIdle = 40 * time.Millisecond
+
+type inRead struct {
+	b   []byte
+	err error
+}
+
+// readChunks moves the blocking read off the pump so it can also wait on a
+// timer.
+func readChunks(r io.Reader) <-chan inRead {
+	ch := make(chan inRead, 1)
+	go func() {
+		defer close(ch)
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				ch <- inRead{b: append([]byte(nil), buf[:n]...)}
 			}
-			out := chunk
-			if !p.DisableFilter && p.filter != nil {
-				out, held = p.filter.split(chunk)
-			}
-			forward := len(out) > 0
-			if p.Tap != nil {
-				p.Tap(chunk, forward)
-			}
-			if !forward {
-				continue
-			}
-			p.mu.Lock()
-			ch := p.overlayIn
-			p.mu.Unlock()
-			if ch != nil {
-				b := make([]byte, len(out))
-				copy(b, out)
-				select {
-				case ch <- b:
-				default: // overlay already answered; drop rather than block the pump
-				}
-			} else if _, werr := p.masterFile().Write(out); werr != nil {
+			if err != nil {
+				ch <- inRead{err: err}
 				return
 			}
 		}
-		if err != nil {
-			return
+	}()
+	return ch
+}
+
+func (p *Proxy) pumpIn() { p.pumpInFrom(p.In) }
+
+func (p *Proxy) pumpInFrom(r io.Reader) {
+	idleAfter := p.escIdle
+	if idleAfter <= 0 {
+		idleAfter = DefaultEscIdle
+	}
+	chunks := readChunks(r)
+	var held []byte // a partial escape sequence carried from the previous read
+	for {
+		var idle <-chan time.Time
+		if len(held) > 0 {
+			idle = time.After(idleAfter)
+		}
+		select {
+		case c, ok := <-chunks:
+			if !ok {
+				return
+			}
+			if len(c.b) > 0 {
+				// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+				chunk := c.b
+				if len(held) > 0 {
+					chunk = append(held, chunk...)
+					held = nil
+				}
+				out := chunk
+				if !p.DisableFilter && p.filter != nil {
+					out, held = p.filter.split(chunk)
+				}
+				forward := len(out) > 0
+				if p.Tap != nil {
+					p.Tap(chunk, forward)
+				}
+				if forward && !p.deliver(out) {
+					return
+				}
+			}
+			if c.err != nil {
+				return
+			}
+		case <-idle:
+			// No continuation came: it was a keypress, not a prefix. Forward it
+			// verbatim — a lone ESC is how the agent's TUI closes a modal.
+			out := held
+			held = nil
+			if p.Tap != nil {
+				p.Tap(out, true)
+			}
+			if !p.deliver(out) {
+				return
+			}
 		}
 	}
+}
+
+// deliver hands input to the overlay if one is up, else to the child's PTY.
+func (p *Proxy) deliver(out []byte) bool {
+	p.mu.Lock()
+	ch := p.overlayIn
+	p.mu.Unlock()
+	if ch != nil {
+		b := make([]byte, len(out))
+		copy(b, out)
+		select {
+		case ch <- b:
+		default: // overlay already answered; drop rather than block the pump
+		}
+		return true
+	}
+	_, err := p.masterFile().Write(out)
+	return err == nil
 }
 
 func (p *Proxy) pumpOut() {
