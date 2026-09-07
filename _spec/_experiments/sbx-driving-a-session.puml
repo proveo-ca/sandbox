@@ -1,0 +1,128 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: E3 — retire the sbx e2e skip, and why `sbx exec` beats `sbx ssh` for it
+' covers: e2e/sbx_test.go
+' The skip this is about: sbxShellHoldsInADetachedPane, e2e/sbx_test.go:687
+' Sibling experiments: sbx-kit-capabilities.puml (E1 adopted, E2 folded in)
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE SKIP ────────────────────────────────────────────────────────────────
+' TestSandboxBackendRunsDockerInsideTheSandbox asserts the four things
+' `docker: sbx` claims:
+'   1. the run took the sandbox backend, not the docker+egress fallback
+'   2. the workspace mount carries writes back to the host
+'   3. the sandbox SUPPLIES docker — a daemon answers inside it
+'   4. the sandbox is gone afterwards, VM and all
+'
+' It skips, because sbxShellHoldsInADetachedPane returns false: sbx's own shell
+' agent exits within seconds when driven from a detached tmux pane, with proveo
+' uninvolved. The probe is deliberately written against SBX rather than proveo
+' so it turns back into coverage by itself the day sbx holds.
+'
+' ── E3 AS PROPOSED WAS `sbx ssh`, AND THAT IS THE WRONG TOOL ────────────────
+' The proposal read: `sbx setup ssh` once on the host, then
+' `ssh <sandbox>.sbx -- <probe>` instead of a tmux pane. It would work, and it
+' is more machinery than the job needs.
+'
+' `sbx exec` ALREADY DOES THIS, and this repo already uses it. probeLaunch
+' (e2e/ladder_test.go:480) runs
+'     sbx exec <sandbox> -- sh -c <script>
+' against a live sandbox and reads the output, and it has produced real answers
+' all session — the shebang/execve probe that eliminated every file-level cause
+' of the cecli defect ran through it. No setup step, no ssh client config, no
+' second auth path.
+'
+' ── SO THE REAL QUESTION IS NARROWER ────────────────────────────────────────
+' tmux is not there to reach the SANDBOX. It is there to drive PROVEO: the test
+' runs `proveo run <target> --shell`, which wants a terminal, and the pane is
+' how a test gives it one. sbx's shell agent then dies inside that pane.
+'
+' Which splits the four claims in two:
+'   2 and 3 are about the SANDBOX — what is mounted, what answers inside it.
+'     Both are readable with `sbx exec` against a sandbox that already exists,
+'     with no pane and no agent session at all.
+'   1 and 4 are about PROVEO — which backend it chose, and whether it tore the
+'     VM down. Neither needs a session held open either: 1 is visible in
+'     `proveo run --print` or the run log, and 4 is `sbx ls` after teardown.
+'
+' If that holds, the skip is not blocked on sbx holding a pane. It is blocked
+' on the test having been written as one session-driving probe when it is four
+' independent assertions, only some of which need a session.
+'
+' ── UNMEASURED, AND THE ORDER TO MEASURE IT ────────────────────────────────
+' Every line above is read from this repo; none is run, because sbx is
+' host-side and absent here. The cheap first probe is one command:
+'     sbx run --name probe -t <image> shell <ws> &   # or however it detaches
+'     sbx exec probe -- sh -c 'echo alive; ls /'
+' If `sbx exec` reaches a sandbox whose session was never attached to a
+' terminal, claims 2 and 3 are free and the ssh route can be dropped
+' unmeasured. If it does not, `sbx ssh` becomes worth its setup cost and E3
+' reverts to the original proposal.
+'
+' NOT ADOPTED, NOT REJECTED. Recorded before writing code because the last four
+' items in this tree that were built on a plausible reading each cost a rebuild
+' cycle, and one of them cost 210 MB an image.
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — E3: driving an sbx session from a test
+
+component "e2e/sbx_test.go\nfour claims, one skip" as TEST <<error>>
+component "tmux pane\ngives proveo a terminal" as TMUX <<app>>
+component "sbx shell agent\nexits in a detached pane" as SHELL <<error>>
+
+component "sbx exec\nalready used by probeLaunch" as EXEC <<db>>
+component "sbx ssh\nsetup step + client config" as SSH <<cloud>>
+
+node "the four claims" as C <<host>> {
+  component "2 · workspace mount\n3 · docker answers inside" as SBOX <<app>>
+  component "1 · backend chosen\n4 · VM gone after" as PRV <<app>>
+}
+
+TEST ARROW_MAIN TMUX : needs a terminal for proveo
+TMUX ARROW_ERROR SHELL : agent dies here
+SHELL ARROW_ERROR TEST : so the whole probe skips
+EXEC ARROW_MAIN SBOX : readable with no pane
+EXEC ARROW_QUEUE PRV : run log · sbx ls
+SSH ARROW_QUEUE SBOX : would also work, costs more
+
+note bottom of EXEC
+  **The tool is already in the tree.** probeLaunch
+  runs `sbx exec <sandbox> -- sh -c` and produced
+  the shebang evidence that cleared every
+  file-level cause of the cecli defect, so its
+  reach into a live sandbox is measured.
+end note
+
+note bottom of TMUX
+  **tmux is for proveo, not for sbx.** The pane
+  exists because `proveo run --shell` wants a
+  terminal; sbx's agent merely dies inside it.
+  Naming the wrong owner is what made this look
+  like an sbx limitation.
+end note
+
+note bottom of SBOX
+  **Two claims need no session at all.** What is
+  mounted and what answers inside are properties
+  of the sandbox, readable once it exists —
+  which is why the skip may be a test-shape
+  problem rather than a runtime one.
+end note
+
+note bottom of TEST
+  **A suite that skips reports success.** This
+  one skips precisely where the shipping backend
+  lives, so the gap sits under the path proveo
+  actually takes, and no regression there would
+  be caught.
+end note
+
+note bottom of SSH
+  **Right answer to a question not asked.** ssh
+  reaches a sandbox, but so does exec with no
+  setup, no client config and no second auth
+  path — so it is the fallback, not the plan.
+end note
+
+@enduml
