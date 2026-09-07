@@ -181,8 +181,8 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 //
 // Measured: on the stock shell agent the env holds "proxy-managed", because
 // `shell` declares the credential and sbx injects host-side per request. An
-// agent that declares nothing gets no such treatment and the real key lands in
-// the process — a credential downgrade hidden inside a launch fix. This was the
+// agent that declares nothing gets no such treatment — a control run put the
+// variable at UNSET, so the agent cannot authenticate at all. This was the
 // gate's release condition; it now asserts rather than skips.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
@@ -199,8 +199,9 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	_, kit, secrets := Spec(in)
 
 	if len(kit.Credentials) == 0 {
-		t.Fatal("sandbox kit declares no credentials — the agent would hold the real key " +
-			"where borrowing `shell` gave it a sentinel")
+		t.Fatal("sandbox kit declares no credentials — the agent would get an UNSET variable " +
+			"where borrowing `shell` gave it a proxy-managed sentinel, so it cannot " +
+			"authenticate at all")
 	}
 	var c *sbx.KitCredential
 	for i := range kit.Credentials {

@@ -853,8 +853,14 @@ const (
 //
 // A def declaring its OWN agent must declare its own credentials, or it loses
 // what every built-in-backed def gets free: sbx sets the variable to a sentinel
-// and injects the real value host-side per request. Without it the real key
-// lands in the agent process — a downgrade hidden inside a launch fix.
+// and injects the real value host-side per request. Without it the variable is
+// UNSET — measured by this test's own control pass — so the agent cannot
+// authenticate at all.
+//
+// The dummyAPIKey branch below stays even though no run has produced it. It
+// guards the WORSE outcome: a leak would be silent where an unset variable is
+// loud, and an assertion that only covers what has been seen is how a suite
+// stops noticing.
 //
 // The ladder cannot catch that. childEnvArgsNoCredential unsets every
 // provider.DetectVars() entry so a climb never spends a key, so nothing is

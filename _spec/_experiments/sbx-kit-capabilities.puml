@@ -181,11 +181,18 @@ skinparam noteTextAlignment left
 '                 sbx.Kit has no Credentials field at all — nothing declares
 '                 the credential, so nothing proxy-manages it
 '
-'     E1 therefore risks moving cecli from sentinel to REAL KEY in the agent
-'     process: a credential downgrade hidden inside a launch fix. It is exactly
-'     the class of defect the gate exists to catch, and it is why the gate must
-'     not be defaulted on until sbx.Kit can declare credentials[] and the
-'     cecli kit does.
+'     E1 therefore risks moving cecli from a sentinel to NO CREDENTIAL AT ALL:
+'     a downgrade hidden inside a launch fix. It is exactly the class of defect
+'     the gate exists to catch, and it is why the gate must not be defaulted on
+'     until sbx.Kit can declare credentials[] and the cecli kit does.
+'
+'     CORRECTED after the control run measured it. This paragraph first read
+'     "from sentinel to REAL KEY in the agent process", and repeated that
+'     wording into three source comments. The control — the same Kit with the
+'     credentials block removed — put the variable at `<unset>`, not at the key.
+'     The overstatement made the defect sound like a LEAK; it is a failure to
+'     authenticate. Both are worth fixing and only one is a security regression,
+'     so the distinction is not pedantry.
 '
 '     So E2's remaining work is not an enhancement for three defs. It is a
 '     PREREQUISITE for one: the def that declares its own agent must also
@@ -282,9 +289,9 @@ skinparam noteTextAlignment left
 '     working value for a service whose stored credential is an OAuth login.
 '     The sentinel appears either way — it follows from the declaration, not
 '     from the secret resolving — so only a real API call settles it. The
-'     downgrade risk is closed regardless, because a sentinel that fails to
-'     authenticate is a visible error, and a real key in the agent process is
-'     not.
+'     downgrade risk is closed regardless: every outcome here is a LOUD failure
+'     — a sentinel that cannot authenticate, or an unset variable — and none is
+'     a silent leak.
 '
 '     ── ASSERTED IN THE SUITE ──────────────────────────────────────────────
 '     e2e TestSandboxKitProxyManagesTheCredential does what the ladder cannot:

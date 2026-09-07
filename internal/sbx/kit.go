@@ -34,8 +34,15 @@ type Kit struct {
 // This is the half a def LOSES by declaring its own agent. A built-in agent
 // declares its credentials, so sbx sets the env var to a sentinel and injects
 // the real value host-side per request — measured on the stock shell agent as
-// `VALUE: proxy-managed`. An agent that declares none gets no such treatment
-// and the real key lands in the process.
+// `VALUE: proxy-managed`. An agent that declares none gets no such treatment:
+// measured with a control run, the variable is UNSET, so the agent cannot
+// authenticate at all.
+//
+// The variable being absent rather than leaked is worth stating precisely,
+// because the two failures want different responses. This one is loud — the
+// agent fails to authenticate and says so. A leak would be silent, and would
+// make declaring your own agent a security regression rather than a broken
+// one. It is the second that never happens.
 type KitCredential struct {
 	Service  string         `yaml:"service"`
 	Required bool           `yaml:"required,omitempty"`
