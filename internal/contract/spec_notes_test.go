@@ -16,6 +16,7 @@ import (
 // joins the list once its notes are rewritten. The point is that a compliant file cannot
 // silently regress while the backlog is worked through.
 var specNotesEnforced = []string{
+	"_spec/_devops/release-gate.puml",
 	"_spec/_experiments/sbx-driving-a-session.puml",
 	"_spec/_experiments/nested-sbx-kvm.puml",
 	"_spec/_experiments/sbx-kit-capabilities.puml",

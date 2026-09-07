@@ -191,6 +191,62 @@ done
 description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
+[tasks.ladder-all]
+description = "Climb the sbx ladder for every def (host only: needs sbx)"
+dir = "{{config_root}}"
+# The shebang is load-bearing — see test-images above for what dash does to a
+# bash array. Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
+#
+# ONE CLIMB PER DEF, not one climb. PROVEO_LADDER_TARGET defaults to claudecode,
+# so a bare `-run Ladder` measures a quarter of the fleet — and ladder_test.go
+# says the sbx fixes proved for claudecode were applied to cursor BY SYMMETRY,
+# not by measurement. A release gate that climbs once has one data point.
+#
+# It keeps going after a failure and prints a table at the end: stopping at the
+# first red hides whether the other three share the fault, which is the question
+# a release actually needs answered.
+#
+# NO ANSI ESCAPES HERE. `run` is a basic TOML string, so a backslash starts a
+# TOML escape and \033 is a parse ERROR, not dim text — the config fails to load
+# and every task in the file goes with it. The contract test only checks the
+# shebang, so it passed while the file would not parse.
+# SPEC: _spec/_devops/release-gate.puml
+run = """
+#!/usr/bin/env bash
+set -uo pipefail
+targets=(cecli claudecode cursor opencode)
+declare -a verdicts=()
+rc=0
+for t in "${targets[@]}"; do
+  printf '\n== ladder: %s ==\n' "$t"
+  out="$(PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET="$t" \
+          go test -tags e2e -count=1 -timeout 30m ./e2e/ -run Ladder -v 2>&1)"
+  code=$?
+  printf '%s\n' "$out"
+  # A SKIP EXITS 0. Reading that as PASS is how a release gate certifies a
+  # climb that never happened -- the first version of this task did exactly
+  # that and reported PASS for all four defs on a host with no sbx.
+  if printf '%s' "$out" | grep -q -- '--- SKIP: TestSandboxLadder'; then
+    why="$(printf '%s' "$out" | sed -n 's/.*sbx not available: //p' | head -1)"
+    verdicts+=("SKIP $t ${why:-the ladder did not run}")
+    rc=1
+  elif [ "$code" -eq 0 ]; then
+    verdicts+=("PASS $t")
+  else
+    verdicts+=("FAIL $t")
+    rc=1
+  fi
+done
+printf '\n-- ladder verdict, all defs --\n'
+for v in "${verdicts[@]}"; do printf '  %s\n' "$v"; done
+if [ "$rc" -ne 0 ]; then
+  printf '\n  NOT a release gate pass. A SKIP counts as not-passed: the ladder needs\n'
+  printf '  sbx, which no proveo sandbox has, so this task must run on the HOST.\n'
+  printf '  A red def names the rung, and the rung names the layer that owns it.\n'
+fi
+exit "$rc"
+"""
+
 # ── Consumer CDN (apps/cli) ─────────────────────────────────
 
 [tasks.wrangler-version]
