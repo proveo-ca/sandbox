@@ -219,15 +219,20 @@ declare -a verdicts=()
 rc=0
 for t in "${targets[@]}"; do
   printf '\n== ladder: %s ==\n' "$t"
-  out="$(PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET="$t" \
-          go test -tags e2e -count=1 -timeout 30m ./e2e/ -run Ladder -v 2>&1)"
-  code=$?
-  printf '%s\n' "$out"
+  # tee, NOT command substitution. `out="$(go test ...)"` buffers every line
+  # until the command exits, and a climb is minutes per def -- the first version
+  # of this task looked FROZEN for a quarter of an hour while it worked
+  # correctly. Streaming matters here more than most places: the rung logs are
+  # how an operator sees which layer is being exercised while it happens.
+  log="$(mktemp)"
+  PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET="$t" \
+    go test -tags e2e -count=1 -timeout 30m ./e2e/ -run Ladder -v 2>&1 | tee "$log"
+  code="${PIPESTATUS[0]}"
   # A SKIP EXITS 0. Reading that as PASS is how a release gate certifies a
-  # climb that never happened -- the first version of this task did exactly
+  # climb that never happened -- an earlier version of this task did exactly
   # that and reported PASS for all four defs on a host with no sbx.
-  if printf '%s' "$out" | grep -q -- '--- SKIP: TestSandboxLadder'; then
-    why="$(printf '%s' "$out" | sed -n 's/.*sbx not available: //p' | head -1)"
+  if grep -q -- '--- SKIP: TestSandboxLadder' "$log"; then
+    why="$(sed -n 's/.*sbx not available: //p' "$log" | head -1)"
     verdicts+=("SKIP $t ${why:-the ladder did not run}")
     rc=1
   elif [ "$code" -eq 0 ]; then
@@ -236,6 +241,7 @@ for t in "${targets[@]}"; do
     verdicts+=("FAIL $t")
     rc=1
   fi
+  rm -f "$log"
 done
 printf '\n-- ladder verdict, all defs --\n'
 for v in "${verdicts[@]}"; do printf '  %s\n' "$v"; done
