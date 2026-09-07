@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the TLS-terminating inspector decides a flow and what it is allowed to write down
+' covers: internal/egressproxy/**
+' covers: cmd/proveo-egress/**
+' covers: defs/sidecars/egress-proxy/Dockerfile
 ' Destination diagram — prose from internal/egressproxy/{proxy,recorder}.go lands here (batch 4).
 title MITM and flow record — martian chain, fail-closed policy, query strings never logged
 

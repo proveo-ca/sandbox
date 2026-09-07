@@ -9,11 +9,6 @@ import (
 	"testing"
 )
 
-// These drive ensure_dependency_trees with FAKE package managers on PATH — each
-// one appends "<tool> <args> @ <cwd>" to a log and exits 0 — so what the seed
-// decides to run, where, and how often is observable without a registry, an
-// image, or a real install.
-
 var (
 	machO = []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01}
 	elf   = []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}

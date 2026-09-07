@@ -47,8 +47,6 @@ func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 		t.Errorf("LSP row must list the servers plainly, got:\n%s", got)
 	}
 	// The "will start" prefix was dropped deliberately (_spec/internal/choiceui/wireframe.puml).
-	// The harder rule survives it: LSP presence depends on the image, so the host may
-	// neither claim detection nor re-add a prediction phrase it cannot honour.
 	for _, banned := range []string{"lsp:      detected", "will start"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("LSP row must state servers plainly; found %q in:\n%s", banned, got)
@@ -120,13 +118,6 @@ func TestLSPMarkerLabelsAreRealServerBinaries(t *testing.T) {
 	}
 }
 
-// proveo --init advertises the keys it will copy into a new .env. Advertising a
-// key with no registry entry is a lie: it is never detected, brokered or
-// allowlisted, so the user sets it and the agent still gets nothing.
-
-// Nerd is the default and ASCII is the fallback an operator selects when their font
-// stops at the Powerline range. Off must leave the row byte-identical, and a server
-// with no devicon must degrade to its category marker rather than to a ragged column.
 func TestLSPGlyphModes(t *testing.T) {
 	t.Parallel()
 	labels := []string{"typescript-language-server", "bash-language-server", "gopls"}
@@ -194,11 +185,6 @@ func TestGlyphModeFromLookup(t *testing.T) {
 	}
 }
 
-// Print mode now writes the Kit so the command it prints is runnable, which puts a
-// file on disk that a dry run never used to create. That is only acceptable because
-// the Kit declares credential NAMES and never values — this is the property the
-// write depends on, so it is asserted rather than assumed.
-
 func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
 	t.Parallel()
 	if got := EnforcedBy(true); !strings.Contains(got, "sbx") || !strings.Contains(got, "no Squid") {
@@ -209,16 +195,6 @@ func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
 	}
 }
 
-// The run log held the answer the whole time. A macOS run whose login file had
-// blanked tokens printed "the login in the proveo home needs a refresh" as its
-// twelfth line and then handed the terminal to an agent that died 77 seconds later
-// — by which point that line was gone from a terminal nobody had redirected. The
-// failure line has to name the transcript, not just the startup line nobody had a
-// reason to read yet.
-
-// The row exists because the gateway is a capability decided OUTSIDE the Kit. A
-// posture that lists reachable hosts and credentials but not an MCP server the
-// agent is told to call is not describing the run.
 func TestMCPGatewayPostureNamesTheDecision(t *testing.T) {
 	// No t.Parallel: the last assertion sets an env var precisely to prove it is
 	// ignored, and t.Setenv is incompatible with parallel tests.
@@ -233,20 +209,11 @@ func TestMCPGatewayPostureNamesTheDecision(t *testing.T) {
 	if !strings.Contains(got, "allowed") || !strings.Contains(got, "scope user") {
 		t.Errorf("allowing it must say so AND name where it lands, got %q", got)
 	}
-	// The decision arrives as a VALUE now. It used to read PROVEO_SBX_MEMORY's
-	// sibling itself, which made the row a second place the decision was made —
-	// so setting the env here must change nothing.
 	t.Setenv("PROVEO_SBX_MCP", "on")
 	if MCPGateway(true, false, gwVar) != "declined ("+gwVar+" empty; PROVEO_SBX_MCP=on to allow)" {
 		t.Error("the row read the environment instead of its argument")
 	}
 }
-
-// A remediation line the operator cannot paste is worse than none: it reads as a
-// second broken thing. The POSIX `VAR=… cmd` prefix is a bash/zsh/sh construct
-// that fish does not parse — it tries to EXECUTE the assignment and reports
-// "exists but is not an executable file" — so every hint proveo prints has to be
-// either shell-agnostic (`env VAR=… cmd`) or shell-aware (shell.ExportLine).
 
 func TestWorkspacePostureNamesWhereWorkLands(t *testing.T) {
 	t.Parallel()
@@ -260,11 +227,6 @@ func TestWorkspacePostureNamesWhereWorkLands(t *testing.T) {
 		}
 	}
 }
-
-// The stub this prevents is not a permission bug in the operator's tree: their
-// repo root stays uid-owned the whole time. It is a directory the sandbox
-// runtime invents to hang the .git mount on, which then impersonates the repo
-// root while being empty and unwritable.
 
 func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
 	t.Parallel()
@@ -293,11 +255,6 @@ func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
 	}
 }
 
-// The remembered answer is per-agent and deliberate; the .env value is ambient
-// and was written for some other run. MergeRoles ran the other way round, so an
-// ARCHITECT_MODEL exported once in a shell rc silently overrode the answer the
-// operator had just given this agent at the prompt — every run, with nothing
-// said. Nothing pinned the order, which is how it stayed reversed.
 // SPEC: _spec/internal/credentials/credential-decisions.puml
 func TestMergeRolesPrefersTheRememberedAnswer(t *testing.T) {
 	t.Parallel()

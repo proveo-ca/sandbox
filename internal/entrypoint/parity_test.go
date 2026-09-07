@@ -65,8 +65,6 @@ func TestGoBashBridgeParity(t *testing.T) {
 	}
 }
 
-// The Claude in Chrome scope gate exists twice, host-side and in the
-// entrypoint, so one table is run through BOTH. Also pins bash 3.2.
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestChromeScopeGateParityWithBash(t *testing.T) {
 	t.Parallel()

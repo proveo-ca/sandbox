@@ -12,22 +12,11 @@ import (
 	"testing"
 )
 
-// exemptFromTheGlyphBan names the files still printing in the old style, each
-// with the reason it is still allowed to. An exemption is a FACT in this test
-// rather than a gap in it: deleting an entry is how the work gets picked up,
-// and nothing drifts back in behind one.
-//
-// The two in-container files are surface A of
 // _spec/_plans/tui-style-deferred-surfaces.puml — deferred because sbx is
-// expected to absorb what they report, and because they are baked into images,
-// so iterating on them costs a rebuild rather than a test run.
 var exemptFromTheGlyphBan = map[string]string{
 	"cmd/proveo-entrypoint/main.go":     "surface A — the in-container preamble; sbx's kit may absorb it entirely",
 	"internal/entrypoint/entrypoint.go": "surface A — PROVEO_SMOKE_READY, printed inside the image",
 
-	// Surface C — the defs/**/*.sh layer, 105 emoji lines over 21 files. Not a
-	// print site itself: this file ASSERTS what defs/lib/docker-build.sh prints,
-	// so its expectations move when that script does, not before.
 	"internal/contract/agent_pin_test.go": "surface C — mirrors defs/lib/docker-build.sh's pin note",
 
 	// Fixtures, not print sites. Both are load-bearing exactly BECAUSE they
@@ -36,23 +25,9 @@ var exemptFromTheGlyphBan = map[string]string{
 	"internal/agentio/agentio_test.go": "fixture — the AGENT's own output being tailed, not proveo's",
 }
 
-// TestNoEmojiReachesTheTerminal walks every Go string literal that could reach a
-// writer and fails on a rune go-runewidth and a terminal can disagree about.
-//
-// The ban is width, not taste. It is stated two ways because one alone leaks:
-// a variation selector is the disagreement itself — go-runewidth measures U+FE0F
-// as one column and terminals draw the pair it decorates as two — and the
-// pictographic planes are where the rest of the offenders live. A stream that
-// cannot predict its own column count cannot wrap, which is how every long
-// status line in this repo came to break mid-word.
-//
-// COMMENTS ARE SCANNED TOO. Exempting them looked reasonable — the design
-// language ought to be able to name what it excludes — and it is exactly the
-// loophole that let the first draft of this file hold twelve emoji in the switch
-// that banned them, and put U+2705 / U+274C in the doc comment of the test
-// asserting they are unnecessary. A rune is nameable by its codepoint; the glyph adds
-// nothing a comment needs, and its presence teaches the next reader that the
-// rule has an inside voice.
+// TestNoEmojiReachesTheTerminal walks every Go string literal that could
+// reach a writer and fails on a rune go-runewidth and a terminal can disagree
+// about.
 func TestNoEmojiReachesTheTerminal(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -99,22 +74,6 @@ func TestNoEmojiReachesTheTerminal(t *testing.T) {
 	}
 }
 
-// emojiPresentationBMP is Emoji_Presentation=Yes below U+1F000, as ranges from
-// Unicode's emoji-data.txt. These are the symbols that render as emoji with NO
-// variation selector to give them away, so neither of the other two rules
-// catches them: U+2705 and U+274C are the green tick and red cross this
-// codebase kept reaching for.
-//
-// Written as codepoints on purpose. A test that bans emoji must not be a file
-// full of emoji — and the point it is making is that a rune carrying its own
-// colour is the wrong tool when the theme already has ui.ColorSuccess and
-// ui.ColorFailure to paint a plain "✓" and "×" with.
-//
-// The ranges are narrow, and what they leave OUT is the design language:
-// U+2713 "✓", U+26A0 "⚠", U+00D7 "×", U+25CF "●", U+2500 "─", U+2192 "→",
-// U+25B8 "▸" are all text-presentation and all still legal. U+26AA and U+26AB
-// are not, which is the trap this catches — they read as the language's dot and
-// paint two columns wide.
 var emojiPresentationBMP = [][2]rune{
 	{0x231A, 0x231B}, {0x23E9, 0x23EC}, {0x23F0, 0x23F0}, {0x23F3, 0x23F3},
 	{0x25FD, 0x25FE}, {0x2614, 0x2615}, {0x2648, 0x2653}, {0x267F, 0x267F},
@@ -148,10 +107,6 @@ func bannedRune(r rune) string {
 	return ""
 }
 
-// The language's own runes must survive the ban, or the ban has eaten the
-// design. Asserted by codepoint: the legal glyphs are shown in the comment above
-// because they read better than their numbers, but nothing this file BANS
-// appears anywhere in it.
 func TestTheDesignLanguagesRunesStayLegal(t *testing.T) {
 	t.Parallel()
 	for _, r := range []rune{
@@ -172,10 +127,6 @@ func TestTheDesignLanguagesRunesStayLegal(t *testing.T) {
 	}
 }
 
-// The structural half of the ban: internal/ui must expose no verb that takes a
-// caller-supplied glyph. Iconf did, and that is how one package came to hold 23
-// different marks that no single file ever declared. Banning the runes without
-// banning the parameter would leave the door open.
 func TestUIExposesNoCallerChosenGlyph(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -199,9 +150,6 @@ func TestUIExposesNoCallerChosenGlyph(t *testing.T) {
 	})
 }
 
-// Every role the printer offers must be reachable through a verb, and every
-// verb must name a role that exists. A role with no verb is API nobody can use;
-// a verb naming no role prints undecorated and says nothing about it.
 func TestEveryRoleVerbIsWired(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -258,11 +206,6 @@ func walkGoFiles(t *testing.T, root, dir string, visit func(rel string, f *ast.F
 	}
 }
 
-// The section vocabulary is closed the same way the roles are: a call site may
-// only name a ui.Section* constant. A literal string here is how a parallel set
-// of headings starts — one caller writing "creds" beside another writing
-// "credentials", and the narration no longer matching the form the operator
-// answered.
 func TestSectionsNameAConstant(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -295,9 +238,6 @@ func TestSectionsNameAConstant(t *testing.T) {
 	}
 }
 
-// Every declared section must be reachable, and every section a caller names
-// must be declared. A constant nobody uses is a heading that never appears; the
-// test that would have caught it is this one.
 func TestEverySectionConstantIsUsed(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

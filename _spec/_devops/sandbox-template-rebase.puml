@@ -4,6 +4,12 @@ skinparam noteTextAlignment left
 ' purpose: what docker/sandbox-templates actually ships, measured from the registry
 ' covers: defs/base/Dockerfile
 ' covers: defs/base/proveo-harden
+' covers: defs/base-node/Dockerfile
+' covers: defs/base-node-lsp/Dockerfile
+' covers: defs/base-node-browser/Dockerfile
+' covers: defs/*/Dockerfile
+' covers: internal/contract/base_template_test.go
+' covers: internal/contract/bun_toolchain_test.go
 ' Lineage and tagging: image-lineage-and-publish.puml (same directory).
 ' Why the rebase happened: _spec/_plans/image-size-reduction.puml (Cut 4).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -54,6 +60,22 @@ skinparam noteTextAlignment left
 '              (the -docker suffix is what carries these; plain tags have the
 '               CLI only, and a CLI with no daemon is the mistake Cut 4 made)
 '   SIZE       588.7 MB compressed across 15 layers
+'
+' ── WHAT THE CONTRACT TEST HOLDS, BEYOND THE LINEAGE ───────────────────────
+' Two properties beyond "it extends a template", both cheap and both caught a
+' real defect once:
+'
+'   THE TAG IS VERSION-PINNED. `-\d+\.\d+\.\d+$` on the tag, not merely the
+'     `-docker` suffix. A floating template tag lets a republished image
+'     silently change the libc, the toolchains and the identity of every
+'     harness under it — the same class of drift as `@latest` in a Dockerfile,
+'     one layer down.
+'
+'   THE BASE ASSERTS ITS OWN INHERITANCE AT BUILD TIME. `command -v docker`,
+'     `command -v dockerd` and a `-perm -4000` sweep run inside the image
+'     during the build. Without them a template that drops the Engine, or a
+'     harden pass that disarms sudo, is discovered in a running sandbox rather
+'     than in CI — which is exactly how the first two findings above were found.
 '
 ' ── CORRECTED BY MEASUREMENT: THE SETUID EXEMPTION WAS WRONG ───────────────
 ' Everything in the next section is the reasoning that led to exempting sudo
@@ -203,6 +225,14 @@ note bottom of TPL
   sandbox built on one answers `docker` and then
   fails to connect — the same half-provisioning
   Cut 4 arrived at from the other direction.
+end note
+
+note bottom of TPL
+  **A floating tag is ""@latest"" one tier down.**
+  The pin is checked for ""-X.Y.Z"" as well as for
+  ""-docker"": a republished template would change
+  the libc, the toolchains and the identity of
+  every harness with nothing recording it.
 end note
 
 note bottom of ID

@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: what one provider entry must declare, and the four places it must exist
+' covers: internal/provider/**
+' covers: internal/credentials/credentials.go
+' covers: internal/credentials/auth_choice_test.go
 title Provider registry — one entry, four obligations, three invariants
 
 node "internal/provider" as PKG <<host>> {
@@ -71,12 +75,15 @@ note right of ENTRY
   a harness holding five keys could not pin, so every run got a
   sentinel.
 
-  Three invariants are enforced by test, not by care:
+  Two invariants are enforced by test, not by care:
   * every ""bareIDPrefixes"" entry resolves to a REGISTERED provider
   * every registered provider has an ACL and a detect key
     (bedrock/vertex exempt: cloud-SDK auth, no blanket ACL)
-  * ""proveo --init"" advertises no key the registry cannot use — it was
-    offering DEEPSEEK/HUGGINGFACE/HF_TOKEN, none of them registered
+
+  A third is retired with the command that needed it: ""proveo init""
+  no longer advertises keys, so it can no longer offer one the
+  registry cannot use. It used to name DEEPSEEK/HUGGINGFACE/HF_TOKEN,
+  none of them registered. See _spec/cmd/proveo/init-sbx-bootstrap.
 end note
 
 note bottom of AMBIG
@@ -86,6 +93,18 @@ note bottom of AMBIG
   vendor — a Cerebras run pinned ""openai"" until this existed. The
   vendor's own ids (""gpt-5"", ""grok-4"", ""glm-4.6"") still resolve; when a
   prefix is ambiguous the operator can always use ""provider/model"".
+end note
+
+note bottom of BARE
+  **A local or shim prefix is not a provider.** ""ollama/"", ""ollama_chat/"" and
+  ""openai-compatible/"" serve arbitrary ids from whatever endpoint the operator
+  pointed them at, so ""ModelProvider"" returns "" — no pin, no route, and
+  nothing to allowlist, because there is no vendor host to reach.
+
+  That is a DIFFERENT silence from the ambiguous open-weights case. There the
+  vendor is real and merely unknowable from the id, so ""provider/model"" is the
+  operator's way out; here the prefix names a RUNTIME rather than a vendor, and
+  there is nothing for a qualified id to name.
 end note
 
 note bottom of P2

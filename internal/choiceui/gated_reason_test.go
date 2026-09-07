@@ -14,12 +14,6 @@ func helpText(r Row, width int) string {
 	return b.String()
 }
 
-// A single-select row can never put the cursor on a gated option — cycle() skips
-// it, correctly, because it cannot be chosen — so the OffWhy hung on that option
-// is text nothing will ever display. The row-level Reason is the only place its
-// explanation can appear, and it was suppressed the moment the row carried any
-// Help at all: the auth row drew "usage credits" greyed out on cursor and said
-// nothing whatsoever about why, which is the one thing drawing it is for.
 func TestAGatedOptionOnASingleSelectRowStillExplainsItself(t *testing.T) {
 	t.Parallel()
 	r := Row{
@@ -60,9 +54,6 @@ func TestAnUngatedRowDoesNotRepeatItsReason(t *testing.T) {
 	}
 }
 
-// A Multi row CAN hover a gated option (cycle moves there, toggle refuses), so
-// its OffWhy is reachable and the row-level Reason must stay as it was — the
-// add-on rows carry several reasons at once and would double up.
 func TestAMultiRowKeepsItsExistingReasonBehaviour(t *testing.T) {
 	t.Parallel()
 	r := Row{

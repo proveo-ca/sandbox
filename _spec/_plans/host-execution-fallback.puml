@@ -1,0 +1,256 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the decision space around PROVEO_SBX=0 meaning "on the host" rather than "another container"
+' would touch: internal/backend/** (a host backend does not exist yet — that absence IS the plan)
+' would touch: internal/run/run.go (backend selection, buildPosture)
+' would touch: internal/posture/posture.go (EnforcedBy, Observability)
+' would touch: internal/credentials/**, internal/broker/** (whether brokering survives with no boundary)
+' would touch: cmd/proveo/main.go (the flag or variable that would select it)
+' session: b2e065e3-98e9-4974-ae9e-86990b8b1c81
+' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule. Nothing here is
+' cited from source because the mode described here DOES NOT EXIST. This file
+' states a DECISION SPACE: measured facts are marked MEASURED, and everything
+' else is a QUESTION. No design is chosen and no boundary is promised.
+'
+'   the plan that creates this .. _spec/_plans/retire-docker-egress.puml
+'   what kept a container here .. _spec/_paradigms/retire-dind.puml (APPLIED)
+'   what would be forfeited (1) . _spec/_paradigms/credential-boundary.puml
+'   what would be forfeited (2) . _spec/_paradigms/egress-boundary.puml
+'   what would be forfeited (3) . _spec/_paradigms/runtime-user-boundary.puml
+'   what would be forfeited (4) . _spec/internal/sbx/clone-workspace.puml
+'   why a host may not qualify .. _spec/internal/sbx/host-readiness.puml
+'   the custody item downstream . _spec/_plans/secret-custody.puml (item d)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY THIS IS A SEPARATE PLAN AND NOT A PARAGRAPH IN THE OTHER ───────────
+' THE OPERATOR'S STATEMENT: `PROVEO_SBX=0` RUNS ON THE HOST.
+'
+' Today that is not what it does. MEASURED: `sandbox.Enabled()`
+' (internal/backend/sandbox/sandbox.go:39) reads `PROVEO_SBX` and, on
+' off/0/no/false/disable/disabled, hands the run to the docker+egress backend —
+' `internal/backend/dockeregress`. That is a DIFFERENT CONTAINER, and every
+' boundary proveo asserts still holds inside it.
+'
+' If docker+egress is retired (_spec/_plans/retire-docker-egress.puml), the
+' escape hatch stops meaning "a different container" and starts meaning "no
+' sandbox at all". That is not a smaller promise; it is a CATEGORICALLY
+' DIFFERENT one, and it deserves its own file rather than a line in a
+' retirement plan whose subject is something else.
+'
+' ── WHAT IS TRUE TODAY — MEASURED ──────────────────────────────────────────
+' 1. THERE IS NO HOST BACKEND. `internal/backend` holds exactly two:
+'    `dockeregress` and `sandbox`. Nothing in this tree runs an agent outside a
+'    container or a VM. Everything below is therefore about a mode that would
+'    have to be BUILT, not one that would be exposed.
+'
+' 2. THE VARIABLE ALREADY CARRIES OPERATOR EXPECTATIONS. `internal/run/
+'    choices.go:239` tells the operator that "PROVEO_SBX=0 or --egress-mode
+'    review fall back to docker + egress sidecars", and run.go:662 names it as
+'    the way to reach Claude in Chrome. Those sentences describe a container.
+'
+' 3. A HOST CAN FAIL TO QUALIFY FOR A SANDBOX FOR REASONS NOBODY CHOSE.
+'    host-readiness.puml (written today) hands the question "can this host run a
+'    sandbox" to `sbx diagnose` rather than to proveo's own guesses, precisely
+'    because the false-negative direction is expensive. A host with no KVM is a
+'    concrete, common case; CI runners and nested-virt-less VMs are the same
+'    shape. This is why the mode is worth ASKING about rather than dismissing.
+'
+' ── WHAT GOES AWAY, ALL AT ONCE — AND THE QUESTION THAT FOLLOWS ────────────
+' Q1. EVERY BOUNDARY proveo ASSERTS IS GONE SIMULTANEOUSLY:
+'       filesystem ...... no container, so no mount set; the agent sees the
+'                         whole host filesystem the operator can see
+'       egress .......... no MITM, no Squid, no Kit allowlist, no sandboxd
+'       runtime user .... runtime-user-boundary's "never root, any host uid"
+'                         becomes "whatever uid the operator is", including root
+'       clone mode ...... clone-workspace exists so the sandbox edits a private
+'                         clone; on the host the checkout IS the working tree
+'     WHICH OF THESE, IF ANY, CAN BE PARTIALLY RECOVERED ON A HOST? Not "should
+'     they be" — CAN they, honestly, with what a host offers? This plan does not
+'     answer it and must not imply that the answer is yes.
+'
+' Q2. THE CREDENTIAL BOUNDARY INVERTS. credential-boundary.puml exists to keep
+'     provider keys OUT of the agent — inject at the hop, strip off-route,
+'     sentinel everywhere else. On the host the agent inherits the operator's
+'     WHOLE environment and every file they can read, including the Keychain
+'     items `security` will hand over and any `.env` in the tree. IS BROKERING
+'     EVEN MEANINGFUL THERE — or does host mode simply FORFEIT it, and say so
+'     loudly? A broker whose secret the agent can read from the environment two
+'     seconds later is a ceremony, not a boundary.
+'
+' Q3. EGRESS ENFORCEMENT ON A HOST WOULD REST ON PROXY ENVIRONMENT VARIABLES
+'     THE AGENT CAN SIMPLY UNSET. `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` are a
+'     convention, not a boundary: the process they constrain is the process that
+'     can rewrite them. IS THAT WORTH OFFERING AT ALL, or is an honest "no
+'     enforcement" better than a boundary that LOOKS like one? egress-boundary's
+'     three modes all assume a hop the agent cannot route around.
+'
+' Q4. WHAT DOES proveo STILL PROVIDE WITH NO SANDBOX? This is the case FOR
+'     keeping the mode, so it has to be enumerated rather than assumed. The
+'     candidates, each of which is a question about whether it still holds:
+'       posture reporting ..... does a posture line that reports "no boundary"
+'                               have value, or is it theatre?
+'       model role resolution . the bridges and alias resolution are pure
+'                               host-side logic; do they care about a container?
+'       config seeding ........ seeding writes into a home the host already has
+'       the run log ........... artifacts, transcript, exit code
+'       git identity .......... authorship on the host is the OPERATOR'S, which
+'                               is either the point or the problem
+'     Enumerating this honestly is the only way to tell a legitimate mode from a
+'     wrapper that pretends to be one.
+'
+' Q5. WHEN IS HOST MODE LEGITIMATE RATHER THAN A FOOTGUN? A host with no KVM is
+'     now concrete (host-readiness.puml). CI runners and nested-virt-less VMs
+'     are the same shape — and some of those are ALREADY disposable, which is a
+'     real argument that the missing boundary was already provided by the
+'     environment. Does proveo get to rely on that, and how would it know?
+'
+' Q6. HOW DOES THE OPERATOR KNOW WHICH MODE THEY ARE IN? This is the failure the
+'     plan most needs to prevent: a run that SILENTLY DEGRADES from "sandboxed"
+'     to "on your machine". retire-dind already rejected silence once —
+'     `PROVEO_DIND` warns and no-ops rather than being read and ignored. The
+'     open part is what the equivalent is here: a warning, a required flag, a
+'     confirmation, or a refusal. Note that the defect recorded in
+'     retire-docker-egress is the SAME shape — a posture line that describes an
+'     intent nobody enforces — so this question is not hypothetical.
+title PLANNED — PROVEO_SBX=0 with no container: what "fallback" would then mean
+
+component "PROVEO_SBX=0 — today\nselects internal/backend/dockeregress" as TODAY <<app>>
+component "PROVEO_SBX=0 — after retirement\nselects: nothing. The host." as AFTER <<error>>
+
+node "the host, as the agent would see it" as HOST <<host>> {
+  component "the agent process\nthe operator's uid, or root" as AGENT <<error>>
+  component "the operator's environ\nevery key already exported" as ENV <<error>>
+  component "the real checkout\nnot a clone; edits land at once" as TREE <<error>>
+}
+
+folder "boundaries that end simultaneously" as LOST <<host>> {
+  component "filesystem\nno mount set to be outside of" as FS <<error>>
+  component "egress\nno MITM, no Squid, no Kit allow" as EG <<error>>
+  component "runtime user\nnever-root is no longer proveo's to say" as RU <<error>>
+  component "clone mode\nthe checkout is the working tree" as CL <<error>>
+}
+
+folder "what may survive — Q4, to be enumerated" as KEEP <<host>> {
+  component "posture reporting\nvalue only if it says NO boundary" as POST <<app>>
+  component "model role resolution\nhost-side logic either way" as ROLES <<app>>
+  component "config seeding + run log" as SEED <<app>>
+  component "git identity\nthe operator's own, for once" as GIT <<app>>
+}
+
+component "proxy env vars\nthe agent can unset them" as PROXYVARS <<error>>
+component "the broker\nkeys the agent can read anyway" as BROKER <<error>>
+cloud "the provider / the open web" as NET <<cloud>>
+component "a host with no KVM\nCI runners · nested-virt-less VMs" as NOKVM <<app>>
+component "**silent degradation**\nsandboxed -> on your machine" as SILENT <<error>>
+
+TODAY ARROW_ERROR AFTER : retire-docker-egress changes what this word means
+AFTER ARROW_MAIN HOST
+HOST ARROW_ERROR LOST
+AGENT ARROW_MAIN ENV
+AGENT ARROW_MAIN TREE
+AGENT ARROW_CLOUD NET : direct — nothing in the path
+BROKER ARROW_ERROR ENV : Q2 — brokering, or ceremony?
+PROXYVARS ARROW_ERROR EG : Q3 — a boundary, or the look of one?
+AFTER ARROW_OPTIONAL KEEP : Q4 — the case for keeping the mode
+NOKVM ARROW_OPTIONAL AFTER : Q5 — the legitimate case
+AFTER ARROW_ERROR SILENT : Q6 — the failure to prevent
+
+note bottom of TODAY
+  **MEASURED — today it is a CONTAINER.**
+  ""sandbox.Enabled()"" reads ""PROVEO_SBX"" and
+  falls back to ""internal/backend/dockeregress"".
+  Every boundary proveo asserts still holds
+  inside it. That is the promise being changed.
+end note
+
+note bottom of AFTER
+  **MEASURED — no host backend exists.**
+  ""internal/backend"" holds ""dockeregress"" and
+  ""sandbox"", and nothing else. This mode would
+  have to be BUILT, not exposed. That is why
+  every line below is a question.
+end note
+
+note bottom of LOST
+  **Q1 — they end together, not in order.**
+  Filesystem, egress, runtime user and clone are
+  four separate promises today and one absence
+  tomorrow. Which, if any, can be PARTIALLY
+  recovered on a host? Not answered here.
+end note
+
+note bottom of BROKER
+  **Q2 — the credential boundary inverts.**
+  Brokering keeps a key out of the agent. On the
+  host the agent already has the operator's whole
+  environment and every readable file. Is that
+  worth doing, or is forfeiting it more honest?
+end note
+
+note bottom of PROXYVARS
+  **Q3 — the constrained process holds the
+  lever.** ""HTTP_PROXY"" is a convention the
+  agent can unset. Is an unenforceable proxy
+  worth offering, or is a stated "no
+  enforcement" the safer thing to ship?
+end note
+
+note bottom of KEEP
+  **Q4 — this is the case FOR the mode.**
+  Posture, model roles, config seeding, the run
+  log, git identity. Each has to be checked, not
+  assumed: a value that only exists because of a
+  container does not survive losing one.
+end note
+
+note top of POST
+  **A posture line has a job here or none.**
+  If it reports "no boundary" plainly it is the
+  most useful thing left. If it prints a tier or
+  an "enforced by", it repeats the exact defect
+  recorded in retire-docker-egress.
+end note
+
+note bottom of NOKVM
+  **Q5 — the legitimate case is concrete.**
+  host-readiness gives ""sbx diagnose"" the
+  question "can this host run a sandbox". A host
+  that answers no is not a careless operator.
+  Some are disposable already — does that count?
+end note
+
+note bottom of SILENT
+  **Q6 — the failure this plan exists to
+  prevent.** A run that degrades quietly from
+  sandboxed to on-your-machine. Warning,
+  required flag, confirmation, or refusal?
+  retire-dind rejected silence once already.
+end note
+
+note bottom of TREE
+  **Clone mode was protecting something.**
+  On sbx the sandbox edits a private clone and
+  the work is lifted back. On the host the first
+  write is the operator's tree. Whether that is
+  a loss or the point is Q1's hardest part.
+end note
+
+legend bottom
+  **What this plan is, and is not**
+  ==
+  **IS** — the statement that ""PROVEO_SBX=0"" would stop meaning "another container",
+  three measured facts about today, and six questions with no answers in them.
+  --
+  **IS NOT** — a design for a host backend, a claim that one should exist, or a promise
+  that any boundary can be recovered outside a sandbox.
+  ==
+  **Its dependency**: this question only arises if _spec/_plans/retire-docker-egress.puml
+  is acted on. That plan's Q6 asks for the migration signal; this file is what the signal
+  would have to describe.
+  --
+  **Its inheritance**: retire-dind kept the docker backend as this escape hatch and said
+  so. Deleting the backend without deciding what the hatch becomes is the one outcome
+  both plans rule out.
+end legend
+@enduml

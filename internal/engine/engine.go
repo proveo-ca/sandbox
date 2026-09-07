@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/engine/container-engine.puml
-//
-// SPEC: _spec/internal/engine/container-engine.puml
 package engine
 
 import (

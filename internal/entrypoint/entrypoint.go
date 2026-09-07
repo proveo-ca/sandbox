@@ -1,7 +1,5 @@
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml,
 // _spec/_paradigms/harness-paradigms.puml
-//
-// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/_paradigms/harness-paradigms.puml
 package entrypoint
 
 import (

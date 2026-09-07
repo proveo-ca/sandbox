@@ -1,11 +1,11 @@
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
-//
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 package ptyproxy
 
 import (
 	"bytes"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,6 +14,9 @@ type inputFilter struct {
 	dropReplies bool
 	window      time.Duration
 	now         func() time.Time
+
+	// mouse is fed from the child's OUTPUT stream by the out pump.
+	mouse mouseTracker
 
 	mu     sync.Mutex
 	recent []seenReply
@@ -24,9 +27,9 @@ type seenReply struct {
 	at time.Time
 }
 
-// DefaultReplyWindow is how close together two IDENTICAL reports must arrive to
-// be read as one terminal answering twice rather than the application asking
-// twice.
+// DefaultReplyWindow is how close together two IDENTICAL reports must arrive
+// to be read as one terminal answering twice rather than the application
+// asking twice.
 const DefaultReplyWindow = 2 * time.Second
 
 func newInputFilter() *inputFilter {
@@ -39,7 +42,7 @@ const (
 	reportNone  reportKind = iota // keystrokes, pastes, anything not a report
 	reportFocus                   // DEC mode 1004 focus in/out
 	reportReply                   // an answer to a query the application sent
-	reportMouse                   // DEC 1000/1006/1015/1016 mouse press, release or motion
+	reportMouse                   // DEC 9/1000/1001/1002/1003 press, release or motion
 )
 
 func (f *inputFilter) keep(b []byte) bool {
@@ -47,6 +50,11 @@ func (f *inputFilter) keep(b []byte) bool {
 	case reportFocus:
 		return !f.dropFocus
 	case reportMouse:
+		// Wanted exactly while the application has mouse tracking on, which it
+		// announces on its own output stream. Off, it is an unasked-for report.
+		if f.mouse.enabled() {
+			return true
+		}
 		return !f.dropReplies
 	case reportReply:
 		if f.dropReplies {
@@ -122,9 +130,6 @@ func classifyTerminalReport(b []byte) reportKind {
 			return reportReply
 		}
 	case '_': // APC … ST — the kitty GRAPHICS protocol's answer
-		// Queried as ESC_Gi=<id>,a=q,…ESC\ and answered ESC_Gi=<id>;OK ESC\.
-		// opencode probes with i=31337 on startup, so this is not exotic: it is
-		// the first thing the terminal says back to it.
 		if bytes.HasSuffix(b, []byte{0x1b, '\\'}) {
 			return reportReply
 		}
@@ -148,23 +153,110 @@ func isNumericParams(b []byte) bool {
 	return true
 }
 
-// maxHeld bounds how much of an unfinished escape sequence is carried into the
-// next read. A terminal reply is tens of bytes; anything longer is not one, and
-// holding real input hostage is worse than passing a report through.
+// mouseTracker follows the DEC private modes that make a terminal SEND mouse
+// reports, read off the child's output stream.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+type mouseTracker struct {
+	// on is read by keep() on the input pump and written by observe() on the
+	// output pump: an atomic keeps the input path off the parser's lock.
+	on atomic.Bool
+
+	// mu guards the multi-field parser state, which only the output pump
+	// touches today but which cannot be made atomic as a unit.
+	mu    sync.Mutex
+	modes uint16
+	carry []byte
+}
+
+// maxModeCarry bounds the partial CSI held between two output reads.
+const maxModeCarry = 128
+
+func (t *mouseTracker) enabled() bool { return t.on.Load() }
+
+// observe scans one chunk of child output for CSI ? Ps [;Ps…] h / l.
+func (t *mouseTracker) observe(b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	buf := b
+	if len(t.carry) > 0 {
+		buf = append(t.carry, b...)
+		t.carry = nil
+	}
+	for i := 0; i < len(buf); {
+		if buf[i] != 0x1b {
+			i++
+			continue
+		}
+		if i+1 >= len(buf) {
+			t.hold(buf[i:])
+			return
+		}
+		if buf[i+1] != '[' {
+			i += 2
+			continue
+		}
+		j := i + 2
+		for j < len(buf) && buf[j] >= 0x20 && buf[j] < 0x40 { // params and intermediates
+			j++
+		}
+		if j == len(buf) { // the final byte is in the next read
+			t.hold(buf[i:])
+			return
+		}
+		if final := buf[j]; (final == 'h' || final == 'l') && buf[i+2] == '?' {
+			t.apply(buf[i+3:j], final == 'h')
+		}
+		i = j + 1
+	}
+}
+
+func (t *mouseTracker) hold(b []byte) {
+	if len(b) > maxModeCarry {
+		return // too long to be a mode set: do not hoard the child's output
+	}
+	t.carry = append([]byte(nil), b...)
+}
+
+func (t *mouseTracker) apply(params []byte, set bool) {
+	for _, p := range bytes.Split(params, []byte(";")) {
+		n, err := strconv.Atoi(string(p))
+		if err != nil {
+			continue
+		}
+		bit := mouseModeBit(n)
+		if bit == 0 {
+			continue
+		}
+		if set {
+			t.modes |= bit
+		} else {
+			t.modes &^= bit
+		}
+	}
+	t.on.Store(t.modes != 0)
+}
+
+// mouseModeBit maps the modes that start and stop reporting. The encodings
+// (1005/1006/1015/1016) only change a report's shape, so a terminal sends
+// nothing for them alone and they must not hold tracking on by themselves.
+func mouseModeBit(mode int) uint16 {
+	switch mode {
+	case 9: // X10 press-only
+		return 1 << 0
+	case 1000: // press and release
+		return 1 << 1
+	case 1001: // highlight tracking
+		return 1 << 2
+	case 1002: // button-drag
+		return 1 << 3
+	case 1003: // any-motion
+		return 1 << 4
+	}
+	return 0
+}
+
 const maxHeld = 128
 
-// split walks a chunk and returns the bytes to forward, plus any trailing
-// PARTIAL escape sequence to carry into the next read.
-//
-// keep() judged one whole read at a time, which is wrong twice over. A reply
-// arriving split across reads left a fragment — `ESC[?62;` then `c` — and the
-// second piece failed the len<3 guard and reached the agent as a keystroke;
-// that is the stray `c` sitting in front of every "sandbox was stopped". And a
-// chunk carrying a report BESIDE real typing was all-or-nothing, so filtering
-// it meant eating the keystrokes with it. Bracketed paste makes both routine:
-// the pasted text, its ESC[200~/ESC[201~ markers and whatever the terminal was
-// still answering all land in one read.
-//
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	for i := 0; i < len(b); {
@@ -180,7 +272,8 @@ func (f *inputFilter) split(b []byte) (forward, held []byte) {
 		end, complete := escEnd(b[i:])
 		if !complete {
 			// Unfinished: hold it for the next read, unless it is implausibly
-			// long — a lone ESC keypress must not be swallowed forever.
+			// long. The pump releases a held prefix after DefaultEscIdle, so a
+			// lone ESC keypress is not swallowed waiting for a continuation.
 			if len(b)-i <= maxHeld {
 				return forward, append(held, b[i:]...)
 			}
@@ -196,10 +289,6 @@ func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	return forward, nil
 }
 
-// escEnd returns the length of the escape sequence starting at b[0] and whether
-// it is complete. It recognises the terminators each introducer actually uses;
-// anything unknown is treated as a two-byte ESC pair rather than swallowing the
-// rest of the buffer.
 func escEnd(b []byte) (int, bool) {
 	if len(b) < 2 {
 		return 0, false

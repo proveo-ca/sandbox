@@ -1,7 +1,5 @@
 // SPEC: _spec/internal/secretref/secret-references.puml,
 // _spec/_paradigms/credential-boundary.puml
-//
-// SPEC: _spec/internal/secretref/secret-references.puml, _spec/_paradigms/credential-boundary.puml
 package credentials
 
 import (
@@ -24,9 +22,9 @@ var keychainAccountOK = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 const keychainAccountFallback = "claude-code-user"
 
-// LookupEnv is the environment shape the service-name algorithm needs: it gives
-// an ABSENT variable and one set to "" different answers, which os.Getenv
-// cannot express.
+// LookupEnv is the environment shape the service-name algorithm needs: it
+// gives an ABSENT variable and one set to "" different answers, which
+// os.Getenv cannot express.
 type LookupEnv func(string) (string, bool)
 
 func OSLookupEnv(name string) (string, bool) { return os.LookupEnv(name) }
@@ -96,10 +94,16 @@ type KeychainLogin struct {
 	Subscription     string
 }
 
+// ReadKeychainLogin reports what the host's login Keychain holds for this run.
+// SPEC: _spec/internal/secretref/secret-references.puml
 func ReadKeychainLogin(target string, look LookupEnv, r *secretref.Resolver, now time.Time) KeychainLogin {
+	if r == nil || !r.HasKeychain() {
+		return KeychainLogin{Outcome: secretref.Unsupported}
+	}
 	services, ok := keychainLoginServices[HarnessFamily(target)]
-	if !ok || r == nil {
-		return KeychainLogin{}
+	if !ok {
+		// This harness family keeps no login in the Keychain.
+		return KeychainLogin{Outcome: secretref.Unsupported}
 	}
 	account := KeychainAccount(look)
 	last := KeychainLogin{Outcome: secretref.NotFound}
@@ -235,12 +239,15 @@ func (k KeychainLogin) KeychainFailureAdvice() string {
 		return "host Keychain: no answer (" + k.Detail + ") — continuing with the credential you had"
 	case secretref.Unsupported, secretref.OK:
 		return ""
+	case secretref.Failed:
+		detail := k.Detail
+		if detail == "" {
+			detail = "no output"
+		}
+		return "host Keychain: could not read it — " + detail
 	}
-	detail := k.Detail
-	if detail == "" {
-		detail = "no output"
-	}
-	return "host Keychain: could not read it — " + detail
+	// An Outcome this taxonomy does not name is a value nobody set: silence.
+	return ""
 }
 
 // SPEC: _spec/internal/sbx/oauth-provisioning.puml
@@ -254,9 +261,6 @@ func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored
 	if len(SubscriptionVars(man, lookup)) > 0 {
 		return false
 	}
-	// A provider key the harness can actually use is a credential too — telling
-	// an opencode run backed by ANTHROPIC_API_KEY that "the sandbox has no
-	// credential of its own" points at a login it does not need.
 	return len(ProviderKeyVars(man, lookup)) == 0
 }
 

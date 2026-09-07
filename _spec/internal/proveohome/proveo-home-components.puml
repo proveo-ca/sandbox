@@ -1,5 +1,8 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the durable proveo home — what it holds, who writes it, and what is never mounted
+' covers: internal/proveohome/**
+' covers: cmd/proveo/main.go
 title Proveo home — durable session state without binding host IDE homes
 
 actor "Developer" as DEV

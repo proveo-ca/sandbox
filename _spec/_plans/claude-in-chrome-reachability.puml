@@ -60,7 +60,7 @@ skinparam noteTextAlignment left
 ' directly, so the run never sets the variable there and the in-container half is
 ' a no-op." That was true and is now false — the measurement that replaced it
 ' (host.docker.internal reaching the host's loopback from inside a sandbox) is
-' 60 lines above it in the same file, and `_spec/_plans/retire-dind.puml` counts
+' 60 lines above it in the same file, and `_spec/_paradigms/retire-dind.puml` counts
 ' it as a cost the sbx-only move no longer pays.
 '
 ' Three positions, one of them right. The picker believes the third: gateAddons

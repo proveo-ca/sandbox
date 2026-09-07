@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/choiceui/choice-prompt-render.puml
-//
-// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 package choiceui
 
 import (

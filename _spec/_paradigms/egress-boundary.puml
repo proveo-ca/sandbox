@@ -1,5 +1,10 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the three network modes, and what makes a dangerous posture acceptable
+' covers: internal/egress/**
+' covers: cmd/proveo/main.go
+' covers: cmd/proveo-egress/**
+' The credential half of the same hop: _spec/_paradigms/credential-boundary.puml.
 title Network egress boundary — the three modes, and what makes a dangerous posture acceptable
 
 node "Agent container" as CTR <<host>> {
@@ -114,7 +119,7 @@ note bottom of OLLAMA
   **The one sibling left.** A privileged ""docker:dind""
   daemon used to hang here too, reachable by the agent
   and therefore a path around every arrow above. It is
-  retired (_spec/_plans/retire-dind.puml); a sandbox's
+  retired (_spec/_paradigms/retire-dind.puml); a sandbox's
   own daemon sits behind the boundary instead.
 end note
 

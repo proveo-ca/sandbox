@@ -3,8 +3,9 @@
 ' purpose: every frame the topology strip can draw, per backend, and what each element means
 ' covers: internal/run/topology.go
 ' covers: internal/choiceui/topology.go
+' covers: internal/run/topology_test.go, internal/choiceui/topology_test.go
 '   the mechanism behind it .... _spec/internal/choiceui/topology-strip.puml
-'   scrolling, panes: unbuilt .. _spec/_plans/choiceui-viewport-proposals.puml
+'   scrolling, panes: unbuilt .. _spec/internal/choiceui/figure-fidelities.puml
 '   the form it hangs under .... _spec/internal/choiceui/wireframe.puml
 '   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
@@ -61,7 +62,7 @@ title The topology strip in every selectable state, on both backends
   The sandbox add-on is now compulsory, so a harness that declares sbx is ALWAYS
   on the first row and never sees a tier. Every def declares it, so the docker row
   is reached only by PROVEO_SBX=0, --egress-mode review, or a host that cannot run
-  sbx (_spec/_plans/retire-dind.puml).
+  sbx (_spec/_paradigms/retire-dind.puml).
   .
   On sbx the baseline is host-wide and shared by sandboxes proveo never started,
   which is why the row is locked. The strip is REPORTING there — it draws a fact
@@ -271,34 +272,46 @@ title The topology strip in every selectable state, on both backends
   claiming a number. One lane always survives, because the run has to work.
 }
 ..
-{^"Motion — three frames per shape, and the pulse is what carries the meaning"
+{^"Motion — ONE mote riding the wire, hop → spine → junction → every open lane"
 {
-{^"nothing filtered — allow-all, and open — the pulse never slows at the hop"
-  f1 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:>
-  f2 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:> (2nd lane)
-  f3 | () host | . | [ def ] | ───▸ | () egress | - -•▸ <:cloud:> (3rd lane)
+{^"nothing filtered — allow-all, and open — three lanes open, so it fans to three"
+  f1 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:>  (on the spine)
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> ALL THREE at once
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> ALL THREE at once
 }
-{^"screened — balanced, and allowlist — one beat at the hop, one lane of three dies"
-  f1 | () host | . | [ def ] | •───▸ | () egress | ───▸ <:cloud:>
-  f2 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:>
-  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ───×
+{^"screened — balanced, and allowlist — two lanes open, and the refused one stays dark"
+  f1 | () host | . | [ def ] | ──•▸ | () egress | ───▸ <:cloud:>  (on the spine)
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> x2, and ───× dark
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> x2, and ───× dark
 }
-{^"asked — review — the question walks back up the wire and the agent waits"
-  f1 | () host | . | [ def ] | •───▸ | () egress | <:cloud:>
+{^"asked — review — NO mote at all: zero open lanes, so nothing is drawn moving"
+  f1 | () host | . | [ def ] | ───▸ | () egress | <:cloud:>  (still, by design)
   f2 | () host | . | [ def ] | ══▸ | (?) egress | <:cloud:>
   f3 | (?) host ◂─ ─ | ─ ─ | ─ ─ [ def ] | ─ ─ | (?) egress | <:cloud:>
   f4 | () host | . | [ def ] | ───▸ | () egress | ──▸ <:cloud:>  (you said yes)
 }
-{^"refused — deny-all — no question, because there is nobody to ask"
-  f1 | () host | . | [ def ] | •───▸ | () egress | ───▸ <:cloud:> Kit
-  f2 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:> Kit
-  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> and ──× the rest
+{^"refused — deny-all — one open lane, so the fan-out is a single lane"
+  f1 | () host | . | [ def ] | ─•─▸ | () egress | ───▸ <:cloud:> Kit  (spine)
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> Kit, ──× the rest
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> Kit, ──× the rest
 }
 }
   .
-  Motion is bound to change, not to time: a keystroke runs the filmstrip for
-  about 1.2 seconds and the strip then rests on its still frame. An idle prompt
-  costs nothing, and any movement means the form just moved.
+  **Motion is continuous, because it imitates flow.** One mote leaves the hop
+  column, rides the shared spine to the junction, and past it appears on EVERY
+  open lane in the same frame — never on a refused one. The path repeats as
+  tick % (spine + runLen), at 120ms a frame, for as long as the prompt is open.
+  .
+  It used to be bound to CHANGE instead: a keystroke ran the filmstrip for about
+  1.2 seconds and the strip then rested on a still frame, so an idle prompt cost
+  nothing. Flow that halts draws a network that FAILED, so that window is gone
+  and the redraw runs while the form is up. The mechanism, and the trade, are in
+  _spec/internal/choiceui/topology-strip.puml.
+  .
+  **The figure follows the HOVERED baseline on a locked row.** Cycling the sbx
+  egress row moves Hover and not Selected, so hop, lanes and caption all preview
+  the option under the cursor — balanced draws 2 open and 1 refused while you
+  are reading balanced's help, not deny-all's 1 and 2.
   .
   **'?' and '×' are different events, so they are different glyphs.** review's
   '?' is a question with somebody to ask: the MITM's CONNECT hook calls the

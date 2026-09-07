@@ -120,12 +120,6 @@ func claudecodeMan() manifest.Manifest {
 	}
 }
 
-// The silent death is the failure with no tail and no transcript, and it used to
-// reach the operator as nothing but a stopped sandbox — which reads as an
-// infrastructure fault and sends them into `sbx exec` after a cause that is on the
-// host. The hint has to name the credential, the command that mints one, and the
-// store trap: an entry can exist holding an EMPTY value, and `sbx secret ls` shows
-// the name either way.
 func TestNoCredentialHintNamesTheRemedy(t *testing.T) {
 	t.Parallel()
 	man := claudecodeMan()
@@ -171,9 +165,6 @@ func TestNoCredentialHintStaysSilentWhenOneArrived(t *testing.T) {
 			env:  []string{"CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-real"},
 		},
 		{
-			// Forward-by-name: docker copies the value out of proveo's own
-			// environment at launch, so the lookup is what decides whether the bare
-			// name carries anything.
 			name:   "forwarded by name, lookup holds it",
 			env:    []string{"CLAUDE_CODE_OAUTH_TOKEN"},
 			lookup: func(string) string { return "sk-ant-oat-real" },
@@ -226,19 +217,6 @@ func TestNoCredentialHintDefersToAPersistedLogin(t *testing.T) {
 	}
 }
 
-// The hint's confident sentence was wrong on the run that most needed it.
-//
-// sbx's credential store is GLOBAL and outlives every run, so a token written last
-// week is injected into a sandbox this run gave nothing to. proveo reads its OWN
-// decision to answer "did a credential reach the agent", which cannot see that
-// entry — so a run whose stored CLAUDE_CODE_OAUTH_TOKEN was live and answering 200
-// from api.anthropic.com would have been told no credential reached the agent, and
-// sent after the one thing that was working.
-//
-// The store cannot resolve it either: `sbx secret ls` prints the name and
-// "(stored)", never the value, so an entry holding an empty string is
-// indistinguishable from a live token. The hint therefore drops the claim and names
-// the suspect.
 func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
 	t.Parallel()
 	man := claudecodeMan()

@@ -108,7 +108,7 @@ subscription, `opencode-go/<model>`) — takes the same key, `OPENCODE_API_KEY`.
 gitignored `.env`; opencode reads env keys ahead of `auth.json`, so no `/connect` step is
 needed inside the sandbox. proveo detects the key like any other provider: it brokers it in
 firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
-`.opencode.ai` only) and `proveo --init` offers it.
+`.opencode.ai` only).
 
 `opencode auth login` / `/connect` inside the container is the wrong place: it writes
 `~/.local/share/opencode/auth.json`, which proveo **scrubs from the mounted share on every

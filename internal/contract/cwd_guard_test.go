@@ -59,9 +59,6 @@ func TestCwdGuardNamesAVanishedCwdReportedByClaudeCode(t *testing.T) {
 
 func TestCwdGuardReadsTheProcessTreeWhenTheJSONLooksFine(t *testing.T) {
 	t.Parallel()
-	// A fake /proc: this test process is the hook's parent, and its cwd link
-	// carries the kernel's "(deleted)" suffix. A symlink target is free text, so
-	// the suffix can be planted without an unlinked directory.
 	proc := t.TempDir()
 	mkdirAll := func(p string) {
 		if err := os.MkdirAll(p, 0o755); err != nil {

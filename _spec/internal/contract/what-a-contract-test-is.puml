@@ -3,6 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: why a package with no source exists, and what belongs in it
 ' covers: internal/contract
+' covers: internal/contract/**
 '
 ' ── NO SOURCE, ON PURPOSE ──────────────────────────────────────────────────
 ' internal/contract holds zero production lines and ~1900 test lines. It is not a

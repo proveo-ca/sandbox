@@ -7,8 +7,10 @@
 '   internal/workspace/mount.go   — mount plan + .env masking
 '   packages/lib/entrypoint-lib.sh, defs/*/entrypoint.sh — in-container steps
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
-'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' ── §2 · FINDING A .env, IN FOUR ORDERED ATTEMPTS ──────────────────────────
 ' find_env_file stops at the first hit, and the order is the point: the most

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // Usable must refuse a headless run: pipes are not terminals, so there is no
@@ -94,10 +96,6 @@ func TestOverlaySuspendsBothPumps(t *testing.T) {
 	}
 }
 
-// The overlay must be the ONLY reader of stdin for its duration. A pump that
-// keeps reading swallows the operator's answer, which is the contention this
-// package exists to remove — and it fails closed, so it looks like a denial
-// rather than a bug.
 func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	t.Parallel()
 	inR, inW, err := os.Pipe()
@@ -108,9 +106,6 @@ func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Deliberately NOT deferred: closing a file the pump is still reading tears the
-	// fd down underneath it, which the race detector reports as a data race against
-	// anything else touching that file. The pipes die with the test process.
 	_ = outR
 	p := New(inR, outW)
 	cmd := exec.Command("cat") // echoes whatever the pump forwards
@@ -142,9 +137,6 @@ func TestOverlayOwnsStdinExclusively(t *testing.T) {
 	_ = cmd.Process.Kill()
 }
 
-// tcell must read through the pump's hand-off, never /dev/tty. A screen that
-// opens the tty itself becomes a second reader: the modal renders and then takes
-// no keystrokes, which is what a real run showed.
 func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
 	t.Parallel()
 	fed := make(chan []byte, 1)
@@ -169,14 +161,6 @@ func TestOverlayScreenReadsFromTheHandoff(t *testing.T) {
 	}
 }
 
-// The tap is what finally gives an INTERACTIVE run a record of the agent's last
-// words. The tail is normally taken by teeing os/exec's Stdout, and os/exec hands
-// the child a real terminal only when that field is an *os.File — so teeing it costs
-// the agent its tty and the tail was simply skipped. A run that died at its prompt
-// then had no tail AND no transcript, and "sandbox was stopped" was the whole report.
-//
-// Both properties are asserted together, because either alone is the bug: the child
-// must still get a TTY, and the tap must still see what it wrote.
 func TestOutTapCopiesChildOutputWithoutCostingTheChildItsTTY(t *testing.T) {
 	t.Parallel()
 	outR, outW, err := os.Pipe()
@@ -257,10 +241,6 @@ func TestOutTapIsOptional(t *testing.T) {
 	}
 }
 
-// DropReports has to REACH the pump. A flag set on the struct and never read
-// looks right in review and changes nothing on the wire, which is precisely the
-// shape of the defect it exists to close — so this drives a real report through
-// a real Run and asks the tap what happened to it.
 func TestDropReportsReachesTheInputPump(t *testing.T) {
 	t.Parallel()
 	lone := "\x1b[?6c" // the VT102 DA reply that killed proveo-1787852436-14907
@@ -321,5 +301,137 @@ func TestDropReportsReachesTheInputPump(t *testing.T) {
 				t.Fatal("Run did not return")
 			}
 		})
+	}
+}
+
+// A lone ESC is one byte, so escEnd reports it incomplete and split() can only
+// hold it — the pump has to decide it was a keypress. Held forever, opencode's
+// ctrl+p modal could not be closed and the NEXT key went out as an Alt-chord.
+func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
+	t.Parallel()
+	type step struct {
+		in   string
+		want []string // chunks the child must receive before the next input
+	}
+	for _, tc := range []struct {
+		name    string
+		escIdle time.Duration
+		steps   []step
+	}{
+		{
+			name:    "lone escape reaches the agent so a modal can close",
+			escIdle: 20 * time.Millisecond,
+			steps:   []step{{in: "\x1b", want: []string{"\x1b"}}},
+		},
+		{
+			name:    "the key after an escape is its own keystroke, not alt-key",
+			escIdle: 20 * time.Millisecond,
+			steps: []step{
+				{in: "\x1b", want: []string{"\x1b"}},
+				{in: "k", want: []string{"k"}},
+			},
+		},
+		{
+			// A long idle proves the continuation wins the race, not the timer.
+			name:    "an escape split across reads is still assembled",
+			escIdle: 10 * time.Second,
+			steps: []step{
+				{in: "\x1b["},
+				{in: "A", want: []string{"\x1b[A"}},
+			},
+		},
+		{
+			name:    "a focus report split across reads is still dropped",
+			escIdle: 10 * time.Second,
+			steps: []step{
+				{in: "\x1b["},
+				{in: "I"},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			feed := make(chan []byte, 8)
+			sink := make(chan []byte, 16)
+			p := New(os.Stdin, os.Stdout)
+			p.escIdle = tc.escIdle
+			p.overlayIn = sink // a PTY-free sink on the pump's normal write path
+			go p.pumpInFrom(&chanReader{ch: feed})
+			t.Cleanup(func() { close(feed) })
+
+			var typed, got, want []string
+			for _, s := range tc.steps {
+				feed <- []byte(s.in)
+				typed = append(typed, s.in)
+				want = append(want, s.want...)
+				for range s.want {
+					select {
+					case b := <-sink:
+						got = append(got, string(b))
+					case <-time.After(5 * time.Second):
+						t.Errorf("pumpInFrom(%q) delivered %q, want %q — input never reached the agent", typed, got, want)
+						return
+					}
+				}
+			}
+			// Nothing beyond what was typed may follow.
+			select {
+			case b := <-sink:
+				got = append(got, string(b))
+			case <-time.After(100 * time.Millisecond):
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("pumpInFrom(%q) delivered mismatch (-want +got):\n%s", typed, diff)
+			}
+		})
+	}
+}
+
+// The out pump is where mouse tracking is learned: no PTY needed, the child's
+// bytes are the whole input.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestChildOutputEnablesMouseForwardingThroughTheOutPump(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close(); _ = outW.Close() }()
+
+	p := New(nil, outW)
+	p.DropReports = true
+	p.filter.dropReplies = true
+
+	drag := []byte("\x1b[<32;10;5M")
+	if p.filter.keep(drag) {
+		t.Errorf("keep(%q) = true before the child asked for mouse reports", drag)
+	}
+	p.pumpOutFrom(strings.NewReader("\x1b[?1049h\x1b[?1002;1006h"))
+	if !p.filter.keep(drag) {
+		t.Errorf("keep(%q) = false after the child enabled mouse tracking on its output", drag)
+	}
+}
+
+// The tap must still see everything the tracker reads.
+func TestOutPumpTapAndMouseTrackerBothSeeTheOutput(t *testing.T) {
+	t.Parallel()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = outR.Close(); _ = outW.Close() }()
+
+	var tapped []byte
+	p := New(nil, outW)
+	p.OutTap = func(b []byte) { tapped = append(tapped, b...) }
+	out := "painting\x1b[?1003h"
+	p.pumpOutFrom(strings.NewReader(out))
+
+	if diff := cmp.Diff(out, string(tapped)); diff != "" {
+		t.Errorf("OutTap over %q mismatch (-want +got):\n%s", out, diff)
+	}
+	if !p.filter.mouse.enabled() {
+		t.Errorf("pumpOutFrom(%q): mouse tracking not learned", out)
 	}
 }

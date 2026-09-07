@@ -15,11 +15,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/secretref"
 )
 
-// TestHostKeychainReadsTheRealStore exercises the resolver against this machine's
-// login Keychain — the one thing a stub cannot assert: that the service-name
-// algorithm proveo reproduces still matches what `claude` writes.
-//
-//	go test -tags=e2e ./e2e/ -run HostKeychain -v
+// TestHostKeychainReadsTheRealStore exercises the resolver against this
+// machine's login Keychain — the one thing a stub cannot assert: that the
+// service-name algorithm proveo reproduces still matches what `claude`
+// writes.
 func TestHostKeychainReadsTheRealStore(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the login Keychain exists on darwin only")

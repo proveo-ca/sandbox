@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// sbx's shell agent documents the rule this whole file exists for: a word after
-// `--` that begins with a dash is APPENDED to `bash -l`, and a bare word
-// REPLACES it. proveo passed the bare target name, so `-- cecli` ran
-// `bash cecli`; bash searched PATH, found the Python console script, and read it
-// as shell — `import: not found`. Nothing was absent from the image.
 // SPEC: _spec/_paradigms/capability-ladder.puml
 func TestShellAgentCommandIsFlagLeading(t *testing.T) {
 	agent, cmd := AgentFor("cecli")

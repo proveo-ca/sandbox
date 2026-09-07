@@ -44,10 +44,6 @@ func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
-	// An unauthenticated opencode session never reaches the state this test
-	// waits for — the second run has to re-enter the cached choice, which only happens once the
-	// agent actually starts. Without this the
-	// test spends its full timeout and reports a missing credential as a defect.
 	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 
@@ -61,25 +57,11 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		sess := tmux.New(fmt.Sprintf("proveo-settings-%s-%d", label, os.Getpid()), nil)
 		t.Cleanup(sess.Kill)
 
-		// env(1) on BSD/macOS requires -u options BEFORE any NAME=value operands, so
-		// childEnvArgs (which is all -u flags) has to come first or env tries to exec
-		// "-u" as the utility and the session dies with no output.
-		//
-		// Overriding HOME also hides ~/.docker, so the CLI loses its active context and
-		// falls back to /var/run/docker.sock; pin the endpoint explicitly.
 		cmd := []string{"env"}
 		cmd = append(cmd, childEnvArgs(t)...)
 		cmd = append(cmd,
-			// childEnvArgs disables the wizard for the harness suites; this test is
-			// ABOUT the choice form, so turn it back on. A later NAME=value wins in
-			// env(1). The form is the cache's only door in BOTH directions — it is
-			// where a remembered answer is shown and where the answer to remember is
-			// given — so with the wizard off there is nothing here to assert.
 			"PROVEO_WIZARD=on",
 			"HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
-		// An empty workspace keeps the sub-project picker away (this suite's own cwd is
-		// inside the proveo repo, which has sub-projects), leaving the choice form as
-		// the only prompt on this PTY.
 		cmd = append(cmd, bin, "run", target, "--input", work, "--shell")
 		cmd = append(cmd, extra...)
 		if err := sess.Start(200, 50, cmd...); err != nil {
@@ -159,9 +141,6 @@ func mustRead(t *testing.T, path string) []byte {
 	return b
 }
 
-// sessionEgressMode reads the tier the agent actually ran under, from the echo
-// the session performed inside the container. The shell echoes the command line
-// too, so only a line that is exactly the expansion counts.
 func sessionEgressMode(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)

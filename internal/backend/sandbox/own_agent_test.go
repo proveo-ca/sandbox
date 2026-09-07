@@ -1,21 +1,29 @@
 package sandbox
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/google/go-cmp/cmp"
 	"gopkg.in/yaml.v3"
+
+	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// Spec reads the environment through in.Lookup, so a fixture without one
-// dereferences nil before it reaches anything this file is about.
+func stubEntrypoint(target string) func(string) []string {
+	return func(string) []string { return []string{"dumb-init", "--", target + "-entrypoint"} }
+}
+
 func specInput(target string, extra ...string) Input {
 	return Input{
-		Target: target,
-		Image:  "proveo/" + target + ":latest",
-		Extra:  extra,
-		Lookup: func(string) string { return "" },
+		Target:          target,
+		Image:           "proveo/" + target + ":latest",
+		Extra:           extra,
+		Lookup:          func(string) string { return "" },
+		ImageEntrypoint: stubEntrypoint(target),
 	}
 }
 
@@ -25,9 +33,6 @@ func specFor(t *testing.T, target string, extra ...string) (sbx.RunConfig, sbx.K
 	return cfg, kit
 }
 
-// The borrowed-shell path stays REACHABLE after the default flipped, because it
-// is the one with the running hours and because a launch that cannot start is
-// worth an escape hatch. PROVEO_SBX_AGENT_KIT=0 is now what selects it.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOptingOutStillBorrowsTheShellAgent(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "0")
@@ -43,9 +48,6 @@ func TestOptingOutStillBorrowsTheShellAgent(t *testing.T) {
 	}
 }
 
-// With the gate on, cecli stops borrowing an agent and declares one. The point
-// is not the name: it is that no bash sits between sbx and the image's
-// ENTRYPOINT, so the shell agent's rule for words after `--` stops applying.
 func TestOwnAgentReplacesTheBorrowedShell(t *testing.T) {
 	cfg, kit := specFor(t, "cecli") // no env: the kit path is the DEFAULT now
 
@@ -68,20 +70,11 @@ func TestOwnAgentReplacesTheBorrowedShell(t *testing.T) {
 	if kit.Sandbox.Image != "proveo/cecli:latest" {
 		t.Errorf("kit image = %q, want the run's resolved image", kit.Sandbox.Image)
 	}
-	// Restating the image's ENTRYPOINT here would be a second copy free to drift.
-	if len(kit.Sandbox.Entrypoint) != 0 {
-		t.Errorf("kit restates an entrypoint (%v) the image already declares", kit.Sandbox.Entrypoint)
+	if len(kit.Sandbox.Entrypoint) == 0 {
+		t.Error("kit declares no entrypoint, so sbx opens a shell instead of the harness")
 	}
 }
 
-// SPEC-v2: a sandbox kit "MAY declare every shared block". Losing one would
-// trade the launch fix for a silent loss of reachability or seeding.
-//
-// Asserted as a DIFFERENCE against the mixin built from the same Input, not
-// against fixed values: what matters is that changing `kind` changes the
-// identity and NOTHING else. A fixture-shaped assertion ("the allowlist is
-// non-empty") measures the fixture instead, and this one first failed for
-// exactly that reason.
 func TestOwnAgentChangesIdentityAndNothingElse(t *testing.T) {
 	// Opt OUT to get the mixin, then back in: the kit path is the default now,
 	// so the comparison has to name both sides explicitly.
@@ -179,14 +172,6 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 	}
 }
 
-// A def that declares its OWN agent must also declare its own credentials, or
-// it silently loses a property every other def gets for free.
-//
-// Measured: on the stock shell agent the env holds "proxy-managed", because
-// `shell` declares the credential and sbx injects host-side per request. An
-// agent that declares nothing gets no such treatment — a control run put the
-// variable at UNSET, so the agent cannot authenticate at all. This was the
-// gate's release condition; it now asserts rather than skips.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
@@ -230,9 +215,6 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 		}
 	}
 
-	// The declaration resolves against a secret sbx ALREADY holds — which is why
-	// a service with nothing stored is not declared at all. proveo must not
-	// supply it: see TestSpecNeverStoresAServiceNamedSecret for what that cost.
 	if len(secrets) == 0 {
 		t.Error("no secrets at all — the env-var entries the gate-off path relies on are gone")
 	}
@@ -244,17 +226,6 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	}
 }
 
-// SPEC-v2: every injected domain MUST also appear in permissions.network.allow.
-//
-// The fixture deliberately DIVERGES the two inputs: in.Detected is empty, so
-// credentials.ReachableHosts contributes nothing to the allowlist, while
-// in.Lookup still carries the key, so provider.Detect finds anthropic and the
-// credential is built. That is the case the widening exists for, and without it
-// this test fails.
-//
-// The first version set in.Detected too, which put the domain in allow by the
-// other path — it passed with the widening deleted, measuring its own fixture
-// rather than the contract.
 func TestInjectDomainsAreAllowlisted(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic")
@@ -290,9 +261,6 @@ func TestInjectDomainsAreAllowlisted(t *testing.T) {
 	}
 }
 
-// A mixin must declare NO credentials at any time: sbx refuses one repeating a
-// service its parent already declares, and every built-in-backed def ships a
-// mixin. Measured as `400 ... defined in both "shell" and "credprobe"`.
 func TestMixinNeverDeclaresCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic")
@@ -325,10 +293,6 @@ func withStoredSecrets(t *testing.T, names ...string) {
 	t.Cleanup(func() { storedSecretNames = prev })
 }
 
-// A service sbx holds no secret for must NOT be declared: sbx prompts for it and
-// an unattended agent hangs on the prompt. Measured in a real run — the screen
-// reads "(stored)" for one it has and still asks, so approval lives in the
-// bindings file, not the secret store.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestUnstoredServicesAreNotDeclared(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
@@ -347,10 +311,6 @@ func TestUnstoredServicesAreNotDeclared(t *testing.T) {
 	}
 }
 
-// proveo must not write the SERVICE-named secret. Measured in a real run: the
-// operator's `anthropic (oauth configured)` entry was replaced by an API key,
-// because sbx secret set takes --force and the store is host-wide and outlives
-// the run.
 func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic")
@@ -370,9 +330,6 @@ func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 	}
 }
 
-// The DEFAULT is the contract now, so it is asserted rather than left implied.
-// A def with no built-in sbx agent declares its own; every def backed by one
-// keeps its mixin, because sbx refuses a kit that shadows a built-in name.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestAgentKitIsTheDefaultForDefsWithNoBuiltinAgent(t *testing.T) {
 	if !sbx.AgentKitEnabled() {
@@ -408,5 +365,107 @@ func TestOptOutIsHonouredForEverySpelling(t *testing.T) {
 					sbx.EnvAgentKit, v, kit.Kind, cfg.Agent)
 			}
 		})
+	}
+}
+
+func TestOwnAgentKitCarriesTheImageEntrypoint(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	tests := []struct {
+		name  string
+		image []string
+		want  []string
+	}{
+		{
+			name:  "def names its own launcher",
+			image: []string{"dumb-init", "--", "cecli-entrypoint"},
+			want:  []string{"dumb-init", "--", "cecli-entrypoint"},
+		},
+		{
+			name:  "def names a path",
+			image: []string{"dumb-init", "--", "/entrypoint.sh"},
+			want:  []string{"dumb-init", "--", "/entrypoint.sh"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput("cecli")
+			in.ImageEntrypoint = func(string) []string { return tc.image }
+			_, kit, _ := Spec(in)
+			if kit.Sandbox == nil {
+				t.Fatalf("Spec(cecli, image entrypoint %v) rendered no sandbox block", tc.image)
+			}
+			if diff := cmp.Diff(tc.want, kit.Sandbox.Entrypoint); diff != "" {
+				t.Errorf("Spec(cecli, image entrypoint %v) kit.Sandbox.Entrypoint mismatch (-want +got):\n%s",
+					tc.image, diff)
+			}
+		})
+	}
+}
+
+func TestNoImageEntrypointFallsBackToTheShellAgent(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	tests := []struct {
+		name  string
+		image []string
+	}{
+		{name: "image declares none", image: nil},
+		{name: "image not inspectable", image: []string{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput("cecli")
+			in.ImageEntrypoint = func(string) []string { return tc.image }
+			cfg, kit, _ := Spec(in)
+			if kit.Sandbox != nil {
+				t.Errorf("Spec(cecli, image entrypoint %v) kit.Sandbox = %+v, want no sandbox block: "+
+					"an entrypoint-less sandbox kit opens a shell", tc.image, kit.Sandbox)
+			}
+			if kit.Kind != "mixin" {
+				t.Errorf("Spec(cecli, image entrypoint %v) kit.Kind = %q, want mixin", tc.image, kit.Kind)
+			}
+			if cfg.Agent != sbx.ShellAgent {
+				t.Errorf("Spec(cecli, image entrypoint %v).Agent = %q, want %q",
+					tc.image, cfg.Agent, sbx.ShellAgent)
+			}
+			if !sbx.IsShellLaunch(cfg.Command) {
+				t.Errorf("Spec(cecli, image entrypoint %v).Command = %v, want the flag-leading shell launch",
+					tc.image, cfg.Command)
+			}
+		})
+	}
+}
+
+func TestEveryTargetFollowsItsHarnessAgent(t *testing.T) {
+	t.Setenv(sbx.EnvAgentKit, "1")
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatalf("LoadFS(Manifests): %v", err)
+	}
+	for _, m := range ms {
+		targets := make([]string, 0, len(m.Images))
+		for target := range m.Images {
+			targets = append(targets, target)
+		}
+		sort.Strings(targets)
+		for _, target := range targets {
+			t.Run(target, func(t *testing.T) {
+				in := specInput(target)
+				in.Man = m
+				cfg, kit, _ := Spec(in)
+
+				wantOwn := sbx.DeclaresOwnAgent(m.Name)
+				wantAgent := sbx.BuiltinAgent(m.Name)
+				wantKind := "mixin"
+				if wantOwn {
+					wantAgent, wantKind = sbx.AgentName(m.Name), "sandbox"
+				}
+				if cfg.Agent != wantAgent {
+					t.Errorf("Spec(%q).Agent = %q, want %q (def %q)", target, cfg.Agent, wantAgent, m.Name)
+				}
+				if kit.Kind != wantKind {
+					t.Errorf("Spec(%q) kit.Kind = %q, want %q (def %q)", target, kit.Kind, wantKind, m.Name)
+				}
+			})
+		}
 	}
 }

@@ -8,6 +8,7 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/run/run.go
 ' covers: e2e/browser_viewport_test.go
+' covers: internal/sbx/clone_test.go
 '
 ' ── TWO PORTS, BECAUSE ONE CANNOT DO BOTH JOBS ─────────────────────────────
 ' Chromium's DevTools endpoint refuses every peer that is not loopback: bound

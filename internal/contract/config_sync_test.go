@@ -65,9 +65,6 @@ func TestConfigSyncRoundTripsTheHarnessConfiguration(t *testing.T) {
 	}
 }
 
-// A credential must never ride out on a config copy. The manifest denies it and
-// the host scrubs it; the sandbox copy has to agree, or the sync reintroduces
-// exactly the file proveohome.scrubDeny removes.
 func TestConfigSyncNeverCarriesADeniedFileOut(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -86,9 +83,6 @@ func TestConfigSyncNeverCarriesADeniedFileOut(t *testing.T) {
 	}
 }
 
-// State and config must not both move the same bytes. The volumes sbx owns are
-// state; the config sync prunes every one of them, telemetry included, which is
-// what keeps `statsig` and `shell-snapshots` out of the operator's home.
 func TestConfigSyncPrunesTheVolumesStateOwns(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -161,10 +155,6 @@ func TestConfigSyncRefusesAnUnknownMode(t *testing.T) {
 	}
 }
 
-// Ordering: every configure_* step merges with setdefault semantics, so a
-// config restored after them loses the operator's persisted values to this run's
-// defaults — and does it silently, because a merge that overwrites nothing looks
-// exactly like a merge that had nothing to overwrite.
 func TestSeedRestoresConfigBeforeAnythingWritesIt(t *testing.T) {
 	t.Parallel()
 	seed := seedBody(t, entrypointLib(t))
@@ -172,11 +162,6 @@ func TestSeedRestoresConfigBeforeAnythingWritesIt(t *testing.T) {
 	if restore < 0 {
 		t.Fatal("proveo_seed never restores the harness configuration")
 	}
-	// Everything in proveo_seed that WRITES into the agent home. The per-class
-	// wiring is behind proveo_wire_config now, so that entry point stands in for
-	// configure_claude_lsp / configure_opencode_lsp / configure_cursor_lsp /
-	// configure_cecli_mcp / configure_claude_plugins — see
-	// TestConfigWiringIsReachableFromTheSeed for the rest of that path.
 	for _, writer := range []string{
 		"render_subagents", "proveo_wire_config",
 		"proveo_compose_house_rules", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",

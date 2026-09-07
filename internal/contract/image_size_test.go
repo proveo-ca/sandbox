@@ -7,15 +7,6 @@ import (
 	"testing"
 )
 
-// `playwright install chromium` lands TWO browsers — `chromium-<rev>` and
-// `chromium_headless_shell-<rev>` — and this layer launches only the first: the
-// revision-stable symlink's own `find … -path '*/chromium-*/*'` uses a hyphen so it
-// cannot match the shell. Measured at 1.61.0, the shell was 334 MB of a 1.33 GB
-// layer, installed and then excluded by hand, in all three browser variants.
-//
-// The flag is the fix and the guard is why the flag can be trusted: a Playwright
-// that stops honouring `--no-shell` has to fail the build rather than quietly put
-// the 334 MB back.
 func TestBrowserLayerInstallsOneChromiumNotTwo(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base-node-browser/Dockerfile")
@@ -37,14 +28,6 @@ func TestBrowserLayerInstallsOneChromiumNotTwo(t *testing.T) {
 	}
 }
 
-// `default-jre-headless` was the largest single package in proveo/base (dpkg
-// Installed-Size 198,806 kB) and its only consumer is /opt/plantuml.jar. Since it
-// lives in the root of the lineage, every one of the published images paid for it.
-//
-// It was replaced first by a jlink runtime in a throwaway stage, and now by the
-// JDK the sandbox template already carries — free, because the lineage extends
-// that template rather than a bare distro. This test pins what makes the swap
-// survivable rather than the size itself.
 func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base/Dockerfile")
@@ -53,16 +36,6 @@ func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 		t.Error("proveo/base must not apt-install default-jre-headless (194 MB in every " +
 			"descendant); the jre-builder stage provides a 72 MB runtime for plantuml.jar")
 	}
-	// The jlink builder stage is gone with the rebase onto
-	// docker/sandbox-templates, which ships a FULL JDK 25 — measured in the
-	// registry: bin/javac, lib/libawt.so, lib/libfontmanager.so. That satisfies
-	// both consumers more completely than the pruned runtime did (plantuml needs
-	// java.desktop; jdtls needs an OSGi-capable JVM and provisions its own only
-	// when _java_major reports < 21, which 25 does not).
-	//
-	// So this stopped asserting the MECHANISM — a builder stage and a module
-	// list — and asserts the PROPERTY those existed to produce: a capable Java
-	// reachable at /opt/jre, that no descendant pays for via apt.
 	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	if strings.Contains(df, "jlink --add-modules") {
 		t.Error("the jlink stage is redundant on a template that ships a full JDK — " +
@@ -73,9 +46,6 @@ func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 			"and every downstream reference are written against that path, not an arch-specific one")
 	}
 
-	// Debian's libfontmanager.so links against the SYSTEM harfbuzz/freetype, which
-	// openjdk-*-jre-headless used to pull in. Without them PlantUML dies in
-	// SunFontManager's static initialiser before drawing anything.
 	pkgs := installedPackages(dockerfileBody(t, "defs/base/Dockerfile"))
 	for _, pkg := range []string{"fontconfig", "fonts-dejavu-core", "libharfbuzz0b"} {
 		if !pkgs[pkg] {
@@ -98,14 +68,6 @@ func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 	}
 }
 
-// Every def builds from the REPO ROOT, because variant Dockerfiles resolve their
-// COPY paths from there. Unfiltered, that context is 303 MB — 201 MB of node_modules
-// and 83 MB of apps/ — hashed and shipped to the daemon on every image build, and
-// `COPY . .` baked it into the base's builder layer while invalidating the compile
-// on any file in the tree.
-//
-// defs/cecli/.dockerignore does NOT do this job: BuildKit reads
-// <context>/.dockerignore or <dockerfile>.dockerignore, and that path is neither.
 func TestRepoRootDockerignoreFiltersTheBuildContext(t *testing.T) {
 	t.Parallel()
 	ignored := dockerignoreEntries(t)
@@ -127,10 +89,6 @@ func TestRepoRootDockerignoreFiltersTheBuildContext(t *testing.T) {
 	}
 }
 
-// The denylist is deliberately wide, which makes the opposite failure the one worth
-// pinning: a path some Dockerfile COPYs must never appear in it. A COPY reaching
-// nothing fails loudly, but a COPY reaching an EMPTY directory succeeds and ships an
-// image missing the thing it was supposed to carry.
 func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 	t.Parallel()
 	ignored := dockerignoreEntries(t)
@@ -181,24 +139,8 @@ var harnessDockerfiles = []string{
 	"defs/cecli/Dockerfile",
 }
 
-// The docker static tarball left every harness image: all eight of its binaries
-// (docker, dockerd, containerd, containerd-shim-runc-v2, ctr, runc, docker-proxy,
-// docker-init — 210 MB measured per image).
-//
-// The REASON recorded here was wrong, and is corrected rather than deleted
-// because the wrong version is why four manifests promised a daemon no image
-// carried. It said sbx owns the daemon and the image need only flip the label.
-// sbx starts what the IMAGE ships, and with the tarball gone the image shipped
-// nothing: measured in a live sandbox as `docker: command not found`, no socket,
-// no dockerd process. The binaries now arrive from the sandbox-template base
-// instead — inherited once at the root rather than copy-pasted four times.
-// SPEC: _spec/_devops/sandbox-template-rebase.puml
-//
-// This test is a ratchet against a re-add, because a re-add is cheap to do by
-// copy-paste and expensive to notice: the four blocks were already four copies of
-// one recipe, each with its own hard-coded version and a comment asking humans to
-// keep them in sync.
-// SPEC: _spec/_plans/image-size-reduction.puml
+// SPEC: _spec/_devops/sandbox-template-rebase.puml,
+// _spec/_plans/image-size-reduction.puml
 func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 	t.Parallel()
 	for _, rel := range harnessDockerfiles {
@@ -218,9 +160,6 @@ func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 	}
 }
 
-// The three things that stayed are not overlaps, and each has a distinct reason.
-// Removing any of them with the binaries would have broken something the binaries
-// were not responsible for, so they are pinned separately from the removal above.
 func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 	t.Parallel()
 	for _, rel := range harnessDockerfiles {
@@ -236,10 +175,6 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 				"a root:docker socket", rel)
 		}
 	}
-	// A NAT chain needs iptables whoever builds it — but it belongs ONCE, at the
-	// root of the lineage. It used to be installed by all four defs; the rebase
-	// moved it into proveo/base, and TestNoImageReinstallsWhatItsBaseAlreadyCarries
-	// is what caught the duplication.
 	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	if !installedPackages(dockerfileBody(t, "defs/base/Dockerfile"))["iptables"] {
 		t.Error("proveo/base must install iptables — the per-sandbox daemon builds its own " +
@@ -252,11 +187,6 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 	}
 }
 
-// The solidity variant's two giants were also its two reproducibility holes.
-// `curl … | bash && foundryup` with no argument installs the NIGHTLY — foundry's
-// release feed is nightlies with a stable tag every few weeks — so the audit
-// toolchain changed under the image on every rebuild; and semgrep went unpinned
-// into Debian's dist-packages behind --break-system-packages.
 // SPEC: _spec/_plans/image-size-reduction.puml
 func TestSolidityPinsItsToolchainAndShipsOnlyWhatItAudits(t *testing.T) {
 	t.Parallel()
@@ -275,13 +205,6 @@ func TestSolidityPinsItsToolchainAndShipsOnlyWhatItAudits(t *testing.T) {
 		}
 	}
 
-	// anvil is a devnet and chisel a REPL: a sandbox has no chain and no operator
-	// at a prompt. foundryup has no component selector, so they must be removed in
-	// the SAME RUN that installs them — a later RUN drops the paths, not the bytes.
-	// By NAME, not by path. foundryup puts the real binaries under
-	// versions/foundry-rs/foundry/<tag>/ and only symlinks them into bin/, so
-	// deleting the bin entries hid the commands and left 100 MB in the image
-	// (measured: anvil 49 MB, chisel 51 MB, still present after the first attempt).
 	if !strings.Contains(df, `find "/home/${USER_NAME}/.foundry" \( -name anvil -o -name chisel \) -delete`) {
 		t.Error("solidity must delete anvil and chisel BY NAME under ~/.foundry — " +
 			"removing the bin/ symlinks alone leaves the binaries behind")
@@ -302,14 +225,6 @@ func TestSolidityPinsItsToolchainAndShipsOnlyWhatItAudits(t *testing.T) {
 	}
 }
 
-// No proveo image ships a C compiler — cecli was the last to carry one, for its
-// own venv. That makes one failure mode dominant for workspace Python projects,
-// and the seed has to name it: a dependency with no wheel for this arch cannot
-// build from source, and the generic "environment may be partial" reads like a
-// transient network problem.
-//
-// The two halves are asserted together on purpose. If a compiler ever comes back,
-// this test fails and the message has to be revisited rather than left lying.
 func TestPythonDepFailureNamesTheMissingToolchain(t *testing.T) {
 	t.Parallel()
 	lib := readRepoFile(t, "packages/lib/entrypoint-lib.sh")
@@ -334,9 +249,6 @@ func TestPythonDepFailureNamesTheMissingToolchain(t *testing.T) {
 	}
 }
 
-// instructionsOnly drops comment lines. A contract about what a layer DOES must
-// not match what a comment SAYS: the solidity prose names the flag it removed,
-// and a raw grep read that as the flag still being there.
 func instructionsOnly(df string) string {
 	var out []string
 	for _, line := range strings.Split(df, "\n") {

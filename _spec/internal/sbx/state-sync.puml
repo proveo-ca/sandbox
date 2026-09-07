@@ -1,4 +1,12 @@
 @startuml StateSync
+' purpose: how resume state moves between the operator's home and a sandbox-local volume without ever leaving a partial file
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/sbx/run.go
+' covers: internal/sbx/sbx.go
+' covers: e2e/sync_state_test.go
+' covers: internal/contract/config_sync_test.go
+' covers: internal/contract/tool_sync_test.go
+'
 ' ── WHY THE TEARDOWN EXEC PINS `-w /` ─────────────────────────────────────
 ' Without it the exec inherits the container's WorkingDir — the first workspace
 ' — and on this backend that directory can stop resolving while the sandbox
@@ -117,6 +125,30 @@ note as Stamps #F4F9FB
 
   That is exactly the set that matters. On a ""save"" those are the transcripts
   the agent just wrote; on a ""restore"" there are none.
+end note
+
+note as Proof #F4F9FB
+  **The assertion is a PROPERTY, sampled mid-copy — not a description of the
+  new implementation.** ""e2e/sync_state_test\.go"" reads the destination's SIZE
+  while a copy is running. With a rename into place there are only two possible
+  sizes, the old and the new; with a streaming overwrite the samples land in
+  between. Stated that way it fails against the ""cp -a"" this replaced, which is
+  the only reason it is evidence. It also asserts the copy HAPPENED — a no-op
+  leaves no partial file either, and would otherwise pass.
+
+  **An honest exit status and a tolerant seed are two different requirements,
+  and satisfying the first broke the second.** The old copy ended in ""|| true""
+  and could report nothing. Giving ""proveo_sync_state"" a real status — needed so
+  ""save""'s caller and these tests can see a partial copy — put that status inside
+  ""proveo_seed"", which ""proveo-seed"" runs under ""set -euo pipefail"". ONE failed
+  file copy then aborted the Kit's startup command and sbx answered "failed to
+  run sandbox container": no sandbox at all, for the sake of a transcript that
+  did not copy. So the STATUS stays honest and the SEED stays tolerant, and a
+  test pins that seam — the sync is replaced with one that fails, everything
+  after it is stubbed, and the seed still has to return 0 having gone past it.
+
+  The failure is still SAID on stderr. Silence is what let a copy that destroyed
+  seven files look like a copy that worked.
 end note
 
 note right of VOL

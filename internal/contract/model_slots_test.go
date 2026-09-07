@@ -22,11 +22,6 @@ func bridgeTable(t *testing.T) provider.BridgeTable {
 	return tab
 }
 
-// defs/bridges/<harness>.tsv is the single declaration of how role vars become the
-// env vars a harness reads. Two things consume it: the shell, at container start,
-// and internal/provider, to show resolved slots in the prompt header. These tests
-// run the shell applier and compare it against the Go reader, so the two consumers
-// cannot disagree about the table they share.
 var bridgeEntrypoint = map[string]string{
 	"claudecode": "defs/claudecode/mcp/entrypoint.sh",
 	"cecli":      "defs/cecli/entrypoint.sh",
@@ -56,9 +51,6 @@ func TestBridgeTablesParse(t *testing.T) {
 	}
 }
 
-// The shell applier and the Go reader must agree, or the header promises one model
-// and the container uses another. Every role is set so no default fires: this
-// isolates the fallback-chain and transform rules the two sides both implement.
 func TestShellApplierMatchesGoReader(t *testing.T) {
 	t.Parallel()
 	bash, err := exec.LookPath("bash")
@@ -139,9 +131,6 @@ for v in $3; do printf '%s=%s\n' "$v" "$(printenv "$v" || true)"; done`
 	}
 }
 
-// Once the table is the declaration, an entrypoint that still exports a target
-// directly has quietly forked it again. The local-model override is exempt: it
-// deliberately overrides every tier and is not a role bridge.
 func TestEntrypointsDoNotHandRollBridges(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -171,10 +160,6 @@ func TestEntrypointsDoNotHandRollBridges(t *testing.T) {
 	}
 }
 
-// :latest means published. A --load build that writes it puts a local image and a
-// registry artifact under one name, and anything that re-resolves the reference —
-// sbx pulls it at sandbox creation — may serve the registry one over the build under
-// test, silently. The guard belongs in the script every def's build.sh sources.
 func TestLoadBuildsRefuseTheLatestTag(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/lib/docker-build.sh"))
@@ -203,9 +188,6 @@ func TestLocalAndPublishTagsDiffer(t *testing.T) {
 	}
 }
 
-// The plan defaulted to :local while the CLI flag still defaulted to "latest", so
-// normTag never saw an empty tag and every build asked for the published name. The
-// flag default and the tag policy have to be the same fact, not two.
 func TestBuildAndDeployFlagDefaultsMatchTheTagPolicy(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "cmd/proveo/maintain_cmd.go"))
@@ -223,11 +205,6 @@ func TestBuildAndDeployFlagDefaultsMatchTheTagPolicy(t *testing.T) {
 	}
 }
 
-// Under sbx the workspace mounts at its own host path and /app holds nothing, so an
-// entrypoint that cd's to /app unconditionally launched the agent in an empty
-// directory — no git repo, and a trust dialog for a folder that is not the project.
-// proveo-entrypoint chdirs correctly but cannot move its parent shell, so the shell
-// has to honour PROVEO_WORKDIR itself.
 func TestEntrypointLibHonoursProveoWorkdir(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "packages/lib/entrypoint-lib.sh"))
@@ -250,9 +227,6 @@ func TestEntrypointLibHonoursProveoWorkdir(t *testing.T) {
 	}
 }
 
-// A blocking prompt is fatal to an unattended run, so the trust dialog must be
-// cleared before the agent launches. It now happens inside proveo_seed, which both
-// backends call — the sbx Kit from setup.startup, docker from the entrypoint.
 func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -261,10 +235,6 @@ func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(b)
-	// The launch goes through proveo_exec_agent rather than a bare `exec claude`,
-	// because the trailing words may be a COMMAND the launcher supplied (sbx puts
-	// the agent invocation in CMD) rather than flags for our own. Matching the
-	// helper keeps this test on the INTENT — seed first — instead of on a spelling.
 	seed, launch := strings.Index(src, "proveo_seed"), strings.Index(src, "proveo_exec_agent claude")
 	if seed < 0 {
 		t.Fatal("the entrypoint must call proveo_seed")
@@ -289,9 +259,6 @@ func TestSeedRunsBeforeTheAgentLaunches(t *testing.T) {
 	}
 }
 
-// The workspace is the operator's repository. House rules go to the USER layer or
-// nowhere: seeding a file into the checkout mutates their tree, competes with an
-// AGENTS.md they already wrote, and cannot apply at all when one exists.
 func TestHouseRulesNeverWriteIntoTheWorkspace(t *testing.T) {
 	t.Parallel()
 	lib, err := os.ReadFile(filepath.Join(repoRoot(t), "packages/lib/entrypoint-lib.sh"))
@@ -389,9 +356,6 @@ func TestDeclaredSlotProvidersAreRegistryNames(t *testing.T) {
 	}
 }
 
-// The REAL table, not a synthetic one. The first version of the test above
-// loaded an empty table and passed vacuously, which is the failure mode a
-// contract test has to be built against: assert the shipped rows.
 func TestClaudecodeSlotsTakeAnthropicModelsOnly(t *testing.T) {
 	t.Parallel()
 	tbl := bridgeTable(t)

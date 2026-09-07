@@ -40,10 +40,6 @@ func pathWithoutSbx(t *testing.T) []string {
 	return []string{"PATH=" + strings.Join(parts, string(os.PathListSeparator))}
 }
 
-// pathWithFakeSbx puts a stub `sbx` first on PATH that answers `version` with
-// the given string. It is how the VERSION gate is assertable at all: the real
-// CLI reports whatever the host has installed, so a test that wanted to see
-// proveo reject an old one could otherwise only wait for the world to age.
 func pathWithFakeSbx(t *testing.T, version string) []string {
 	t.Helper()
 	dir := t.TempDir()
@@ -57,10 +53,6 @@ func pathWithFakeSbx(t *testing.T, version string) []string {
 	return []string{"PATH=" + dir + string(os.PathListSeparator) + clean}
 }
 
-// proveo owns the sbx version, so a CLI older than the surface this build drives
-// must be REFUSED at selection time and named as such. Every drift the pin
-// exists for — positional workspaces, --template, `rm --force`, the Kit schema —
-// fails deep inside a run otherwise, where the operator cannot see it.
 func TestSandboxBackendRefusesAnOutdatedSbx(t *testing.T) {
 	requireDocker(t)
 	old := "0.1.0" // unambiguously below any MinVersion this build will carry
@@ -77,10 +69,6 @@ func TestSandboxBackendRefusesAnOutdatedSbx(t *testing.T) {
 	}
 }
 
-// The remedy proveo prints has to match the situation: an operator who already
-// has sbx needs the UPGRADE line, and one who has none needs the INSTALL line.
-// Printing "brew install" to someone who installed it yesterday is how a version
-// gate becomes advice they follow twice and then ignore.
 func TestSandboxBackendOffersInstallOrUpgradeToMatch(t *testing.T) {
 	requireDocker(t)
 	if sbx.InstallCmd(false) == "" {
@@ -98,9 +86,6 @@ func TestSandboxBackendOffersInstallOrUpgradeToMatch(t *testing.T) {
 	}
 }
 
-// A dry run must never mutate the host. --print is how an operator inspects a
-// posture before committing to it, so if it could install a package manager's
-// worth of software the flag would stop being safe to reach for.
 func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
 	requireDocker(t)
 	dir := t.TempDir()
@@ -136,14 +121,8 @@ func printOnlyRun(t *testing.T, workdir string, extraEnv []string, target string
 	return string(out)
 }
 
-// sandboxHarnesses are the targets whose manifest declares docker: sbx, read
-// from the defs rather than restated here — a harness that changes how it gets a
-// daemon must not be able to drift out of this suite's coverage silently.
 var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
 
-// dockerTargets lists every target whose manifest satisfies pick, in def order.
-// It runs at package init, so a defs/ tree it cannot read is a panic rather than
-// a silently empty matrix that reports success by testing nothing.
 func dockerTargets(pick func(manifest.Manifest) bool) []string {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -221,57 +200,9 @@ func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
 	}
 }
 
-// The docker CLIENT is no longer asserted up front. Whether the binary survives
-// into the sandbox is not proveo's to promise and not stable: cursor's sandbox has
-// it and claudecode's does not, from images that both install it, because
 // `sbx create` re-bakes the template (see _spec/_experiments/docker-sandbox.puml)
-// and the claude-flavoured bake drops it. Pinning it either way would encode an
-// sbx implementation detail as a proveo contract.
-//
-// It is still NAMED when it bites: assertDockerServerReachable separates "command
-// not found" from "cannot connect", because the two need different repairs.
-// TestDindHarnessesShipADockerClient asserted it for the privileged-sidecar
-// branch, where the image alone decided the answer; that branch is retired.
-// SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 
-// ── the live sandbox: does the backend actually deliver what it promises? ────
-//
-// Everything above this line asserts the PLAN — the argv proveo would run, the
-// Kit path, the fallback notice — because sandboxSpec is pure and `--print`
-// costs nothing. None of it starts a VM, so none of it can tell you that sbx
-// works on this host.
-//
-// TestSandboxBackendRunsDockerInsideTheSandbox is the one that can. It runs the
-// harness FOR REAL on the sandbox backend and asserts the four things the
-// manifest's `docker: sbx` actually claims:
-//
-//  1. the run took the sandbox backend (not the docker+egress fallback)
-//  2. the workspace mount carries writes back to the host
-//  3. the sandbox SUPPLIES docker — a daemon answers inside it (the promise
-//     itself, and the inverse of what this line claimed before the sidecar was
-//     retired; see assertSandboxSuppliesDocker)
-//  4. the sandbox is gone afterwards, VM and all
-//
-// It drives `--shell`, not the agent: the claim under test is the backend's,
-// so there is no reason to spend a model call or a credential on it. Skipped
-// unless the host can run sbx, which is also why it is the test that closes the
-// "confirmed on Linux only" gap — run it on the Mac and the gap is closed or
-// the failure names which of the four claims is false.
-// There is one branch now, and it is only as honest as the list it is derived
-// from. An empty matrix would report success by testing nothing, so the coverage
-// itself is asserted: every def that promises a daemon is in it, and it is not
-// empty.
-// Every sbx defect this suite exists to catch was found by hand first: `-w` and
-// `-v` rejected, an image in the agent positional, a Kit schema sbx would not
-// parse, an agent name that had to match the Kit's, a stale template silently
-// served. The run probe below catches them only by TIMING OUT, which names none of
-// them — so these three assertions cover the same ground cheaply and say what
-// broke.
-//
-// Renders the Kit proveo would write and hands it to sbx's own validator. This is
-// the assertion that would have caught the shipped Kit outright: `image` and
-// `credentialsEnv` are not fields of spec.SpecFile, and every sandbox run died at
-// "resolve kits" until they moved.
 func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
@@ -295,16 +226,6 @@ func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	}
 }
 
-// The Kit proveo writes is a MIXIN beside one of sbx's own agents, and the division
-// is not stylistic. sbx's agent registry is closed, so an identity of proveo's own
-// receives no artifact, skips the binding gate and abandons the session within
-// seconds — which is what every "exited with code 137" turned out to be.
-//
-// What follows from that shape is what this asserts. A mixin must declare NO
-// credentials: repeating a service the built-in agent already declares is rejected
-// outright ("defined in both"), so the correct count is zero rather than "only
-// permitted ones" — the older assertion this replaces scanned for over-declared
-// services and, once the block was removed entirely, passed by finding nothing.
 func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
@@ -379,16 +300,9 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 					t.Errorf("%s: Kit environment omits %s\n%s", target, k, raw)
 				}
 			}
-			// PROVEO_STATE_HOME must name a HOST path, because the seed and teardown
-			// copy resume state to and from it. A container path here would send the
-			// transcripts into a volume that teardown removes.
 			if v := kit.Environment.Variables[sbx.StateHomeVar]; v != "" && !filepath.IsAbs(v) {
 				t.Errorf("%s: %s=%q is not an absolute host path\n%s", target, sbx.StateHomeVar, v, raw)
 			}
-			// The redirect is retired on this backend and must not return: HOME
-			// pointed away from the home sbx's credential proxy writes into, so the
-			// agent read a stale mounted credential and reported "Not logged in"
-			// (e2e/ladder_test.go, rung 3). See sandbox.Home.
 			for _, k := range []string{"HOME", "PROVEO_HOME"} {
 				if v, ok := kit.Environment.Variables[k]; ok {
 					t.Errorf("%s: Kit sets %s=%q — the HOME redirect is deliberately deleted on "+
@@ -400,21 +314,6 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 	}
 }
 
-// proveo OMITS a suppressed credential rather than stating it as "-e VAR=", and
-// that choice rests entirely on a claim about sbx: that a secret sitting in its
-// GLOBAL store does not reach the container as an environment variable. This test
-// is that claim, held against the real CLI.
-//
-// It matters because the empty value is not inert. An agent reads a SET variable as
-// a chosen credential whatever it holds, and claudecode ranks ANTHROPIC_API_KEY and
-// CLAUDE_CODE_OAUTH_TOKEN above the login on disk — so if proveo ever goes back to
-// stating them empty, a blank one takes the slot the mounted login needed and an
-// unattended run stalls asking a human to approve a key that authenticates nothing.
-// If sbx starts exporting stored secrets as env vars, omission stops being safe and
-// this is where that shows up, rather than in a run that dies twenty seconds in.
-//
-// Read-only by design: it asserts against whatever the operator's store already
-// holds and writes nothing to it, so it skips rather than manufacturing a secret.
 func TestSandboxStoreDoesNotExportSecretsAsEnvVars(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
@@ -444,9 +343,6 @@ func TestSandboxStoreDoesNotExportSecretsAsEnvVars(t *testing.T) {
 		}
 	})
 
-	// `env` prints only what is SET, so absence from this listing is the assertion.
-	// Keep the command short: an exec that runs for tens of seconds is torn down with
-	// the sandbox underneath it and returns no output at all.
 	out, err := exec.Command(sbx.Binary, "exec", name, "--", "env").CombinedOutput()
 	if err != nil {
 		t.Fatalf("exec env in %s: %v\n%s", name, err, out)
@@ -460,10 +356,6 @@ func TestSandboxStoreDoesNotExportSecretsAsEnvVars(t *testing.T) {
 	}
 }
 
-// sbxError returns sbx's own error line from the pane, if it printed one. It is
-// how a red test names its cause instead of reporting a timeout.
-// retryable marks the sbx errors proveo answers with one reload-and-retry, so the
-// probe waits for that second attempt instead of failing on the first.
 func retryable(line string) bool {
 	return strings.Contains(line, "failed to run sandbox container") ||
 		strings.Contains(line, "failed to create sandbox")
@@ -479,24 +371,10 @@ func sbxError(screen string) string {
 	return ""
 }
 
-// brokenPrompt spots the interactive questions that mean something is WRONG, as
-// opposed to the ones that are simply sbx asking the operator a question.
-//
-// The distinction matters and it was got wrong once. A `proveo run` is interactive
-// by design — there is a whole choice form in front of it — so sbx asking which
-// credentials a Kit may use is a normal gate that a PTY-driven run answers, and
-// answerSbxPrompt below does. What is NOT normal is a confirmation that eats
-// input meant for something else: `sbx secret set` reads the value from stdin,
-// and on a re-run its "Overwrite?" question consumes that piped value and cancels
-// the write, leaving the agent on a stale credential with no error. That one is
-// answered by --force, so seeing it again means the flag regressed.
 func brokenPrompt(screen string) string {
 	for _, want := range []string{
 		"Overwrite? (y/N)",
 		"Delete selected secret? (y/N)",
-		// sbx will not invent a missing workspace path, it asks. proveo creates the
-		// output dir up front so this never appears; seeing it means something is
-		// handing sbx a path that does not exist, and the run stops dead.
 		"does not exist. Would you like to create it?",
 	} {
 		if strings.Contains(screen, want) {
@@ -517,18 +395,8 @@ func answerSbxPrompt(sess *tmux.Session, screen string) bool {
 	return true
 }
 
-// renderKit performs a real run far enough to write the Kit, then returns its
-// directory. --print does NOT write one (only runSandbox does), which is why this
-// drives the run and kills it once the file exists.
 func renderKit(t *testing.T, target string) string {
 	t.Helper()
-	// --print, not a live session. The Kit is written while the launch is RESOLVED,
-	// before any agent starts, so a dry run produces exactly the document a real run
-	// hands sbx — the same property that makes --print show the true argv.
-	//
-	// Driving a live run instead cost three minutes per target and made a Kit
-	// assertion depend on whether the agent could authenticate and hold a session,
-	// which is a different claim entirely and one this file already covers elsewhere.
 	proveoBin := buildProveo(t)
 	work := t.TempDir()
 	mustRun(t, work, "git", "init", "-q", ".")
@@ -554,11 +422,7 @@ func renderKit(t *testing.T, target string) string {
 	return filepath.Dir(matches[0])
 }
 
-// This used to PARTITION two branches — the privileged sidecar and the sandbox —
-// because an empty branch could report success by testing nothing. Retiring the
-// sidecar collapses it to one, so the guard becomes the simpler and stronger
-// claim: every def that promises a daemon is covered here, and the branch is not
-// empty. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -589,9 +453,6 @@ func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 	}
 	sort.Strings(targets)
 
-	// One branch, one probe. The dispatch this replaces existed because the two
-	// ways of getting a daemon were measured differently — a privileged sibling on
-	// the docker backend versus a per-sandbox engine — and only one survives.
 	sbxOK, sbxWhy := sbx.Available()
 	for _, target := range targets {
 		t.Run(target, func(t *testing.T) {
@@ -612,21 +473,6 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
-// assertDockerServerReachable is the verdict on what `docker: sbx` promises: a
-// daemon the agent can actually reach. It fails three ways, and each names a
-// different repair — a missing client is now an SBX problem, a refused connection
-// is a posture problem, and prose where a version belongs is neither.
-//
-// The first arm changed meaning on 2026-09-05 without changing its trigger. The
-// harness images used to ship the docker static tarball, so "command not found"
-// meant a layer was missing and the repair was `proveo build <target>`. They ship
-// none of it now — all eight binaries overlapped the sandbox runtime — so the same
-// output means sbx did not supply a client, and the repair is sbx-side or the
-// manifests should stop declaring `docker: sbx`.
-//
-// This was NOT inverted to expect absence, deliberately. Four manifests still
-// promise `docker: sbx`, and a test that expects the promise to be broken would
-// hide exactly the regression it exists to catch.
 // SPEC: _spec/_plans/image-size-reduction.puml
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Helper()
@@ -647,23 +493,7 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Logf("%s: docker server reached via %s = %s", target, how, got)
 }
 
-// assertSandboxSuppliesDocker is the verdict on what `docker: sbx` promises now
-// that it is the ONLY way a harness gets a daemon: one the agent can reach,
-// running INSIDE the sandbox rather than as a privileged sibling on the host.
-//
-// This assertion is INVERTED from the one it replaces, and the inversion is the
-// whole point of the change. The old one asserted that nothing reached a daemon —
-// true when written, because sbx starts a per-sandbox daemon only for an image
-// carrying `com.docker.sandboxes.start-docker` and no proveo image did. With the
-// label the daemon answers: Server 29.7.2 measured inside a proveo sandbox, and
-// `docker run hello-world` succeeding. Retiring the privileged sidecar
-// (_spec/_plans/retire-dind.puml) makes that daemon the only one there is, so a
-// sandbox reaching none is now the failure rather than the contract.
-//
-// A socket inside the sandbox is therefore EXPECTED, and is not an escape: it is
-// the sandbox's own, reachable only from within the microVM, and its egress is
-// confined by the Kit allowlist. e2e/sbx_egress_test.go asserts that half by
-// failing on a pull from a registry no Kit permits; this one asserts reachability.
+// (_spec/_paradigms/retire-dind.puml) makes that daemon the only one there is, so a
 func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Helper()
 	_, server, ok := strings.Cut(got, "SERVER:")
@@ -675,14 +505,6 @@ func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Logf("%s: the sandbox supplies docker: %s", target, strings.Join(strings.Fields(got), " · "))
 }
 
-// sbxShellHoldsInADetachedPane reports whether sbx's own shell agent survives being
-// driven from a detached tmux pane. It does not, today: `sbx run -t <image> shell
-// <workspace>` exits within seconds there with proveo uninvolved, so the probe below
-// cannot reach any of its four claims.
-//
-// Checked rather than assumed, and checked against SBX rather than proveo, so this
-// turns back into coverage by itself the day sbx holds — instead of staying a
-// permanent red that the next real regression could hide behind.
 func sbxShellHoldsInADetachedPane(t *testing.T) bool {
 	t.Helper()
 	work := t.TempDir()
@@ -716,10 +538,6 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 			"so %s cannot be driven to a prompt here; the sandbox Kit and backend selection "+
 			"stay covered by TestSandboxKit* and TestSandboxBackend*", target)
 	}
-	// The agent has to hold a session for any of the four claims below to mean
-	// anything, and it cannot hold one without a credential to spend. Checked up
-	// front so the reason is stated in one line rather than inferred from a probe
-	// that waited out its deadline against an agent that had already exited.
 	requireHarnessCredential(t, target)
 	proveoBin := buildProveo(t)
 
@@ -739,13 +557,6 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		removeLeakedSandboxes(t, before, canList)
 	})
 
-	// A scratch PROVEO_HOME keeps the operator's remembered add-on answer out of
-	// this run: the sandbox add-on is default-ON, so an empty cache is the only
-	// way to be sure the backend under test is the one that ran.
-	// The env file must carry THIS harness's credential. childEnvArgs writes an
-	// anthropic-only file, so a cursor run received no CURSOR_API_KEY at all and its
-	// agent exited before the backend line — a probe about the sandbox boundary
-	// failing on a credential it had declined to provide.
 	cmd := []string{"env"}
 	if secrets := harnessSecrets(t, target); len(secrets) > 0 {
 		cmd = append(cmd, childEnvArgsFor(t, secrets[0])...)
@@ -764,9 +575,6 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	w := newWatcher(t, sess)
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
 
-	// Claim 1 — the backend. proveo announces its choice, so the test never has
-	// to infer it: a run that quietly fell back to docker+egress would otherwise
-	// satisfy claims 2 and 3 and prove nothing about sbx.
 	w.until("the sbx backend line", 2*time.Minute, func() bool {
 		s := w.Screen()
 		if strings.Contains(s, "docker sandbox: off") {
@@ -778,16 +586,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
 
-	// Fail on sbx's OWN error rather than waiting out the clock. Every adapter
-	// defect so far — a rejected flag, an unparseable Kit, an agent name that did
-	// not match the Kit's — printed a one-line ERROR here and then went quiet, so
-	// the only signal was a timeout six minutes later that named none of them.
-	//
-	// A start failure is the exception: proveo retries it ONCE on a freshly loaded
-	// template, because sbx's stored template can go bad on its own (see
 	// _spec/_experiments/docker-sandbox.puml). Failing on sight would call that
-	// run broken while the repair was still in flight, so the retry is allowed to
-	// finish and the error is only fatal if the session dies with it on screen.
 	w.until("the sandbox shell prompt", timeout, func() bool {
 		if line := sbxError(w.Screen()); line != "" && !retryable(line) {
 			w.Fatalf("%s: sbx refused the run — %s", target, line)
@@ -803,10 +602,6 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		return promptReady(w.Screen())
 	})
 
-	// One command covers claims 2 and 3: ask the daemon for its version, then
-	// write a marker — both through the mounted workspace, read back host-side.
-	// stderr is captured too, because the INTERESTING failures ("command not
-	// found", "cannot connect to the Docker daemon") only ever appear there.
 	const mark = "SBX-MOUNT-OK"
 	probe := "{ ls /var/run/docker.sock >/dev/null 2>&1 && echo HAS-SOCKET || echo NO-SOCKET; " +
 		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; } > " +
@@ -861,9 +656,6 @@ const (
 	probeDocker = "SBX_DOCKER.txt"
 )
 
-// promptReady reports whether the pane's last non-empty line looks like a shell
-// prompt waiting for input. tmux trims trailing whitespace, so a prompt ends AT
-// the sigil — matching on "$ " never fires.
 func promptReady(screen string) bool {
 	lines := strings.Split(screen, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -881,9 +673,6 @@ func dockerVersionish(s string) bool {
 	return regexp.MustCompile(`^\d+\.\d+`).MatchString(s)
 }
 
-// sbxSandboxNames is the set of proveo-* sandboxes sbx currently holds, and
-// whether the CLI could be listed at all. sbx is pre-GA: a listing it does not
-// support is REPORTED by the caller, never quietly read as "nothing there".
 func sbxSandboxNames() (map[string]bool, bool) {
 	out, err := exec.Command(sbx.Binary, "ls").CombinedOutput()
 	if err != nil {
@@ -928,20 +717,6 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 	}
 }
 
-// The sbx backend publishes PROVEO_STATE_HOME and sets NEITHER HOME nor
-// PROVEO_HOME. That is the contract, and the deletion is the fix.
-//
-// The pair used to be required here: this test was named
-// ...CarriesProveoHomeBesideHome because sbx reloads HOME from /etc/passwd when it
-// runs a Kit's setup.startup as `user: "1000"`, so a seed reading $HOME wrote
-// somewhere the agent never read. The redirect that made PROVEO_HOME necessary is
-// gone — it pointed HOME away from the home sbx's own credential proxy writes
-// into, so the agent read a stale mounted credential and reported "Not logged in"
-// (e2e/ladder_test.go, rung 3). With no redirect there is no divergence:
-// seed and agent both resolve the image's home. See sandbox.Home.
-//
-// What the redirect did buy was resume, and PROVEO_STATE_HOME buys it back by
-// naming a HOST path for the transcripts to be copied to and from.
 func TestSandboxBackendPublishesStateHomeAndNoRedirect(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sbx not available on this host")

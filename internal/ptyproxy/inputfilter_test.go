@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // The captured bytes from the run that produced a user message nobody typed.
@@ -155,9 +157,6 @@ func TestReplayOfTheCapturedZellijTrace(t *testing.T) {
 	}
 }
 
-// A far end that reads its input as a prompt stream never queried anything, so
-// no report is owed to it and the FIRST copy is already one too many. The dedup
-// rule cannot express that: it forwards the first copy by construction.
 func TestDropRepliesRemovesEvenAnUnpairedReport(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -191,10 +190,6 @@ func TestDropRepliesStillNeverDropsKeystrokes(t *testing.T) {
 	}
 }
 
-// The exact read that killed proveo-1787852436-14907: ONE VT102 Device
-// Attributes reply, five seconds into a run, with no duplicate to mark it as
-// surplus and nothing on the sbx side that had queried. Under the default rule
-// it is forwarded — which is the bug, so the default is asserted here too.
 func TestTheLoneReplyThatKilledTheSbxRun(t *testing.T) {
 	t.Parallel()
 	lone := []byte("\x1b[?6c")
@@ -289,16 +284,7 @@ func TestReplayOfTheCapturedMouseTrace(t *testing.T) {
 	}
 }
 
-// The two replies opencode 1.18.29 actually provokes on startup, neither of
-// which the filter knew. Its TUI opens with a kitty GRAPHICS probe
-// (ESC_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA ESC\) and a kitty KEYBOARD push
-// (CSI > 5 u), and the terminal's answers to both were classified as
-// reportNone — so they reached the application as keystrokes.
-//
-// Observed in a real session: the pane filled with `Gi=31337,…`, `^[[18~`
-// (F7), `^[[19~` (F8) and bare digits, and every crash ended with a stray `c`
-// immediately before the error — the tail of a DA1 reply whose prefix had been
-// consumed. SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -317,9 +303,6 @@ func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 	}
 }
 
-// The narrowness matters as much as the catch: a real F3 is CSI 1 ; 5 u under
-// the kitty protocol, and swallowing genuine keys would be a worse bug than
-// the one this fixes.
 func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -340,14 +323,6 @@ func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 	}
 }
 
-// The sequence from a real crashed session, byte for byte:
-//
-//	^[[200~sk-…^[[201~cERROR: sandbox "…" was stopped
-//
-// A bracketed paste, then a lone `c` — the tail of a DA1 reply whose head
-// arrived in the previous read. keep() judged one whole read, so the fragment
-// failed the len<3 guard and reached the agent as a keystroke. That `c` sat in
-// front of every "sandbox was stopped" in this investigation.
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	t.Parallel()
@@ -372,9 +347,6 @@ func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	}
 }
 
-// A read carrying a report BESIDE real typing was all-or-nothing: filtering it
-// ate the keystrokes too. Bracketed paste makes that routine — the pasted text,
-// its markers, and whatever the terminal was still answering land together.
 func TestAPasteSurvivesAReportInTheSameRead(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -390,9 +362,6 @@ func TestAPasteSurvivesAReportInTheSameRead(t *testing.T) {
 	}
 }
 
-// A lone ESC keypress must not be held hostage waiting for a sequence that
-// never comes, and an over-long run claiming to be an escape must not swallow
-// the buffer.
 func TestUnfinishedEscapesDoNotStallInput(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -422,5 +391,135 @@ func TestPlainTypingPassesThroughUnchanged(t *testing.T) {
 		if string(fwd) != in || len(held) != 0 {
 			t.Errorf("split(%q) = %q, held %q; want it verbatim", in, fwd, held)
 		}
+	}
+}
+
+// The application announces mouse tracking on its OUTPUT stream; the filter
+// reads that to decide whether an incoming mouse report was asked for.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestMouseTrackingFollowsTheChildsModeSets(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		reads []string
+		want  bool
+	}{
+		{"no mode sets at all", []string{"hello world"}, false},
+		{"1000 click tracking", []string{"\x1b[?1000h"}, true},
+		{"1002 button drag", []string{"\x1b[?1002h"}, true},
+		{"1003 any motion", []string{"\x1b[?1003h"}, true},
+		{"multi-param set in one sequence", []string{"\x1b[?1002;1006h"}, true},
+		{"an encoding alone reports nothing", []string{"\x1b[?1006h"}, false},
+		{"bracketed paste is not mouse", []string{"\x1b[?2004h"}, false},
+		{"alt screen is not mouse", []string{"\x1b[?1049h"}, false},
+		{"enabled then disabled", []string{"\x1b[?1002h", "\x1b[?1002l"}, false},
+		{"one of two disabled leaves tracking on", []string{"\x1b[?1000;1002h", "\x1b[?1002l"}, true},
+		{"params split across two reads", []string{"\x1b[?10", "02h"}, true},
+		{"escape split from its body", []string{"paint\x1b", "[?1003h"}, true},
+		{"final byte split off", []string{"\x1b[?1003", "h"}, true},
+		{"disable split across two reads", []string{"\x1b[?1003h", "\x1b[?100", "3l"}, false},
+		{"buried in a repaint", []string{"hi\x1b[2J\x1b[?1002h\x1b[H"}, true},
+		{"opencode's start-up bundle", []string{"\x1b[?1049h\x1b[?1002h\x1b[?1006h"}, true},
+		{"and its shutdown bundle", []string{"\x1b[?1049h\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1006l\x1b[?1049l"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newInputFilter()
+			for _, r := range tc.reads {
+				f.mouse.observe([]byte(r))
+			}
+			if got := f.mouse.enabled(); got != tc.want {
+				t.Errorf("observe(%q): mouse.enabled() = %v, want %v", tc.reads, got, tc.want)
+			}
+		})
+	}
+}
+
+// The reported bug: opencode turns tracking on, so a drag is input it asked
+// for and must reach it even on the sbx path that drops unasked-for reports.
+func TestMouseInputReachesAnAgentThatTurnedTrackingOn(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true // what sandbox.go's DropReports sets
+	f.mouse.observe([]byte("\x1b[?1002;1006h"))
+
+	for _, tc := range []struct {
+		name string
+		b    []byte
+	}{
+		{"press", mouseSGRPress},
+		{"release", mouseSGRRelease},
+		{"drag motion", mouseSGRMotion},
+		{"wheel up", []byte("\x1b[<64;10;5M")},
+		{"wheel down", []byte("\x1b[<65;10;5M")},
+		{"urxvt encoding", mouseURXVT},
+		{"x10 encoding", mouseX10},
+	} {
+		if !f.keep(tc.b) {
+			t.Errorf("keep(%q) = false for a %s while tracking is on; nothing in the TUI is selectable", tc.b, tc.name)
+		}
+	}
+	// split() is the real entry point: a drag arriving mid-read must survive too.
+	fwd, held := f.split([]byte("\x1b[<32;10;5M"))
+	if string(fwd) != "\x1b[<32;10;5M" || len(held) != 0 {
+		t.Errorf("split(drag) = %q, held %q; want the drag forwarded whole", fwd, held)
+	}
+}
+
+// With tracking off the captured trace must filter exactly as before: that is
+// the behaviour TestReplayOfTheCapturedMouseTrace pins.
+func TestCapturedMouseTraceStaysFilteredWhileTrackingIsOff(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	// Output the child really wrote, none of which starts mouse reporting.
+	f.mouse.observe([]byte("\x1b[?1049h\x1b[?2004h\x1b[?1006h\x1b[?25l"))
+
+	reads := [][]byte{
+		[]byte("\x1b[?6c"),
+		[]byte("\x1b[I"),
+		[]byte("\x1b[<35;1;46M"), []byte("\x1b[<35;2;45M"), []byte("\x1b[<35;3;45M"),
+		[]byte("/"), []byte("c"), []byte("o"), []byte("l"), []byte("o"), []byte("r"),
+		[]byte(" "), []byte("r"), []byte("e"), []byte("d"), []byte("\r"),
+	}
+	want := []string{"/", "c", "o", "l", "o", "r", " ", "r", "e", "d", "\r"}
+
+	var got []string
+	for _, r := range reads {
+		if f.keep(r) {
+			got = append(got, string(r))
+		}
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("replay of the captured trace with tracking off mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Tracking turned off again must stop forwarding: an app that exits its TUI
+// leaves the prompt stream it was the whole point of the drop knob.
+func TestMouseForwardingStopsWhenTheAppTurnsTrackingOff(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	f.mouse.observe([]byte("\x1b[?1002h"))
+	if !f.keep(mouseSGRMotion) {
+		t.Errorf("keep(%q) = false while tracking is on", mouseSGRMotion)
+	}
+	f.mouse.observe([]byte("\x1b[?1002l"))
+	if f.keep(mouseSGRMotion) {
+		t.Errorf("keep(%q) = true after the app turned tracking off", mouseSGRMotion)
+	}
+}
+
+// A run of output that never completes a mode set must not be hoarded.
+func TestMouseTrackerDoesNotHoardUnterminatedOutput(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.mouse.observe(append([]byte("\x1b["), bytes.Repeat([]byte("1;"), maxModeCarry)...))
+	f.mouse.mu.Lock()
+	held := len(f.mouse.carry)
+	f.mouse.mu.Unlock()
+	if held != 0 {
+		t.Errorf("carried %d bytes of child output; beyond maxModeCarry it must be dropped", held)
 	}
 }

@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how a linked git worktree's .git file and commondir are rewritten in container terms
+' covers: internal/workspace/mount.go
+' covers: internal/workspace/mount_test.go
+' covers: internal/run/clone_test.go
 title Linked-worktree git linkage — two pointer files overlaid, never rewritten
 
 node "Host checkout" as HOST <<host>> {

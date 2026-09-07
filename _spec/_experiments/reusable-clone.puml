@@ -1,0 +1,161 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — should `proveo run <agent>` return to the SAME clone each time, instead of a fresh one per run?
+' status: proposed 2026-09-07, not implemented; nothing in src depends on this file
+' would touch: internal/backend/sandbox/sandbox.go (PreserveClone, liftClonedOutput)
+' would touch: internal/sbx/run.go (CloneRemote, CloneRefs, CloneFetchArgs), internal/run/run.go (decideClone)
+'   the mechanism today .......... _spec/internal/sbx/clone-workspace.puml
+'   the resume state it rhymes with _spec/internal/sbx/state-sync.puml
+'   what a host can carry ........ _spec/minimum_requirements.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE OBSERVATION ────────────────────────────────────────────────────────
+' Clone mode is per-RUN. Every `proveo run cursor` clones the checkout into a
+' new sandbox, and at teardown the work comes back as refs/proveo/<sid>/* plus a
+' lifted output dir. The sid carries a unix timestamp and a pid, so the second
+' run of the day shares nothing with the first: not the branch the agent was
+' working on, not its build cache, not its node_modules, not the agent's own
+' session history.
+'
+' For a one-shot task that is exactly right. For the way an agent is actually
+' used — several passes at the same change over an afternoon — it means every
+' pass starts by rebuilding a world the previous pass already had, and the
+' operator reconciles N ref namespaces for one piece of work.
+'
+' ── WHAT REUSE WOULD BUY ───────────────────────────────────────────────────
+' A clone keyed by (repository, target) rather than by sid:
+'
+'   * the agent resumes ON ITS OWN BRANCH, mid-change, with a dirty tree it
+'     recognises — instead of a pristine checkout it must re-orient in
+'   * the toolchain cache survives: the go build cache, the pnpm store, cargo's
+'     registry, whatever `mise` provisioned. On the polyglot sample this is the
+'     dominant cost of a cold start
+'   * ONE ref namespace per piece of work, so `git log main..refs/proveo/...`
+'     answers "what has this agent done" rather than "what did run #7 do"
+'   * the harness's own session history stays where the harness left it, which
+'     is the thing `sbx` resume state already tries to preserve separately
+'
+' ── WHAT IT WOULD COST, AND WHY THIS IS AN EXPERIMENT AND NOT A PLAN ───────
+' Four questions, none of them settled. Any one of them can sink the idea.
+'
+' 1. STALENESS. The host checkout moves under the reused clone — the operator
+'    commits, rebases, switches branch. A clone that is not refreshed is a
+'    silent fork; one that is refreshed unasked can throw away the agent's
+'    uncommitted work. Neither is acceptable as a default, and "ask" is a prompt
+'    in front of every run.
+'
+' 2. WHOSE CLONE IS IT. Two `proveo run cursor` in the same repo at once is
+'    ordinary (two scopes, two branches). A clone keyed by repo+target makes
+'    them collide, so the key needs a third component the operator chooses —
+'    at which point it is a named workspace and should be called one.
+'
+' 3. WHAT MAKES IT SAFE TO DROP. The current guarantee is strong and simple:
+'    the sandbox is ephemeral, so nothing accumulates and nothing is left to
+'    clean up. A durable clone is state with no lifecycle — it grows, it holds
+'    the agent's secrets in its own git config and caches, and `proveo clean`
+'    would need to know about it. See minimum_requirements: a stopped sandbox
+'    still holds its disk volumes.
+'
+' 4. IS IT EVEN PROVEO'S TO KEEP? sbx 0.42 grew `sbx env` — an environment file
+'    that describes a named sandbox, its workspaces, credentials and lifecycle
+'    commands, and reuses it across invocations. That is very close to this
+'    idea, one layer down, maintained by the backend. Building a second
+'    mechanism above it would be proveo owning state sbx already owns.
+'
+' ── THE CHEAPEST EXPERIMENT ────────────────────────────────────────────────
+' Do not implement reuse. MEASURE the thing reuse is supposed to buy, because
+' the whole case rests on cold-start cost being large:
+'
+'   a. on e2e/samples, time three consecutive `proveo run <agent>` runs and
+'      record where the wall clock goes — clone, toolchain provisioning, the
+'      agent's own orientation
+'   b. repeat with a hand-made durable clone (`--clone=false` against a
+'      scratch checkout that persists) to get the upper bound on the saving
+'   c. only if (b) is a large multiple of (a) does the state question above
+'      become worth answering
+'
+' If the saving is small, the answer is that clone mode is per-run on purpose
+' and this file should say so and stop. If it is large, the shape to pursue is
+' probably `sbx env` with a proveo-authored environment file — question 4 — and
+' NOT a second durable-clone mechanism inside proveo.
+title EXPERIMENT — should the clone outlive the run?
+
+actor "operator" as OP
+
+node "host repository" as REPO <<host>> {
+  database "the checkout\nmoves under the clone between runs" as SRC <<db>>
+  database "refs/proveo/<sid>/*\nONE NAMESPACE PER RUN today" as REFS <<db>>
+}
+
+package "today — a clone per run" as NOW {
+  database "run #1 clone\ncold: clone, provision, orient" as C1 <<db>>
+  database "run #2 clone\ncold AGAIN" as C2 <<db>>
+  database "run #3 clone\ncold AGAIN" as C3 <<db>>
+}
+
+package "proposed — one clone per (repo, target)" as SOON {
+  database "the agent's workspace\nits branch, its dirty tree, its caches" as WS <<db>>
+}
+
+component "staleness\nsilent fork, or discarded work" as STALE <<error>>
+component "collision\ntwo runs, one key" as COLLIDE <<error>>
+component "state with no lifecycle\nnothing to clean, until there is" as STATE <<error>>
+component "sbx env\nthe backend already reuses a named sandbox" as SBXENV <<cloud>>
+
+OP ARROW_MAIN C1
+OP ARROW_MAIN C2
+OP ARROW_MAIN C3
+SRC ARROW_MAIN C1 : clone
+SRC ARROW_MAIN C2 : clone
+SRC ARROW_MAIN C3 : clone
+C1 ARROW_QUEUE REFS
+C2 ARROW_QUEUE REFS
+C3 ARROW_QUEUE REFS
+
+OP ARROW_MAIN WS : run again, land where you left off
+WS ARROW_ERROR STALE
+WS ARROW_ERROR COLLIDE
+WS ARROW_ERROR STATE
+SBXENV ARROW_MAIN WS : the layer this may belong to
+
+note bottom of NOW
+  **Cold every time, on purpose.** Nothing
+  accumulates and nothing is left to clean up —
+  the guarantee is simple because the sandbox is
+  ephemeral. The cost is that pass #2 rebuilds a
+  world pass #1 already had.
+end note
+
+note bottom of WS
+  **What reuse is FOR.** The agent resumes on its
+  own branch with a tree it recognises, the
+  toolchain cache survives, and one ref namespace
+  answers "what has this agent done" instead of
+  "what did run #7 do".
+end note
+
+note bottom of STALE
+  **The unanswered question.** The host checkout
+  moves underneath. Refresh unasked and the
+  agent's uncommitted work can go; never refresh
+  and the clone is a silent fork. "Ask" is a
+  prompt in front of every run.
+end note
+
+note bottom of SBXENV
+  **Possibly not proveo's to keep.** 0.42's
+  environment files already describe a named
+  sandbox with its workspaces, credentials and
+  lifecycle, reused across invocations. A second
+  mechanism above it duplicates the backend.
+end note
+
+note right of OP
+  **Measure before building.** Time three
+  consecutive runs on ""e2e/samples"", then repeat
+  against a hand-made durable clone for the upper
+  bound. Only a large multiple makes the state
+  questions worth answering.
+end note
+@enduml

@@ -1,5 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why the gate's AF_UNIX transport is native-Linux only, and what a portable one would be
+' covers: internal/reviewgate/**
+'   the gate this transport carries . _spec/internal/reviewgate/pty-review-proxy.puml
 title Review gate transport — why it is native-Linux only, and how to cross platforms
 
 node "Native Linux — WORKS" as LINUX <<host>> {

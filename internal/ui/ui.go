@@ -1,7 +1,5 @@
 // SPEC: _spec/internal/ui/output-vocabulary.puml,
 // _spec/_conventions/tui-design-language.puml
-//
-// SPEC: _spec/internal/ui/output-vocabulary.puml, _spec/_conventions/tui-design-language.puml
 package ui
 
 import (
@@ -134,9 +132,9 @@ type Printer struct {
 	pending, shown string
 }
 
-// Section names the concern the following lines belong to, drawn as the divider
-// choiceui uses for a Divider row so the narration and the form name the same
-// things the same way.
+// Section names the concern the following lines belong to, drawn as the
+// divider choiceui uses for a Divider row so the narration and the form name
+// the same things the same way.
 func (p *Printer) Section(label string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -322,9 +320,9 @@ func (p *Printer) Warnf(format string, a ...any) { p.line(RoleNone, sevWarn, for
 // Failf reports an error ("× ", ascii "x ", plain "error: ").
 func (p *Printer) Failf(format string, a ...any) { p.line(RoleNone, sevFail, format, a...) }
 
-// Notef writes a continuation line under a preceding verb: no marker in either
-// rendering, indented to the text column so it reads as part of what it
-// follows.
+// Notef writes a continuation line under a preceding verb: no marker in
+// either rendering, indented to the text column so it reads as part of what
+// it follows.
 func (p *Printer) Notef(format string, a ...any) { p.line(RoleNone, sevNone, format, a...) }
 
 // Rolef writes a line in an explicitly chosen role, for the few callers that

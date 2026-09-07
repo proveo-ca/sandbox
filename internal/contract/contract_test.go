@@ -1,14 +1,13 @@
 // SPEC: _spec/tests/20-contract.puml
-//
-// Package contract holds Layer 2 no-Docker contracts that used to live as
-// grep-for-substring asserts in defs/tests/test_harness_contracts.sh. These
-// tests execute (or load) the real Go sources of truth.
 package contract_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func repoRoot(t *testing.T) string {
@@ -132,6 +132,75 @@ func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
 	}
 }
 
+var dockerfileEntrypoint = regexp.MustCompile(`(?m)^ENTRYPOINT\s+(\[.*\])\s*$`)
+
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+func TestOwnAgentDefsDeclareAnImageEntrypoint(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatalf("LoadFS(Manifests): %v", err)
+	}
+	var own []manifest.Manifest
+	for _, m := range ms {
+		if sbx.DeclaresOwnAgent(m.Name) {
+			own = append(own, m)
+		}
+	}
+	if len(own) == 0 {
+		t.Fatal("no def takes the ownAgent path — this test would assert nothing")
+	}
+	for _, m := range own {
+		t.Run(m.Name, func(t *testing.T) {
+			t.Parallel()
+			files := dockerfilesFor(t, root, m.Name)
+			if len(files) == 0 {
+				t.Fatalf("def %q ships no Dockerfile under defs/%s", m.Name, m.Name)
+			}
+			for _, f := range files {
+				b, err := os.ReadFile(f)
+				if err != nil {
+					t.Fatalf("read %s: %v", f, err)
+				}
+				mm := dockerfileEntrypoint.FindStringSubmatch(string(b))
+				if mm == nil {
+					t.Errorf("%s declares no exec-form ENTRYPOINT, so a sandbox Kit for %q "+
+						"has no binary and sbx opens a shell", f, m.Name)
+					continue
+				}
+				var ep []string
+				if err := json.Unmarshal([]byte(mm[1]), &ep); err != nil {
+					t.Errorf("%s ENTRYPOINT %s is not a JSON array: %v", f, mm[1], err)
+					continue
+				}
+				if len(ep) == 0 {
+					t.Errorf("%s declares an EMPTY ENTRYPOINT, which is the same defect as none", f)
+				}
+			}
+		})
+	}
+}
+
+// dockerfilesFor finds a def's Dockerfiles: at the def root, or one level down
+// where a def keeps its variants (defs/claudecode/mcp, defs/claudecode/solidity).
+func dockerfilesFor(t *testing.T, root, def string) []string {
+	t.Helper()
+	var out []string
+	for _, pat := range []string{
+		filepath.Join(root, "defs", def, "Dockerfile"),
+		filepath.Join(root, "defs", def, "*", "Dockerfile"),
+	} {
+		hits, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatalf("glob %s: %v", pat, err)
+		}
+		out = append(out, hits...)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func TestProviderCursorPin(t *testing.T) {
 	t.Parallel()
 	got := provider.Detect(func(k string) string {
@@ -208,10 +277,6 @@ func TestSubscriptionHarnesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// opencode is a subscription harness in the PROMPT sense the flag actually
-	// carries: never ask for this key ahead of time. Its vendor credential is
-	// optional — the same run authenticates on the operator's own provider keys —
-	// so an env-wizard prompt would demand a credential the run may never use.
 	want := map[string]string{
 		"claudecode": "CLAUDE_CODE_OAUTH_TOKEN",
 		"cursor":     "CURSOR_API_KEY",
@@ -247,10 +312,9 @@ func TestSubscriptionHarnesses(t *testing.T) {
 }
 
 // TestEveryDaemonPromiseIsTheSandbox is what retiring the privileged sidecar
-// leaves behind: one way to get a daemon, so a harness that promises one promises
-// the sandbox. Every def is checked, not a tracked subset — the failure this
-// replaces was a list that could go stale while the manifests moved.
-// SPEC: _spec/_plans/retire-dind.puml
+// leaves behind: one way to get a daemon, so a harness that promises one
+// promises the sandbox.
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -274,8 +338,8 @@ func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
 }
 
 // TestEveryHarnessRunsInTheSandbox pins the move itself: all four defs took
-// `docker: sbx`, so no harness is left on the docker+egress path by declaration.
-// The weaker backend is reachable only by PROVEO_SBX=0 or --egress-mode review.
+// `docker: sbx`, so no harness is left on the docker+egress path by
+// declaration.
 func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -299,9 +363,7 @@ func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
 	}
 }
 
-// TestRetiredDockerDindIsRefused pins the refusal rather than the silence. A
-// manifest still carrying the old value is asking for an isolation story proveo
-// no longer implements, and the whole point of an enum is that it says so.
+// TestRetiredDockerDindIsRefused pins the refusal rather than the silence.
 func TestRetiredDockerDindIsRefused(t *testing.T) {
 	t.Parallel()
 	err := manifest.Manifest{
@@ -332,12 +394,7 @@ func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 			t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
 		}
 	}
-	// The inverse arm is deliberately GONE. It used to assert that a
-	// non-subscription harness must NOT set docker: sbx, which reserved the sandbox
-	// for the two vendor harnesses and left opencode and cecli on the privileged
-	// sidecar. Retiring the sidecar inverts the reservation: sbx is where every
-	// harness runs, and subscription only decides how a credential gets there.
-	// SPEC: _spec/_plans/retire-dind.puml
+	// SPEC: _spec/_paradigms/retire-dind.puml
 	for name := range want {
 		found := false
 		for _, m := range ms {
@@ -367,10 +424,6 @@ func TestCursorTakesDockerFromTheSandboxBackend(t *testing.T) {
 	}
 }
 
-// The manifest parser (now Go — internal/manifest, replacing the retired Bash
-// lib/manifest-enum.sh) must tolerate unknown/future top-level keys: only the
-// images: block yields build targets, and a new field like future_flag must
-// neither error nor leak in as an image.
 func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

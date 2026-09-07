@@ -6,7 +6,7 @@
 '   what SHIPPED in that pass ....... _spec/internal/ui/output-vocabulary.puml
 '   surface A's boundary ............ _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
 '   surface B's already-styled half . _spec/internal/reviewgate/pty-review-proxy.puml
-'   the decision both waited on ..... _spec/_plans/retire-dind.puml (APPLIED)
+'   the decision both waited on ..... _spec/_paradigms/retire-dind.puml (APPLIED)
 '   what replaces A's seeding ....... _spec/internal/sbx/sbx-kit-contract.puml
 '   what replaces B's gate .......... _spec/internal/sbx/policy-baseline.puml
 '

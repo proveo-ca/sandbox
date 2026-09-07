@@ -12,6 +12,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
@@ -44,7 +45,7 @@ type Deps struct {
 	ModelBridges     fs.FS // and its model bridge tables — same reason: internal/ never imports the root
 }
 
-func Do(p Params, d Deps) error {
+func Do(p Params, d Deps) (err error) {
 	var rs Spec
 	rs.UID, rs.GID = strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
 	rs.Sid = fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
@@ -60,8 +61,10 @@ func Do(p Params, d Deps) error {
 		ui.Section(ui.SectionRun)
 		ui.Storef("run log: %s", rs.Log.Path())
 	}
+	// Registered after the log's own Close, so LIFO runs it first.
+	// SPEC: _spec/internal/runlog/run-transcript.puml
+	defer func() { recordOutcome(rs.AgentLaunched, err) }()
 
-	var err error
 	rs.Man, err = d.ManifestFor(p.Target)
 	if err != nil {
 		return err
@@ -264,7 +267,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func warnDindRetired() {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_DIND"))) {
 	case "", "0", "false", "no", "off":
@@ -326,7 +329,9 @@ func reportSandboxLogin(rs *Spec, p *Params) {
 		return
 	}
 	argv := ""
-	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(p.Target), rs.Workspace.WS.InputDir); a != nil {
+	// Keyed on the DEF: a variant target (claudecode-browser) is the same
+	// harness and the same built-in agent.
+	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(rs.Man.Name), rs.Workspace.WS.InputDir); a != nil {
 		argv = sbx.Binary + " " + strings.Join(a, " ")
 	}
 	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
@@ -426,12 +431,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 	ui.Section(ui.SectionEgress)
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
-	// The auth answer has to reach the BROKER, not just the container's env. The
-	// broker injects on-route at the egress hop by design, so withholding a key
-	// from the agent while the proxy still attaches it to that provider's own
-	// requests leaves the answer true of the environment and false of the wire.
-	// Detected stays honest about what the host holds; only what is INJECTED
-	// narrows. SPEC: _spec/internal/credentials/credential-decisions.puml
+	// SPEC: _spec/internal/credentials/credential-decisions.puml
 	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
 		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
 	usable := credentials.UsableProviders(rs.Man, rs.Creds.Detected, rs.Creds.Lookup)
@@ -451,26 +451,13 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
 	}
-	// A role pointing at a provider the answer withholds is a contradiction
-	// proveo cannot resolve without overriding something the operator typed:
-	// the auth row says how the run is billed, the role vars say which models.
 	for _, msg := range p.Roles.WithheldKeys(withheld, p.AuthVar) {
 		ui.Warnf("%s", msg)
 	}
 	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
 		ui.Warnf("%s", msg)
 	}
-	// The operator's role vars are a PREFERENCE. A value carried in a shell rc
-	// or a project .env was written for some other run, and honouring one whose
-	// credential is absent or withheld launches a session that cannot make a
-	// single model call — then asks the operator to fix it from inside it.
-	// Anything feasible is left exactly as they wrote it.
-	// Feasibility applies ALWAYS; the billing side only when someone was asked.
-	// A model with no credential behind it is unrunnable whoever is watching, so
-	// a headless run must not launch on one and then warn to a log nobody reads
-	// until the job fails. But with no answer there is no side to judge against,
-	// so AnsweredBilling stays BillUnknown and nothing claims the operator picked
-	// one. SPEC: _spec/internal/credentials/credential-decisions.puml
+	// SPEC: _spec/internal/credentials/credential-decisions.puml
 	{
 		held := map[string]bool{}
 		for _, name := range usable {
@@ -602,13 +589,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
 				continue
 			}
-			// The loop above already declined this one, and re-adding it here
-			// undid that decision. A mounted login IS the credential, and an
-			// agent reads a SET variable as a chosen credential whatever it
-			// holds — so a sentinel in that slot is not a harmless placeholder,
-			// it displaces the file. The `already` guard below only skips names
-			// the first loop ACCEPTED, so a suppressed one fell straight through
-			// to here. SPEC: _spec/_paradigms/credential-boundary.puml
+			// SPEC: _spec/_paradigms/credential-boundary.puml
 			if suppressedAuth(k) {
 				continue
 			}
@@ -681,7 +662,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
 		}
 	}
-	// SPEC: _spec/_plans/retire-dind.puml
+	// SPEC: _spec/_paradigms/retire-dind.puml
 	var err error
 	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
 	if err != nil {
@@ -721,7 +702,8 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
 			Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-			Mounts: mounts, Workdir: rs.Workspace.Workdir,
+			ImageEntrypoint: sbx.ImageEntrypoint,
+			Mounts:          mounts, Workdir: rs.Workspace.Workdir,
 			Lookup:           rs.Creds.Lookup,
 			Detected:         rs.Creds.Detected,
 			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
@@ -754,9 +736,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		}
 		if len(rs.Creds.AuthMissingAtStart) > 0 {
 			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
-			// Refuse only when NOTHING can authenticate. A missing vendor
-			// credential is not the same as no credential for a harness that
-			// also reads the operator's own provider keys.
 			if rs.Man.Subscription && !rs.Creds.LoggedIn {
 				if why := credentials.SandboxAuthRefusal(
 					rs.Man, p.Target, proveohome.Root(os.Getenv), rs.Creds.Lookup); why != "" {
@@ -764,10 +743,28 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				}
 			}
 		}
+		rs.AgentLaunched = true
 		return true, sandbox.Run(in)
 	}
 
 	return false, nil
+}
+
+// recordOutcome writes the run's verdict into the transcript before Do returns
+// and the log closes. SPEC: _spec/internal/runlog/run-transcript.puml
+func recordOutcome(launched bool, err error) {
+	var ae backend.ExitError
+	switch {
+	case err == nil && !launched:
+		ui.Logf("outcome: no agent was launched")
+	case err == nil:
+		ui.Logf("outcome: the agent exited 0")
+	case errors.As(err, &ae):
+		ui.Section(ui.SectionResults)
+		ui.Failf("the agent exited with code %d", ae.Code)
+	default:
+		ui.Logf("outcome: %v", err)
+	}
 }
 
 func execute(rs *Spec, p *Params, d Deps) error {
@@ -839,12 +836,14 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
+			rs.AgentLaunched = true
 			return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
 		}
 		squidProviders := rs.Creds.Detected
 		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Creds.Brokered) == 1 {
 			squidProviders = rs.Creds.Brokered
 		}
+		rs.AgentLaunched = true
 		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, reviewProxy)
 	}()
 	return runErr

@@ -1,5 +1,3 @@
-// Command proveo-entrypoint is the in-container harness prelude.
-//
 // SPEC: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/cmd/proveo-entrypoint/prep-sequence.puml, _spec/_paradigms/harness-paradigms.puml
 package main
 

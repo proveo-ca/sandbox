@@ -31,9 +31,6 @@ func cursorMan() manifest.Manifest {
 	}
 }
 
-// Every harness with a plan draws the SAME three options in the same order:
-// riskier (metered per token) on the left, safest (nothing billed, no credential
-// to leak) on the right. The row is an axis and the prompt labels it as one.
 func TestAuthRowDrawsTheWholeAxisRiskierFirst(t *testing.T) {
 	t.Parallel()
 	for _, man := range []manifest.Manifest{opencodeMan(), cursorMan()} {
@@ -100,10 +97,6 @@ func TestAuthRowOffersBothLiveSidesForOpenCode(t *testing.T) {
 	}
 }
 
-// cursor separates the two meanings of "usage credits". It has no
-// bring-your-own-key path — that fact has to appear — but it DOES bill metered:
-// the plan's included usage first, usage-based overage after, on one key. So
-// both sides are selectable and the BYOK fact lives in the hint, not in a gate.
 func TestAVendorPinnedHarnessSaysWhyYourOwnKeyIsNotThePoint(t *testing.T) {
 	t.Parallel()
 	r, ok := authRow(cursorMan(), env(map[string]string{

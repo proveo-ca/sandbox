@@ -1,7 +1,5 @@
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml,
 // _spec/internal/choiceui/wireframe.puml
-//
-// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/choiceui/wireframe.puml
 package provider
 
 import (

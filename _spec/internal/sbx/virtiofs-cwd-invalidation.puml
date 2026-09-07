@@ -3,7 +3,22 @@
 skinparam noteTextAlignment left
 title sbx virtiofs drops the agent's cwd — a silent Bash tool, and the two answers
 
-' covers: defs/claudecode/mcp/defaults/hooks/cwd-guard.sh, packages/lib/entrypoint-lib.sh,
+' purpose: how a sandbox's workspace dentry vanishes under a live agent, and the two answers proveo ships
+' covers: defs/claudecode/mcp/defaults/hooks/cwd-guard.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/run/run.go
+' covers: internal/run/helpers.go
+' covers: internal/run/clone_test.go
+' covers: internal/backend/sandbox/**
+' covers: internal/sbx/run.go
+' covers: internal/sbx/clone_test.go
+' covers: internal/workspace/mount.go
+' covers: cmd/proveo/main.go
+' covers: cmd/proveo/main_test.go
+' covers: internal/contract/cwd_guard_test.go
+' covers: internal/clean/sandbox_liveness_test.go
+' covers: e2e/resume_test.go
+' covers: e2e/clone_output_test.go
 '
 ' ── WHY A HOOK IS THE ONLY CHANNEL LEFT ────────────────────────────────────
 ' Knobs: PROVEO_CWD_GUARD=off · PROVEO_CWD_GUARD_HOOK (tests point it elsewhere).
@@ -19,9 +34,6 @@ title sbx virtiofs drops the agent's cwd — a silent Bash tool, and the two ans
 ' Registered in the agent's user-level settings and MERGED, the same way
 ' proveo_apply_ui_defaults is: the file is the operator's, and the hook is
 ' added once, never duplicated.
-'         internal/run/run.go, internal/run/helpers.go, internal/backend/sandbox/sandbox.go,
-'         internal/sbx/run.go, cmd/proveo/main.go, internal/workspace/mount.go,
-'         cmd/proveo/main_test.go, e2e/resume_test.go
 '
 ' Measured 2026-09-01 on proveo-1787956302-22788 (proveo/claudecode, Claude Code
 ' 2.1.251), see the memory sbx-virtiofs-unlinks-agent-cwd for the full forensics.

@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/cdn/distribution-update.puml
-//
-// SPEC: _spec/internal/cdn/distribution-update.puml
 package main
 
 import (

@@ -20,30 +20,6 @@ import (
 
 // TestHelloWorldE2E drives each harness against a COPY of e2e/samples on a
 // LOCAL open-source model and asserts three observable facts per target:
-//
-//	the model answered → the run's transcript carries a model message about the
-//	                     work, which is the only proof the inference loop closed
-//	                     (skipped for a harness that writes none — see
-//	                     repliesOnStdout)
-//	bind mount works   → the hello-world file the agent was asked for shows up on
-//	                     the HOST, with the run's marker inside it
-//	models bridged     → the entrypoint's PROVEO_MODELS line names the local
-//	                     model in BOTH tiers, not the harness's baked-in default
-//
-// Targets run in dependency-of-confidence order: cecli (simplest loop), then
-// opencode, then claudecode.
-//
-//	[PROVEO_TEST_LOCAL_MODEL=gemma4] \
-//	  go test -tags=e2e ./e2e/ -run HelloWorldE2E -v -timeout 40m
-//
-// It runs on a local model on purpose. What this suite asserts — mounts, model
-// bridging, a closed inference loop — needs A model, not a particular vendor's,
-// and billing it to a cloud provider made the whole lane hostage to a credit
-// balance: an empty one is indistinguishable from a broken mount, since both read
-// as "no file on the host". No provider credential is supplied at all, so the run
-// is provably credit-free rather than merely cheap. Whether a REAL credential
-// still reaches a real provider is a different question, and TestClaudeCodeAuth
-// asks it against an endpoint that costs nothing.
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
 	requireDocker(t)
@@ -72,15 +48,7 @@ type helloHarness struct {
 	// layout makes "the current directory" ambiguous.
 	promptPath string
 	// hostPaths are checked (in order) under the mounted workspace on the host.
-	hostPaths []string
-	// repliesOnStdout says whether this harness puts the model's final message on
-	// stdout in its one-shot form. Where it does not, nothing the test can read
-	// carries the answer, and only the model-authored FILE remains as evidence.
-	//
-	// opencode is the one that does not: `opencode run` prints its launch line and
-	// then NOTHING — not the reply, and not even its own logs despite
-	// "--log-level DEBUG --print-logs". Confirmed twice over, from the tmux pane and
-	// from a teed transcript of the whole run.
+	hostPaths       []string
 	repliesOnStdout bool
 }
 
@@ -114,11 +82,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	t.Helper()
 
 	work := copySampleWorkspace(t)
-	// The workspace must carry no project .env: samples/.env is a symlink into the
-	// repo root, so `cp -a` leaves a DANGLING link that breaks the bind mount this
-	// posture makes of it — and a REAL one would be worse, because the entrypoint
-	// sources it AFTER docker applies `-e` and its ARCHITECT_MODEL would outrank
-	// the local alias, sending the main agent to a cloud provider.
 	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
@@ -143,28 +106,12 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
-	// PROVEO_SBX=off pins the docker rendering, which is the one this suite is
-	// written against on two counts: the prompt names /app/output, a mount point
-	// only docker creates (sbx mounts a workspace at its own host path), and the
-	// model server is the HOST's Ollama, reached over host.docker.internal from a
-	// container rather than from a VM behind sbx's own network policy. The sandbox
-	// rendering has its own suite in sbx_test.go.
 	cmd = append(cmd, "PROVEO_SBX=off")
-	// `open` + `forward` is the plain-bridge posture, and it is what reaches the
-	// HOST's Ollama (host.docker.internal). Every other tier puts the agent on an
-	// internal network with DNS blackholed, where the only model server it can see
-	// is the sidecar — which on macOS has no GPU and generates at CPU speed.
 	cmd = append(cmd, proveoBin, "run", h.target,
 		"--egress-mode", "open", "--credentials", "forward",
 		"--local-model", model, "--input", work, "--")
 	cmd = append(cmd, h.agentArgs(prompt)...)
 
-	// tmux drives a SHELL so the whole run is teed to a file, and every assertion
-	// reads that file rather than the pane. The pane cannot hold the model's last
-	// words: the agent prints them and exits inside a single poll interval, and
-	// once the session is gone CaptureAll can only return what was captured
-	// before it died — so the reply was always lost even when the model had said
-	// it. The transcript has no such race, and no tmux line wrapping either.
 	transcript := filepath.Join(t.TempDir(), "run.log")
 	if err := sess.Start(220, 50, "sh", "-c",
 		shellQuote(cmd)+" 2>&1 | tee "+shellQuote([]string{transcript})); err != nil {
@@ -186,11 +133,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	}
 	for {
 		observe()
-		// Both halves where both are readable: the agent writes before it answers,
-		// so stopping at the file would cut the turn off mid-reply and report a
-		// silent model that had simply not finished talking yet. Where the harness
-		// writes no message at all there is no second half to wait for, and holding
-		// on would just burn the whole deadline.
 		if found != "" && (answered || !h.repliesOnStdout) {
 			break
 		}
@@ -255,30 +197,11 @@ func shellQuote(args []string) string {
 	return strings.Join(out, " ")
 }
 
-// modelAnswered reports whether the model said anything of its own about the work.
-//
-// It accepts the exact reply the prompt asked for OR a mention of the file the
-// model was told to create, and the tolerance is not laziness: a small local model
-// reliably reproduces a long random token when COPYING it into a tool call (the
-// marker lands in the file byte-exact) yet answers the human in its own words —
-// gemma4 replies "File /app/output/HELLO_WORLD.txt created successfully."
-// rather than echoing the token. Demanding the echo would test instruction-format
-// compliance, which is the model's business, instead of whether the loop closed,
-// which is proveo's.
 func modelAnswered(out, prompt, reply string, h helloHarness) bool {
 	return modelSaid(out, prompt, reply) ||
 		modelSaid(out, prompt, filepath.Base(h.promptPath))
 }
 
-// modelSaid reports whether token appears on the pane as something the MODEL
-// produced rather than something the harness echoed back.
-//
-// Some entrypoints print the prompt on their launch line (opencode's
-// "🚀 Launching: opencode …$*"), so the token is already on the pane before any
-// inference has happened — and tmux wraps that line, so a line-anchored match
-// cannot separate echo from answer either. Collapsing all whitespace makes
-// wrapping invisible, deleting every copy of the instruction removes the echo
-// whatever its shape, and only the model can have produced what is left.
 func modelSaid(screen, prompt, token string) bool {
 	flat := func(s string) string { return strings.Join(strings.Fields(s), "") }
 	return strings.Contains(strings.ReplaceAll(flat(screen), flat(prompt), ""), flat(token))
@@ -337,15 +260,7 @@ func linesMatching(screen, sub string, max int) string {
 	return strings.Join(hits, "\n")
 }
 
-// assertModels checks the local model reached BOTH tiers. --local-model outranks
 // every alias (_spec/internal/entrypoint/model-alias-bridges.puml), so main and
-// small must both name it — a tier still holding a cloud default would mean the
-// override only half-applied, and that half would quietly bill a provider.
-//
-// The comparison is on the bare id because no two harnesses spell it the same
-// way: claudecode prints "gemma4", opencode "ollama/gemma4", cecli
-// "ollama_chat/gemma4". Asserting the spelling would test the catalog, not the
-// bridge.
 func assertModels(t *testing.T, model, models, screen string) {
 	t.Helper()
 	if models == "" {
@@ -366,29 +281,14 @@ func assertModels(t *testing.T, model, models, screen string) {
 	t.Logf("models bridged: main=%s small=%s", gotMain, gotSmall)
 }
 
-// childEnvArgs builds the `env ...` prefix for the tmux command: every provider
-// key and model alias is unset so the filtered file below is the ONLY source of
-// truth, then the non-secret switches that keep `proveo run` non-interactive.
-// Secrets stay in the file (0600) and never appear on an argv or in `ps`.
 func childEnvArgs(t *testing.T) []string {
 	t.Helper()
 	return append(childEnvArgsNoCredential(t), "PROVEO_EGRESS_ENV_FILE="+writeAgentEnvFile(t))
 }
 
-// childEnvArgsNoCredential is the same prefix with NO provider credential at all:
-// every key is unset and no PROVEO_EGRESS_ENV_FILE is supplied. A run under it
-// cannot reach a paid provider even by accident, which is what makes a
-// local-model lane provably credit-free instead of merely cheap.
-//
-// env(1) on BSD/macOS requires every -u before the first NAME=value, so the unset
-// flags stay at the front and callers may only append.
 func childEnvArgsNoCredential(t *testing.T) []string {
 	t.Helper()
 	var args []string
-	// DetectVars (superset of KeyVars) matters: a second DETECTED provider — even
-	// one that cannot be brokered, like AWS_ACCESS_KEY_ID — makes brokerProvider
-	// return "" and the agent then runs with a sentinel and nothing behind it,
-	// which surfaces as an indistinguishable "API key is invalid".
 	unset := append([]string{"CLAUDE_CODE_OAUTH_TOKEN"}, provider.DetectVars()...)
 	unset = append(unset, provider.KeyVars()...)
 	unset = append(unset, entrypoint.ConfigVars...)
@@ -398,10 +298,7 @@ func childEnvArgsNoCredential(t *testing.T) []string {
 	return append(args,
 		"PROVEO_WIZARD=off",       // no scope / capability pickers on this PTY
 		"PROVEO_AUTO_PROVISION=1", // build a missing sidecar image instead of asking
-		// PROVEO_DIND is retired and pinning it off is no longer what keeps the
-		// privileged sidecar out of these runs — nothing starts one. Kept at 0 so an
-		// operator's exported value cannot put the retirement warning into a screen
-		// this suite matches on. SPEC: _spec/_plans/retire-dind.puml
+		// SPEC: _spec/_paradigms/retire-dind.puml
 		"PROVEO_DIND=0",
 	)
 }

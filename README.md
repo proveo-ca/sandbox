@@ -23,6 +23,32 @@ irm https://proveo.ca/cli/install.ps1 | iex             # Windows
 Checksum-verified static binaries (amd64 + arm64). After install: `proveo version`,
 `proveo update --check`, `proveo uninstall`.
 
+The installer ends by running `proveo init`, which readies the **backend** proveo runs on. It
+prompts for anything still open; `PROVEO_SKIP_INIT=1` opts out.
+
+### Ready the host
+
+```sh
+proveo init                 # prompt, install the pinned sbx, check this host, sign in
+proveo init --print         # what it would do, changing nothing
+proveo init --yes           # take the defaults without prompting
+```
+
+`proveo init` prepares the backend, not your repository. It detects OS and architecture,
+installs the pinned [Docker Sandboxes](https://github.com/docker/sbx-releases) release
+(v0.42.0) under `~/.docker/sbx` without root — verifying the download against the digest the
+release publishes, where one covers it — then runs `sbx login`, `sbx setup`, and reports whether
+the daemon is actually up. On a terminal it asks first: rootless tarball or distro package,
+which prefix, whether to write your shell rc, sign in now or later, and whether to bind the
+host-wide network baseline (the one thing it never changes on its own).
+
+It also names the host conditions that otherwise fail *late*, as a sandbox that dies with no
+output: no `/dev/kvm`, a user outside the `kvm` group, no `e2fsprogs`, SELinux enforcing (the
+release bundles an AppArmor profile and nothing for SELinux — and the RPM package is **not** a
+fix for it either; measured 2026-09-07, an enforcing host still died instantly). A condition
+that only blocks *running* does not block installing — `usermod -aG kvm` needs a re-login that
+`init` cannot perform for you.
+
 ### Publish a CLI release
 
 ```bash

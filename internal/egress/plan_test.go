@@ -66,10 +66,11 @@ func withBroker(o Options, p, f string) Options {
 	return o
 }
 
-// TestHostBridgeResolvesTheHostGateway covers the Claude in Chrome bridge: with
-// it on, host.docker.internal names the REAL host so the agent can reach the
-// `proveo run` relay; off, the open+forward path keeps pinning the name to the
-// container's own loopback, and no other tier grows a route to the host.
+// TestHostBridgeResolvesTheHostGateway covers the Claude in Chrome bridge:
+// with it on, host.docker.internal names the REAL host so the agent can reach
+// the `proveo run` relay; off, the open+forward path keeps pinning the name
+// to the container's own loopback, and no other tier grows a route to the
+// host.
 func TestHostBridgeResolvesTheHostGateway(t *testing.T) {
 	t.Parallel()
 	args := func(o Options) string {
@@ -296,10 +297,6 @@ func TestBuildPlanInvariants(t *testing.T) {
 		}
 	})
 
-	// Asserts membership, not a literal: the exempt list is order-independent and
-	// has grown. Loopback matters in EVERY proxied mode — an agent asked about
-	// http://localhost:3000 must not send that request to the MITM, which would
-	// resolve localhost in its own namespace.
 	t.Run("the proxy is bypassed for loopback and the ollama sidecar", func(t *testing.T) {
 		t.Parallel()
 		for _, tc := range []struct {
@@ -378,13 +375,7 @@ func TestApplyOrder(t *testing.T) {
 	}
 }
 
-// Which network the agent lands on, read from the argv rather than from a field.
-//
-// `Plan.AgentNetwork` used to record the same name so the privileged sidecar
-// could attach itself to it under the alias `docker`. That sidecar is retired
-// (_spec/_plans/retire-dind.puml) and nothing else ever read the field, so it is
-// gone — but the topology it described is still a real decision, and asserting it
-// through AgentArgs keeps the coverage without keeping a claim no code consults.
+// (_spec/_paradigms/retire-dind.puml) and nothing else ever read the field, so it is
 func TestBuildPlanAgentLandsOnTheRightNetwork(t *testing.T) {
 	t.Parallel()
 	// Forward + local model: a USER-DEFINED bridge, so the agent and the Ollama
@@ -408,10 +399,6 @@ func TestBuildPlanAgentLandsOnTheRightNetwork(t *testing.T) {
 		t.Errorf("forward with no model creates no network, got %v", p.Networks)
 	}
 
-	// The enforced tiers put the agent somewhere with NO route out of its own
-	// accord: the network is created `--internal`. That is the property the old
-	// field's invariant was really protecting — anything reaching the internet from
-	// the agent's network would bypass the proxy chain the tier exists to impose.
 	for _, mode := range []string{"review", "allowlist"} {
 		p, _ := BuildPlan(baseOpts(mode))
 		net := argvValue(p.AgentArgs, "--network")
@@ -489,10 +476,6 @@ func TestReviewSocketIsMountedOnlyForReview(t *testing.T) {
 	}
 }
 
-// Squid admits every detected provider, so the inspector must permit writes to
-// the same set. Narrowing the policy to the PINNED provider means Squid lets a
-// host through and the MITM blocks it — and under review that surfaces as a
-// consent prompt for a host the allowlist already sanctioned.
 func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	t.Parallel()
 	o := baseOpts("allowlist")
@@ -506,19 +489,11 @@ func TestPolicyReachMatchesTheAllowlist(t *testing.T) {
 	if !strings.Contains(got, "PROVEO_EGRESS_WRITE_HOSTS=.anthropic.com,.moonshot.ai,.kimi.com") {
 		t.Errorf("inspector did not receive every reachable host:\n%s", got)
 	}
-	// Reach and injection are separate questions, and the allowlist is the wider
-	// of the two: the inspector is told to route anthropic while every reachable
-	// provider host stays writable.
 	if !strings.Contains(got, "PROVEO_EGRESS_PROVIDERS=anthropic") {
 		t.Error("the inspector did not receive the routed provider set")
 	}
 }
 
-// The on-provider DLP exemption travels on its own axis, so it survives a
-// posture where nothing is brokered. Under --credentials forward the broker is
-// inert and Providers is empty, yet the agent still calls the vendor with its
-// own key: the inspector has to be told which hosts that key belongs on, or it
-// blocks the one destination the credential is for.
 func TestForwardPostureStillNamesProviderHosts(t *testing.T) {
 	t.Parallel()
 	o := baseOpts("allowlist")

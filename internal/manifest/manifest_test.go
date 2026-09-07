@@ -184,9 +184,6 @@ func repoDefsDir(t *testing.T) string {
 	return filepath.Join(wd, "..", "..", "defs")
 }
 
-// T5: LoadFS is the shipped path (the //go:embed glob defs/*/harness.manifest).
-// A drift in that glob or the parse would break `proveo ls`/`run` in the
-// binary with no unit failure — so exercise it against an fstest.MapFS.
 func TestLoadFS(t *testing.T) {
 	t.Parallel()
 	fsys := fstest.MapFS{
@@ -247,10 +244,7 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	}
 }
 
-// One daemon and the absence of one are the only two answers left. `dind` gets
-// its own case because it must be REFUSED rather than merely unknown: a manifest
-// carrying it is asking for the retired privileged sidecar, and the error has to
-// say so instead of reading like a typo. SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
 	t.Parallel()
 	base := func(mode DockerMode) Manifest {

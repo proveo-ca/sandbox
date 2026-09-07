@@ -2,12 +2,18 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Where .git comes from, and how gitMode is honoured in each scope
 
-' covers: internal/workspace/mount.go, internal/manifest/manifest.go,
-'         defs/cecli/harness.manifest, defs/cursor/harness.manifest,
-'         defs/opencode/harness.manifest, defs/claudecode/harness.manifest
+' covers: internal/workspace/mount.go
+' covers: internal/manifest/manifest.go
+' covers: defs/cecli/harness.manifest
+' covers: defs/*/harness.manifest
+' covers: defs/cursor/harness.manifest
+' covers: defs/opencode/harness.manifest
+' covers: defs/claudecode/harness.manifest
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
-'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' ── THE CONTAINER SIDE: MAKING THAT MOUNT PLAN USABLE BY git ────────────────
 ' The plan above decides what arrives. Two shell steps then make git able to

@@ -9,13 +9,6 @@ import (
 
 const rootPkg = "github.com/proveo-ca/proveo"
 
-// Sidecar images build Go from a partial context. defs/sidecars/egress-proxy/Dockerfile
-// copies only go.mod, cmd/ and internal/ — no root-level .go files and no defs/ tree —
-// so any package under internal/ that imports the root embed package makes that image
-// fail with "no required module provides package". The root package is for main
-// packages to hand down: internal/manifest takes an fs.FS for exactly this reason, and
-// internal/provider now does too. This test is the guard that was missing when the
-// bridge tables were first embedded.
 func TestInternalPackagesDoNotImportRoot(t *testing.T) {
 	t.Parallel()
 	goBin, err := exec.LookPath("go")

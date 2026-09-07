@@ -1,6 +1,10 @@
 @startsalt
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how the prompt's four figure fidelities were chosen, and what each measurement showed
+' covers: internal/choiceui/layout.go
+' covers: internal/choiceui/topology.go
+' covers: internal/choiceui/choiceui.go
+' covers: internal/choiceui/layout_test.go, internal/choiceui/pane_test.go
 '
 ' WHAT SHIPPED, and what did not. A (one budget pass, a strict drop ladder) and
 ' B (pinned chrome, a scrolling row viewport) are both built — see
@@ -27,7 +31,7 @@
 ' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
 ' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
 ' tier rather than an approximation of it.
-title SHIPPED — the four fidelities of one figure, and how each was measured
+title The four fidelities of one figure, and how each was measured
 
 {
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."

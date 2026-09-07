@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-// A subdir scope must still carry the repo's shared directories. _spec is the
-// one that matters most here: agents are asked to read AND maintain the specs,
-// and plantuml is on the floor precisely so they can verify what they edited —
-// none of which works if _spec never reaches the container. The mount plan is
-// unit-tested; this asserts the container can actually reach it.
 func TestScopeCarriesRootSpecDir(t *testing.T) {
 	const target = "opencode"
 	img := harnessImage(t, target)
@@ -51,9 +46,6 @@ echo "SPEC_OK"`)
 	}
 }
 
-// The scope must still NARROW the tree — otherwise rootDirs would just be a
-// roundabout way of mounting everything, and the git scoping in
-// scope_git_worktree would have nothing to hide.
 func TestSubdirScopeOmitsUnmountedPaths(t *testing.T) {
 	const target = "opencode"
 	img := harnessImage(t, target)
@@ -74,9 +66,6 @@ echo "NARROWED_OK"`)
 	}
 }
 
-// newTempWorktree reproduces the shape that broke: a linked git worktree, whose
-// .git is a FILE pointing under the main repo, with .env symlinked back to the
-// main checkout. Both references escape the mounted tree.
 func newTempWorktree(t *testing.T) (worktree string) {
 	t.Helper()
 	base := t.TempDir()
@@ -112,9 +101,6 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	return wt
 }
 
-// A linked worktree must behave like any other checkout. Its .git is a pointer
-// FILE to a path under the main repo, and its .env a symlink out of the tree —
-// neither of which is reachable from a container unless proveo carries them in.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
 	img := harnessImage(t, target)
@@ -147,16 +133,7 @@ echo "WORKTREE_OK"`)
 func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	t.Helper()
 	bin := buildProveo(t)
-	// --credentials forward is load-bearing, not incidental: it is the only posture
-	// that carries the project .env INTO the container. Under the default broker the
-	// credential policy masks that path with /dev/null instead, so the escaping-.env
-	// mount these probes assert would not exist at all.
 	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", input, "--print")
-	// PROVEO_SBX=off is load-bearing: these probes SCRAPE -v specs out of the
-	// printed plan and then run `docker run` themselves. On a host with sbx
-	// installed the printed plan is the SANDBOX argv, which carries no -v at all —
-	// so without this the scrape yields nothing and the probe runs against an
-	// unmounted container while still looking like a pass.
 	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -171,11 +148,6 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	return args
 }
 
-// The claudecode entrypoint must operate on the directory that actually holds
-// the workspace. It used to work in /workspace — the image's own directory, one
-// level above the mount — so verify detection scanned an empty tree and the
-// CLAUDE.md seed failed with a misleading "workspace may be read-only".
-// Runs the REAL entrypoint (no override) so the cwd it picks is what is tested.
 func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
 	const target = "claudecode"
 	img := harnessImage(t, target)
@@ -186,9 +158,6 @@ func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
 	args = append(args, worktreeEnvArgs(t, target, wt)...)
 	args = append(args,
 		"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-		// The image bakes its own entrypoint; run the working-tree one so this tests
-		// current source rather than whenever the image was last built. Invoked via
-		// bash because the tracked file carries no exec bit.
 		"-v", filepath.Join(repoRootDir(t), "defs/claudecode/mcp/entrypoint.sh")+":/proveo-ep.sh:ro",
 		"--user", hostUIDGID(t),
 		"-e", "PROVEO_SMOKE_TEST=1", "-e", "PROVEO_SMOKE_TARGET=claudecode",
@@ -238,10 +207,6 @@ func verifyCommandsListed(out string) bool {
 	return false
 }
 
-// Python environments are detected and provisioned, never inherited: a host
-// venv holds an interpreter and compiled extensions built for the host OS/arch.
-// Asserts the provisioned env is usable, keyed outside the workspace, and that
-// pyright resolves real packages through it.
 func TestPythonEnvironmentIsProvisioned(t *testing.T) {
 	img := harnessImage(t, "opencode")
 	dir := t.TempDir()
@@ -300,11 +265,6 @@ echo "SKIP_OK"`).CombinedOutput()
 	}
 }
 
-// A monorepo root is whatever its PRIMARY language made it, so the Python
-// project is nested under apps/. Provisioning that stat-ed only the root found
-// nothing at all — while ensure_language_servers, which walks the tree, still
-// installed pyright. That asymmetry left the agent with code intelligence for a
-// project it had no interpreter to run.
 func TestPythonEnvironmentIsProvisionedForNestedProject(t *testing.T) {
 	img := harnessImage(t, "opencode")
 	dir := t.TempDir()
@@ -356,9 +316,6 @@ echo "NESTED_OK"`).CombinedOutput()
 	}
 }
 
-// One probe, one table, every language. The bind here is a plain host
-// directory, which is the sbx shape: the probe reports and offers --clone
-// rather than clearing a tree that is not its own.
 // SPEC: _spec/packages/lib/dependency-trees.puml
 func TestHostBuiltDependencyTreesAreReported(t *testing.T) {
 	img := harnessImage(t, "opencode")

@@ -12,9 +12,6 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// Severity is the mark and role is the colour, in three tiers plus plain. The
-// table is the vocabulary: a verb that renders differently from this row is a
-// verb that has left the design language.
 func TestPrinterVocabulary(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -102,10 +99,6 @@ func TestPrinterVocabulary(t *testing.T) {
 	}
 }
 
-// The mark is the whole reason this stream can measure itself, so its runes are
-// constrained rather than merely chosen: one column each, and no variation
-// selector. U+26A0 followed by U+FE0F is what the warn mark used to be, and
-// go-runewidth calls that pair one column while every terminal draws two.
 func TestMarksAreOneColumnAndCarryNoVariationSelector(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []GlyphTier{GlyphsNerd, GlyphsASCII, GlyphsOff} {
@@ -162,9 +155,6 @@ func TestFancyLinesCarryTheRoleColour(t *testing.T) {
 	}
 }
 
-// The theme's own red and green, painting a text glyph. This is the assertion
-// that replaces reaching for U+2705 / U+274C: the mark carries the shape and
-// the colour carries the meaning, so nothing needs a rune with a colour in it.
 func TestSeverityUsesTheThemesRedAndGreen(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -291,9 +281,6 @@ func TestTeeDoesNotWrapTheLog(t *testing.T) {
 	}
 }
 
-// New must degrade to plain mode for anything that is not a terminal: pipes,
-// buffers, regular files. (The terminal=fancy side needs a real PTY, which unit
-// tests don't have — it is exercised by the tmux-driven agent-E2E layer.)
 func TestNewDetectsPlain(t *testing.T) {
 	t.Run("non-file writer is plain", func(t *testing.T) {
 		if p := New(&bytes.Buffer{}); !p.Plain {
@@ -328,9 +315,6 @@ func TestWriteBrandBanner(t *testing.T) {
 	}
 }
 
-// A heading must be drawn by the line that follows it, never by the call that
-// declares it. Nearly every line in a prelude is conditional, so a stage that
-// declares a section and finds nothing to say must leave no divider behind.
 func TestSectionsAreLazy(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -352,9 +336,6 @@ func TestSectionsAreLazy(t *testing.T) {
 	}
 }
 
-// Re-declaring the section on screen must be a no-op, so a stage can announce
-// itself without first checking whether the previous one already did. This is
-// what lets selectBackend continue the egress block the broker line opened.
 func TestReDeclaringTheCurrentSectionDrawsNothing(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -392,9 +373,6 @@ func TestSectionRuleFillsOnlyAMeasuredWidth(t *testing.T) {
 	}
 }
 
-// TeeTo swaps the writer mid-run, after the first lines are already out. The
-// section state has to cross with it or the next line redraws a heading the
-// operator has just read.
 func TestTeeKeepsTheSectionState(t *testing.T) {
 	var term, log bytes.Buffer
 	saved, savedLogOnly := Default, logOnly

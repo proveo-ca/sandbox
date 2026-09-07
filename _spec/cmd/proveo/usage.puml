@@ -3,6 +3,9 @@
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
+' purpose: the CLI surface proveo presents, and the per-def run.sh that mirrors it
+' covers: cmd/proveo/main.go
+' covers: defs/*/run.sh
 
 left to right direction
 
@@ -13,7 +16,7 @@ actor "Maintainer" as Maintainer
 
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
- component "version · list · run · projects · setup" as Commands <<commands>>
+ component "version · list · run · projects · setup · init" as Commands <<commands>>
  component "run flags\n--egress-mode · --credentials · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 

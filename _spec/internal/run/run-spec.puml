@@ -4,7 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: why a 595-line function's locals became a struct, and what that bought
 ' covers: internal/run/spec.go
 ' covers: internal/run/run.go
+' covers: internal/run/**
 ' covers: cmd/proveo/run_golden_test.go
+' covers: cmd/proveo/golden_test.go
 '
 ' ── THE PROBLEM WAS THE STACK FRAME ────────────────────────────────────────
 ' doRun held SIXTY top-level locals. That is not a size complaint: it means the
@@ -51,6 +53,34 @@ skinparam noteTextAlignment left
 ' under a pinned environment and pins the bytes, ui narrative included. It was
 ' written and captured BEFORE the split, so its passing afterwards is evidence
 ' rather than decoration.
+'
+' ── A GOLDEN OVER THE RESOLVE PATH IS A GOLDEN OVER THE OPERATOR'S SHELL ────
+' The resolve path READS the environment, so anything it can see and the test
+' does not pin becomes a property of whoever ran it. Measured: a developer with
+' ARCHITECT_MODEL exported got three `-e ..._MODEL=` flags, a DARK_MODE flag, an
+' `------ egress ------` section and three keyless-role warnings the recorded
+' golden had never seen — a diff that says nothing about the resolve path and
+' everything about whose shell ran the test. So EVERY credential the path can
+' see is pinned empty (otherwise the operator's own keys decide which providers
+' are "detected"), and so is everything else it reads. PROVEO_DIND is pinned off
+' for the same reason: it is retired and warns when set.
+'
+' Two things are pinned ON rather than off, and the distinction is the point:
+'   the gh mount   a real line of the plan, so pinning it OFF would DROP
+'                  coverage. It is pointed at a directory the test creates —
+'                  always present, always at a path the scrubber can rewrite.
+'                  Unpinned it stat-ed the developer's own ~/.config/gh, so the
+'                  line existed only for developers who use gh.
+'   the agent uid  `--user 501:20` is a fact about the macOS laptop that recorded
+'                  the golden and `--user 1000:1000` a fact about every Linux CI
+'                  runner. There is NO env override to pin, and there should not
+'                  be: a test-only switch on the uid the agent runs as is
+'                  production surface bought for a test's convenience. It is a
+'                  display property, so it SCRUBS, like the session id.
+'
+' ui.Default caches os.Stderr at init, so swapping the files is not enough to
+' capture output; the anonymous wrapper hides *os.File, which is what makes ui
+' render plain text instead of colour escapes.
 title internal/run — the contract that was a stack frame
 
 participant "cmd/proveo\nwiring" as CMD <<app>>

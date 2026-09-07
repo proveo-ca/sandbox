@@ -1,6 +1,5 @@
-// Package cdn knows how to resolve and verify proveo CLI releases published to
-// the consumer CDN (apps/cli/public/cli → https://proveo.ca/cli).
-//
+// Package cdn knows how to resolve and verify proveo CLI releases published
+// to the consumer CDN (apps/cli/public/cli → https://proveo.ca/cli).
 // SPEC: _spec/internal/cdn/distribution-update.puml
 package cdn
 

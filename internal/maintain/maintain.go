@@ -1,5 +1,3 @@
-// Plans are pure data ([]Command); cmd/proveo executes or prints them.
-//
 // SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
 package maintain
 

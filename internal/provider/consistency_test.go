@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// Every provider a bare model id resolves to must exist in the registry. A prefix
-// pointing at an unregistered name resolves the broker to a provider that cannot
-// be looked up, so the pin silently evaporates.
 func TestBareIDPrefixesResolveToRegisteredProviders(t *testing.T) {
 	t.Parallel()
 	for _, e := range bareIDPrefixes {

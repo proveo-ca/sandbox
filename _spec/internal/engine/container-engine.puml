@@ -1,5 +1,7 @@
 @startuml ContainerEngineDetection
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how proveo identifies the engine behind the docker CLI and what that changes
+' covers: internal/engine/**
 ' Destination diagram — prose from internal/engine/engine.go and the docker
 ' preflight in cmd/proveo/provision.go lands here.
 title Container engine detection — name the engine, never assume Docker Desktop

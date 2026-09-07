@@ -1,5 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: what each D / F / C id cited in the source actually means
+' covers: cmd/proveo/main.go
+' covers: internal/egress/plan.go
+' covers: internal/egresspolicy/**
+' covers: internal/workspace/mount.go
+' covers: cmd/proveo-egress/**
 ' SPEC source (every file that cites an id):
 '   cmd/proveo/main.go · cmd/proveo/main_test.go — C6, D2
 '   internal/egress/plan.go · internal/egress/egress_test.go — D1, D3, C1

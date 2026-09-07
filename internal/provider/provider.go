@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/provider/provider-registry.puml
-//
-// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import "strings"
@@ -11,9 +9,6 @@ type AuthOption struct {
 	Header string // header to set, e.g. "x-api-key" or "authorization"
 	Query  string // query param to set instead of a header (e.g. Gemini "key")
 	Bearer bool   // prefix the value with "Bearer "
-	// Harness names the CLI whose OWN plan issues this credential, empty when it
-	// is a general provider key any harness can send — what stops one harness
-	// being offered another's plan credential as if it were spendable.
 	// SPEC: _spec/internal/provider/provider-registry.puml
 	Harness string
 }
@@ -35,9 +30,6 @@ type Resolved struct {
 	Query  string
 	Value  string // empty => no injectable key present; strip + pass-through only
 	EnvVar string // which credential was chosen, for reporting
-	// Bearer records the SCHEME rather than leaving it to be sniffed back out of
-	// Value. A sbx Kit declares injection as a format string ("Bearer %s" vs
-	// "%s") and never sees the value, so the scheme has to survive on its own.
 	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 	Bearer bool
 }

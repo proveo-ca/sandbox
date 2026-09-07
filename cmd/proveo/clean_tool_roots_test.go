@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// `--tools` has to reclaim BOTH shapes: the legacy tree the previous version
-// installed straight into PROVEO_HOME, and every platform-namespaced tree the
-// relocation creates. Missing the first strands whatever an operator already
-// has; missing the second makes the flag silently reclaim nothing on a host
-// that only ever ran sbx.
 func TestToolRootsCoversLegacyAndEveryPlatform(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

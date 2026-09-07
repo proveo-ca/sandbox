@@ -6,6 +6,7 @@ title Testing strategy — four layers, speed traded for fidelity
 '          have actually exhibited — every one of them a test that passed
 ' covers: internal/contract/**
 ' covers: e2e/**
+' covers: internal/tmux/**
 ' covers: defs/tests/**
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/*.sh
@@ -113,6 +114,165 @@ title Testing strategy — four layers, speed traded for fidelity
 ' The Claude-in-Chrome phase runs a FAKE host relay inside the container in place
 ' of `proveo run`'s, so the chain is driven end to end without a browser
 ' (_spec/defs/claudecode/chrome-bridge.puml).
+'
+' ── THE GO SUITES SKIP FOR ONE REASON: A MISSING PREREQUISITE ───────────────
+' The `//go:build e2e` tag IS the opt-in. A suite that compiles under it must
+' decide for ITSELF whether this host can run it, so the only reason to skip is a
+' missing PREREQUISITE — PTY driver, container backend, harness image, credential
+' — never an unset ceremonial flag. A green run with every test skipped is then an
+' honest statement about the host, and one that `go test -v` prints the reason for.
+'
+' The floor, and why each check is shaped the way it is:
+'   * requireTmux — tmux is the PTY driver every harness run needs.
+'   * requireDocker — checks the CLI on PATH, deliberately NOT the daemon: every
+'     suite here shells out to `docker`, and the endpoint (context or DOCKER_HOST)
+'     is resolved per-run by dockerHost.
+'   * harnessImage — building is a maintainer action (`mise run build <target>`),
+'     so a missing image is a skip, not a failure.
+'   * requireHarnessCredential — the credential VARIABLES come from the def's own
+'     manifest (`env[].secret`, in declaration order), never restated, so a harness
+'     that changes what it authenticates with cannot drift out of the guard. It
+'     resolves through hostEnvValue rather than os.Getenv, because this suite
+'     accepts a key from the process environment OR the repo .env, and checking
+'     only the first skipped runs the developer had in fact provisioned.
+'   * requireReviewTier — mirrors reviewSupported in cmd/proveo, which is the
+'     source of truth: linux only, and a unix:// DOCKER_HOST. `proveo run` already
+'     warns on an unsupported host that "the consent gate cannot be reached from
+'     the inspector on this host, so every new connection will be DENIED without a
+'     prompt". Without the skip the test does not fail fast, it TIMES OUT waiting
+'     for an overlay that will never render — 90 seconds spent to report a host
+'     capability as a defect.
+'
+' ── :local BEFORE :latest, WHEREVER A SUITE RESOLVES AN IMAGE ───────────────
+' `mise run build` tags a local build :local and only a publish moves :latest, so
+' harnessImageName prefers :local and falls back to :latest (overridable per target
+' with PROVEO_TEST_IMAGE_<TARGET>). Defaulting to :latest skipped these suites on a
+' machine that had just built the thing under test — and on one that had also
+' pulled, ran the PUBLISHED image while the report read as though it covered the
+' local build. anyImagePresent applies the same rule to guards and teardown: a
+' guard naming one tag skipped the entire suite whenever the developer had built
+' the other, and a cleanup naming one removed nothing.
+'
+' ── A FIFTH VACUOUS SHAPE: ZERO OF N, REPORTED AS ALL OF N ──────────────────
+' The four above are bash. This one is Go, and the same shape. The two backends
+' keep a secret out of the launch plan by different means: docker declares the
+' `proveo-brokered` sentinel in argv, while sbx puts nothing there at all and hands
+' values to `sbx secret set` on stdin. Read blind, an sbx plan satisfied the
+' sentinel loop by containing no keys to check — zero of N, reported as "all
+' forwarded". assertPlanIsolation now branches on isSbxArgv: on the docker branch
+' `declared == 0` is itself an error, and on the sandbox branch ANY provider key in
+' argv is an error, because argv is visible to anyone listing processes.
+'
+' ── AN ASSERTION MUST EXPLAIN ITS OWN FAILURE ───────────────────────────────
+' e2e/instrument_test.go is the shared instrumentation for the tmux-driven layer,
+' and every assertion that can time out fails through it, because the failures that
+' cost the most to diagnose are the ones that report nothing useful. Three rules,
+' each learned from a failure that hid its own cause:
+'   1. Snapshot the scrollback WHILE the session is alive. Capturing only at the
+'      moment of failure returns "no server running" once the run has exited, which
+'      hides whatever it printed on the way out.
+'   2. A single empty capture is not death. tmux returns nothing mid-redraw and
+'      during long output (an image pull), so only CONSECUTIVE misses count —
+'      deadAfter = 4.
+'   3. Always include exited containers (`docker ps -a`). "Started and died" and
+'      "never started" are different faults and look identical without it.
+'
+' A credential the AGENT cannot spend is a condition of the host, not a defect, so
+' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
+' the diagnostics attached. That pattern is deliberately narrow — `credit balance
+' is too low`, `insufficient credits|quota|balance`, `authentication_error`,
+' `invalid x-api-key`, `invalid api key` — because broadening it to any early exit
+' would let a real adapter defect leave as a skip.
+'
+' Two waits carry the same reasoning. waitForContainerShell treats the container
+' prompt as the signal that the WHOLE topology came up — sidecars, networks, CA
+' trust — because proveo only hands the PTY over once the container is running, so
+' anything failing earlier fails HERE with the scrollback attached rather than as a
+' confusing timeout further down. It matches ":/app$" (or "#"), not "$ ": tmux trims
+' trailing whitespace, so a space-suffixed match never fires. /app is the one shared
+' workdir; /workspace stays accepted only so an older image does not fail the wait.
+' Both are DOCKER mount points — a sandbox run mounts a workspace at its own host
+' path, so a caller that has not pinned PROVEO_SBX=off waits out its deadline for a
+' prompt that cannot appear. acceptChoicePrompt anchors on the key hint
+' ("enter accept", 90s) rather than the form's title: the title is copy, it has been
+' reworded once, and that reword broke a test that waited on it.
+'
+' ── TEARDOWN IS SHARED STATE ────────────────────────────────────────────────
+' `proveo clean --force` removes EVERY proveo container, so running it after each
+' test can tear down a sibling still coming up. forceCleanIfCrowded therefore only
+' sweeps once at least cleanThreshold = 10 containers carrying the
+' `proveo.egress.session` label have accumulated; below that the risk outweighs the
+' benefit and the suite-level clean handles it.
+'
+' ── THE ENVIRONMENT A SUITE HANDS ITS CHILD ─────────────────────────────────
+' Three traps, all of which present as "the session started and printed nothing":
+'   * env(1) on BSD/macOS requires every -u option BEFORE any NAME=value operand,
+'     so the -u list has to come first or env tries to exec "-u" as the utility and
+'     the session dies with no output.
+'   * Overriding HOME hides ~/.docker and with it the active context, so the CLI
+'     silently falls back to /var/run/docker.sock and every docker call — starting
+'     with the image pull — hangs. Pin the endpoint explicitly: dockerHost reads
+'     $DOCKER_HOST, else `docker context inspect`.
+'   * An isolated HOME is also what makes driving the choice prompt deterministic.
+'     A shared HOME would leak into the developer's real settings AND skip the
+'     prompt on every later run.
+' PROVEO_SBX=off belongs in the same list wherever a test inspects proveo's OWN
+' egress topology — the "-egress" container and the broker.env bind-mounted into
+' it. claudecode takes the sandbox backend wherever sbx is installed, and sbx brings
+' its own credential proxy instead, so unpinned there is no egress container to find
+' and the probe burns its 120s timeout before failing for an unrelated reason.
+' Where the provider must be detected from a workspace .env alone, the test unsets
+' every provider Detect variable but PRESERVES infrastructure ones such as
+' DOCKER_HOST, which may point at a remote daemon.
+'
+' ── WHAT THE CREDENTIAL SUITE ASSERTS, AND OVER WHAT VALUES ─────────────────
+' Every value is random per run (`tst_` + 24 random bytes, hex), so no real secret
+' is involved and a leak is unambiguous; a mismatch is reported as sha256 prefix +
+' length, never by printing the key. Two complementary halves:
+'   * isolation (every agent, deterministic) — one `--print` subtest per agent. The
+'     dry-run builds the agent's docker command through the exact same env code path
+'     as a real run, so it is faithful and needs no containers.
+'   * egress integrity (live) — one firewall run whose broker.env, bind-mounted into
+'     the egress-proxy, must receive each key byte-for-byte. broker.env is
+'     agent-independent, so one agent proves the path.
+' claudecode drives the live half, not cursor: cursor declares capabilities
+' egress:[open] credentials:[forward], so it has no MITM and therefore no broker at
+' all. claudecode declares providers:[anthropic], which narrows the detected set to
+' one — and that is precisely what ARMS the broker; with every key detected the
+' broker refuses to pin and there is no broker.env to inspect.
+' cursor's exception is asserted separately, and as declared capabilities rather
+' than a target-name special case: the default forwards the REAL key as a bare
+' `-e CURSOR_API_KEY`, with no sentinel and no --internal network, and an explicitly
+' requested unsupported axis is REFUSED naming what IS allowed ("does not support
+' --egress-mode allowlist (allowed: open)") — not silently rewritten, and no longer
+' a warn-and-continue that hands over a dead sentinel.
+' The project-.env variant proves the same boundary from the other end: a key that
+' exists ONLY in the workspace .env reaches the egress sidecar byte-for-byte while
+' the agent sees the sentinel and an EMPTY /app/.env. It runs against a lightweight
+' probe image (ubuntu:24.04) so the credential path does not depend on any agent
+' CLI's release or install state.
+'
+' ── WHY SOME LAYER-4 CASES HAVE NO CONTAINER AT ALL ─────────────────────────
+' `proveo init --print` is the one mode that must be safe on any host: it resolves
+' the plan and reports this machine's verdict without downloading, installing,
+' signing in, or writing anything. Running it against the REAL host is the only way
+' to catch a plan that resolves fine in a table test but names a path or a distro
+' that does not exist here — and the assertion is symmetric, checking both that the
+' output names the pinned release / the asset / the host triple AND that the prefix
+' was never created and nothing was left in the working directory. The provenance
+' case is Layer 4 for the same reason: the digest is fetched from the LIVE release
+' at install time, so a bumped Release with a moved subject name would only fail on
+' a host nobody is watching. Details of what init plans are in
+' _spec/cmd/proveo/init-sbx-bootstrap.puml.
+'
+' ── THE INVOCATIONS, AS THE SUITES THEMSELVES RECORD THEM ───────────────────
+'   go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v
+'   go test -tags=e2e ./e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
+'   [PROVEO_TEST_LOCAL_MODEL=gemma4] \
+'     go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 360s
+'   go test -tags=e2e ./e2e/ -run InitPrint -v
+'   go test -tags=e2e ./e2e/ -run InitProvenance -v
+'   go test -tags=integration ./internal/egress/ (+ PROVEO_EGRESS_INTEGRATION=1)
 
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
 component "**2. Contract**\nGo builders + goldens\nDockerRunArgs · BuildPlan · Detect · writeBrokerEnv\n//always, no Docker//" as L2 <<app>>
@@ -222,6 +382,35 @@ note as VACUOUS4
   A ""sed"" for a helper that had already moved
   left an empty ""eval"", so the call exited 127
   and ""set -e"" took every later phase with it.
+end note
+
+note as VACUOUS5
+  **Zero of N reads as all of N.** An ""sbx"" plan
+  carries no key in argv at all, so a blind sentinel
+  loop checked nothing and reported success. The
+  docker branch now fails when it declared no key.
+end note
+
+note as PREREQ
+  **Skip only for a missing prerequisite.** The
+  ""e2e"" tag is the opt-in, so a green run with every
+  test skipped is an honest statement about the
+  host — and ""go test -v"" prints each reason.
+end note
+
+note as DIAGNOSE
+  **Snapshot while the session is alive.** Capturing
+  at the moment of failure returns 'no server
+  running' and hides the exit output. Only 4 empty
+  captures in a row mean dead, and ""docker ps -a""
+  separates 'started and died' from 'never started'.
+end note
+
+note as TAGPICK
+  **Prefer the local tag, then the published one.**
+  Naming one skipped whole suites on a machine that
+  had just built the thing under test — or ran the
+  PUBLISHED image while the report read as local.
 end note
 
 note as ROSTER

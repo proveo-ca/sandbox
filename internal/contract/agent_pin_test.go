@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// agentPins is the table: every harness image that bakes an agent, and how it
-// pins it — a build-arg the Dockerfile USES, a version check inside the same
-// RUN, and the label that records what landed. The ARG is declared BARE.
 // SPEC: _spec/_devops/agent-version-pin.puml
 var agentPins = []struct {
 	image       string // key into imageDockerfiles
@@ -44,9 +41,6 @@ var agentPins = []struct {
 		banned:  []string{"pip install cecli-dev "},
 	},
 	{
-		// cursor.com/install takes no version, so the pin is a verification: the
-		// arg names the release build.sh read out of the script, and the RUN
-		// checks the installer unpacked exactly that one.
 		image: "proveo/cursor", buildScript: "defs/cursor/build.sh",
 		arg: "CURSOR_AGENT_VERSION", pkg: "cursor-agent", ecosystem: "cursor",
 		install: regexp.MustCompile(`test -d "/opt/cursor-dist/\.local/share/cursor-agent/versions/\$\{CURSOR_AGENT_VERSION\}"`),
@@ -98,10 +92,6 @@ func TestEveryHarnessPinsItsAgentByABuildArgItUses(t *testing.T) {
 	}
 }
 
-// pinHarness runs proveo_agent_version with FAKE npm and curl on PATH, so the
-// resolver is observable without a registry: npm answers what NPM_VIEW_OUTPUT
-// says (exit 1 when empty), curl prints CURL_BODY (exit 22 when FAKE_CURL_FAIL
-// is set). jq/python3 stay real for the JSON hop.
 func pinHarness(t *testing.T) (run func(env map[string]string, args ...string) (string, string, error)) {
 	t.Helper()
 	bin := t.TempDir()
@@ -179,9 +169,6 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 	}
 }
 
-// Unresolvable is a refusal that names the way out, never a silent `latest`: a
-// fallback to the dist-tag would put the hole this exists to close back in the
-// one place — offline, behind a proxy — where nobody is looking.
 func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 	run := pinHarness(t)

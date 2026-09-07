@@ -1,5 +1,23 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how proveo puts a directory on PATH across shells, and how it takes it back off
+' covers: internal/shell/shell.go
+' covers: internal/shell/shell_test.go
+' covers: cmd/proveo/uninstall.go
+' covers: cmd/proveo/uninstall_test.go
+'   the OTHER directory it writes . _spec/cmd/proveo/init-sbx-bootstrap.puml
+'
+' ── TWO BLOCKS, TWO MARKERS ────────────────────────────────────────────────
+' `proveo setup` writes Marker for proveo's own bin dir; `proveo init` writes
+' SbxMarker (SbxBlock) for the sbx prefix's bin dir. They are DISTINCT comments
+' although the uninstaller strips both, because a shared one would claim that a
+' line pointing at ~/.docker/sbx/bin puts "proveo on PATH".
+'
+' Which is also why init does not reuse AlreadyConfigured: that answers "does
+' this rc hold proveo's marker", and it does — the CDN installer put it there
+' minutes earlier. The only question with the right answer is whether THIS
+' directory is already on PATH.
 title `proveo setup` — cross-shell PATH wiring
 
 actor "Consumer" as USER

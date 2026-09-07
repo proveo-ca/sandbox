@@ -1,17 +1,23 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
 ' purpose: the mechanism of the topology strip — its inputs, its budget, its clock
-' covers: internal/choiceui/topology.go
+' covers: internal/choiceui/topology.go (drawLanes, drawTraffic)
 ' covers: internal/choiceui/layout.go
-' covers: internal/choiceui/anim.go
+' covers: internal/choiceui/anim.go (animFrame, ticker, frame)
+' covers: internal/choiceui/choiceui.go (the EventKey case)
 ' covers: internal/choiceui/pen.go
-' covers: internal/run/topology.go
+' covers: internal/run/topology.go (topologyOf, egressTier, lanesOf)
+' covers: internal/choiceui/anim_test.go, internal/choiceui/topology_test.go
+' covers: internal/choiceui/layout_test.go, internal/choiceui/pane_test.go
+' covers: internal/choiceui/pen_test.go, internal/choiceui/region_order_test.go
+' covers: internal/run/topology_test.go
 ' This file owns the MECHANISM: what the strip is a function of, where its rows come
 ' from, and what makes it tick. It owns no pictures.
 '   the pictures, per selection ... _spec/internal/choiceui/topology-states.puml
 '   the regions it is drawn in ... _spec/internal/choiceui/viewport.puml
 '   the width budget ............ this file, the notes on COLS
-'   how the four were chosen .... _spec/_plans/choiceui-viewport-proposals.puml
+'   how the four were chosen .... _spec/internal/choiceui/figure-fidelities.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
 '   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
@@ -20,7 +26,90 @@
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' ── THE CLOCK: MOTION IS BOUND TO CHANGE, NOT TO TIME ──────────────────────
+' ── THE MOTE TRAVELS THE WIRE, IT DOES NOT BLINK BETWEEN LANES ─────────────
+' drawLanes used to inject the pulse glyph into the middle of ONE lane's 3-char
+' stub and cycle which lane by `(tick/2)%3 == i`. What that drew was three lanes
+' taking turns lighting up — a rotating indicator, not anything flowing. The
+' figure is a picture of traffic, and its animation was saying something else.
+'
+' drawTraffic rides ONE mote along the path the traffic actually takes: from the
+' column just right of the hop node (colHop+1, or boxR+1 on a tier with no hop)
+' rightward along the shared spine on row y0+2 to the junction at colLanes, then
+' out along the OPEN lanes' runs to the clouds. Path length is `spine + runLen`
+' and the position is `tick % path`, so it repeats with no state machine and no
+' notion of a beginning or an end to get out of step with.
+'
+' Two properties are the point rather than side effects. PAST THE JUNCTION IT
+' FANS OUT to every open lane in the same frame, because that is what a junction
+' does — one stream in, several out. And it is NEVER DRAWN ON A REFUSED LANE:
+' the refusal is the tier's whole statement, and animating traffic down it would
+' contradict the figure it is painted on. No open lane at all — review, where
+' the lane kind is LaneAsked — means no traffic is drawn, which is the correct
+' picture of a tier that asks before anything moves.
+'
+' ── THE CLOCK: THE FLOW DOES NOT STOP ──────────────────────────────────────
+' Motion used to be bound to CHANGE. frame() returned 0 once animWindow (1200ms)
+' had elapsed since the last bump(), and run() deliberately posted nothing while
+' at rest, so a keystroke ran a short filmstrip and the strip then settled onto
+' its still frame. The argument was that an idle prompt must cost nothing, and
+' that motion was therefore a CHANGE INDICATOR: any movement on screen meant
+' something in the form had just moved.
+'
+' That argument does not survive the mote. The mote imitates NETWORK FLOW, and
+' flow that stops after 1.2s is not a picture of a network — it is a picture of
+' a network that failed. So animWindow, the `since` field and bump() are gone,
+' along with bump's call site in the EventKey case; frame() is
+' `time.Since(base)/animFrame + 1`, and the goroutine posts every frame for as
+' long as the prompt is open.
+'
+' THE TRADE, RECORDED HONESTLY: a redraw every 120ms for as long as the form is
+' up, in exchange for motion that does not decay to a still picture. animFrame
+' stays 120ms — ~8 fps is motion rather than a strobe — so the cost is bounded
+' and known rather than merely unmeasured.
+'
+' bump's removal takes a subtlety with it that is worth not re-deriving later.
+' It was called once per KEY EVENT rather than per mutation, because the cursor
+' changes the strip's emphasis and `move` does not report through OnChange, so
+' hanging it off individual mutations would have left the one case that mattered
+' uncovered. With every frame posted there is no longer a case to cover.
+'
+' PollEvent blocks, so the clock still cannot be a timer the draw loop reads; it
+' has to be an event. PostEvent is non-blocking and reports a full queue rather
+' than parking, so a tick arriving against a screen nobody is reading is dropped
+' instead of wedging the goroutine that sent it.
+'
+' The frame count is a DURATION off one monotonic reading, never a difference of
+' wall-clock instants: a clock stepped backwards by NTP makes an elapsed time
+' negative, and drawTraffic refuses a tick <= 0 rather than walking a path
+' backwards from it.
+'
+' stop WAITS for the goroutine to leave, so no post is in flight against a
+' screen the caller is tearing down; Run registers it after screen.Fini
+' precisely so it runs first.
+'
+' ── THE FIGURE FOLLOWS THE HOVERED BASELINE, NOT THE SETTLED ONE ───────────
+' The sbx egress row is LOCKED — the baseline is the HOST's, not this run's —
+' and cycle() on a locked row moves Hover while Selected stays put. topologyOf
+' read f.Selection("egress"), which is Selected. So an operator cycling to
+' `balanced` on a deny-all host read balanced's help while the figure went on
+' drawing deny-all's 1 open lane and 2 refusals. Reported as "balanced shows
+' 2 x".
+'
+' egressTier(f, cursor, fallback) prefers Options[Hover] when the row is locked
+' AND the cursor is on it, falling back to Selected otherwise — so an unlocked
+' row, or a locked row the cursor has walked away from, still shows what is in
+' force rather than what someone once pointed at.
+'
+' WHERE THE BUG WAS NOT: lanesOf was already correct — balanced is 2 open and 1
+' refused, and always was. The wrong tier reached it. That distinction is
+' recorded here so nobody later "fixes" lanesOf to make the symptom go away and
+' breaks the one function on this path that was right.
+'
+' The tier drives Hop and Caption as well as the lanes, so the hover previews
+' the WHOLE figure and not just its right-hand side. A hover that moved the
+' lanes while the hop kept describing the settled tier would be the same
+' disagreement in a smaller place.
+'
 ' ── WHERE THE VOCABULARY LIVES, AND WHY IT IS NOT IN choiceui ──────────────
 ' topologyOf (internal/run/topology.go) is the ONLY place the picture learns
 ' what "allow-all" or "docker (sandbox)" mean. internal/choiceui owns the
@@ -53,29 +142,6 @@
 ' and it was wrong: the row reports a FACT, and its options are the only
 ' statement of what that fact implies. Hovering now reads them, and lights the
 ' hop while doing so.
-'
-' A keystroke runs the filmstrip for animWindow and the strip then rests on its
-' still frame, so any movement on screen means something in the form actually
-' moved — the only thing that makes the motion worth the distraction it costs.
-'
-' PollEvent blocks, so the clock cannot be a timer the draw loop reads; it has
-' to be an event. PostEvent is non-blocking and reports a full queue rather than
-' parking, so a tick arriving against a screen nobody is reading is dropped
-' instead of wedging the goroutine that sent it.
-'
-' Both times are DURATIONS off one monotonic reading, never wall-clock instants.
-' A wall clock stepped backwards by NTP makes an elapsed time negative, and a
-' negative elapsed never satisfies "the window has closed" — so the strip would
-' repaint every 120ms forever with no pulse to show for it. One last post fires
-' as the window closes, so the final frame painted is the still one rather than
-' a mid-animation frame with the mote frozen on a lane.
-'
-' bump is called once per KEY EVENT rather than per mutation: the cursor changes
-' the strip's emphasis and `move` does not report through OnChange, so hanging
-' it off individual mutations would leave the one case that matters uncovered.
-' It posts nothing itself — the keystroke already causes a repaint. stop WAITS
-' for the goroutine to leave so no post is in flight against a screen the caller
-' is tearing down; Run registers it after screen.Fini precisely so it runs first.
 '
 ' ── WHY THE STRIP HAS ITS OWN WRITER ───────────────────────────────────────
 ' pen advances by DISPLAY width rather than rune count, because the strip is
@@ -153,6 +219,37 @@
 ' columns earlier, and a terminal that had always drawn the block started
 ' drawing the pane. The width change was right; the preference was the bug.
 '
+' ── THE FOURTH FIDELITY: THE CAPTION, ALONE ───────────────────────────────
+' `stripFit` has four values, not two — none, DIGEST, block, pane — and the
+' digest is the one that survives a narrow terminal. `stripCols` (72) is the
+' figure's FLOOR: below it the picture is not drawn at all and `digestRows` (2,
+' one blank and the caption) carries the same four facts in one sentence. What a
+' narrow terminal loses is the PICTURE, never the information — which is the
+' only reason the figure was allowed to have a floor in the first place.
+'
+' The digest is also the ladder's foothold. The rung buys `digestRows` first and
+' upgrades to the block by paying the difference, so a terminal that can afford
+' two rows and 72 columns gets the figure and one that can afford only the two
+' gets the sentence. When the upgrade is refused the ladder CLOSES — nothing
+' below the figure may be bought afterwards — because a cheaper region sneaking
+' past a dearer one that was refused is exactly how the figure used to vanish as
+' the terminal GREW.
+'
+' ── THE KEY HAS THREE HOMES AND IS DRAWN AT EXACTLY ONE ────────────────────
+' `KeyHome` is where the credential actually rests for this run, and the frame
+' draws it once: never at two homes, never at none. Two keys would say the
+' credential is in both places at once, which is the single most misleading
+' thing a security figure can state. The host's key rides beside its DOT on the
+' spine rather than beside its label, because the label lives on the row beneath
+' — as every outside node's does.
+'
+' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
+' `ui.GlyphTier` reaches the figure with NO translation, because the posture's
+' name for the tier and choiceui's are one type. A `stripGlyphs` helper used to
+' sit on the crossing doing the conversion, and it collapsed "off" to ASCII on
+' the way; the collapse now lives in `glyphsFor` alone, so there is one place
+' that decides what "off" draws and no second vocabulary to drift from the first.
+'
 ' ── THE TWO CONNECTORS, AND WHY ONE OF THEM IS GONE ───────────────────────
 ' The host had a rule of its own to the square's left wall. It was redundant:
 ' the bottom bracket already runs from the host column to the square's bottom
@@ -181,9 +278,9 @@
 ' The rule runs on to the fan so the lanes are visibly the hop's rather than
 ' three runs floating off to its right — and only when there ARE lanes, because
 ' a rule running to an empty margin would draw the route the tier is
-' withholding. The animation mote REPLACES a rule rather than joining the run,
-' so a lane is the same width moving as at rest; on the pane, where a run is
-' one rule wide, the mote IS the lane for that frame.
+' withholding. The animation mote OVERWRITES a cell rather than being inserted
+' into the run, so the figure is the same width moving as at rest; on the pane,
+' where a run is one rule wide, the mote IS the lane for that frame.
 '
 ' ── THE BUDGET'S EXACT ARITHMETIC ──────────────────────────────────────────
 ' Five rows and 72 columns are the strip's fixed geometry. Five because a
@@ -247,6 +344,7 @@ node "internal/choiceui" as PKG <<host>> {
   component "layout(w, h)\nfit budget · drop ladder · body height" as LAYOUT <<app>>
   component "Form.Topology(f, cursor)\nrun/topology.go builds one Frame" as MODEL <<app>>
   component "drawFigure(s, x0, y0, cols, ...)\none painter, block or pane" as PAINT <<app>>
+  component "drawTraffic\none mote: hop → spine → junction → open lanes" as TRAFFIC <<app>>
   component "glyphsFor(tier)\nnerd devicons · ascii" as GLYPH <<app>>
   component "topoCols\nblockCols · paneCols" as COLS <<app>>
 }
@@ -254,7 +352,7 @@ node "internal/choiceui" as PKG <<host>> {
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
 component "Run()\nexisting event loop" as RUN <<app>>
 component "Rows\negress · credentials · auth\nexecution · interface · agent evidence" as ROWS <<app>>
-queue "animTicker\nPostEvent every ~120ms, while unsettled" as TICK <<async>>
+queue "animTicker\nPostEvent every 120ms, while the prompt is open" as TICK <<async>>
 component "Operator terminal\nw x h, resized at will" as TTY <<host>>
 
 component "A figure that only decorates" as DECOR <<error>>
@@ -270,7 +368,9 @@ DRAW ARROW_OPTIONAL PAINT : only when the strip fits
 PAINT ARROW_MAIN TTY
 TICK ARROW_QUEUE RUN : EventInterrupt — the clock is an event
 RUN ARROW_MAIN DRAW
-RUN ARROW_MAIN TICK : started on the first change, stopped before ""Fini""
+RUN ARROW_MAIN TICK : started with the prompt, stopped before ""Fini""
+PAINT ARROW_MAIN TRAFFIC : ""tick"", the spine and the open lanes' rows
+TRAFFIC ARROW_MAIN TTY : ""tick % (spine + runLen)""
 PAINT ARROW_ERROR DECOR
 MODEL ARROW_ERROR LIE
 
@@ -283,11 +383,27 @@ note top of MODEL
 end note
 
 note bottom of MODEL
-  **The cursor picks the emphasis, not the
-  content.** Every element is drawn on every
-  frame; the focused row raises one to brand and
-  dims the rest, so nothing appears or vanishes
-  as the operator walks down the form.
+  **The cursor picks the emphasis.** Every element
+  is drawn on every frame; the focused row raises
+  one to brand and dims the rest, so nothing
+  appears or vanishes as the operator walks down
+  the form.
+end note
+
+note bottom of MODEL
+  **On a LOCKED row it picks the content too.**
+  ""cycle"" moves Hover and leaves Selected alone,
+  so ""egressTier"" reads Options[Hover] while the
+  cursor is there — hop, lanes and caption all
+  preview the baseline being pointed at.
+end note
+
+note bottom of MODEL
+  **The bug was NOT in ""lanesOf"".** balanced was
+  always 2 open + 1 refused; the wrong tier
+  reached it: ""Selection"" returns Selected and a
+  locked row never moves it. Reported as
+  "balanced shows 2 x". Do not "fix" ""lanesOf"".
 end note
 
 note right of ROWS
@@ -338,6 +454,14 @@ note bottom of LAYOUT
   one, run without the strip rung.
 end note
 
+note bottom of LAYOUT
+  **Under 72 columns, the caption alone.** The
+  digest is two rows — a blank and one sentence —
+  carrying the figure's four facts. A narrow
+  terminal loses the PICTURE, never what the
+  picture was there to say.
+end note
+
 note bottom of COLS
   **A fidelity, not a fourth drawing.** It drops
   the connector runs, review's prose and the
@@ -352,6 +476,14 @@ note bottom of COLS
   what the banner is; the run is drawn the same
   way, so the two read as one drawing and "()"
   keeps meaning "a radio" everywhere else.
+end note
+
+note bottom of TRAFFIC
+  **One mote on the real path, not three lanes
+  taking turns.** It rides the spine to the
+  junction and fans out to EVERY open lane — and
+  onto no refused one. Review has no open lane,
+  so review draws no traffic at all.
 end note
 
 note top of PAINT
@@ -394,11 +526,11 @@ note top of TICK
 end note
 
 note bottom of TICK
-  **Motion is bound to change, not to time.**
-  A keystroke animates for ~1.2s and the strip
-  then rests on a still frame, so an idle prompt
-  costs no CPU and any movement means something
-  in the form just moved.
+  **The flow does not stop, and that is a trade.**
+  Motion used to decay after a 1200ms window so an
+  idle prompt cost nothing. Flow that halts is a
+  picture of a FAILED network, so the window is
+  gone: a redraw every 120ms while the form is up.
 end note
 
 note bottom of TICK

@@ -5,8 +5,8 @@
 ' covers: defs/lib/render-subagents.sh
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/agents_shared_test.go
-' covers: defs/*/defaults/agents/**
-' covers: defs/*/*/defaults/agents/**
+' covers: internal/contract/subagent_roster_test.go
+' covers: defs/*/tests/**
 '
 ' ── SUBAGENTS ARE NOT BAKED AS FILES ───────────────────────────────────────
 ' One body per agent lives in /opt/proveo/subagents, and the entrypoint

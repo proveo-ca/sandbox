@@ -13,6 +13,8 @@ left to right direction
 ' covers: defs/sidecars/squid-proxy/*.conf
 ' covers: defs/sidecars/mitmproxy/test.sh
 ' covers: internal/egress/**
+' covers: internal/egressproxy/**
+' covers: cmd/proveo-egress/**
 '
 ' ── THE SIDECAR IMAGES, AND THE THREE CHOICES INSIDE THEM ───────────────────
 ' proveo/egress-proxy — the Go MITM (cmd/proveo-egress), EXPOSE 8888.

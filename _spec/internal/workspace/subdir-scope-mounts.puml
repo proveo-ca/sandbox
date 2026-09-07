@@ -3,6 +3,9 @@
 title Monorepo subdir scope — what reaches /app, and what used to be missing
 
 ' covers: internal/workspace/mount.go
+' covers: internal/workspace/deps.go
+' covers: internal/workspace/mount_test.go
+' covers: e2e/scope_mounts_test.go
 
 node "Host repo" as HOST <<host>> {
   component "scope dir\n""apps/web""" as SCOPE <<app>>

@@ -25,9 +25,6 @@ func write(t *testing.T, p, body string) {
 	}
 }
 
-// linkedWorktree lays out a main checkout and a linked worktree the way git does:
-// the worktree's .git is a FILE pointing into <main>/.git/worktrees/<name>, whose
-// commondir points back at <main>/.git.
 func linkedWorktree(t *testing.T) (mainRepo, wt string) {
 	t.Helper()
 	root := t.TempDir()

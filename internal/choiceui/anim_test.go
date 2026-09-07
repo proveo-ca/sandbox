@@ -9,10 +9,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// The clock is silent until something changes, and silent again once the window
-// closes: an idle prompt must cost nothing, or the animation is a tax on every
-// operator who is only reading the form.
-func TestTickerIsSilentAtRest(t *testing.T) {
+func TestTickerRunsContinuously(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	posted := 0
@@ -24,42 +21,33 @@ func TestTickerIsSilentAtRest(t *testing.T) {
 	})
 	defer tk.stop()
 
-	if got := tk.frame(); got != 0 {
-		t.Errorf("a ticker nobody bumped must rest, got frame %d", got)
-	}
-	time.Sleep(3 * animFrame)
-	mu.Lock()
-	idle := posted
-	mu.Unlock()
-	if idle != 0 {
-		t.Errorf("an idle ticker posted %d events; it must post none", idle)
-	}
-
-	tk.bump()
 	if got := tk.frame(); got == 0 {
-		t.Error("a bumped ticker must be running")
+		t.Error("a fresh ticker must already be running; nothing bumps it any more")
 	}
-	time.Sleep(3 * animFrame)
+	time.Sleep(4 * animFrame)
 	mu.Lock()
-	moving := posted
+	got := posted
 	mu.Unlock()
-	if moving == 0 {
-		t.Error("a bumped ticker posted nothing; the strip would never redraw")
+	if got == 0 {
+		t.Error("the ticker posted nothing; the strip would never redraw")
 	}
 }
 
-// Motion is bound to change, not to time: the window closes on its own.
-func TestTickerWindowCloses(t *testing.T) {
+// The frame number is what positions the mote on its path, so it has to keep
+// advancing rather than settle or wrap to zero.
+func TestTickerFrameKeepsAdvancing(t *testing.T) {
 	t.Parallel()
 	tk := newTicker(func(tcell.Event) error { return nil })
 	defer tk.stop()
-	tk.bump()
-	if tk.frame() == 0 {
-		t.Fatal("bump must open the window")
+
+	first := tk.frame()
+	time.Sleep(3 * animFrame)
+	second := tk.frame()
+	if second <= first {
+		t.Errorf("frame went %d → %d; the mote would stand still", first, second)
 	}
-	time.Sleep(animWindow + 2*animFrame)
-	if got := tk.frame(); got != 0 {
-		t.Errorf("the window must close on its own, still at frame %d", got)
+	if first == 0 || second == 0 {
+		t.Errorf("frame must never be 0 while the prompt is open (%d, %d)", first, second)
 	}
 }
 
@@ -85,7 +73,6 @@ func TestTickerSurvivesAFailingPost(t *testing.T) {
 		return tcell.ErrEventQFull
 	})
 	defer tk.stop()
-	tk.bump()
 	time.Sleep(4 * animFrame)
 	// frame() alone is arithmetic on a field and would pass even if the
 	// goroutine had died; count the posts to prove it is still trying.
@@ -96,14 +83,10 @@ func TestTickerSurvivesAFailingPost(t *testing.T) {
 		t.Errorf("the ticker gave up after %d failed posts; it must keep going", got)
 	}
 	if tk.frame() == 0 {
-		t.Error("a failing post must not close the window")
+		t.Error("a failing post must not stop the clock")
 	}
 }
 
-// The clock is touched from two goroutines by construction — the draw loop reads
-// frame() and bumps, the ticker goroutine posts — so hammer both against stop()
-// from several at once. Run this under -race; without it the test only proves
-// nothing panics or deadlocks.
 func TestTickerUnderConcurrentUse(t *testing.T) {
 	t.Parallel()
 	tk := newTicker(func(tcell.Event) error { return nil })
@@ -113,7 +96,6 @@ func TestTickerUnderConcurrentUse(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 400; j++ {
-				tk.bump()
 				_ = tk.frame()
 			}
 		}()
@@ -126,14 +108,10 @@ func TestTickerUnderConcurrentUse(t *testing.T) {
 	tk.stop()
 }
 
-// A ticker that is stopped must take its goroutine with it: the prompt is run
-// once per process today, but a leaked goroutine posting into a dead screen is
-// exactly the failure the stop ordering exists to prevent.
 func TestTickerLeavesNoGoroutine(t *testing.T) {
 	before := runtime.NumGoroutine()
 	for i := 0; i < 20; i++ {
 		tk := newTicker(func(tcell.Event) error { return nil })
-		tk.bump()
 		tk.stop()
 	}
 	// The goroutines exit asynchronously, so give them a moment before counting.

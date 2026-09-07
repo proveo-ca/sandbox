@@ -2,10 +2,36 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Language-server provisioning — §8 of the shared entrypoint lib
 
-' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp,
-'         configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
+' purpose: how a workspace's languages become installed, eligible, wired language servers — and what each harness's config format calls "enabled"
+' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp, configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
 ' covers: internal/contract/lsp_config_parity_test.go
 ' covers: internal/sbx/kit.go (SeedCommand)
+'
+' ── FOR OPENCODE, AN ABSENT KEY IS THE DISABLED CASE ───────────────────────
+' opencode's schema (opencode.ai/config.json) reads the `lsp` key three ways.
+' Verbatim, because it is the evidence for what did and did not need changing:
+'   "Omit or set to false to disable, true to enable built-ins, or an object
+'    to enable built-ins and add/override"
+' and the key's type is `anyOf[boolean, object]`, the object keyed per server
+' with `command` required. So the per-server object `configure_opencode_lsp`
+' writes is BOTH valid and enabling — the object form was never the defect, and
+' nothing about it changed.
+'
+' The defect was the other branch. When no installed server matched the
+' workspace, the function returned early and wrote NOTHING, leaving `lsp`
+' absent — which is the DISABLED case. That is what printed "LSPs are disabled"
+' on `proveo run opencode`. The no-match path now writes `"lsp": true`, so
+' opencode's own built-ins come on wherever proveo's detection matched nothing.
+'
+' Three things it deliberately leaves alone, each because someone else's intent
+' is already recorded in the file: an explicit `"lsp": false` (an operator who
+' turned it off meant it), an existing object (the operator's own server table),
+' and every unrelated key. All four cases are pinned by
+' `TestConfigureOpencodeLspEnablesBuiltinsWhenNothingMatched`.
+'
+' Known gap, recorded rather than fixed: `existing` stays `{}` when `jq -e .`
+' rejects the file, so the no-match branch now OVERWRITES a malformed
+' `opencode.json` where the old early return left it intact.
 
 node "One shared lib, four harnesses" as LIB <<host>> {
   component "**detect** — ""_lsp_walk""\nextension + marker maps → lang·count" as WALK <<app>>
@@ -95,6 +121,21 @@ note bottom of WIRE
   server installed AFTER the config is rendered stays invisible until the next
   run. opencode and cursor once rendered their config before the installers ran,
   which is why Go intelligence only ever appeared on a second run.
+end note
+
+note top of WIRE
+  **Absent is DISABLED.** opencode reads a missing
+  ""lsp"" key as off, so returning early on no
+  match printed //LSPs are disabled//. That path
+  now writes ""lsp"": true — built-ins on.
+end note
+
+note left of WIRE
+  **Known gap, not fixed.** ""existing"" stays
+  empty when ""jq -e ."" rejects the file, so the
+  no-match branch now OVERWRITES a malformed
+  ""opencode.json"" — the old early return left it
+  intact.
 end note
 
 note bottom of SEED

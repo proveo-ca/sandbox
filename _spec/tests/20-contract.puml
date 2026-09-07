@@ -6,6 +6,13 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
+' purpose: the Layer-2 contract lane — Go builders executed and diffed against
+'          goldens, replacing grep-for-substring contracts
+' covers: internal/contract/**
+' covers: cmd/proveo/*_test.go
+' covers: internal/runner/*_test.go
+' covers: internal/egress/plan_test.go
+
 title Layer 2 · Contract — Go builders + goldens (no Docker)
 
 actor "go test ./cmd/... ./internal/...\n(mise test-go)" as Runner <<actor>>

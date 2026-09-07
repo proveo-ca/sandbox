@@ -14,17 +14,9 @@ import (
 	"time"
 )
 
-// TestFirewallIntegration brings up the real firewall topology
-// (Squid + the Go egress proxy) via BuildPlan, then drives a curl "agent"
-// container through it. It asserts the load-bearing Docker invariants:
-//   - the agent reaches the internet ONLY through mitmproxy -> squid, trusting
-//     the generated CA (a real HTTPS GET succeeds);
-//   - the decrypted flow is recorded to flows.ndjson;
-//   - the agent's internal network has no direct egress (a proxy-bypassing
-//     request fails).
-//
-// Gated: -tags=integration and PROVEO_EGRESS_INTEGRATION=1 (needs Docker + the
-// proveo/egress-proxy image + internet). Skipped otherwise.
+// TestFirewallIntegration brings up the real firewall topology (Squid + the
+// Go egress proxy) via BuildPlan, then drives a curl "agent" container
+// through it.
 func TestFirewallIntegration(t *testing.T) {
 	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
 		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")
@@ -43,9 +35,6 @@ func TestFirewallIntegration(t *testing.T) {
 		SquidConfigDir: filepath.Join(state, "squid", "config"), SquidLogDir: filepath.Join(state, "squid", "logs"),
 	}
 
-	// Stage squid config (no provider pinned: reads are allowed by default) and
-	// create the mount targets. Squid logs dir is world-writable so the squid
-	// image's user can write regardless of its uid.
 	if err := StageSquidConfig(os.DirFS(repoRoot(t)), opts.SquidConfigDir, nil, ""); err != nil {
 		t.Fatalf("stage squid config: %v", err)
 	}
@@ -94,12 +83,11 @@ func TestFirewallIntegration(t *testing.T) {
 	}
 }
 
-// TestFirewallPolicyIntegration proves the egress policy (S1) end-to-end through
-// the REAL MITM: a read is allowed, while a write to a non-allowlisted host, a
-// GET to an exfil sink, and a request carrying a known secret are each blocked
-// before leaving — and the block is recorded to flows.ndjson.
-//
-// Gated: -tags=integration and PROVEO_EGRESS_INTEGRATION=1.
+// TestFirewallPolicyIntegration proves the egress policy (S1) end-to-end
+// through the REAL MITM: a read is allowed, while a write to a
+// non-allowlisted host, a GET to an exfil sink, and a request carrying a
+// known secret are each blocked before leaving — and the block is recorded to
+// flows.ndjson.
 func TestFirewallPolicyIntegration(t *testing.T) {
 	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
 		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")
@@ -154,9 +142,6 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 	}
 
 	agentArgs := append([]string{"run", "--rm"}, plan.AgentArgs...)
-	// reached reports whether a `curl -f` completed with a 2xx — i.e. the request
-	// was NOT blocked by the policy and actually reached the upstream. A policy
-	// block aborts the request, so curl fails (non-zero exit).
 	reached := func(curlArgs ...string) bool {
 		base := append(append([]string{}, agentArgs...), "curlimages/curl:latest", "-fsS", "-m", "20", "-o", "/dev/null")
 		_, err := r.Run(append(base, curlArgs...)...)
@@ -193,9 +178,9 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 	}
 }
 
-// TestFirewallBrokerEnvMountIntegration proves host-side broker.env (as written
-// from a project .env with CURSOR_API_KEY) is mounted into the proxy and the
-// plan wires PROVEO_EGRESS_PROVIDER=cursor. Topology must still serve HTTPS.
+// TestFirewallBrokerEnvMountIntegration proves host-side broker.env (as
+// written from a project .env with CURSOR_API_KEY) is mounted into the proxy
+// and the plan wires PROVEO_EGRESS_PROVIDER=cursor.
 func TestFirewallBrokerEnvMountIntegration(t *testing.T) {
 	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
 		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")

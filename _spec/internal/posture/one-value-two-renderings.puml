@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: why the posture is one value rendered twice, and why nothing here decides anything
 ' covers: internal/posture/posture.go
 ' covers: cmd/proveo/posture_golden_test.go
+' covers: internal/posture/posture_test.go
 '
 ' ── THE BUG THAT MADE IT A PACKAGE ─────────────────────────────────────────
 ' A run states its posture twice: the header a human reads BEFORE launch, and the
@@ -25,6 +26,20 @@ skinparam noteTextAlignment left
 ' wording differs per backend on purpose ("proveo runs no Squid or MITM" against
 ' "squid + mitmproxy sidecars"), and that difference is the thing most likely to
 ' rot silently, because nothing else fails when a row describes the wrong backend.
+'
+' The block is what an operator reads AFTER a failure, and until the goldens
+' landed NOTHING asserted it. Order was never the exposure — runlog.Log.Fields
+' sorts the keys, so it was already stable. The SET and the WORDING were: a row
+' could appear, vanish or change its sentence and no test would notice.
+'
+' ONE GOLDEN PER BACKEND, because the two differ in exactly the three places
+' that have been wrong before — who enforces egress, what evidence exists, and
+' whether an sbx MCP gateway is even a question.
+'
+' The goldens pin bytes; one property is pinned separately and is the reason the
+' split was made. Every row the block reports is NON-EMPTY for a fully-resolved
+' run, so a field added to Posture and left unset fails in the suite rather than
+' printing "(unset)" to an operator mid-incident.
 '
 ' ── KNOWN OVERSTATEMENT, DELIBERATELY LEFT ─────────────────────────────────
 ' EnforcedBy says "sbx — Kit network allowlist + credential proxy" whatever sbx's

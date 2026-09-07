@@ -1,6 +1,4 @@
 // SPEC: _spec/cmd/proveo/github-credentials.puml
-//
-// SPEC: _spec/cmd/proveo/github-credentials.puml
 package main
 
 import (

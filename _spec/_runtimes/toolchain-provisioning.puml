@@ -8,6 +8,12 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: defs/base/Dockerfile
 ' covers: defs/base-node/Dockerfile
 ' covers: defs/base-node-lsp/Dockerfile
+' covers: defs/base-node/ensure.sh
+' covers: mise.toml
+' covers: internal/contract/go_provisioning_test.go
+' covers: internal/contract/bun_toolchain_test.go
+' covers: internal/contract/toolchain_test.go
+' covers: e2e/toolchain_test.go
 ' How the three shared layers are assembled: _spec/defs/base-image-layers.puml.
 
 node "proveo/base — the universal floor" as FLOOR <<host>> {
@@ -156,6 +162,15 @@ note bottom of TSFLOOR
   runtime-free by design.
 end note
 
+note bottom of TSFLOOR
+  **Node and bun are pinned the same way.** A bare version ARG plus a
+  sha256 per architecture, checked with ""sha256sum -c"" and then
+  re-checked by asking the tool its own version; ""bunx"" is a symlink
+  beside ""bun"" rather than a second install. ""ensure\.sh"" probes for
+  both BY NAME — a stale ""<image>:local"" built before bun landed
+  satisfies a tag check and looks present.
+end note
+
 note right of MISE
   **Why mise is on the floor.** It is the toolchain manager this repo
   already uses on the host — now for Go too, which makes it the ONLY
@@ -221,6 +236,20 @@ note bottom of T4
   the developer's host — and ""mise\.toml"" carries the identical pin so
   ""mise run"" on the HOST resolves it too, which is the case that had no
   answer while Go was absent from that file.
+
+  **The two pins are checked for AGREEMENT, not merely for presence.**
+  ""mise\.toml"" drives ""mise run <task>"" and ""go\.mod"" drives
+  ""GOTOOLCHAIN=auto"", so a drift between them means a contributor
+  compiles against one Go and CI against another over ONE shared build
+  cache — ""compile: version 'goX' does not match go tool version 'goY'"",
+  which is the failure that kept Go out of ""mise\.toml"" in the first
+  place. A contract test pins both spellings and compares them.
+
+  The generated rc block carries the mise SHIMS directory and no
+  ""GOROOT"": the block outlives the toolchain it names, so a written-down
+  ""GOROOT"" points at the previous install after the next
+  ""mise use -g go@<other>"". The shims are what put Go on PATH; a path
+  written down is a fact that goes stale on its own.
 end note
 
 note bottom of GOPLS
@@ -263,8 +292,14 @@ note bottom of APT
   installs from a //stale// index, silently pinning an image to whatever
   the last reachable mirror said.
 
-  Every ""apt-get update"" under ""defs/"" carries the flag. ""base-node"" is
-  the exception — NodeSource's setup script runs its own update, and
-  that layer already begins with ""curl -fsSL"", which fails hard.
+  Every ""apt-get update"" under ""defs/"" carries the flag. **""base-node"" used
+  to be the exception** — NodeSource's setup script ran its own update, and
+  that layer began with ""curl -fsSL"", which fails hard. The exception is
+  gone with NodeSource itself: Node now arrives as the official
+  ""nodejs\.org"" tarball, pinned by version and by a per-arch sha256, and
+  that layer carries the flag like every other. NodeSource published PER
+  UBUNTU RELEASE, so the layer depended on a third party having packaged
+  whatever release the sandbox TEMPLATE happens to ship — see
+  ""_spec/_devops/sandbox-template-rebase\.puml"".
 end note
 @enduml

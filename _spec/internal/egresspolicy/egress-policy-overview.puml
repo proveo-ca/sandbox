@@ -1,5 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the egress policy in one screen — who assembles it, who enforces it, who records it
+' covers: internal/egresspolicy/**
 title Egress policy — read-allow / write-deny / DLP at the firewall MITM hop
 
 component "internal/egresspolicy\npure decisions — Decide(req)" as CORE <<app>>

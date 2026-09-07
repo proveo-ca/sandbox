@@ -5,6 +5,25 @@
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
 
+' purpose: the promptful Layer-4 flow over time — drive, prompt, model, side effect
+' covers: e2e/e2e_test.go
+' covers: internal/tmux/**
+'
+' The topology, the posture flags and the workspace .env rule are in
+' 40-agent-e2e-components.puml; the shared instrumentation and skip rules are in
+' testing-strategy.puml.
+'
+' The prompt is not typed. Everything after `--` is forwarded to the agent, so
+' `opencode run --auto --agent build <task>` takes the task from argv — one
+' deterministic shell command — and exits. tmux exists only to supply the PTY that
+' `docker run -it` requires, which is why there is no TUI readiness race here.
+'
+' Three side effects are polled TOGETHER, host-side, on a 4-minute deadline at
+' 3-second intervals: FROM_SAMPLE.txt (the mounted README's first line, proving the
+' mount), DONE.txt (the marker BANANA-E2E-OK, proving a write), and SCRAPED.html
+' (example.com's stable title "Example Domain", proving egress). Waiting on the
+' marker alone would let a broken mount or a blocked egress pass.
+
 title Layer 4 · Agent E2E — promptful flow (-tags=e2e; assert the side effect)
 
 actor "E2E test / CI" as Test
@@ -25,12 +44,12 @@ Tmux -> Harness : keystrokes -> stdin
 Harness -> Ollama : POST /v1/chat/completions (NO_PROXY)
 note right of Ollama : cold-load can take minutes\n(wait-for-serving + long timeout)
 Ollama --> Harness : reply (may include reasoning preamble)
-Harness -> FS : write DONE.txt (marker)
+Harness -> FS : curl → SCRAPED.html · head -1 README.md → FROM_SAMPLE.txt\nprintf BANANA-E2E-OK → DONE.txt
 
-loop poll until marker or timeout
-  Test -> FS : read DONE.txt
+loop poll all three every 3s, deadline 4m
+  Test -> FS : read DONE.txt · FROM_SAMPLE.txt · SCRAPED.html
 end
-Test -> Test : assert contains marker
+Test -> Test : assert marker + README first line + 'Example Domain'
 Test -> Tmux : Kill (+ egress teardown)
 
 note over Test, FS

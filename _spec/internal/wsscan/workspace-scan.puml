@@ -1,5 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the workspace is scanned for projects, and what bounds the walk
+' covers: internal/wsscan/**
 title Workspace scan — one walker, monorepo-aware, dependency trees pruned
 
 node "internal/wsscan" as PKG <<host>> {
@@ -43,7 +45,7 @@ note bottom of BAD
   ""dind.ScopeHasDockerfiles"" fed the privileged sidecar's offer, and npm
   packages ship Dockerfiles: a repo with none of its own could be offered a
   ""--privileged"" sibling because of a dependency. That gate is gone with the
-  sidecar (_spec/_plans/retire-dind.puml) and the walker's remaining caller
+  sidecar (_spec/_paradigms/retire-dind.puml) and the walker's remaining caller
   only labels a prompt — but the deny set stays hardcoded rather than
   discovered, because a scan that reports a dependency's files as the
   project's is wrong whatever reads it.

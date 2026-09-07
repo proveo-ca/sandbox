@@ -7,6 +7,22 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
+' purpose: the four testing layers at a glance — what each costs, what gates it,
+'          and how coverage is merged across them
+' covers: e2e/**
+' covers: internal/*/*_test.go
+' covers: cmd/proveo/*_test.go
+' covers: scripts/go-test-coverage.sh
+' covers: defs/tests/run_contract_tests.sh
+'
+' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the
+' `//go:build e2e` tag IS the opt-in, so the only reason to skip is a missing
+' PREREQUISITE — PTY driver, container backend, harness image, credential — never
+' an unset ceremonial flag. A green run with every test skipped is then an honest
+' statement about the host, and `go test -v` prints the reason for each. The
+' individual guards, and the failures that shaped them, are in
+' _spec/tests/testing-strategy.puml.
+
 title Testing Approach — Four Layers (speed vs fidelity) + coverage
 
 actor "Developer / CI" as Dev <<actor>>

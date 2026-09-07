@@ -1,7 +1,5 @@
 // SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml,
 // _spec/internal/egress/egress-tiers.puml
-//
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egress/egress-tiers.puml
 package egress
 
 import (

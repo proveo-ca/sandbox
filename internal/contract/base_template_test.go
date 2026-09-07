@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// The harness base must EXTEND a Docker sandbox template. Descending from a
-// plain distro image is what left `docker: sbx` promised by four manifests and
-// kept by none: sbx starts what the IMAGE ships, and the image shipped nothing.
 // SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestBaseExtendsASandboxTemplate(t *testing.T) {
 	t.Parallel()
@@ -34,11 +31,6 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 			"(a mention inside a comment does not count)")
 	}
 
-	// An ARG written AFTER a FROM belongs to that build stage, so only a
-	// declaration above EVERY FROM reaches a FROM line. This test previously
-	// asserted the ARG merely existed, and passed on a Dockerfile that could not
-	// build: buildx warned "UndefinedArgInFrom" and failed with "base name
-	// (${SANDBOX_TEMPLATE}) should not be blank". Existence was never the rule.
 	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	argAt := strings.Index(src, arg[0])
 	firstFROM := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(src)
@@ -52,9 +44,6 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 	}
 }
 
-// Every ARG a FROM interpolates must be global. Checked across the whole file
-// rather than for one name, because the next base to be parameterised will hit
-// the identical rule.
 func TestEveryArgUsedByFromIsGlobal(t *testing.T) {
 	t.Parallel()
 	for _, rel := range []string{"defs/base/Dockerfile", "defs/base-node/Dockerfile",
@@ -79,9 +68,6 @@ func TestEveryArgUsedByFromIsGlobal(t *testing.T) {
 	}
 }
 
-// A -docker variant is the only one carrying dockerd. A plain tag gives a
-// client with no daemon behind it, which answers `docker` and then fails to
-// connect — the same half-provisioning as shipping no docker at all.
 func TestBaseTemplateCarriesTheEngine(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
@@ -98,17 +84,6 @@ func TestBaseTemplateCarriesTheEngine(t *testing.T) {
 	}
 }
 
-// proveo-harden strips EVERY setuid/setgid bit, sudo included.
-//
-// The rebase brought a setuid /usr/bin/sudo.ws into the lineage and it was
-// exempted here on the hypothesis that the harden pass was the missing
-// privilege behind dockerd's "Permission denied (you must be root)". Measured
-// in a live sandbox, that is false: dockerd runs as root with PPID 1 from the
-// VM's init, no sudo process exists, the runtime user cannot sudo anyway (the
-// NOPASSWD grant names `agent`, the renamed user only has the password-gated
-// group), and the socket is reached through the docker GROUP. The exemption
-// bought nothing used and cost the no-setuid contract that
-// defs/{claudecode,cursor,opencode}/tests/test_security.sh assert.
 // SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestHardenPassStripsEverySetuidBinary(t *testing.T) {
 	t.Parallel()
@@ -130,9 +105,6 @@ func TestHardenPassStripsEverySetuidBinary(t *testing.T) {
 	}
 }
 
-// The base asserts its own inheritance at BUILD time. Without this a template
-// that drops the Engine, or a harden pass that disarms sudo, is discovered in a
-// running sandbox instead of in CI.
 func TestBaseAssertsWhatItInherits(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
@@ -143,21 +115,11 @@ func TestBaseAssertsWhatItInherits(t *testing.T) {
 	}
 }
 
-// The template sets WORKDIR /home/agent/workspace, and BuildKit recreates a
-// missing working directory before every RUN. Downstream defs rename uid 1000
-// and move /home/agent aside, so an inherited workdir underneath it reappears
-// between two RUN steps — the move back then fails with "directory /home/agent
-// exists" and the build stops. The Debian base this replaced had no WORKDIR at
-// all, so the runtime stage must declare one of its own.
 // SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestBaseDoesNotInheritTheTemplateWorkdir(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
 
-	// Anchored to a real FROM line. An unanchored search matches the phrase
-	// where it appears inside a COMMENT near the top of the file, which made
-	// "the runtime stage" span the builder too — and the builder's WORKDIR /src
-	// then satisfied the assertion no matter what the runtime stage said.
 	loc := regexp.MustCompile(`(?m)^FROM \$\{SANDBOX_TEMPLATE\}`).FindStringIndex(src)
 	if loc == nil {
 		t.Fatal("no runtime stage building FROM ${SANDBOX_TEMPLATE}")
@@ -203,18 +165,6 @@ func readFileOrFail(t *testing.T, path string) string {
 	return string(b)
 }
 
-// The ladder-all verdict has misread `go test` output twice, in opposite
-// directions, so the pattern it greps is pinned here.
-//
-//  1. a SKIP exits 0, so an unchecked exit status reported PASS for four defs
-//     on a host with no sbx — four climbs that never happened
-//  2. the fix grepped for "--- SKIP: TestSandboxLadder" unanchored, which also
-//     matches the four-space-indented SUBTEST line. cecli passed all its rungs
-//     with only its browser rung skipped (no cecli-browser image), and was
-//     reported as not-run
-//
-// Go prints the top-level result flush left and indents subtests, so the anchor
-// is the whole correctness of the line.
 // SPEC: _spec/_devops/release-gate.puml
 func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
 	t.Parallel()

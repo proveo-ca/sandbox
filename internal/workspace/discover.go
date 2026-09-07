@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/workspace/mount-model.puml
-//
-// SPEC: _spec/internal/workspace/mount-model.puml
 package workspace
 
 import (

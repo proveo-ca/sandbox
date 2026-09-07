@@ -2,8 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: why proveo declines sbx's MCP gateway by default, and how a decline is expressed
-' covers: internal/backend/sandbox/sandbox.go (MCPGatewayVar, WithMCPGatewayPolicy,
-'         DeclineMCPGateway, MCPGatewayAllowed)
+' covers: internal/backend/sandbox/sandbox.go (MCPGatewayVar, WithMCPGatewayPolicy, DeclineMCPGateway, MCPGatewayAllowed)
 ' covers: internal/posture/posture.go (MCPGateway)
 '   the Kit this rides in ......... _spec/internal/sbx/sbx-kit-contract.puml
 '   the backend that writes it .... _spec/internal/sbx/sandbox-backend.puml

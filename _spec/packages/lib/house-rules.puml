@@ -2,8 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title House rules and UI defaults — proveo's conventions in every session, without touching a repository
 
-' covers: packages/lib/entrypoint-lib.sh, defs/claudecode/mcp/Dockerfile,
-'         defs/opencode/Dockerfile
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/themes/**
 '
 ' Knobs: PROVEO_HOUSE_RULES=off · PROVEO_UI_DEFAULTS=off.

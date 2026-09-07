@@ -2,9 +2,11 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Python environments — detected and provisioned, never inherited
 
-' covers: packages/lib/entrypoint-lib.sh, defs/opencode/entrypoint.sh,
-'         defs/cursor/entrypoint.sh, defs/cecli/entrypoint.sh,
-'         defs/claudecode/mcp/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' Knobs: PROVEO_PYTHON_ENV=auto|off · PROVEO_PYTHON_VERSION (default 3.12) ·
 '        PROVEO_PYTHON_MAX_PROJECTS (default 4) · PROVEO_PYTHON_TIMEOUT

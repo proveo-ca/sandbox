@@ -10,11 +10,6 @@ import (
 	"testing"
 )
 
-// Subagent definitions are never duplicated on disk. One body per agent lives in
-// defs/subagents/, the frontmatter schema is per-harness, and the two halves are
-// joined by render_subagents at container start. Nothing composed is committed, so
-// these tests compose through the real shell function — the same one the entrypoints
-// call — and assert on its output rather than on a generated file.
 var subagentRoster = map[string]int{
 	"claudecode": 5,
 	"cecli":      10,
@@ -22,9 +17,6 @@ var subagentRoster = map[string]int{
 	"cursor":     2,
 }
 
-// composeSubagents runs render_subagents for one harness into a temp dir and
-// returns it. Shelling out is deliberate: a Go reimplementation could agree with
-// itself while disagreeing with the image.
 func composeSubagents(t *testing.T, harness string) string {
 	t.Helper()
 	bash, err := exec.LookPath("bash")
@@ -85,9 +77,6 @@ func TestSubagentsComposeForEveryHarness(t *testing.T) {
 	}
 }
 
-// The read-only split is what stands between a reviewer and the working tree, and
-// it comes from frontmatter that composition copies through verbatim. Asserting on
-// the composed file rather than the yaml keeps the check on what actually ships.
 func TestComposedClaudeCodeSubagentTools(t *testing.T) {
 	t.Parallel()
 	files := composedFiles(t, composeSubagents(t, "claudecode"))
@@ -125,9 +114,6 @@ func TestComposedCursorSubagentsReadonly(t *testing.T) {
 	}
 }
 
-// Sharing only pays if one edit reaches every harness: a body nothing references is
-// dead weight, and a roster naming a body that does not exist fails at container
-// start, where it is far more expensive to notice.
 func TestSharedAgentBodiesAllReferenced(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

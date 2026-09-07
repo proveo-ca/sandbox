@@ -4,6 +4,17 @@ skinparam noteTextAlignment left
 title Config seeding and persistence — one chain for LSPs, MCPs, formatters and plugins
 
 ' purpose: why only LSPs have a detect→provide→wire chain, why nothing that chain writes survives an sbx run, and the one shape that fixes both
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/proveohome/**
+' covers: internal/manifest/manifest.go
+' covers: internal/sbx/run.go
+' covers: internal/clean/clean.go, cmd/proveo/clean.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/contract/tool_home_test.go, internal/contract/tool_sync_test.go
+' covers: internal/contract/config_set_test.go, internal/contract/config_sync_test.go
+' covers: internal/contract/config_files_test.go
+' covers: internal/contract/mcp_class_test.go, internal/contract/formatter_class_test.go
+' covers: cmd/proveo/clean_tool_roots_test.go, cmd/proveo/golden_test.go
 ' PARTLY LANDED — steps 1 and 2 of the legend are implemented; 3-5 are not.
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
 '   step 2 · install location ..... packages/lib/entrypoint-lib.sh (_proveo_tool_home,
@@ -209,6 +220,31 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' namespaces, where they mean nothing. Concurrent saves from two sandboxes are
 ' safe without it — the tree is content-identical for one platform, and each
 ' file is replaced through an atomic rename.
+'
+' ── WHERE EACH SYNC SITS IN THE ORDER, AND WHY THAT IS THE CONTRACT ───────
+' Both syncs are ordered against something that would otherwise overwrite them,
+' and in both cases the wrong order fails SILENTLY.
+'
+'   TOOLS RESTORE BEFORE PROVISIONING. _proveo_tool_path puts the tree on PATH
+'   and every installer step gates on `command -v`, so a restore landing AFTER
+'   provisioning is a run that reinstalls the whole toolchain beside the copy it
+'   just carried in — slower than no persistence at all, and it still passes.
+'
+'   CONFIG RESTORES BEFORE THE WIRING. Every configure_* step merges with
+'   setdefault semantics, so a config restored after them loses the operator's
+'   persisted values to this run's defaults. A merge that overwrites nothing
+'   looks exactly like a merge that had nothing to overwrite, which is why the
+'   ordering is pinned by the contract suite rather than left to reading order.
+'
+' AND AN UNKNOWN MODE IS REFUSED, in both syncs. Teardown calls each by name
+' with `save`; a typo falling through to one of the two directions would look
+' like a successful copy, so anything that is not restore-or-save is an error.
+'
+' THE THREE TEARDOWN CALLS ARE JOINED WITH `;`, NOT `&&`. SaveStateArgs runs
+' proveo_sync_config, proveo_sync_tools and proveo_sync_state in that order,
+' each independent: a failed transcript copy must not take the toolchains with
+' it. It also execs with `-w /` — a virtiofs-invalidated workspace kills the
+' exec at chdir (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
 '
 ' ── WHY THE CONFIG COPY USES `-nt` AND NOT THE STATE SYNC'S COMPARISON ────
 ' _proveo_config_tree copies a file when absent and replaces it when the source

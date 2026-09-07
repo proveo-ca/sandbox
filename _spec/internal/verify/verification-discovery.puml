@@ -1,6 +1,9 @@
 @startuml
-' covers: defs/lib/detect-verify.sh, defs/cecli/proveo-lib/detect-verify.sh,
-'         defs/claudecode/mcp/proveo-lib/detect-verify.sh
+' covers: defs/lib/detect-verify.sh
+' covers: defs/cecli/proveo-lib/detect-verify.sh
+' covers: defs/claudecode/mcp/proveo-lib/detect-verify.sh
+' covers: internal/verify/**
+' covers: cmd/proveo-entrypoint/**
 '
 ' ── WHY A SHELL WRAPPER STILL EXISTS AROUND THE GO IMPLEMENTATION ──────────
 ' detect_verify_commands is a thin wrapper over `proveo-entrypoint verify`. It

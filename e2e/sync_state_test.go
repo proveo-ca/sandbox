@@ -9,22 +9,6 @@ import (
 	"time"
 )
 
-// A state sync must never leave a partially written file at the destination.
-//
-// The `cp -a "$src/." "$dst/"` this replaced truncates in place — cp opens the
-// destination with O_TRUNC and streams into it — so anything that interrupts the
-// copy leaves the destination cut at a read-buffer boundary. proveo's own failure
-// path did the interrupting: `sbx exec` on a stopped sandbox restarts it, so the
-// seed's `restore` ran concurrently with the exec's `save`, in the opposite
-// direction over the same files. Seven of the operator's transcripts were rewritten
-// short inside one second — 7340032, 786432, 786432, 524288, 262144, 262144 and
-// 262144 bytes, every size an exact 256 KiB multiple, each cut mid-JSON — and the
-// short copy was propagated to both sides. Nothing reported it.
-//
-// The assertion samples the destination's size WHILE a copy is running. With a
-// rename into place there are only two possible sizes, the old and the new; with a
-// streaming overwrite the samples land in between. That is the property, stated so
-// it fails against the old implementation rather than merely describing the new one.
 func TestSyncTreeNeverExposesAPartialFile(t *testing.T) {
 	out, err := runLib(t, runOpts{timeout: 4 * time.Minute}, `
 set -u
@@ -82,13 +66,6 @@ printf 'temps=%s\n' "$(find "$dst" -name '*.proveo-sync.*' | wc -l | tr -d ' ')"
 	}
 }
 
-// New files take the fast path, and it must not be able to destroy anything.
-//
-// Phase 1 is one `cp -an` for everything the destination lacks — no existing file is
-// opened for writing at all. Phase 2 is the only place an existing file is replaced,
-// and it replaces by rename. Unchanged files are skipped outright, which is what
-// keeps a warm sandbox cheap: the plugin marketplace alone is thousands of files
-// that never differ, and a fork per file was the reason not to do this before.
 func TestSyncTreePlacesNewFilesAndLeavesTheDestinationsOwnAlone(t *testing.T) {
 	out, err := runLib(t, runOpts{timeout: 4 * time.Minute}, `
 set -u
@@ -137,10 +114,6 @@ printf 'hot=%s\n' "$(cat "$dst/projects/-a/hot.jsonl")"
 	}
 }
 
-// restore and save move the same files in opposite directions, and proveo's failure
-// path runs both at once without meaning to. The lock is what makes the second
-// caller wait rather than race; a stale one — a seed killed mid-copy — must be
-// broken rather than blocking every later run forever.
 func TestSyncLockSerialisesAndBreaksWhenTheHolderIsGone(t *testing.T) {
 	out, err := runLib(t, runOpts{timeout: 3 * time.Minute}, `
 set -u
@@ -173,19 +146,6 @@ rm -rf "$lock"
 	}
 }
 
-// A failed state sync must never stop a sandbox from coming up, and this is a
-// regression that actually happened while fixing the one above.
-//
-// The old copy ended in `|| true` and could not report anything. Giving
-// proveo_sync_state an honest exit status — needed so `save`'s caller and these
-// tests can see a partial copy — put that status inside proveo_seed, which
-// proveo-seed runs under `set -euo pipefail`. One failed file copy then aborted the
-// kit's startup command and sbx answered `failed to run sandbox container`: no
-// sandbox at all, for the sake of a transcript that did not copy.
-//
-// So the status stays honest and the SEED stays tolerant, and this pins the seam.
-// The sync is replaced with one that fails, everything after it is stubbed, and the
-// seed still has to return 0 having gone past it.
 func TestSeedSurvivesAFailedStateSync(t *testing.T) {
 	out, err := runLib(t, runOpts{timeout: 3 * time.Minute}, `
 set -euo pipefail

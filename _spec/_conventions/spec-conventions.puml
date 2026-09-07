@@ -1,5 +1,33 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the roles, arrow intent, note box and SPEC reference rules every diagram in this tree obeys
+' covers: internal/contract/spec_notes_test.go
+' covers: internal/ui/ui.go
+' Deliberately NOT `_spec/**` — a glob over the tree this file describes would
+' report drift on every diagram edit, which is noise rather than signal.
+' The palette these roles print in: _spec/_conventions/tui-design-language.puml.
+' Prose for humans: CONTRIBUTING.md.
+'
+' ── WHAT THE BOX CHECKER ACTUALLY PARSES ───────────────────────────────────
+' `note over X` and `note over X, Y` are the same box under a different keyword,
+' and omitting them exempted a whole note form: credential-boundary carries 21
+' of them and the checker reported it as having NO NOTES AT ALL — which the
+' ratchet then read as "drop it from the list" rather than as a gap. The inline
+' one-liner `note left of X : text` is counted too; it is a one-line note by
+' construction, which the floor forbids.
+'
+' Columns are counted in RUNES, not bytes. An em dash is one column and three
+' bytes, so a byte count rejects a legal note and teaches the author to write
+' worse prose to satisfy an arithmetic error.
+'
+' The one exemption is a line holding a single unbroken token — a bare URL,
+' with a list marker and `[[ ]]` stripped before the test. The cap exists to
+' force prose density and a link has none to force: no rewrite makes it
+' shorter, so capping it would push sources out of the notes and back into
+' comments nobody renders. Widening that to "any long line" would retire the
+' rule quietly, so the boundary itself is pinned by a table of cases — a link
+' inside a sentence is NOT exempt, because the sentence can be rewritten
+' around it.
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>
@@ -93,6 +121,14 @@ note top of R2
   idea and belongs on another anchor, while text
   short enough for one line still divides across
   two, giving every note an identical shape.
+end note
+
+note bottom of R2
+  **Counted in runes, and ""note over"" counts.**
+  An em dash is one column and three bytes, so a
+  byte count rejects a legal note. The ""over""
+  form was invisible to the checker, which read a
+  21-note diagram as having none at all.
 end note
 
 note top of R4

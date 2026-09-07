@@ -1,8 +1,6 @@
 // SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml,
+// _spec/defs/claudecode/claudecode-egress-topology.puml
 // _spec/defs/claudecode/claudecode-egress-topology.puml Package egressproxy is
-// the Go egress inspection proxy (TLS-terminating MITM).
-//
-// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
 package egressproxy
 
 import (

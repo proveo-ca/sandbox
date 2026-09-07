@@ -1,5 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the intended working mode of each def, and the steering/posture that follows from it
+' covers: defs/**/entrypoint.sh
+' covers: internal/entrypoint/**
+' covers: cmd/proveo-entrypoint/**
+' covers: internal/gitidentity/gitidentity.go
+' Prose for humans: CODING_HARNESSES.md, CONTRIBUTING.md.
 title The four harness paradigms — intended working mode per def
 
 component "claudecode\n**ML blackbox algorithm**\nspec → plan → implement → verify → loop" as CC <<app>>

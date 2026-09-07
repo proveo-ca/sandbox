@@ -7,9 +7,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// paneFrame is the worst case the pane has to hold, taken from what
-// internal/run/topology.go can actually produce: the longest hop label, beside
-// the widest key, with the longest square and the longest interface label.
 func paneFrame() Frame {
 	return Frame{
 		Host: "pluvo", HostOS: "(macOS)",
@@ -39,17 +36,9 @@ func TestPaneKeepsEveryFact(t *testing.T) {
 					tier, want, joined)
 			}
 		}
-		// Located, not counted. A one- or two-column glyph turns up inside labels
-		// and inside other glyphs — "x" lives in "sbx", "o-" is a node on a rule —
-		// so the honest question is whether the key is where the frame says the
-		// credential rests, and nowhere else it could be mistaken for.
 		if !strings.Contains(hopRow(joined, g.cornerTL), g.key) {
 			t.Errorf("tier %v: the key is not beside the hop:\n%s", tier, joined)
 		}
-		// Counted as the END OF A LANE, not as a bare glyph: "sbx · claudecode"
-		// contains the ASCII refusal glyph.
-		// A lane that SURVIVES ends in a cloud; the bare arrow also appears on the
-		// connector, so the cloud is what counts.
 		if n := strings.Count(joined, g.east+" "+g.cloud); n != 1 {
 			t.Errorf("tier %v: %d surviving lanes, want the frame's 1", tier, n)
 		}
@@ -133,9 +122,6 @@ func TestCaptionHeadKeepsTheFactsAndDropsTheGloss(t *testing.T) {
 	}
 }
 
-// lastPaintedCol is the last non-blank COLUMN of each row. Measured off the cell
-// grid rather than a string's len(), which counts bytes: every rule and devicon
-// in this figure is multi-byte, so a byte count reads far past the real edge.
 func lastPaintedCol(s tcell.SimulationScreen) []int {
 	cells, w, h := s.GetContents()
 	out := make([]int, h)
@@ -151,19 +137,11 @@ func lastPaintedCol(s tcell.SimulationScreen) []int {
 	return out
 }
 
-// paneWidth is the narrowest terminal at which this form draws the pane, and
-// blockWidth the widest at which it still draws the block. Derived for the same
-// reason scrollingHeight is: the breakpoint is a property of the form's own
-// rows, and a literal would only record whatever the columns were that day.
-// paneHeight is too short for the block figure and tall enough for the pane.
 const paneHeight = 18
 
 func paneWidth(f *Form) int  { return f.bodyRight() + paneGutter + paneCols.width }
 func blockWidth(f *Form) int { return paneWidth(f) - 1 }
 
-// THE load-bearing test of the whole feature: the budget must agree with the
-// painter, or the pane silently overwrites an option. Asserted as "the gutter
-// is empty", which is the invariant itself rather than a proxy for it.
 func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
@@ -181,9 +159,6 @@ func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 	}
 }
 
-// gutterBreaches reports rows where the body reached into the pane's gutter,
-// scoped to the rows the pane actually occupies. The hint and help block sit
-// BELOW the figure and legitimately span the full width.
 func gutterBreaches(rows []string, pane int) []int {
 	spine := -1
 	for y, line := range rows {
@@ -226,10 +201,6 @@ func TestThePaneCostsNoHeight(t *testing.T) {
 		if narrow.banner && !wide.banner {
 			t.Errorf("h=%d: the pane evicted the banner the block had kept", h)
 		}
-		// The payoff, asserted rather than assumed. It is NOT that the pane buys
-		// body rows back — since the ladder charges the body in full, no rung can
-		// take one. It is that the figure is drawn at heights where the block
-		// would have been refused outright for want of five rows.
 		if narrow.strip == stripNone {
 			seen += 1000
 		}
@@ -306,8 +277,6 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	}
 }
 
-// The pane no longer waits for a reason: the row does not draw one, so its
-// width is its label and its options.
 // SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 func TestALongReasonNoLongerWidensTheRow(t *testing.T) {
 	t.Parallel()
@@ -394,9 +363,6 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 	}
 }
 
-// figureMark is the container's top-left corner — the one glyph every frame
-// draws and nothing else on the screen does, so it is how a test finds the
-// figure's first row without depending on a label that may be clipped.
 func figureMark() string { return glyphsFor(GlyphsNerd).cornerTL }
 
 // hopRow is the figure's third row, where the two outside nodes name themselves.

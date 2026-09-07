@@ -13,9 +13,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/runner"
 )
 
-// polyglot lays out the e2e sample's shape: a pnpm-style root with hoisted
-// deps, nested JS packages (one installed, one not), a Rust crate, a Go module,
-// a Python service with an in-tree venv, a Terraform module — and two decoys.
 func polyglot(t *testing.T) string {
 	t.Helper()
 	root := tempDir(t)
@@ -173,9 +170,6 @@ func TestDepCopiesRootTreesOfASubdirScopeArePresentOnly(t *testing.T) {
 		EgressMode: "open", Credentials: "forward",
 		MountRootDeps: true, DepStage: t.TempDir(),
 	}.DepCopies()
-	// /app itself is container filesystem in a subdir scope, so an absent root
-	// tree needs no overlay: a hoisted install the agent runs already stays put.
-	// The scope's own absent tree DOES: its parent is the host bind.
 	want := []string{"/app/apps/web/node_modules", "/app/target"}
 	if diff := cmp.Diff(want, containers(copies)); diff != "" {
 		t.Errorf("subdir scope copies (-want +got):\n%s", diff)

@@ -460,3 +460,84 @@ func TestSandboxLoginHintNamesTheHostLogin(t *testing.T) {
 		t.Errorf("claimed a host login that was never found: %q", bare)
 	}
 }
+
+func TestNonDarwinHostIsNeverProbedAndSaysNothing(t *testing.T) {
+	t.Parallel()
+	for _, goos := range []string{"linux", "windows", "freebsd"} {
+		k := &keychainStub{items: map[string]string{
+			"Claude Code-credentials": measuredPayload("sk-ant-oat01-a", "sk-ant-ort01-b",
+				time.Now().Add(2*time.Hour), time.Now().Add(11*24*time.Hour)),
+		}}
+		r := k.resolver()
+		r.GOOS = goos
+
+		got := ReadKeychainLogin("claudecode", envOf(map[string]string{"USER": "pluvo"}), r, time.Now())
+
+		if got.Found {
+			t.Errorf("%s: reported a Keychain login on a host with no Keychain", goos)
+		}
+		if got.Outcome != secretref.Unsupported {
+			t.Errorf("%s: outcome = %q, want unsupported", goos, got.Outcome)
+		}
+		if len(k.argv) != 0 {
+			t.Errorf("%s: shelled out %v; nothing may be executed on a host with no Keychain", goos, k.argv)
+		}
+		if advice := got.KeychainFailureAdvice(); advice != "" {
+			t.Errorf("%s: printed %q; a host with no Keychain has no failure to report", goos, advice)
+		}
+		if line := got.Report(); line != "" {
+			t.Errorf("%s: printed %q", goos, line)
+		}
+	}
+}
+
+func TestAHarnessWithNoKeychainPathIsNotAFailedRead(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"cursor", "opencode", "cecli", "shell"} {
+		k := &keychainStub{}
+		got := ReadKeychainLogin(target, envOf(map[string]string{"USER": "pluvo"}), k.resolver(), time.Now())
+
+		if got.Outcome != secretref.Unsupported {
+			t.Errorf("%s: outcome = %q, want unsupported", target, got.Outcome)
+		}
+		if len(k.argv) != 0 {
+			t.Errorf("%s: shelled out %v for a harness that keeps no Keychain login", target, k.argv)
+		}
+		if advice := got.KeychainFailureAdvice(); advice != "" {
+			t.Errorf("%s: printed %q; there was no read to fail", target, advice)
+		}
+	}
+}
+
+func TestNilResolverIsSilentRatherThanAFailedRead(t *testing.T) {
+	t.Parallel()
+	got := ReadKeychainLogin("claudecode", envOf(nil), nil, time.Now())
+	if got.Outcome != secretref.Unsupported {
+		t.Fatalf("outcome = %q, want unsupported", got.Outcome)
+	}
+	if advice := got.KeychainFailureAdvice(); advice != "" {
+		t.Fatalf("printed %q with no resolver to read with", advice)
+	}
+}
+
+// The sentence still exists, and Failed is what earns it: a read that happened
+// and did not work. Losing that would trade one silence for another.
+func TestAReadThatActuallyFailedStillSaysSo(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		outcome secretref.Outcome
+		detail  string
+		want    string
+	}{
+		{secretref.Failed, "keychain locked", "host Keychain: could not read it — keychain locked"},
+		{secretref.Failed, "", "host Keychain: could not read it — no output"},
+	} {
+		k := KeychainLogin{Outcome: tc.outcome, Detail: tc.detail}
+		if got := k.KeychainFailureAdvice(); got != tc.want {
+			t.Errorf("KeychainFailureAdvice() = %q, want %q", got, tc.want)
+		}
+	}
+	if got := (KeychainLogin{}).KeychainFailureAdvice(); got != "" {
+		t.Errorf("a zero KeychainLogin printed %q; nobody set that outcome", got)
+	}
+}

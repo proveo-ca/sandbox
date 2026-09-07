@@ -1,6 +1,4 @@
 // SPEC: _spec/internal/provider/provider-registry.puml
-//
-// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import (
@@ -101,11 +99,6 @@ func normalizeModelID(model string) string {
 type Billing int
 
 const (
-	// BillUnknown — the id does not settle it. Either the prefix carries no
-	// billing meaning, or the vendor splits plan from overage on ITS side where
-	// proveo cannot see: cursor bills a Cursor plan's included usage and then
-	// usage-based overage against one CURSOR_API_KEY, and nothing in the request
-	// says which one this is.
 	BillUnknown Billing = iota
 	// BillPlan — a fixed-cost subscription.
 	BillPlan
@@ -114,21 +107,7 @@ const (
 )
 
 // ModelBilling reports how a model id is billed.
-//
-// It reads the RAW prefix, before providerAliases folds it. That fold is right
-// for routing — Zen and Go are one host on one credential, so they are one
-// broker route — and wrong for this question, which is the only thing the two
-// prefixes exist to distinguish:
-//
-//	opencode-go/<m>   the $10/mo Go plan          BillPlan
-//	opencode/<m>      the Zen pay-as-you-go balance   BillMetered
-//
-// Both read OPENCODE_API_KEY, so the CREDENTIAL cannot answer this and the
-// operator cannot be asked to pick by naming a variable. Worse, Go falls back
-// to the Zen balance once its limits are spent when 'Use balance' is enabled,
-// so a plan run can become a metered one without the id changing at all —
-// which is why proveo warns about the mismatch rather than claiming to prevent
-// the spend. SPEC: _spec/internal/credentials/credential-decisions.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml
 func ModelBilling(model string) Billing {
 	model = strings.TrimSpace(strings.ToLower(model))
 	i := strings.Index(model, "/")
@@ -152,22 +131,14 @@ func ModelBilling(model string) Billing {
 // metered usage, with the split invisible from here.
 var vendorPlanProviders = map[string]bool{"cursor": true, "opencode": true}
 
-// SplitsBilling reports a gateway whose ONE credential covers a plan and metered
-// usage both, so no credential check can tell an operator which they are
-// spending. SPEC: _spec/internal/credentials/credential-decisions.puml
+// SplitsBilling reports a gateway whose ONE credential covers a plan and
+// metered usage both, so no credential check can tell an operator which they
+// are spending.
 func SplitsBilling(name string) bool {
 	return vendorPlanProviders[strings.ToLower(strings.TrimSpace(name))]
 }
 
-// IsFreeTier reports a gateway model served at no cost. opencode names every one
-// of them with a `-free` suffix — 31 of them on Zen at the time of writing —
-// which is a convention rather than a contract, so this is a heuristic like the
-// alpha/preview filter in scripts/rank-plan-fallbacks.py and is used only where
-// being wrong is safe.
-//
-// It exists so a fallback can be entitlement-safe. A free model bills NOTHING,
-// so it cannot spend the wrong side of a choice the operator made — which is
-// the property that matters when proveo cannot see which plan a key entitles.
+// IsFreeTier reports a gateway model served at no cost.
 // SPEC: _spec/internal/credentials/credential-decisions.puml
 func IsFreeTier(model string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), "-free")

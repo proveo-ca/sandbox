@@ -1,5 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the planned model table — one canonical id, four harness dialects, three roles
+' covers: internal/provider/models.go, internal/provider/models_test.go
+' covers: internal/provider/roles.go, internal/provider/roles_test.go
+' tier 3 of resolution — planFallback, entitlement-safety, the `-free` heuristic
+' and scripts/rank-plan-fallbacks.py — is specified in
+' _spec/internal/credentials/credential-decisions.puml, not duplicated here
 title PLAN — model catalog: one canonical id, four harness dialects, three roles
 
 node "proveo host" as HOST <<host>> {
@@ -46,6 +52,14 @@ note bottom of CAT
   * A dated or vendor-prefixed spelling maps to one canonical row.
   * The union of the three roles' providers is a FACT, so the missing-key
     warning is precise: name the role, the model and the env var.
+end note
+
+note bottom of CANON
+  **The table that exists today is one provider deep.** ""knownModels"" carries
+  anthropic's published ids and nothing else, which is why ""CheckModel"" returns
+  TWO bools: ""ok"" false means there is no table for this provider at all, so an
+  id is never reported UNKNOWN when the truth is that proveo has nothing to
+  check it against. Everything else resolves by prefix through the registry.
 end note
 
 note bottom of CUR

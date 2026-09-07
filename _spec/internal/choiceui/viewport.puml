@@ -4,10 +4,11 @@
 ' covers: internal/choiceui/viewport.go
 ' covers: internal/choiceui/canvas.go
 ' covers: internal/choiceui/layout.go
+' covers: internal/choiceui/viewport_test.go, internal/choiceui/viewport_render_test.go
 '   the budget it extends ....... _spec/internal/choiceui/topology-strip.puml
 '   the figure in the foot ...... _spec/internal/choiceui/topology-states.puml
 '   the resolved layout ......... _spec/internal/choiceui/wireframe.puml
-'   what is still unbuilt ....... _spec/_plans/choiceui-viewport-proposals.puml
+'   what is still unbuilt ....... _spec/internal/choiceui/figure-fidelities.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHY WRITES ARE DROPPED, NOT CLIPPED ────────────────────────────────────

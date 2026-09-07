@@ -41,9 +41,6 @@ func TestSeedSurvivesAWorkspaceWithNoNodeVersionPin(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	ws := t.TempDir()
-	// package.json with NO engines.node, and no .nvmrc / .node-version. That is the
-	// exact shape that aborted every run: engines.node is what short-circuits the
-	// `||` on the caller line, so a repo carrying it never reached the bug.
 	if err := os.WriteFile(filepath.Join(ws, "package.json"), []byte(`{"name":"p","version":"0.0.0"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -62,14 +59,8 @@ echo SEED_REACHED_THE_END`
 	}
 }
 
-// TestExecRedirectFailureDoesNotEndTheShell pins the measurement that disproved
-// C1 in _spec/internal/sbx/seed-node-version-abort.puml. That plan claimed a failed `exec`
-// redirection is fatal to a non-interactive shell, making the `|| return 0` in
-// _proveo_lock_installs dead code, and blamed it for the entrypoint dying. It is
-// not: bash only exits there in POSIX mode, which the entrypoint never sets.
-//
-// The real cause was _node_version_file, above. This test exists so nobody has
-// to re-derive the disproof from a trace that ends on `+ exec`.
+// TestExecRedirectFailureDoesNotEndTheShell pins the measurement that
+// disproved C1 in _spec/internal/sbx/seed-node-version-abort.puml.
 func TestExecRedirectFailureDoesNotEndTheShell(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -94,15 +85,8 @@ echo SURVIVED`
 	}
 }
 
-// TestStderrSurvivesTheInstallLock is the one that matters most for debugging.
-//
-// _proveo_lock_installs used to take its lock with `exec 9>"$lock" 2>/dev/null`.
-// On a bare `exec` — one with no command — the redirections are applied to the
-// SHELL and are permanent, so that `2>/dev/null` did not scope stderr to the
-// exec: it discarded stderr for the whole entrypoint and for the agent it goes
-// on to exec. Every `set -x` trace ended on `+ exec`, which was read for a long
-// time as the shell dying there, and every later failure presented as a silent
-// death with no message. Both readings were wrong; the output was simply gone.
+// TestStderrSurvivesTheInstallLock is the one that matters most for
+// debugging.
 func TestStderrSurvivesTheInstallLock(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -127,13 +111,9 @@ echo "AFTER-UNLOCK" >&2`
 	}
 }
 
-// TestCommandSubstitutedHelpersTreatAbsenceAsSuccess covers the whole family the
-// seed abort belongs to, rather than the one member that happened to break.
-//
-// Every one of these is assigned as `x="$(helper ...)"` in a shell running under
-// `set -euo pipefail`, so ANY non-zero status ends the run. "Nothing found" and
-// "the interpreter for this language is not in this image" are both ordinary
-// states: cecli ships python and no node, and _node_json_field returned 127.
+// TestCommandSubstitutedHelpersTreatAbsenceAsSuccess covers the whole family
+// the seed abort belongs to, rather than the one member that happened to
+// break.
 func TestCommandSubstitutedHelpersTreatAbsenceAsSuccess(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

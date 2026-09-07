@@ -194,9 +194,7 @@ func TestBrokerStripsWithoutValue(t *testing.T) {
 
 // TestMultiProviderRoutes is the regression for the failure the route table
 // exists to fix: a session whose roles span vendors — ARCHITECT_MODEL on
-// moonshot, EDITOR_MODEL on xai — needs both keys injected in one run. With a
-// single pinned provider one of them received the "proveo-brokered" sentinel and
-// the harness reported an invalid API key.
+// moonshot, EDITOR_MODEL on xai — needs both keys injected in one run.
 func TestMultiProviderRoutes(t *testing.T) {
 	b, err := New(Config{Routes: []Route{
 		{Provider: "moonshot", Hosts: []string{".moonshot.ai", ".kimi.com"}, Header: "authorization", Value: "Bearer sk-moon"},
@@ -240,10 +238,8 @@ func TestMultiProviderRoutes(t *testing.T) {
 }
 
 // TestRouteWithoutSecretPassesThrough covers the mixed case a multi-provider
-// session makes common: one provider has a brokered key, another is present but
-// not injectable (a signed-request provider). The injectable one must still
-// inject, and the other must keep the agent's own credential rather than have it
-// stripped — being on-route is what exempts it.
+// session makes common: one provider has a brokered key, another is present
+// but not injectable (a signed-request provider).
 func TestRouteWithoutSecretPassesThrough(t *testing.T) {
 	b, _ := New(Config{Routes: []Route{
 		{Provider: "moonshot", Hosts: []string{".moonshot.ai"}, Header: "authorization", Value: "Bearer sk-moon"},

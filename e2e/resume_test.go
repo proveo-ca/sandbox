@@ -14,18 +14,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// TestResumeStateSurvivesSandboxTeardown is the sbx-side half of resumability.
-//
-// The existing resume assertions in home_test.go all run on the DOCKER backend,
-// where HOME points at the mounted proveo home and transcripts persist for free.
-// That is why dropping the HOME redirect on sbx broke `--resume` without turning
-// a single test red: nothing asserted persistence on the backend that had just
-// lost it. sbx mounts ~/.claude/projects as a per-sandbox volume and teardown
-// removes "VM + images + volumes", so the transcripts died with the run.
-//
-// The assertion is deliberately made AFTER `sbx rm --force`: surviving the
-// teardown is the property, and checking while the sandbox still exists would
-// pass even with no persistence whatsoever.
+// TestResumeStateSurvivesSandboxTeardown is the sbx-side half of
+// resumability.
 func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -97,8 +87,6 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 }
 
 // TestSaveStateSkipsTelemetryVolumes keeps the copy to state worth resuming.
-// statsig and shell-snapshots are also per-sandbox volumes, and copying them
-// back would grow the operator's home every run without ever being read.
 func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -126,10 +114,6 @@ func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
 
 // TestSaveStateSurvivesAnInvalidatedWorkspaceCwd is the teardown half of the
 // virtiofs failure in _spec/internal/sbx/virtiofs-cwd-invalidation.puml.
-//
-// The invalidation is REPRODUCED, not simulated: replacing the workspace
-// directory's inode on the host leaves the guest holding a dentry it can no
-// longer resolve. The property is that proveo's save argv succeeds anyway.
 func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -138,19 +122,12 @@ func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 	freshTemplate(t, img)
 
 	home := t.TempDir()
-	// The workspace lives inside its own TempDir so the renamed original is
-	// removed with it. TempDir cleanups are registered first and run last, so the
-	// sandbox is gone before the directories are.
 	parent := t.TempDir()
 	ws := filepath.Join(parent, "ws")
 	if err := os.Mkdir(ws, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	name := "resume-cwd-" + filepath.Base(parent)
-	// Two workspaces, as in a real run: the checkout first — it becomes the
-	// container's WorkingDir and is the one invalidated below — and the proveo home
-	// second, which is how the save reaches the host. A state home that is not
-	// mounted is a silent no-op in proveo_sync_state, and a no-op "succeeds".
 	create := exec.Command("sbx", "create", "--name", name, "-t", img,
 		"-e", sbx.StateHomeVar+"="+home, "claude", ws, home)
 	if out, err := create.CombinedOutput(); err != nil {
@@ -169,9 +146,6 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 	if err := os.Mkdir(ws, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// virtiofs revalidates on its own clock. The fixture is only in place once a
-	// plain exec — the shape the save used to have — fails the measured way; a
-	// failure of any other shape means the sandbox is broken for another reason.
 	var probe string
 	deadline := time.Now().Add(30 * time.Second)
 	for probe == "" && time.Now().Before(deadline) {
@@ -202,9 +176,6 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 	}
 }
 
-// sbxExec runs a probe inside the sandbox. `-w /` for the same reason the save
-// carries it: a probe must not depend on the workspace being enterable, and the
-// test above breaks the workspace on purpose.
 func sbxExec(t *testing.T, name, script string) string {
 	t.Helper()
 	out, err := exec.Command("sbx", "exec", "-w", "/", name, "--", "bash", "-c", script).CombinedOutput()

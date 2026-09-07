@@ -36,10 +36,6 @@ func cursorMan() manifest.Manifest {
 // keys and nothing else.
 func cecliMan() manifest.Manifest { return manifest.Manifest{Name: "cecli"} }
 
-// A host holding the plan key AND provider keys is the ordinary shape for
-// opencode, and it was the one shape the row could not be built for: the old
-// gate wanted exactly one detected provider, so two keys produced no row and
-// OPENCODE_API_KEY read as a variable proveo had never heard of.
 func TestBothBillingClassesAreOffered(t *testing.T) {
 	t.Parallel()
 	got := AvailableAuthVars(opencodeMan(), lookupOf(map[string]string{
@@ -53,9 +49,6 @@ func TestBothBillingClassesAreOffered(t *testing.T) {
 	}
 }
 
-// The row is about the CLASS, so however many keys back a side it stays one
-// option: the keys over there are plural on purpose — the role bridges point
-// different model slots at different vendors.
 func TestClassesDoNotMultiplyWithKeys(t *testing.T) {
 	t.Parallel()
 	got := AvailableAuthVars(opencodeMan(), lookupOf(map[string]string{
@@ -104,13 +97,6 @@ func TestSameProviderAlternativesBecomeClasses(t *testing.T) {
 	}
 }
 
-// cursor's CLI has no bring-your-own-key path at all, so the manifest's
-// single-vendor providers list filters the operator's keys out.
-// "Usage credits" means two different things and cursor separates them. It has
-// no BRING-YOUR-OWN-KEY path — an ANTHROPIC_API_KEY authenticates nothing there
-// — but it does bill metered: Cursor spends the plan's included usage first and
-// usage-based overage after, on one CURSOR_API_KEY. So both sides are offered,
-// and VendorPinnedWhy stays the explanation for the BYOK half only.
 func TestVendorPinnedHarnessStillHasAMeteredSide(t *testing.T) {
 	t.Parallel()
 	man := cursorMan()
@@ -184,9 +170,6 @@ func TestVendorPinnedChoiceSuppressesNothingExtra(t *testing.T) {
 	}
 }
 
-// Usage credits name no single variable — several keys back it at once — so the
-// broker's preferred-variable hint has to get "" rather than the plan credential
-// the operator just declined.
 func TestUsageResolvesToNoVariable(t *testing.T) {
 	t.Parallel()
 	lookup := lookupOf(map[string]string{"OPENCODE_API_KEY": "zen", "ANTHROPIC_API_KEY": "sk"})
@@ -214,9 +197,6 @@ func TestAVariableNameFromAnOlderCacheStillResolves(t *testing.T) {
 	}
 }
 
-// The hint has to name what the option is MADE of, and where it came from: a
-// key that lives only in the project .env is not "host env", and saying so sends
-// the operator looking in the wrong file.
 func TestBackingNamesTheVariablesAndTheFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -347,11 +327,6 @@ func TestSandboxLoginHintYieldsToAProviderKey(t *testing.T) {
 	}
 }
 
-// One harness must never be offered another's plan credential as if it were
-// spendable. An opencode row listing CURSOR_API_KEY is what made this visible:
-// the key is real, it is set, and opencode's gateway will refuse it — cursor's
-// endpoint answers cursor-agent and nothing else, and CLAUDE_CODE_OAUTH_TOKEN
-// authenticates Claude Code and nothing else.
 // SPEC: _spec/internal/provider/provider-registry.puml
 func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 	t.Parallel()
@@ -377,19 +352,6 @@ func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 	}
 }
 
-// A stored or mounted credential OUTRANKS an ambient .env value, and the
-// suppressor is only half of enforcing that: the caller must consult it
-// everywhere a variable can be set, not just where the manifest declares one.
-//
-// run.go had two loops. The first, over the manifest's declared env, honoured
-// the suppressor. The second, over provider.KeyVars(), did not — and its
-// "already added?" guard only skipped names the FIRST loop had ACCEPTED, so a
-// variable the first loop declined fell through and got a sentinel anyway.
-//
-// A sentinel in that slot is not a harmless placeholder. An agent reads a SET
-// variable as a chosen credential whatever it holds, so it displaces the login
-// on disk — which is the misbilling this whole boundary exists to prevent:
-// a subscription run authenticating as the API.
 // SPEC: _spec/_paradigms/credential-boundary.puml
 func TestAMountedLoginOutranksAnAmbientEnvValue(t *testing.T) {
 	t.Parallel()

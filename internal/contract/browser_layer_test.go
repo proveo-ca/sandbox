@@ -20,8 +20,6 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// The browser layer pins agent-browser by version AND by tarball digest, and
-// points it at the Chromium Playwright already installed.
 // SPEC: _spec/defs/browser-layer.puml
 func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) {
 	t.Parallel()
@@ -53,9 +51,6 @@ func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) 
 	}
 }
 
-// The seeded skill is what makes the tool discoverable. Its frontmatter has to
-// parse for every harness that reads it (name + description are the only fields
-// all three recognise), and it must not tell the agent to install anything.
 func TestBrowserSkillStubIsHarnessNeutralAndInstallFree(t *testing.T) {
 	t.Parallel()
 	skill := readRepoFile(t, "defs/base-node-browser/skills/agent-browser/SKILL.md")
@@ -72,9 +67,6 @@ func TestBrowserSkillStubIsHarnessNeutralAndInstallFree(t *testing.T) {
 	}
 }
 
-// One seed function writes the skill into each harness's USER-level skills dir.
-// The table is spelled out per target, cecli included, so a new harness has to
-// take a position rather than inherit silence.
 func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	t.Parallel()
 	lib := readRepoFile(t, "packages/lib/entrypoint-lib.sh")
@@ -101,9 +93,6 @@ func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	}
 }
 
-// The two halves of the Claude in Chrome bridge share three literals: the socket
-// directory prefix Claude Code uses, the handshake line, and the env var names.
-// They live in two languages, so the contract is checked textually.
 func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
 	t.Parallel()
 	js := readRepoFile(t, "defs/claudecode/mcp/proveo-lib/chrome-bridge.js")
@@ -137,9 +126,6 @@ func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
 	if strings.Contains(lib, `j.claudeInChromeDefaultEnabled = true`) {
 		t.Error("claudeInChromeDefaultEnabled must not be persisted into the operator's ~/.claude.json (see proveo_chrome_bridge)")
 	}
-	// The relay is started by proveo_seed, which BOTH backends run — sbx never
-	// reaches the image entrypoint, so the seed is the only place it can come up
-	// on that path. One caller, and the guard below keeps it one relay.
 	if !strings.Contains(lib, `proveo_chrome_bridge "$target"`) {
 		t.Error("proveo_seed must start the bridge, or the sbx backend never gets one")
 	}

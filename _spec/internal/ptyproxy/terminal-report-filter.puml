@@ -1,9 +1,154 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: which bytes arriving on stdin are a terminal ANSWERING, which of those an agent may see, and how the child's OWN output decides the mouse
+' covers: internal/ptyproxy/inputfilter.go, internal/ptyproxy/inputfilter_test.go
+' covers: internal/ptyproxy/ptyproxy.go, internal/ptyproxy/ptyproxy_test.go
+' covers: cmd/proveo/main.go
+'   the pty the filter sits on ..... _spec/internal/reviewgate/pty-review-proxy.puml
+'   the tap that recorded all this . _spec/internal/agentio/agent-terminal-io.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE RECOGNISED SET IS CLOSED, AND EVERYTHING ELSE IS A KEYSTROKE ───────
+' `classifyTerminalReport` names the sequences it knows and calls everything
+' else `reportNone`, which is forwarded. The asymmetry is deliberate and runs
+' the safe way: an unrecognised REPORT reaching the agent is the bug this file
+' documents, and an unrecognised KEYSTROKE eaten is a worse one. Every gap found
+' so far — the kitty pair, the mouse encodings — was closed by ADDING a case,
+' never by widening a default.
+'
+' The whole set, so a future gap is visible as an absence rather than guessed at:
+'   reportFocus ... `CSI I` / `CSI O`, a body of exactly one byte (DEC 1004).
+'   reportReply ... `CSI ? … c` and `CSI > … c` — Primary/Secondary Device
+'                   Attributes; `CSI ? … $ y` — DECRPM, the answer to a mode
+'                   query; `CSI <digits;> R` — the cursor position report;
+'                   `CSI ? <flags> u` — the kitty keyboard flag report;
+'                   `DCS … ST` — XTVERSION and friends; `APC … ST` — the kitty
+'                   GRAPHICS answer; `OSC … ST`-or-BEL — colour and palette.
+'   reportMouse ... `CSI M` plus exactly three more bytes (X10), `CSI < … M|m`
+'                   (SGR), and `CSI <digits;> M` (urxvt).
+' The parameter guards are load-bearing in one direction only: they exist so a
+' real key is never classified as an answer, never the reverse.
+'
+' ── A SEQUENCE IS FOUND BY ITS TERMINATOR, NEVER BY A LENGTH ───────────────
+' `escEnd` recognises the terminator each introducer actually uses: CSI runs its
+' parameters up to a final byte in 0x40..0x7e; DCS, OSC, APC and PM (`ESC P`,
+' `ESC ]`, `ESC _`, `ESC ^`) run to ST (`ESC \`) or BEL (0x07). ANYTHING ELSE IS
+' TWO BYTES — `ESC` plus one — an Alt-keypress or an introducer proveo does not
+' parse. Scanning on past an unknown introducer instead is how one stray ESC
+' would swallow the rest of the buffer, keystrokes included.
+'
+' Incomplete is a third answer, not a rounding of the other two: the fragment is
+' neither forwarded nor dropped, it is HELD for the next read. A hold is not
+' unconditional: if no continuation arrives within `DefaultEscIdle` the held
+' bytes are released VERBATIM, because a fragment nobody continued was never a
+' fragment — it was the keypress it looks like.
+'
+' ── THE WINDOW IS A STATEMENT ABOUT WHO ASKED, NOT ABOUT WHEN ──────────────
+' `DefaultReplyWindow` (2s) is how close together two IDENTICAL reports must
+' arrive to read as one terminal answering twice rather than as the application
+' asking twice. Further apart is a genuine second query, and a genuine second
+' query is owed a genuine second answer — so the window is a claim about
+' authorship, and the 2s is only how long that claim stays plausible.
+'
+' ── AND THE OTHER BOUND IS A STATEMENT ABOUT A HUMAN'S FINGERS ─────────────
+' `DefaultEscIdle` (40ms) is how long a held fragment waits for its continuation
+' before it is forwarded verbatim as the keypress it is. The two constants read
+' alike and claim opposite things: `DefaultReplyWindow` is a claim about
+' AUTHORSHIP — one terminal answering twice rather than an application asking
+' twice — while `DefaultEscIdle` is a claim about FINGERS, that no human types
+' the second byte of an Alt-chord 40ms after the first. 25-50ms is the
+' conventional terminal ESC timeout (vim's `ttimeoutlen`, kitty's `esc-timeout`)
+' and 40ms sits mid-band: long enough that a real Alt-chord, or a CSI split
+' across two reads, still assembles; short enough to feel instant.
+'
+' Waiting at all costs a goroutine. `pumpIn` used to BLOCK in `Read`, so `held`
+' was revisited only when more bytes arrived. Press Esc alone and it sat there
+' indefinitely; press one more key and the buffer became ESC+key, which `escEnd`
+' calls complete at two bytes and forwarded as an ALT-CHORD. Reported by the
+' operator as: `proveo run opencode` on macOS, ctrl+p opens the config modal,
+' Esc will not close it, and the next keystroke does not interact either.
+' The read now runs on its own goroutine feeding a channel (`readChunks` →
+' `inRead`, `pumpIn` → `pumpInFrom`), so the pump can `select` against a timer
+' armed only while `held` is non-empty, and the released bytes leave through the
+' same shared `deliver()` path as everything else. `split()` and
+' `classifyTerminalReport` are behaviourally unchanged by this.
+'
+' ── THE MOUSE DISCRIMINATOR IS OBSERVED STATE, NOT A FLAG ──────────────────
+' `Proxy.DropReports` is set on EVERY sbx agent run, and `ptyproxy.Usable`
+' requires stdin AND stdout to be terminals — so the only production setter of
+' that flag fires exclusively on INTERACTIVE runs. It therefore cannot tell a
+' "prompt stream" from a "TUI", which is exactly what `keep()` was asking it to
+' do while it read `case reportMouse: return !f.dropReplies`. One flag carried
+' two unrelated classes, and every press, release, motion and wheel tick was
+' discarded before the agent saw it. The tell was in the shape of the code:
+' focus got a flag of its own (`dropFocus`), mouse never did — it was lumped in
+' with terminal query answers. What actually separates the two cases is not a
+' flag anybody sets but STATE anybody can observe: whether the application has
+' mouse tracking on right now. The application announces that itself, on its
+' own output stream, which is why the filter is no longer input-only.
+'
+' `mouseTracker.observe` scans the CHILD'S OUTPUT for `CSI ? Ps[;Ps…] h|l`,
+' walking parameters and intermediates to the final byte, so a multi-param set
+' (`CSI ?1002;1006h`) and one buried inside a repaint are both found. A sequence
+' truncated at a read boundary is carried into the next read, bounded by
+' `maxModeCarry` (128B, mirroring `maxHeld`) so a long run that never reaches a
+' final byte is released rather than hoarded.
+'
+' Tracking-on is a `uint16` BITMASK of the modes that make a terminal SEND
+' reports: 9 (X10 press-only), 1000, 1001, 1002, 1003. A partial disable —
+' `?1000;1002h` then `?1002l` — correctly leaves tracking ON, which is the case
+' a single boolean gets wrong.
+'
+' THE ENCODINGS 1005/1006/1015/1016 ARE PARSED AND DELIBERATELY DO NOT LATCH.
+' They change a report's SHAPE, never whether one is sent — a terminal emits
+' nothing at all for `?1006h` alone. And many TUIs reset the REPORTING modes on
+' exit while leaving the ENCODING set, so treating an encoding as "on" would
+' latch mouse forwarding on forever after the TUI exits and reintroduce exactly
+' the stray-motion corruption the captured trace below pins. This is the
+' subtlest decision in the change, and the one a later edit is likeliest to undo.
+'
+' Concurrency: `on atomic.Bool` plus `mu sync.Mutex`. The atomic carries the one
+' datum that crosses goroutines, so `keep()` on the INPUT pump never contends
+' with `pumpOut`, which calls `observe` on every single child write; the mutex
+' guards the multi-field parser state (`modes` + `carry`) that cannot be atomic
+' as a unit. `f.mu` was deliberately NOT reused — it is the reply-dedup lock and
+' `keep()`'s reply branch holds it under `defer`. Wiring: `pumpOut()` →
+' `pumpOutFrom(io.Reader)` plus `onChildOutput(b)`, which fans each chunk to
+' `OutTap` and the tracker; that split is what makes it testable without a pty.
+'
+' ── WHY IT LOOKED AGENT-SPECIFIC ───────────────────────────────────────────
+' The operator saw this on opencode and cecli but NOT on cursor, and asked why,
+' given `DropReports` is set backend-wide. Because mouse tracking is a mode the
+' APPLICATION turns on, so the three agents were never in the same code path:
+'   opencode's captured start-up bundle, now pinned in the tests, is
+'   `CSI ?1049h CSI ?1002h CSI ?1006h` — alt screen, button-drag tracking, SGR.
+' The moment `?1002h` goes out, the terminal STOPS doing native drag-selection
+' and native scrollback-wheel and forwards everything to the app. proveo then
+' discarded those reports, so NEITHER side handled the mouse — no selection and
+' no scroll. Losing the SCROLL is the tell that this is mouse tracking and not a
+' selection quirk; a selection quirk would leave the wheel alone.
+' cursor does not emit `?1002h`, so the terminal never hands over, keeps native
+' selection and scrollback, and proveo's filter has nothing to drop. cursor was
+' unaffected not because proveo treated it differently but because it never
+' entered this path at all.
+'
+' One inherent consequence, which is NOT a proveo bug: while a TUI holds mouse
+' tracking, native terminal drag-select stays off. Shift — Option on macOS
+' terminals — forces it.
+'
+' ── THE VERBATIM EVIDENCE THE NOTES BELOW COMPRESS ─────────────────────────
+' opencode 1.18.29 opens with BOTH kitty probes. The graphics one goes out as
+'   ESC _ Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA ESC \
+' and the keyboard one as `CSI > 5 u`; the terminal's answers to each were
+' `reportNone` and arrived as typing.
+'
+' The read that ended a real crashed session, byte for byte:
+'   ^[[200~sk-…^[[201~cERROR: sandbox "…" was stopped
+' A bracketed paste, then a lone `c` — the tail of a DA1 reply whose head came
+' in the previous read.
+'
 title Terminal reports — filtered before they become prompts
-
-' covers: internal/ptyproxy/inputfilter.go, internal/ptyproxy/ptyproxy.go,
-'         cmd/proveo/main.go
 
 node "Operator's terminal stack" as TERM <<host>> {
   component "terminal emulator" as EMU <<host>>
@@ -14,6 +159,7 @@ node "proveo — ptyproxy" as PX <<host>> {
   component "**classify** — ""classifyTerminalReport""\nlone, self-delimiting reports only" as CLASS <<app>>
   component "**filter** — ""inputFilter.keep""\nwindowed de-duplication" as FILT <<app>>
   component "**tap** — ""PROVEO_TRACE_STDIN""\nrecords arrived + verdict" as TAP <<async>>
+  component "**watch** — ""mouseTracker.observe""\n""CSI ? Ps h|l"" off the CHILD'S OUTPUT" as MOUSE <<async>>
 }
 
 node "sbx backend — ""DropReports = true""" as SBX <<cloud>> {
@@ -27,13 +173,16 @@ component "Claude Code" as AGENT <<app>>
 EMU ARROW_MAIN MUX : keystrokes · query replies
 MUX ARROW_ERROR CLASS : one query, TWO answers — or one nobody asked for
 CLASS ARROW_MAIN FILT
-FILT ARROW_MAIN SBX : keystrokes ONLY — every report dropped
+FILT ARROW_MAIN SBX : keystrokes — plus mouse WHILE the app holds tracking
 FILT ARROW_MAIN DOCK : keystrokes + the first of each reply
 FILT ARROW_QUEUE TAP : every read, kept or dropped
 SBX ARROW_MAIN SESS
 SESS ARROW_MAIN AGENT
 TTY ARROW_MAIN AGENT
 SESS ARROW_ERROR AGENT : an unfiltered report arrives as ""promptSource: sdk""
+AGENT ARROW_MAIN MOUSE : child OUTPUT — ""pumpOut → pumpOutFrom → onChildOutput""
+MOUSE ARROW_QUEUE FILT : tracking on|off, an ""atomic.Bool"" — the OUTPUT→INPUT edge
+MOUSE ARROW_MAIN EMU : the same bytes, painted unchanged
 
 note bottom of MUX
   **Measured, not assumed.** In run ""proveo-1787703005-59852"" the tap recorded
@@ -95,10 +244,13 @@ note left of FILT
   keystroke nor an answer, and nothing past this point consumes one. That it
   was unconditional is why focus never caused this and replies did.
 
-  ""reportMouse"" — DEC 1000/1006/1015/1016, in all four encodings. SOLICITED,
-  unlike the other two: the application turned tracking on, and a TUI on a real
-  tty consumes clicks and scroll. So it follows ""dropReplies"" and is never
-  de-duplicated — every motion is a distinct event, not a surplus copy of one.
+  ""reportMouse"" — DEC 9/1000/1001/1002/1003, in all four encodings. SOLICITED,
+  unlike the other two: the application turns tracking ON itself, and while it
+  holds it a click, drag or wheel tick is input it asked for. So this is the one
+  class that does NOT branch on ""dropReplies"" alone. The discriminator is the
+  OBSERVED tracking state — tracking on, forward; tracking off, fall back to
+  ""!dropReplies"" as before. Never de-duplicated either way: every motion is a
+  distinct event, not a surplus copy of one.
   ""CSI M Cb Cx Cy"" is matched on its LENGTH because its coordinates are raw
   bytes; the other three end in ""M"" or ""m"" and match like the rest.
 
@@ -152,6 +304,21 @@ note as N_KITTY_TAIL
   sightings before it was read as a clue.
 end note
 
+note as N_MOUSE_MODES
+  Tracking-on is 9/1000/1001/1002/1003 only.
+  1005/1006/1015/1016 set the report SHAPE —
+  a terminal sends nothing for them alone, and
+  TUIs exit leaving them ON. Latching one would
+  forward mouse forever after the TUI quit.
+end note
+
+note as N_MOUSE_WHY
+  opencode opens ""?1049h ?1002h ?1006h"": the
+  terminal hands the mouse over, so native
+  select AND scrollback stop. cursor sends no
+  ""?1002h"" and never entered this path at all.
+end note
+
 note as N_SPLIT_UNIT
   **The filter judges a SEQUENCE, not a read.**
   ""keep()"" took one whole ""Read()"" and answered
@@ -188,9 +355,16 @@ end note
 
 note as N_SPLIT_HOLD
   An unfinished sequence is HELD for the next
-  read, bounded by ""maxHeld"" (128B) so a lone ESC
-  keypress is never swallowed and no run can
-  hoard the buffer.
+  read. ""maxHeld"" (128B) bounds SIZE only, so no
+  run hoards the buffer — but it never released a
+  lone ESC, which is ONE byte. Time bounds that.
+end note
+
+note as N_SPLIT_IDLE
+  ""DefaultEscIdle"" (40ms) is the other bound. On
+  idle the hold is forwarded VERBATIM, so Esc
+  closes a modal instead of waiting to be glued
+  to the next key as a phantom Alt-chord.
 end note
 
 @enduml

@@ -1,5 +1,3 @@
-// Package-local projection of the choice form onto the topology strip.
-//
 // SPEC: _spec/internal/choiceui/topology-strip.puml, _spec/internal/sbx/policy-baseline.puml
 package run
 
@@ -14,10 +12,7 @@ import (
 
 func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefault, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
-		tier := f.Selection("egress")
-		if tier == "" {
-			tier = tierDefault
-		}
+		tier := egressTier(f, cursor, tierDefault)
 		creds := f.Selection("credentials")
 		if creds == "" {
 			creds = credsDefault
@@ -39,6 +34,24 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 		fr.Caption = captionOf(fr, tier, creds, sbxBackend)
 		return &fr
 	}
+}
+
+// SPEC: _spec/internal/choiceui/topology-strip.puml
+func egressTier(f *choiceui.Form, cursor int, fallback string) string {
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != "egress" {
+			continue
+		}
+		idx := r.Selected
+		if r.Locked && i == cursor {
+			idx = r.Hover
+		}
+		if idx >= 0 && idx < len(r.Options) {
+			return r.Options[idx]
+		}
+	}
+	return fallback
 }
 
 func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {

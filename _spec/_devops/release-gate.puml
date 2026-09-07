@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: what must be green before publishing images, and where each part runs
 ' covers: mise.toml
 ' covers: e2e/ladder_test.go
+' covers: internal/contract/base_template_test.go
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -37,6 +38,27 @@ skinparam noteTextAlignment left
 '      It runs the SAME Kit twice, with and without credentials[], and fails if
 '      both give the same value — so it proves the declaration CAUSES the
 '      sentinel rather than merely coinciding with it.
+'
+' ── THE VERDICT ITSELF IS A THING THAT CAN BE WRONG ─────────────────────────
+' `ladder-all` reads the ladder's result out of `go test` output, and it has
+' misread it twice, in OPPOSITE directions:
+'
+'   1  a SKIP exits 0, so an unchecked exit status reported PASS for four defs
+'      on a host with no sbx — four climbs that never happened, certified.
+'   2  the fix grepped for "--- SKIP: TestSandboxLadder" UNANCHORED, which also
+'      matches the four-space-indented SUBTEST line. cecli passed every rung
+'      with only its browser rung skipped (there is no cecli-browser image) and
+'      was reported as not-run.
+'
+' Go prints the top-level result flush left and indents subtests, so the anchor
+' is the whole correctness of the line. The pattern is pinned by a contract
+' test as `'^--- SKIP: TestSandboxLadder [(]'`, against the two shapes verbatim
+' from real runs:
+'
+'   ran, one rung skipped   --- PASS: TestSandboxLadder (168.93s)
+'                               --- SKIP: TestSandboxLadder/2-proveo-browser-image (0.14s)
+'   never ran                   ladder_test.go:314: sbx not available: sbx not on PATH
+'                           --- SKIP: TestSandboxLadder (0.00s)
 '
 ' ── WHAT A GREEN GATE DOES NOT COVER ────────────────────────────────────────
 ' Stated because a checklist read as complete is worse than one read as partial:
@@ -100,6 +122,14 @@ note bottom of LAD
   measures a quarter of the fleet — and cursor
   inherited its fixes by symmetry rather than
   measurement.
+end note
+
+note bottom of LAD
+  **A skip exits 0, so the verdict is grepped.**
+  Unanchored it matched the indented SUBTEST line
+  and called a full climb not-run; unchecked it
+  called four absent climbs a pass. The pattern is
+  anchored at column 0 and pinned by a test.
 end note
 
 note bottom of GAP

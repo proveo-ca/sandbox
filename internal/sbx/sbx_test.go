@@ -16,9 +16,6 @@ import (
 func withProbes(t *testing.T, path, wantGoos, wantGoarch string, kvmMissing bool) {
 	t.Helper()
 	oldLook, oldGoos, oldGoarch, oldKvm, oldStat := lookPath, goos, goarch, kvmDevice, stat
-	// Available now gates on the CLI's version, so the version probe has to be
-	// stubbed too or these cases would shell out to whatever sbx the host holds —
-	// and "darwin arm64 is supported" would start depending on a real install.
 	oldVer := sh.Version
 	sh.Version = func() ([]byte, error) { return []byte("sbx version: v" + MinVersion + "\n"), nil }
 	t.Cleanup(func() { sh.Version = oldVer })
@@ -68,10 +65,6 @@ func TestAvailableOKPaths(t *testing.T) {
 	}
 }
 
-// The v0.39 argv, pinned shape-for-shape. Every difference from a docker-style
-// invocation here is one that failed a real run, one flag at a time: `-v` is
-// --cloud-only, `-w` does not exist, and an image in the first positional is read
-// as an unknown agent name.
 func TestRunArgsFull(t *testing.T) {
 	got := RunArgs(RunConfig{
 		Name:   "proveo-1-2",
@@ -177,9 +170,6 @@ func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
 	}
 	s := string(b)
 
-	// schemaVersion is a STRING per SPEC-v2, and the Kit declares no agent: sbx's
-	// agent list is closed, so a `kind: sandbox` Kit gets no artifact and its
-	// session is dropped seconds in.
 	for _, want := range []string{
 		`schemaVersion: "2"`, "kind: mixin", "name: claudecode-posture",
 		"allow:", "- api.anthropic.com",
@@ -190,9 +180,6 @@ func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
 			t.Errorf("spec.yaml missing %q:\n%s", want, s)
 		}
 	}
-	// A mixin must declare NO agent, NO image, and NO credentials: the built-in
-	// agent owns all three, and repeating a credential service is rejected
-	// outright ("defined in both").
 	for _, banned := range []string{"sandbox:", "image:", "entrypoint:", "credentials:"} {
 		if strings.Contains(s, banned) {
 			t.Errorf("a mixin must not declare %q:\n%s", banned, s)
@@ -221,9 +208,6 @@ func TestWriteKitOmitsEmptyNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-	// cursor declares no allowlist and no brokered credential (it pins its TLS, so
-	// there is nothing to inject into) — the blocks must be absent, not empty, or
-	// the spec declares a policy it does not have.
 	for _, absent := range []string{"allow:", "credentials:"} {
 		if strings.Contains(string(b), absent) {
 			t.Errorf("an unset block should be omitted, found %q:\n%s", absent, b)
@@ -265,9 +249,6 @@ func TestInstallHintIsPlatformSpecific(t *testing.T) {
 	}
 }
 
-// proveo owns the sbx version, so the parse has to survive the CLI's own
-// wording: `sbx version` answers "sbx version: v0.39.0 <sha>", not a bare
-// semver, and `--version` is not a flag it accepts at all.
 func TestVersionParsesTheCLIsOwnWording(t *testing.T) {
 	orig := sh.Version
 	t.Cleanup(func() { sh.Version = orig })
@@ -313,9 +294,6 @@ func TestOlderOrdersVersionsAndFailsOpen(t *testing.T) {
 	}
 }
 
-// The install line and the upgrade line are different commands, and handing an
-// operator "brew install" for an sbx they already have is how a version gate
-// turns into a no-op they follow twice.
 func TestInstallCmdDistinguishesInstallFromUpgrade(t *testing.T) {
 	origOS, origArch := goos, goarch
 	t.Cleanup(func() { goos, goarch = origOS, origArch })
@@ -363,10 +341,6 @@ func TestAvailableRejectsATooOldCLI(t *testing.T) {
 	}
 }
 
-// The sandbox runtime's image store is separate from the host engine's, so a run
-// has to hand the image over. It must also NOT hand it over twice: these images
-// are multi-GB and `docker save | sbx template load` is the slowest step in a
-// sandbox run by a wide margin.
 func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
 	origList, origLoad := sh.TemplateList, sh.TemplateLoad
 	t.Cleanup(func() { sh.TemplateList, sh.TemplateLoad = origList, origLoad })
@@ -412,9 +386,6 @@ func TestEnsureTemplateIgnoresAnEmptyImage(t *testing.T) {
 	}
 }
 
-// The store's real output, verbatim from `sbx template ls` on a host that had
-// just loaded one image. Columns, a registry qualifier, and a blank FLAVOR — all
-// three broke the first matcher this replaced.
 const realTemplateLS = `REPOSITORY                           TAG            IMAGE ID       FLAVOR         CREATED
 docker.io/docker/sandbox-templates   shell-docker   d86a6cdc105a   shell-docker   46 minutes ago
 docker.io/proveo/egress-proxy        latest         4ee370d17e72                  Less than a minute ago
@@ -429,10 +400,6 @@ func stubIDs(t *testing.T, ids map[string]string) {
 	sh.LocalImageID = func(image string) string { return ids[image] }
 }
 
-// stubReceipts points the receipt dir at a temp dir and pre-records the given
-// loads, standing in for images this host loaded on an earlier run. Identity is
-// read from here rather than from the store's IMAGE ID column, because `sbx
-// create` rewrites that column to the ID of the image it bakes.
 func stubReceipts(t *testing.T, loaded map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -447,10 +414,6 @@ func stubReceipts(t *testing.T, loaded map[string]string) string {
 	return dir
 }
 
-// A REBUILT :latest has the same reference and a different ID. Matching on
-// reference alone reported it present, so the store kept serving the image it
-// received first — which is how a sandbox came up with no /app after the
-// workspace layout was standardised and the images rebuilt.
 func TestHasTemplateReloadsARebuiltImage(t *testing.T) {
 	orig := sh.TemplateList
 	t.Cleanup(func() { sh.TemplateList = orig })
@@ -475,9 +438,6 @@ func TestHasTemplateReloadsARebuiltImage(t *testing.T) {
 		t.Error("with no local image to compare, presence must still count")
 	}
 
-	// The store's own IMAGE ID column must NOT be what identity is read from: one
-	// `sbx create` re-bakes the template and rewrites that column, so a run that
-	// trusted it would reload a multi-GB tar on every launch forever after.
 	stubIDs(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
 	stubReceipts(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
 	baked := `REPOSITORY                       TAG      IMAGE ID       FLAVOR   CREATED
@@ -525,11 +485,6 @@ func TestHasTemplateReadsTheStoresRealColumns(t *testing.T) {
 	}
 }
 
-// A Kit that declares an agent sbx already ships is refused outright — `agent
-// "cursor" is already registered (built-in agents cannot be overridden by a
-// kit)` — and the refusal is quiet: the session dies before the shell with
-// nothing on screen. Two of proveo's four defs are named after built-ins, so the
-// namespacing is what makes them runnable at all.
 func TestAgentNameNeverCollidesWithAnSbxBuiltin(t *testing.T) {
 	t.Parallel()
 	builtin := map[string]bool{}
@@ -582,9 +537,6 @@ func TestReloadTemplateLoadsEvenWithAMatchingReceipt(t *testing.T) {
 	origLoad, origList := sh.TemplateLoad, sh.TemplateList
 	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
 	loads := 0
-	// A store that TAKES the image: after the load it prints the id it was handed.
-	// The previous fixture never updated, which is exactly the pathology
-	// confirmLoaded now catches, so it would fail the post-load verification.
 	loaded := false
 	sh.TemplateLoad = func(string) error { loads++; loaded = true; return nil }
 	sh.TemplateList = func() ([]byte, error) {
@@ -719,9 +671,6 @@ func TestRunArgsMemoryIsOptional(t *testing.T) {
 	}
 }
 
-// A load that reports success without landing must NOT leave a receipt: the receipt
-// is what makes staleness permanent, because HasTemplate then skips the reload
-// forever while the store serves the old image.
 func TestLoadThatDoesNotLandLeavesNoReceipt(t *testing.T) {
 	origLoad, origList := sh.TemplateLoad, sh.TemplateList
 	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
@@ -749,9 +698,6 @@ func TestLoadThatDoesNotLandLeavesNoReceipt(t *testing.T) {
 	}
 }
 
-// PROVEO_SBX_RELOAD is the escape hatch for a store that has desynced in a way
-// proveo cannot see: it drops the image first, because removal is deterministic
-// where overwriting is merely expected.
 func TestForceReloadDropsFirst(t *testing.T) {
 	origLoad, origRemove, origList := sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList
 	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList = origLoad, origRemove, origList })
@@ -808,20 +754,12 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 			t.Errorf("target %q names an agent of our own (%q); that is the bug this replaces", target, agent)
 		}
 	}
-	// A target with no sbx counterpart returns "" here — and is NOT thereby off the
-	// backend. AgentFor puts it on sbx's own shell agent instead, which is what lets
-	// `docker: sbx` mean "runs in a sandbox" for every harness rather than only for
-	// the ones sbx happens to ship an agent for.
 	if got := BuiltinAgent("cecli"); got != "" {
 		t.Errorf("cecli has no built-in sbx agent; got %q", got)
 	}
 }
 
-// Every harness must reach a sandbox, including the ones sbx has no name for.
-// cecli is aider and nothing on the closed list is aider, so it runs under the
-// shell agent carrying its own launch command. Before this, such a target
-// resolved to the empty agent name and sbx read the first workspace path as an
-// agent — "is not a sandbox or known agent". SPEC: _spec/_plans/retire-dind.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func TestAgentForSandboxesEveryTarget(t *testing.T) {
 	t.Parallel()
 	sbxKnows := map[string]bool{
@@ -829,11 +767,6 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 		"docker-agent": true, "droid": true, "gemini": true, "kiro": true,
 		"opencode": true, "shell": true,
 	}
-	// This table used to pin the command as the bare target name, which froze the
-	// very defect that killed cecli: sbx drops `bash -l` for a bare word and reads
-	// the launcher as a shell script. The shape now belongs to
-	// TestShellAgentCommandIsFlagLeading; what this test owns is that every target
-	// resolves to an agent sbx actually ships.
 	for _, c := range []struct {
 		target string
 		agent  string
@@ -870,25 +803,6 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 	}
 }
 
-// A degraded daemon does not fail — it WAITS. Measured after heavy sandbox churn:
-// `docker info` and `docker ps` each took over two minutes to return. MemoryLimit
-// runs on every sbx launch including `--print`, so an unbounded call turns a slow
-// daemon into a proveo that hangs with nothing on screen.
-//
-// THE BOUND IS ON THE CALL, NOT THE PROCESS, and the difference is the whole
-// test. A context kills the command we started; Output() waits on the stdout
-// PIPE, which any grandchild that inherited it keeps open afterwards. So this
-// drives the real bounded path with a command that forks — the shell dies on
-// schedule and `sleep` holds the pipe — and asserts it comes back anyway.
-//
-// The previous version of this test asserted nothing. It replaced the
-// sh.DockerMemTotal seam with a fake, so no production boundedness was on the
-// path at all; it measured whether the FAKE returned. And the fake was
-// `sh -c "sleep 60"` under a 50ms context, which is precisely the hazard above:
-// it took the full 60s, the 5s deadline fired, and the failure blamed
-// "the daemon call is unbounded" while pointing at code that already had a
-// deadline. Unobservable property, and a stand-in that reproduced the bug it
-// was standing in for.
 func TestBoundedReturnsWhenAChildOutlivesTheKill(t *testing.T) {
 	t.Parallel()
 	t0 := time.Now()
@@ -917,9 +831,6 @@ func TestBoundedDoesNotWaitOutTheGraceOnAWellBehavedChild(t *testing.T) {
 	}
 }
 
-// And the decision MemoryLimit makes on top of it: an unreadable daemon means no
-// -m flag, which leaves sbx's own default in place. That is the documented
-// fallback, not a failure.
 func TestMemoryLimitYieldsNoLimitWhenTheDaemonCannotAnswer(t *testing.T) {
 	orig := sh.DockerMemTotal
 	t.Cleanup(func() { sh.DockerMemTotal = orig })
@@ -931,18 +842,12 @@ func TestMemoryLimitYieldsNoLimitWhenTheDaemonCannotAnswer(t *testing.T) {
 	}
 }
 
-// The bound must be long enough that a healthy-but-loaded daemon still gets its
-// answer — a limit that times out in practice silently loses the OOM protection
-// MemoryLimit exists to provide.
 func TestDockerInfoTimeoutIsGenerous(t *testing.T) {
 	if dockerInfoTimeout < 5*time.Second {
 		t.Errorf("dockerInfoTimeout = %s, too tight for a loaded daemon", dockerInfoTimeout)
 	}
 }
 
-// --clone is creation-time only, so it has to reach the argv of the run that
-// CREATES the sandbox — there is no later toggle. It also has to sit among the
-// flags, before the agent positional, or sbx reads it as a workspace path.
 func TestRunArgsCarriesClone(t *testing.T) {
 	t.Parallel()
 	got := RunArgs(RunConfig{Name: "s", Image: "img", Agent: "claude", Clone: true,
@@ -976,11 +881,6 @@ func indexOf(xs []string, want string) int {
 	return -1
 }
 
-// `sbx exec` on a STOPPED sandbox starts it, which re-runs the kit's startup seed.
-// A copy-out issued against one is therefore not reading a quiescent home, and
-// everything that lands in the operator's home afterwards postdates the run — so
-// "exists" and "running" cannot be the same question. Reading a stopped sandbox as
-// running is how a restart's own artifacts passed as the run's evidence.
 func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 	orig := sh.SandboxList
 	t.Cleanup(func() { sh.SandboxList = orig })
@@ -1005,19 +905,12 @@ func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 		t.Error("the header row was matched as a sandbox")
 	}
 
-	// Unreadable listing: the pessimistic answer. Callers use this to decide whether
-	// to trust a copy-out, and guessing "running" is the guess that lets a restart's
-	// leftovers be reported as what the agent said.
 	sh.SandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
 	if Running("proveo-1787-live") {
 		t.Error("an unreadable listing must not be read as a live sandbox")
 	}
 }
 
-// The store is GLOBAL and outlives every run, so proveo cannot tell from its own
-// decision whether the agent got a credential. Names are all that can be read back
-// — the value is never printed — and reading them is the difference between naming
-// the real cause and blaming the credential for a run that was authenticated.
 func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
 	orig := sh.SecretList
 	t.Cleanup(func() { sh.SecretList = orig })
@@ -1039,9 +932,6 @@ func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
 		}
 	}
 
-	// No store, or no sbx: silence. An empty list means "proveo learned nothing",
-	// and a caller must not read that as "the store is empty" — which is why the
-	// hint this feeds never claims a stored value is missing, only unreadable.
 	sh.SecretList = func() ([]byte, error) { return nil, errors.New("no daemon") }
 	if got := StoredSecretNames(); got != nil {
 		t.Errorf("an unreadable store must yield no names, got %v", got)
@@ -1164,9 +1054,6 @@ func TestAuthLoginArgs(t *testing.T) {
 	}
 }
 
-// boundedCombined carries the same guarantee as bounded for the readers that
-// need stderr — sbx prints its daemon diagnostics there, so they cannot use
-// Output() and would otherwise have been the calls left without a deadline.
 func TestBoundedCombinedIsBoundedToo(t *testing.T) {
 	t.Parallel()
 	t0 := time.Now()
@@ -1179,26 +1066,6 @@ func TestBoundedCombinedIsBoundedToo(t *testing.T) {
 	}
 }
 
-// Every read-only interrogation of the daemon runs in front of a launch, so a
-// wedged daemon must not be able to hang the operator there. This is the list
-// that had no deadline at all: Version matters most, since sbx.Available()
-// reaches it on the same pre-launch path as MemoryLimit.
-//
-// It drives the REAL closures through a fake `sbx` on PATH, so it asserts the
-// WIRING rather than the helper — a call that quietly stops going through
-// bounded() is the regression worth catching, and from the helper's side it
-// looks identical.
-//
-// The fake exits at once and leaves an orphan holding the pipe, which is the
-// cheap way to ask this question: the answer then turns on WaitDelay alone
-// rather than on sitting out the real 10s deadline four times. The four run
-// concurrently as goroutines rather than parallel subtests, because the PATH
-// this needs is process-wide and the package is full of t.Parallel() tests.
-//
-// The write path is deliberately absent. TemplateLoad, TemplateRemove and
-// SecretSet are the operation the operator is WAITING for — an image load runs
-// for minutes by design, and a deadline there aborts the work instead of
-// protecting anyone from it.
 func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
 	dir := t.TempDir()
 	// Exits immediately; the backgrounded sleep inherits stdout and holds the
@@ -1228,9 +1095,6 @@ func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
 			done <- result{name, time.Since(t0)}
 		}()
 	}
-	// Comfortably above the grace period, far below the orphan's 30s hold: the
-	// gap between "WaitDelay closed the pipe" and "the call waited the orphan
-	// out" is what this measures.
 	ceiling := boundedGrace + 5*time.Second
 	deadline := time.After(ceiling)
 	for range calls {

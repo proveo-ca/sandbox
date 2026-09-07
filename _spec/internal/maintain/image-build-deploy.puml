@@ -1,5 +1,10 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the build/verify/deploy chain for every proveo image, and why :local and :latest stay distinct
+' covers: internal/maintain/**
+' covers: cmd/proveo/maintain_cmd.go
+' covers: cmd/proveo/targets.go
+' covers: lib/helpers.sh
 title Maintainer image pipeline — proveo build / test / deploy
 
 actor "Maintainer" as MT

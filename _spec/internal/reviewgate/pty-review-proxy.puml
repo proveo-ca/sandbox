@@ -1,5 +1,32 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how one connection is consented to over a running agent's TUI, and why proveo owns the tty
+' covers: internal/reviewgate/**
+' covers: internal/ptyproxy/ptyproxy.go, internal/ptyproxy/overlaytty.go
+' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: e2e/review_tier_test.go
+' covers: cmd/proveo/main.go
+'   why the transport is Linux-only . _spec/internal/reviewgate/transport-portability.puml
+'   the filter on the same stdin .... _spec/internal/ptyproxy/terminal-report-filter.puml
+'   what the tiers actually do ...... _spec/internal/egress/egress-tiers.puml
+'
+' ── WHY THE ONE E2E EXISTS WHEN EVERY PART IS UNIT-TESTED ──────────────────
+' The gate's cache and its fail-closed paths, the PTY proxy's pumps and the
+' plan's socket mount all have unit tests. The integration still earns its own
+' suite, because A CONSENT GATE FAILS SILENTLY OPEN AT THE SEAMS: every part can
+' pass while the CONNECT never reaches the host, and nothing in the run says so.
+'
+' TestReviewTierConsentGate is therefore the whole hop, and it asserts four
+' things a unit test cannot reach:
+'   * a real CONNECT from inside the container arrives at the host-side gate
+'     over the bind-mounted unix socket;
+'   * the overlay draws on the operator's terminal while the agent holds the PTY;
+'   * "n" denies and the agent sees a BLOCKED connection rather than a hang;
+'   * "y" allows, and the answer is cached so the same host is not asked twice.
+' The surviving-TUI check belongs to the same list: the shell must still accept
+' input after the forced repaint, or the overlay corrupted the terminal.
+'
 title PTY review proxy — interactive connection consent in the review tier
 
 actor "Operator" as OP

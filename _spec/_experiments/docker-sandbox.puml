@@ -1,6 +1,8 @@
 @startuml DockerSandboxExperiment
-'  covers: internal/sbx/sbx.go, cmd/proveo/main.go (sandbox.Run/sandbox.Spec),
-'          e2e/sbx_test.go
+' purpose: whether a microVM per workspace can collapse proveo's bespoke isolation stack, and what v0.39 actually does
+' covers: internal/sbx/sbx.go
+' covers: cmd/proveo/main.go
+' covers: e2e/sbx_test.go
 ' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
 ' sbx backend when available (internal/sbx; auto with docker+egress fallback);
 ' the egress layer is reserved for open-source harnesses (opencode, cecli).
@@ -20,7 +22,7 @@
 '   internal/egressproxy/*                 — TLS-MITM proxy + per-session CA + NDJSON flows
 '   internal/broker/broker.go              — credential inject / strip
 '   internal/egresspolicy/*                — DLP secret scanner (regex + base64/hex + entropy + sink denylist)
-'   internal/dind/dind.go + defs/sidecars/dind    — privileged docker:dind sidecar (RETIRED, _spec/_plans/retire-dind.puml)
+'   internal/dind/dind.go + defs/sidecars/dind    — privileged docker:dind sidecar (RETIRED, _spec/_paradigms/retire-dind.puml)
 '   internal/runner/runner.go + defs/base/proveo-harden — cap-drop/no-new-priv/pids-limit + setuid strip
 '   packages/lib/entrypoint-lib.sh         — arbitrary run-as-uid + HOME/passwd synth
 '   internal/egress/exec.go + cmd/proveo/clean.go — teardown + leaked-artifact reaper
@@ -94,7 +96,7 @@ note left of sbx #FFF3F0
   hatch (""docker run -v /:/host --privileged""). The per-sandbox Docker
   Engine inside the microVM (no host socket, no privilege) unlocked
   container work without that downgrade, and then replaced the sidecar
-  outright (_spec/_plans/retire-dind.puml). claudecode still cares most
+  outright (_spec/_paradigms/retire-dind.puml). claudecode still cares most
   about the DLP content-scan gap below.
 end note
 

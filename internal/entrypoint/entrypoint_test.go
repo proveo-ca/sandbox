@@ -96,9 +96,6 @@ func TestNormalizeModel(t *testing.T) {
 	}
 }
 
-// ApplyEnvBridges now carries provider key aliases only. Model bridges moved to
-// defs/bridges/<harness>.tsv, applied by apply_model_bridges in the def's own shell
-// and asserted end-to-end by internal/contract.TestShellApplierMatchesGoReader.
 func TestApplyEnvBridges(t *testing.T) {
 	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "ARCHITECT_MODEL", "OPENCODE_MODEL"} {
 		_ = os.Unsetenv(k)

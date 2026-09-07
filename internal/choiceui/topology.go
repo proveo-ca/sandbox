@@ -1,6 +1,5 @@
-// SPEC: _spec/internal/choiceui/topology-strip.puml
-//
-// SPEC: _spec/internal/choiceui/topology-strip.puml
+// SPEC: _spec/internal/choiceui/topology-strip.puml,
+// _spec/internal/choiceui/topology-states.puml
 package choiceui
 
 import (
@@ -214,7 +213,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 
 	spine := newPen(s, boxR+1, y0+2)
 	if fr.Hop == "" {
-		spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-2))
+		spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-1))
 	} else {
 		spine.write(dim, strings.Repeat(g.screened, colHop-boxR-1))
 		spine.padTo(colHop).write(on(FocusHop), g.node)
@@ -241,7 +240,11 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	newPen(s, colHost, y0+5).write(on(FocusReturn),
 		g.cornerBL+strings.Repeat(g.rule, boxMid-colHost-1)+g.cornerBR)
 
-	drawLanes(s, y0, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen)
+	trafficFrom := boxR + 1
+	if fr.Hop != "" {
+		trafficFrom = colHop + 1
+	}
+	drawLanes(s, y0, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen, trafficFrom)
 
 	w, _ := s.Size()
 	caption, room := fr.Caption, w-colHost-1
@@ -251,7 +254,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	newPen(s, colHost, y0+6).write(p.aside, clip(caption, room))
 }
 
-func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen int) {
+func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen, from int) {
 	rule := g.lane(fr.Lane)
 	rows := []int{y0 + 1, y0 + 2, y0 + 3}
 	total := fr.Open + fr.Refused
@@ -263,11 +266,6 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 		pn := newPen(s, col, rows[i])
 		pn.write(dim, branch[i])
 		run := strings.Repeat(rule, runLen)
-		if tick > 0 && (tick/2)%3 == i && g.pulse != "" {
-			r := []rune(run)
-			r[len(r)/2] = []rune(g.pulse)[0]
-			run = string(r)
-		}
 		if i < fr.Open {
 			pn.write(lit, run+g.east+" ").write(lit, g.cloud)
 			continue
@@ -276,6 +274,29 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 	}
 	if fr.Lane == LaneAsked {
 		newPen(s, col+4, y0+2).write(dim, g.cloud)
+	}
+	drawTraffic(s, y0, col, fr, g, lit, tick, runLen, from, rows)
+}
+
+// drawTraffic rides one mote from the hop out to the clouds, over the wire that
+// is already drawn. SPEC: _spec/internal/choiceui/topology-strip.puml
+func drawTraffic(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit tcell.Style, tick, runLen, from int, rows []int) {
+	if g.pulse == "" || tick <= 0 || fr.Open <= 0 || from <= 0 || from >= col {
+		return
+	}
+	spine := col - from
+	path := spine + runLen
+	if path <= 0 {
+		return
+	}
+	pos := ((tick % path) + path) % path
+	if pos < spine {
+		newPen(s, from+pos, y0+2).write(lit, g.pulse)
+		return
+	}
+	x := col + 1 + (pos - spine)
+	for i := 0; i < fr.Open && i < len(rows); i++ {
+		newPen(s, x, rows[i]).write(lit, g.pulse)
 	}
 }
 

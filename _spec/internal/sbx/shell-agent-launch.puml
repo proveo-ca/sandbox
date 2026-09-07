@@ -3,7 +3,10 @@
 skinparam noteTextAlignment left
 ' purpose: how a def sbx has no built-in agent for is launched, and why -c
 ' covers: internal/sbx/agents.go
+' covers: internal/sbx/shell_launch_test.go
+' covers: internal/sbx/run.go
 ' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/own_agent_test.go
 ' The Kit contract this sits inside: sbx-kit-contract.puml (same directory).
 ' The instrument that found it: _spec/_paradigms/capability-ladder.puml
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.

@@ -18,9 +18,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// TestBrowserViewportReachesTheAgentsChromium proves the whole chain the browser
-// add-on publishes, using the same three builders the run uses. The assertion is
-// a TARGET LIST containing the page the agent's own tool opened.
+// TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
+// browser add-on publishes, using the same three builders the run uses.
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -75,9 +74,6 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q", url, last)
 }
 
-// cdpTargets asks the DevTools endpoint for its page list, returning the target
-// types it named. A reset connection is an empty list, not a failure: the relay
-// answers before the agent has opened anything.
 func cdpTargets(url string) ([]string, string) {
 	resp, err := (&http.Client{Timeout: 8 * time.Second}).Get(url)
 	if err != nil {

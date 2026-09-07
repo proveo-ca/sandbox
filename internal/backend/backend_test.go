@@ -8,10 +8,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 )
 
-// The whole point of the type is that it survives wrapping: a backend returns it
-// from deep inside a run, and cmd/proveo has to recover the code with errors.As
-// to set proveo's exit status. A value type that stopped matching through a %w
-// chain would silently turn every agent failure into proveo's own exit 1.
 func TestExitErrorSurvivesWrapping(t *testing.T) {
 	wrapped := fmt.Errorf("sandbox teardown: %w", backend.ExitError{Code: 137})
 

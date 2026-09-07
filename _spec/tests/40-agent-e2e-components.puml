@@ -7,6 +7,80 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
+' purpose: the promptful Layer-4 topology — what drives the harness, what the
+'          model is reached through, and which side effects are asserted
+' covers: e2e/e2e_test.go
+' covers: e2e/instrument_test.go
+' covers: e2e/agent_settings_test.go
+' covers: internal/tmux/**
+' covers: e2e/samples/**
+'
+' Skip discipline, image-tag resolution and the shared instrumentation rules are
+' in _spec/tests/testing-strategy.puml. The cloud-model sibling lane, and the
+' plain-bridge posture it shares with this one, are 42-hello-world-e2e.puml.
+'
+' ── ONE DETERMINISTIC TASK, THREE SIDE EFFECTS ──────────────────────────────
+' TestPromptfulE2E hands the model ONE exact shell command and then asserts only
+' what happened on the host — never the model's prose. Handing over an exact
+' command keeps a small local model reliable while still exercising the full
+' run → local-LLM → tool-call → side-effect loop:
+'
+'     curl -sS https://example.com -o SCRAPED.html
+'     && head -1 README.md > FROM_SAMPLE.txt
+'     && printf %s BANANA-E2E-OK > DONE.txt
+'
+'   samples/ mounted → FROM_SAMPLE.txt equals the mounted README's first line
+'   files changed    → DONE.txt contains the marker BANANA-E2E-OK
+'   web scraped      → SCRAPED.html contains example.com's stable title
+'                      "Example Domain"
+'
+' All three are polled together on a 4-minute deadline at 3-second intervals —
+' generous enough for a small local model on GPU to churn through the full harness
+' context (seeded crew + AGENTS.md) plus a runtime provider-package install. This
+' lane is opt-in, not on CI's critical path. On timeout the failure prints which of
+' the three are still missing, plus the captured screen.
+'
+' ── DRIVEN NON-INTERACTIVELY, SO THERE IS NO TUI READINESS RACE ─────────────
+' Everything after `--` is forwarded to the agent, so `opencode run --auto --agent
+' build <task>` executes the task from argv and exits (`--auto` approves the
+' sandboxed local model's tool calls). No keystrokes are ever sent; tmux only
+' supplies the PTY that the harness's `docker run -it` requires.
+'
+' The harness is opencode-specific here because `run --auto --agent build` is
+' opencode's non-interactive form, and it is the target with working local-model
+' support — see defs/opencode/entrypoint.sh (configure_opencode_local_model), the
+' fix this very test surfaced. PROVEO_TEST_TARGET overrides it.
+'
+' ── `open` + `forward` IS LOAD-BEARING, AND IS THE POST-RENAME SPELLING ─────
+' The plain-bridge posture is the only shape that reaches the HOST's Ollama
+' (host.docker.internal): every other tier puts the agent on an internal network
+' with DNS blackholed, so the only reachable model server is the sidecar — which on
+' macOS has no GPU and generates at CPU speed. It is also what gives curl an
+' internet-capable bridge to example.com, which this task needs.
+'
+' Naming BOTH axes is what the test always asked for, respelled. It said
+' `--egress-mode broker` back when one flag carried network tier AND credential
+' handling; `broker` now aliases the `open` TIER alone, and credentials then default
+' to brokering — which lands in the intercepting branch and silently demotes the
+' model to the CPU sidecar.
+'
+' `--scope .` selects the repo root non-interactively and PROVEO_WIZARD=off keeps
+' the sub-project picker and the choice form off this PTY, so the run takes the
+' MANIFEST defaults for every axis these flags do not name rather than whatever the
+' operator's remembered posture happens to hold.
+'
+' ── THE WORKSPACE COPY CARRIES NO .env AT ALL ───────────────────────────────
+' e2e/samples is copied to a temp dir (`cp -a`) so the tracked sample stays pristine
+' and the agent edits a throwaway. The copy's .env is then DELETED, for two separate
+' and both fatal reasons:
+'   * samples/.env is a symlink into the repo root, so `cp -a` leaves a DANGLING
+'     link — and this posture bind-mounts the workspace .env rather than masking it,
+'     which makes a dangling link a broken mount source.
+'   * a REAL .env is worse than a dangling one. The entrypoint sources the mounted
+'     file AFTER docker has applied `-e`, so the repo's ARCHITECT_MODEL wins over the
+'     `ollama/*` alias `--local-model` just bridged in, and the main agent goes to
+'     the cloud provider — exactly the credential this suite is built to not need.
+
 title Layer 4 · Agent E2E (promptful) — components\n(-tags=e2e · skips per missing prerequisite)
 
 actor "E2E test / CI" as Test <<actor>>
@@ -50,6 +124,30 @@ note bottom of Tmux
   poll-until-substring with a deadline, and on timeout the //last// capture
   is returned rather than an empty string, because the captured screen is
   the evidence needed to see why the wait failed.
+end note
+
+note bottom of Harness
+  **The container prompt is the readiness signal for
+  the WHOLE topology** — sidecars, networks, CA
+  trust — proveo hands the PTY over only once the
+  container runs. Match "":/app$"", not ""$ "" —
+  tmux trims trailing space, so that never fires.
+end note
+
+note bottom of Out
+  **Assert three side effects, not prose.**
+  ""FROM_SAMPLE"" proves the mount, ""DONE\.txt""
+  the marker BANANA-E2E-OK, ""SCRAPED\.html"" the
+  title 'Example Domain' — polled together for 4
+  minutes at 3s; the timeout names what is missing.
+end note
+
+note bottom of HostOllama
+  **""open"" + ""forward"" is the only shape that
+  reaches the HOST Ollama.** Every other tier
+  blackholes DNS on an internal net, leaving only
+  the sidecar — no GPU on macOS, so CPU speed. The
+  old ""--egress-mode broker"" demotes it silently.
 end note
 
 

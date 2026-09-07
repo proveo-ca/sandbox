@@ -4,6 +4,10 @@
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
+' purpose: the layered gates a request passes, and what each layer can and cannot see
+' covers: internal/egresspolicy/**
+' covers: cmd/proveo-egress/**
+' covers: defs/sidecars/squid-proxy/**
 
 title Egress Policy — three layers (A / B / C)
 

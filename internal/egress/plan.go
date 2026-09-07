@@ -4,8 +4,6 @@
 // _spec/internal/egress/teardown-and-signals.puml,
 // _spec/_paradigms/credential-boundary.puml,
 // _spec/defs/claudecode/chrome-bridge.puml
-//
-// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
 package egress
 
 import (
@@ -208,7 +206,7 @@ func buildOpen(o Options) Plan {
 		if o.HostBridge {
 			b.p.AgentArgs = append(b.p.AgentArgs, hostGatewayAlias)
 		}
-		// SPEC: _spec/_plans/retire-dind.puml
+		// SPEC: _spec/_paradigms/retire-dind.puml
 		b.attachLocalModel(net)
 		return b.done()
 	}
@@ -327,9 +325,6 @@ func proxyRun(o Options, agentNet, upstream string) Command {
 	if len(o.Providers) > 0 {
 		c = append(c, "-e", "PROVEO_EGRESS_PROVIDERS="+strings.Join(o.Providers, ","))
 	}
-	// AuthVar is a variable NAME the broker prefers; the caller resolves the
-	// row's credential-shape answers ("login (proveo home)", "provider keys
-	// (host env)") to "" before they reach here, since neither names a variable.
 	if o.AuthVar != "" {
 		c = append(c, "-e", "PROVEO_EGRESS_AUTH_VAR="+o.AuthVar)
 	}

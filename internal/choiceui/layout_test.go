@@ -23,9 +23,7 @@ func budgetForm() *Form {
 	}
 }
 
-// The drop ladder is banner, figure, header, axis. Asserted as an ORDERING
-// rather than as a table of heights, since the costs move whenever a row is
-// added. SPEC: _spec/internal/choiceui/topology-strip.puml
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestLayoutObeysTheDropLadder(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -67,9 +65,6 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 		if prev.strip > lay.strip {
 			t.Errorf("h=%d: the strip shrank when the terminal grew (%v -> %v)", h, prev.strip, lay.strip)
 		}
-		// The body too. Leaving it out of this loop is exactly how a decoration
-		// came to be bought with rows the body was already using: growing the
-		// terminal by one row bought the header and started the rows scrolling.
 		if prev.body > lay.body {
 			t.Errorf("h=%d: the body shrank when the terminal GREW (%d -> %d)", h, prev.body, lay.body)
 		}
@@ -77,9 +72,6 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 	}
 }
 
-// The whole point of the budget, stated as a test: the strip is never what
-// pushed the hint or the help off the screen. It MAY cost the banner; it may
-// never cost anything mandatory, so this asserts the FLOOR.
 func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -126,9 +118,6 @@ func TestNarrowTerminalKeepsTheCaption(t *testing.T) {
 		t.Errorf("below %d columns the figure is replaced by its caption, got %v", stripCols, got)
 	}
 	bw := blockWidth(budgetForm())
-	// Somewhere between "nothing fits" and "everything fits" the digest is what
-	// stands in for the figure. Asserted as existence rather than at one height,
-	// because the exact row is a property of the fixture, not of the design.
 	seen := false
 	for h := 8; h <= 60; h++ {
 		if budgetForm().layout(bw, h).strip == stripDigest {
@@ -140,9 +129,6 @@ func TestNarrowTerminalKeepsTheCaption(t *testing.T) {
 	}
 }
 
-// The slot is reserved at the tallest help this form can EVER show, not at the
-// current one — reserving the current height would still jump the moment the
-// cursor reached a wordier option.
 func TestHelpSlotIsReservedAtTheMaximum(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -170,10 +156,6 @@ func TestNoTopologyCostsNoRows(t *testing.T) {
 	}
 }
 
-// The budget is only worth having if it predicts what draw() actually paints.
-// This walks the real paint and checks the figure lands exactly where layout
-// reserved it — the one bug class the arithmetic invites, and the one that would
-// silently overwrite the help block.
 func TestTheBudgetMatchesThePaint(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -181,9 +163,6 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 		return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · claudecode", Hop: "sbx proxy", Interface: "interface",
 			Caption: "CAPTION", Lane: LaneWatched, Open: 1}
 	}
-	// Pinned to a width where the BLOCK is the fidelity drawn. At a pane width
-	// the `continue` below would fire on every height and the test — the only one
-	// walking the real paint against the budget — would prove nothing at all.
 	bw := blockWidth(f)
 	drawn := 0
 	for h := 20; h <= 60; h++ {
@@ -198,9 +177,6 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 			switch {
 			case strings.Contains(line, "enter accept"):
 				hint = y
-			// BELOW the hint: the body's cursor marker is also "  › " now that the
-			// gutter has pushed the body right, so the glyph alone no longer
-			// distinguishes a help line from the row the cursor is on.
 			case hint >= 0 && y > hint && strings.HasPrefix(line, "  › ") && help < 0:
 				help = y
 			case strings.Contains(line, figureMark()):
@@ -249,9 +225,6 @@ func renderAt(t *testing.T, f *Form, cursor, w, h int) []string {
 	return out
 }
 
-// A decoration may only ever be bought with rows that are genuinely spare.
-// "What a short terminal loses is decoration" has to hold in both directions:
-// no region above the body on the ladder may cost the body a single line.
 func TestNoDecorationIsBoughtWithABodyLine(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()

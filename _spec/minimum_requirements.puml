@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: what one host can actually carry, and why a sandbox's share is declared rather than discovered
 ' covers: internal/sbx/sbx.go
 ' covers: e2e/capacity_test.go
+' covers: internal/sbx/limits.go
 '
 ' ── WHY DECLARE A SHARE AT ALL ─────────────────────────────────────────────
 ' The obvious objection is the right one to answer first: an OS allocates memory

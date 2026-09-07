@@ -2,6 +2,11 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Layer 4 — hello-world E2E (local model, three targets, plain bridge)
 
+' purpose: the credit-free Layer-4 lane — one local model, three targets, and the
+'          three assertions that prove the inference loop closed
+' covers: e2e/hello_world_test.go
+' covers: e2e/samples/**
+
 participant "go test -tags=e2e\ne2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
 database "workspace copy\nof e2e/samples" as WS <<db>>

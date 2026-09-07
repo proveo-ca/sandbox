@@ -36,9 +36,6 @@ func TestBrokerProviders(t *testing.T) {
 	}{
 		{"brokered + 1 provider + on", false, manifest.Manifest{}, []string{"anthropic"}, nil, true, []string{"anthropic"}},
 		{"forwarded credentials never broker", true, manifest.Manifest{}, []string{"anthropic"}, nil, true, nil},
-		// The row this feature exists for: several keys used to mean "ambiguous,
-		// broker nothing", which handed every provider the sentinel. All of them
-		// are now routed.
 		{"two providers → both routed", false, manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, []string{"anthropic", "openai"}},
 		{"roles spanning vendors → both routed", false, manifest.Manifest{}, []string{"moonshot", "xai"}, nil, true, []string{"moonshot", "xai"}},
 		{"zero providers", false, manifest.Manifest{}, nil, nil, true, nil},
@@ -316,11 +313,7 @@ func TestProviderLookupResolvesReferences(t *testing.T) {
 	}
 }
 
-// The auth row exists only where the operator actually holds both sides —
-// otherwise there is no decision and the row would be inert. The sides are the
-// two ways a run is BILLED, and which variable belongs to which comes from the
-// manifest: the harness declares its own plan credential, everything else is a
-// provider key. SPEC: _spec/internal/credentials/credential-decisions.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml
 func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
@@ -344,13 +337,6 @@ func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	}
 }
 
-// The review tier's transport is a bind-mounted unix socket, which only works on a
-// Linux host talking to a local daemon. Anywhere else the gate is unreachable and
-// every connection is denied without a prompt, so the option must say which.
-
-// The mounted-.env warning was dead for a release cycle: the guard returned on
-// all three canonical tiers after broker/firewall/proxy were renamed. Nothing
-// asserted it, which is why the rename went unnoticed.
 func TestWarnMountedSecretsFiresOnTheOpenTierAndAlwaysOnSbx(t *testing.T) {
 	dirWithEnv := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirWithEnv, ".env"), []byte("ANTHROPIC_API_KEY=x\n"), 0o600); err != nil {
@@ -378,9 +364,6 @@ func TestWarnMountedSecretsFiresOnTheOpenTierAndAlwaysOnSbx(t *testing.T) {
 		{"no provider key on the host", dirWithEnv, "open", false, noKey, false},
 		{"no mounted dir at all", "", "open", false, withKey, false},
 
-		// The inversion this parameter exists for: sbx masks nothing, and the
-		// in-container prelude sources the .env with `set -a`, so the tier that
-		// silences docker must NOT silence the backend that actually reads the file.
 		{"sbx warns on allowlist — nothing is masked there", dirWithEnv, "allowlist", true, withKey, true},
 		{"sbx warns on review too", dirWithEnv, "review", true, withKey, true},
 		{"sbx warns on open", dirWithEnv, "open", true, withKey, true},
@@ -438,9 +421,6 @@ func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
 	if HasPersistedLogin("opencode", home) {
 		t.Error("a target with no known login file must not borrow another's")
 	}
-	// The macOS shape must not read as a login. It is the ordinary state of the
-	// proveo home on this host, so getting it wrong is not an edge case: the run
-	// announces itself authenticated and then has nothing to send.
 	blanked := `{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,` +
 		`"refreshTokenExpiresAt":4102444800000}}`
 	if err := os.WriteFile(cred, []byte(blanked), 0o600); err != nil {
@@ -451,15 +431,6 @@ func TestHasPersistedLoginSeesTheCredentialFile(t *testing.T) {
 	}
 }
 
-// A login that cannot authenticate must not suppress the env token that can. The
-// stamps on the macOS-blanked file are live, so the suppressor used to read it as
-// the run's credential and drop CLAUDE_CODE_OAUTH_TOKEN — which is how a run
-// reached the agent with every credential slot empty.
-
-// A login that cannot authenticate must not suppress the env token that can. The
-// stamps on the macOS-blanked file are live, so the suppressor used to read it as
-// the run's credential and drop CLAUDE_CODE_OAUTH_TOKEN — which is how a run
-// reached the agent with every credential slot empty.
 func TestAuthSuppressorKeepsTheTokenWhenTheLoginIsBlanked(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
@@ -494,15 +465,6 @@ func TestAuthSuppressorKeepsTheTokenWhenTheLoginIsBlanked(t *testing.T) {
 	}
 }
 
-// The picker and the backend selection must agree about PROVEO_SBX. They did not:
-// sbx.Available() only reports whether the host CAN run sbx, so with the backend
-// switched off the add-on stayed selectable and default-ticked while the run took
-// docker — the prompt described a posture the run did not have.
-
-// Anthropic can authenticate two ways. Handing sbx both put an API key and a
-// subscription token in the same store, its proxy injected the key, and a
-// subscription run billed per token — the auth row the operator answered was
-// overridden somewhere they could not see.
 func TestOnlyTheChosenAuthVarIsStored(t *testing.T) {
 	t.Parallel()
 	const oauth, apikey = "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"
@@ -527,15 +489,6 @@ func TestOnlyTheChosenAuthVarIsStored(t *testing.T) {
 	}
 }
 
-// An operator may log in on the HOST before launching; that credential reaches the
-// container because HOME points at the mounted proveo home. When it is there it IS
-// the answer, and proveo must not also hand sbx an API key whose proxy injection
-// would override it — which is how a subscription run silently billed per token.
-
-// An operator may log in on the HOST before launching; that credential reaches the
-// container because HOME points at the mounted proveo home. When it is there it IS
-// the answer, and proveo must not also hand sbx an API key whose proxy injection
-// would override it — which is how a subscription run silently billed per token.
 func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
@@ -569,14 +522,6 @@ func TestHostLoginCountsAsTheChosenAuth(t *testing.T) {
 	}
 }
 
-// sandboxSpec must stay pure: a host login decides which credential the run uses,
-// but that fact arrives through the input, never by reaching for the real
-// filesystem. It read proveohome.Root() briefly and every result then depended on
-// whether the developer happened to be logged in.
-
-// A credential file under the mounted proveo home IS the login. Injecting the
-// harness's own auth var alongside it does not add a second credential — it
-// overrides the first, which is how a subscription run authenticated as the API.
 func TestFileBackedLoginSuppressesEveryAuthVarForItsProvider(t *testing.T) {
 	home := t.TempDir()
 	cred := filepath.Join(home, ".claude", ".credentials.json")
@@ -632,16 +577,6 @@ func TestNoPersistedLoginInjectsTheManifestSecret(t *testing.T) {
 	}
 }
 
-// The sbx backend sets NEITHER home variable, and that is the fix rather than an
-// omission: sbx runs its own agent user, mounts the session volumes under that
-// user's home, and has its credential proxy write .credentials.json there.
-// Redirecting HOME to the mounted host path orphaned all three — the agent read a
-// stale mounted credential instead of the live proxy-managed one and reported
-// "Not logged in".
-//
-// A stale value inherited from the environment must still be stripped: leaving one
-// in place is the same orphaning by a different route.
-
 // Interactive runs take no tail, so the transcript is the only record proveo can
 // name. It must name THIS run's — an older one sends the reader to stale evidence.
 func TestAgentTranscriptNamesOnlyThisRunsFile(t *testing.T) {
@@ -681,31 +616,6 @@ func TestAgentTranscriptNamesOnlyThisRunsFile(t *testing.T) {
 	}
 }
 
-// The evidence channel manufactured its own evidence, and this is the case that
-// cost a diagnosis.
-//
-// On a failed run proveo copies state out of the sandbox before looking for a
-// transcript, and on a STOPPED sandbox `sbx exec` restarts the VM to do it — which
-// re-runs the seed, which writes files. The run that exposed this was handed
-// "66523790-…jsonl": zero bytes, created 17s AFTER the agent had died, belonging to
-// no session that ever ran. It won because it was the newest .jsonl in the home,
-// and because it existed at all it set `said`, which suppressed the credential hint
-// written for precisely the failure that leaves nothing behind.
-//
-// So the window is closed at both ends and empty files are not evidence.
-
-// The evidence channel manufactured its own evidence, and this is the case that
-// cost a diagnosis.
-//
-// On a failed run proveo copies state out of the sandbox before looking for a
-// transcript, and on a STOPPED sandbox `sbx exec` restarts the VM to do it — which
-// re-runs the seed, which writes files. The run that exposed this was handed
-// "66523790-…jsonl": zero bytes, created 17s AFTER the agent had died, belonging to
-// no session that ever ran. It won because it was the newest .jsonl in the home,
-// and because it existed at all it set `said`, which suppressed the credential hint
-// written for precisely the failure that leaves nothing behind.
-//
-// So the window is closed at both ends and empty files are not evidence.
 func TestAgentTranscriptRejectsTheHarvestsOwnArtifacts(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".claude", "projects", "-w-repo")
@@ -742,9 +652,6 @@ func TestAgentTranscriptRejectsTheHarvestsOwnArtifacts(t *testing.T) {
 	}
 	_ = harvest
 
-	// The failure this all exists for: the agent died before its first turn, so the
-	// only .jsonl in the home is the harvest's empty one. The answer must be "no
-	// transcript", because that emptiness is what releases the credential hint.
 	if err := os.Remove(real); err != nil {
 		t.Fatal(err)
 	}
@@ -770,10 +677,6 @@ func TestAgentTranscriptRejectsTheHarvestsOwnArtifacts(t *testing.T) {
 // Without --shell the harness's own sbx agent runs; the two must not be confused,
 // because naming the wrong one is what skips the binding gate and drops the session.
 
-// The persisted login must be NAMEABLE in the auth row. Until it was, the row listed
-// only environment variables, so a remembered answer naming one of them outranked a
-// login the operator established later — proveo forwarded a token the API refused
-// while a working subscription sat mounted and unread.
 func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -793,10 +696,6 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_API_KEY": "key"}[k]
 	}
 
-	// A login IS a subscription, so it no longer needs an option of its own — it
-	// backs that one. What it must never be is unnameable: an answer of
-	// "subscription" has to reach it, and the hint has to say it is the file
-	// rather than the token beside it.
 	got := AvailableAuthVarsIn(man, lookup, "claudecode", home)
 	if !slices.Contains(got, AuthSubscription) {
 		t.Fatalf("a mounted login is not offered as the plan, got %v", got)
@@ -832,17 +731,6 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 	}
 }
 
-// Existence is not validity. A dead credential is a file of exactly the same
-// size as a live one, so stat-ing it let an expired login satisfy the guard that
-// exists to stop a run the agent cannot complete — it reaches the login prompt,
-// exits, and the sandbox stops with it, which the operator sees as an
-// infrastructure failure rather than as "your login ran out".
-
-// Existence is not validity. A dead credential is a file of exactly the same
-// size as a live one, so stat-ing it let an expired login satisfy the guard that
-// exists to stop a run the agent cannot complete — it reaches the login prompt,
-// exits, and the sandbox stops with it, which the operator sees as an
-// infrastructure failure rather than as "your login ran out".
 func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 25, 16, 0, 0, 0, time.UTC)
@@ -883,10 +771,6 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 			usable: true,
 		},
 		{
-			// A CLEARED stamp is not an absent one. A failed refresh writes
-			// expiresAt:0, and reading that as "no expiry recorded" reported a
-			// dead credential as healthy — the exact case that produced
-			// "OAuth session expired and could not be refreshed".
 			name:     "cleared access stamp, live refresh token",
 			body:     fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(600*time.Hour)),
 			usable:   true,
@@ -897,11 +781,6 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 			body: fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour)),
 		},
 		{
-			// The macOS shape, and the one that cost a run: `claude` in the proveo
-			// home moves the credential to the Keychain and rewrites the file with
-			// its tokens BLANKED, leaving every stamp untouched. Judged on stamps
-			// alone this reads as a healthy login needing a refresh, so the run
-			// suppressed the env token that would have worked.
 			name: "blanked tokens, live refresh stamp",
 			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`, ms(600*time.Hour)),
 		},
@@ -925,9 +804,6 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","refreshToken":"","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour), ms(600*time.Hour)),
 		},
 		{
-			// ABSENT is not BLANK. A shape that never carried the field must keep
-			// falling through to the stamps, or the conservative reading that
-			// protects unknown harnesses turns into a refusal.
 			name:     "tokens absent, stale access stamp",
 			body:     fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, ms(-time.Hour), ms(600*time.Hour)),
 			usable:   true,
@@ -953,17 +829,6 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 	}
 }
 
-// sbx registers its MCP gateway from its OWN agent kit, with `claude mcp add
-// --scope user`, inside a HOME that proveo mounts read-write. So an entry meant
-// to live and die with a disposable sandbox lands in the operator's real home.
-// Declining goes through sbx's own gate rather than by patching the file it
-// writes — editing the config loses a race with a step that runs every start.
-
-// A login only outranks an env token while it can still AUTHENTICATE. Suppressing
-// a working token in favour of a dead file leaves the run with NO credential — and
-// on macOS that is the normal way to end up stale, because the host's login lives
-// in the keychain and the file under the proveo home is written only by the
-// container, which is the one place that cannot be reached to refresh it.
 func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
 	man := manifest.Manifest{
 		Name: "claudecode", Subscription: true,
@@ -1010,13 +875,6 @@ func TestDeadLoginDoesNotSuppressAWorkingToken(t *testing.T) {
 // Where the work lands is not a detail an operator should have to infer, so it
 // gets a posture row either way.
 
-// The package's whole reason to exist as a boundary: a variable it decides to
-// SUPPRESS must never reach the run carrying a value. Every earlier test pins one
-// decision; this pins the invariant across all of them, so a future call site
-// cannot read the suppressor and then inject the value anyway.
-//
-// It sweeps the shapes that actually differ: an operator's answer, a live login on
-// disk, a blanked one (the macOS keychain husk), and no login at all.
 func TestASuppressedVarNeverCarriesAValue(t *testing.T) {
 	t.Parallel()
 	const live = `{"claudeAiOauth":{"accessToken":"a","refreshToken":"r","expiresAt":32503680000000}}`
@@ -1057,9 +915,6 @@ func TestASuppressedVarNeverCarriesAValue(t *testing.T) {
 				if !e.Secret || !suppressed(e.Name) {
 					continue
 				}
-				// Suppressed means OMITTED, not stated as empty: an agent reads a SET
-				// variable as a chosen credential whatever it holds, so a blank one
-				// occupies the slot the login needed.
 				for _, got := range LoadedSecretNames(man, func(k string) string {
 					if suppressed(k) {
 						return ""

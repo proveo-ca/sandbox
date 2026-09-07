@@ -5,6 +5,7 @@ title Claude Code code intelligence — seeded plugins, enabled per binary, no i
 
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/claude_lsp_plugins_test.go
 '
 ' ── HOW THE SEED IS BUILT ───────────────────────────────────────────────────
 ' ARG CLAUDE_PLUGIN_SEED=/opt/proveo/claude-plugins, exported to the image as

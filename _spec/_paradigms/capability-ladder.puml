@@ -3,6 +3,11 @@
 skinparam noteTextAlignment left
 ' purpose: how proveo attributes a failure to a LAYER instead of arguing about it
 ' covers: e2e/ladder_test.go
+' covers: internal/sbx/**
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/contract/agent_launch_guard_test.go
+' covers: defs/**/entrypoint.sh
+' What a launch must not drop: _spec/packages/lib/seed-and-launch.puml.
 '
 ' ── THE METHOD ─────────────────────────────────────────────────────────────
 ' Start with the smallest thing that can run an agent at all — stock sbx, stock
@@ -38,16 +43,33 @@ skinparam noteTextAlignment left
 ' ── A DEF WITH NO BUILT-IN AGENT GETS AN EXTRA RUNG ───────────────────────
 ' sbx has built-in agents for claudecode, cursor and opencode; their agent name
 ' carries the launch. cecli has none, so it runs under the stock `shell` agent
-' with its own launcher as the COMMAND — proveo appends `-- cecli`.
+' with its own launcher as the COMMAND.
 '
-' That matters because the def's entrypoint does not execute until the command is
-' added. An image rung without it measures a bare shell inside our image: real,
-' but not the thing that failed. So the command is its own rung, inserted after
+' THE COMMAND IS FLAG-LEADING, AND THAT IS NOT COSMETIC. sbx's shell agent
+' documents the rule: a word after `--` that BEGINS WITH A DASH is appended to
+' `bash -l`, and a BARE word REPLACES it. proveo passed the bare target name, so
+' `-- cecli` ran `bash cecli`; bash searched PATH, found the Python console
+' script and read it as shell — `import: not found`. Nothing was absent from the
+' image, and the rung looked like a packaging failure.
+'
+' So the command is `-c <script>` and the script EXECs the def's own
+' `cecli-entrypoint`. Both halves are load-bearing: a shebang is only consulted
+' on exec, so a launch that merely NAMES the binary reintroduces the same bug in
+' another spelling, and skipping the def's entrypoint starts the harness without
+' the rule and evidence arguments the def declares — a green rung that dropped
+' the contract it was meant to measure. `bash -c` takes the word after the
+' script as $0, so a placeholder sits there or the first real argument is
+' swallowed silently.
+'
+' The COMMAND is also what makes the extra rung necessary: the def's entrypoint
+' does not execute until it is added. An image rung without it measures a bare
+' shell inside our image: real, but not the thing that failed. So the command is its own rung, inserted after
 ' the base image, and every rung above keeps it:
 '
 '   0  bare sbx shell     stock agent, stock image, NO command
 '   1  proveo base image  the image, still no command
-'   2  agent command      `-- cecli` — the def's entrypoint runs from here
+'   2  agent command      `-- -c '<exec cecli-entrypoint …>'` — the def's
+'                         entrypoint runs from here
 '   3  browser variant
 '   4  posture Kit + seed
 '
@@ -64,11 +86,39 @@ skinparam noteTextAlignment left
 ' were carried to cursor by SYMMETRY, not by measurement — and a contract checked
 ' against one harness is a contract with one data point.
 '
-' The open case is opencode: it dies IDLE on sbx with no input at all, at roughly
-' startup + 30s, while cursor and claudecode survive the same wait
-' (e2e/idle_test.go, SPEC: _spec/internal/sbx/sandbox-backend.puml). Rung 0
-' against opencode is the unrun experiment that would settle whether proveo is
-' involved.
+' The open case WAS opencode: it died IDLE on sbx with no input at all, at
+' roughly startup + 30s, while cursor and claudecode survived the same wait
+' (e2e/idle_test.go, SPEC: _spec/internal/sbx/sandbox-backend.puml).
+'
+' ── THE LADDER ANSWERED IT, AND THE ANSWER WAS OURS ────────────────────────
+' Rung 0 (stock sbx, stock image) held 48s. Rung 1 (the proveo image, nothing
+' else) died in 9s. cursor and claudecode already routed their launch through
+' `proveo_exec_agent` and both survived the same wait — which is the whole 2x2,
+' and it names the image layer rather than sbx.
+'
+' The defect: `"$@"` is AMBIGUOUS and the two backends disagree about what it
+' holds. On docker, proveo passes the harness's own flags, which belong AFTER
+' the binary. On sbx, the built-in agent kit supplies the whole COMMAND in the
+' CMD position and proveo's ENTRYPOINT turns that into `"$@"`. Appending it
+' blindly hands the AGENT NAME to the agent as a positional, which every harness
+' reads as a prompt or a path: opencode ran `opencode opencode` and exited, the
+' sbx session ended with it, and the sandbox auto-stopped 30s later as
+' "sandbox ... was stopped" — an infrastructure symptom three layers from its
+' cause.
+'
+' `proveo_exec_agent` disambiguates, and a contract test asserts every
+' agent-launching def entrypoint INVOKES it (a mention in a comment does not
+' count — that is exactly the state a careless edit leaves). It asserts PRESENCE
+' and nothing narrower: a first attempt also rejected any bare
+' `exec <agent> "$@"`, which flagged cursor's utility-subcommand passthrough —
+' `login`, `logout`, `status` exec straight through with none of the autonomy
+' flags, deliberately and by spec (_spec/defs/cursor/cursor-paradigm.puml). A
+' guarded default launch beside a deliberate passthrough is correct, and a check
+' that cannot tell them apart costs more than it catches.
+'
+' The mirror rule at the sbx adapter: a def WITH a built-in agent carries no
+' command at all, because that agent already launches itself — adding one is
+' the other way to arrive at `opencode opencode`.
 title Capability ladder — add one thing per rung, and the first failure names its owner
 
 node "rung 0 — bare sbx" as R0 <<cloud>> {
@@ -103,6 +153,21 @@ note bottom of R0
   Two upstream failures are on record here:
   ""sbx-releases#11"" and #210. Both would have
   been chased inside proveo without this rung.
+end note
+
+note bottom of R1
+  **48s at rung 0, 9s at rung 1.** The image layer
+  owned it: ""$@"" handed the agent its own name,
+  opencode exited, and the sandbox auto-stopped
+  30s later as an infrastructure fault.
+end note
+
+note bottom of R1
+  **Flag-leading, or sbx drops ""bash -l"".**
+  A bare word REPLACES it, so ""-- cecli"" ran
+  ""bash cecli"" — a Python console script read as
+  shell. The command is ""-c"" and it execs
+  the def's own entrypoint.
 end note
 
 note bottom of R3

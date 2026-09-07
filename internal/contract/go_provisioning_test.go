@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// The two Go pins must agree. mise.toml drives `mise run <task>` and go.mod's
-// toolchain drives GOTOOLCHAIN=auto, so a drift between them means a contributor
-// compiles against one Go and CI against another, over one shared build cache —
-// the `compile: version "goX" does not match go tool version "goY"` failure that
-// kept Go out of mise.toml in the first place.
 func TestMiseGoPinMatchesGoModToolchain(t *testing.T) {
 	t.Parallel()
 
@@ -36,10 +31,6 @@ func TestMiseGoPinMatchesGoModToolchain(t *testing.T) {
 	}
 }
 
-// `g` is retired. It installed fine, including inside an sbx sandbox; what it
-// never did was put the toolchain on PATH, and a sandbox has no persistent shell
-// rc to make up the difference. Comments are stripped before this check, so the
-// notes explaining the retirement are allowed to name it — a live call is not.
 func TestNoProvisioningPathShellsOutToG(t *testing.T) {
 	t.Parallel()
 	src := entrypointLib(t)
@@ -82,9 +73,6 @@ func TestGoProvisioningRoutesThroughMise(t *testing.T) {
 	}
 }
 
-// The generated rc block must not pin a GOROOT either: it outlives the toolchain
-// it names, so the next `mise use -g go@<other>` leaves the rc pointing at the
-// previous install.
 func TestPersistedToolEnvCarriesNoGOROOT(t *testing.T) {
 	t.Parallel()
 	body := funcBody(t, entrypointLib(t), "_proveo_persist_tool_env")
@@ -124,19 +112,10 @@ func funcBody(t *testing.T, src, name string) string {
 	return ""
 }
 
-// mise picks the interpreter for a task from its shebang, defaulting to `sh`.
-// A task written in bash without one parses under dash until it reaches the first
-// bashism, so it fails PART WAY THROUGH — test-images died on `tests=(` only after
-// staging eight binaries, which reads as a broken test script rather than a wrong
-// interpreter.
 func TestMiseTasksUsingBashSyntaxDeclareBash(t *testing.T) {
 	t.Parallel()
 	src := readRepoFile(t, "mise.toml")
 
-	// Bodies are sliced BETWEEN header positions rather than matched with a
-	// non-greedy tail. RE2 has no lookahead, so `(.*?)(?:\n\[|$)` consumes the
-	// `\n[` that opens the NEXT header, leaving the scanner mid-token and silently
-	// skipping every other task — this guard saw 10 of 20 and passed vacuously.
 	header := regexp.MustCompile(`(?m)^\[tasks\.([\w-]+)\]$`)
 	locs := header.FindAllStringSubmatchIndex(src, -1)
 	if len(locs) == 0 {

@@ -1,5 +1,8 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: what proveo clean reclaims, what it refuses to touch, and the liveness gate in front of it
+' covers: internal/clean/**
+' covers: cmd/proveo/clean.go
 title `proveo clean` — reclaim leaked run state without killing live runs
 
 actor "Maintainer" as MT
@@ -100,7 +103,7 @@ note bottom of CORE
   Routine covers per-run ephemera left by a crashed or killed run — egress
   session containers and networks, session state dirs, and
   ""proveo-dind-*"" sidecars from before that sidecar was retired
-  (_spec/_plans/retire-dind.puml). Nothing starts one now, and the sweep
+  (_spec/_paradigms/retire-dind.puml). Nothing starts one now, and the sweep
   is kept precisely for that reason: a ""--privileged"" container an older
   proveo left running is the last thing to strand on a host with nothing
   left that knows its name. The deeper tier is opt-in because it reaches

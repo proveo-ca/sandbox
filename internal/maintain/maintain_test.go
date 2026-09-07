@@ -108,9 +108,6 @@ func TestBuildPlan(t *testing.T) {
 		t.Errorf("BuildPlan(v2,no-cache) = %v, want %v", got, want)
 	}
 
-	// An untagged build is :local, never :latest — :latest means published, and a
-	// local build answering to it is what let a registry image shadow the build
-	// under test.
 	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", BuildScript: "/d/cursor/build.sh"}
 	got = argvs(cur.BuildPlan("", false))
 	want = []string{
@@ -168,9 +165,6 @@ func TestDeployAndTestPlan(t *testing.T) {
 	}
 }
 
-// :latest and :local both existing is the normal state on a maintainer's machine.
-// Existence alone cannot decide: a stale :local from last week must not shadow an
-// image just pulled, and a build from a minute ago must not lose to the registry.
 func TestResolveImagePrefersTheNewerBuild(t *testing.T) {
 	t.Parallel()
 	old := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)

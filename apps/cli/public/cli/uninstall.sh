@@ -104,6 +104,7 @@ remove_setup_markers() {
   tmp_file="$(mktemp)"
   awk '
     $0 == "# added by `proveo setup` — proveo on PATH" { skip = 1; next }
+    $0 == "# added by `proveo init` — sbx on PATH" { skip = 1; next }
     skip == 1 && ($0 ~ /^export PATH=/ || $0 ~ /^set -gx PATH / || $0 ~ /^setenv PATH /) { skip = 0; changed = 1; next }
     skip == 1 { changed = 1; next }
     { print }

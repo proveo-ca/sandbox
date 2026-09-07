@@ -198,6 +198,52 @@ After Docker is installed, run:
 EOF
 }
 
+# run_init hands the fresh binary the second half of the install: the sbx
+# backend proveo actually runs on.
+#
+# Two things about the environment here are easy to get wrong.
+#
+# `curl … | bash` leaves STDIN attached to the script, not the terminal, so a
+# prompt that read stdin would consume the rest of this file — or, more often,
+# see EOF and take defaults without ever drawing. /dev/tty is the terminal
+# regardless of how stdin was redirected, so init is given that when it exists
+# and falls back to `--yes` when it does not (CI, a Dockerfile, a pipe).
+#
+# And init exits non-zero on a host that cannot yet run a sandbox — missing KVM,
+# a user not yet in the kvm group. That is a correct verdict about the host and
+# NOT a failed proveo install, so it must not abort this script under `set -e`.
+run_init() {
+  if [[ -n "${PROVEO_SKIP_INIT:-}" ]]; then
+    print_info ""
+    print_info "Skipping the sbx bootstrap (PROVEO_SKIP_INIT is set). Run it later with:"
+    print_info "  proveo init"
+    return 0
+  fi
+
+  print_info ""
+  print_info "Setting up the sbx backend…"
+
+  # Test the OPEN, not the permissions. `[[ -r /dev/tty ]]` is true whenever
+  # the device node is readable, which it is on a host with no controlling
+  # terminal for this process group — and the redirect then fails, taking the
+  # whole call with it. Measured in the install suite: init was never reached
+  # and the failure was indistinguishable from a host that cannot run sbx.
+  if { : </dev/tty; } 2>/dev/null; then
+    PATH="$BIN_DIR:$PATH" "$BIN_DIR/proveo" init </dev/tty || init_incomplete
+  else
+    PATH="$BIN_DIR:$PATH" "$BIN_DIR/proveo" init --yes || init_incomplete
+  fi
+}
+
+init_incomplete() {
+  cat <<'EOF'
+
+The sbx backend is not ready yet — the lines above say which condition failed
+and how to fix it. proveo itself is installed. Once the host is fixed:
+  proveo init
+EOF
+}
+
 print_post_install_message() {
   local shell_name version="$1"
   shell_name="$(basename "${SHELL:-sh}")"
@@ -229,7 +275,7 @@ Or reload your current configuration:
 
 Then try:
   proveo --version
-  proveo update --check
+  proveo init --print
   proveo --ls
 EOF
 }
@@ -264,4 +310,5 @@ chmod +x "$BIN_DIR/proveo" "$INSTALL_ROOT/uninstall.sh"
 
 ensure_path
 check_docker
+run_init
 print_post_install_message "$PROVEO_VERSION"

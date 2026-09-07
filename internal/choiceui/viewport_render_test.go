@@ -31,9 +31,6 @@ func tallForm() *Form {
 	return f
 }
 
-// The failure this replaces: draw() painted straight down and tcell discarded
-// the overflow, so a short terminal silently lost the hint and the help — the
-// two things telling the operator what the keys do and what the option means.
 func TestTheFootSurvivesEveryHeight(t *testing.T) {
 	t.Parallel()
 	for _, h := range []int{12, 16, 20, 24, 30, 40} {
@@ -92,10 +89,6 @@ func TestTheCursorsRowIsAlwaysPainted(t *testing.T) {
 			if strings.Contains(joined, "terminal too small") {
 				continue // it said so, loudly, which is the contract down here
 			}
-			// The cursor MARKER plus the row's last option: the marker only ever
-			// appears on the cursor's own row, and matching bare option text let
-			// two cursors pass on strings the header and the figure also paint
-			// ("ANTHROPIC_API_KEY" is in the header, "host" is in the figure).
 			opts := f.Rows[cursor].Options
 			hint := len(rows)
 			for y, line := range rows {
@@ -104,9 +97,6 @@ func TestTheCursorsRowIsAlwaysPainted(t *testing.T) {
 				}
 			}
 			marked := false
-			// Above the hint only: the help block below it also opens with "› "
-			// and quotes the same option text. And matched with Contains rather
-			// than a prefix, because the gutter glyph now precedes the marker.
 			for _, line := range rows[:hint] {
 				if strings.Contains(line, "› ") && strings.Contains(line, opts[len(opts)-1]) {
 					marked = true
@@ -120,9 +110,6 @@ func TestTheCursorsRowIsAlwaysPainted(t *testing.T) {
 	}
 }
 
-// A body that fits must render exactly as it did before the viewport existed:
-// no offset, no gutter, and the foot following the body rather than pinned to
-// the bottom edge.
 func TestAFittingBodyScrollsNothingAndDrawsNoGutter(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
@@ -172,9 +159,6 @@ func TestAScrollingBodyMarksItsTravel(t *testing.T) {
 	}
 }
 
-// Below the floor the prompt says so instead of painting a broken form, and it
-// still says how to leave: a terminal too small to draw the form must never be
-// a terminal the operator cannot escape.
 func TestBelowTheFloorTheFailureIsLoud(t *testing.T) {
 	t.Parallel()
 	joined := strings.Join(renderAt(t, tallForm(), 0, 80, 6), "\n")
@@ -208,9 +192,6 @@ func TestASecondPaintDoesNotInheritAStaleOffset(t *testing.T) {
 // divider exists to avoid, so the label returns when its heading scrolls away.
 func TestADividerRowRegainsItsLabelWhenTheHeadingScrollsOff(t *testing.T) {
 	t.Parallel()
-	// Driven to a state where the heading really is off screen, rather than
-	// skipping when it happens not to be: the previous version of this test
-	// always skipped and covered neither branch.
 	f := tallForm()
 	lines := f.bodyLines()
 	from, to := rowSpan(lines, 3)
@@ -254,9 +235,6 @@ func scrollingHeight(t *testing.T, f *Form) int {
 	return 0
 }
 
-// A screen too small to draw the form must not accept edits to the posture it
-// cannot show. Accepting one unseen is bad enough; changing one unseen is worse
-// than the truncation the viewport replaced.
 func TestATooSmallScreenIsNotNavigable(t *testing.T) {
 	t.Parallel()
 	s := tcell.NewSimulationScreen("UTF-8")

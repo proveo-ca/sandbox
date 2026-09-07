@@ -16,10 +16,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself, not
-// `sbx create`, because the failure it guards lived in proveo's mount assembly.
-// Two claims: the clone LANDED, and what the agent wrote under reports/ is on
-// the host after teardown. SPEC: _spec/internal/sbx/clone-workspace.puml
+// TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself,
+// not `sbx create`, because the failure it guards lived in proveo's mount
+// assembly.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -71,9 +71,6 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 		}
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
-	// proveo must SAY the output dir is not mounted live: a nested positional that
-	// slipped through is the whole failure, and it would otherwise be invisible
-	// until the clone probe below.
 	w.until("the clone output line", 2*time.Minute, func() bool {
 		return strings.Contains(w.Screen(), "lifts it back here at teardown")
 	})

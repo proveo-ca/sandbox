@@ -1,8 +1,6 @@
 // SPEC: _spec/internal/workspace/mount-model.puml,
 // _spec/internal/workspace/subdir-scope-mounts.puml,
 // _spec/packages/lib/dependency-trees.puml
-//
-// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/subdir-scope-mounts.puml, _spec/packages/lib/dependency-trees.puml
 package workspace
 
 import (

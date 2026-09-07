@@ -318,9 +318,6 @@ func TestReadPidMaxDockerFallback(t *testing.T) {
 	}
 
 	readPidMaxDocker = func(...string) int { return 0 }
-	// No /proc and a failed probe leaves the platform default, which readPidMax
-	// documents as the darwin constant on darwin and 0 everywhere else. Asserting
-	// 0 unconditionally made this case pass only on Linux.
 	want := 0
 	if goos == "darwin" {
 		want = pidMaxDarwinFallback

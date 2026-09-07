@@ -6,6 +6,12 @@ skinparam packageStyle rectangle
 skinparam linetype ortho
 skinparam nodesep 100
 skinparam ranksep 80
+' purpose: the component map of the whole repo — binaries, packages, defs and sidecars
+' covers: cmd/**
+' covers: internal/**
+' covers: defs/**
+' covers: packages/**
+' covers: embed.go
 
 ' Top-down, deliberately. Left-to-right laid this out as a 4000px column once the
 ' cross-group edges became package-level: the groups stack instead of spreading,

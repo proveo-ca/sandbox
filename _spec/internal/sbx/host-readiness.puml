@@ -1,0 +1,229 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: who owns the question "can this host run a sandbox", and why proveo stopped answering it itself
+' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
+' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
+' covers: cmd/proveo/init.go (verify, reportHostReadiness)
+' covers: cmd/proveo/init_tui.go (defaultDecisions)
+' covers: e2e/init_test.go (TestInitReportsThisHostsPrerequisites, TestInitReadsSbxDiagnoseOnThisHost)
+'   the install this gates ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   the backend being readied ...... _spec/internal/sbx/sandbox-backend.puml
+'   what one host can carry ........ _spec/minimum_requirements.puml
+' The install plan itself — provenance digests, the CDN post-install, the prompt
+' and its locked rows — is init-sbx-bootstrap.puml's, and is not repeated here.
+' This file is about ONE question: who answers "can this host run a sandbox".
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE DEFECT: A CHECK THAT WAS A PROXY FOR ANOTHER CHECK ─────────────────
+' proveo checked the KVM prerequisite twice, in two different vocabularies.
+'
+'   1. `sbx.Available()` stats /dev/kvm. Pre-existing, gates every run, and it
+'      asks the actual question: is the device there.
+'   2. `Prereqs` grew a `kvm` GROUP-MEMBERSHIP check, marked BlocksRun.
+'
+' The second is a PROXY for "can this user open /dev/kvm", and a proxy is only
+' as good as the world it assumes. It is wrong for root, which needs no group.
+' It is wrong where udev grants an ACL to the logged-in seat. It is wrong on
+' hosts where the group is named `libvirt` or `qemu`. It is wrong for a 0666
+' device. Four ways to be in the false-negative direction, which is the
+' expensive direction: because the check BLOCKED the run, `proveo init` exited
+' non-zero on hosts that work, and the CDN installer — which catches that exit
+' and explains it — then told those operators "The sbx backend is not ready
+' yet". A correct install, reported as a broken host, by a check proveo had no
+' business making.
+'
+' ── WHO OWNS THE GRANT: NOBODY IN THE PACKAGE, AND THAT IS DELIBERATE ──────
+' Researched 2026-09-07, against the artifacts rather than the folklore:
+'
+'   the .deb's own postinst   read out of control.tar.xz: `dh_apparmor`
+'                             boilerplate ONLY. No kvm, no `usermod`, no group
+'                             creation. Its `Depends:` is ca-certificates,
+'                             e2fsprogs, dbus-daemon, gnome-keyring — so the
+'                             packagers DO declare the prerequisites they can,
+'                             and kvm is not one of them.
+'   the tarball's install.sh  zero occurrences of kvm, usermod or group.
+'   Docker's own docs         `sudo usermod -aG kvm $USER` is written as an
+'                             OPERATOR step.
+'   the community             docker/sbx-releases#336 answers a failed sandbox
+'                             by hand: `usermod -aG kvm $USER` + `newgrp kvm`.
+'   and it is not sufficient  docker/sbx-releases#444: the reporter was ALREADY
+'                             in `kvm`, KVM worked, and the sandbox still
+'                             failed — the missing group was `disk`, for
+'                             `/dev/loop-control: permission denied`.
+'
+'   https://docs.docker.com/ai/sandboxes/install/
+'   https://github.com/docker/sbx-releases/issues/336
+'   https://github.com/docker/sbx-releases/issues/444
+'   https://docs.docker.com/engine/install/linux-postinstall/
+'
+' Why a postinst legitimately CANNOT do this: it runs as root and does not know
+' which human will use the tool, and adding a user to `kvm` is a privilege
+' decision, not a packaging step. Docker applies the same pattern to its own
+' `docker` group — documented as a manual step and warned as granting
+' "root-level privileges". The #444 case is the second half of the argument:
+' even a correct grant is not the whole prerequisite, so a tool that hard-codes
+' one group is asserting a model of the host it cannot keep true.
+'
+' ── BUT SBX OWNS THE CHECKING, AND DOES IT BETTER ──────────────────────────
+' Declining to REPAIR the host is not the same as declining to REPORT on it.
+' `sbx diagnose` has a native Platform › Virtualization check, and measured
+' against the real v0.42.0 binary it returns TWELVE rows:
+'
+'   CLI binary · Binary version · Daemon · Daemon diagnostics · Virtualization
+'   Storage directories · Directory permissions · Disk space · Version match
+'   Socket · SSH client config · Authentication
+'
+' Several of those proveo never had at all. Its virtualisation hint names
+' nested virtualisation and VDI; proveo's paraphrase never did, and could only
+' have gone stale. `--json` yields `checks[]` of {name, status: pass|fail|skip,
+' detail, hint} — the same shape as proveo's own `Prereq`, so rendering sbx's
+' verdict costs a parse and no translation.
+'
+' `sbx setup` is NOT the home for this and was checked: its help promises to
+' "prepare Docker Sandboxes", but it only imports agent secrets and configures
+' SSH forwarding, and it is marked EXPERIMENTAL. diagnose is the verdict.
+'
+' ── THE RESULTING DIVISION, WHICH IS THIS FILE'S WHOLE POINT ───────────────
+' Stage now reads as an OWNERSHIP boundary and not merely a severity:
+'
+'   BlocksInstall  PROVEO'S. Conditions that decide whether downloading ~100 MB
+'                  is worth it, and that must be known BEFORE sbx exists to be
+'                  asked: the platform having no asset at all, and e2fsprogs —
+'                  the release's install.sh checks for `mkfs.ext4` and exits 2
+'                  before copying a single file.
+'   BlocksRun      SBX'S. Asked via `DiagnoseAt` AFTER the install, rendered
+'                  verbatim with sbx's own hint. proveo reports and instructs;
+'                  it never repairs the host. `Prereqs` now yields NOTHING at
+'                  this stage on any platform, and a test asserts it.
+'   BlocksNothing  PROVEO'S, where sbx is silent. The SELinux warning survives
+'                  precisely because `sbx diagnose` has no SELinux check, and
+'                  because measured 2026-09-07 the rockylinux8 package did not
+'                  resolve an enforcing host either.
+'
+' Two properties of the asking:
+'
+' A NON-ZERO EXIT FROM DIAGNOSE IS EXPECTED, not exceptional — it is what sbx
+' does whenever any check fails, which is exactly the case proveo is asking
+' about. So `DiagnoseAt` parses the payload REGARDLESS of the exit status and
+' surfaces the process error only when there is nothing to parse. Treating the
+' exit code as the verdict would discard the twelve rows that ARE the verdict.
+'
+' AND WHEN DIAGNOSE CANNOT BE REACHED AT ALL, proveo says so and points at
+' `proveo init --force`. It does not guess, and it does not fall back to the
+' proxy checks it just withdrew: "I could not ask" and "the host is fine" are
+' different answers, and an empty `checks[]` is an error rather than a clean
+' bill of health for the same reason.
+'
+' ── THE INSTALL POLICY THIS PAIRS WITH ─────────────────────────────────────
+' The delegation only makes sense alongside a matching restraint about the
+' binary itself: proveo FRESH-INSTALLS sbx, and does nothing else.
+'
+' An sbx already on the host is the operator's, whatever its version —
+' replacing it unasked would be managing their toolchain, which is the same
+' overreach as repairing their group memberships. An installed sbx older than
+' `MinVersion` is REPORTED with instructions (a run will refuse it anyway)
+' rather than silently upgraded. `--force` is the explicit ask, and it is the
+' only thing that turns the default from "keep what is installed" back into an
+' install.
+title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
+
+actor "operator" as OP
+
+node "the host" as HOST <<host>> {
+  component "proveo init — verify\nreportHostReadiness" as INIT <<app>>
+  component "internal/sbx.Prereqs\nBlocksInstall + BlocksNothing only" as PRE <<app>>
+  component "<prefix>/bin/sbx diagnose --json\n12 checks, each with its own hint" as DIAG <<cloud>>
+  database "an sbx already installed\nthe operator's, whatever its version" as OWNED <<db>>
+}
+
+cloud "docker-sbx packaging, read 2026-09-07" as PKG <<cloud>> {
+  database "postinst: dh_apparmor boilerplate\nDepends: ca-certificates, e2fsprogs,\ndbus-daemon, gnome-keyring" as POST <<db>>
+}
+
+component "kvm group membership\nthe proxy check, withdrawn" as PROXY <<error>>
+component "SELinux enforcing\nno diagnose row covers it" as SEL <<error>>
+
+OP ARROW_MAIN INIT : ""proveo init""
+INIT ARROW_MAIN PRE : before the download — is 100 MB worth it
+PRE ARROW_ERROR INIT : BlocksInstall refuses · BlocksNothing warns
+INIT ARROW_QUEUE DIAG : after the install, by ABSOLUTE path
+DIAG ARROW_MAIN INIT : ""checks[]"" of {name, status, detail, hint}
+INIT ARROW_ERROR OP : sbx's own remediation, rendered verbatim
+POST ARROW_ERROR PROXY : nothing in the package grants kvm
+PROXY ARROW_ERROR INIT : withdrawn — it failed hosts that work
+SEL ARROW_MAIN PRE : the one row sbx does not carry
+OWNED ARROW_ERROR INIT : left alone unless ""--force""
+
+note right of INIT
+  **proveo asks; it never repairs the host.**
+  Every failing row is printed with sbx's OWN
+  hint. The paraphrase proveo used to print
+  named neither nested virtualisation nor VDI,
+  and could only ever go stale.
+end note
+
+note bottom of PROXY
+  **A proxy for a question it cannot answer.**
+  "In the kvm group" is wrong for root, for a
+  udev ACL grant, for ""libvirt"" or ""qemu"", and
+  for a 0666 device. Marked BlocksRun, it made
+  ""proveo init"" exit non-zero on working hosts.
+end note
+
+note bottom of POST
+  **The packagers grant no privilege either.**
+  The .deb postinst is ""dh_apparmor"" and
+  nothing else: no kvm, no ""usermod"", no group.
+  It declares what it can — ca-certificates,
+  e2fsprogs, dbus-daemon, gnome-keyring.
+end note
+
+note bottom of PKG
+  **The grant is an operator step, by design.**
+  A postinst runs as root and cannot know which
+  human will use the tool. Docker treats its own
+  ""docker"" group the same way, warned as
+  granting "root-level privileges".
+end note
+
+note left of DIAG
+  **Twelve rows, several proveo never had.**
+  Measured on v0.42.0: CLI binary, version,
+  daemon, daemon diagnostics, virtualization,
+  storage dirs, permissions, disk, version
+  match, socket, SSH config, authentication.
+end note
+
+note bottom of DIAG
+  **A non-zero exit is the NORMAL case.** sbx
+  fails whenever a check fails, so DiagnoseAt
+  parses the payload regardless and reports a
+  process error only with nothing to parse. If
+  it cannot be asked: say so, name ""--force"".
+end note
+
+note bottom of PRE
+  **BlocksInstall is the half proveo keeps.**
+  Both of them must be knowable BEFORE sbx is
+  here to be asked: no asset for this platform,
+  and ""mkfs.ext4"" — the release's install.sh
+  exits 2 before it copies a single file.
+end note
+
+note bottom of SEL
+  **Kept only because sbx is silent here.**
+  ""sbx diagnose"" carries no SELinux row, and
+  measured 2026-09-07 the rockylinux8 package
+  did not resolve an enforcing host either. So
+  BlocksNothing: worth saying, blocks nobody.
+end note
+
+note bottom of OWNED
+  **Fresh installs only; the rest is theirs.**
+  Replacing an sbx nobody asked about is the
+  same overreach as fixing someone's groups.
+  Older than MinVersion is REPORTED — a run
+  refuses it anyway — never quietly upgraded.
+end note
+@enduml

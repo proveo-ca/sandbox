@@ -202,10 +202,6 @@ func TestTheHoplessFrameKeepsItsColumns(t *testing.T) {
 
 func indexOf(s, sub string) int { return strings.Index(s, sub) }
 
-// The figure must not move when the cursor does. Under a help block whose
-// height changes with the cursor, an unreserved slot shoved the figure a row per
-// keystroke — the form moving while the operator read it, which is the same
-// failure that pushed help to the bottom in the first place, one level down.
 func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 	t.Parallel()
 	f := &Form{
@@ -273,14 +269,6 @@ func screenLines(s tcell.SimulationScreen) []string {
 	return out
 }
 
-// The tier arrives from ui, which has three values where the figure has two
-// rune sets. "off" says the terminal cannot render decoration, not that the
-// operator wants less information — the figure carries facts the checkboxes
-// cannot — so it draws the ASCII set rather than nothing.
-//
-// This is the guard on the direction of the test in glyphsFor. Asking whether
-// the tier IS ascii sent every unknown tier to the decorated set, which is the
-// one answer a terminal that declared it cannot render decoration must not get.
 func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
 	t.Parallel()
 	if glyphsFor(GlyphsOff) != glyphsFor(GlyphsASCII) {
@@ -298,4 +286,119 @@ func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
 			}
 		}
 	}
+}
+
+// moteAt reports the column of the traffic mote on each row, rune-indexed.
+func moteAt(rows []string) map[int]int {
+	out := map[int]int{}
+	for y, r := range rows {
+		for x, c := range []rune(r) {
+			if c == '•' {
+				out[y] = x
+			}
+		}
+	}
+	return out
+}
+
+// SPEC: _spec/internal/choiceui/topology-strip.puml
+func TestTheMoteTravelsFromTheHopToTheClouds(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
+
+	spineRow := 2
+	var seen []int
+	for tick := 1; tick <= 9; tick++ {
+		at := moteAt(paint(t, fr, GlyphsNerd, tick))
+		col, ok := at[spineRow]
+		if !ok {
+			t.Fatalf("tick %d: no mote on the wire, rows were %v", tick, at)
+		}
+		if len(at) != 1 {
+			t.Errorf("tick %d: the mote is in %d places at once: %v", tick, len(at), at)
+		}
+		seen = append(seen, col)
+	}
+	for i := 1; i < len(seen); i++ {
+		if seen[i] <= seen[i-1] {
+			t.Errorf("the mote went backwards on the wire: %v", seen)
+			break
+		}
+	}
+}
+
+// Past the junction it fans out — one mote per OPEN lane, and never onto a lane
+// the hop refuses.
+func TestTheMoteFansOutToTheOpenLanesOnly(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
+
+	fanned := false
+	for tick := 1; tick <= 40; tick++ {
+		at := moteAt(paint(t, fr, GlyphsNerd, tick))
+		if len(at) < 2 {
+			continue
+		}
+		fanned = true
+		if _, onRefused := at[3]; onRefused {
+			t.Errorf("tick %d: a mote reached the refused lane: %v", tick, at)
+		}
+		if len(at) != fr.Open {
+			t.Errorf("tick %d: %d motes for %d open lanes: %v", tick, len(at), fr.Open, at)
+		}
+	}
+	if !fanned {
+		t.Error("the mote never reached the lanes; it stops at the junction")
+	}
+}
+
+// Traffic is continuous, so the picture is periodic rather than settling: the
+// same tick modulo the path length paints the same frame, forever.
+func TestTheMoteLoopsForever(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
+
+	first := paint(t, fr, GlyphsNerd, 3)
+	var period int
+	for p := 1; p <= 60; p++ {
+		if sameRows(first, paint(t, fr, GlyphsNerd, 3+p)) {
+			period = p
+			break
+		}
+	}
+	if period == 0 {
+		t.Fatal("the animation never repeats; it cannot be looping")
+	}
+	// Far in the future it is still on the same cycle — nothing decays to rest.
+	if !sameRows(first, paint(t, fr, GlyphsNerd, 3+period*500)) {
+		t.Errorf("500 periods on, the frame differs; the motion is not infinite")
+	}
+}
+
+// A review tier asks the operator and opens nothing, so there is no traffic to
+// draw at all.
+func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Lane, fr.Open, fr.Refused = LaneAsked, 0, 0
+	for tick := 1; tick <= 20; tick++ {
+		if at := moteAt(paint(t, fr, GlyphsNerd, tick)); len(at) != 0 {
+			t.Fatalf("tick %d: traffic on a figure with no open lane: %v", tick, at)
+		}
+	}
+}
+
+func sameRows(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

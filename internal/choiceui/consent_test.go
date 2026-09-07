@@ -7,9 +7,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// preInited hands Consent a screen that is already running, so the test can queue
-// keystrokes before calling it. Injecting concurrently with Consent's own Init is
-// a genuine race, not just flakiness.
 type preInited struct{ tcell.SimulationScreen }
 
 func (preInited) Init() error { return nil }

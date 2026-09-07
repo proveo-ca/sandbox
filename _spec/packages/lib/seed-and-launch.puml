@@ -6,9 +6,14 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' purpose: why proveo_seed's step order is a dependency chain, and why the hand-off to the agent has to test whether the first word resolves as an executable
 ' covers: packages/lib/proveo-seed
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: defs/cursor/entrypoint.sh, defs/opencode/entrypoint.sh,
-'         defs/cecli/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/sbx/kit.go
+' covers: internal/contract/seed_command_shipped_test.go
+' covers: internal/contract/agent_launch_guard_test.go
+' covers: internal/contract/spec_notes_test.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
