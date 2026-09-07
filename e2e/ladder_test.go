@@ -19,6 +19,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"gopkg.in/yaml.v3"
 )
 
 // rung is one step of the ladder: everything the rung below it had, plus exactly
@@ -831,39 +832,39 @@ func TestOnlyTheKitRungNamesOurOwnAgent(t *testing.T) {
 // is real — which is exactly what makes this assertion free to run.
 const dummyAPIKey = "sk-ant-proveo-ladder-dummy-do-not-use"
 
-// probeCredential asks a LIVE sandbox what the agent process actually holds in
-// a credential variable. The sandbox outlives the session, so this runs after
-// the hold, the same way probeLaunch does.
-func probeCredential(t *testing.T, sandbox, envVar string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	c := exec.CommandContext(ctx, "sbx", "exec", sandbox, "--",
-		"sh", "-c", "printf %s \"${"+envVar+"-<unset>}\"")
-	c.WaitDelay = 5 * time.Second
-	out, err := c.CombinedOutput()
-	if len(out) == 0 && err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
+// credOpen/credClose DELIMIT the probed value. Session output reaches the test
+// through plain(), which collapses every run of whitespace — newlines included —
+// into single spaces, so there are no lines left to parse and an unterminated
+// marker would swallow whatever the session printed next. Delimiters also let an
+// EMPTY value be distinguished from a missing one.
+//
+// The test asserts the marker was seen before it looks at any value. The first
+// version of this test read the variable with `sbx exec` AFTER the session had
+// ended, got sbx's "ERROR: no sandbox named …" back as if it were the value, and
+// PASSED — because its switch named three failures and treated everything else
+// as success. A probe that cannot run must fail, never pass.
+const (
+	credOpen  = "PROVEO_CRED_VALUE["
+	credClose = "]"
+)
 
-// TestSandboxKitProxyManagesTheCredential is the assertion the ladder cannot
-// make on its own.
+// TestSandboxKitProxyManagesTheCredential asserts the property E1 would
+// otherwise silently drop.
 //
-// A def that declares its OWN agent must also declare its own credentials, or
-// it loses what every built-in-backed def gets free: sbx sets the variable to a
-// sentinel and injects the real value host-side per request. Without the
-// declaration the real key lands in the agent process — a downgrade hidden
-// inside a launch fix.
+// A def declaring its OWN agent must declare its own credentials, or it loses
+// what every built-in-backed def gets free: sbx sets the variable to a sentinel
+// and injects the real value host-side per request. Without it the real key
+// lands in the agent process — a downgrade hidden inside a launch fix.
 //
-// The ladder cannot catch it. childEnvArgsNoCredential unsets every
+// The ladder cannot catch that. childEnvArgsNoCredential unsets every
 // provider.DetectVars() entry so a climb never spends a key, so nothing is
-// detected, so the Kit renders with zero credentials and every rung passes
-// while proving nothing about them. Measured: `credentials in kit: 0`.
+// detected and the Kit renders with zero credentials: every rung passes while
+// proving nothing. Measured: `credentials in kit: 0`.
 //
-// So this test puts ONE credential back — a dummy — and asserts the property at
-// the only place it is observable: inside the running sandbox.
+// So this puts ONE credential back — a dummy — and reads the variable IN THE
+// AGENT PROCESS, which is the only place it means anything. The Kit under test
+// is the one proveo renders; only the entrypoint is swapped, so the credentials
+// block is the real one rather than a hand-copy that can drift.
 // SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
@@ -882,21 +883,44 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 
 	work := t.TempDir()
 	kitDir := renderPostureKitEnv(t, work, target, []string{"ANTHROPIC_API_KEY=" + dummyAPIKey})
-
-	// The Kit must actually carry the block, or the sandbox below proves nothing.
-	spec, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	raw, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	if err != nil {
 		t.Fatalf("read rendered kit: %v", err)
 	}
-	if !strings.Contains(string(spec), "credentials:") {
+	var kit sbx.Kit
+	if err := yaml.Unmarshal(raw, &kit); err != nil {
+		t.Fatalf("the rendered Kit does not round-trip through sbx.Kit: %v\n%s", err, raw)
+	}
+	if len(kit.Credentials) == 0 {
 		t.Fatalf("rendered Kit declares no credentials even with a key present — the agent "+
-			"would hold the real value:\n%s", spec)
+			"would hold the real value:\n%s", raw)
 	}
-	if !strings.Contains(string(spec), "proxyManaged: true") {
-		t.Fatalf("credentials declared without proxyManaged, which is the entire point:\n%s", spec)
+	var proxied bool
+	for _, c := range kit.Credentials {
+		if c.APIKey != nil && c.APIKey.ProxyManaged {
+			proxied = true
+		}
 	}
-	if strings.Contains(string(spec), dummyAPIKey) {
-		t.Fatalf("the Kit embeds the credential VALUE; it must name the variable only:\n%s", spec)
+	if !proxied {
+		t.Fatalf("credentials declared without proxyManaged, which is the entire point:\n%s", raw)
+	}
+	if strings.Contains(string(raw), dummyAPIKey) {
+		t.Fatalf("the Kit embeds the credential VALUE; it must name the variable only:\n%s", raw)
+	}
+
+	// Swap ONLY the entrypoint, so the value is observable in the agent process.
+	// The seed goes with it: proveo-seed expects the harness, not a bare shell.
+	kit.Sandbox.Entrypoint = []string{"bash", "-lc",
+		`printf '` + credOpen + `%s` + credClose + `\n' "${ANTHROPIC_API_KEY-<unset>}"; sleep 5`}
+	kit.Sandbox.Command = nil
+	kit.Setup = nil
+	probeDir := t.TempDir()
+	out, err := yaml.Marshal(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probeDir, "spec.yaml"), out, 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	img := harnessImage(t, target)
@@ -904,74 +928,74 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 	name := fmt.Sprintf("proveo-credprobe-%s-%d", target, os.Getpid())
 	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
 
-	argv := append([]string{"run", "--name", name, "-t", img, "--kit", kitDir},
+	argv := append([]string{"run", "--name", name, "-t", img, "--kit", probeDir},
 		kitAgentFor(t, target), work)
 	res := holdSbxSession(t, argv,
 		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
-		durationEnv(t, "PROVEO_LADDER_HOLD", 20*time.Second))
-	if res.death != "" {
-		t.Fatalf("the sandbox died with a credentials[] block present (%q) — sbx refused "+
-			"something in it:\n%s", res.death, lastLines(res.out, 25))
-	}
+		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second))
 
-	got := probeCredential(t, name, "ANTHROPIC_API_KEY")
-	switch {
-	case got == "":
-		t.Skip("could not reach the sandbox to read the variable; nothing proved either way")
-	case got == dummyAPIKey:
-		t.Fatalf("the agent holds the REAL credential (%q) — proxyManaged did not take effect, "+
-			"and this def is worse off declaring its own agent than borrowing one", envRedact(got))
-	case got == "<unset>":
-		t.Fatalf("the variable is unset in the agent: the declaration resolved against no " +
-			"stored secret, so the agent cannot authenticate at all")
+	got, seen := credValueFrom(res.out)
+	if !seen {
+		t.Fatalf("the probe never printed %q, so nothing was measured — the sandbox may have "+
+			"refused the credentials block or never started. death=%q\n%s",
+			credOpen, res.death, lastLines(res.out, 30))
 	}
-	t.Logf("✅ credential is proxy-managed: %s holds %q, not the key", "ANTHROPIC_API_KEY", got)
+	switch got {
+	case dummyAPIKey:
+		t.Fatalf("the agent holds the REAL credential — proxyManaged did not take effect, and " +
+			"this def is worse off declaring its own agent than borrowing one")
+	case "<unset>", "":
+		t.Fatalf("the variable is %q in the agent: the declaration resolved against no stored "+
+			"secret, so the agent cannot authenticate at all", got)
+	}
+	t.Logf("✅ credential is proxy-managed: ANTHROPIC_API_KEY holds %q in the agent process, "+
+		"not the key", got)
 }
 
-func envRedact(s string) string {
-	if len(s) <= 8 {
-		return "<redacted>"
+// credValueFrom returns the probed value and whether the marker was seen at all.
+// The bool is the point: absence must fail the test, not fall through it.
+func credValueFrom(out string) (string, bool) {
+	flat := plain(out)
+	i := strings.Index(flat, credOpen)
+	if i < 0 {
+		return "", false
 	}
-	return s[:6] + "…<redacted>"
+	rest := flat[i+len(credOpen):]
+	j := strings.Index(rest, credClose)
+	if j < 0 {
+		return "", false // truncated output: a half-seen marker proves nothing
+	}
+	return strings.TrimSpace(rest[:j]), true
 }
 
-// The credential probe rests on one property of env(1): options are parsed
-// before assignments, so `env -u X X=v` SETS X. Reversed, env treats -u as a
-// filename and fails outright ("env: '-u': No such file or directory"). That is
-// why renderPostureKitEnv appends its extras last rather than prepending them —
-// a detail invisible at the call site and fatal if inverted.
-func TestEnvUnsetThenAssignSetsTheVariable(t *testing.T) {
+// credValueFrom's bool is the whole safety property, so it is pinned here.
+//
+// The first version of the credential test had no such bool: it read the
+// variable with `sbx exec` after the session had ended, sbx answered "ERROR: no
+// sandbox named …", and the switch — which named three failures and treated
+// everything else as success — PASSED on that error text. A probe that cannot
+// run must fail, never pass.
+func TestCredValueFromFailsWhenTheMarkerIsAbsent(t *testing.T) {
 	t.Parallel()
-	out, err := exec.Command("env", "-u", "PROVEO_ENVORDER", "PROVEO_ENVORDER=set",
-		"sh", "-c", "printf %s \"${PROVEO_ENVORDER-<unset>}\"").CombinedOutput()
-	if err != nil {
-		t.Fatalf("env: %v\n%s", err, out)
-	}
-	if got := strings.TrimSpace(string(out)); got != "set" {
-		t.Fatalf("env -u X X=v gave %q, want \"set\" — renderPostureKitEnv cannot put a "+
-			"credential back and the credential test would silently prove nothing", got)
-	}
-}
-
-// The extras must land AFTER the unsets, or env fails on the first option it
-// meets past an assignment.
-func TestRenderKitExtrasComeLast(t *testing.T) {
-	t.Parallel()
-	base := []string{"-u", "ANTHROPIC_API_KEY", "PROVEO_WIZARD=off"}
-	args := append(append([]string{}, base...), "ANTHROPIC_API_KEY=dummy")
-	lastUnset, firstAssign := -1, len(args)
-	for i, a := range args {
-		if a == "-u" {
-			lastUnset = i
-		}
-		if strings.Contains(a, "=") && i < firstAssign {
-			firstAssign = i
-		}
-	}
-	if lastUnset > firstAssign {
-		t.Fatalf("an option follows an assignment in %v — env rejects that", args)
-	}
-	if args[len(args)-1] != "ANTHROPIC_API_KEY=dummy" {
-		t.Fatal("the credential assignment must be last so it wins over the unset")
+	for _, tc := range []struct {
+		name, out, want string
+		wantSeen        bool
+	}{
+		{name: "sentinel", out: "noise\n" + credOpen + "proxy-managed" + credClose + "\nmore", want: "proxy-managed", wantSeen: true},
+		{name: "unset", out: credOpen + "<unset>" + credClose, want: "<unset>", wantSeen: true},
+		{name: "empty value is SEEN and empty, not missing", out: credOpen + credClose, want: "", wantSeen: true},
+		{name: "unterminated marker proves nothing", out: "x " + credOpen + "proxy-managed"},
+		{name: "sbx error text is NOT a value", out: "ERROR: no sandbox named 'x'\n\nTo create one:\n  sbx create AGENT WORKSPACE"},
+		{name: "silence", out: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, seen := credValueFrom(tc.out)
+			if seen != tc.wantSeen {
+				t.Fatalf("seen = %v, want %v — an unseen marker must fail the test, not pass it", seen, tc.wantSeen)
+			}
+			if seen && got != tc.want {
+				t.Errorf("value = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

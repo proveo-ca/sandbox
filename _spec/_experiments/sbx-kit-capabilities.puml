@@ -299,6 +299,36 @@ skinparam noteTextAlignment left
 '     filename and fail. Two unit tests pin that, because it is invisible at the
 '     call site and fatal if inverted.
 '
+'     ── THE FIRST VERSION OF THAT TEST PASSED FALSELY ──────────────────────
+'     Worth keeping, because it is the sixth in this session and the first one
+'     written to PREVENT exactly this class:
+'
+'         ✅ credential is proxy-managed: ANTHROPIC_API_KEY holds
+'         "ERROR: no sandbox named 'proveo-credprobe-cecli-49376' ..."
+'
+'     Two faults compounding. It read the variable with `sbx exec` AFTER the
+'     session ended, by which time sbx had removed the sandbox — so the probe
+'     could not run. And probeCredential returned sbx's ERROR TEXT as if it were
+'     a value, which the switch accepted because it named three failure cases
+'     and treated everything else as success.
+'
+'     The rule that came out of it: A PROBE THAT CANNOT RUN MUST FAIL, NEVER
+'     PASS. An assertion whose default branch is success will eventually be fed
+'     something that is not a measurement, and it will say yes.
+'
+'     Rewritten to read the variable IN THE AGENT PROCESS — the only place it
+'     means anything — by swapping the Kit's entrypoint and reading the session
+'     output. The credentials block under test is still the one proveo renders;
+'     only the entrypoint changes, so it cannot drift from a hand-copy.
+'
+'     Two parsing details the rewrite forced, both now pinned by table tests:
+'       session output reaches the test through plain(), which collapses EVERY
+'         run of whitespace including newlines, so there are no lines to parse —
+'         which is why renderPostureKit splits on spaces
+'       so the value is DELIMITED, PROVEO_CRED_VALUE[...], because an
+'         unterminated marker would swallow whatever printed next and an empty
+'         value would be indistinguishable from a missing one
+'
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
 '     list of apiKey.domains. `sbx secret ls` shows BOTH naming schemes side by
