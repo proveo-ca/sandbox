@@ -294,6 +294,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/host-execution-fallback.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/image-size-reduction.puml",
       "covers": [
         "defs/**/Dockerfile",
@@ -302,6 +307,11 @@
         "internal/contract/dockerfile_correctness_test.go",
         "e2e/sbx_test.go"
       ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/retire-docker-egress.puml",
+      "covers": [],
       "fingerprint": null
     },
     {
