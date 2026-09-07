@@ -63,7 +63,7 @@ func Do(p Params, d Deps) (err error) {
 	}
 	// Registered after the log's own Close, so LIFO runs it first.
 	// SPEC: _spec/internal/runlog/run-transcript.puml
-	defer func() { recordOutcome(err) }()
+	defer func() { recordOutcome(rs.AgentLaunched, err) }()
 
 	rs.Man, err = d.ManifestFor(p.Target)
 	if err != nil {
@@ -743,6 +743,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				}
 			}
 		}
+		rs.AgentLaunched = true
 		return true, sandbox.Run(in)
 	}
 
@@ -751,9 +752,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes. SPEC: _spec/internal/runlog/run-transcript.puml
-func recordOutcome(err error) {
+func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {
+	case err == nil && !launched:
+		ui.Logf("outcome: no agent was launched")
 	case err == nil:
 		ui.Logf("outcome: the agent exited 0")
 	case errors.As(err, &ae):
@@ -833,12 +836,14 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
+			rs.AgentLaunched = true
 			return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
 		}
 		squidProviders := rs.Creds.Detected
 		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Creds.Brokered) == 1 {
 			squidProviders = rs.Creds.Brokered
 		}
+		rs.AgentLaunched = true
 		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, reviewProxy)
 	}()
 	return runErr

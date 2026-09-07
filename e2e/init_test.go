@@ -72,15 +72,56 @@ func TestInitReportsThisHostsPrerequisites(t *testing.T) {
 			t.Errorf("%q failed and names no fix", c.Name)
 		}
 	}
+	// proveo's own checks are install-blockers only. Host readiness — including
+	// virtualisation — is `sbx diagnose`'s, so a check here that blocks the RUN
+	// would be proveo second-guessing sbx again.
+	// SPEC: _spec/internal/sbx/host-readiness.puml
+	for _, c := range checks {
+		if c.Blocks == sbx.BlocksRun {
+			t.Errorf("%q blocks the run; sbx diagnose owns that verdict", c.Name)
+		}
+	}
 	if host.OS == "linux" {
 		var names []string
 		for _, c := range checks {
 			names = append(names, c.Name)
 		}
-		for _, want := range []string{"KVM device", "kvm group", "e2fsprogs"} {
-			if !contains(names, want) {
-				t.Errorf("linux host reported no %q check; got %v", want, names)
-			}
+		if !contains(names, "e2fsprogs") {
+			t.Errorf("linux host reported no %q check; got %v", "e2fsprogs", names)
+		}
+	}
+}
+
+// The delegation, against whatever sbx this host actually has. Skips where sbx
+// is not installed; where it is, proveo must be able to read its verdict.
+//
+//	go test -tags=e2e ./e2e/ -run InitReadsSbxDiagnose -v
+func TestInitReadsSbxDiagnoseOnThisHost(t *testing.T) {
+	bin, err := exec.LookPath(sbx.Binary)
+	if err != nil {
+		if p := os.Getenv("PROVEO_TEST_SBX"); p != "" {
+			bin = p
+		} else {
+			t.Skip("sbx not installed; set PROVEO_TEST_SBX to point at one")
+		}
+	}
+	checks, err := sbx.DiagnoseAt(bin)
+	if err != nil {
+		t.Fatalf("DiagnoseAt(%s) = %v — proveo cannot read this host's readiness", bin, err)
+	}
+	var virt bool
+	for _, c := range checks {
+		t.Logf("%-22s %-5s %s", c.Name, c.Status, c.Detail)
+		if c.Name == "Virtualization" {
+			virt = true
+		}
+	}
+	if !virt {
+		t.Error("sbx diagnose reported no Virtualization check — the one proveo stopped doing itself")
+	}
+	for _, c := range sbx.FailedChecks(checks) {
+		if c.Hint == "" && c.Detail == "" {
+			t.Errorf("failing check %q carries neither detail nor hint", c.Name)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package sbx
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -203,7 +204,12 @@ VERSION_ID="9.4"
 	}
 }
 
-func TestLinuxPrereqsOnAHostThatCannotRunSbx(t *testing.T) {
+// proveo's own prereqs cover ONLY what must hold before sbx exists. Whether the
+// host can run a sandbox — virtualisation, the daemon, storage, permissions —
+// is `sbx diagnose`'s verdict, and duplicating it here produced false failures:
+// a group-membership proxy reports failure for root, for udev ACL grants and
+// for a 0666 /dev/kvm. SPEC: _spec/internal/sbx/host-readiness.puml
+func TestPrereqsCoverInstallBlockersOnly(t *testing.T) {
 	t.Parallel()
 	got := Prereqs(Host{OS: "linux", Arch: "amd64"}, Probe{
 		Exists:   func(string) bool { return false },
@@ -212,53 +218,24 @@ func TestLinuxPrereqsOnAHostThatCannotRunSbx(t *testing.T) {
 		ReadFile: func(string) ([]byte, error) { return nil, errors.New("no selinux") },
 	})
 
-	byName := map[string]Prereq{}
 	for _, c := range got {
-		byName[c.Name] = c
-	}
-	for want, stage := range map[string]Stage{
-		"KVM device": BlocksRun,
-		"kvm group":  BlocksRun,
-		"e2fsprogs":  BlocksInstall,
-	} {
-		c, ok := byName[want]
-		if !ok {
-			t.Fatalf("no %q check; got %+v", want, got)
+		if c.Blocks == BlocksRun {
+			t.Errorf("%q still blocks the run; that verdict belongs to `sbx diagnose`", c.Name)
 		}
-		if c.OK {
-			t.Errorf("%q passed on a host that has none of it", want)
-		}
-		if c.Blocks != stage {
-			t.Errorf("%q blocks %q, want %q", want, c.Blocks, stage)
-		}
-		if strings.TrimSpace(c.Fix) == "" {
-			t.Errorf("%q states no fix, which leaves the operator where they started", want)
+		if c.Name == "KVM device" || c.Name == "kvm group" {
+			t.Errorf("%q is checked here as well as by sbx diagnose", c.Name)
 		}
 	}
-	if _, ok := byName["SELinux"]; ok {
-		t.Errorf("an unreadable /sys/fs/selinux/enforce must not be reported as enforcing")
+	if n := len(Blocking(got, BlocksRun)); n != 0 {
+		t.Errorf("Blocking(run) = %d, want 0 — sbx owns host readiness", n)
 	}
-	if n := len(Blocking(got, BlocksInstall)); n != 1 {
-		t.Fatalf("Blocking(install) = %d, want only e2fsprogs", n)
-	}
-	if n := len(Blocking(got, BlocksRun)); n != 2 {
-		t.Fatalf("Blocking(run) = %d, want KVM and the group", n)
-	}
-}
 
-func TestAHostThatCannotRunYetCanStillBeInstalledOn(t *testing.T) {
-	t.Parallel()
-	got := Prereqs(Host{OS: "linux", Arch: "amd64"}, Probe{
-		Exists:   func(string) bool { return false }, // no /dev/kvm
-		LookPath: func(string) (string, error) { return "/sbin/mkfs.ext4", nil },
-		Groups:   func() ([]string, error) { return []string{"users"}, nil },
-		ReadFile: func(string) ([]byte, error) { return nil, errors.New("no selinux") },
-	})
-	if n := len(Blocking(got, BlocksInstall)); n != 0 {
-		t.Fatalf("install blocked by %v; nothing here stops the install", Names(Blocking(got, BlocksInstall)))
+	e2 := Blocking(got, BlocksInstall)
+	if len(e2) != 1 || e2[0].Name != "e2fsprogs" {
+		t.Fatalf("Blocking(install) = %+v, want only e2fsprogs — install.sh exits 2 without it", e2)
 	}
-	if n := len(Blocking(got, BlocksRun)); n != 2 {
-		t.Fatalf("Blocking(run) = %d, want KVM and the group", n)
+	if strings.TrimSpace(e2[0].Fix) == "" {
+		t.Error("a blocking check that states no fix leaves the operator where they started")
 	}
 }
 
@@ -409,5 +386,73 @@ func TestDigestFromProvenanceMatchesBySubjectName(t *testing.T) {
 	}
 	if _, err := DigestFromProvenance([]byte("not json"), "x"); err == nil {
 		t.Fatal("unparseable provenance must be an error")
+	}
+}
+
+// sbx answers with a row per check and a non-zero exit whenever one fails, so
+// the payload has to be read regardless of the exit status.
+// SPEC: _spec/internal/sbx/host-readiness.puml
+func TestParseDiagnoseReadsSbxsOwnVerdict(t *testing.T) {
+	t.Parallel()
+	const body = `{"checks":[
+		{"name":"CLI binary","status":"pass"},
+		{"name":"Daemon","status":"fail","detail":"not reachable","hint":"Run: sbx daemon start"},
+		{"name":"Daemon diagnostics","status":"skip"},
+		{"name":"Virtualization","status":"fail","detail":"/dev/kvm does not exist","hint":"No hypervisor is available to this machine."}
+	]}`
+	checks, err := ParseDiagnose([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 4 {
+		t.Fatalf("ParseDiagnose returned %d checks, want 4", len(checks))
+	}
+	failed := FailedChecks(checks)
+	if got := CheckNames(failed); len(got) != 2 || got[0] != "Daemon" || got[1] != "Virtualization" {
+		t.Errorf("FailedChecks = %v, want [Daemon Virtualization] — skip is not a failure", got)
+	}
+	// The hint is the whole point of delegating: it is sbx's remediation, not
+	// a paraphrase proveo would have to keep current.
+	for _, c := range failed {
+		if c.Hint == "" {
+			t.Errorf("%q carries no hint, so the operator is told what broke and not what to do", c.Name)
+		}
+	}
+	if _, err := ParseDiagnose([]byte(`{"checks":[]}`)); err == nil {
+		t.Error("an empty checks array must be an error, not a clean bill of health")
+	}
+	if _, err := ParseDiagnose([]byte("not json")); err == nil {
+		t.Error("unparseable output must be an error")
+	}
+}
+
+// The contract that matters is with the real binary, not with a fixture: if sbx
+// renames a field or drops `checks`, proveo silently reports a ready host.
+//
+//	PROVEO_TEST_SBX=/path/to/sbx go test ./internal/sbx/ -run DiagnoseAt
+func TestDiagnoseAtAgainstTheRealBinary(t *testing.T) {
+	bin := os.Getenv("PROVEO_TEST_SBX")
+	if bin == "" {
+		t.Skip("set PROVEO_TEST_SBX to an sbx binary to exercise the real contract")
+	}
+	checks, err := DiagnoseAt(bin)
+	if err != nil {
+		t.Fatalf("DiagnoseAt(%s) = %v", bin, err)
+	}
+	if len(checks) == 0 {
+		t.Fatal("no checks parsed from a real sbx diagnose")
+	}
+	var virt bool
+	for _, c := range checks {
+		t.Logf("%-22s %-5s %s", c.Name, c.Status, c.Detail)
+		if c.Status != "pass" && c.Status != "fail" && c.Status != "skip" {
+			t.Errorf("%q has status %q, which proveo does not understand", c.Name, c.Status)
+		}
+		if c.Name == "Virtualization" {
+			virt = true
+		}
+	}
+	if !virt {
+		t.Error("no Virtualization check — the one proveo stopped doing itself")
 	}
 }

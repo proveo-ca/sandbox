@@ -61,7 +61,12 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		Wizard:   !o.skipSetup,
 		Baseline: "",
 	}
-	if installed != "" && !sbx.Older(installed, sbx.Release) && !o.force {
+	// A one-time install: proveo puts sbx on a host that has none and then
+	// stops. An sbx that is already here is the operator's, whatever its
+	// version — replacing it would be managing their toolchain, so an old one
+	// is reported with instructions instead. `--force` is the explicit ask.
+	// SPEC: _spec/internal/sbx/host-readiness.puml
+	if installed != "" && !o.force {
 		d.Install = installSkip
 	}
 	return d

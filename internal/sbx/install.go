@@ -336,52 +336,27 @@ func Prereqs(h Host, p Probe) []Prereq {
 			Fix:    "there is no Intel build to install",
 		}}
 	case "windows":
-		return []Prereq{{
-			Name:   "Windows Hypervisor Platform",
-			OK:     true, // not probeable without an elevated call; say what to run
-			Blocks: BlocksRun,
-			Detail: "Windows 11 with the hypervisor platform enabled",
-			Fix:    "Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All (elevated)",
-		}}
+		return nil // virtualisation is `sbx diagnose`'s to report
 	}
 	return nil
 }
 
+// linuxPrereqs covers only what must hold BEFORE sbx exists. Everything about
+// whether the host can RUN a sandbox — virtualisation, the daemon, storage,
+// permissions, disk — belongs to `sbx diagnose`, which checks all of it and
+// explains it better; see Diagnose.
+// SPEC: _spec/internal/sbx/host-readiness.puml
 func linuxPrereqs(p Probe) []Prereq {
-	out := []Prereq{{
-		Name:   "KVM device",
-		OK:     p.Exists(kvmDevice),
-		Blocks: BlocksRun,
-		Detail: kvmDevice + " — sbx boots a microVM and cannot start without it",
-		Fix:    "enable hardware virtualisation in firmware; inside a VM or VDI, enable nested virtualisation",
-	}}
-
-	groups, err := p.Groups()
-	inKVM := false
-	for _, g := range groups {
-		if g == "kvm" {
-			inKVM = true
-			break
-		}
-	}
-	out = append(out, Prereq{
-		Name:   "kvm group",
-		OK:     err == nil && inKVM,
-		Blocks: BlocksRun,
-		Detail: "the invoking user must be able to open " + kvmDevice,
-		Fix:    "sudo usermod -aG kvm $USER, then `newgrp kvm` or log out and back in",
-	})
-
-	// This one blocks the INSTALL, not the run: install.sh checks for mkfs.ext4
-	// and exits 2 before it copies a single file.
+	// install.sh checks for mkfs.ext4 and exits 2 before it copies a file, so
+	// this one has to be known before the download.
 	_, mkfsErr := p.LookPath("mkfs.ext4")
-	out = append(out, Prereq{
+	out := []Prereq{{
 		Name:   "e2fsprogs",
 		OK:     mkfsErr == nil,
 		Blocks: BlocksInstall,
 		Detail: "mkfs.ext4 — the release's installer refuses to run without it",
 		Fix:    "sudo dnf install e2fsprogs (or sudo apt install e2fsprogs)",
-	})
+	}}
 
 	if enforcing, known := selinuxEnforcing(p); known && enforcing {
 		out = append(out, Prereq{
@@ -412,6 +387,15 @@ func Blocking(in []Prereq, stage Stage) []Prereq {
 		if !c.OK && c.Blocks == stage {
 			out = append(out, c)
 		}
+	}
+	return out
+}
+
+// CheckNames lists diagnose rows, for an error that has to fit on one line.
+func CheckNames(in []Check) []string {
+	var out []string
+	for _, c := range in {
+		out = append(out, c.Name)
 	}
 	return out
 }
@@ -463,6 +447,67 @@ func VersionJSONArgs() []string { return []string{"version", "--json"} }
 // PolicyInitArgs writes a host-wide network baseline.
 func PolicyInitArgs(baseline string) []string {
 	return []string{"policy", "init", baseline}
+}
+
+// DiagnoseArgs asks sbx to report on the host, machine-readably.
+func DiagnoseArgs() []string { return []string{"diagnose", "--json"} }
+
+// Check is one row of `sbx diagnose`.
+//
+// proveo does not second-guess these. sbx owns the question of whether this
+// host can run a sandbox — it knows about virtualisation, its own daemon, its
+// own storage and its own version skew — and it answers with a remediation
+// proveo would only paraphrase worse.
+// SPEC: _spec/internal/sbx/host-readiness.puml
+type Check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // pass | fail | skip
+	Detail string `json:"detail"`
+	Hint   string `json:"hint"`
+}
+
+func (c Check) Failed() bool { return c.Status == "fail" }
+
+// ParseDiagnose reads a `sbx diagnose --json` payload.
+func ParseDiagnose(b []byte) ([]Check, error) {
+	var out struct {
+		Checks []Check `json:"checks"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("sbx diagnose --json: %w", err)
+	}
+	if len(out.Checks) == 0 {
+		return nil, fmt.Errorf("sbx diagnose --json reported no checks")
+	}
+	return out.Checks, nil
+}
+
+// FailedChecks is the subset the operator has to act on.
+func FailedChecks(in []Check) []Check {
+	var out []Check
+	for _, c := range in {
+		if c.Failed() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// DiagnoseAt runs diagnose against ONE sbx binary, named by path — the prefix
+// is not on PATH yet when init asks.
+//
+// A non-zero exit is expected whenever a check fails, so the output is parsed
+// regardless and the error only matters when there is nothing to parse.
+func DiagnoseAt(bin string) ([]Check, error) {
+	out, err := boundedCombined(bin, DiagnoseArgs()...)
+	checks, perr := ParseDiagnose(out)
+	if perr == nil {
+		return checks, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, perr
 }
 
 // VersionAt reads the version of ONE sbx binary, named by path.

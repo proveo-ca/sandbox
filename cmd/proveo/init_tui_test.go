@@ -41,8 +41,11 @@ func TestDefaultDecisionsKeepACurrentInstall(t *testing.T) {
 	if d := defaultDecisions(plan, sbx.Release, initOptions{}); d.Install != installSkip {
 		t.Errorf("Install = %q with %s already present, want %q", d.Install, sbx.Release, installSkip)
 	}
-	if d := defaultDecisions(plan, "0.39.0", initOptions{}); d.Install != installTarball {
-		t.Errorf("Install = %q with an older sbx present, want an install", d.Install)
+	// proveo installs sbx once and then leaves it alone: an sbx already on the
+	// host is the operator's, whatever its version. Upgrading it unasked would
+	// be managing their toolchain.
+	if d := defaultDecisions(plan, "0.39.0", initOptions{}); d.Install != installSkip {
+		t.Errorf("Install = %q with an older sbx present, want %q — init only fresh-installs", d.Install, installSkip)
 	}
 	if d := defaultDecisions(plan, sbx.Release, initOptions{force: true}); d.Install != installTarball {
 		t.Errorf("--force must reinstall, got %q", d.Install)

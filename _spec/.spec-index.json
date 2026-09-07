@@ -979,6 +979,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/host-readiness.puml",
+      "covers": [
+        "internal/sbx/install.go",
+        "internal/sbx/install_test.go",
+        "cmd/proveo/init.go",
+        "cmd/proveo/init_tui.go",
+        "e2e/init_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/mcp-gateway.puml",
       "covers": [
         "internal/backend/sandbox/sandbox.go",

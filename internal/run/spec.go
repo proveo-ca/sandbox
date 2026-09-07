@@ -36,8 +36,13 @@ type Spec struct {
 	Creds     CredentialSpec
 	Choices   ChoiceSpec
 	Backend   BackendSpec
-	Model     ModelSpec
-	Docker    DockerSpec
+
+	// AgentLaunched separates "the agent ran and exited 0" from "no agent was
+	// ever started" — `--print` and the not-ready paths both return nil.
+	// SPEC: _spec/internal/runlog/run-transcript.puml
+	AgentLaunched bool
+	Model         ModelSpec
+	Docker        DockerSpec
 }
 
 // WorkspaceSpec is WHERE the run happens: the dirs, the repo, and the mount

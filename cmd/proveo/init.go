@@ -113,7 +113,11 @@ func doInit(o initOptions) error {
 	switch d.Install {
 	case installSkip:
 		ui.Section(ui.SectionStarting)
-		ui.Okf("sbx %s stays as it is (`--force` reinstalls)", installed)
+		ui.Okf("sbx %s is already installed — proveo installs it once and leaves it alone", installed)
+		if sbx.Older(installed, sbx.MinVersion) {
+			ui.Warnf("sbx %s is older than the %s proveo can drive; a run will refuse it", installed, sbx.MinVersion)
+			ui.Notef("upgrade it yourself, or let proveo reinstall the pinned %s with `proveo init --force`", sbx.Release)
+		}
 	case installPackaged:
 		if plan.Packaged == nil {
 			return fmt.Errorf("this release ships no distro package for %s", describeHost(host))
@@ -127,7 +131,7 @@ func doInit(o initOptions) error {
 	default:
 		ui.Section(ui.SectionStarting)
 		if installed != "" {
-			ui.Appf("replacing sbx %s with %s", installed, sbx.Release)
+			ui.Appf("reinstalling sbx %s as the pinned %s (--force)", installed, sbx.Release)
 		} else if why != "" {
 			ui.Appf("installing sbx: %s", why)
 		}
@@ -141,14 +145,6 @@ func doInit(o initOptions) error {
 		return err
 	}
 
-	if stop := sbx.Blocking(checks, sbx.BlocksRun); len(stop) > 0 {
-		ui.Section(ui.SectionResults)
-		ui.Warnf("sbx is installed, but this host cannot run a sandbox yet")
-		for _, c := range stop {
-			ui.Notef("%s: %s", c.Name, c.Fix)
-		}
-		return fmt.Errorf("host not ready to run: %s", strings.Join(sbx.Names(stop), ", "))
-	}
 	return nil
 }
 
@@ -483,37 +479,46 @@ func verify(bin string) error {
 		ui.Warnf("installed sbx does not report a version (%v)", err)
 	}
 
-	state, err := serverState(bin)
-	switch {
-	case err != nil:
-		ui.Warnf("could not read the daemon's state (%v) — `%s %s`", err, sbx.Binary,
-			strings.Join(sbx.VersionJSONArgs(), " "))
-	case state == "running":
-		ui.Okf("the sandbox daemon is running — `proveo run <agent>` has a backend")
-	default:
-		ui.Warnf("the sandbox daemon reports %q; a run would create a sandbox that dies with no output", state)
-		ui.Notef("start it by running any sbx command interactively, then re-check with `%s %s`",
-			sbx.Binary, strings.Join(sbx.VersionJSONArgs(), " "))
-	}
+	failed := reportHostReadiness(bin)
 
 	if allowed, known := sbx.NetworkAllowed("proveo-egress-probe.invalid"); known && allowed {
 		ui.Notef("sbx's global network policy currently allows every host, so a run's allowlist adds reach rather than limiting it")
 		ui.Notef("bind it once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
 	}
+	if len(failed) > 0 {
+		return fmt.Errorf("host not ready to run: %s", strings.Join(sbx.CheckNames(failed), ", "))
+	}
 	return nil
 }
 
-// serverState asks the binary this run installed, falling back to the package's
-// PATH-based reader when the two are the same.
-func serverState(bin string) (string, error) {
-	if bin == sbx.Binary {
-		return sbx.ServerState()
-	}
-	out, err := exec.Command(bin, sbx.VersionJSONArgs()...).Output()
+// reportHostReadiness prints sbx's own verdict on this host.
+//
+// proveo asks and renders; it neither checks virtualisation itself nor repairs
+// anything. Each failing row carries sbx's remediation, which is better than
+// the paraphrase proveo used to print.
+// SPEC: _spec/internal/sbx/host-readiness.puml
+func reportHostReadiness(bin string) []sbx.Check {
+	checks, err := sbx.DiagnoseAt(bin)
 	if err != nil {
-		return "", err
+		ui.Warnf("could not ask sbx about this host (`%s %s`): %v", sbx.Binary,
+			strings.Join(sbx.DiagnoseArgs(), " "), err)
+		ui.Notef("if sbx is broken or half-installed, reinstall the pinned %s with `proveo init --force`", sbx.Release)
+		return nil
 	}
-	return sbx.ParseServerState(out)
+	failed := sbx.FailedChecks(checks)
+	if len(failed) == 0 {
+		ui.Okf("sbx reports this host ready — %d checks passed", len(checks))
+		return nil
+	}
+	ui.Warnf("sbx reports %d of %d host checks failing", len(failed), len(checks))
+	for _, c := range failed {
+		ui.Failf("%s — %s", c.Name, c.Detail)
+		if c.Hint != "" {
+			ui.Notef("%s", c.Hint)
+		}
+	}
+	ui.Notef("proveo does not manage the host: fix the above, or reinstall sbx with `proveo init --force`")
+	return failed
 }
 
 func interactive(bin string, args []string) error {

@@ -16,13 +16,18 @@ import (
 // SPEC: _spec/internal/runlog/run-transcript.puml
 func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 	cases := []struct {
-		name string
-		err  error
-		want string
+		name     string
+		launched bool
+		err      error
+		want     string
 	}{
-		{"an agent that exited non-zero", backend.ExitError{Code: 137}, "137"},
-		{"a plain failure", errors.New("cursor has no --local-model path"), "cursor has no --local-model path"},
-		{"success", nil, "exited 0"},
+		{"an agent that exited non-zero", true, backend.ExitError{Code: 137}, "137"},
+		{"a plain failure", true, errors.New("cursor has no --local-model path"), "cursor has no --local-model path"},
+		{"success", true, nil, "exited 0"},
+		// `--print` and the not-ready paths return nil without ever starting an
+		// agent; recording "exited 0" there made the transcript unable to tell
+		// a successful run from one that never launched.
+		{"nothing was launched", false, nil, "no agent was launched"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,7 +44,7 @@ func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 			ui.TeeTo(log.Writer())
 			defer func() { ui.Default = prev }()
 
-			recordOutcome(tc.err)
+			recordOutcome(tc.launched, tc.err)
 			log.Close()
 			b, err := os.ReadFile(log.Path())
 			if err != nil {
@@ -66,12 +71,12 @@ func TestRecordOutcomeDoesNotDoubleReportAPlainError(t *testing.T) {
 	ui.Default = ui.New(&sb)
 	defer func() { ui.Default = prev }()
 
-	recordOutcome(errors.New("boom"))
+	recordOutcome(true, errors.New("boom"))
 	if strings.Contains(sb.String(), "boom") {
 		t.Errorf("a plain error was printed here as well as by main:\n%s", sb.String())
 	}
 
-	recordOutcome(backend.ExitError{Code: 2})
+	recordOutcome(true, backend.ExitError{Code: 2})
 	if !strings.Contains(sb.String(), "2") {
 		t.Errorf("an exit code must reach the operator, not only the log:\n%s", sb.String())
 	}
@@ -80,8 +85,8 @@ func TestRecordOutcomeDoesNotDoubleReportAPlainError(t *testing.T) {
 // A run whose log never opened still has to finish. ui.Logf is a no-op until
 // TeeTo has run, which is exactly the state after runlog.Open failed.
 func TestRecordOutcomeSurvivesAnUnopenedLog(t *testing.T) {
-	recordOutcome(nil)
-	recordOutcome(backend.ExitError{Code: 1})
+	recordOutcome(false, nil)
+	recordOutcome(true, backend.ExitError{Code: 1})
 }
 
 func TestDoRecordsAnEarlyFailureInTheTranscript(t *testing.T) {
