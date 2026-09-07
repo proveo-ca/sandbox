@@ -2,6 +2,7 @@
 package contract_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -253,4 +254,73 @@ echo DONE`
 		t.Fatalf("%s failed: %v\n%s", fn, err, out)
 	}
 	return string(out)
+}
+
+// opencode reads an ABSENT lsp key as disabled — "Omit or set to false to
+// disable, true to enable built-ins" (opencode.ai/config.json). The function
+// used to return early when nothing matched, writing no key at all, which is
+// what printed "LSPs are disabled" on a workspace whose languages proveo could
+// not match. SPEC: _spec/packages/lib/language-server-provisioning.puml
+func TestConfigureOpencodeLspEnablesBuiltinsWhenNothingMatched(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq unavailable")
+	}
+	cases := []struct {
+		name     string
+		existing string   // "" writes no file at all
+		wantLSP  any      // true, false, or a map for the object form
+		keepKeys []string // unrelated config that must survive
+	}{
+		{name: "no config at all", existing: "", wantLSP: true},
+		{name: "config without an lsp key", existing: `{"model":"kept"}`, wantLSP: true, keepKeys: []string{"kept"}},
+		{name: "an operator who turned it off keeps it off", existing: `{"lsp":false}`, wantLSP: false},
+		{name: "an existing object is left alone", existing: `{"lsp":{"gopls":{"command":["gopls"]}}}`, wantLSP: "object"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home, bin, ws := t.TempDir(), t.TempDir(), t.TempDir()
+			// A workspace with no source file matches no installed server.
+			cfgDir := filepath.Join(home, ".config", "opencode")
+			if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cfg := filepath.Join(cfgDir, "opencode.json")
+			if tc.existing != "" {
+				writeFile(t, cfg, tc.existing)
+			}
+
+			out := runLibFn(t, bash, home, bin, ws, "configure_opencode_lsp")
+
+			b, err := os.ReadFile(cfg)
+			if err != nil {
+				t.Fatalf("configure_opencode_lsp wrote no config, so opencode reads LSP as disabled: %v\n%s", err, out)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatalf("opencode.json is not valid JSON: %v\n%s", err, b)
+			}
+			lsp, present := got["lsp"]
+			if !present {
+				t.Fatalf("no lsp key, which opencode reads as disabled:\n%s", b)
+			}
+			switch want := tc.wantLSP.(type) {
+			case bool:
+				if lsp != want {
+					t.Errorf("lsp = %v, want %v\n%s", lsp, want, b)
+				}
+			case string: // "object"
+				if _, ok := lsp.(map[string]any); !ok {
+					t.Errorf("lsp = %v, want the operator's object left intact\n%s", lsp, b)
+				}
+			}
+			for _, k := range tc.keepKeys {
+				if !bytes.Contains(b, []byte(k)) {
+					t.Errorf("unrelated config %q was lost:\n%s", k, b)
+				}
+			}
+		})
+	}
 }

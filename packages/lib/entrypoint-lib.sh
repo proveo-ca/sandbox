@@ -1770,15 +1770,37 @@ configure_opencode_lsp() {
   ')"
   [[ -n "$matched_json" ]] || matched_json="{}"
 
+  mkdir -p "$(dirname "$config_file")"
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+
   echo "── Workspace LSP Match ──────────────────────────────"
-  if [[ "$matched_json" == "{}" ]]; then
-    echo "🔎 No installed LSP matched files under $scan"
+
+  # An operator who set "lsp": false meant it.
+  if [[ "$(printf '%s' "$existing" | jq -r '.lsp')" == "false" ]]; then
+    echo "🔎 LSP left off: $config_file sets \"lsp\": false"
     echo "─────────────────────────────────────────────────────"
     return 0
   fi
 
-  mkdir -p "$(dirname "$config_file")"
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  # No match is not a reason to leave the key ABSENT. opencode reads an absent
+  # lsp as disabled, so writing nothing here is what printed "LSPs are
+  # disabled" on a workspace whose languages proveo could not match; true turns
+  # opencode's own built-ins on.
+  # SPEC: _spec/packages/lib/language-server-provisioning.puml
+  if [[ "$matched_json" == "{}" ]]; then
+    echo "🔎 No installed LSP matched files under $scan"
+    tmp="$(mktemp)"
+    if printf '%s' "$existing" | jq 'if (.lsp | type) == "object" then . else .lsp = true end' > "$tmp"; then
+      mv "$tmp" "$config_file"
+      echo "✅ opencode's built-in LSPs enabled: $config_file"
+    else
+      rm -f "$tmp"
+      echo "⚠️  Could not update $config_file (jq failed)" >&2
+    fi
+    echo "─────────────────────────────────────────────────────"
+    return 0
+  fi
+
   tmp="$(mktemp)"
   if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
        '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
