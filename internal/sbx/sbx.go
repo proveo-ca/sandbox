@@ -41,7 +41,6 @@ const (
 )
 
 const (
-	defaultMemoryShare  = 2
 	cpuBurstDivisor     = 2
 	maxSandboxInstances = 64
 )
