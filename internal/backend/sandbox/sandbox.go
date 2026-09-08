@@ -501,7 +501,11 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	for _, d := range strings.Fields(credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.Man.Capabilities.Hosts)) {
 		addHost(d)
 	}
-	for _, h := range credentials.ReachableHosts(in.Detected) {
+	// Gated here as well as at run.go:433. agentCredentials and the env-var loop
+	// both re-check AllowsProvider; the allowlist used to trust its caller, so a
+	// forbidden provider kept its reach while losing its credential — reach the
+	// harness never needed and proveo never meant to grant.
+	for _, h := range credentials.ReachableHosts(credentials.FilterProviders(in.Detected, in.Man.Capabilities)) {
 		addHost(h)
 	}
 	allow := make([]string, 0, len(hosts))
