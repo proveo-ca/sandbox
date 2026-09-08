@@ -21,3 +21,27 @@ home:
   # which is where the Serena MCP declaration lands.
   files:
     - .cecli.conf.yml
+
+# WHY THIS LIST EXISTS AND HOW TO RE-DERIVE IT.
+# An EMPTY providers list means "allow every provider" (manifest.listAllows), and
+# that is not a statement of capability — it is the absence of one. It handed a
+# cecli run a CURSOR credential, which cecli can never use: Cursor has no
+# bring-your-own-key path at all, so the key was forwarded, sentinelled and
+# declared for a provider that cannot accept it.
+#
+# The set below is proveo's registry (internal/provider/provider.go) intersected
+# with what cecli can actually route to, which is the union of three things:
+#   cecli/resources/providers.json   its OpenAI-compatible gateways (63 slugs)
+#   cecli/helpers/llms/providers/*   its per-provider adapters
+#   litellm's own native providers   everything cecli sends through litellm
+# That intersection is "every provider proveo brokers EXCEPT cursor". The list is
+# written out rather than expressed as an exclusion because the schema has no
+# negative form; internal/contract/cecli_providers_test.go fails when the
+# registry grows and this list does not, so the drift is loud rather than silent.
+# SPEC: _spec/internal/sbx/kit-domain-form.puml
+capabilities:
+  providers: [anthropic, azure, baseten, bedrock, cerebras, cohere, copilot,
+              deepinfra, deepseek, fireworks, gmi, google, groq, huggingface,
+              minimax, mistral, moonshot, nebius, novita, openai, opencode,
+              openrouter, perplexity, sambanova, together, venice, vertex,
+              xai, zai]
