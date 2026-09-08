@@ -10,9 +10,11 @@ description: Reachability, host-resolved environment and the seed step for a pro
 permissions:
     network:
         allow:
-            - .cursor.com
-            - .cursor.sh
+            - '*.cursor.com'
+            - '*.cursor.sh'
             - api2.cursor.sh
+            - cursor.com
+            - cursor.sh
 environment:
     variables:
         GIT_AUTHOR_NAME: Executor

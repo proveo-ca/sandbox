@@ -1107,6 +1107,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/kit-domain-form.puml",
+      "covers": [
+        "internal/sbx/domain.go",
+        "internal/sbx/domain_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/domain_form_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/secretref/secret-references.puml",
       "covers": [
         "internal/secretref/**",

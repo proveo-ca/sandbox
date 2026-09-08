@@ -12,7 +12,8 @@ description: Reachability, host-resolved environment and the seed step for a pro
 permissions:
     network:
         allow:
-            - .anthropic.com
+            - '*.anthropic.com'
+            - anthropic.com
             - api.anthropic.com
             - statsig.anthropic.com
 environment:

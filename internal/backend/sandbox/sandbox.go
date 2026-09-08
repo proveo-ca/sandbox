@@ -488,12 +488,21 @@ func Harness(in Input) string {
 }
 
 func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
+	// The registry speaks Squid's `dstdomain`; the Kit speaks sbx's patterns.
+	// This is the one place the two grammars meet, and it has to happen before
+	// anything is deduplicated — `.x.ai` and `x.ai` are one entry afterwards.
+	// SPEC: _spec/internal/sbx/kit-domain-form.puml
 	hosts := map[string]bool{}
+	addHost := func(h string) {
+		for _, p := range sbx.DomainPatterns(h) {
+			hosts[p] = true
+		}
+	}
 	for _, d := range strings.Fields(credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.Man.Capabilities.Hosts)) {
-		hosts[d] = true
+		addHost(d)
 	}
 	for _, h := range credentials.ReachableHosts(in.Detected) {
-		hosts[h] = true
+		addHost(h)
 	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {
@@ -943,10 +952,16 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		if r.Bearer {
 			format = "Bearer %s"
 		}
-		inject := make([]sbx.KitCredInject, 0, len(r.Hosts))
+		// SPEC-v2 requires every inject domain to also appear in
+		// permissions.network.allow, so it has to be the SAME translated form —
+		// a domain sbx cannot match is a credential sbx cannot attach.
+		// SPEC: _spec/internal/sbx/kit-domain-form.puml
+		inject := make([]sbx.KitCredInject, 0, len(r.Hosts)*2)
 		for _, h := range r.Hosts {
-			inject = append(inject, sbx.KitCredInject{Domain: h, Header: r.Header, Format: format})
-			domains = append(domains, h)
+			for _, d := range sbx.DomainPatterns(h) {
+				inject = append(inject, sbx.KitCredInject{Domain: d, Header: r.Header, Format: format})
+				domains = append(domains, d)
+			}
 		}
 		creds = append(creds, sbx.KitCredential{
 			Service: name,
