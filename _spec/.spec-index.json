@@ -924,6 +924,7 @@
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/ptyproxy_test.go",
+        "internal/ptyproxy/drain_test.go",
         "e2e/review_tier_test.go",
         "cmd/proveo/main.go"
       ],
