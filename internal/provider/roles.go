@@ -8,20 +8,16 @@ import (
 	"strings"
 )
 
-var RoleVars = []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"}
+// RoleNames is the role VOCABULARY, not a set of environment variables.
+// proveo no longer reads a model from the environment — it does not choose an
+// agent's model at all — but these names remain the keys of an assignment a
+// previous session remembered, which is what the credential and billing
+// warnings are still written against.
+// SPEC: _spec/_plans/retire-model-bridging.puml
+var RoleNames = []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"}
 
-// Roles is a session's model assignment, keyed by RoleVars name.
+// Roles is a session's model assignment, keyed by RoleNames name.
 type Roles map[string]string
-
-func RolesFrom(lookup func(string) string) Roles {
-	r := Roles{}
-	for _, v := range RoleVars {
-		if got := strings.TrimSpace(lookup(v)); got != "" {
-			r[v] = got
-		}
-	}
-	return r
-}
 
 func (r Roles) Providers() []string {
 	seen := map[string]bool{}
@@ -45,7 +41,7 @@ func (r Roles) MissingKeys(detected []string) []string {
 		have[d] = true
 	}
 	var out []string
-	for _, role := range RoleVars { // deterministic order
+	for _, role := range RoleNames { // deterministic order
 		model, ok := r[role]
 		if !ok {
 			continue
@@ -73,7 +69,7 @@ func (r Roles) WithheldKeys(withheld []string, answer string) []string {
 		off[w] = true
 	}
 	var out []string
-	for _, role := range RoleVars { // deterministic order
+	for _, role := range RoleNames { // deterministic order
 		model, ok := r[role]
 		if !ok {
 			continue
@@ -98,7 +94,7 @@ func (r Roles) BillingClashes(answer string) []string {
 		return nil
 	}
 	var out []string
-	for _, role := range RoleVars { // deterministic order
+	for _, role := range RoleNames { // deterministic order
 		model, present := r[role]
 		if !present {
 			continue
@@ -132,26 +128,9 @@ func billingWord(b Billing) string {
 	return "per token"
 }
 
-// Canonical is the form the choice cache stores.
-// SPEC: _spec/internal/agentsettings/choice-cache.puml
-func (r Roles) Canonical() map[string]string {
-	out := make(map[string]string, len(r))
-	for role, model := range r {
-		out[roleKey(role)] = canonicalModel(model)
-	}
-	return out
-}
-
-func canonicalModel(model string) string {
-	if trimmed := strings.TrimSpace(model); strings.Contains(trimmed, "/") {
-		return trimmed
-	}
-	return normalizeIntent(model)
-}
-
 func RolesFromCanonical(m map[string]string) Roles {
 	r := Roles{}
-	for _, role := range RoleVars {
+	for _, role := range RoleNames {
 		if v := strings.TrimSpace(m[roleKey(role)]); v != "" {
 			r[role] = v
 		}
@@ -171,10 +150,10 @@ func roleKey(v string) string {
 	return strings.ToLower(strings.TrimSuffix(v, "_MODEL"))
 }
 
-// Sorted returns role/model pairs in RoleVars order, for display.
+// Sorted returns role/model pairs in RoleNames order, for display.
 func (r Roles) Sorted() [][2]string {
 	var out [][2]string
-	for _, role := range RoleVars {
+	for _, role := range RoleNames {
 		if v, ok := r[role]; ok {
 			out = append(out, [2]string{role, v})
 		}
@@ -195,7 +174,7 @@ func (r Roles) Sorted() [][2]string {
 }
 
 func knownRole(v string) bool {
-	for _, r := range RoleVars {
+	for _, r := range RoleNames {
 		if r == v {
 			return true
 		}
@@ -212,100 +191,4 @@ func normalizeIntent(model string) string {
 		s = strings.ReplaceAll(s, "--", "-")
 	}
 	return strings.Trim(s, "-")
-}
-
-// SPEC: _spec/internal/provider/model-catalog.puml
-var planFallback = map[string]map[Billing][]string{
-	"opencode": {
-		BillPlan: {
-			"opencode/muse-spark-1.3-contributor-free", // $0, Zen free tier
-			"opencode/glm-5-free",                      // $0, fallback of the fallback
-		},
-		BillMetered: nil, // Zen is metered like any provider key; nothing to prefer
-	},
-}
-
-// PlanFallback returns the model to use for a harness on a billing side, or
-// "" when there is nothing better to offer than what the operator already
-// has.
-func PlanFallback(harness string, want Billing) string {
-	sides := planFallback[strings.ToLower(strings.TrimSpace(harness))]
-	if want == BillUnknown {
-		for _, s := range []Billing{BillPlan, BillMetered} {
-			if len(sides[s]) > 0 {
-				want = s
-				break
-			}
-		}
-	}
-	for _, model := range sides[want] {
-		if p := ModelProvider(model); p != "" {
-			if _, ok := Lookup(p); ok {
-				return model
-			}
-		}
-	}
-	return ""
-}
-
-// ResolveRoles picks each role's model by precedence, skipping any tier whose
-// model cannot authenticate for this run:
-// SPEC: _spec/internal/credentials/credential-decisions.puml
-func ResolveRoles(remembered, env Roles, harness string, want Billing,
-	withheld []string, usable func(string) bool) (Roles, []string) {
-	off := map[string]bool{}
-	for _, w := range withheld {
-		off[w] = true
-	}
-	// why reports the reason a tier cannot be used, or "" when it can.
-	why := func(model string) string {
-		p := ModelProvider(normalizeIntent(model))
-		switch {
-		case p == "":
-			return "" // a bare or local id we do not judge
-		case off[p]:
-			return p + " is withheld by this run's auth answer"
-		case usable != nil && !usable(p):
-			return "no credential for " + p
-		}
-		return ""
-	}
-
-	fallback := PlanFallback(harness, want)
-	out, notes := Roles{}, []string(nil)
-	for _, role := range RoleVars { // deterministic order
-		var skipped []string
-		picked := ""
-		for _, tier := range []struct{ src, model string }{
-			{"remembered choice", remembered[role]},
-			{".env", env[role]},
-		} {
-			if tier.model == "" {
-				continue
-			}
-			if reason := why(tier.model); reason != "" {
-				skipped = append(skipped, fmt.Sprintf("%s (%s: %s)", tier.model, tier.src, reason))
-				continue
-			}
-			picked = tier.model
-			break
-		}
-		usedFallback := false
-		if picked == "" && len(skipped) > 0 && fallback != "" {
-			picked, usedFallback = fallback, true
-		}
-		if picked == "" {
-			continue // nothing to say; the bridge default applies as before
-		}
-		out[role] = picked
-		if len(skipped) > 0 {
-			note := fmt.Sprintf("%s: using %s", role, picked)
-			if usedFallback {
-				note += " (free tier — proveo cannot verify which plan this key" +
-					" entitles; name an opencode-go/ or opencode/ model to choose)"
-			}
-			notes = append(notes, note+" — skipped "+strings.Join(skipped, ", "))
-		}
-	}
-	return out, notes
 }

@@ -9,10 +9,52 @@ skinparam noteTextAlignment left
 ' would touch: internal/run/{run,spec,params,choices}.go, internal/backend/sandbox/sandbox.go (ResolvedModelEnv)
 ' would touch: cmd/proveo/main.go, cmd/proveo-entrypoint/main.go, embed.go
 ' would touch: _spec/internal/provider/{model-catalog,model-resolution}.puml, _spec/internal/entrypoint/model-alias-bridges.puml
-' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule — nothing here
-' is cited from source because nothing here has landed. The DECISION at the top
-' is the operator's and is not re-argued. Everything below it is either MEASURED
-' or a QUESTION, and the questions are not answered here.
+' APPLIED 2026-09-09, except Q2. The questions below were put to the operator
+' before any deletion; their answers are recorded under each one. The plan is
+' kept in _plans/ rather than moved, because Q2 is still open and this is where
+' the reader looking for it will come.
+'
+' ── WHAT WAS DECIDED, AND WHAT LANDED ──────────────────────────────────────
+'   Q1  ANSWERED: the agent's own default. proveo sets no model env at all.
+'   Q2  DEFERRED: "we will revisit for e2e, full local model support". Nothing
+'       on the PROVEO_LOCAL_MODEL path was touched.
+'   Q3  ANSWERED: Roles survive as the CREDENTIAL vocabulary.
+'   Q4  NOT ASKED, and therefore NOT DONE. The catalog and sync-models are
+'       untouched; with nothing resolving an id they have no reader today.
+'   Q5, Q6  fell out of Q1: there is no first-run announcement, and the
+'       `apply_model_bridges` call sites are removed rather than emptied.
+'
+' WHAT LANDED
+'   deleted  defs/bridges/ (4 tables + README) · internal/provider/slots.go
+'            (BridgeTable, LoadBridges, ResolvedEnv, EffectiveSlots,
+'            RefusedSlots, Refusal, applyTransform) · embed.ModelBridges ·
+'            run.Deps/Spec.ModelBridges · Params.Bridges · sandbox.Input.Bridges
+'            and ResolvedModelEnv · posture.MergeRoles · the four
+'            `COPY defs/bridges/` layers · apply_model_bridges and
+'            _apply_model_bridge and their four call sites
+'   pruned   roles.go lost RolesFrom (the env read), Canonical, canonicalModel,
+'            ResolveRoles, PlanFallback and the planFallback table
+'   renamed  RoleVars -> RoleNames. The three names survive as the KEYS of a
+'            remembered assignment; nothing reads them from the environment,
+'            and a name saying "Vars" would invite exactly that back
+'   rewritten posture.RolesLine renders roles directly — there is no slot table
+'            left to ask which variable a role becomes
+'
+' ── TWO THINGS THE APPLICATION LEARNED, BOTH WORTH KEEPING ─────────────────
+' 1. THE CREDENTIAL BRIDGES ARE A DIFFERENT MECHANISM WITH THE SAME NAME, and
+'    deleting the model half took them with it on the first attempt.
+'    `_apply_env_bridge` / `apply_env_bridges` map GEMINI_API_KEY onto
+'    GOOGLE_GENERATIVE_AI_API_KEY — a CREDENTIAL, not a model — and
+'    `internal/entrypoint`'s Go/bash parity test caught the loss immediately.
+'    `entrypoint.ApplyEnvBridges` likewise stays: it never bridged a model.
+'
+' 2. `localModelArgs` (internal/egress/plan.go:387) STILL WRITES the three role
+'    names on the docker local-model path, and nothing reads them any more. They
+'    are INERT rather than wrong, and they were left alone because Q2 is
+'    deferred — but they are the first thing to look at when it is answered.
+'
+' The DECISION at the top is the operator's and is not re-argued. Everything
+' below it is either MEASURED or a QUESTION.
 '
 '   where a saved config lives .... _spec/_plans/config-seeding-and-persistence.puml
 '   what resolves an id today ..... _spec/internal/provider/model-resolution.puml
@@ -111,7 +153,7 @@ skinparam noteTextAlignment left
 '     called by all four. Does the call site go, or does it become the seam
 '     that reads a saved config? A no-op left in place is how a later reader
 '     concludes the mechanism still exists.
-title PLANNED — retire model bridging: what chooses a model once the environment stops
+title APPLIED (Q2 open) — retire model bridging: what chooses a model once the environment stops
 
 component "**the decision**\nno model choice by environment" as DECISION <<error>>
 

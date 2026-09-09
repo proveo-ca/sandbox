@@ -21,8 +21,6 @@ else
   attach_rtk
 fi
 
-apply_model_bridges cursor
-
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 
 seed_defaults() {

@@ -13,7 +13,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   set_working_directory "/app"
   load_env quiet
   apply_env_bridges
-  apply_model_bridges opencode
 else
   ensure_runtime_user
   set_working_directory "/app"
@@ -22,7 +21,6 @@ else
   report_git_context
   attach_rtk
   apply_env_bridges
-  apply_model_bridges opencode
 fi
 
 write_minimal_opencode_config() {

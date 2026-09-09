@@ -444,7 +444,6 @@ type Input struct {
 	CDPHostPort            int
 	Extra                  []string
 	Roles                  provider.Roles
-	Bridges                provider.BridgeTable
 	Evidence               string // was params.evidenceOrDefault()
 	Forwards               bool   // was params.forwards()
 	Man                    manifest.Manifest
@@ -664,7 +663,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(append(env, ResolvedModelEnv(in)...),
+		Env: DeclineMCPGateway(Home(append(env,
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
@@ -735,15 +734,6 @@ func MCPGatewayAllowed() bool {
 		return true
 	}
 	return false
-}
-
-func ResolvedModelEnv(in Input) []string {
-	var out []string
-	for k, v := range in.Bridges.ResolvedEnv(in.Target, in.Roles) {
-		out = append(out, k+"="+v)
-	}
-	sort.Strings(out) // a Kit is written to disk and diffed; order must not churn
-	return out
 }
 
 func KitEnvVars(env []string) map[string]string {

@@ -26,7 +26,6 @@ type Spec struct {
 
 	Man          manifest.Manifest
 	SquidConfig  fs.FS  // the root package's embedded squid config, passed down rather than imported up
-	ModelBridges fs.FS  // and its model bridge tables — same reason: internal/ never imports the root
 	Start        string // the resolved input dir, before scoping
 	InvocationWD string // where the operator actually stood; the env-file search starts here
 

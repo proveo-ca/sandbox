@@ -42,7 +42,6 @@ type Deps struct {
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(plan egress.Plan, man manifest.Manifest, agentImage string) error
 	SquidConfig      fs.FS // the root package's embedded squid config
-	ModelBridges     fs.FS // and its model bridge tables — same reason: internal/ never imports the root
 }
 
 func Do(p Params, d Deps) (err error) {
@@ -211,15 +210,13 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
 	}
-	if p.Bridges == nil {
-		if tab, err := provider.LoadBridges(d.ModelBridges); err == nil {
-			p.Bridges = tab
-		} else {
-			ui.Warnf("model bridge tables unreadable (%v); the header will list role variables instead of resolved slots", err)
-		}
-	}
+	// Roles are no longer read from the environment: proveo does not choose an
+	// agent's model. What remains is whatever a previous session remembered,
+	// seeded above, and it is kept only as the vocabulary the credential and
+	// billing warnings are written in.
+	// SPEC: _spec/_plans/retire-model-bridging.puml
 	if p.Roles == nil {
-		p.Roles = provider.RolesFrom(rs.Creds.Lookup)
+		p.Roles = provider.Roles{}
 	}
 	if rs.Choices.Promptable {
 		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
@@ -232,7 +229,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
-			Evidence: p.evidenceOrDefault(), Models: p.Roles.Canonical(),
+			Evidence: p.evidenceOrDefault(),
 		})
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -457,27 +454,6 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
 		ui.Warnf("%s", msg)
 	}
-	// SPEC: _spec/internal/credentials/credential-decisions.puml
-	{
-		held := map[string]bool{}
-		for _, name := range usable {
-			held[name] = true
-		}
-		want, _ := provider.AnsweredBilling(p.AuthVar)
-		env := provider.RolesFrom(rs.Creds.Lookup)
-		roles, notes := provider.ResolveRoles(p.RolesRemembered, env,
-			credentials.HarnessFamily(p.Target), want, withheld,
-			func(n string) bool { return held[n] })
-		for _, msg := range notes {
-			ui.Warnf("%s", msg)
-		}
-		for role, model := range roles {
-			p.Roles[role] = model
-		}
-	}
-	for _, r := range p.Bridges.RefusedSlots(p.Target, p.Roles) {
-		ui.Warnf("%s", r.Reason())
-	}
 	return nil
 }
 
@@ -497,7 +473,7 @@ func buildPosture(rs *Spec, p *Params) {
 		Observability:  posture.Observability(p.Mode, p.credentialsOrDefault(), p.willSandbox(rs.Man)),
 		EnforcedBy:     posture.EnforcedBy(p.willSandbox(rs.Man)),
 		Image:          posture.Image(p.Image),
-		ModelRoles:     posture.RolesLine(p.Bridges, p.Target, p.Roles),
+		ModelRoles:     posture.RolesLine(p.Roles),
 		RoleProviders:  strings.Join(p.Roles.Providers(), ","),
 		MCPGateway:     posture.MCPGateway(p.willSandbox(rs.Man), sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
 		Workspace:      posture.Workspace(predictClone(p, p.willSandbox(rs.Man), rs.Workspace.WS)),
@@ -698,7 +674,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
-			Roles: p.Roles, Bridges: p.Bridges,
+			Roles:    p.Roles,
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
 			Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,

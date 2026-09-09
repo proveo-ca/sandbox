@@ -7,7 +7,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
 
@@ -19,7 +18,6 @@ type Params struct {
 	Roles                                                                       provider.Roles
 	// SPEC: _spec/internal/credentials/credential-decisions.puml
 	RolesRemembered  provider.Roles
-	Bridges          provider.BridgeTable
 	AuthVar          string
 	HostEnvFile      string
 	Evidence         string
@@ -87,10 +85,12 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
+	// SPEC: _spec/internal/credentials/credential-decisions.puml,
+	// _spec/_plans/retire-model-bridging.puml
+	// The remembered choice is now the ONLY source: the environment no longer
+	// carries a model, so there is nothing to merge it with.
 	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
-	// SPEC: _spec/internal/credentials/credential-decisions.puml
-	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
-	p.Roles = posture.MergeRoles(provider.RolesFrom(lookup), cached.Models)
+	p.Roles = provider.RolesFromCanonical(cached.Models)
 }
 
 func (p *Params) addonDefaults(opts []string) []bool {

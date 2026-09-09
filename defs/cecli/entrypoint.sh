@@ -45,8 +45,6 @@ if ! command -v proveo-entrypoint >/dev/null 2>&1; then
   report_git_context
 fi
 
-apply_model_bridges cecli
-
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
   export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
   case "$OPENAI_API_BASE" in

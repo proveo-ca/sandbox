@@ -98,7 +98,6 @@ COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
 RUN chown "${USER_NAME}:${USER_NAME}" /app
 

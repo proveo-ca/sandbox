@@ -41,7 +41,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	form := &choiceui.Form{
 		Banner:   choiceui.Banner(),
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
-		Header:   buildHeader(man, lookup, p.Roles, p.Bridges, repoRoot, p.Input, homeRoot),
+		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
@@ -545,14 +545,14 @@ func hasAddon(addons []string, name string) bool {
 	return false
 }
 
-func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, bridges provider.BridgeTable, repoRoot, inputDir, homeRoot string) []string {
+func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {
 	if inputDir == "" {
 		inputDir = repoRoot
 	}
 	h := gitHeader(repoRoot)
 	h = append(h, choiceui.EnvHeader(credentials.LoadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
 	h = append(h, posture.WorkspaceHeader(man, inputDir, repoRoot, homeRoot, posture.GlyphModeFrom(lookup))...)
-	if line := posture.RolesLine(bridges, man.Name, roles); line != "" {
+	if line := posture.RolesLine(roles); line != "" {
 		h = append(h, "llms:     "+line)
 	}
 	return h

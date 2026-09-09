@@ -342,8 +342,6 @@
     {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
-        "defs/bridges/**",
-        "internal/provider/slots.go",
         "internal/provider/roles.go",
         "internal/entrypoint/**",
         "packages/lib/entrypoint-lib.sh"
@@ -705,8 +703,7 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
-        "internal/run/choices.go",
-        "internal/provider/slots.go"
+        "internal/run/choices.go"
       ],
       "fingerprint": null
     },
@@ -812,8 +809,6 @@
     {
       "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
       "covers": [
-        "defs/bridges/**",
-        "internal/provider/slots.go",
         "internal/entrypoint/**",
         "internal/contract/model_slots_test.go",
         "packages/lib/entrypoint-lib.sh"
