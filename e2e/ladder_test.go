@@ -453,9 +453,13 @@ var providerRefusals = []string{
 	"Blocked by local rule for",
 	// The detail line a default-deny block carries.
 	"no matching allow rule",
-	// What raise_for_status renders in any Python agent — and NOT something a
-	// provider says about a credential: api.x.ai answers 401 for missing or bad
-	// credentials and 400 for an incorrect key, never 403.
+	// What raise_for_status renders in any Python agent. It is UNATTRIBUTABLE on
+	// its own, and that is the point of keeping it: measured at api.x.ai, 401
+	// means no or bad credentials and 400 means a wrong key, while 403 is
+	// returned BOTH by the sandbox proxy for a block AND by xAI for an account
+	// out of credits. Only the body separates them, so this marker says "look",
+	// not "blocked" — and the authFailures scan runs first so a dry account
+	// skips rather than blaming the rung.
 	"403 Client Error",
 	// cecli's provider model-list probe, which is the render this rung was
 	// written from.
@@ -599,7 +603,20 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		if res.prompted != "" {
 			out := seen()
 			if len(out) > mark {
-				if f := firstProviderRefusal(plain(out[mark:])); f != "" {
+				since := plain(out[mark:])
+				// AUTH FIRST, AND THE ORDER IS THE POINT. An account with no
+				// credits answers 403, which this rung would otherwise blame on
+				// the Kit — measured doing exactly that for a whole session.
+				// An empty account is nobody's bug and makes every rung above
+				// it untestable, which is a Skip, so it must win the race
+				// against the 403 marker below.
+				// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+				if f := firstAuthFailure(since); f != "" {
+					res.authFailure, res.out = f, out
+					res.aliveFor = time.Since(started)
+					return res
+				}
+				if f := firstProviderRefusal(since); f != "" {
 					res.promptFailure, res.out = f, out
 					res.aliveFor = time.Since(started)
 					return res
@@ -1012,6 +1029,19 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 			why: "the slice's arrangement must not be a hidden priority — reordering it " +
 				"for readability would change what every report blames"},
 
+		{name: "an out-of-credits body is an authFailure, not a rung failure",
+			out: `{"code":"permission-denied","error":"Your team f82f5523 has either used ` +
+				`all available credits or reached its monthly spending limit."}`,
+			why: "an empty account is nobody's bug; the authFailures scan claims it first " +
+				"and the rung must not also claim it"},
+		{name: "cecli's render of that SAME 403 is a rung failure, because requests " +
+			"discards the body", want: "Failed to fetch",
+			out: "Failed to fetch xai model list: 403 Client Error: Forbidden for url: " +
+				"https://api.x.ai/v1/models",
+			why: "raise_for_status keeps only the status, so the credit wording never " +
+				"reaches the screen — which is exactly why this 403 was unattributable, " +
+				"and why the marker has to mean 'look' rather than 'blocked'"},
+
 		{name: "a clean session says nothing",
 			out: "cecli version: 1.4.1 🚀 Launching cecli main model: claude-opus-5",
 			why: "a rung that fires on a healthy render is worse than no rung"},
@@ -1029,6 +1059,30 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 				t.Errorf("firstProviderRefusal = %q, want %q — %s", got, tc.want, tc.why)
 			}
 		})
+	}
+}
+
+// An out-of-credits provider must reach the SKIP path, not the rung-failure
+// path, and it arrives as a 403 that looks like a block. The precedence is
+// asserted here because it is invisible at the call site and was measured
+// getting this exact case wrong.
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
+	t.Parallel()
+	for _, out := range []string{
+		`{"code":"permission-denied","error":"Your team f82f5523 has either used all ` +
+			`available credits or reached its monthly spending limit."}`,
+		"API Error: 400 Credit balance is too low",
+		`{"error":{"code":"insufficient_quota","message":"You exceeded your quota"}}`,
+	} {
+		if firstAuthFailure(plain(out)) == "" {
+			t.Errorf("no authFailure matched %q — it would be read as an egress denial, "+
+				"which is the misreading this whole spec records", out)
+		}
+		if got := firstProviderRefusal(plain(out)); got != "" {
+			t.Errorf("firstProviderRefusal also claimed %q as %q; a dry account is nobody's "+
+				"bug and must not fail a rung", out, got)
+		}
 	}
 }
 
