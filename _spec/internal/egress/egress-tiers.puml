@@ -136,10 +136,11 @@ note as BrokerPin #F4F9FB
   then got the ""proveo-brokered"" sentinel and the provider answered
   401/403, which reads as a bad key rather than a proveo decision.
 
-  A model id names its provider, so ""ARCHITECT/EDITOR/SMALL_MODEL""
-  resolve it (""provider.ModelProvider"", including bare ids like ""gpt-5"",
-  ""grok-4"", ""glm-4.6""). If those models disagree the pin is refused
-  rather than guessed.
+  A model id names its provider, so the REMEMBERED role assignment
+  (""provider.RolesFromCanonical"" over a saved config — not the environment,
+  which proveo stopped reading with the model bridging) resolves it via
+  ""provider.ModelProvider"", bare ids like ""gpt-5"" and ""glm-4.6"" included.
+  If those models disagree the pin is refused rather than guessed.
 
   **The Squid allowlist does NOT collapse onto that pin.** A
   non-vendor-locked harness allowlists every detected provider, because a

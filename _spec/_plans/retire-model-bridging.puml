@@ -14,6 +14,87 @@ skinparam noteTextAlignment left
 ' kept in _plans/ rather than moved, because Q2 is still open and this is where
 ' the reader looking for it will come.
 '
+' ── SECOND PASS, SAME DAY: THE DELETION LANDED, THE LOOP DID NOT CLOSE ─────
+' Asked to assert this plan complete, and it was not. The src half was done and
+' `go test ./...` was green, but the VERIFICATION half — persisted tests, e2e,
+' the docs a contributor reads — still described the mechanism, and two of the
+' plan's own recorded answers were FALSE IN PRACTICE. All of it is closed now,
+' and what follows is what was wrong, because each item is a way for a deletion
+' to look finished while it is not.
+'
+' 1. Q1's ANSWER WAS FALSE FOR OPENCODE. Its seeds wrote
+'    ""model"": ""{env:OPENCODE_MODEL}"" into every slot, and the bridge tables
+'    were what filled that variable. opencode substitutes an UNSET ""{env:...}""
+'    with the EMPTY STRING (opencode.ai/docs/config), so from the deletion
+'    onward the seed pinned the model to nothing — and pinned it in the DURABLE
+'    HOME, where it outlives the run. "The agent's own default applies" was the
+'    recorded answer; what actually applied was "". FIXED: the seeds name no
+'    model at all, and ""plan""/""build"" omit their own so a primary agent
+'    inherits the global (opencode.ai/docs/agents). The file with a real default
+'    baked in, ""defaults/opencode.json"", is NOT the one seeded — see the open
+'    item at the bottom.
+'
+' 2. Q2 WAS NOT ACTUALLY PRESERVED. "Nothing on the PROVEO_LOCAL_MODEL path was
+'    touched" is true of that path's own code and false of its effect, because
+'    opencode is THE ONE HARNESS whose local model was named only by the bridge.
+'    cecli's entrypoint writes CECLI_MODEL from PROVEO_LOCAL_MODEL itself and
+'    claudecode gets ANTHROPIC_MODEL from ""docker -e"" (internal/egress/plan.go);
+'    opencode's ""configure_opencode_local_model"" REGISTERED the ollama provider
+'    and left ""apply_model_bridges"" to select it. So ""--local-model opencode""
+'    wired a provider nothing chose. FIXED: that block now also sets ""model"" and
+'    ""small_model"" and exports the two OPENCODE_* vars the PROVEO_MODELS
+'    preamble reports. e2e/hello_world_test.go's ""assertModels"" would have caught
+'    this — eight minutes into a docker run, on a lane that needs a live Ollama.
+'
+' 3. TWO DEF IMAGE SUITES STILL ASSERTED THE BRIDGE, and this is the structural
+'    lesson: they need a BUILT IMAGE, so they are invisible to ""go test ./...""
+'    and the deletion looked green.
+'      defs/cursor/tests/test_config.sh   3 tests — ARCHITECT_MODEL becomes
+'                                         CURSOR_MODEL, an explicit CURSOR_MODEL
+'                                         outranks it, EDITOR_MODEL fills in
+'      defs/opencode/tests/test_config.sh 2 tests — role names become the three
+'                                         OPENCODE_* vars, and the reverse bridge
+'    All five now assert the RETIREMENT: that a role name reaches the harness as
+'    nothing, and that the harness's OWN var still does. One of them was passing
+'    by accident either way — it grepped ""SMALL_MODEL=xai/grok-4.3"" and
+'    ""OPENCODE_SMALL_MODEL"" matched it as a SUBSTRING.
+'
+' 4. THE DOCS STILL ASKED FOR IT. CODING_HARNESSES.md instructed entrypoints to
+'    bridge the three names and to normalise bare ids — a standing instruction to
+'    re-add exactly what was deleted, in the file a new harness is written from.
+'    .claude/skills/sync-models cited ""PlanFallback"" and
+'    ""TestPlanFallbacksAreRealModels"", both deleted here, so its verification step
+'    named a test that does not exist. Both rewritten; the skill now says outright
+'    that its catalog has no reader pending Q4.
+'
+' 5. _spec/.spec-index.json pointed at internal/contract/model_slots_test.go,
+'    deleted in the same commit that left the pointer.
+'
+' 6. FIVE SPEC FILES still described the mechanism as live — opencode's and
+'    cecli's paradigms, the hello-world e2e's three assertions, egress-tiers'
+'    broker pin (roles resolve it from a REMEMBERED assignment now, not the
+'    environment), and cecli's ""covers: defs/bridges/cecli.tsv"".
+'
+' WHAT NOW GUARDS IT (internal/contract/model_bridging_retired_test.go):
+'   no seed names a model by environment · --local-model still selects one for
+'   opencode · all three harnesses name their local model without a role name ·
+'   the harness doc does not ask for role bridging · the def suites assert the
+'   retirement rather than the bridge.
+'   The three pre-existing shell guards were comment-BLIND and fired on the
+'   prose explaining the deletion. They read code now, because this repo's habit
+'   is to name the deleted machinery exactly where it used to live, and a guard
+'   that forbids the explanation is a guard someone deletes.
+'
+' STILL OPEN, DELIBERATELY: Q2 and Q4 as written below; ""localModelArgs""
+' (internal/egress/plan.go) still writes the three role names on the docker
+' local-model path, inert; and opencode ships TWO default configs that disagree —
+' ""sample_opencode.json"" is what ""seed_opencode_config"" copies and now names no
+' model, while ""defaults/opencode.json"" still hard-codes
+' ""anthropic/claude-sonnet-4-5"" and is read only for AGENTS.md. Whether a seeded
+' id is proveo choosing (forbidden here) or the agent's own saved config (the
+' DECISION's own replacement mechanism) is config-seeding's question, not this
+' one's.
+'
 ' ── WHAT WAS DECIDED, AND WHAT LANDED ──────────────────────────────────────
 '   Q1  ANSWERED: the agent's own default. proveo sets no model env at all.
 '   Q2  DEFERRED: "we will revisit for e2e, full local model support". Nothing
@@ -153,7 +234,7 @@ skinparam noteTextAlignment left
 '     called by all four. Does the call site go, or does it become the seam
 '     that reads a saved config? A no-op left in place is how a later reader
 '     concludes the mechanism still exists.
-title APPLIED (Q2 open) — retire model bridging: what chooses a model once the environment stops
+title APPLIED + VERIFIED (Q2, Q4 open) — retire model bridging: what chooses a model once the environment stops
 
 component "**the decision**\nno model choice by environment" as DECISION <<error>>
 
@@ -259,6 +340,11 @@ legend bottom
   **The two that gate everything else**: Q1 (what a first run gets) and Q2 (whether
   local-model survives). Both decide whether this is a DELETION or a MOVE, and a move
   wearing a deletion's name is the outcome to avoid.
+  --
+  **Both of those answers were wrong in practice on the first pass**, and in the same
+  place: opencode was the one harness whose model — first-run default AND local model —
+  was named ONLY by the bridge. Every other harness names its own. See the second-pass
+  block at the top of this file.
   --
   **The coupling to declare**: config-seeding-and-persistence.puml owns the durable home
   this decision leans on, and its steps 3-5 are not implemented. That plan should

@@ -23,27 +23,30 @@ else
   apply_env_bridges
 fi
 
+# NAMES NO MODEL, DELIBERATELY. This used to write "{env:OPENCODE_MODEL}" into
+# every model slot, filled by the retired bridge tables. opencode substitutes an
+# UNSET {env:...} with the EMPTY STRING, so once the bridging went the seed
+# started pinning the model to "" — and pinning it in the DURABLE HOME, where it
+# outlives the run. A config that names no model is what lets the agent's own
+# default apply, which is the answer this plan recorded for Q1.
+# SPEC: _spec/_plans/retire-model-bridging.puml
 write_minimal_opencode_config() {
   local target="$1"
   cat >"$target" <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {},
-  "model": "{env:OPENCODE_MODEL}",
-  "small_model": "{env:OPENCODE_SMALL_MODEL}",
   "autoupdate": false,
   "agent": {
     "plan": {
       "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
       "mode": "primary",
-      "model": "{env:OPENCODE_MODEL}",
       "temperature": 0.1,
       "permission": { "edit": "deny", "bash": "deny" }
     },
     "build": {
       "description": "Implementer. Edits allowed; bash requires human approval per command.",
       "mode": "primary",
-      "model": "{env:OPENCODE_BUILD_MODEL}",
       "temperature": 0.2,
       "permission": { "edit": "allow", "bash": "ask" }
     }
@@ -105,6 +108,15 @@ configure_opencode_local_model() {
   local existing='{}' tmp
   [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
   tmp="$(mktemp)"
+  # SELECTING the local model is this block's job now, not just registering the
+  # provider. Registering only makes the id available; something still has to
+  # choose it, and until the retirement that something was apply_model_bridges
+  # writing OPENCODE_MODEL from ARCHITECT_MODEL. opencode is the one harness whose
+  # local model was named ONLY by the bridge -- cecli sets CECLI_MODEL itself and
+  # claudecode gets ANTHROPIC_MODEL from `docker -e` -- so deleting the bridge left
+  # --local-model here wiring a provider nothing selected. PROVEO_LOCAL_MODEL is
+  # deliberately in scope (Q2 is deferred); a role name would not be.
+  # SPEC: _spec/_plans/retire-model-bridging.puml
   if printf '%s' "$existing" | jq \
        --arg base "${base%/}/v1" --arg model "$model" '
          .provider.ollama = {
@@ -113,8 +125,16 @@ configure_opencode_local_model() {
            options: { baseURL: $base, apiKey: "ollama" },
            models: { ($model): { name: ($model + " (local)") } }
          }
+         | .model = ("ollama/" + $model)
+         | .small_model = ("ollama/" + $model)
        ' >"$tmp"; then
     mv "$tmp" "$config_file"
+    # The PROVEO_MODELS preamble below is the assertable contract for what the
+    # container will actually run (_spec/cmd/proveo-entrypoint/prep-sequence.puml),
+    # and opencode does not read these itself — the config above is what it reads.
+    # They exist so the preamble reports the truth instead of "unset".
+    export OPENCODE_MODEL="ollama/$model"
+    export OPENCODE_SMALL_MODEL="ollama/$model"
     echo "🧩 Wired Ollama provider (ollama/$model → $base) into $config_file"
   else
     rm -f "$tmp"

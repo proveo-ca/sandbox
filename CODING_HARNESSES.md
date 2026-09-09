@@ -69,7 +69,7 @@ Do not assume a host `$HOME` or host `/opt` is mounted. Runtime discovery happen
 
 Harnesses should source a project `.env` file when present, using `set -a` so loaded values are exported to the child CLI. `.env` files must be runtime-only; never bake secrets into the image.
 
-Entrypoints should bridge common project aliases into tool-specific env vars. Examples:
+Entrypoints should bridge **credentials** and **UI preferences** into tool-specific env vars. Examples:
 
 - Provider keys:
  - `ANTHROPIC_API_KEY`
@@ -80,15 +80,32 @@ Entrypoints should bridge common project aliases into tool-specific env vars. Ex
  - `DEEPSEEK_API_KEY`
  - `GROQ_API_KEY`
  - `MISTRAL_API_KEY`
-- Model aliases:
- - `ARCHITECT_MODEL` — preferred planning/primary model when the harness has only one main model slot.
- - `EDITOR_MODEL` — preferred edit/small/secondary model when the harness exposes such a slot.
- - `SMALL_MODEL` — fallback lightweight model.
- - Tool-specific overrides such as `OPENCODE_MODEL`, `OPENCODE_SMALL_MODEL`, and `CECLI_MODEL` should not be overwritten if already set.
 - UI aliases:
  - `DARK_MODE`, `CODE_THEME`, and harness-specific equivalents.
 
-When a tool requires provider-prefixed model IDs, normalize common bare names where practical, while preserving explicit `provider/model` values.
+### Models are not bridged
+
+**proveo does not choose an agent's model.** An agent's model comes from its own
+saved config, carried between sessions by the durable home, and on a first run from
+the agent's own default. There is no proveo-side role vocabulary an entrypoint
+should read, and normalizing a model id is not an entrypoint's job either — the
+bridge that did it was shaping ids for consumers whose rules it did not model.
+
+A harness's OWN model variables (`OPENCODE_MODEL`, `CECLI_MODEL`, `CURSOR_MODEL`,
+`ANTHROPIC_MODEL`, …) are the operator configuring that harness, and an entrypoint
+must pass them through untouched — never overwrite one that is already set.
+
+Two consequences worth knowing before you write a seed:
+
+- **A seeded config must not name a model it cannot supply.** opencode substitutes
+  an unset `{env:VAR}` with the empty string, so a seed written as
+  `"model": "{env:OPENCODE_MODEL}"` pins the model to nothing — in the durable
+  home, where it outlives the run — rather than falling back to the agent's default.
+  Omit the key instead.
+- **`--local-model` is the one caller that still selects a model**, and it does so
+  per harness from `PROVEO_LOCAL_MODEL`, not from any role name.
+
+See `_spec/_plans/retire-model-bridging.puml`.
 
 ## Config Files to Bridge
 

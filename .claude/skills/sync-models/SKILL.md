@@ -120,9 +120,15 @@ in the data distinguishes production-ready from a preview. The judgement is
 yours; the script only removes the recall.
 
 Keep any id a human deliberately named, even when the ranking puts it lower —
-the list is ordered judgement, and `PlanFallback` walks it until one resolves,
-so a lower entry costs nothing until the ones above it are retired.
+the list is ordered judgement, and a lower entry costs nothing.
 
-After editing, `go test ./internal/provider/` — `TestPlanFallbacksAreRealModels`
-checks every id still resolves through the registry *and* still lands on the
-billing side it is filed under.
+After editing, `go test ./internal/provider/`.
+
+> **This catalog has no reader today.** `PlanFallback` walked the list until an
+> id resolved, and `TestPlanFallbacksAreRealModels` checked every entry against
+> the registry. Both were deleted with the model bridging: proveo no longer
+> resolves a model id, because it no longer chooses an agent's model
+> (`_spec/_plans/retire-model-bridging.puml`). Whether the catalog retires too
+> or survives as VALIDATION — warning that a saved config names a model that no
+> longer exists — is that plan's **Q4**, which was never asked. Until it is, this
+> skill maintains a fact nothing consumes.

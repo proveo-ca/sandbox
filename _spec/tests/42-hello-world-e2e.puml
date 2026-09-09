@@ -33,11 +33,12 @@ note over TEST
     inference loop closed, only that //something// wrote it.
   # //bind mount works// — the file exists on the HOST and
     carries this run's unique marker
-  # //models bridged// — the ""PROVEO_MODELS"" line names the
-    local model in **both** tiers. ""--local-model"" outranks
-    every alias, so a tier still holding a cloud default
-    means the override only half-applied — and that half
-    would quietly bill a provider.
+  # //models selected// — the ""PROVEO_MODELS"" line names the
+    local model in **both** tiers. There are no aliases left
+    to outrank (_spec/_plans/retire-model-bridging.puml); each
+    harness now names its own local model, so a tier holding a
+    cloud default means one harness stopped doing it — and
+    that half would quietly bill a provider.
 
   Per-target paths differ by workspace layout: ""app""
   targets write ""HELLO_WORLD.txt"" at the mount root;
@@ -100,10 +101,10 @@ note over RUN
 
   The workspace ."".env"" is **deleted**, not rewritten. The
   entrypoint sources it //after// docker applies ""-e"", so a
-  project ""ARCHITECT_MODEL"" would outrank the ""ollama/*""
-  alias ""--local-model"" just bridged in and send the main
-  agent to the cloud — the one thing this lane exists to
-  avoid.
+  project ""CECLI_MODEL"" or ""OPENCODE_MODEL"" would outrank
+  what ""--local-model"" wired and send the main agent to the
+  cloud. A project ROLE name is inert now and could stay, but
+  a harness'"'"'s own var still fights this lane.
 
   Whether a REAL credential still reaches a real provider is a
   different question, asked by

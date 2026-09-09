@@ -94,9 +94,17 @@ echo "PASSED_MODEL=${model}"
 EOF
 chmod +x "$FIXTURE_DIR/fake-bin/agent"
 
+# THE RETIREMENT, ASSERTED FROM THE OUTSIDE. cursor's entrypoint launches with
+# `--model "$CURSOR_MODEL"` and nothing else, so the fake `agent` above reports
+# exactly what proveo chose. These three tests used to assert the OPPOSITE — that
+# ARCHITECT_MODEL became CURSOR_MODEL, that an explicit CURSOR_MODEL outranked it,
+# and that EDITOR_MODEL filled in when ARCHITECT_MODEL was unset. All three
+# described the bridge table, which is deleted.
+# SPEC: _spec/_plans/retire-model-bridging.puml
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 ARCHITECT_MODEL=claude-sonnet-4
 EDITOR_MODEL=gpt-4.1
+SMALL_MODEL=gpt-4.1-mini
 EOF
 
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -104,18 +112,22 @@ RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh -p "test"' 2>&1 || true)
-if echo "$RESULT" | grep -q "PASSED_MODEL=claude-sonnet-4"; then
+if echo "$RESULT" | grep -q "PASSED_MODEL=$" \
+   && ! echo "$RESULT" | grep -q "PASSED_MODEL=claude-sonnet-4" \
+   && ! echo "$RESULT" | grep -q "PASSED_MODEL=gpt-4.1"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] entrypoint bridges ARCHITECT_MODEL to CURSOR_MODEL\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] no role name in .env reaches cursor's --model\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("entrypoint bridges ARCHITECT_MODEL to CURSOR_MODEL")
-  printf "${RED}FAIL${NC} [%d] ARCHITECT_MODEL bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+  FAILURES+=("no role name in .env reaches cursor's --model")
+  printf "${RED}FAIL${NC} [%d] model bridging has grown back (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
+# What SURVIVES: the harness's OWN variable. An operator who exports CURSOR_MODEL
+# is configuring cursor, not asking proveo to choose — and the launch flag must
+# still carry it, or the retirement took a working control with it.
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 ARCHITECT_MODEL=claude-sonnet-4
-EDITOR_MODEL=gpt-4.1
 CURSOR_MODEL=explicit-model
 EOF
 
@@ -126,27 +138,9 @@ RESULT=$(run_timeout 30s docker run --rm \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh -p "test"' 2>&1 || true)
 if echo "$RESULT" | grep -q "PASSED_MODEL=explicit-model"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] entrypoint preserves explicit CURSOR_MODEL over ARCHITECT_MODEL\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] cursor's own CURSOR_MODEL still reaches --model\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("entrypoint preserves explicit CURSOR_MODEL over ARCHITECT_MODEL")
-  printf "${RED}FAIL${NC} [%d] CURSOR_MODEL precedence (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
-fi
-
-cat >"$FIXTURE_DIR/.env" <<'EOF'
-EDITOR_MODEL=gpt-4.1
-EOF
-
-TESTS_RUN=$((TESTS_RUN + 1))
-RESULT=$(run_timeout 30s docker run --rm \
-  -v "$FIXTURE_DIR:/app" \
-  --entrypoint bash \
-  "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh -p "test"' 2>&1 || true)
-if echo "$RESULT" | grep -q "PASSED_MODEL=gpt-4.1"; then
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] entrypoint bridges EDITOR_MODEL when ARCHITECT_MODEL is unset\n" "$TESTS_RUN"
-else
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("entrypoint bridges EDITOR_MODEL when ARCHITECT_MODEL is unset")
-  printf "${RED}FAIL${NC} [%d] EDITOR_MODEL fallback (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+  FAILURES+=("cursor's own CURSOR_MODEL still reaches --model")
+  printf "${RED}FAIL${NC} [%d] CURSOR_MODEL lost (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi

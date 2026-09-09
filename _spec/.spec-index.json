@@ -344,7 +344,15 @@
       "covers": [
         "internal/provider/roles.go",
         "internal/entrypoint/**",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/model_bridging_retired_test.go",
+        "defs/opencode/sample_opencode.json",
+        "defs/opencode/defaults/opencode.json",
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/tests/test_config.sh",
+        "defs/opencode/tests/test_defaults.sh",
+        "defs/cursor/tests/test_config.sh",
+        "CODING_HARNESSES.md"
       ],
       "fingerprint": null
     },
@@ -810,7 +818,7 @@
       "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
       "covers": [
         "internal/entrypoint/**",
-        "internal/contract/model_slots_test.go",
+        "internal/contract/model_bridging_retired_test.go",
         "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null

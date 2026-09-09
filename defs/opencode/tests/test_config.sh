@@ -36,44 +36,48 @@ fi
 mkdir -p "$FIXTURE_DIR/fake-bin"
 cat >"$FIXTURE_DIR/fake-bin/opencode" <<'EOF'
 #!/usr/bin/env bash
-printf 'OPENCODE_MODEL=%s\n' "${OPENCODE_MODEL:-}"
-printf 'OPENCODE_SMALL_MODEL=%s\n' "${OPENCODE_SMALL_MODEL:-}"
-printf 'OPENCODE_BUILD_MODEL=%s\n' "${OPENCODE_BUILD_MODEL:-}"
+printf 'SAW OPENCODE_MODEL=[%s]\n' "${OPENCODE_MODEL:-}"
+printf 'SAW OPENCODE_SMALL_MODEL=[%s]\n' "${OPENCODE_SMALL_MODEL:-}"
+printf 'SAW OPENCODE_BUILD_MODEL=[%s]\n' "${OPENCODE_BUILD_MODEL:-}"
+printf 'SAW SMALL_MODEL=[%s]\n' "${SMALL_MODEL:-}"
 if [[ "${1:-}" == "--version" ]]; then
   echo "9.9.9"
 fi
 EOF
 chmod +x "$FIXTURE_DIR/fake-bin/opencode"
+
+# THE RETIREMENT, ASSERTED FROM THE OUTSIDE. proveo no longer chooses an agent's
+# model, so a role name in the project .env must reach opencode as nothing at
+# all. This file used to assert the OPPOSITE — that ARCHITECT_MODEL became
+# OPENCODE_MODEL — and that is the test the deletion had to replace rather than
+# leave failing. SPEC: _spec/_plans/retire-model-bridging.puml
 cat >"$FIXTURE_DIR/.env" <<'EOF'
 ARCHITECT_MODEL=gpt-5.5
 EDITOR_MODEL=xai/grok-4.3
 SMALL_MODEL=xai/grok-small
 EOF
-cat >"$FIXTURE_DIR/.env2" <<'EOF'
-ARCHITECT_MODEL=gpt-5.5
-EDITOR_MODEL=xai/grok-4.3
-OPENCODE_SMALL_MODEL=xai/grok-4.3
-EOF
 
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
-if echo "$RESULT" | grep -q "OPENCODE_MODEL=openai/gpt-5.5" \
-   && echo "$RESULT" | grep -q "OPENCODE_SMALL_MODEL=xai/grok-4.3" \
-   && echo "$RESULT" | grep -q "OPENCODE_BUILD_MODEL=xai/grok-4.3"; then
+if echo "$RESULT" | grep -q "SAW OPENCODE_MODEL=\[\]" \
+   && echo "$RESULT" | grep -q "SAW OPENCODE_SMALL_MODEL=\[\]" \
+   && echo "$RESULT" | grep -q "SAW OPENCODE_BUILD_MODEL=\[\]"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] entrypoint bridges .env model aliases to opencode env vars\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] a role name in .env does NOT become an opencode model var\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("entrypoint bridges .env model aliases to opencode env vars")
-  printf "${RED}FAIL${NC} [%d] opencode model bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+  FAILURES+=("a role name in .env does NOT become an opencode model var")
+  printf "${RED}FAIL${NC} [%d] model bridging has grown back (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
+# The REVERSE bridge is gone too: opencode's own var must not be published back
+# under a role name. Asserted on the exact value, because the old test grepped
+# for "SMALL_MODEL=xai/grok-4.3" and OPENCODE_SMALL_MODEL matched it as a
+# SUBSTRING — it would have passed with the bridge already deleted.
 cat >"$FIXTURE_DIR/.env" <<'EOF'
-ARCHITECT_MODEL=gpt-5.5
-EDITOR_MODEL=xai/grok-4.3
 OPENCODE_SMALL_MODEL=xai/grok-4.3
 EOF
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -81,13 +85,14 @@ RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
-if echo "$RESULT" | grep -q "SMALL_MODEL=xai/grok-4.3"; then
+if echo "$RESULT" | grep -q "SAW OPENCODE_SMALL_MODEL=\[xai/grok-4.3\]" \
+   && echo "$RESULT" | grep -q "SAW SMALL_MODEL=\[\]"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] opencode's own OPENCODE_SMALL_MODEL survives and is not published as SMALL_MODEL\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL")
-  printf "${RED}FAIL${NC} [%d] SMALL_MODEL bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+  FAILURES+=("opencode's own OPENCODE_SMALL_MODEL survives and is not published as SMALL_MODEL")
+  printf "${RED}FAIL${NC} [%d] reverse bridge or own-var loss (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
 TESTS_RUN=$((TESTS_RUN + 1))
