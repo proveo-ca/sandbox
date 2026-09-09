@@ -15,6 +15,7 @@ var specNotesEnforced = []string{
 	"_spec/_experiments/sbx-driving-a-session.puml",
 	"_spec/_experiments/nested-sbx-kvm.puml",
 	"_spec/_experiments/sbx-kit-capabilities.puml",
+	"_spec/_experiments/operator-fingerprint.puml",
 	"_spec/_devops/sandbox-template-rebase.puml",
 	"_spec/internal/sbx/host-readiness.puml",
 	"_spec/internal/sbx/shell-agent-launch.puml",

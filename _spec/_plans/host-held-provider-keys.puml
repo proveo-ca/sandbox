@@ -14,6 +14,7 @@ skinparam noteTextAlignment left
 '   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
 '   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
 '   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
+'   how the open blocker gets answered _spec/_experiments/operator-fingerprint.puml
 '
 ' ── THE PROPOSAL, IN THE OPERATOR'S WORDS ──────────────────────────────────
 ' "sbx sets credentials once on the host. Having keys in the .env file is
@@ -177,6 +178,13 @@ skinparam noteTextAlignment left
 '     how a probe's leftover became a production credential
 ' All three are readable metadata about a value that stays sealed. That is the
 ' distinction the first draft missed.
+'
+' WHO SIGNS THAT METADATA is its own question, and it has its own file now:
+' _spec/_experiments/operator-fingerprint.puml. The short version is that a key
+' per operator does NOT answer it — a software key proves custody, and an agent
+' running as the same user signs identically — so the attestation needs an
+' assertion a headless process cannot produce, and the sandbox boundary is what
+' makes that hold. This blocker is that experiment's first applicable use.
 '
 ' ── DECIDED (was blocker 2): TWO NAMESPACES, MAPPED AND DISCLOSED ─────────
 ' The earlier framing — "the two names do not meet" — treated this as a
