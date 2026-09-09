@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: retire the workspace .env as a credential path in favour of keys the host store holds once — and the four things that block it
+' purpose: retire PLAINTEXT keys from every env surface — and why that is a policy change, not a mechanism one
 ' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 '   where a key rests between runs  _spec/_plans/secret-custody.puml
 '   the file this would replace ..... _spec/_plans/workspace-env-key.puml
@@ -12,6 +12,8 @@ skinparam noteTextAlignment left
 '   the code .... internal/backend/sandbox/sandbox.go (agentCredentials, Spec)
 '   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
 '   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
+'   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
+'   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
 '
 ' ── THE PROPOSAL, IN THE OPERATOR'S WORDS ──────────────────────────────────
 ' "sbx sets credentials once on the host. Having keys in the .env file is
@@ -34,14 +36,71 @@ skinparam noteTextAlignment left
 ' So the mechanism the proposal wants is shipped. The gap is custody, not
 ' capability.
 '
-' ── BLOCKER 1: THE STORE IS WRITE-ONLY, GLOBAL, AND NEVER EXPIRES ──────────
-' This is the one that cost a whole session, so it goes first.
+' ── BROADENED 2026-09-09: "ANY env", NOT JUST THE WORKSPACE FILE ───────────
+' The proposal was then widened: retire API keys openly available in ANY env —
+' the workspace `.env`, the operator's own shell, the container's environment.
+' It changes this plan, and it makes it SMALLER, because the distinction that
+' matters is not the file. It is VARIABLE versus VALUE.
 '
-' `sbx secret ls` prints scope and name and NOT value — there is no `get`. The
-' store is `(global)`: shared by every sandbox on the host, outliving every run,
-' with no expiry and no rotation. credential-path.puml already wrote down the
-' consequence — "a stale entry from an earlier run can therefore authenticate a
-' later one that never chose it" — and then it happened:
+' RETIRING THE VARIABLE BREAKS proveo, structurally:
+'     func Detect(getenv) []string {
+'       if strings.TrimSpace(getenv(v)) != "" { … }   // a non-empty VALUE
+'     }
+' Everything downstream keys on that. No detection means no
+' ReachableHosts, so no allowlist; no `provider.Detect` in agentCredentials, so
+' no credential declared; no `addSecret`, so nothing stored; and
+' `Roles.MissingKeys` warns about providers the operator does hold. An empty
+' environment is not a hardened proveo, it is an inert one.
+'
+' RETIRING THE VALUE COSTS NOTHING, AND IS ALREADY BUILT. `Detect` asks only
+' whether the variable is non-empty — never whether it looks like a key — and
+' `ProviderLookupWith` already parses the raw value as a reference and resolves
+' it HOST-SIDE before returning:
+'     XAI_API_KEY=cmd:op read op://vault/xai/key
+'     XAI_API_KEY=keychain:proveo/xai
+'     XAI_API_KEY=pass:providers/xai
+' Detection sees a non-empty string; the secret exists only inside proveo's own
+' process, for the moment it takes to hand it to `sbx secret set` on stdin. The
+' agent still gets the sentinel.
+'
+' SO THE TARGET POSTURE IS "the env holds a REFERENCE, never a key", and it
+' needs no new mechanism. What is missing is POLICY:
+'   make it the documented default, in the choice UI and not only in a spec
+'   WARN on a bare value that looks like a key (sk-, xai-, AIza…), then refuse
+'     it — a ratchet, because refusing first would lock out every current host
+'   exclude `env:` from counting as retired: it is indirection to another
+'     variable, so it moves plaintext rather than removing it
+'   say which schemes work where: `cmd:` and `pass:` are portable, `keychain:`
+'     answers Unsupported off darwin, and `secret-service:` is deliberately
+'     absent rather than guessed at (secret-references.puml)
+'
+' WHAT IT DOES NOT ACHIEVE, stated plainly. The resolved value still lands in
+' sbx's store, which holds it indefinitely. This posture moves plaintext OUT OF
+' THE ENVIRONMENT — where any sibling process, any `/proc/<pid>/environ`, any
+' shell dump and any `ps -e` can read it — and INTO a store with an
+' access-controlled read. That is a real reduction and not a total one, and
+' where those bytes rest is secret-custody.puml's question, not this plan's.
+'
+' ── BLOCKER 1: THE VALUE IS RIGHTLY SEALED; THE PROVENANCE IS NOT ──────────
+' The first draft of this plan called the store's unreadability the defect. That
+' was wrong, and the operator said so: "sbx secret not being readable seems like
+' a benefit in security tbh. We only need to know the keys to achieve the same
+' the .env variables were doing."
+'
+' Both halves of that hold.
+'   NOT READABLE IS A FEATURE. A store with no `get` cannot be dumped — not by
+'     the agent, not by a compromised dependency, not by `cat`. That is an
+'     exfiltration path `.env` has and the store does not, and asking for
+'     `sbx secret get` would trade the plan's own goal away to make debugging
+'     easier.
+'   NAMES ARE ENOUGH FOR PARITY. `.env` supplied two things: WHICH providers are
+'     configured, and the VALUE at run time. `sbx secret ls` supplies the first,
+'     and the proxy supplies the second without anyone reading it. Nothing the
+'     file did needs a readback.
+'
+' SO THE DEFECT IS NARROWER THAN "OPAQUE", AND IT IS NOT ABOUT THE VALUE. What
+' the session actually could not answer was not "what is the key" but "WHICH key
+' is this" — identity and provenance, not content:
 '
 '   an old credprobe experiment had left a secret under the service name `xai`
 '   proveo pushed the operator's CURRENT key under `XAI_API_KEY`, which nothing
@@ -50,14 +109,23 @@ skinparam noteTextAlignment left
 '   xAI answered 403, the agent rendered "403 Client Error", and the operator
 '     read an egress denial
 '
-' Identifying the loaded key needed a round trip to the PROVIDER:
-' `GET api.x.ai/v1/api-key` echoes name, id, redacted suffix and team. That
-' works because xAI describes its own credential; most vendors do not, so it is
-' a trick and not a mechanism.
+' `ls` printed both names. Both names were correct. Neither said that one entry
+' was months old, set by a probe, and belonged to a different team.
 '
-' CENTRALISING MORE KEYS INTO AN OPAQUE STORE MAKES THIS WORSE, NOT BETTER. The
-' proposal is only safe once an operator can answer "which key authenticates
-' this run" without asking the vendor. That is the first thing to build.
+' Identifying it needed a round trip to the PROVIDER: `GET api.x.ai/v1/api-key`
+' echoes name, id, redacted suffix and team. That works because xAI describes
+' its own credential; most vendors do not, so it is a trick and not a mechanism.
+'
+' WHAT TO BUILD, AND IT KEEPS THE SEAL. Provenance metadata, not readback:
+'   WHEN it was set, and BY WHAT — an operator, or a test fixture
+'   a FINGERPRINT that compares without disclosing. proveo already holds the key
+'     its own env resolves to, so it can fingerprint that and compare against
+'     the store's, then say "the stored `xai` is NOT what your environment
+'     resolves to" — with neither side printing a secret
+'   an EXPIRY or a staleness warning, because "outlives every run" is exactly
+'     how a probe's leftover became a production credential
+' All three are readable metadata about a value that stays sealed. That is the
+' distinction the first draft missed.
 '
 ' ── BLOCKER 2: THE TWO NAMES STILL DO NOT MEET ─────────────────────────────
 '   `sbx secret set xai`         what the proxy resolves (kit reference: the
@@ -87,8 +155,14 @@ skinparam noteTextAlignment left
 '   query parameter   sbx injects into a header and has no query form;
 '                     declaring one would sentinel the variable and attach the
 '                     value nowhere, which is strictly worse than leaving it
-' Those providers still need a real value in the environment. So `.env` SHRINKS
-' rather than disappears, and any plan that says "retired" is overclaiming.
+' A reference removes the HOST plaintext for these too — nothing about
+' `keychain:` or `cmd:` cares whether the provider is injectable. What it cannot
+' fix is the AGENT side: with no injection, the value reaches the agent only
+' under `--credentials forward`, which puts a real key in the agent's
+' environment by design. So "no plaintext in any env" is reachable on the host
+' for every provider, and inside the agent for every provider EXCEPT a forwarded
+' one. That exception is the honest limit, and it is a posture the operator
+' chooses rather than a defect.
 '
 ' ── THE SMALLEST FIRST STEP, AND IT IS NOT A NEW MECHANISM ─────────────────
 ' `load_env` already refuses to source a dotenv when PROVEO_EGRESS_MODE names a
@@ -119,11 +193,12 @@ skinparam noteTextAlignment left
 ' WHETHER `load_env` SHOULD SOURCE DOTENVS AT ALL now that a broker and a host
 ' store both exist. Removing it outright would break the docker firewall tier
 ' and every non-injectable provider from Blocker 4.
-title PLANNED — provider keys held once on the host, and the four things\nbetween that and retiring the workspace .env
+title PLANNED — the env holds a REFERENCE, never a key:\nalready built, not yet policy
 
-component "**""<ws>/.env""**\na key at rest beside the code" as ENVF <<error>>
+component "**a PLAINTEXT key in any env**\n""\.env"" · the shell · the container" as ENVF <<error>>
+component "**a REFERENCE in the env**\n""cmd:"" · ""keychain:"" · ""pass:""\nresolved host-side, never stored" as REF <<app>>
 node "the host" as HOST <<host>> {
-  database "sbx secret store\n""(global)"" · no ""get"" · no expiry" as STORE <<db>>
+  database "sbx secret store\n""(global)"" · sealed by design\nno provenance, no expiry" as STORE <<db>>
   component "proveo\nwrites ""XAI_API_KEY"" — unread here" as PV <<error>>
   component "the operator\nprompted once, per SERVICE" as OP <<app>>
 }
@@ -132,7 +207,9 @@ component "the agent\nsentinels only — measured" as AGENT <<app>>
 component "signed + query providers\nbedrock · azure · vertex" as UNINJ <<error>>
 component "**the stale key**\nauthenticated a run nobody chose" as STALE <<error>>
 
-OP ARROW_MAIN STORE : ""sbx secret set xai""
+OP ARROW_MAIN REF : sets a reference, not a key
+REF ARROW_MAIN STORE : ""ProviderLookupWith"" resolves,\nthen ""sbx secret set"" on stdin
+REF ARROW_QUEUE PV : non-empty, so ""Detect"" still fires
 PV ARROW_ERROR STORE : ""XAI_API_KEY"" — a name\nnothing resolves
 STORE ARROW_QUEUE PROXY : resolved by SERVICE name
 PROXY ARROW_MAIN AGENT : header attached at egress
@@ -141,11 +218,11 @@ ENVF ARROW_ERROR AGENT : the path to close
 UNINJ ARROW_ERROR ENVF : these cannot be injected,\nso the file survives for them
 
 note bottom of STORE
-  **Write-only, global, permanent.** ""ls"" shows
-  names, never values; the scope is the whole
-  host; nothing expires. Centralising keys into
-  it is only safe once an operator can see which
-  one authenticates a run.
+  **Sealed is right; anonymous is not.** No
+  ""get"" is a FEATURE: the agent cannot dump
+  what it cannot read. The gap is provenance —
+  when it was set, by what, and a fingerprint
+  that compares without disclosing.
 end note
 
 note bottom of STALE
@@ -172,33 +249,58 @@ end note
 
 note bottom of UNINJ
   **Signed requests have no header to hold.**
-  SigV4 signs the whole request, and sbx has no
-  query-param form, so these keep needing a real
-  value in the environment. The file shrinks; it
-  does not vanish.
+  A reference still removes the HOST plaintext;
+  what it cannot fix is the agent side, where
+  ""--credentials forward"" is the only route and
+  puts a real key in the environment by design.
+end note
+
+note bottom of REF
+  **Variable versus value.** ""Detect"" asks only
+  whether the variable is NON-EMPTY, and
+  ""ProviderLookupWith"" already resolves a
+  reference host-side. So the key leaves the
+  environment without detection noticing.
+end note
+
+note top of REF
+  **""env:"" is not enough.** It points at another
+  variable, so it relocates plaintext rather
+  than removing it. ""cmd:"" and ""pass:"" are
+  portable; ""keychain:"" answers Unsupported
+  off darwin.
 end note
 
 legend bottom
   **The order to do it in**
   ==
+  **0. Make the env hold a REFERENCE, never a key.** No new mechanism: ""Detect"" needs
+  a non-empty variable, and ""ProviderLookupWith"" already resolves ""cmd:"", ""keychain:""
+  and ""pass:"" host-side. This is documentation and a default, then a warn-and-later-
+  refuse ratchet on a bare value that looks like a key. It comes first because it is
+  the only step that removes plaintext rather than relocating it.
+  --
   **1. Stop the file being sourced on sbx.** ""load_env"" already skips when a flag
   says so; the Kit sets no flag, and it already has an ""environment.variables"" map.
   One entry, purpose-named — not the tier vocabulary, which is inert on that backend.
   --
-  **2. Make the store legible before putting more in it.** An operator must be able
-  to ask "which key authenticates this service" without a round trip to the vendor.
-  A stale entry answering for a run nobody chose is the failure this plan exists for.
+  **2. Add provenance, not readback.** Keep the value sealed — that is a security
+  property, not a gap. Add when it was set and by what, plus a fingerprint proveo can
+  compare against the key its own env resolves to, so "which key is this" is answerable
+  without a round trip to the vendor and without printing a secret.
   ==
   **3. Reconcile the two names.** proveo writes ""<VAR>_API_KEY"", sbx resolves the
   service name, and both sit in one listing. Either stop writing the unread one on
   this path, or show the operator which of the pair is live.
   --
-  **4. Make priming an explicit step.** First injection per service prompts, even for
-  a stored credential, so an unattended host must be primed deliberately rather than
-  by accident — which is how the stale ""xai"" got there in the first place.
+  **4. Make priming an explicit step, and staleness visible.** First injection per
+  service prompts even for a stored credential, so an unattended host must be primed
+  deliberately rather than by accident — which is how the stale ""xai"" got there. An
+  entry that outlives every run needs an age an operator can see.
   ==
   **Not decided here**: where sbx keeps the bytes (Keychain or a daemon file — unmeasured,
   and it changes the threat model); whether a committed "".env"" should refuse a run; whether
-  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4.
+  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4;
+  and what a Linux host uses before ""secret-service:"" exists — today ""cmd:"" and ""pass:"".
 end legend
 @enduml
