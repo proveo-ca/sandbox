@@ -51,6 +51,7 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     python3-pip \
     python3-venv \
     less \
+    fzf \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
