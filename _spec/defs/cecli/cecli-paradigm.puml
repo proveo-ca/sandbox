@@ -4,7 +4,6 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 
 ' covers: defs/cecli/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: defs/bridges/cecli.tsv
 '
 ' ── THE LOCAL MODEL GOES THROUGH OLLAMA'S OPENAI-COMPATIBLE API ────────────
 ' A local model reaches litellm through Ollama's /v1 route, NOT its native one,
@@ -27,9 +26,11 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 ' to the literal "ollama", which is what that endpoint expects.
 '
 ' NOTE: this supersedes the older "the ollama_chat/ prefix matters" reading.
-' The bridge table may still normalise an id to an ollama prefix
-' (_spec/internal/entrypoint/model-alias-bridges.puml); this block overrides
-' the three CECLI_* slots afterwards when PROVEO_LOCAL_MODEL is set.
+' Nothing normalises the id ahead of this block any more — the bridge table that
+' did is retired (_spec/_plans/retire-model-bridging.puml) — so this block is now
+' the ONLY thing that writes the three CECLI_* slots, and it does so from
+' PROVEO_LOCAL_MODEL alone. Without --local-model cecli takes its model from its
+' own .cecli.conf.yml, and proveo names none.
 '
 ' ── THE UI PASSTHROUGHS, AND THE ARGV RULE ─────────────────────────────────
 ' DARK_MODE (true/1/yes, any case) sets both CECLI_DARK_MODE and
@@ -82,7 +83,7 @@ note bottom of EP
   Shared entrypoint contract (see
   _spec/packages/lib/steps.puml and
   _spec/cmd/proveo-entrypoint/prep-process-boundary.puml):
-  non-root any-uid, in-shell ""load_env"" + model bridge,
+  non-root any-uid, in-shell ""load_env"", credential and
   git identity bridge + context report, verification
   command discovery, smoke-test mode.
 

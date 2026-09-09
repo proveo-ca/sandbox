@@ -76,7 +76,6 @@ RUN mkdir -p /app \
 
 COPY defs/cursor/defaults/ /opt/cursor/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/bridges/ /opt/proveo/bridges/
 RUN chmod +x /opt/cursor/defaults/hooks/*.sh
 
 RUN mkdir -p /etc/cursor \

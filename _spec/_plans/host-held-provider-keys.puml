@@ -1,0 +1,404 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: retire PLAINTEXT keys from every env surface — decided 2026-09-09, with one blocker left open
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   where a key rests between runs  _spec/_plans/secret-custody.puml
+'   the file this would replace ..... _spec/_plans/workspace-env-key.puml
+'   who injects on sbx today ....... _spec/internal/sbx/credential-path.puml
+'   what the agent may hold ........ _spec/_paradigms/credential-boundary.puml
+'   the gate that decides a service  _spec/internal/sbx/kit-sandbox-credential-gap.puml
+'   the store's own hazard, realised _spec/internal/sbx/kit-sandbox-credential-gap.puml
+'   the code .... internal/backend/sandbox/sandbox.go (agentCredentials, Spec)
+'   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
+'   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
+'   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
+'   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
+'   how the open blocker gets answered _spec/_experiments/operator-fingerprint.puml
+'
+' ── THE PROPOSAL, IN THE OPERATOR'S WORDS ──────────────────────────────────
+' "sbx sets credentials once on the host. Having keys in the .env file is
+' unsafe, a better bet would be prompting sbx to input keys."
+'
+' It is the right direction and half of it already works. What follows is the
+' half that does not, measured rather than predicted, because every blocker
+' below was hit for real in the session that produced this plan.
+'
+' ── WHAT IS ALREADY TRUE (measured 2026-09-09, live sandbox) ───────────────
+'   the agent holds SENTINELS ONLY. /proc/<pid>/environ of the cecli process
+'     carries XAI_API_KEY=proxy-managed and six more. No real key is in the
+'     agent, which is the whole property credential-boundary.puml asks for.
+'   the proxy REPLACES the header. `Authorization: Bearer xai-junk` sent from
+'     inside the sandbox came back with the stored account's own error, so the
+'     substitution is real and not merely declared.
+'   a stored API-key secret injects a WORKING value. sbx-kit-capabilities.puml
+'     lists that as unproven; for an api-key service it is now proven. An
+'     OAuth-backed service is still untested.
+' So the mechanism the proposal wants is shipped. The gap is custody, not
+' capability.
+'
+' ── BROADENED 2026-09-09: "ANY env", NOT JUST THE WORKSPACE FILE ───────────
+' The proposal was then widened: retire API keys openly available in ANY env —
+' the workspace `.env`, the operator's own shell, the container's environment.
+' It changes this plan, and it makes it SMALLER, because the distinction that
+' matters is not the file. It is VARIABLE versus VALUE.
+'
+' RETIRING THE VARIABLE BREAKS proveo, structurally:
+'     func Detect(getenv) []string {
+'       if strings.TrimSpace(getenv(v)) != "" { … }   // a non-empty VALUE
+'     }
+' Everything downstream keys on that. No detection means no
+' ReachableHosts, so no allowlist; no `provider.Detect` in agentCredentials, so
+' no credential declared; no `addSecret`, so nothing stored; and
+' `Roles.MissingKeys` warns about providers the operator does hold. An empty
+' environment is not a hardened proveo, it is an inert one.
+'
+' RETIRING THE VALUE COSTS NOTHING, AND IS ALREADY BUILT. `Detect` asks only
+' whether the variable is non-empty — never whether it looks like a key — and
+' `ProviderLookupWith` already parses the raw value as a reference and resolves
+' it HOST-SIDE before returning:
+'     XAI_API_KEY=cmd:op read op://vault/xai/key
+'     XAI_API_KEY=keychain:proveo/xai
+'     XAI_API_KEY=pass:providers/xai
+' Detection sees a non-empty string; the secret exists only inside proveo's own
+' process, for the moment it takes to hand it to `sbx secret set` on stdin. The
+' agent still gets the sentinel.
+'
+' SO THE TARGET POSTURE IS "the env holds a REFERENCE, never a key", and it
+' needs no new mechanism. What is missing is POLICY:
+'   make it the documented default, in the choice UI and not only in a spec
+'   WARN on a bare value that looks like a key (sk-, xai-, AIza…), then refuse
+'     it — a ratchet, because refusing first would lock out every current host
+'   exclude `env:` from counting as retired: it is indirection to another
+'     variable, so it moves plaintext rather than removing it
+'   say which schemes work where: `cmd:` and `pass:` are portable, `keychain:`
+'     answers Unsupported off darwin, and `secret-service:` is deliberately
+'     absent rather than guessed at (secret-references.puml)
+'
+' WHAT IT DOES NOT ACHIEVE, stated plainly. The resolved value still lands in
+' sbx's store, which holds it indefinitely. This posture moves plaintext OUT OF
+' THE ENVIRONMENT — where any sibling process, any `/proc/<pid>/environ`, any
+' shell dump and any `ps -e` can read it — and INTO a store with an
+' access-controlled read. That is a real reduction and not a total one, and
+' where those bytes rest is secret-custody.puml's question, not this plan's.
+'
+' ── DECIDED 2026-09-09 ────────────────────────────────────────────────────
+' Four questions were put to the operator; these are the answers, and they
+' change what is a blocker and what is merely work.
+'
+'   B1 provider surface   RECORD ONLY. No manifest change. The selection
+'                         mechanism and the two-key floor go in this file so the
+'                         next reader knows why cecli probes what it probes.
+'   B2 naming             MAP, DON'T RENAME. Env var names stay verbatim and
+'                         service ids stay kebab-case; add a slug map and show
+'                         both names. NO LONGER A BLOCKER — it is a task.
+'   B3 consent            EXPLICIT PRIMING COMMAND. DEMOTED from blocker to
+'                         prerequisite; the operator was right that a one-time
+'                         setup prompt is not an obstacle.
+'   B4 forward            REQUIRE A HOST-RESOLVABLE REFERENCE for providers
+'                         that cannot be injected. A DECIDED CONSTRAINT, not an
+'                         open question.
+'
+' So ONE BLOCKER REMAINS OPEN: provenance, below. Everything else has a chosen
+' direction.
+'
+' ── RECORDED (B1): HOW EACH AGENT SELECTS, AND THE TWO-KEY FLOOR ───────────
+' Selection happens in two layers, and conflating them is what made the cecli
+' probe look mysterious.
+'
+'   proveo decides WHAT TO SUPPLY    provider.KeyVars() intersected with
+'                                    capabilities.providers, plus the def's own
+'                                    `env:` secret
+'   the agent decides WHAT TO USE    by reading its own environment, which is
+'                                    why a non-empty SENTINEL counts as
+'                                    "configured" to an os.environ reader
+'
+'   claudecode  env CLAUDE_CODE_OAUTH_TOKEN · providers [anthropic]
+'               reads ANTHROPIC_API_KEY or the OAuth token
+'   cursor      env CURSOR_API_KEY · providers [cursor]
+'               reads CURSOR_API_KEY only
+'   opencode    env OPENCODE_API_KEY · NO providers list, so all
+'               reads its gateway key, or any provider key it recognises
+'   cecli       NO `env:` secret · providers [29]
+'               reads ANY of the 63 providers.json slugs whose api_key_env is
+'               set — the row this whole thread came from
+'
+' A SINGLE KEY FOR ALL FOUR IS IMPOSSIBLE, and this tree already said why: the
+' cecli manifest records that "Cursor has no bring-your-own-key path at all".
+' `providers: [cursor]` is irreducible, and claudecode is pinned to
+' `[anthropic]`. The intersection of {claudecode, cecli, opencode} is anthropic.
+'
+' So the floor is TWO keys — ANTHROPIC_API_KEY for three defs, CURSOR_API_KEY
+' for the fourth. Narrowing capabilities.providers would ALSO close the cecli
+' probe at its source, because an unpermitted provider never gets a sentinel;
+' that is left unbuilt on purpose, recorded rather than done.
+'
+' ── BLOCKER 1: THE VALUE IS RIGHTLY SEALED; THE PROVENANCE IS NOT ──────────
+' The first draft of this plan called the store's unreadability the defect. That
+' was wrong, and the operator said so: "sbx secret not being readable seems like
+' a benefit in security tbh. We only need to know the keys to achieve the same
+' the .env variables were doing."
+'
+' Both halves of that hold.
+'   NOT READABLE IS A FEATURE. A store with no `get` cannot be dumped — not by
+'     the agent, not by a compromised dependency, not by `cat`. That is an
+'     exfiltration path `.env` has and the store does not, and asking for
+'     `sbx secret get` would trade the plan's own goal away to make debugging
+'     easier.
+'   NAMES ARE ENOUGH FOR PARITY. `.env` supplied two things: WHICH providers are
+'     configured, and the VALUE at run time. `sbx secret ls` supplies the first,
+'     and the proxy supplies the second without anyone reading it. Nothing the
+'     file did needs a readback.
+'
+' SO THE DEFECT IS NARROWER THAN "OPAQUE", AND IT IS NOT ABOUT THE VALUE. What
+' the session actually could not answer was not "what is the key" but "WHICH key
+' is this" — identity and provenance, not content:
+'
+'   an old credprobe experiment had left a secret under the service name `xai`
+'   proveo pushed the operator's CURRENT key under `XAI_API_KEY`, which nothing
+'     reads on the sandbox-kind path
+'   so the proxy injected the EXPERIMENT's key, whose team was out of credits
+'   xAI answered 403, the agent rendered "403 Client Error", and the operator
+'     read an egress denial
+'
+' `ls` printed both names. Both names were correct. Neither said that one entry
+' was months old, set by a probe, and belonged to a different team.
+'
+' Identifying it needed a round trip to the PROVIDER: `GET api.x.ai/v1/api-key`
+' echoes name, id, redacted suffix and team. That works because xAI describes
+' its own credential; most vendors do not, so it is a trick and not a mechanism.
+'
+' WHAT TO BUILD, AND IT KEEPS THE SEAL. Provenance metadata, not readback:
+'   WHEN it was set, and BY WHAT — an operator, or a test fixture
+'   a FINGERPRINT that compares without disclosing. proveo already holds the key
+'     its own env resolves to, so it can fingerprint that and compare against
+'     the store's, then say "the stored `xai` is NOT what your environment
+'     resolves to" — with neither side printing a secret
+'   an EXPIRY or a staleness warning, because "outlives every run" is exactly
+'     how a probe's leftover became a production credential
+' All three are readable metadata about a value that stays sealed. That is the
+' distinction the first draft missed.
+'
+' WHO SIGNS THAT METADATA is its own question, and it has its own file now:
+' _spec/_experiments/operator-fingerprint.puml. The short version is that a key
+' per operator does NOT answer it — a software key proves custody, and an agent
+' running as the same user signs identically — so the attestation needs an
+' assertion a headless process cannot produce, and the sandbox boundary is what
+' makes that hold. This blocker is that experiment's first applicable use.
+'
+' ── DECIDED (was blocker 2): TWO NAMESPACES, MAPPED AND DISCLOSED ─────────
+' The earlier framing — "the two names do not meet" — treated this as a
+' duplication to collapse. It is not. Both conventions are standard, and Docker
+' itself uses both, for different things:
+'
+'   secret / variable names   ALL_CAPS_UNDERSCORE. Docker Agent's own docs use
+'                             OPENAI_API_KEY, ANTHROPIC_API_KEY throughout.
+'   service identifiers       lowercase kebab-case. The sbx kit reference says
+'                             so outright, and models.dev's 213 providers agree:
+'                             amazon-bedrock, google-vertex, github-copilot,
+'                             fireworks-ai, azure-cognitive-services.
+'
+' So proveo keeps writing the env-var-named secret AND keeps the kebab service
+' id. What was missing was never unification; it was a MAP and DISCLOSURE.
+'
+' MEASURED DRIFT: 20 of proveo's 30 provider names already match models.dev
+' verbatim. Ten do not, and eight have an unambiguous target:
+'     bedrock   -> amazon-bedrock      novita    -> novita-ai
+'     vertex    -> google-vertex       together  -> togetherai
+'     copilot   -> github-copilot      moonshot  -> moonshotai
+'     fireworks -> fireworks-ai        gmi       -> gmicloud
+'     cursor, sambanova                no models.dev entry at all
+' `cursor` having none is consistent with it having no bring-your-own-key path.
+' The `sync-providers` skill already exists for this reconciliation.
+'
+' AND ONE ADJACENT GAIN. Docker Agent resolves `op://` references natively —
+' "if the value starts with op://, Docker Agent resolves it by invoking the
+' 1Password CLI (op read <reference>)". proveo's secretref.Parse accepts
+' keychain:, cmd:, env: and pass: and NOT op://, so an operator whose team
+' already uses 1Password gets nothing from the reference posture that the
+' sibling tool gives them for free. One scheme, and it aligns the two tools.
+'
+' ── PREREQUISITE (was blocker 3): PRIMING IS AN EXPLICIT STEP ─────────────
+' sbx asks for consent the first time a service is injected, records it in
+' ~/.config/sbx/credentials.yaml, and asks even for a credential it already
+' holds — the screen reads "(stored)" and still prompts.
+'
+' THAT IS NOT A BLOCKER, and calling it one was wrong. A one-time prompt on a
+' host being set up is a setup step. It BLOCKS exactly one case: a first
+' UNATTENDED run on an unprimed host — CI, or a fresh machine — where nobody is
+' present to answer.
+'
+' DECIDED: an explicit priming command. One invocation that stores the service
+' secrets and walks the consent prompt once per host, so an unattended run never
+' meets it. It is also the natural place to answer "which services are primed",
+' which is what would have exposed the stale `xai` entry before it authenticated
+' anything — so this prerequisite and the open blocker below want the same
+' surface.
+'
+' ── DECIDED CONSTRAINT (was blocker 4): THE STORE CANNOT SERVE forward ────
+' `agentCredentials` skips a provider when there is nothing to attach:
+'   signed requests   bedrock, azure, vertex — SigV4 signs the whole request,
+'                     so no header carries the secret
+'   query parameter   sbx injects into a header and has no query form
+' For those, `--credentials forward` is the ONLY route to the agent.
+'
+' AND forward CANNOT BE SERVED BY THE STORE. Read in the tree:
+'     func (c *ChildEnv) Add(name string, lookup func(string) string) {
+'       v = strings.TrimSpace(lookup(name))   // host env / env file, refs
+'     }                                       // resolved — never sbx's store
+' The store has no `get`, so nothing can read a value back out of it to forward.
+' The sealed store and `--credentials forward` are MUTUALLY EXCLUSIVE by
+' construction — which is a consequence of Blocker 1's security property, not a
+' bug in either.
+'
+' DECIDED: non-injectable providers must keep a HOST-RESOLVABLE REFERENCE —
+' cmd:, keychain:, pass:, op:// — so forward can resolve one at launch. They
+' keep working, and no plaintext rests in the environment. The exposure that
+' remains is deliberate and narrow: a forwarded provider's real key does enter
+' the agent's environment, because that is what forward means.
+'
+' The alternative was refusing them on sbx outright. Rejected: it would drop
+' bedrock, azure and vertex from the backend proveo is standardising on, to
+' close an exposure the operator can already choose not to take.
+'
+' ── THE SMALLEST FIRST STEP, AND IT IS NOT A NEW MECHANISM ─────────────────
+' `load_env` already refuses to source a dotenv when PROVEO_EGRESS_MODE names a
+' canonical tier — it prints "🔒 Skipping .env load … secrets stay on host /
+' broker". The sbx Kit sets no such variable, so the branch never fires. The
+' Kit already carries an `environment.variables` map (MCP_GATEWAY_URL lives
+' there), so this is one entry.
+'
+' It is worth doing even though clone mode already keeps a gitignored `.env` out
+' of the sandbox, because clone mode is a DEFAULT and not a guarantee:
+' `--clone=false`, a sub-scope, a non-repo, a linked worktree and a COMMITTED
+' `.env` all fall back to the mounted tree.
+'
+' Spell the flag honestly. The tier vocabulary is deliberately inert on sbx
+' (policy-baseline.puml), so `PROVEO_EGRESS_MODE=allowlist` there would smuggle
+' a meaningless value; a purpose-named flag belongs in
+' internal/contract/egress_vocabulary_test.go alongside the tiers.
+'
+' ── WHAT THIS PLAN DELIBERATELY DOES NOT DECIDE ────────────────────────────
+' WHERE THE BYTES REST. Whether sbx keeps secret values in the macOS Keychain
+' or in a sandboxd-owned file is unmeasured — the `sbx secret` docs page
+' rendered empty — and it changes the threat model completely. secret-custody
+' .puml owns that question; this plan owns the custody WORKFLOW.
+'
+' WHETHER A COMMITTED .env SHOULD REFUSE A RUN. Named in workspace-env-key.puml
+' and still open there.
+'
+' WHETHER `load_env` SHOULD SOURCE DOTENVS AT ALL now that a broker and a host
+' store both exist. Removing it outright would break the docker firewall tier
+' and every non-injectable provider from Blocker 4.
+title PLANNED — the env holds a REFERENCE, never a key:\nthree decided, one blocker open
+
+component "**a PLAINTEXT key in any env**\n""\.env"" · the shell · the container" as ENVF <<error>>
+component "**a REFERENCE in the env**\n""cmd:"" · ""keychain:"" · ""pass:""\nresolved host-side, never stored" as REF <<app>>
+node "the host" as HOST <<host>> {
+  database "sbx secret store\n""(global)"" · sealed by design\nno provenance, no expiry" as STORE <<db>>
+  component "proveo\nwrites ""XAI_API_KEY"" — unread here" as PV <<error>>
+  component "the operator\nprompted once, per SERVICE" as OP <<app>>
+}
+cloud "sbx proxy\nreplaces the header" as PROXY <<cloud>>
+component "the agent\nsentinels only — measured" as AGENT <<app>>
+component "signed + query providers\nbedrock · azure · vertex" as UNINJ <<error>>
+component "**the stale key**\nauthenticated a run nobody chose" as STALE <<error>>
+
+OP ARROW_MAIN REF : sets a reference, not a key
+REF ARROW_MAIN STORE : ""ProviderLookupWith"" resolves,\nthen ""sbx secret set"" on stdin
+REF ARROW_QUEUE PV : non-empty, so ""Detect"" still fires
+PV ARROW_ERROR STORE : ""XAI_API_KEY"" — a name\nnothing resolves
+STORE ARROW_QUEUE PROXY : resolved by SERVICE name
+PROXY ARROW_MAIN AGENT : header attached at egress
+STORE ARROW_ERROR STALE : an entry outlives every run
+ENVF ARROW_ERROR AGENT : the path to close
+UNINJ ARROW_ERROR ENVF : these cannot be injected,\nso the file survives for them
+
+note bottom of STORE
+  **Sealed is right; anonymous is not.** No
+  ""get"" is a FEATURE: the agent cannot dump
+  what it cannot read. The gap is provenance —
+  when it was set, by what, and a fingerprint
+  that compares without disclosing.
+end note
+
+note bottom of STALE
+  **It already happened.** An old credprobe left
+  ""xai"" behind; the proxy injected it; its team
+  was out of credits; the agent printed a 403 and
+  it read as an egress block.
+end note
+
+note bottom of PV
+  **proveo writes the wrong name, on purpose.**
+  The service name is refused because it was
+  measured clobbering an OAuth login — so
+  ""prompt once"" means prompting for services,
+  and the env-var entries become noise.
+end note
+
+note right of AGENT
+  **This half is done.** ""/proc/<pid>/environ""
+  shows sentinels only, and a junk bearer sent
+  from inside still reached the stored account.
+  The gap is custody, not capability.
+end note
+
+note bottom of UNINJ
+  **Decided: these keep a reference.** forward is
+  their only route, and ""ChildEnv.Add"" reads
+  ""lookup"" — never the sealed store — so the
+  store can never serve them. A resolvable
+  reference can, and keeps the env plaintext-free.
+end note
+
+note bottom of REF
+  **Variable versus value.** ""Detect"" asks only
+  whether the variable is NON-EMPTY, and
+  ""ProviderLookupWith"" already resolves a
+  reference host-side. So the key leaves the
+  environment without detection noticing.
+end note
+
+note top of REF
+  **""env:"" is not enough.** It points at another
+  variable, so it relocates plaintext rather
+  than removing it. ""cmd:"" and ""pass:"" are
+  portable; ""keychain:"" answers Unsupported
+  off darwin.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **0. Make the env hold a REFERENCE, never a key.** No new mechanism: ""Detect"" needs
+  a non-empty variable, and ""ProviderLookupWith"" already resolves ""cmd:"", ""keychain:""
+  and ""pass:"" host-side. This is documentation and a default, then a warn-and-later-
+  refuse ratchet on a bare value that looks like a key. It comes first because it is
+  the only step that removes plaintext rather than relocating it.
+  --
+  **1. Stop the file being sourced on sbx.** ""load_env"" already skips when a flag
+  says so; the Kit sets no flag, and it already has an ""environment.variables"" map.
+  One entry, purpose-named — not the tier vocabulary, which is inert on that backend.
+  --
+  **2. Add provenance, not readback — THE ONE BLOCKER STILL OPEN.** Keep the value
+  sealed; that is a security property, not a gap. Add when it was set and by what, plus
+  a fingerprint proveo can compare against the key its own env resolves to, so "which
+  key is this" is answerable without asking the vendor and without printing a secret.
+  ==
+  **3. Prime explicitly.** One command that stores the service secrets and walks the
+  consent prompt once per host, so an unattended run never meets it — and that answers
+  "which services are primed", which is the same surface step 2 needs.
+  --
+  **4. Map the two namespaces, do not merge them.** ALL_CAPS for variables and kebab
+  for service ids are both standard; add the slug map for the ten that diverge, show
+  both names in the posture, and teach ""secretref"" the ""op://"" scheme Docker already
+  resolves. **B1 is recorded, not built**: the two-key floor and the per-def selection
+  table live here, and no manifest is narrowed.
+  ==
+  **Not decided here**: where sbx keeps the bytes (Keychain or a daemon file — unmeasured,
+  and it changes the threat model); whether a committed "".env"" should refuse a run; whether
+  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4;
+  and what a Linux host uses before ""secret-service:"" exists — today ""cmd:"" and ""pass:"".
+end legend
+@enduml

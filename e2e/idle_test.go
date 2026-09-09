@@ -22,6 +22,14 @@ var runIDPattern = regexp.MustCompile(`proveo-\d+-\d+`)
 var authFailures = []string{
 	"Failed to authenticate",
 	"Credit balance is too low",
+	// The same state in other vendors' words. It arrives as a 403, which reads
+	// as an egress denial and was misread as one for a whole session before
+	// anyone opened the response body — so the wording, not the status, is what
+	// gets recognised here.
+	// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+	"used all available credits",
+	"reached its monthly spending limit",
+	"insufficient_quota",
 	"needs a subscription login",
 	"Please run /login",
 	"Not logged in",

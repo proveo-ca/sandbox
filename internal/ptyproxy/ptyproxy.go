@@ -88,12 +88,68 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	}()
 	_ = pty.InheritSize(p.In, m)
 
+	// THE OUT PUMP IS WAITED ON; THE IN PUMP CANNOT BE.
+	//
+	// `pty.Start` returns with the child ALREADY RUNNING, so a child that writes
+	// one line and exits can be gone before this goroutine is first scheduled.
+	// The deferred `m.Close()` above then tore down the master with the child's
+	// last output still sitting in it — measured at a few percent of runs, and it
+	// is the run where the agent died on its last line that most needs a record.
+	// So Run does not return until the pump has drained the master.
+	//
+	// The master is passed EXPLICITLY rather than read back through p.master: the
+	// field is nil'd by that same defer, and a pump scheduled late used to fetch
+	// the nil and return having copied nothing.
+	//
+	// pumpIn gets no such treatment because it cannot: it blocks reading the
+	// operator's stdin, which never reaches EOF. It is left to discover the closed
+	// master on the next keystroke.
+	var drained sync.WaitGroup
+	drained.Add(1)
+	go func() {
+		defer drained.Done()
+		p.pumpOutFrom(m)
+	}()
 	go p.pumpIn()
-	go p.pumpOut()
 
 	err = cmd.Wait()
+	// Drain BEFORE restoring: these are the child's own bytes, painted for the
+	// mode the child was running in. Restoring first puts the terminal back in
+	// cooked mode, where ONLCR rewrites the line endings on the way out.
+	waitDrained(&drained, drainGrace)
 	p.Restore()
 	return err
+}
+
+// drainGrace caps how long Run waits for the child's last output to reach the
+// operator once the child itself has exited.
+//
+// It is NOT a delay on the normal path. When the child held the last PTY slave,
+// the master read fails the moment it exits, so the pump returns in microseconds
+// and the wait is over before it began. The cap is for the case where a
+// GRANDCHILD inherited the slave and holds the master open: there the pump has
+// nothing left to drain and no claim on Run's return.
+//
+// A read deadline on the master is the obvious alternative and does not work:
+// `os.File.SetReadDeadline` returns nil on /dev/ptmx and is then silently
+// ignored — MEASURED, a read blocked the full 30s until the child exited. It
+// would have looked like a fix and been a no-op.
+const drainGrace = 2 * time.Second
+
+// waitDrained waits for wg, but not past grace.
+//
+// The inner goroutine outlives a timeout only until Run's deferred close makes
+// the pump's blocked read fail, so this bounds the wait without leaking.
+func waitDrained(wg *sync.WaitGroup, grace time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(grace):
+	}
 }
 
 // Restore returns the operator's terminal to its original mode.
@@ -226,8 +282,6 @@ func (p *Proxy) deliver(out []byte) bool {
 	return err == nil
 }
 
-func (p *Proxy) pumpOut() { p.pumpOutFrom(p.masterFile()) }
-
 func (p *Proxy) pumpOutFrom(m io.Reader) {
 	buf := make([]byte, 32*1024)
 	for {
@@ -251,8 +305,9 @@ func (p *Proxy) pumpOutFrom(m io.Reader) {
 	}
 }
 
-// onChildOutput feeds the transcript tap and the mouse-tracking watch: the
-// child announces its mouse modes on the same stream it paints on.
+// onChildOutput feeds the transcript tap and the two observed-state watches:
+// the child announces its mouse modes, and asks for its cursor position, on
+// the same stream it paints on.
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func (p *Proxy) onChildOutput(b []byte) {
 	if p.OutTap != nil {
@@ -260,6 +315,7 @@ func (p *Proxy) onChildOutput(b []byte) {
 	}
 	if !p.DisableFilter && p.filter != nil {
 		p.filter.mouse.observe(b)
+		p.filter.cpr.observe(b)
 	}
 }
 

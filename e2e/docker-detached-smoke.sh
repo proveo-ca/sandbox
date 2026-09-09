@@ -60,9 +60,9 @@ write_smoke_env() {
   mkdir -p "$workspace"
   cat > "$workspace/.env" <<'EOF'
 # Non-secret values for detached image smoke tests only.
-ARCHITECT_MODEL=openai/gpt-4o-mini
-EDITOR_MODEL=openai/gpt-4o-mini
-  SMALL_MODEL=openai/gpt-4o-mini
+# Only each harness's OWN model vars: proveo no longer bridges a role name into
+# them, so ARCHITECT_MODEL and friends set nothing here.
+# SPEC: _spec/_plans/retire-model-bridging.puml
 CECLI_MODEL=openai/gpt-4o-mini
 CECLI_EDITOR_MODEL=openai/gpt-4o-mini
 CECLI_WEAK_MODEL=openai/gpt-4o-mini

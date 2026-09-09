@@ -36,17 +36,27 @@ assert_output_contains \
   'cat /opt/opencode/defaults/opencode.json' \
   '"rot": true'
 
-assert_output_contains \
-  "default opencode.json: plan model uses OPENCODE_MODEL" \
-  "$IMAGE" \
-  'cat /opt/opencode/defaults/opencode.json' \
-  '"model": "{env:OPENCODE_MODEL}"'
+# NO SEED MAY PIN A MODEL BY ENVIRONMENT. These two assertions were the reverse
+# — that plan and build read "{env:OPENCODE_MODEL}" and "{env:OPENCODE_BUILD_MODEL}"
+# — which the retired bridge tables filled. opencode substitutes an unset
+# {env:...} with the EMPTY STRING, so after the retirement the seed pinned the
+# model to "" in the durable home. Both seed files are checked: sample_opencode.json
+# is the one seed_opencode_config actually copies.
+# SPEC: _spec/_plans/retire-model-bridging.puml
+for seed in /opt/opencode/defaults/opencode.json /opt/opencode/sample_opencode.json; do
+  assert_success \
+    "$(basename "$seed"): names no model by environment" \
+    "$IMAGE" \
+    "! grep -q 'env:OPENCODE' $seed"
+done
 
-assert_output_contains \
-  "default opencode.json: build model uses OPENCODE_BUILD_MODEL" \
+# The agents must simply omit `model`: opencode gives a primary agent the
+# globally configured model when its own is unset, so omitting inherits instead
+# of resolving to "".
+assert_success \
+  "default opencode.json: plan and build omit their own model (inherit the global)" \
   "$IMAGE" \
-  'cat /opt/opencode/defaults/opencode.json' \
-  '"model": "{env:OPENCODE_BUILD_MODEL}"'
+  "jq -e '.agent.plan.model == null and .agent.build.model == null' /opt/opencode/defaults/opencode.json"
 
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(docker run --rm \

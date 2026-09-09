@@ -1,0 +1,789 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — ssh-sk for the HUMAN operator, verified by proveo; the agent and cascade halves are deferred
+' status: proposed 2026-09-09, not implemented; nothing in src depends on this file
+' would touch: internal/gitidentity/** (Identity, Resolve — a CLAIM today)
+' would touch: internal/sbx/secret.go (SecretSetArgs), internal/backend/sandbox/sandbox.go (agentCredentials)
+' would touch: internal/credentials/keychain.go, internal/secretref/secretref.go
+'   the blocker this answers ..... _spec/_plans/host-held-provider-keys.puml (provenance)
+'   why the store cannot answer it _spec/internal/sbx/kit-sandbox-credential-gap.puml
+'   what the agent may hold ...... _spec/_paradigms/credential-boundary.puml
+'   the claim it would attest .... _spec/internal/gitidentity/authorship.puml
+'   where a secret rests ......... _spec/internal/secretref/secret-references.puml
+'   the custody ledger ........... _spec/_plans/secret-custody.puml
+'   the transcript this would bind _spec/internal/sbx/sandbox-backend.puml (runlog)
+' would touch: internal/runlog/runlog.go, internal/run/helpers.go (StateDir)
+' would touch: internal/proveohome/proveohome.go (Prepare — the mount that exposes the log)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   presence vs verification : https://developers.yubico.com/WebAuthn/WebAuthn_Developer_Guide/User_Presence_vs_User_Verification.html
+'   ssh commit signing       : https://docs.gitlab.com/user/project/repository/signed_commits/ssh/
+'   sk keys + touch policy   : https://www.git-automation.com/commit-signing-supply-chain-security/gpg-vs-ssh-commit-signing/signing-git-commits-with-a-yubikey/
+'   fulcio OIDC identity     : https://docs.sigstore.dev/certificate_authority/oidc-in-fulcio/
+'   sigstore security model  : https://docs.sigstore.dev/about/security/
+'   spiffe vs fulcio EKU     : https://github.com/spiffe/spiffe/issues/379
+'   ssh-keygen(1) verify-required : https://man.openbsd.org/ssh-keygen
+'   yubikey ssh + FIDO2 for git   : https://developers.yubico.com/SSH/Securing_git_with_SSH_and_FIDO2.html
+'   ykman openpgp touch policies  : https://docs.yubico.com/software/yubikey/tools/ykman/OpenPGP_Commands.html
+'   keytocard resets the policy   : https://github.com/Yubico/yubikey-manager/issues/693
+'   github commit signature verify: https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification
+'   signing commits with ssh certs: https://sayr.us/git/ssh-sign-ca/
+'   comparing signing options     : https://www.kenmuse.com/blog/comparing-github-commit-signing-options/
+'   biscuit: offline attenuation  : https://www.clever.cloud/blog/engineering/2021/04/12/introduction-to-biscuit/
+'   macaroons (libmacaroons)      : https://github.com/rescrv/libmacaroons
+'   IETF attenuating agent tokens : https://datatracker.ietf.org/doc/draft-niyikiza-oauth-attenuating-agent-tokens/
+'
+' ── THE QUESTION ────────────────────────────────────────────────────────────
+' Multiple operators act on one host: humans, agents, and subagents. Give each
+' a unique identifier, track it across actions that matter — adding a secret,
+' making a commit — and the first use is `sbx`: prove a HUMAN operator set the
+' keys, and say WHICH human.
+'
+' ── SCOPED 2026-09-09: ONE EXPERIMENT, THE REST DEFERRED ───────────────────
+' The exploration below went wider than what is being tried. Read this first,
+' because most of the file is now BACKGROUND for a decision already taken.
+'
+'   IN SCOPE, AND THE WHOLE EXPERIMENT
+'     ssh-sk for a HUMAN operator, verified by proveo, attesting what set an
+'     `sbx secret`. One key, one trust store, one namespace, no CA.
+'
+'   AGENTS OWN EXACTLY TWO THINGS, and provenance for both is DEFERRED
+'     the TUI transcript, and their git commits.
+'
+'   DEFERRED, NOT REJECTED
+'     how to detect that either of those is untampered; how a main agent
+'     cascades identity into forked subagents; per-run certificates; the agent
+'     CA; the four-class ledger.
+'
+' WHY THIS IS THE RIGHT CUT. The human half is the only part where the
+' cryptography does what it looks like it does — a touch a headless process
+' cannot produce, checkable by a verifier that can require it. Everything on the
+' agent side runs into the same wall from a different angle: a signature by the
+' subject over evidence about the subject proves origin and not truth. Deferring
+' those is not timidity; it is declining to build machinery whose central claim
+' would be false.
+'
+' ── THE ONE EXPERIMENT, CONCRETELY ─────────────────────────────────────────
+' Everything needed is on the operator's desk — three YubiKeys — and nothing
+' here needs a CA, an IdP or a new format.
+'
+'   1  a resident key with verification required
+'        ssh-keygen -t ed25519-sk -O resident -O verify-required \
+'          -C "proveo executor" -f ~/.ssh/id_proveo_executor
+'   2  an allowed_signers line that REQUIRES what the key offers
+'        <email> namespaces="proveo-executor" verify-required sk-ssh-ed25519@... AAAA...
+'   3  attest one secret, at the moment proveo stores it
+'        printf '%s' "$digest_of_the_value" | ssh-keygen -Y sign \
+'          -f ~/.ssh/id_proveo_executor -n proveo-executor
+'   4  proveo verifies it, and REFUSES an unverified signature
+'        ssh-keygen -Y verify -f allowed_signers -I <email> -n proveo-executor -s sig
+'
+' WHAT EACH STEP IS ACTUALLY TESTING, because a green result proves little on
+' its own:
+'   step 1  that a resident sk key can be made at all on this hardware
+'   step 3  THAT A TOUCH AND A PIN ARE DEMANDED. If either is silent, F1 has
+'           failed and the experiment is over.
+'   step 4  THAT `verify-required` IS ENFORCED BY THE CHECKER. Repeat it with a
+'           plain `ssh-ed25519` key under the SAME principal and confirm the
+'           verify FAILS. A pass there is the whole point; a pass in step 3
+'           alone measures the hardware, not the guarantee.
+'
+' The negative case in step 4 is the one that must not be skipped. It is the
+' same shape as every false green this tree has catalogued: without it, the
+' experiment measures that signing works, which nobody doubted.
+'
+' ── WHAT AGENTS OWN, AND WHY BOTH ARE DEFERRED ─────────────────────────────
+'   THE TUI TRANSCRIPT   agent-writable today, measured. The two candidate
+'                        answers are already known — narrow the home mount so
+'                        `logs/` is not exposed (PREVENTS), or have proveo digest
+'                        the stream as it writes it (DETECTS). Neither needs a
+'                        key, which is exactly why this is deferred out of an
+'                        identity experiment: it is a mount and a hash, not a
+'                        signature.
+'   GIT COMMITS          the agent authors them, so a signature attributes and
+'                        cannot validate. The forge is irrelevant here, so a
+'                        local verifier could check a plain agent key — but
+'                        deciding WHAT such a signature would mean comes before
+'                        producing one.
+'
+' ── DEFERRED: THE CASCADE INTO FORKED SUBAGENTS ────────────────────────────
+' Not designed here, but the SHAPE of the answer is constrained enough to write
+' down, so the deferral is informed rather than blank.
+'
+' THE ONE INVARIANT: a parent cannot mint authority it does not hold. Any
+' cascade must ATTENUATE — the child's authority a subset of the parent's — and
+' a scheme that lets a fork widen its own scope is worse than no scheme, because
+' it launders authority while looking rigorous.
+'
+' THREE CANDIDATES, ranked by how well they fit a FORK rather than a service:
+'   biscuit tokens     public-key signatures plus OFFLINE ATTENUATION: a holder
+'                      adds caveats and derives a strictly weaker token with no
+'                      issuer round trip. A fork is exactly that operation, and
+'                      Datalog checks carry the narrowing inside the token.
+'   macaroons          the original of the idea: HMAC chaining, attenuation by
+'                      caveat, and explicitly NO proof of possession — so a
+'                      leaked token is a usable token. Simpler and weaker.
+'   ssh certs + a CA   what the earlier sections designed. Delegation works, but
+'                      every fork needs an ISSUER round trip to the host, which
+'                      is the wrong shape for something that forks freely.
+'
+' AND THE STRONGEST ARGUMENT FOR WAITING: the IETF has an active draft on this
+' exact problem — "Attenuating Authorization Tokens for Agentic Delegation
+' Chains", draft-niyikiza-oauth-attenuating-agent-tokens-01:
+'     https://datatracker.ietf.org/doc/draft-niyikiza-oauth-attenuating-agent-tokens/
+' Inventing a cascade now means maintaining a private one against a standard
+' that is arriving. NOT READ IN FULL — found by search and cited for its
+' existence and title, which is what the deferral rests on; whether its model
+' fits a fork is exactly the question to ask when this stops being deferred.
+'
+' ── THE DISTINCTION THAT DECIDES EVERYTHING: CUSTODY IS NOT PRESENCE ────────
+' A GPG key in `~/.gnupg`, or a live `ssh-agent` socket, is usable by EVERY
+' process running as that user. On proveo's host that includes proveo itself and
+' anything it launches. So a signature from a software key proves CUSTODY of the
+' key and never that a human was there — and an agent holding the same key signs
+' identically. "Give each operator a GPG key" does not, on its own, answer the
+' question that motivates it.
+'
+' OpenSSH's own guidance says so about the escape hatch: generating an sk key
+' with `no-touch-required` "discards the guarantee that a human deliberately
+' authorized each signature and is not recommended for supply-chain use."
+'
+' So the mechanisms that CAN answer "was a human there" are the ones a headless
+' process cannot satisfy:
+'   USER PRESENCE       FIDO2 / `sk-ssh-ed25519@openssh.com` with touch
+'                       required. A physical interaction happened.
+'   USER VERIFICATION   presence plus PIN or biometric. Yubico: the
+'                       authenticator "verifies that the user is authorized to
+'                       use the authenticator, and signals to the RP whether
+'                       user verification was successful."
+'   SECURE ENCLAVE      macOS Touch ID over a keychain item, whose read
+'                       "inherits Apple's trust" (secret-references.puml)
+'
+' ── AMENDED: GPG ON A YUBIKEY *CAN* ASSERT PRESENCE ────────────────────────
+' The section above over-generalised, and an operator with three YubiKeys caught
+' it. The YubiKey OpenPGP applet has its OWN touch policy — `ykman openpgp keys
+' set-touch sig on` — so a card-resident GPG key CAN require a physical touch.
+' "GPG proves custody" is true of a SOFTWARE key and false of that setup.
+'
+' But the objection to GPG here is not only humanity, and the rest survives:
+'
+'   OFF BY DEFAULT        the touch policy for OpenPGP slots ships `off`. Nothing
+'                         about using a YubiKey implies presence was required.
+'   A 15-SECOND WINDOW    `cached` and `cached-fixed` require a touch and then
+'                         CACHE it for 15 seconds. One touch, then a burst of
+'                         silent signatures — which is exactly the shape an
+'                         agent would exploit.
+'   THE AGENT CACHES TOO  gpg-agent caches interactions by default; fresh
+'                         interaction needs `default-cache-ttl 0` and
+'                         `max-cache-ttl 0` in gpg-agent.conf.
+'   NOT IN THE SIGNATURE  the policy is a property of the key, not of the
+'                         signature. A verifier cannot tell whether a touch was
+'                         required, so the guarantee is unenforceable
+'                         downstream. This is F1, and for OpenPGP it is OPEN.
+'   IT SILENTLY REGRESSES `gpg keytocard` has been measured resetting the
+'                         OpenPGP touch policy to OFF
+'                         (Yubico/yubikey-manager#693), and `ykman openpgp
+'                         reset` leaves the attestation key's cached-fixed
+'                         policy in place (#642). Ordinary key management
+'                         changes the security property without saying so.
+'
+' ── AND SSH-SK ANSWERS F1, WHICH IS THE DECIDING DIFFERENCE ────────────────
+' OpenSSH's `verify-required` "indicates that a private key should require user
+' verification for each signature ... Signatures made using this key indicate
+' that the user was first verified, e.g. by PIN or on-token biometrics" (8.4+).
+'
+' The decisive part is WHERE that option lives. The allowed_signers file is
+' "patterned after the authorized_keys file format", with fields principals,
+' OPTIONS, keytype, key — so `verify-required` is a VERIFIER-SIDE requirement,
+' not a keygen-time preference. `ssh-keygen -Y verify -f allowed_signers` will
+' refuse a signature that does not assert user verification.
+'
+' That inverts the F1 risk. For ssh-sk the guarantee is enforceable by the party
+' who cares; for OpenPGP it is chosen by the party being checked. Everything
+' else about the two formats is secondary to that asymmetry.
+'
+' ── ALTERNATIVES, AND WHAT EACH ONE ACTUALLY VERIFIES ──────────────────────
+'   ssh-sk + allowed_signers   presence by construction, verification on demand,
+'   `verify-required`          and ENFORCED AT VERIFY TIME. Native to a YubiKey,
+'   (RECOMMENDED)              `gpg.format = ssh` in git, no daemon to misconfigure.
+'                              Identity is a principal in a file the repo keeps.
+'   PIV / x509                 `gpg.format = x509` with smimesign. The PIV applet
+'                              has its own touch policy, and an org-issued cert
+'                              chain carries the name. Heavier; needs a CA.
+'   Sigstore gitsign           keyless: OIDC identity in a short-lived cert, plus
+'                              a transparency log. The IdP asserts WHICH human
+'                              rather than a local mapping — the strongest answer
+'                              to that half — at the cost of needing an IdP and
+'                              publishing identities to a public log.
+'   Secure Enclave SSH         Touch ID presence with no extra hardware, and this
+'                              tree already leans on Apple's trust for keychain
+'                              reads. No verifier-side enforcement of presence.
+'
+' A key per operator is therefore the wrong unit. The unit is A SIGNATURE WHOSE
+' PRESENCE CLASS THE VERIFIER CAN REQUIRE, and only two of the four above offer
+' that.
+'
+' ── "WHICH HUMAN" IS A SECOND QUESTION, WITH A DIFFERENT MECHANISM ──────────
+' Presence says somebody touched a key. It does not say who. Two ways to bind a
+' name, and they have different trust roots:
+'   the key's own principal   an email or principal attached to the signing key.
+'                             Only as good as the mapping the repo keeps, and
+'                             the operator asserts it themselves.
+'   an OIDC identity          Fulcio issues a short-lived certificate binding an
+'                             ephemeral key to an OpenID Connect identity, whose
+'                             subject alternative name "could be an email,
+'                             SPIFFE ID, or GitHub Actions workflow identity".
+'                             The IdP asserts the name, not the operator.
+'
+' ── DEFERRED (background) — ALL THREE LEVELS, ONE FORMAT ───────────────────
+' No — and the "no" is the useful part. An agent CANNOT use an sk key: it cannot
+' touch a YubiKey, and that is the invariant rather than a shortcoming. What all
+' three levels DO share is the signature format and one trust store, which is
+' what makes them comparable.
+'
+'   human      `sk-ssh-ed25519@openssh.com` on the YubiKey, listed DIRECTLY in
+'              allowed_signers, principal = the operator's email, option
+'              `verify-required`
+'   agent      a software `ssh-ed25519` key, CERTIFIED per run by a host-held
+'              CA. The allowed_signers line is a `cert-authority` entry with
+'              principals `agent:*` and a `valid-before` at the run's end.
+'   subagent   certified by the same CA under `subagent:*`, narrower and
+'              shorter-lived than its parent
+'
+' THE PRESENCE CLASS IS READ OFF THE TRUST STORE, NOT CLAIMED BY THE SIGNER.
+' `verify-required` "only makes sense for the FIDO authenticator algorithms
+' ecdsa-sk and ed25519-sk", so it can only ever appear on a human line. A
+' verifier therefore learns the class from WHICH allowed_signers entry matched —
+' there is no self-declared class field to lie in, which is the property a
+' ledger written by agents needs most.
+'
+' ── DEFERRED (background) — CERTIFICATES SUPPLY THE DELEGATION ─────────────
+' A flat allowed_signers cannot express "this key was authorised by that key",
+' which is why the subagent level looked unserved. `cert-authority` closes it:
+' "Indicates that this key is accepted as a certificate authority (CA) and that
+' certificates signed by this CA may be accepted for verification."
+'
+' AND THE CONTAINMENT IS DUAL, WHICH IS THE LOAD-BEARING QUOTE: "When verifying
+' signatures made by certificates, the expected principal name must match BOTH
+' the principals pattern in the allowed signers file AND the principals embedded
+' in the certificate itself."
+'
+' So an agent CA pinned to `agent:*,subagent:*` CANNOT mint a human principal.
+' A certificate naming the operator's email fails the allowed_signers pattern on
+' that CA's line and is refused by the verifier — not by policy, by ssh-keygen.
+'
+' ── `namespaces` SEPARATES POWERS, AND IT ANSWERS THE Co-Authored-By PROBLEM ─
+' allowed_signers also takes `namespaces`, which restricts the signature
+' namespaces a key may be used in. Git signs in the `git` namespace. So:
+'
+'   the human line   namespaces="git,proveo-executor"
+'                    may sign commits AND provenance
+'   the agent CA     namespaces="proveo-agent"
+'                    may write provenance, and is STRUCTURALLY UNABLE to
+'                    produce a valid commit signature
+'
+' That turns `Co-Authored-By: Claude Opus 5` from an untestable trailer into
+' something an agent can actually attest — in a namespace it is permitted — while
+' remaining unable to forge the human's commit signature. Separation of powers
+' enforced by the verifier rather than by convention.
+'
+' ── DEFERRED (background) — AN AGENT SIGNING A COMMIT ──────────────────────
+' Two verifiers exist and they do not accept the same thing, which splits the
+' answer cleanly.
+'
+'   A VERIFIER proveo CONTROLS — yes, with certificates. `ssh-keygen -Y verify`
+'     validates a cert-signed signature against a `cert-authority` line, with
+'     the dual principal check quoted above. This is the ledger, in the
+'     `proveo-executor` namespace, and it is the case the open blocker needs.
+'   A FORGE — no, not with certificates. The SSH certificate format
+'     (`ssh-ed25519-cert-v01@openssh.com`) is not supported by GitHub, GitLab or
+'     any code-hosting provider FOR COMMIT SIGNING, "despite working in the
+'     CLI"; there it is only a connectivity credential. GitHub verifies GPG, SSH
+'     KEYS and S/MIME, and matches an uploaded key on an account.
+'
+' SO THE PER-RUN IDENTITY AND THE FORGE BADGE ARE MUTUALLY EXCLUSIVE TODAY, and
+' the trade has to be chosen rather than discovered:
+'   certificates       per-run principal, `valid-before` expiry, one CA line as
+'                      the trust anchor — and no badge anywhere, because no
+'                      forge will read it
+'   one plain key      a badge, if the key is registered to an account — and no
+'                      per-run identity, no expiry, and a long-lived secret that
+'                      an agent has to hold
+'
+' AND THE DEEPER REASON THE `namespaces` SPLIT IS THE RIGHT DEFAULT. A forge
+' badge is BINARY. It says Verified or it does not, with no notion of a presence
+' class, so an agent-signed commit renders exactly as trustworthy as a human's
+' to everyone reading the UI. Putting agents in the `git` namespace therefore
+' does not add agent provenance — it SUBTRACTS meaning from every human
+' signature in the repository, for third parties who cannot see the principal.
+'
+' IF AGENT COMMIT SIGNING IS WANTED ANYWAY, the honest shape is a plain key with
+' principal `agent:<sid>`, verified by a hook or CI check that proveo controls,
+' accepting that the forge will show it unverified. That keeps the audit and
+' keeps the badge honest, at the cost of a UI that says nothing useful.
+'
+' ── THE ACTUAL TARGET: AN IN-proveo AUDIT TRAIL, agent x KEY x LOG ─────────
+' The forge does not matter, which means CERTIFICATES ARE FULLY USABLE and the
+' only verifier is proveo. What is wanted is a trail binding a principal to a
+' key to the artifacts of a run. proveo already produces those artifacts:
+'
+'     PROVEO_HOME/logs/proveo-<sid>.log         the transcript (runlog)
+'     <state>/egress/<sid>/sbx/policy-log.json  the daemon's allow/block record
+'     <state>/egress/<sid>/sbx/kit/spec.yaml    the Kit that was rendered
+'     <state>/egress/<sid>/sbx/memory-evidence   the guest's own account
+'
+' AN ENTRY WOULD BIND: sid, principal (`agent:<sid>`), the cert's key id, a
+' digest per artifact, the namespace, the PREVIOUS ENTRY'S DIGEST, and a
+' signature. The chain is what makes deletion and reordering detectable rather
+' than only modification — a transparency log's one useful property, with no
+' dependency and no network.
+'
+' ── MEASURED PROBLEM 1: THE TRANSCRIPT IS AGENT-WRITABLE ───────────────────
+' `runlog` writes to `filepath.Join(proveohome.Root(os.Getenv), "logs")`, and
+' `proveohome.Prepare` mounts the WHOLE root at `/proveo-home` with
+' `ReadOnly: false`. So the run log sits inside the agent's own read-write
+' mount, and an agent can rewrite the transcript it is the subject of.
+'
+' A digest taken at TEARDOWN therefore attests only "this is what the file held
+' when proveo read it" — never that the agent left it alone. Two answers, and
+' the second is nearly free:
+'   MOVE IT OUT     keep the transcript outside the home mount, or mount the
+'                   root without `logs/`. Changes a path the operator relies on.
+'   HASH AS IT IS   proveo is already the WRITER (rs.Log), so a rolling digest
+'   WRITTEN         costs nothing and makes a mid-run edit detectable by
+'                   comparison. No mount change, no new path.
+'
+' `<state>` — `XDG_STATE_HOME/proveo`, else `~/.local/state/proveo`
+' (run.StateDir) — is NOT in the mount list, so it is the right home for the
+' ledger itself: host-only, and already where the egress evidence rests.
+'
+' ── CAN AN agent-cert PROTECT THE AGENT'S OWN EVIDENCE? NO ─────────────────
+' The question was whether a per-run certificate could make a run's evidence —
+' TUI transcript, network log, observability, resource monitoring — tamper-proof,
+' "so only the owner of the key can write it". It cannot, and the reason is
+' structural rather than a gap to close.
+'
+' A SIGNATURE AUTHENTICATES ORIGIN, NOT TRUTH. An agent holding a key can write
+' false evidence and sign it perfectly, omit an event and sign the omission, or
+' re-sign an edited transcript. Nothing about the signature distinguishes an
+' honest log from a doctored one, because in both cases the author IS the
+' signer. YOU CANNOT PROTECT EVIDENCE ABOUT A SUBJECT WITH A KEY HELD BY THAT
+' SUBJECT.
+'
+' And "only the key owner can write it" is a FILESYSTEM property, not a
+' cryptographic one. A key does not gate writes; it gates BELIEVABLE writes. The
+' write itself is gated by the mount.
+'
+' ── SO THE REAL QUESTION IS WHO HOLDS THE PEN, AND MOST OF THE LIST IS SAFE ─
+'   network log      `sbx policy log` — written by SANDBOXD on the host. The
+'                    agent never touches the file and cannot author its content.
+'                    proveo copies it at teardown (CapturePolicyLog).
+'   memory/resource  the guest kernel's own account, read from OUTSIDE by
+'                    sbx.MemoryEvidence. Same property.
+'   kit spec         rendered by proveo before the sandbox exists.
+'   TUI transcript   THE EXCEPTION. proveo is the writer (a PTY tee on the
+'                    host), but the FILE lands in the agent's read-write mount.
+'   anything the     forgeable by construction. A cert makes it attributable,
+'   agent authors    never trustworthy.
+'
+' The good news is that three of five are already tamper-proof from the agent's
+' side, and for a reason that has nothing to do with keys: the agent is not the
+' writer and the path is not in its mount.
+'
+' ── MEASURED FROM INSIDE A SANDBOX, FIRST-HAND ─────────────────────────────
+' `proveohome.Prepare` returns ONE mount — the whole root, `ReadOnly: false` —
+' while a def's `home.mounts` list only decides what gets mkdir'd and scrubbed.
+' So the declaration is finer-grained than the enforcement, and `logs/` rides
+' along. From inside a live proveo sandbox:
+'
+'     /proveo-home/logs/  lists EVERY prior run's transcript, mode 0600 and
+'                         OWNED BY THE RUNTIME USER, plus a `latest.log` symlink
+'     the directory       is WRITABLE
+'
+' So an agent can read, edit and delete not only its own transcript but every
+' other run's on that host. That is an integrity problem AND a confidentiality
+' one: a transcript carries the posture block, the detected providers, the
+' secret NAMES that were stored, and the workspace paths.
+'
+' ── THE FIX IS THE MOUNT, NOT THE KEY ──────────────────────────────────────
+'   NARROW THE MOUNT   honour the def's declared subpaths instead of mounting
+'                      the root, or exclude `logs/` explicitly. This is the only
+'                      change that PREVENTS rather than detects.
+'   MOVE THE LOG       write the transcript under `run.StateDir()`, which is
+'                      host-only, and keep PROVEO_HOME for what the agent
+'                      legitimately needs.
+'   DIGEST AS WRITTEN  proveo already holds the pen, so a rolling hash makes a
+'                      later edit DETECTABLE at no cost. The fallback wherever
+'                      prevention is not available.
+'
+' ── WHERE THE CERT GENUINELY HELPS, WHICH IS NOT NOTHING ───────────────────
+'   THE HOST SIGNS THE BUNDLE. Digests of the evidence, signed by a key the
+'     agent cannot reach, let a third party verify LATER that nothing was
+'     altered after the run — an auditor, a CI check, another operator. This is
+'     the role a signature is actually for.
+'   `valid-before` PINS CLAIMS TO A LIFETIME. A per-run certificate expiring at
+'     teardown means an agent cannot produce a BACK-DATED attestation once its
+'     run has ended; the signature fails validity rather than merely looking
+'     odd.
+'   ATTRIBUTION OF SELF-ASSERTED CLAIMS. `agent-asserted` entries stay weak, but
+'     a cert binds each to ONE run, so a false claim is attributable to a
+'     specific sid instead of floating free.
+'
+' Three real roles, none of which is "make the agent's own account trustworthy".
+'
+' ── MEASURED PROBLEM 2: A SUBAGENT IS NOT A PRINCIPAL YET ──────────────────
+' `defs/subagents/*.md` are PROMPT FILES, composed into the agent by
+' `render_subagents` during the seed. There is no process boundary, no separate
+' credential, and nothing for a certificate to be issued TO. So the third level
+' of the model has nothing to stand on today, and the earlier framing —
+' "certified by the same CA under `subagent:*`" — describes a world that does
+' not exist here.
+'
+' What IS available is the agent asserting it: "I, agent:<sid>, invoked
+' architect at T". That is self-asserted and must be LABELLED as such, which
+' extends the same idea one rung further — the ledger carries a CLASS, and the
+' class says how much the trust store actually backs:
+'
+'     human-verified   sk key, `verify-required` satisfied
+'     human-present    sk key, presence only
+'     agent-cert       a per-run certificate the agent could not mint itself
+'     agent-asserted   a claim the agent makes about itself; nothing backs it
+'                      beyond the signature on the containing entry
+'
+' Four classes, one of which is deliberately weak and says so. That is more
+' useful than three classes where the third is fictional.
+'
+' ── THE NAMESPACE NAMES A ROLE, NOT AN ACTION — AND THAT IS A CHOICE ───────
+' The namespace was renamed from `proveo-attest` to `proveo-executor`, and the
+' rename changes the axis rather than the spelling. `attest` named the ACTION;
+' `executor` names the OPERATOR ROLE — the human this repo addresses as
+' Executor. A signature in it therefore reads "the executor authorised this",
+' not "something was attested".
+'
+' WHICH SETTLES A QUESTION THE EARLIER DRAFT LEFT OPEN. It had one namespace per
+' action — `proveo-attest`, `proveo-run`, `proveo-delegate` — and that is now
+' the wrong axis: mixing role-named and action-named namespaces in one
+' allowed_signers file means a grant sometimes says WHO and sometimes says WHAT.
+'
+' So: NAMESPACE IS WHO, PAYLOAD IS WHAT.
+'   proveo-executor   everything a human executor signs
+'   proveo-agent      everything an agent signs, if that is ever built
+'   git               commits and tags — humans only, by default
+' The action — what set a secret, a run manifest, a delegation — goes INSIDE the
+' signed payload, where it can be structured and versioned. That is strictly
+' better than encoding it in a namespace string: a namespace is a coarse grant
+' in a trust store an operator edits by hand, and it should stay coarse.
+'
+' Any namespace proveo verifies ITSELF may use certificates; only what a forge
+' checks is confined to plain keys. Unchanged by the rename.
+'
+' ── WHERE THE RESIDUAL RISK MOVES TO ───────────────────────────────────────
+'   A HUMAN PRINCIPAL MUST NEVER LIST A NON-sk KEY. One software key under the
+'     operator's own principal bypasses `verify-required` for that principal
+'     entirely. The allowed_signers file is the whole security boundary, and
+'     this is the single line that can quietly void it.
+'   THE AGENT CA IS A SOFTWARE KEY ON THE HOST. Whoever holds it mints agent
+'     identities, so it falls under the same invariant — unreachable from inside
+'     a sandbox — and its principals+namespaces pins are what bound a compromise
+'     to agent claims instead of human ones.
+'   F4 MOVES TO THE ISSUER. Distinguishing a subagent now requires a per-subagent
+'     certificate, which means an in-sandbox process asking the host to mint one.
+'     That request path is new surface and is where the subagent question
+'     actually lives — not in the signature format, which handles it.
+'   REVOCATION. ssh has KRLs, but a short `valid-before` per run is the simpler
+'     answer and needs no distribution.
+'
+' ── DEFERRED (background) — SEPARATE CREDENTIAL PROFILES PER CLASS ─────────
+'   human      OIDC email, or an sk key with presence AND verification
+'   agent      one proveo run: a WORKLOAD identity, SPIFFE-shaped
+'   subagent   delegated from its parent run, narrower, and structurally unable
+'              to assert the human class
+'
+' That separation is not a preference. spiffe/spiffe#379 records that the SPIFFE
+' leaf SVID spec and Fulcio's certificate requirements conflict on Extended Key
+' Usage — "a certificate cannot carry codeSigning only while also carrying
+' serverAuth + clientAuth" — so one profile for humans and workloads is not
+' available even if it were wanted. Two profiles, deliberately.
+'
+' ── WHAT THIS REPO ALREADY CLAIMS AND CANNOT PROVE ──────────────────────────
+' Every commit in this tree carries `Co-Authored-By: Claude Opus 5
+' <noreply@anthropic.com>`. That is an assertion of agent authorship, written by
+' the agent, in a trailer anyone can type. And `gitidentity.Resolve` produces a
+' name and email by precedence over the environment and git config: a CLAIM,
+' resolved, never attested.
+'
+' So the move this experiment proposes is narrow and specific — from CLAIMED to
+' ATTESTED — and the repo is already making the claims. Nothing new is being
+' asserted; what is missing is anything behind it.
+'
+' ── THE SANDBOX BOUNDARY IS THE ASSET, AND ALSO THE INVARIANT ──────────────
+' The agent runs in a VM with no path to the host's authenticator. THAT is what
+' would make "a human set this" forgery-resistant rather than merely
+' conventional: the agent cannot touch a key it cannot reach.
+'
+' Which turns the whole scheme into one checkable invariant — never forward the
+' authenticator inward:
+'   no `ssh-agent` forwarding into a sandbox
+'   no USB / HID passthrough to the guest
+'   no mounting `~/.gnupg`, and no gpg-agent socket
+' Each is a hole that silently converts an attestation back into a claim. This
+' is the part that must be TESTED rather than documented, because it is the
+' assumption every other line here rests on.
+'
+' ── EXPERIMENTS — F1 AND F2 ARE LIVE; THE REST ARE DEFERRED ────────────────
+' F1  CAN THIS HOST PRODUCE A PRESENCE ASSERTION A VERIFIER CAN REQUIRE?
+'     ANSWERED FROM THE DOCS, NOT YET PROBED, AND THE ANSWER SPLITS BY FORMAT:
+'       ssh-sk    YES. `verify-required` is an allowed_signers OPTION, so
+'                 `ssh-keygen -Y verify` refuses a signature that does not
+'                 assert user verification. Enforced by the checker.
+'       OpenPGP   NO. The touch policy is a property of the key and does not
+'                 travel in the signature, so a verifier cannot require it.
+'     WHAT IS STILL UNMEASURED is the local behaviour: that a touch is actually
+'     demanded on this operator's three YubiKeys, that `-Y verify` really
+'     refuses a non-UV signature, and what a `cached` OpenPGP policy looks like
+'     from outside during its 15-second window.
+'
+' F2  IS THE AUTHENTICATOR UNREACHABLE FROM INSIDE A SANDBOX?
+'     Attempt the same signature from inside a run and expect it to FAIL. A pass
+'     here is a defect, not a success. This is the invariant above, and it is
+'     the cheapest experiment of the five.
+'
+' F3  WHAT BINDS A NAME ON A HOST THAT HAS NO IdP?
+'     Measure what identity material actually exists — git config name and
+'     email, an sk key's principals, any OIDC path — against what a signature
+'     can bind. A solo operator with no IdP is the common case, and a scheme
+'     that only works with Fulcio is a scheme for somebody else.
+'
+' F4  DEFERRED — WHAT IS A SUBAGENT, BEFORE ASKING WHAT SIGNS FOR ONE?
+'     REFRAMED AGAIN, and downward. `defs/subagents/*.md` are prompt files
+'     composed into one process, so there is no principal to certify and the
+'     issuing-path question is premature. The question ahead of it is whether a
+'     subagent should BECOME a process — which is a capability decision with
+'     costs far beyond provenance — or whether `agent-asserted` is the honest
+'     ceiling for that level. Answer that before designing an issuer.
+'
+' F4b DEFERRED — CAN THE HOST MINT A PER-RUN CERTIFICATE ON REQUEST?
+'     REFRAMED. The signature format handles delegation — `cert-authority` plus
+'     dual principal validation — so the open question is no longer "can a
+'     subagent be distinguished" but "what does the issuing path look like".
+'     An in-sandbox process has to ask the host to mint a cert for it, and that
+'     request is the new surface: what it may ask for, what bounds the principal
+'     it receives, and whether a subagent can request a cert broader than its
+'     parent's. Measure the issuer, not the format.
+'
+' F6  DEFERRED WITH THE CERTS — DOES `-Y verify` ACCEPT A CERT-SIGNED SIG?
+'     The whole agent and subagent design rests on it. The man page describes
+'     verifying "signatures made by certificates" and third parties report certs
+'     "working in the CLI", so this is DOCUMENTED-NOT-PROBED — and it is the
+'     cheapest of the six to settle: mint a CA, issue an `agent:test` cert, sign
+'     in a `proveo-agent` namespace, and verify against a `cert-authority`
+'     line. If it fails, the three-class design collapses to plain keys and the
+'     subagent level loses its delegation again.
+'
+' F5  PARTLY ANSWERED, REST DEFERRED — WHERE DOES THE LEDGER REST?
+'     PARTLY ANSWERED FROM THE CODE. `run.StateDir()` is host-only — not in the
+'     mount list — so the ledger goes there and an agent cannot reach it. The
+'     TRANSCRIPT is the opposite: it lives in the home mount, read-write, so it
+'     is the artifact most in need of a rolling digest rather than a
+'     teardown one.
+'     STILL TO DECIDE: signatures make forgery detectable and not deletion
+'     impossible, so a missing entry must FAIL CLOSED — treated as unattested —
+'     or removing the ledger becomes the attack rather than forging it.
+'
+' ── FIRST APPLICABLE USE: sbx SECRET PROVENANCE ─────────────────────────────
+' This answers the one blocker left open in host-held-provider-keys.puml. When
+' proveo runs `sbx secret set <service>`, it records an attestation BESIDE the
+' store — never inside it, and never the value:
+'
+'     service      the kebab-case service id sbx resolves
+'     fingerprint  a digest of the value written
+'     when         and by what tool
+'     identity     the attested operator, and the PRESENCE CLASS: human with
+'                  verification, human with presence only, agent, subagent, or
+'                  none
+'
+' The seal is untouched, which is the point: the ledger holds a claim ABOUT a
+' value, never the value, so Blocker 1's security property survives intact.
+'
+' AND IT ANSWERS THE SENTENCE THE INCIDENT WAS MISSING. `sbx secret ls` said
+' `xai` existed. Both names it printed were correct. A ledger would have said
+' "set by a credprobe test fixture, 2026-09-07, presence class: none" — which is
+' exactly what nobody could see before that entry authenticated a run and its
+' provider answered 403.
+'
+' ── WHAT IT CANNOT DO, NAMED RATHER THAN DISCOVERED LATER ───────────────────
+' IT CANNOT VERIFY THE STORE'S CONTENT. There is no `get`, so proveo can only
+' compare the ledger's fingerprint against a candidate key it resolves from the
+' environment. "Which key is stored" therefore stays answerable only as "does
+' your env still resolve to what was attested" — narrower than it sounds, and
+' still enough for the incident.
+'
+' A FINGERPRINT IS A VERIFIER FOR A GUESSABLE SECRET. Provider API keys are
+' high-entropy, so a plain digest is safe; an HMAC under a per-host salt also
+' defeats cross-host correlation, at the cost of no longer comparing between
+' machines. Pick one deliberately rather than by default.
+'
+' PRESENCE IS NOT INTENT. A touch proves a human was at the authenticator when
+' something was signed. It does not prove they read what they signed, and no
+' mechanism here can. Any claim stronger than "a human was present" is a claim
+' this scheme does not support.
+title EXPERIMENT — ssh-sk for the human operator;\nthe agent and cascade halves deferred
+
+actor "human operator" as HUMAN
+node "the host" as HOST <<host>> {
+  component "authenticator\nFIDO2 touch · Secure Enclave" as AUTH <<app>>
+  component "software key\n""~/.gnupg"" · ssh-agent socket" as SOFT <<error>>
+component "OpenPGP on the card\ntouch policy: off by default,\n""cached"" = 15s of silence" as PGP <<error>>
+  database "attestation ledger\nhash-chained, host-only\n""<state>/proveo"" — NOT mounted" as LEDGER <<db>>
+  database "sbx secret store\nsealed · no metadata field" as STORE <<db>>
+}
+node "the sandbox" as SBXN <<host>> {
+  component "the agent\nworkload identity" as AGENT <<app>>
+  component "**the transcript**\n""PROVEO_HOME/logs"" — inside the\nagent's own rw mount" as LOG <<error>>
+  component "subagent\ndelegated, narrower" as SUB <<app>>
+}
+component "**the forgery path**\nforwarded agent · HID passthrough" as HOLE <<error>>
+
+HUMAN ARROW_MAIN AUTH : touch — presence, then verification
+AUTH ARROW_MAIN LEDGER : signs (service, fingerprint, when, identity)
+LEDGER ARROW_OPTIONAL STORE : beside it, never inside
+SOFT ARROW_ERROR LEDGER : signs identically for ANY\nprocess as that user
+PGP ARROW_ERROR LEDGER : presence possible, but never\nvisible to a verifier
+AUTH ARROW_MAIN PGP : the same YubiKey, a\nweaker guarantee
+CA ARROW_MAIN AGENT : per-run cert, ""valid-before""\nat the run's end
+CA ARROW_MAIN SUB : ""subagent:*"", narrower
+AGENT ARROW_QUEUE LEDGER : namespace ""proveo-agent"" only —\ncannot sign a commit
+AGENT ARROW_ERROR LOG : can rewrite what it is\nthe subject of
+LOG ARROW_OPTIONAL LEDGER : digest it AS WRITTEN,\nnot at teardown
+SUB ARROW_QUEUE AGENT : delegated by certificate
+AUTH ARROW_MAIN ALLOW : the human line carries\n""verify-required""
+ALLOW ARROW_MAIN CA : ""cert-authority"", principals pinned
+AGENT ARROW_ERROR HOLE
+HOLE ARROW_ERROR AUTH : the invariant that must be tested
+
+note bottom of SOFT
+  **Custody is not presence.** Any process
+  running as that user can sign with it, and on
+  this host that includes proveo. A software key
+  proves possession and never that a human
+  was there.
+end note
+
+note bottom of AUTH
+  **Two different assertions.** Presence says
+  somebody touched it. Verification adds a PIN
+  or biometric, and the authenticator reports
+  whether it succeeded. Only the second narrows
+  it toward WHICH human.
+end note
+
+note bottom of PGP
+  **The same hardware, a weaker claim.** A
+  card-resident GPG key CAN require touch — but
+  the policy ships off, ""cached"" buys 15 silent
+  seconds, and none of it travels in the
+  signature for a verifier to insist on.
+end note
+
+note bottom of HOLE
+  **This is the whole experiment.** Forward an
+  ssh-agent, pass through a HID device or mount
+  ""~/.gnupg"", and an attestation quietly becomes
+  a claim again. F2 tests it; nothing else here
+  is meaningful without that test passing.
+end note
+
+note bottom of LEDGER
+  **A claim about a value, never the value.**
+  The store stays sealed — that is the security
+  property. Deletion must FAIL CLOSED, or
+  removing the ledger becomes the attack rather
+  than forging it.
+end note
+
+note bottom of LOG
+  **Measured from inside a sandbox.** ""logs/"" is
+  writable and lists EVERY prior run, owned by
+  the runtime user. An agent can edit its own
+  transcript and other runs' too. The fix is the
+  mount; a key cannot gate a write.
+end note
+
+note right of AGENT
+  **A workload, not a person.** No sk key: an
+  agent cannot touch a YubiKey, which is the
+  invariant rather than a gap. It gets a
+  short-lived certificate instead, and a
+  namespace that excludes ""git"".
+end note
+
+note bottom of ALLOW
+  **The class is read here, not claimed.**
+  ""verify-required"" only works for sk keys, so
+  it can only appear on a human line. The
+  verifier learns the class from WHICH entry
+  matched — no field for a signer to lie in.
+end note
+
+note bottom of CA
+  **Containment is dual, and ssh enforces it.**
+  A cert's principal must match the pattern on
+  the CA's line AND the principal inside the
+  cert, so a CA pinned to ""agent:*"" cannot mint
+  the operator's email.
+end note
+
+legend bottom
+  **What this file settles, and what it only frames**
+  ==
+  **Settled**: the unit is not a key per operator, it is A SIGNATURE WHOSE PRESENCE
+  CLASS THE VERIFIER CAN REQUIRE. A software key proves only custody; a card-resident
+  GPG key CAN require touch, but the policy ships off, ""cached"" grants 15 silent
+  seconds, ""gpg keytocard"" has been measured resetting it, and none of it appears in
+  the signature — so the checker cannot insist. ssh-sk can: ""verify-required"" is an
+  allowed_signers OPTION, so ""ssh-keygen -Y verify"" refuses an unverified signature.
+  --
+  **Settled**: humans and agents need SEPARATE credential profiles, and not by taste.
+  The SPIFFE leaf SVID spec and Fulcio's EKU requirements are mutually exclusive
+  (spiffe/spiffe#379), so a single profile for both does not exist to be chosen.
+  ==
+  **Framed, not measured**: five experiments, F1 to F5. F2 is first and cheapest — the
+  authenticator must be UNREACHABLE from inside a sandbox, and a pass there is a defect.
+  F1 carries the hidden risk: if a ""no-touch-required"" key is indistinguishable to a
+  verifier, the guarantee degrades silently and the scheme is decoration.
+  --
+  **SCOPED**: the experiment is ssh-sk for the HUMAN operator, verified by proveo,
+  attesting what set an ""sbx secret"" — one key, one trust store, one namespace, no CA.
+  Agents own the TUI transcript and their git commits, and provenance for both is
+  DEFERRED, as is the cascade into forks. The rest of this file is background.
+  --
+  **The step that must not be skipped** is the negative one: sign with a PLAIN key under
+  the same principal and confirm ""-Y verify"" REFUSES it. A pass on the touch alone
+  measures the hardware; only the refusal measures the guarantee.
+  ==
+  **All three levels, one format, three key classes** (deferred): a human signs with an sk key
+  listed directly and carrying ""verify-required""; an agent and a subagent sign with
+  short-lived CERTIFICATES from a CA pinned to ""agent:*"" / ""subagent:*"", in a namespace
+  that excludes ""git"" — so they attest provenance and cannot forge a commit.
+  --
+  **Deferring the agent half is a finding, not caution.** A cert cannot protect an
+  agent's own evidence: a signature authenticates ORIGIN,
+  not truth: the author is the signer, so a doctored log signs as cleanly as an honest
+  one. What already resists tampering does so for a different reason — sandboxd writes
+  the network log and the kernel the memory evidence, and neither path is in the mount.
+  The transcript is the exception, and the fix there is the MOUNT, not the key.
+  --
+  **An agent CAN sign, but not where a forge is the verifier.** SSH certificates work in
+  the CLI and are unsupported for commit signing by GitHub and GitLab, so per-run identity
+  and a Verified badge are mutually exclusive today. And a badge is BINARY: putting agents
+  in the ""git"" namespace would not add agent provenance, it would subtract meaning from
+  every human signature for third parties who cannot see the principal.
+  --
+  **First use**: attest what set each ""sbx secret"" — service, fingerprint, when, and a
+  PRESENCE CLASS. It answers the sentence the incident was missing: ""ls"" said ""xai""
+  existed and was right; nothing said a test fixture had put it there with no human
+  anywhere near it.
+end legend
+@enduml

@@ -1,4 +1,17 @@
 @startuml
+' ── RETIRED 2026-09-09. THIS DESCRIBES A MECHANISM THAT NO LONGER EXISTS ───
+' The TSV tables, apply_model_bridges and the role vars this file documents were
+' deleted with _spec/_plans/retire-model-bridging.puml. proveo no longer chooses
+' an agent's model; the model comes from the agent's own saved config, and on a
+' first run from its own default.
+'
+' The file is KEPT rather than deleted because one fact in it outlives the
+' mechanism and is written down nowhere else: claudecode's ANTHROPIC_MODEL and
+' ANTHROPIC_SMALL_FAST_MODEL take a BARE id, so a provider-qualified name
+' reaches the vendor with the one token identifying the vendor stripped off.
+' Nothing enforces that today. If a future change ever writes those variables
+' again, this is the trap it must not walk into.
+'
 ' ── VENDOR-LOCKED SLOTS: WHY A FILTER, AND WHY DECLARED ────────────────────
 ' A slot may name the only provider it accepts (column 6 of the TSV). Today that
 ' is claudecode's two: ANTHROPIC_MODEL and ANTHROPIC_SMALL_FAST_MODEL.

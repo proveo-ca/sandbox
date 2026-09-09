@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: how one connection is consented to over a running agent's TUI, and why proveo owns the tty
 ' covers: internal/reviewgate/**
 ' covers: internal/ptyproxy/ptyproxy.go, internal/ptyproxy/overlaytty.go
-' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: internal/ptyproxy/ptyproxy_test.go, internal/ptyproxy/drain_test.go
 ' covers: e2e/review_tier_test.go
 ' covers: cmd/proveo/main.go
 '   why the transport is Linux-only . _spec/internal/reviewgate/transport-portability.puml
@@ -106,6 +106,46 @@ note bottom of OUT
   A bare SIGWINCH at unchanged dimensions is **not** reliable — many
   TUIs skip it. The cost is a brief reflow, acceptable for what is
   explicitly an interrupting pop-up.
+end note
+
+note bottom of OUT
+  **""Run"" DOES NOT RETURN UNTIL THIS PUMP HAS DRAINED THE MASTER.**
+  FIXED 2026-09-09; it used to, and lost the child's last line.
+
+  ""pty.Start"" returns with the child **already running**, and the
+  pump was started two statements later. A child that writes one
+  line and exits is gone first, and ""Run""'s deferred ""m.Close()""
+  then tore the master down with the output still inside it.
+  MEASURED at a few percent of runs — and the run that loses its
+  last line is the one that died on it, so the loss lands exactly
+  where the transcript matters most.
+end note
+
+note bottom of OUT
+  **Only the OUT pump is waited on. The IN pump cannot be.**
+
+  The out pump ends on its own: the child was the last holder of
+  the slave, so the master read fails the moment it exits. So a
+  ""sync.WaitGroup"" around it costs nothing on the normal path and
+  is bounded by ""drainGrace"" (2s) for the case a GRANDCHILD
+  inherited the slave and holds the master open — there the pump
+  has nothing left to drain and no claim on ""Run""'s return.
+
+  The in pump blocks reading the operator's stdin, which never
+  reaches EOF, so it can only be left to notice the closed master
+  on the next keystroke. Waiting on it would hang every exit.
+end note
+
+note bottom of OUT
+  **A read deadline on the master is NOT the fix.** It reads as
+  the obvious one and is a silent no-op:
+  ""os.File.SetReadDeadline"" returns **nil** on ""/dev/ptmx"" and is
+  then ignored. MEASURED — a read blocked the full 30s until the
+  child exited, deadline set and accepted.
+
+  The master is also passed to the pump **explicitly** now.
+  ""p.master"" is nil'd by the same defer that closes it, and a pump
+  scheduled late used to fetch the nil and copy nothing.
 end note
 
 note right of DECIDE

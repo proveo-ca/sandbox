@@ -45,6 +45,14 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
 '   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
+'   what now LEANS on this chain .. _spec/_plans/retire-model-bridging.puml
+'                                   That plan retires model choice by
+'                                   environment and puts an agent's model in the
+'                                   saved config this one carries. Its Q1 (what a
+'                                   FIRST run gets, before any config is saved) is
+'                                   answerable only by steps 3-5 below, which are
+'                                   NOT implemented — so the dependency runs both
+'                                   ways and neither should move without the other.
 '
 ' ── FOUR CONFIG CLASSES, ONE OF THEM IMPLEMENTED ──────────────────────────
 ' A harness opens onto a workspace and needs four kinds of thing configured

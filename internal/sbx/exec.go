@@ -19,6 +19,7 @@ type CLI struct {
 	TemplateLoad   func(image string) error
 	TemplateRemove func(image string) error
 	PolicyLog      func(sandbox string) ([]byte, error)
+	MemoryEvidence func(sandbox string) ([]byte, error)
 	InspectPolicy  func() ([]byte, error)
 	PolicyCheck    func(host string) ([]byte, error)
 
@@ -73,8 +74,11 @@ func defaultCLI() CLI {
 		TemplateRemove: func(image string) error { return exec.Command(Binary, TemplateRemoveArgs(image)...).Run() },
 		TemplateLoad:   templateLoadViaTar,
 		PolicyLog:      func(sandbox string) ([]byte, error) { return bounded(Binary, PolicyLogArgs(sandbox)...) },
-		InspectPolicy:  func() ([]byte, error) { return bounded(Binary, InspectPolicyArgs()...) },
-		PolicyCheck:    func(host string) ([]byte, error) { return bounded(Binary, CheckNetworkArgs(host)...) },
+		MemoryEvidence: func(sandbox string) ([]byte, error) {
+			return boundedCombined(Binary, MemoryEvidenceArgs(sandbox)...)
+		},
+		InspectPolicy: func() ([]byte, error) { return bounded(Binary, InspectPolicyArgs()...) },
+		PolicyCheck:   func(host string) ([]byte, error) { return bounded(Binary, CheckNetworkArgs(host)...) },
 
 		LocalImageID:    dockerImageID,
 		ImageEntrypoint: dockerImageEntrypoint,

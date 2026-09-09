@@ -295,16 +295,6 @@ _normalize_model() {
  esac
 }
 
-_model_provider() {
- local n
- n="$(_normalize_model "$1")"
- case "$n" in
- ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
- */*) printf '%s' "${n%%/*}" ;;
- *) printf '' ;;
- esac
-}
-
 _apply_env_bridge() {
  local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
  printenv "$to" >/dev/null 2>&1 && return 0
@@ -326,50 +316,14 @@ apply_env_bridges() {
  _apply_env_bridge GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
 }
 
-_apply_model_bridge() {
- local targets="$1" roles="$2" default="$3" transform="$4" want="$5"
- local val="" r t got
- local -a role_list target_list
- IFS=',' read -ra role_list <<< "$roles"
- for r in "${role_list[@]}"; do
-  val="$(printenv "$r" 2>/dev/null || true)"
-  [[ -n "$val" ]] && break
- done
- if [[ -z "$val" && -n "$default" && "$default" != "-" ]]; then
-  case "$default" in
-  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
-  *) val="$default" ;;
-  esac
- fi
- [[ -n "$val" ]] || return 0
- # SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
- if [[ -n "$want" && "$want" != "-" ]]; then
-  got="$(_model_provider "$val")"
-  if [[ -n "$got" && "$got" != "$want" ]]; then
-   echo "⚠️  model: $targets takes models from $want only — refusing $val, which resolves to $got. The slot is left unset, so the agent falls back to its own default; name a model from $want, or run a harness that accepts $got." >&2
-   return 0
-  fi
- fi
- case "$transform" in
- normalize) val="$(_normalize_model "$val")" ;;
- bare) val="${val##*/}" ;;
+_model_provider() {
+ local n
+ n="$(_normalize_model "$1")"
+ case "$n" in
+ ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
+ */*) printf '%s' "${n%%/*}" ;;
+ *) printf '' ;;
  esac
- IFS=',' read -ra target_list <<< "$targets"
- for t in "${target_list[@]}"; do
-  printenv "$t" >/dev/null 2>&1 && continue
-  export "$t=$val"
- done
-}
-
-apply_model_bridges() {
- local harness="$1"
- local file="${PROVEO_BRIDGES_DIR:-/opt/proveo/bridges}/$harness.tsv"
- [[ -f "$file" ]] || return 0
- local slot targets roles default transform want
- while IFS=$'\t' read -r slot targets roles default transform want; do
-  [[ -n "$slot" && "$slot" != \#* ]] || continue
-  _apply_model_bridge "$targets" "$roles" "$default" "$transform" "$want"
- done < "$file"
 }
 
 _proveo_auto_install_enabled() {

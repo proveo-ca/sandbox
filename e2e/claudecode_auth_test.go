@@ -225,12 +225,12 @@ func childEnvArgsFor(t *testing.T, keep string) []string {
 func writeSingleCredentialEnv(t *testing.T, keep string) string {
 	t.Helper()
 	var b strings.Builder
+	// ONE credential and nothing else. The role names used to be forwarded here so
+	// the harness would land on the provider this key pays for; proveo no longer
+	// chooses a model, so forwarding them steers nothing and only re-exports the
+	// operator's shell into a test fixture.
+	// SPEC: _spec/_plans/retire-model-bridging.puml
 	fmt.Fprintf(&b, "%s=%s\n", keep, hostEnvValue(t, keep))
-	for _, k := range []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"} {
-		if v := hostEnvValue(t, k); v != "" {
-			fmt.Fprintf(&b, "%s=%s\n", k, v)
-		}
-	}
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)

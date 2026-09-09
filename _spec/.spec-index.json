@@ -163,6 +163,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/operator-fingerprint.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/capability-ladder.puml",
       "covers": [
         "e2e/ladder_test.go",
@@ -337,6 +342,34 @@
     {
       "spec": "_spec/_plans/workspace-env-key.puml",
       "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/retire-model-bridging.puml",
+      "covers": [
+        "internal/provider/roles.go",
+        "internal/entrypoint/**",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/model_bridging_retired_test.go",
+        "defs/opencode/sample_opencode.json",
+        "defs/opencode/defaults/opencode.json",
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/tests/test_config.sh",
+        "defs/opencode/tests/test_defaults.sh",
+        "defs/cursor/tests/test_config.sh",
+        "CODING_HARNESSES.md"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/host-held-provider-keys.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/secret.go",
+        "internal/sbx/run.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/entrypoint/entrypoint.go"
+      ],
       "fingerprint": null
     },
     {
@@ -694,8 +727,7 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
-        "internal/run/choices.go",
-        "internal/provider/slots.go"
+        "internal/run/choices.go"
       ],
       "fingerprint": null
     },
@@ -801,10 +833,8 @@
     {
       "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
       "covers": [
-        "defs/bridges/**",
-        "internal/provider/slots.go",
         "internal/entrypoint/**",
-        "internal/contract/model_slots_test.go",
+        "internal/contract/model_bridging_retired_test.go",
         "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
@@ -910,6 +940,7 @@
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/ptyproxy_test.go",
+        "internal/ptyproxy/drain_test.go",
         "e2e/review_tier_test.go",
         "cmd/proveo/main.go"
       ],
@@ -1103,6 +1134,27 @@
         "internal/clean/sandbox_liveness_test.go",
         "e2e/resume_test.go",
         "e2e/clone_output_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/kit-domain-form.puml",
+      "covers": [
+        "internal/sbx/domain.go",
+        "internal/sbx/domain_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/domain_form_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/own_agent_test.go",
+        "internal/backend/sandbox/provider_gate_test.go",
+        "e2e/ladder_test.go",
+        "internal/sbx/kit.go"
       ],
       "fingerprint": null
     },

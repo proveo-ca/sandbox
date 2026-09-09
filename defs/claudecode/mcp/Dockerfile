@@ -102,7 +102,6 @@ COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/proveo-lib/ /opt/proveo/lib/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/defaults/ /opt/claudecode/defaults/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/subagents/ /opt/proveo/subagents/
-COPY --chown=${USER_NAME}:${USER_NAME} defs/bridges/ /opt/proveo/bridges/
 
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY AGENTS.md /etc/claude-code/CLAUDE.md

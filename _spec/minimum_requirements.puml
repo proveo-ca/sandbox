@@ -5,6 +5,37 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/sbx.go
 ' covers: e2e/capacity_test.go
 ' covers: internal/sbx/limits.go
+' covers: internal/sbx/policy.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/memory_evidence_test.go
+'
+' ── REVISED 2026-09-08: proveo NO LONGER DECLARES A DEFAULT SHARE ──────────
+' Everything below about VMs sizing at boot is still true. What changed is the
+' conclusion drawn from it, and it changed because the derivation was WRONG in a
+' way this file recorded without noticing.
+'
+' THE BUG IS VISIBLE IN THIS FILE'S OWN MEASURED TABLE. It reads
+' "Daemon MemTotal: 23.5 GiB (the docker VM's share, not the host's)" and then
+' halves that to reach -m 12031m. But sbx's own factory default is HALF THE
+' HOST. Halving a number that is already the Docker VM's share of a 48 GiB
+' machine handed every sandbox roughly a QUARTER of the host where sbx would
+' have given half. proveo was not partitioning the machine; it was partitioning
+' a partition, and calling the result a policy.
+'
+' The cost lands on exactly the defs that need it most: every image labelled
+' `com.docker.sandboxes.start-docker` runs dockerd INSIDE the guest, and its
+' nested containers draw on the SAME budget — there is no second pool, and the
+' image layers spend guest page cache besides. Agents were freezing at a ceiling
+' proveo invented.
+'
+' SO THE DEFAULT IS NOW NO -m AT ALL. sbx sizes the sandbox; the OS the guest
+' runs is the thing placed to spend it. proveo declares a share only when the
+' operator declares an INSTANCE COUNT to divide by, which is the one case where
+' proveo knows something sbx does not. PROVEO_SBX_MEMORY still overrides
+' outright. Pre-diagnosing the number was worth less than the headroom it cost.
+'
+' CPULimit is deliberately untouched. The asymmetry section below already
+' explains why the two knobs never agreed, and nothing here changes it.
 '
 ' ── WHY DECLARE A SHARE AT ALL ─────────────────────────────────────────────
 ' The obvious objection is the right one to answer first: an OS allocates memory
@@ -34,10 +65,36 @@ skinparam noteTextAlignment left
 ' ── THIS IS SECOND-BEST, AND SHOULD BE LABELLED AS SUCH ────────────────────
 ' The first-best answer IS on-demand, and it exists: free-page reporting and
 ' memory ballooning let a guest hand pages back so the host can re-lend them.
-' proveo declares a share because it cannot currently negotiate one, NOT because
-' a static partition is the better design. If sbx exposes ballooning, the right
-' move is to stop dividing and start reclaiming, and this diagram should be
-' rewritten rather than tuned.
+' proveo cannot negotiate one, NOT because a static partition is the better
+' design. If sbx exposes ballooning, the right move is to stop dividing and
+' start reclaiming, and this diagram should be rewritten rather than tuned.
+'
+' CHECKED 2026-09-08, and the answer is still no. sbx offers --memory at create
+' and run only — no resize, no hotplug, no balloon — and docker/sbx-releases has
+' NO ballooning or free-page-reporting request open at all. The nearest tracked
+' thing is #447, asking for zram (compressed swap in RAM), and it is blocked at
+' the kernel: the guest is 6.12.44 built with CONFIG_ZRAM, CONFIG_ZSWAP and
+' CONFIG_MODULES all off, so zram cannot even be loaded as a module.
+'
+' MEASURED inside a live sandbox the same day: SwapTotal 0. There is no swap of
+' any kind. That is what makes the cliff a cliff — a guest under pressure has
+' nowhere to spill, so it does not slow down, it OOM-kills.
+'
+' ── AND THE KILL IS NOW READABLE, WHICH IT WAS NOT ─────────────────────────
+' This file complained that a memory death is "invisible in exactly the place an
+' operator would look". Teardown now looks. CaptureMemoryEvidence runs beside
+' CapturePolicyLog and writes memory-evidence.txt: /proc/meminfo, the dmesg
+' lines naming an OOM kill, and the nested containers sharing the budget.
+'
+' WHERE THE EVIDENCE HAD TO COME FROM, measured rather than assumed:
+'   dmesg IS readable in the guest, and is the ONLY record of an OOM kill
+'   cgroup-v2 at the root reads EMPTY — memory.max, memory.current and
+'     memory.events all return nothing, so there is no oom_kill counter
+'   `vminitd (NNN): drop_caches: 3` recurring is the RECLAIM that precedes a
+'     kill; it is captured but never warned on, because warning on pressure
+'     that every healthy run produces teaches an operator to ignore the warning
+' Only an actual kill raises its voice, and it names PROVEO_SBX_MEMORY when it
+' does — a diagnosis with no lever is half a message.
 '
 ' ── CPU IS NOT MEMORY, AND IS DELIBERATELY NOT PARTITIONED ─────────────────
 ' The two knobs look symmetrical. The arguments behind them are not, and reading
@@ -66,7 +123,10 @@ skinparam noteTextAlignment left
 ' Host: Apple M4 Pro, 48 GiB, 14 cores — 10 performance + 4 efficiency, no SMT,
 ' so hw.ncpu 14 is ALL of the machine and not half of a hyperthreaded 7.
 ' Daemon MemTotal: 23.5 GiB (the docker VM's share, not the host's).
-'   default (no knob)        -m 12031m   x4 = 47.0 GiB     no --cpus: 14 each
+' The first row is what the 2026-09-08 revision changed; the rest still hold,
+' and they are the rows where an operator declared something.
+'   default (no knob)        NO -m       sbx: half the HOST  no --cpus: 14 each
+'     was                    -m 12031m   half of half — the quarter-host bug
 '   PROVEO_SBX_INSTANCES=4   -m  6015m   x4 = 23.5 GiB     --cpus 7  (x4 = 28)
 '   PROVEO_SBX_MEMORY=8g     -m  8192m   x4 = 32.0 GiB     --cpus unchanged
 ' Setting nothing changes nothing: the historical half stays the default, because

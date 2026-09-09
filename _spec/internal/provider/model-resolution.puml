@@ -1,4 +1,13 @@
 @startuml
+' ── Q4 OF retire-model-bridging IS OPEN AGAINST THIS FILE ──────────────────
+' 2026-09-09: proveo no longer resolves a model id — the bridging that consumed
+' this catalog was deleted (_spec/_plans/retire-model-bridging.puml, APPLIED).
+' The catalog and .claude/skills/sync-models were deliberately NOT touched,
+' because Q4 was never asked: do they retire too, or survive as VALIDATION,
+' warning that a saved config names a model that no longer exists? Until that is
+' answered this describes machinery with no reader, which is exactly the state
+' this repo calls a dead row elsewhere.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how a loose operator intent becomes an id a harness accepts, in two phases
 ' covers: internal/provider/roles.go, internal/provider/roles_test.go

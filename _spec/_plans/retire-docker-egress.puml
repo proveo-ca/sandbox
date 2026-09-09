@@ -56,6 +56,16 @@ skinparam noteTextAlignment left
 '    because the broker can inject a credential as `?key=`. That is the half
 '    the proposal would keep, and it is already the safe half.
 '
+' 5. SQUID ENFORCES ON EXACTLY ONE BACKEND, and that is now traced rather than
+'    asserted. `provider.Entry.ACL` has ONE reader, `provider.ACLBody`
+'    (provider.go:157), read only by `internal/egress` (egress.go:25) on its
+'    way to `StageSquidConfig`. The embedded config reaches `dockeregress.Exec`
+'    (run.go:847) and nothing else. `internal/backend/sandbox` imports no
+'    egress package at all, and `run.hopOf` (topology.go:79) returns
+'    "sbx proxy" before it can reach "mitm + squid". So on sbx there is no
+'    Squid hop to widen, narrow or blame — which is WHY a Squid ACL form could
+'    leak into a glob matcher and stay invisible for the life of that backend.
+'
 ' ── THE FORCING EXAMPLE — A DEFECT MEASURED TODAY ──────────────────────────
 ' This is the clearest argument that having two models has a running cost, and
 ' it is recorded verbatim rather than paraphrased.
@@ -71,12 +81,50 @@ skinparam noteTextAlignment left
 '       EgressTier: p.Mode
 '   which is proveo's DOCKER-backend tier.
 '
-' So an sbx run PRINTS `egress tier: open` while WRITING a narrow allowlist
-' that `open` cannot widen. An operator with an allow-all host baseline found
-' `https://api.x.ai/v1/models/` blocked and reasonably expected "open" to mean
-' open. `.x.ai` is in `internal/provider/provider.go` as both an ACL
-' (`dstdomain .x.ai`) and a broker host — but it only enters the Kit allowlist
-' if the run DETECTS an x.ai key, and no tier can add it.
+' So an sbx run PRINTS `egress tier: open` while WRITING an allowlist the tier
+' cannot touch. THAT MUCH STANDS. What that allowlist then DOES was recorded
+' wrongly here, and the correction is written below rather than in place,
+' because the wrong reading is the intuitive one and will be reached again.
+'
+' ── CORRECTED 2026-09-08: THE x.ai CASE WAS NEVER A REACH DENIAL ───────────
+' THE OLD READING, kept verbatim so it is not silently rewritten: "An operator
+' with an allow-all host baseline found `https://api.x.ai/v1/models/` blocked
+' and reasonably expected 'open' to mean open ... that domain enters the Kit
+' only if a key is DETECTED, and no tier can add it."
+'
+' IT CANNOT HAVE BEEN A REACH DENIAL, and the refutation was already written
+' one directory away. _spec/internal/sbx/policy-baseline.puml: "a Kit ADDS
+' allow rules on top of the baseline; it cannot subtract". e2e/sbx_egress_test
+' .go SKIPS its confinement assertion when the baseline allows everything,
+' "so a Kit allowlist cannot narrow anything". On an allow-all host the Kit
+' allowlist is INERT for reach. Two files disagreed; this one was wrong.
+'
+' THE MEASURED CAUSE IS A DOMAIN FORM, not a tier. Docker's kit reference
+' enforces THREE patterns — exact host `api.example.com`, `host:port`, and the
+' single-label wildcard `*.example.com` (`**.example.com` is "parsed;
+' enforcement pending") — and warns that `example.com` and `*.example.com` DO
+' NOT COVER EACH OTHER. proveo emits neither form. `provider.Entry.Hosts`
+' holds Squid `dstdomain` bodies (`.x.ai`, `.cursor.sh`) and `ResolveWith`
+' returns them verbatim (provider.go:211) into BOTH the Kit allowlist
+' (sandbox.go:492) and `inject[].domain` (sandbox.go:946). A leading dot is
+' not a pattern sbx enforces. It matches NOTHING.
+'
+' WHY THAT READS AS "BLOCKED" RATHER THAN AS AN EMPTY ALLOWLIST: SPEC-v2
+' requires every `credentials[].apiKey.inject[].domain` to "also be allowed in
+' permissions.network". The domain matches nothing, so the credential is never
+' injected and the request leaves as an UNAUTHENTICATED tunnel. The agent
+' reports the provider's refusal, and the operator reads it as egress.
+'
+' MEASURED in a live sandbox on an allow-all baseline: sbx MITMs ONLY what it
+' holds a credential for. `github.com` (GH_TOKEN) answers `HTTP/1.0 200 OK`
+' with ALPN unnegotiated — TLS terminated. `api.x.ai` and `api2.cursor.sh`
+' answer `200 Connection established` and negotiate `h2` — a plain CONNECT
+' tunnel carrying the ORIGIN certificate, which is injection never happening.
+'
+' WHAT THE CORRECTION COSTS THIS PLAN: nothing structural. The split between a
+' printed tier and a written allowlist is still real and still MEASURED. What
+' changes is that x.ai is not evidence FOR it — it is evidence for Q4, which is
+' larger than a field losing its reader.
 '
 ' `WarnBaseline` (internal/backend/sandbox/sandbox.go:868) already half-admits
 ' this: "the tier below describes proveo's intent, not what sandboxd will
@@ -114,6 +162,12 @@ skinparam noteTextAlignment left
 '     deleted, or is it the only machine-readable statement of a provider's
 '     domain set and therefore worth keeping under a different name? Deleting a
 '     field is easy; deleting the only place a fact is written down is not.
+'     UPDATED 2026-09-08: this is no longer only a field losing its reader. The
+'     ACL's SYNTAX has ALREADY leaked into `Hosts` — the field the sbx Kit
+'     consumes — and that leak is the measured cause of the forcing example
+'     above. Deleting `ACL` would not undo it. The two fields need different
+'     FORMS, not merely different names, and `Hosts` needs its own regardless
+'     of how Q1 or the deletion itself is decided.
 '
 ' Q5. WHAT ACTUALLY UNBLOCKS secret-custody (d)? (d) is "a plaintext credential
 '     in a mounted file". Deleting the backend removes the mounted-home shape.
@@ -180,11 +234,11 @@ note top of DEFECT
 end note
 
 note bottom of DEFECT
-  **The x.ai case is the forcing example.**
-  An allow-all host baseline, tier ""open"", and
-  ""api.x.ai/v1/models/"" blocked anyway: that
-  domain enters the Kit only if a key is DETECTED.
-  "Open" named an intent nobody enforced.
+  **CORRECTED. x.ai was never a reach denial.**
+  On an allow-all baseline a Kit cannot narrow.
+  "".x.ai"" is a Squid ""dstdomain"" form; sbx
+  enforces ""x.ai"" and ""*.x.ai"". It matches
+  nothing, so the credential is never injected.
 end note
 
 note top of DEFECT
@@ -278,6 +332,10 @@ legend bottom
   ==
   **The one thing this file DOES settle**: secret-custody's item (d) now cross-references
   a real path instead of an unnamed future decision, in both directions.
+  --
+  **What the 2026-09-08 revision settled**: the forcing example was MISATTRIBUTED. The
+  defect it names is real; x.ai is not an instance of it. Squid's reach is now traced
+  (MEASURED 5) rather than assumed, and Q4 grew a prerequisite that waits on nothing here.
   --
   **The one thing it hands off**: what ""PROVEO_SBX=0"" would then mean is a separate and
   larger question, because the answer stops being "a container". See

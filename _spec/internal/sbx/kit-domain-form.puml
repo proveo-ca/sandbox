@@ -1,0 +1,183 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the domain FORM the sbx Kit enforces, and the Squid form proveo used to emit into it
+' covers: internal/sbx/domain.go
+' covers: internal/sbx/domain_test.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/sandbox_test.go
+' The Kit schema this serves: sbx-kit-contract.puml (same directory).
+' Why an allow-all baseline hid it: policy-baseline.puml (same directory).
+' The plan whose forcing example this corrects: _spec/_plans/retire-docker-egress.puml
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   kit reference : https://docs.docker.com/ai/sandboxes/customize/kit-reference/
+'   policy allow  : https://docs.docker.com/reference/cli/sbx/policy/allow/network/
+'   kit spec v2   : https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md
+'
+' ── THE ENFORCED PATTERN SET, QUOTED RATHER THAN PARAPHRASED ────────────────
+' The kit reference lists seven pattern shapes and marks only THREE enforced:
+'     api.example.com        exact host                    ENFORCED
+'     api.example.com:8080   exact host and port           ENFORCED
+'     *.example.com          single-label wildcard         ENFORCED
+'     **.example.com         multi-label wildcard          parsed; pending
+'     api.example.com:80-443 port range                    parsed; pending
+'     api.example.com:*      port wildcard                 parsed; pending
+'     10.0.0.0/8             CIDR                          parsed; pending
+' And the CLI reference warns, in its own words: "example.com and *.example.com
+' don't cover each other. You must specify both if you need to match the root
+' domain and its subdomains."
+'
+' A LEADING DOT IS NOT ON THAT LIST. `.example.com` is Squid `dstdomain`
+' notation, where it means "this domain and every subdomain". sbx has no such
+' shape, so the pattern matches nothing at all — not the apex, not a subdomain.
+'
+' ── WHAT proveo EMITTED, AND WHY NOBODY SAW IT ──────────────────────────────
+' `provider.Entry` carries TWO domain fields that look interchangeable and are
+' not. `ACL` is a Squid body (`dstdomain .x.ai`); `Hosts` is the list the broker
+' strips and injects on. Both were authored in Squid's vocabulary, because Squid
+' was the only consumer when they were written.
+'
+' `Hosts` later acquired a SECOND consumer with a different grammar: the sbx Kit.
+' `ResolveWith` returns `e.Hosts` verbatim, and sandbox.Spec copied that list
+' into `permissions.network.allow` and into `credentials[].apiKey.inject[]
+' .domain` with no translation. So a run emitted:
+'     allow: [".cursor.com", ".cursor.sh"]
+' which is three valid YAML strings and zero enforceable patterns.
+'
+' IT WAS INVISIBLE FOR TWO INDEPENDENT REASONS, and both are worth keeping:
+'   REACH NEVER FAILED. On an allow-all host baseline a Kit ADDS allow rules and
+'     cannot subtract (policy-baseline.puml), so a malformed allowlist costs
+'     nothing an operator would notice. e2e/sbx_egress_test.go SKIPS its
+'     confinement assertion on such a host for exactly this reason.
+'   THE PROBE THAT LOOKED AT IT ASKED THE WRONG QUESTION. sbx-kit-capabilities
+'     .puml records "The SUFFIX-PATTERN domain is accepted" — measured with
+'     `sbx run credprobe-own`, which proves the kit PARSES. Parsing is not
+'     matching. A pattern that matches nothing still parses.
+'
+' ── WHAT ACTUALLY BREAKS, AND IT IS NOT REACH ───────────────────────────────
+' SPEC-v2 on `inject[].domain`: "Domain to inject the credential into. Must also
+' be allowed in permissions.network." The domain matches no request, so the
+' proxy never injects, and the request leaves as an unauthenticated tunnel.
+'
+' MEASURED inside a live sandbox on an allow-all baseline — sbx MITMs ONLY the
+' hosts it holds a credential for, and the CONNECT reply says which is which:
+'     github.com       HTTP/1.0 200 OK              ALPN unnegotiated  -> MITM
+'     api.x.ai         200 Connection established   ALPN h2            -> tunnel
+'     api2.cursor.sh   200 Connection established   ALPN h2            -> tunnel
+' A tunnel carrying the ORIGIN certificate is injection that never happened.
+' The agent then reports the PROVIDER's refusal, which reads to an operator as
+' an egress denial. That misreading is the whole defect.
+'
+' ── THE RULE THIS FILE FIXES ────────────────────────────────────────────────
+' Translate at the Kit boundary, and ONLY there. `Entry.ACL` keeps Squid's
+' vocabulary because Squid still consumes it on the docker backend; `Entry.Hosts`
+' keeps its stored form because the broker's strip/inject matching is its own.
+' `sbx.AllowPatterns` is the one place the two grammars meet.
+'
+'   ".x.ai"          -> "x.ai", "*.x.ai"    both, because neither covers the other
+'   "api2.cursor.sh" -> "api2.cursor.sh"    a bare host means exactly that host
+'   "openrouter.ai"  -> "openrouter.ai"     never widened: the registry already
+'                                           lists the wildcard half separately
+'   "*.example.com"  -> "*.example.com"     already sbx's grammar; passed through
+'   "**"             -> "**"                allow-all is a pattern, not a host
+'   ".x.ai:443"      -> "x.ai:443", "*.x.ai:443"   the port rides both halves
+'
+' NOT WIDENING A BARE HOST is the load-bearing half. Squid's leading dot is an
+' explicit statement that subdomains are included; a bare host is an explicit
+' statement that they are not. Adding `*.foo` to every `foo` would grant reach
+' the registry never asked for, and would do it silently.
+'
+' ── WHAT IS MEASURED HERE AND WHAT IS NOT ───────────────────────────────────
+' MEASURED: the enforced pattern table (quoted above), the MITM/tunnel split
+' (curl through the sandbox proxy), and that the emitted allowlist carried the
+' leading-dot form (cmd/proveo/testdata/plan/sbx-cursor-forward.golden).
+'
+' NOT MEASURED, and deliberately named rather than assumed: whether `*.x.ai` is
+' accepted in `inject[].domain` specifically. The reference documents ONE domain
+' vocabulary and requires inject domains to also appear in permissions.network,
+' so the same grammar is the only coherent reading — but the probe that would
+' settle it needs a live sbx and a dummy key, the way the credprobe did. Until
+' then this file claims the allowlist half only.
+title sbx Kit domain form — where Squid's grammar stops and sbx's begins
+
+package "internal/provider" as PROV <<host>> {
+  component "Entry.ACL\n""dstdomain .x.ai""" as ACL <<app>>
+  component "Entry.Hosts\n"".x.ai""" as HOSTS <<app>>
+}
+
+component "sbx.AllowPatterns\nthe one translation point" as XLATE <<app>>
+
+package "the two consumers" as CONS <<host>> {
+  component "Squid\ndocker backend only" as SQUID <<app>>
+  component "sbx Kit\npermissions.network.allow\ncredentials[].inject[].domain" as KIT <<app>>
+}
+
+cloud "sbx proxy\n""gateway.docker.internal:3128""" as PROXY <<cloud>>
+
+component "**the defect**\n"".x.ai"" matches nothing" as BUG <<error>>
+
+ACL ARROW_MAIN SQUID : unchanged — Squid's own grammar
+HOSTS ARROW_MAIN XLATE
+XLATE ARROW_MAIN KIT : ""x.ai"" + ""*.x.ai""
+KIT ARROW_MAIN PROXY
+HOSTS ARROW_ERROR BUG : before: copied verbatim
+BUG ARROW_ERROR PROXY : credential never injected
+
+note bottom of BUG
+  **Reach never failed, so nobody looked.**
+  On an allow-all baseline a Kit adds and
+  cannot subtract. A malformed allowlist
+  costs nothing visible — until a credential
+  has to match one of its entries.
+end note
+
+note top of XLATE
+  **Both halves, or neither.**
+  ""example.com"" and ""*.example.com"" do not
+  cover each other — the CLI reference says so
+  outright. A leading dot meant both in Squid,
+  so it must become both here.
+end note
+
+note bottom of XLATE
+  **A bare host is never widened.**
+  Squid's dot SAYS subdomains are included;
+  its absence says they are not. Adding
+  ""*.foo"" to every ""foo"" would grant reach
+  the registry never asked for.
+end note
+
+note right of KIT
+  **SPEC-v2 ties the two fields together.**
+  ""inject[].domain"" must ALSO appear in
+  ""permissions.network"". So a pattern that
+  matches nothing does not merely fail to
+  allow — it fails to authenticate.
+end note
+
+note bottom of PROXY
+  **The CONNECT reply names the mode.**
+  ""200 OK"" with ALPN unnegotiated is a
+  terminated (injected) leg; ""200 Connection
+  established"" with ""h2"" is a plain tunnel
+  carrying the origin certificate.
+end note
+
+legend bottom
+  **What this file settles**
+  ==
+  The sbx Kit enforces exact host, host:port and ""*.label"" — nothing else. Squid's
+  leading-dot ""dstdomain"" form is not a pattern sbx knows, and it reached the Kit
+  because ""Entry.Hosts"" grew a second consumer without growing a second form.
+  --
+  **The translation lives at the boundary**, not in the registry: ""Entry.ACL"" still
+  speaks Squid for the docker backend, and ""sbx.AllowPatterns"" is the only place the
+  two grammars meet.
+  ==
+  **Still open**: whether ""*.x.ai"" is accepted in ""inject[].domain"" specifically.
+  Named here rather than assumed, because the probe that proved suffix domains PARSE
+  never asked whether they MATCH.
+end legend
+@enduml

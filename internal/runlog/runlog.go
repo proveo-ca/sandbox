@@ -96,6 +96,12 @@ func (l *Log) Fields(section string, kv map[string]string) {
 
 const PolicyLogFile = "policy-log.json"
 
+// MemoryEvidenceFile is the guest's own account of its memory at teardown. A
+// sandbox that died of memory pressure leaves no OOMKilled flag and no exit
+// message, so without this the operator has nothing to read.
+// SPEC: _spec/minimum_requirements.puml
+const MemoryEvidenceFile = "memory-evidence.txt"
+
 // Artifacts records where the evidence for this run lives.
 func (l *Log) Artifacts(egDir string, sandboxed bool) {
 	if l == nil || l.f == nil || egDir == "" {
@@ -106,6 +112,7 @@ func (l *Log) Artifacts(egDir string, sandboxed bool) {
 			"session state": egDir,
 			"sandbox kit":   filepath.Join(egDir, "sbx", "kit", "spec.yaml"),
 			"policy log":    filepath.Join(egDir, "sbx", PolicyLogFile),
+			"memory":        filepath.Join(egDir, "sbx", MemoryEvidenceFile),
 			"enforcement":   "sbx — see `sbx policy log <sandbox>`, `sbx diagnose`; proveo runs no Squid or MITM here",
 		})
 		return

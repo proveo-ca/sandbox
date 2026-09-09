@@ -367,7 +367,6 @@ func runDeps() run.Deps {
 		ProvisionConfirm: provisionConfirm,
 		PreflightImages:  preflightImages,
 		SquidConfig:      proveo.SquidConfig,
-		ModelBridges:     proveo.ModelBridges,
 	}
 }
 

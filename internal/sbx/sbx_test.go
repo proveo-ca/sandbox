@@ -563,7 +563,11 @@ func TestReloadTemplateLoadsEvenWithAMatchingReceipt(t *testing.T) {
 
 var errNoDaemon = errors.New("cannot connect to the docker daemon")
 
-func TestMemoryLimitDerivesFromDaemonNotHost(t *testing.T) {
+// With no knob set, proveo declares NOTHING and sbx sizes the sandbox — half the
+// HOST. The old derivation halved `docker info MemTotal`, which is already only
+// the Docker VM's share of the host, so it handed out roughly a quarter.
+// SPEC: _spec/minimum_requirements.puml
+func TestMemoryLimitDefersToSbxWhenNoCountIsDeclared(t *testing.T) {
 	orig := sh.DockerMemTotal
 	defer func() { sh.DockerMemTotal = orig }()
 
@@ -571,26 +575,31 @@ func TestMemoryLimitDerivesFromDaemonNotHost(t *testing.T) {
 		name  string
 		out   string
 		err   error
-		want  string
 		about string
 	}{
-		{name: "vm smaller than host", out: "25232719872\n", want: "12031m",
-			about: "23.5 GiB VM on a 48 GiB host: half the VM, not half the host"},
-		{name: "caps at sbx ceiling", out: "137438953472", want: "32768m",
-			about: "128 GiB daemon would give 64 GiB; sbx caps at 32"},
-		{name: "too small to bound", out: "1073741824", want: "",
-			about: "a 1 GiB daemon says more about breakage than policy"},
-		{name: "daemon unreachable", err: errNoDaemon, want: ""},
-		{name: "unparseable", out: "not-a-number", want: ""},
-		{name: "zero", out: "0", want: ""},
+		{name: "vm smaller than host", out: "25232719872\n",
+			about: "23.5 GiB VM on a 48 GiB host — halving it again is the quarter-host bug"},
+		{name: "large daemon", out: "137438953472", about: "size is not proveo's call here"},
+		{name: "small daemon", out: "1073741824", about: "nor is smallness"},
+		{name: "daemon unreachable", err: errNoDaemon},
+		{name: "unparseable", out: "not-a-number"},
+		{name: "zero", out: "0"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv(EnvMemory, "")
 			t.Setenv(EnvInstances, "")
-			sh.DockerMemTotal = func() ([]byte, error) { return []byte(c.out), c.err }
-			if got := MemoryLimit(); got != c.want {
-				t.Errorf("MemoryLimit()=%q, want %q (%s)", got, c.want, c.about)
+			called := false
+			sh.DockerMemTotal = func() ([]byte, error) {
+				called = true
+				return []byte(c.out), c.err
+			}
+			if got := MemoryLimit(); got != "" {
+				t.Errorf("MemoryLimit()=%q, want \"\" so sbx applies its own default (%s)", got, c.about)
+			}
+			if called {
+				t.Error("the daemon was consulted on the default path — there is nothing to " +
+					"derive from it, and a bounded shell-out per run buys nothing")
 			}
 		})
 	}
@@ -604,14 +613,14 @@ func TestMemoryLimitDividesByTheIntendedInstanceCount(t *testing.T) {
 	for _, c := range []struct {
 		name, instances, want, about string
 	}{
-		{"unset keeps the historical half", "", "12031m",
-			"nobody who set nothing gets a behaviour change"},
+		{"unset declares nothing", "", "",
+			"no count means no share to compute; sbx sizes it"},
 		{"one sandbox", "1", "24063m", "the whole daemon when it is the only one"},
-		{"two is the default", "2", "12031m", "explicit 2 and unset must agree"},
+		{"two sandboxes", "2", "12031m", "half the daemon each"},
 		{"four sandboxes", "4", "6015m", "4 x 6015m = 23.5 GiB, the daemon exactly"},
-		{"zero is not a count", "0", "12031m", "a nonsense divisor falls back, never to infinity"},
-		{"negative", "-4", "12031m", "as above"},
-		{"not a number", "lots", "12031m", "a typo must not starve every sandbox"},
+		{"zero is not a count", "0", "", "a nonsense divisor is not a declaration; sbx decides"},
+		{"negative", "-4", "", "as above"},
+		{"not a number", "lots", "", "a typo must not silently pick a number for the operator"},
 		{"absurd count yields to sbx", "64", "", "the share is under the floor, so sbx's own default applies"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -641,9 +650,9 @@ func TestMemoryLimitTakesAnExplicitCapOverTheDerivation(t *testing.T) {
 		{name: "above sbx's ceiling", mem: "64g", want: "32768m", about: "clamped to the 32 GiB cap"},
 		{name: "below the floor", mem: "128m", want: "",
 			about: "yields to sbx rather than setting a limit no sandbox starts under"},
-		{name: "malformed falls back to the derivation", mem: "eight gigs", want: "12031m",
-			about: "sbx would reject it mid-run, naming a flag and not the variable behind it"},
-		{name: "negative", mem: "-8g", want: "12031m", about: "as above"},
+		{name: "malformed declares nothing", mem: "eight gigs", want: "",
+			about: "an unreadable cap is not a cap; sbx sizes it rather than proveo guessing"},
+		{name: "negative", mem: "-8g", want: "", about: "as above"},
 		{name: "explicit cap survives an unreachable daemon", mem: "8g", want: "8192m",
 			daemonErr: errNoDaemon, about: "never consults the daemon at all"},
 	} {
@@ -1107,5 +1116,47 @@ func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("a read-only daemon call never returned within %v — it is not bounded", ceiling)
 		}
+	}
+}
+
+// SPEC: _spec/minimum_requirements.puml
+func TestMemoryEvidenceAsksTheGuestAndNamesAKill(t *testing.T) {
+	t.Parallel()
+	args := MemoryEvidenceArgs("proveo-1")
+	if got, want := strings.Join(args[:4], " "), "exec -w / proveo-1"; got != want {
+		t.Errorf("MemoryEvidenceArgs prefix = %q, want %q", got, want)
+	}
+	// The three questions a memory freeze is actually answered by. dmesg is the
+	// only one of them that records an OOM at all.
+	for _, want := range []string{"/proc/meminfo", "dmesg", "SwapTotal", "docker ps"} {
+		if !strings.Contains(MemoryEvidenceScript, want) {
+			t.Errorf("the evidence script never asks about %q", want)
+		}
+	}
+}
+
+func TestOOMEvidenceSeparatesAKillFromMerePressure(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		out  string
+		want bool
+	}{
+		{"guest oom killer", "[12.3] Out of memory: Killed process 941 (node)", true},
+		{"cgroup kill", "[9.9] oom-kill:constraint=CONSTRAINT_NONE", true},
+		{"reaper", "oom_reaper: reaped process 941", true},
+		// Reclaim is what happens BEFORE a kill. Warning on it would cry wolf on
+		// every healthy run, and an operator who learns to ignore the warning
+		// gets nothing from it on the run that matters.
+		{"reclaim only", "vminitd (116): drop_caches: 3", false},
+		{"healthy", "MemTotal: 12157280 kB\nSwapTotal: 0 kB", false},
+		{"empty", "", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := OOMEvidence([]byte(c.out)); got != c.want {
+				t.Errorf("OOMEvidence(%q) = %v, want %v", c.out, got, c.want)
+			}
+		})
 	}
 }

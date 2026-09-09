@@ -65,7 +65,6 @@ RUN mkdir -p /workspace \
 
 COPY defs/opencode/defaults/ /opt/opencode/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/bridges/ /opt/proveo/bridges/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 COPY defs/lib/ /opt/proveo/lib/
 

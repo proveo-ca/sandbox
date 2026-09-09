@@ -207,8 +207,10 @@ func modelSaid(screen, prompt, token string) bool {
 	return strings.Contains(strings.ReplaceAll(flat(screen), flat(prompt), ""), flat(token))
 }
 
-// modelsLine matches the entrypoint preamble every harness prints once the
-// model aliases have been bridged into its own env (defs/*/entrypoint.sh).
+// modelsLine matches the entrypoint preamble every harness prints naming the
+// model it will actually run (defs/*/entrypoint.sh). Nothing bridges a role name
+// into it any more; on this lane each harness derives it from PROVEO_LOCAL_MODEL.
+// SPEC: _spec/_plans/retire-model-bridging.puml
 var modelsLine = regexp.MustCompile(`PROVEO_MODELS main=(\S+) small=(\S+)`)
 
 var bootFailures = []string{
@@ -260,7 +262,7 @@ func linesMatching(screen, sub string, max int) string {
 	return strings.Join(hits, "\n")
 }
 
-// every alias (_spec/internal/entrypoint/model-alias-bridges.puml), so main and
+// assertModels pins the one thing --local-model still gets to decide.
 func assertModels(t *testing.T, model, models, screen string) {
 	t.Helper()
 	if models == "" {
@@ -274,8 +276,8 @@ func assertModels(t *testing.T, model, models, screen string) {
 	for _, tier := range []struct{ name, got string }{{"main", gotMain}, {"small", gotSmall}} {
 		if bareModel(tier.got) != want {
 			t.Errorf("%s model in container = %q, want the local model %q — "+
-				"--local-model outranks every alias, so a tier that still holds "+
-				"something else means the override only half-applied", tier.name, tier.got, want)
+				"each harness names its own local model now that no bridge does it, so a "+
+				"tier holding something else means one of them stopped", tier.name, tier.got, want)
 		}
 	}
 	t.Logf("models bridged: main=%s small=%s", gotMain, gotSmall)

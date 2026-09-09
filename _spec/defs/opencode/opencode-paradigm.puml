@@ -53,7 +53,7 @@ DEV ARROW_MAIN CLI
 EP ARROW_MAIN CREW : seed missing only\n(""OPENCODE_RESEED=1"" forces)
 EP ARROW_MAIN MD : seed when absent
 EP ARROW_MAIN LSP : detect workspace languages
-EP ARROW_MAIN CLI : " ""OPENCODE_MODEL"" · ""OPENCODE_BUILD_MODEL"" \n""OPENCODE_SMALL_MODEL"" (provider-prefixed) "
+EP ARROW_MAIN CLI : " opencode.json in the durable home \n(no model env; ""--local-model"" writes one) "
 CLI ARROW_MAIN BUILD : implement
 BUILD ARROW_MAIN WS
 CLI ARROW_OPTIONAL PLAN : specs and step lists
@@ -71,11 +71,11 @@ end note
 
 note bottom of EP
   Model ids are **provider-prefixed** here
-  (""anthropic/claude-…""); ""apply_env_bridges"" normalizes a
-  bare id and fills the small slot from ""EDITOR_MODEL""
-  first, ""SMALL_MODEL"" second — the one harness whose
-  tier mapping differs
-  (_spec/internal/entrypoint/model-alias-bridges.puml).
+  (""anthropic/claude-…""). **proveo does not choose one.**
+  The bridge that filled these slots from role names is
+  RETIRED (_spec/_plans/retire-model-bridging.puml); the
+  model comes from opencode's own config in the durable
+  home, and the seed there names none.
 
   Supports ""--local-model"" (Ollama sidecar, litellm-free
   OpenAI-compatible endpoint). Docker now arrives as the

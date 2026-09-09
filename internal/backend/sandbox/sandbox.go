@@ -444,7 +444,6 @@ type Input struct {
 	CDPHostPort            int
 	Extra                  []string
 	Roles                  provider.Roles
-	Bridges                provider.BridgeTable
 	Evidence               string // was params.evidenceOrDefault()
 	Forwards               bool   // was params.forwards()
 	Man                    manifest.Manifest
@@ -488,12 +487,25 @@ func Harness(in Input) string {
 }
 
 func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
+	// The registry speaks Squid's `dstdomain`; the Kit speaks sbx's patterns.
+	// This is the one place the two grammars meet, and it has to happen before
+	// anything is deduplicated — `.x.ai` and `x.ai` are one entry afterwards.
+	// SPEC: _spec/internal/sbx/kit-domain-form.puml
 	hosts := map[string]bool{}
-	for _, d := range strings.Fields(credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.Man.Capabilities.Hosts)) {
-		hosts[d] = true
+	addHost := func(h string) {
+		for _, p := range sbx.DomainPatterns(h) {
+			hosts[p] = true
+		}
 	}
-	for _, h := range credentials.ReachableHosts(in.Detected) {
-		hosts[h] = true
+	for _, d := range strings.Fields(credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.Man.Capabilities.Hosts)) {
+		addHost(d)
+	}
+	// Gated here as well as at run.go:433. agentCredentials and the env-var loop
+	// both re-check AllowsProvider; the allowlist used to trust its caller, so a
+	// forbidden provider kept its reach while losing its credential — reach the
+	// harness never needed and proveo never meant to grant.
+	for _, h := range credentials.ReachableHosts(credentials.FilterProviders(in.Detected, in.Man.Capabilities)) {
+		addHost(h)
 	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {
@@ -651,7 +663,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(append(env, ResolvedModelEnv(in)...),
+		Env: DeclineMCPGateway(Home(append(env,
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
@@ -722,15 +734,6 @@ func MCPGatewayAllowed() bool {
 		return true
 	}
 	return false
-}
-
-func ResolvedModelEnv(in Input) []string {
-	var out []string
-	for k, v := range in.Bridges.ResolvedEnv(in.Target, in.Roles) {
-		out = append(out, k+"="+v)
-	}
-	sort.Strings(out) // a Kit is written to disk and diffed; order must not churn
-	return out
 }
 
 func KitEnvVars(env []string) map[string]string {
@@ -812,6 +815,7 @@ func Run(in Input) error {
 	}
 	defer func() {
 		CapturePolicyLog(in.EgDir, cfg.Name)
+		CaptureMemoryEvidence(in.EgDir, cfg.Name)
 		if runErr != nil {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
@@ -900,6 +904,55 @@ func CapturePolicyLog(egDir, name string) {
 	ui.Storef("egress record: %s", path)
 }
 
+// CaptureMemoryEvidence writes the guest's own account of its memory beside the
+// policy log, and says so out loud when it names a kill.
+//
+// A sandbox is a VM with no swap: pressure does not degrade, it kills, and the
+// kill carries no OOMKilled flag and no exit message. _spec/minimum_requirements
+// .puml calls that "invisible in exactly the place an operator would look".
+// This is that place.
+//
+// Best effort throughout. The sandbox may already be gone, and a run that died
+// of memory pressure is the run least able to answer — so every failure here is
+// silent, because a teardown warning about teardown teaches nothing.
+// SPEC: _spec/minimum_requirements.puml
+// memoryEvidence is a var so a teardown test can state what the guest said
+// without a live sandbox — the same seam storedSecretNames uses, and for the
+// same reason: the branch that matters here fires only on an OOM, which is not
+// a thing a test can arrange for real.
+var memoryEvidence = sbx.MemoryEvidence
+
+func CaptureMemoryEvidence(egDir, name string) {
+	if egDir == "" || name == "" {
+		return
+	}
+	out, err := memoryEvidence(name)
+	if err != nil && len(bytes.TrimSpace(out)) == 0 {
+		return
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		return
+	}
+	dir := filepath.Join(egDir, "sbx")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	path := filepath.Join(dir, runlog.MemoryEvidenceFile)
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return
+	}
+	ui.Section(ui.SectionResults)
+	if sbx.OOMEvidence(out) {
+		// The whole reason this function exists: an OOM is otherwise a freeze
+		// with no cause, and the operator goes looking at the agent instead.
+		ui.Warnf("the guest kernel reported an out-of-memory kill — a sandbox has NO SWAP, "+
+			"so memory pressure kills rather than slows. Raise the ceiling with "+
+			"`PROVEO_SBX_MEMORY=16g` (capped at 32g) and see %s", path)
+		return
+	}
+	ui.Storef("memory evidence: %s", path)
+}
+
 func Selected(man manifest.Manifest) bool {
 	if !man.IsSbx() || !Enabled() {
 		return false
@@ -943,10 +996,16 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		if r.Bearer {
 			format = "Bearer %s"
 		}
-		inject := make([]sbx.KitCredInject, 0, len(r.Hosts))
+		// SPEC-v2 requires every inject domain to also appear in
+		// permissions.network.allow, so it has to be the SAME translated form —
+		// a domain sbx cannot match is a credential sbx cannot attach.
+		// SPEC: _spec/internal/sbx/kit-domain-form.puml
+		inject := make([]sbx.KitCredInject, 0, len(r.Hosts)*2)
 		for _, h := range r.Hosts {
-			inject = append(inject, sbx.KitCredInject{Domain: h, Header: r.Header, Format: format})
-			domains = append(domains, h)
+			for _, d := range sbx.DomainPatterns(h) {
+				inject = append(inject, sbx.KitCredInject{Domain: d, Header: r.Header, Format: format})
+				domains = append(domains, d)
+			}
 		}
 		creds = append(creds, sbx.KitCredential{
 			Service: name,

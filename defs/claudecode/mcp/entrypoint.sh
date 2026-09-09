@@ -26,8 +26,6 @@ load_env quiet
 ensure_git_safe_directory "$(pwd)"
 scope_git_worktree "$(pwd)"
 
-apply_model_bridges claudecode
-
 printf 'PROVEO_MODELS main=%s small=%s\n' \
   "${ANTHROPIC_MODEL:-unset}" "${ANTHROPIC_SMALL_FAST_MODEL:-unset}"
 

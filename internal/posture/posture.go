@@ -214,27 +214,19 @@ func Observability(mode, credentials string, sandboxed bool) string {
 	return "flows.ndjson + squid access.log"
 }
 
-func MergeRoles(explicit provider.Roles, remembered map[string]string) provider.Roles {
-	out := provider.Roles{}
-	for k, v := range provider.RolesFromCanonical(remembered) {
-		out[k] = v
-	}
-	for k, v := range explicit {
-		if _, set := out[k]; !set {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-func RolesLine(bridges provider.BridgeTable, harness string, r provider.Roles) string {
+// RolesLine renders the roles a run is carrying. It used to ask a bridge table
+// which slot each role became for this harness; proveo no longer maps roles onto
+// an agent's own variables, so there is nothing to consult and the roles are
+// reported as they stand.
+// SPEC: _spec/_plans/retire-model-bridging.puml
+func RolesLine(r provider.Roles) string {
 	var parts []string
-	for _, s := range bridges.EffectiveSlots(harness, r) {
-		if p := provider.ModelProvider(s.Model); p != "" {
-			parts = append(parts, fmt.Sprintf("%s=%s (%s)", s.Name, s.Model, p))
+	for _, kv := range r.Sorted() {
+		if p := provider.ModelProvider(kv[1]); p != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", kv[0], kv[1], p))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", s.Name, s.Model))
+		parts = append(parts, fmt.Sprintf("%s=%s", kv[0], kv[1]))
 	}
 	return strings.Join(parts, "  ")
 }
