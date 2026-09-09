@@ -74,6 +74,36 @@ skinparam noteTextAlignment left
 ' same shared `deliver()` path as everything else. `split()` and
 ' `classifyTerminalReport` are behaviourally unchanged by this.
 '
+' ── CPR IS THE SECOND SOLICITED CLASS, AND THE ARGUMENT IS THE SAME ───────
+' Added 2026-09-09, and it is the mouse lesson applied a second time rather than
+' a new idea. The rule below said of `dropReplies`: "On a prompt stream nothing
+' was ever asked, so the first copy is already one too many." That premise is
+' TRUE of the reports proveo's own overlay provokes and FALSE of a child that
+' asked for itself.
+'
+' MEASURED, from a cecli run's own startup:
+'     WARNING: your terminal doesn't support cursor position requests (CPR).
+'     Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:
+' prompt_toolkit sends `CSI 6n` and blocks on the answer. `keep()` classified the
+' `CSI 24;80R` reply as reportReply and `dropReplies` ate it, so the terminal
+' looked broken to the agent — and the agent then blocked STARTUP on a Y/N/D
+' prompt, which from outside is indistinguishable from a hang.
+'
+' So CPR gets what mouse got: a discriminator that is OBSERVED STATE, not a flag.
+' `cprTracker.observe` watches the CHILD'S OUTPUT for `CSI 6 n` (DSR-CPR) and
+' `CSI ? 6 n` (DECXCPR) — 6 only; `CSI 5 n` asks device status and is answered
+' with something else. Each query is one credit, spent by the next `CSI …R`,
+' and credits are capped at `maxOutstandingCPR` so a child that queries and never
+' reads cannot build a standing licence to forward stray reports.
+'
+' THE CREDIT IS PER CLASS. A cursor query licenses a cursor report and nothing
+' else: Device Attributes, DECRPM and the kitty flag report are still dropped
+' under `dropReplies`, because nothing asked for those.
+'
+' The CSI walk both watches need is now `csiScanner`, lifted verbatim out of
+' `mouseTracker.observe`. Each watcher holds its OWN scanner, so neither can
+' consume the other's carry across a split read.
+'
 ' ── THE MOUSE DISCRIMINATOR IS OBSERVED STATE, NOT A FLAG ──────────────────
 ' `Proxy.DropReports` is set on EVERY sbx agent run, and `ptyproxy.Usable`
 ' requires stdin AND stdout to be terminals — so the only production setter of
@@ -227,11 +257,12 @@ end note
 note left of FILT
   **Three rules, and the first one belongs to the BACKEND.**
 
-  ""dropReplies"" (""Proxy.DropReports"") — drop EVERY report. Set on the sbx
-  path and nowhere else. De-duplication cannot cover that backend, and the
-  reason is that it answers a different question: it decides which COPY is
-  surplus, having already granted that the first one is owed. On a prompt
-  stream nothing was ever asked, so the first copy is already one too many.
+  ""dropReplies"" (""Proxy.DropReports"") — drop every UNSOLICITED report. Set
+  on the sbx path and nowhere else. De-duplication cannot cover that backend:
+  it decides which COPY is surplus, having granted the first is owed, and
+  where nothing was asked the first copy is already one too many.
+  QUALIFIED 2026-09-09: a ""CSI …R"" whose ""CSI 6n"" was seen on the child's
+  own output IS owed, and outranks this. See the CPR section above.
 
   ""reportReply"" (default) — forward the FIRST, drop copies inside
   ""DefaultReplyWindow"" (2s). The application asked and is owed one answer;

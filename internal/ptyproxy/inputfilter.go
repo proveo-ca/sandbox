@@ -18,6 +18,11 @@ type inputFilter struct {
 	// mouse is fed from the child's OUTPUT stream by the out pump.
 	mouse mouseTracker
 
+	// cpr is the same idea for cursor-position queries: a `CSI …R` arriving on
+	// stdin is garbage UNLESS the child asked for it, and the asking is
+	// visible on the child's own output stream.
+	cpr cprTracker
+
 	mu     sync.Mutex
 	recent []seenReply
 }
@@ -57,6 +62,16 @@ func (f *inputFilter) keep(b []byte) bool {
 		}
 		return !f.dropReplies
 	case reportReply:
+		// SOLICITED, exactly like mouse. `dropReplies` rests on "on a prompt
+		// stream nothing was ever asked, so the first copy is already one too
+		// many" — true of the reports proveo's own overlay provokes, false of a
+		// child that sent `CSI 6n` and is blocked waiting. cecli's prompt_toolkit
+		// does exactly that and reports the withheld answer as
+		// "your terminal doesn't support cursor position requests (CPR)".
+		// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+		if isCursorPositionReport(b) && f.cpr.answered() {
+			return true
+		}
 		if f.dropReplies {
 			return false
 		}
@@ -165,7 +180,7 @@ type mouseTracker struct {
 	// touches today but which cannot be made atomic as a unit.
 	mu    sync.Mutex
 	modes uint16
-	carry []byte
+	scan  csiScanner
 }
 
 // maxModeCarry bounds the partial CSI held between two output reads.
@@ -174,13 +189,21 @@ const maxModeCarry = 128
 func (t *mouseTracker) enabled() bool { return t.on.Load() }
 
 // observe scans one chunk of child output for CSI ? Ps [;Ps…] h / l.
-func (t *mouseTracker) observe(b []byte) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+// csiScanner walks a child-output stream and hands each COMPLETE CSI to a
+// callback as (params-and-intermediates, final byte). It carries a sequence
+// split across two reads, bounded by maxModeCarry so a long run that never
+// reaches a final byte is dropped rather than hoarded.
+//
+// Extracted unchanged from mouseTracker.observe when cursor-position queries
+// needed the same walk. Each watcher keeps its OWN scanner, so neither can
+// consume the other's carry.
+type csiScanner struct{ carry []byte }
+
+func (s *csiScanner) scan(b []byte, fn func(params []byte, final byte)) {
 	buf := b
-	if len(t.carry) > 0 {
-		buf = append(t.carry, b...)
-		t.carry = nil
+	if len(s.carry) > 0 {
+		buf = append(s.carry, b...)
+		s.carry = nil
 	}
 	for i := 0; i < len(buf); {
 		if buf[i] != 0x1b {
@@ -188,7 +211,7 @@ func (t *mouseTracker) observe(b []byte) {
 			continue
 		}
 		if i+1 >= len(buf) {
-			t.hold(buf[i:])
+			s.hold(buf[i:])
 			return
 		}
 		if buf[i+1] != '[' {
@@ -200,21 +223,90 @@ func (t *mouseTracker) observe(b []byte) {
 			j++
 		}
 		if j == len(buf) { // the final byte is in the next read
-			t.hold(buf[i:])
+			s.hold(buf[i:])
 			return
 		}
-		if final := buf[j]; (final == 'h' || final == 'l') && buf[i+2] == '?' {
-			t.apply(buf[i+3:j], final == 'h')
-		}
+		fn(buf[i+2:j], buf[j])
 		i = j + 1
 	}
 }
 
-func (t *mouseTracker) hold(b []byte) {
+func (s *csiScanner) hold(b []byte) {
 	if len(b) > maxModeCarry {
 		return // too long to be a mode set: do not hoard the child's output
 	}
-	t.carry = append([]byte(nil), b...)
+	s.carry = append([]byte(nil), b...)
+}
+
+func (t *mouseTracker) observe(b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.scan.scan(b, func(params []byte, final byte) {
+		if (final == 'h' || final == 'l') && len(params) > 0 && params[0] == '?' {
+			t.apply(params[1:], final == 'h')
+		}
+	})
+}
+
+// maxOutstandingCPR bounds the credit a chatty child can build up. A query
+// nobody answered must not leave a permanent licence to forward stray reports.
+const maxOutstandingCPR = 8
+
+// cprTracker counts cursor-position queries the CHILD sent, so their answers
+// can be forwarded even where every unsolicited report is dropped.
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+type cprTracker struct {
+	// outstanding is written by observe() on the output pump and read by
+	// keep() on the input pump; atomic keeps the two off one lock.
+	outstanding atomic.Int32
+
+	mu   sync.Mutex
+	scan csiScanner
+}
+
+// observe watches for DSR-CPR: `CSI 6 n`, and DECXCPR's `CSI ? 6 n`. Only 6
+// asks for the cursor; `CSI 5 n` asks for device status and is answered with
+// something else entirely.
+func (t *cprTracker) observe(b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.scan.scan(b, func(params []byte, final byte) {
+		if final != 'n' {
+			return
+		}
+		if len(params) > 0 && params[0] == '?' {
+			params = params[1:]
+		}
+		if string(params) != "6" {
+			return
+		}
+		if t.outstanding.Load() < maxOutstandingCPR {
+			t.outstanding.Add(1)
+		}
+	})
+}
+
+// answered spends one outstanding query, reporting whether there was one.
+func (t *cprTracker) answered() bool {
+	for {
+		n := t.outstanding.Load()
+		if n <= 0 {
+			return false
+		}
+		if t.outstanding.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
+}
+
+// isCursorPositionReport is classifyTerminalReport's `R` case, asked of one
+// sequence. reportReply covers several shapes and only this one is solicited.
+func isCursorPositionReport(b []byte) bool {
+	if len(b) < 4 || b[0] != 0x1b || b[1] != '[' {
+		return false
+	}
+	body := b[2:]
+	return body[len(body)-1] == 'R' && isNumericParams(body[:len(body)-1])
 }
 
 func (t *mouseTracker) apply(params []byte, set bool) {

@@ -251,8 +251,9 @@ func (p *Proxy) pumpOutFrom(m io.Reader) {
 	}
 }
 
-// onChildOutput feeds the transcript tap and the mouse-tracking watch: the
-// child announces its mouse modes on the same stream it paints on.
+// onChildOutput feeds the transcript tap and the two observed-state watches:
+// the child announces its mouse modes, and asks for its cursor position, on
+// the same stream it paints on.
 // SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func (p *Proxy) onChildOutput(b []byte) {
 	if p.OutTap != nil {
@@ -260,6 +261,7 @@ func (p *Proxy) onChildOutput(b []byte) {
 	}
 	if !p.DisableFilter && p.filter != nil {
 		p.filter.mouse.observe(b)
+		p.filter.cpr.observe(b)
 	}
 }
 

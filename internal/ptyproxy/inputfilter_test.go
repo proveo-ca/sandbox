@@ -517,9 +517,99 @@ func TestMouseTrackerDoesNotHoardUnterminatedOutput(t *testing.T) {
 	f := newInputFilter()
 	f.mouse.observe(append([]byte("\x1b["), bytes.Repeat([]byte("1;"), maxModeCarry)...))
 	f.mouse.mu.Lock()
-	held := len(f.mouse.carry)
+	held := len(f.mouse.scan.carry)
 	f.mouse.mu.Unlock()
 	if held != 0 {
 		t.Errorf("carried %d bytes of child output; beyond maxModeCarry it must be dropped", held)
+	}
+}
+
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
+func TestSolicitedCPRSurvivesTheBlanketDrop(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true // the sbx backend
+	cpr := []byte("\x1b[24;80R")
+
+	// Unasked-for: this is the case dropReplies exists for — proveo's own
+	// overlay provokes reports the agent never wanted.
+	if f.keep(cpr) {
+		t.Error("an unsolicited cursor position report reached the agent")
+	}
+
+	// The child asks on its OWN output stream, which is the only place the
+	// asking is visible.
+	f.cpr.observe([]byte("\x1b[6n"))
+	if !f.keep(cpr) {
+		t.Error("the child sent CSI 6n and is blocked waiting; withholding the answer " +
+			"is what makes cecli report 'your terminal doesn't support cursor position " +
+			"requests (CPR)' and then block startup on a Y/N prompt")
+	}
+	// One query, one answer. The credit must not persist.
+	if f.keep(cpr) {
+		t.Error("a single query licensed two reports — the second was unsolicited")
+	}
+}
+
+func TestOnlyDSR6IsACursorQuery(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{"DSR-CPR", "\x1b[6n", true},
+		{"DECXCPR", "\x1b[?6n", true},
+		{"device status is not a cursor query", "\x1b[5n", false},
+		{"a mode set is not a query", "\x1b[?1002h", false},
+		{"not a final n", "\x1b[6m", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newInputFilter()
+			f.dropReplies = true
+			f.cpr.observe([]byte(c.query))
+			if got := f.keep([]byte("\x1b[1;1R")); got != c.want {
+				t.Errorf("after %q, keep(CPR)=%v, want %v", c.query, got, c.want)
+			}
+		})
+	}
+}
+
+// The credit is per-report-class: asking for the cursor must not licence a
+// device-attributes answer, which nothing asked for.
+func TestACursorQueryDoesNotLicenceOtherReports(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	f.cpr.observe([]byte("\x1b[6n"))
+	if f.keep([]byte("\x1b[?62;1c")) {
+		t.Error("a cursor query let a Device Attributes reply through")
+	}
+}
+
+// A query split across two child writes must still be seen: the scanner holds
+// the partial exactly as the mouse watch does.
+func TestASplitCursorQueryIsStillSeen(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	f.cpr.observe([]byte("painting…\x1b[6"))
+	f.cpr.observe([]byte("n more paint"))
+	if !f.keep([]byte("\x1b[24;80R")) {
+		t.Error("a CSI 6n split across two writes was missed")
+	}
+}
+
+func TestOutstandingCursorQueriesAreBounded(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	for i := 0; i < maxOutstandingCPR*4; i++ {
+		f.cpr.observe([]byte("\x1b[6n"))
+	}
+	kept := 0
+	for i := 0; i < maxOutstandingCPR*4; i++ {
+		if f.keep([]byte("\x1b[1;1R")) {
+			kept++
+		}
+	}
+	if kept > maxOutstandingCPR {
+		t.Errorf("kept %d reports; a child that queries and never reads must not build "+
+			"an unbounded licence to forward stray reports (cap %d)", kept, maxOutstandingCPR)
 	}
 }
