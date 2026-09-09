@@ -1,0 +1,225 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the decision to stop choosing an agent's model by environment, and everything that stops having a home when it lands
+' would touch: defs/bridges/** (the four tables, deleted outright)
+' would touch: internal/provider/slots.go (BridgeTable, ResolvedEnv), internal/provider/roles.go (RoleVars, Roles)
+' would touch: internal/entrypoint/** (the alias bridges), packages/lib/entrypoint-lib.sh (apply_model_bridges)
+' would touch: defs/{cecli,claudecode/mcp,cursor,opencode}/entrypoint.sh
+' would touch: internal/run/{run,spec,params,choices}.go, internal/backend/sandbox/sandbox.go (ResolvedModelEnv)
+' would touch: cmd/proveo/main.go, cmd/proveo-entrypoint/main.go, embed.go
+' would touch: _spec/internal/provider/{model-catalog,model-resolution}.puml, _spec/internal/entrypoint/model-alias-bridges.puml
+' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule — nothing here
+' is cited from source because nothing here has landed. The DECISION at the top
+' is the operator's and is not re-argued. Everything below it is either MEASURED
+' or a QUESTION, and the questions are not answered here.
+'
+'   where a saved config lives .... _spec/_plans/config-seeding-and-persistence.puml
+'   what resolves an id today ..... _spec/internal/provider/model-resolution.puml
+'   the catalog behind it ......... _spec/internal/provider/model-catalog.puml
+'   the bridge tables ............. _spec/internal/entrypoint/model-alias-bridges.puml
+'   where roles are also DISPLAYED  _spec/internal/choiceui/wireframe.puml
+'   and where they gate billing ... _spec/internal/credentials/credential-decisions.puml
+'   the prior art for a deletion .. _spec/_plans/retire-docker-egress.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE DECISION, STATED ONCE AND NOT ARGUED FOR ───────────────────────────
+' Retire the bridging of model choice by environment, completely. Strip
+' ARCHITECT_MODEL, EDITOR_MODEL and SMALL_MODEL from proveo and remove the
+' bridging to every agent. An agent's model comes from ITS OWN SAVED CONFIG,
+' carried between sessions by the durable home. That is the operator's decision.
+' This plan records it, measures what it costs, and asks what has nowhere to go.
+'
+' ── WHAT IS TRUE TODAY — MEASURED ──────────────────────────────────────────
+' 1. THE SURFACE IS 45 FILES FOR THE THREE NAMES ALONE, plus 17 more carrying
+'    bridge machinery: internal/provider/roles.go (311 lines), slots.go (228),
+'    internal/entrypoint/entrypoint.go (283), the four defs/bridges/*.tsv
+'    tables (10 lines in total), four def entrypoints, internal/run/**,
+'    internal/backend/sandbox (ResolvedModelEnv), both cmd/** binaries and
+'    embed.go. Roughly fourteen spec files describe some part of it.
+'
+' 2. THE TABLES DO FOUR JOBS, NOT ONE, and only the first is "pick a model".
+'    Read defs/bridges/opencode.tsv:
+'        main   OPENCODE_MODEL  ARCHITECT_MODEL,EDITOR_MODEL
+'                               anthropic/claude-sonnet-4-5  normalize  -
+'    columns: role, the agent's OWN vars, proveo's role vars, a DEFAULT, a
+'    normalisation mode, a provider pin. So a table also supplies a default
+'    where the operator chose nothing, normalises an id into the shape that
+'    harness accepts, and pins a provider (claudecode.tsv pins `anthropic`).
+'    Deleting the role-var column is not the same as deleting the file, and the
+'    plan should not assume the other three columns have no readers.
+'
+' 3. THE ROLE VARS ARE ALSO READ WHERE NO MODEL IS BEING SET.
+'    `provider.RoleVars` (roles.go:11) feeds the credential and billing surface
+'    — `Roles.MissingKeys` warns which keys a chosen set of models needs, and
+'    the choice UI's wireframe draws roles as rows. Those readers do not write
+'    an agent's environment and do not obviously die with the bridging.
+'
+' 4. THERE IS NO USER-FACING `--model` FLAG TO ORPHAN. The only model-ish flag
+'    on cmd/proveo is `--local-model` (LocalModel). So this retirement does not
+'    leave a dead CLI switch behind — which is the failure retire-docker-egress
+'    catalogued for the egress tier, and it does not repeat here.
+'
+' 5. THE SUBSTRATE FOR "SAVED CONFIG" ALREADY EXISTS AND IS ALREADY SPECIFIED.
+'    `home.enabled` mounts each agent's own config into the durable home —
+'    .cecli.conf.yml, .claude.json, opencode.json, cli-config.json — and
+'    config-seeding-and-persistence.puml owns that chain. The decision leans on
+'    machinery that is PARTLY LANDED there (its steps 3-5 are not implemented),
+'    so the two plans are now coupled and each should say so.
+'
+' 6. THE BRIDGING IS ALSO HOW A BAD ID BECAME A WARNING. MEASURED from a cecli
+'    run: proveo wrote `CECLI_MODEL=claude-opus-5`, cecli split it on "/",
+'    found no provider, and printed "Unknown which environment variables are
+'    required" three times. That is an argument FOR the decision, not against:
+'    the bridge was shaping an id for a consumer whose rules it did not model.
+'
+' ── THE OPEN QUESTIONS. NONE OF THESE IS ANSWERED HERE ─────────────────────
+' Q1. WHAT HAPPENS ON A FIRST RUN, where no saved config exists yet? The agent
+'     falls to its own built-in default — aider's for cecli, and for opencode
+'     that means LOSING the `anthropic/claude-sonnet-4-5` default the table
+'     supplies today. Is the agent's own default the intended answer, or does
+'     proveo SEED the config file once and never touch it again? The second is
+'     config-seeding's shape, not bridging's, and it is a different change.
+'
+' Q2. WHAT BECOMES OF `PROVEO_LOCAL_MODEL`? Ollama rides the SAME path:
+'     apply_model_bridges plus OPENAI_API_BASE / ANTHROPIC_BASE_URL written by
+'     each def's entrypoint. Retiring bridging removes local-model support
+'     unless it is carved out — and a carve-out means the mechanism survives
+'     for one caller, which is a smaller deletion than the one decided.
+'
+' Q3. DO ROLES SURVIVE AS A CONCEPT? main/editor/weak name a shape the
+'     credential UI and the billing verdict both use (MEASURED 3). Is this
+'     "remove the env-writing and keep Roles as a credential vocabulary", or
+'     "delete roles.go and slots.go outright" — 539 lines, and with them the
+'     only machine-readable statement of which key each role needs?
+'
+' Q4. WHAT HAPPENS TO THE CATALOG AND ITS SKILL? model-resolution.puml and
+'     model-catalog.puml exist to turn an operator's shorthand into an id a
+'     harness accepts, and .claude/skills/sync-models keeps them current. With
+'     nothing resolving an id, do they retire too, or survive as VALIDATION —
+'     warning that a saved config names a model that no longer exists? The
+'     second keeps a reader for the catalog; the first deletes a fact nobody
+'     else writes down.
+'
+' Q5. WHERE DOES THE OPERATOR CHOOSE, AFTERWARDS? Today the answer is "proveo,
+'     before the run". After this it is "inside the agent, once, and it sticks".
+'     That is a real UX change and it should be stated rather than discovered:
+'     does proveo say so on a first run, or does the operator meet an agent on
+'     an unexpected model and go looking for a setting proveo no longer has?
+'
+' Q6. WHAT DOES A DEF'S ENTRYPOINT STILL DO? `apply_model_bridges <target>` is
+'     called by all four. Does the call site go, or does it become the seam
+'     that reads a saved config? A no-op left in place is how a later reader
+'     concludes the mechanism still exists.
+title PLANNED — retire model bridging: what chooses a model once the environment stops
+
+component "**the decision**\nno model choice by environment" as DECISION <<error>>
+
+node "what is bridged today" as BRIDGE <<host>> {
+  component "defs/bridges/*.tsv\nrole · agent vars · role vars\ndefault · normalise · pin" as TSV <<app>>
+  component "provider.RoleVars\nARCHITECT · EDITOR · SMALL" as ROLES <<app>>
+  component "BridgeTable.ResolvedEnv\nslots.go:202" as RESOLVE <<app>>
+  component "apply_model_bridges\ncalled by all four entrypoints" as APPLY <<app>>
+}
+
+database "the agent's own saved config\n.cecli.conf.yml · .claude.json\nopencode.json · cli-config.json" as SAVED <<db>>
+component "config-seeding-and-persistence\nsteps 3-5 NOT landed" as SEED <<error>>
+
+component "the credential + billing surface\nRoles.MissingKeys · choiceui rows" as CREDS <<app>>
+component "the model catalog\n+ .claude/skills/sync-models" as CAT <<app>>
+component "PROVEO_LOCAL_MODEL\nollama, same code path" as LOCAL <<error>>
+component "opencode's DEFAULT\nanthropic/claude-sonnet-4-5" as DEFAULT <<error>>
+
+DECISION ARROW_ERROR BRIDGE : deleted
+TSV ARROW_MAIN RESOLVE
+ROLES ARROW_MAIN RESOLVE
+RESOLVE ARROW_MAIN APPLY
+DECISION ARROW_MAIN SAVED : the replacement
+SAVED ARROW_QUEUE SEED : leans on a plan that is PARTLY landed
+ROLES ARROW_MAIN CREDS : Q3 — a reader that sets no model
+TSV ARROW_MAIN DEFAULT : Q1 — nothing supplies this afterwards
+APPLY ARROW_MAIN LOCAL : Q2 — the same path, a different caller
+RESOLVE ARROW_MAIN CAT : Q4 — the catalog's only consumer
+
+note bottom of TSV
+  **MEASURED. A table does FOUR jobs.**
+  Role vars are one column of six. Default,
+  normalisation and provider pin are the others,
+  and deleting the column is not the same as
+  deleting the file.
+end note
+
+note right of ROLES
+  **MEASURED. Roles are read where no model
+  is set.** ""Roles.MissingKeys"" warns which key
+  a set of models needs and the choice UI draws
+  them as rows. Neither writes an agent's
+  environment.
+end note
+
+note bottom of DEFAULT
+  **Q1 — who supplies a first run?**
+  opencode's table names sonnet-4-5 and
+  haiku-4-5 today. With the table gone the
+  agent's own default applies, and for a fresh
+  machine that is the whole answer.
+end note
+
+note bottom of LOCAL
+  **Q2 — does ollama go too?**
+  It rides ""apply_model_bridges"" and the
+  base-URL writes in each entrypoint. A
+  carve-out keeps the mechanism alive for one
+  caller, which is a smaller deletion.
+end note
+
+note bottom of CAT
+  **Q4 — retire, or become validation?**
+  With nothing resolving an id the catalog has
+  no reader. As a VALIDATOR it warns that a
+  saved config names a model that is gone —
+  which keeps a fact nobody else writes down.
+end note
+
+note top of SAVED
+  **MEASURED. The substrate exists.**
+  ""home.enabled"" already mounts each agent's
+  config into the durable home. What is not
+  landed is steps 3-5 of config-seeding, so
+  these two plans are now coupled.
+end note
+
+note bottom of SEED
+  **Q1's other half.** Seeding a config file
+  ONCE is config-seeding's shape, not
+  bridging's. If that is the answer, this
+  deletion waits on that plan rather than
+  replacing it.
+end note
+
+note top of DECISION
+  **What the decision buys, in one measured case.**
+  proveo wrote ""CECLI_MODEL=claude-opus-5"";
+  cecli split it on "/", found no provider, and
+  warned three times. The bridge was shaping an
+  id for rules it did not model.
+end note
+
+legend bottom
+  **What this plan is, and is not**
+  ==
+  **IS** — one decision recorded verbatim, six measured facts about what the bridging
+  actually does, and six questions with no answers written into them.
+  --
+  **IS NOT** — a sequence of steps. The surface is ~60 files and the order depends on Q1
+  and Q2; committing to an order now would smuggle in answers this file does not have.
+  ==
+  **The two that gate everything else**: Q1 (what a first run gets) and Q2 (whether
+  local-model survives). Both decide whether this is a DELETION or a MOVE, and a move
+  wearing a deletion's name is the outcome to avoid.
+  --
+  **The coupling to declare**: config-seeding-and-persistence.puml owns the durable home
+  this decision leans on, and its steps 3-5 are not implemented. That plan should
+  cross-reference this one in both directions before either moves.
+end legend
+@enduml
