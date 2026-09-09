@@ -49,6 +49,53 @@ skinparam noteTextAlignment left
 ' PROVEO_EGRESS_MODE into the Kit's environment block, which would change
 ' nothing whatsoever, because no prelude reads it on that backend.
 '
+' ── CORRECTION 2026-09-09: THE PRELUDE DOES RUN NOW (measured) ─────────────
+' The section above is true of the MIXIN era and false of the path proveo takes
+' today. `kind: sandbox` declares the image ENTRYPOINT itself —
+' `kit.Sandbox.Entrypoint = imageEntrypoint(in)` — and the rendered Kit carries
+'     sandbox:
+'       entrypoint: [dumb-init, --, cecli-entrypoint]
+' so sbx execs it. Read from a live sandbox's own process table:
+'     pid 556  dumb-init -- cecli-entrypoint
+'     pid 557  /opt/cecli/bin/python3 /opt/cecli/bin/cecli --rules …
+'
+' A SECOND, INDEPENDENT PROOF, because a process name could be argued with.
+' pid 557 holds GOOGLE_GENERATIVE_AI_API_KEY=proxy-managed. The Kit declares
+' four credentials (ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY,
+' XAI_API_KEY) and that name is not among them. Only the Google bridge creates
+' it — `load_env` itself, and BridgeGoogleKeys in proveo-entrypoint. So the
+' prelude ran, and it ran far enough to reach the bridge that sits AFTER the
+' `.env` source.
+'
+' WHICH REVERSES THIS PLAN'S VERDICT ON THE REPAIR. "Putting
+' PROVEO_EGRESS_MODE into the Kit's environment block would change nothing
+' whatsoever" was correct when nothing read it; on the sandbox-kind path
+' `load_env` reads it on line 88 and takes the skip branch. The Kit already has
+' an `environment.variables` map — it carries MCP_GATEWAY_URL — so this is a
+' one-entry change, not a new mechanism.
+'
+' The tier vocabulary is deliberately inert on sbx (policy-baseline.puml), so
+' spelling it `PROVEO_EGRESS_MODE=allowlist` there smuggles a value that means
+' nothing on that backend. A purpose-named flag reads honestly and needs adding
+' to internal/contract/egress_vocabulary_test.go, which pins the vocabulary.
+'
+' ── AND IT DID NOT MATTER ON THAT RUN, FOR THE REASON THIS PLAN PREDICTED ──
+' `load_env` took the NON-skip branch, looked for a `.env`, and XAI_API_KEY was
+' still `proxy-managed` in the agent afterwards. So nothing was sourced over the
+' sentinel — because the run was a CLONE, and a clone carries tracked files
+' only. The CLONE note below called this exactly right; it is now measured
+' rather than reasoned.
+'
+' So the exposure that remains is this plan's other half, unchanged and still
+' correct: OFF clone mode the workspace is mounted whole and `cat .env` reads
+' the key. Two independent closes now exist for two different postures, and
+' neither covers the other.
+'
+' The incident that produced these measurements was NOT this defect — it was xAI
+' answering 403 for an account out of credits, with a stale host-wide secret
+' deciding which account. See _spec/internal/sbx/kit-sandbox-credential-gap.puml
+' and _spec/_plans/host-held-provider-keys.puml.
+'
 ' ── WHO ACTUALLY READS THE FILE ────────────────────────────────────────────
 ' Four postures, and only one of them sources anything:
 '
@@ -103,10 +150,11 @@ note bottom of WARN
 end note
 
 note top of WARN
-  **A wrong mechanism names a wrong repair.**
-  "the prelude sources it" invites a
-  ""PROVEO_EGRESS_MODE"" in the Kit, which changes
-  nothing: no prelude reads it there.
+  **The repair works now.** This note used to
+  call ""PROVEO_EGRESS_MODE"" in the Kit a no-op.
+  On the sandbox-kind path ""load_env"" reads it
+  and skips — so the mechanism was wrong for a
+  while, and then the code changed under it.
 end note
 
 note bottom of PRE
@@ -138,10 +186,11 @@ note top of WS
 end note
 
 note bottom of NOPRE
-  **Read in the tree, not inferred.** The Kit's
-  ""Setup.Startup"" is ""proveo-seed"" alone, and
-  the ten helpers ""proveo_seed"" names do not
-  include ""load_env"".
+  **Superseded 2026-09-09.** True of the mixin;
+  ""kind: sandbox"" declares the ENTRYPOINT, and a
+  live process table shows ""cecli-entrypoint""
+  running. The prelude DOES run — see the
+  correction block above.
 end note
 
 note top of NOPRE
@@ -182,12 +231,14 @@ end note
 legend bottom
   **The order to do it in — the first step is a sentence**
   ==
-  **1. Say what is true on sbx.** The file is mounted and unmasked, so the agent
-  can read it. Drop the prelude clause; it describes the docker firewall tier.
+  **1. Say what is true on sbx.** Two things are, and they close different
+  postures: OFF a clone the file is mounted and readable; ON any posture the
+  prelude now runs, so a Kit flag can stop it being sourced.
   --
-  **2. Pin which comment is right.** ""WarnMountedSecrets"" and ""entrypoint-lib\.sh""
-  contradict each other about whether a prelude runs under sbx. A contract test
-  over the Kit's startup command would have refused the disagreement.
+  **2. Pin which comment is right — and it is the one this plan doubted.**
+  ""WarnMountedSecrets"" said the prelude sources the file; that is now measured
+  true on the sandbox-kind path. A contract test over the Kit's ENTRYPOINT, not
+  just its startup command, is what would have kept this straight.
   --
   **3. Name the two escapes where the problem is read.** ""--clone"" keeps a
   gitignored ""\.env"" out of the sandbox entirely, and a ""keychain:"" reference keeps

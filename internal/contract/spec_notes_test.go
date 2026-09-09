@@ -40,6 +40,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/sbx/oauth-provisioning.puml",
 	"_spec/_paradigms/retire-dind.puml",
 	"_spec/_plans/workspace-env-key.puml",
+	"_spec/_plans/host-held-provider-keys.puml",
 	"_spec/_plans/config-seeding-and-persistence.puml",
 	"_spec/_plans/claude-in-chrome-reachability.puml",
 	"_spec/_plans/image-size-reduction.puml",

@@ -1,0 +1,204 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: retire the workspace .env as a credential path in favour of keys the host store holds once — and the four things that block it
+' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   where a key rests between runs  _spec/_plans/secret-custody.puml
+'   the file this would replace ..... _spec/_plans/workspace-env-key.puml
+'   who injects on sbx today ....... _spec/internal/sbx/credential-path.puml
+'   what the agent may hold ........ _spec/_paradigms/credential-boundary.puml
+'   the gate that decides a service  _spec/internal/sbx/kit-sandbox-credential-gap.puml
+'   the store's own hazard, realised _spec/internal/sbx/kit-sandbox-credential-gap.puml
+'   the code .... internal/backend/sandbox/sandbox.go (agentCredentials, Spec)
+'   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
+'   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
+'
+' ── THE PROPOSAL, IN THE OPERATOR'S WORDS ──────────────────────────────────
+' "sbx sets credentials once on the host. Having keys in the .env file is
+' unsafe, a better bet would be prompting sbx to input keys."
+'
+' It is the right direction and half of it already works. What follows is the
+' half that does not, measured rather than predicted, because every blocker
+' below was hit for real in the session that produced this plan.
+'
+' ── WHAT IS ALREADY TRUE (measured 2026-09-09, live sandbox) ───────────────
+'   the agent holds SENTINELS ONLY. /proc/<pid>/environ of the cecli process
+'     carries XAI_API_KEY=proxy-managed and six more. No real key is in the
+'     agent, which is the whole property credential-boundary.puml asks for.
+'   the proxy REPLACES the header. `Authorization: Bearer xai-junk` sent from
+'     inside the sandbox came back with the stored account's own error, so the
+'     substitution is real and not merely declared.
+'   a stored API-key secret injects a WORKING value. sbx-kit-capabilities.puml
+'     lists that as unproven; for an api-key service it is now proven. An
+'     OAuth-backed service is still untested.
+' So the mechanism the proposal wants is shipped. The gap is custody, not
+' capability.
+'
+' ── BLOCKER 1: THE STORE IS WRITE-ONLY, GLOBAL, AND NEVER EXPIRES ──────────
+' This is the one that cost a whole session, so it goes first.
+'
+' `sbx secret ls` prints scope and name and NOT value — there is no `get`. The
+' store is `(global)`: shared by every sandbox on the host, outliving every run,
+' with no expiry and no rotation. credential-path.puml already wrote down the
+' consequence — "a stale entry from an earlier run can therefore authenticate a
+' later one that never chose it" — and then it happened:
+'
+'   an old credprobe experiment had left a secret under the service name `xai`
+'   proveo pushed the operator's CURRENT key under `XAI_API_KEY`, which nothing
+'     reads on the sandbox-kind path
+'   so the proxy injected the EXPERIMENT's key, whose team was out of credits
+'   xAI answered 403, the agent rendered "403 Client Error", and the operator
+'     read an egress denial
+'
+' Identifying the loaded key needed a round trip to the PROVIDER:
+' `GET api.x.ai/v1/api-key` echoes name, id, redacted suffix and team. That
+' works because xAI describes its own credential; most vendors do not, so it is
+' a trick and not a mechanism.
+'
+' CENTRALISING MORE KEYS INTO AN OPAQUE STORE MAKES THIS WORSE, NOT BETTER. The
+' proposal is only safe once an operator can answer "which key authenticates
+' this run" without asking the vendor. That is the first thing to build.
+'
+' ── BLOCKER 2: THE TWO NAMES STILL DO NOT MEET ─────────────────────────────
+'   `sbx secret set xai`         what the proxy resolves (kit reference: the
+'                                service field is "matched against the value
+'                                stored with sbx secret set", kebab-case)
+'   `sbx secret set XAI_API_KEY` what proveo writes, every run, from the host
+'                                environment — and what nothing consumes here
+'
+' proveo cannot simply write the service name: TestSpecNeverStoresAService-
+' NamedSecret forbids it, and its message records why — it was measured
+' overwriting an operator's OAuth login. So "prompt once" means prompting for
+' SERVICE names, and proveo's env-var entries become noise in the same listing.
+' Either proveo stops writing them on this path, or it explains both.
+'
+' ── BLOCKER 3: CONSENT IS INTERACTIVE, ONCE PER SERVICE ────────────────────
+' sbx asks for consent the first time a service is injected, records it in
+' ~/.config/sbx/credentials.yaml, and asks even for a credential it already
+' holds — the screen reads "(stored)" and still prompts
+' (sbx-kit-capabilities.puml). An unattended run stops there. So a host has to
+' be PRIMED before it can be automated, which is the opposite of "set it once
+' and forget it" unless priming is an explicit, visible step.
+'
+' ── BLOCKER 4: NOT EVERY PROVIDER CAN BE INJECTED AT ALL ───────────────────
+' `agentCredentials` skips a provider when there is nothing to attach:
+'   signed requests   bedrock, azure, vertex — SigV4 and friends sign the whole
+'                     request, so no header carries the secret
+'   query parameter   sbx injects into a header and has no query form;
+'                     declaring one would sentinel the variable and attach the
+'                     value nowhere, which is strictly worse than leaving it
+' Those providers still need a real value in the environment. So `.env` SHRINKS
+' rather than disappears, and any plan that says "retired" is overclaiming.
+'
+' ── THE SMALLEST FIRST STEP, AND IT IS NOT A NEW MECHANISM ─────────────────
+' `load_env` already refuses to source a dotenv when PROVEO_EGRESS_MODE names a
+' canonical tier — it prints "🔒 Skipping .env load … secrets stay on host /
+' broker". The sbx Kit sets no such variable, so the branch never fires. The
+' Kit already carries an `environment.variables` map (MCP_GATEWAY_URL lives
+' there), so this is one entry.
+'
+' It is worth doing even though clone mode already keeps a gitignored `.env` out
+' of the sandbox, because clone mode is a DEFAULT and not a guarantee:
+' `--clone=false`, a sub-scope, a non-repo, a linked worktree and a COMMITTED
+' `.env` all fall back to the mounted tree.
+'
+' Spell the flag honestly. The tier vocabulary is deliberately inert on sbx
+' (policy-baseline.puml), so `PROVEO_EGRESS_MODE=allowlist` there would smuggle
+' a meaningless value; a purpose-named flag belongs in
+' internal/contract/egress_vocabulary_test.go alongside the tiers.
+'
+' ── WHAT THIS PLAN DELIBERATELY DOES NOT DECIDE ────────────────────────────
+' WHERE THE BYTES REST. Whether sbx keeps secret values in the macOS Keychain
+' or in a sandboxd-owned file is unmeasured — the `sbx secret` docs page
+' rendered empty — and it changes the threat model completely. secret-custody
+' .puml owns that question; this plan owns the custody WORKFLOW.
+'
+' WHETHER A COMMITTED .env SHOULD REFUSE A RUN. Named in workspace-env-key.puml
+' and still open there.
+'
+' WHETHER `load_env` SHOULD SOURCE DOTENVS AT ALL now that a broker and a host
+' store both exist. Removing it outright would break the docker firewall tier
+' and every non-injectable provider from Blocker 4.
+title PLANNED — provider keys held once on the host, and the four things\nbetween that and retiring the workspace .env
+
+component "**""<ws>/.env""**\na key at rest beside the code" as ENVF <<error>>
+node "the host" as HOST <<host>> {
+  database "sbx secret store\n""(global)"" · no ""get"" · no expiry" as STORE <<db>>
+  component "proveo\nwrites ""XAI_API_KEY"" — unread here" as PV <<error>>
+  component "the operator\nprompted once, per SERVICE" as OP <<app>>
+}
+cloud "sbx proxy\nreplaces the header" as PROXY <<cloud>>
+component "the agent\nsentinels only — measured" as AGENT <<app>>
+component "signed + query providers\nbedrock · azure · vertex" as UNINJ <<error>>
+component "**the stale key**\nauthenticated a run nobody chose" as STALE <<error>>
+
+OP ARROW_MAIN STORE : ""sbx secret set xai""
+PV ARROW_ERROR STORE : ""XAI_API_KEY"" — a name\nnothing resolves
+STORE ARROW_QUEUE PROXY : resolved by SERVICE name
+PROXY ARROW_MAIN AGENT : header attached at egress
+STORE ARROW_ERROR STALE : an entry outlives every run
+ENVF ARROW_ERROR AGENT : the path to close
+UNINJ ARROW_ERROR ENVF : these cannot be injected,\nso the file survives for them
+
+note bottom of STORE
+  **Write-only, global, permanent.** ""ls"" shows
+  names, never values; the scope is the whole
+  host; nothing expires. Centralising keys into
+  it is only safe once an operator can see which
+  one authenticates a run.
+end note
+
+note bottom of STALE
+  **It already happened.** An old credprobe left
+  ""xai"" behind; the proxy injected it; its team
+  was out of credits; the agent printed a 403 and
+  it read as an egress block.
+end note
+
+note bottom of PV
+  **proveo writes the wrong name, on purpose.**
+  The service name is refused because it was
+  measured clobbering an OAuth login — so
+  ""prompt once"" means prompting for services,
+  and the env-var entries become noise.
+end note
+
+note right of AGENT
+  **This half is done.** ""/proc/<pid>/environ""
+  shows sentinels only, and a junk bearer sent
+  from inside still reached the stored account.
+  The gap is custody, not capability.
+end note
+
+note bottom of UNINJ
+  **Signed requests have no header to hold.**
+  SigV4 signs the whole request, and sbx has no
+  query-param form, so these keep needing a real
+  value in the environment. The file shrinks; it
+  does not vanish.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Stop the file being sourced on sbx.** ""load_env"" already skips when a flag
+  says so; the Kit sets no flag, and it already has an ""environment.variables"" map.
+  One entry, purpose-named — not the tier vocabulary, which is inert on that backend.
+  --
+  **2. Make the store legible before putting more in it.** An operator must be able
+  to ask "which key authenticates this service" without a round trip to the vendor.
+  A stale entry answering for a run nobody chose is the failure this plan exists for.
+  ==
+  **3. Reconcile the two names.** proveo writes ""<VAR>_API_KEY"", sbx resolves the
+  service name, and both sit in one listing. Either stop writing the unread one on
+  this path, or show the operator which of the pair is live.
+  --
+  **4. Make priming an explicit step.** First injection per service prompts, even for
+  a stored credential, so an unattended host must be primed deliberately rather than
+  by accident — which is how the stale ""xai"" got there in the first place.
+  ==
+  **Not decided here**: where sbx keeps the bytes (Keychain or a daemon file — unmeasured,
+  and it changes the threat model); whether a committed "".env"" should refuse a run; whether
+  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4.
+end legend
+@enduml

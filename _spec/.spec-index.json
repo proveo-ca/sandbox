@@ -357,6 +357,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/host-held-provider-keys.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/secret.go",
+        "internal/sbx/run.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/entrypoint/entrypoint.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_runtimes/toolchain-provisioning.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
