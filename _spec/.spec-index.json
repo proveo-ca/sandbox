@@ -1132,6 +1132,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/own_agent_test.go",
+        "internal/backend/sandbox/provider_gate_test.go",
+        "e2e/ladder_test.go",
+        "internal/sbx/kit.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/secretref/secret-references.puml",
       "covers": [
         "internal/secretref/**",

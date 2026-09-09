@@ -263,7 +263,7 @@ func TestSandboxLadder(t *testing.T) {
 			name := argvName(argv)
 			t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
 
-			res := holdSbxSession(t, argv, startup, hold)
+			res := holdSbxSession(t, argv, startup, hold, ladderPrompt())
 			switch {
 			case res.authFailure != "":
 				v.detail = fmt.Sprintf("never authenticated (%q)", res.authFailure)
@@ -284,8 +284,25 @@ func TestSandboxLadder(t *testing.T) {
 				v.detail = fmt.Sprintf("never reached a prompt in %s", startup)
 				t.Fatalf("RUNG FAILED — this rung adds %s, and the agent never reached a prompt in %s\n%s",
 					r.adds, startup, lastLines(res.out, 25))
+			case res.promptFailure != "":
+				// The verdict this rung was added for. Everything above it
+				// measures whether a session STARTS; this measures whether it
+				// can be USED, which is where a Kit that grants reach without a
+				// credential first becomes visible.
+				// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+				v.detail = fmt.Sprintf("held a prompt, then refused %q on %q",
+					res.promptFailure, res.prompted)
+				t.Fatalf("RUNG BROKE ON FIRST USE — this rung adds %s. The session reached a prompt "+
+					"and stayed alive, so every start-up assertion passes; typing %q then rendered "+
+					"%q. A rung that only watched for a prompt would have reported PASS.\n%s",
+					r.adds, res.prompted, res.promptFailure, lastLines(res.out, 25))
 			}
-			t.Logf("✅ rung holds: adds %s — reached a prompt and stayed alive %s", r.adds, hold)
+			used := ""
+			if res.prompted != "" {
+				used = fmt.Sprintf(", took %q", res.prompted)
+			}
+			t.Logf("✅ rung holds: adds %s — reached a prompt%s and stayed alive %s",
+				r.adds, used, hold)
 		})
 	}
 }
@@ -394,11 +411,89 @@ type sessionResult struct {
 	blocked       string
 	authFailure   string
 	death         string
-	aliveFor      time.Duration
-	out           string
+	// promptFailure is a refusal the render carried AFTER we typed something.
+	// It is separate from authFailure because the two have different owners: an
+	// auth failure before the prompt makes every rung above it untestable
+	// (Skip), while a refusal on first use is a rung that held a session it
+	// cannot actually use (Fail).
+	promptFailure string
+	// prompted is what was typed, echoed back into the verdict so a report
+	// says which use broke rather than just "something broke".
+	prompted string
+	aliveFor time.Duration
+	out      string
 }
 
-func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) sessionResult {
+// ladderPrompt is what the ladder types into the agent once it reaches a
+// prompt. EMPTY IS THE DEFAULT AND MEANS TODAY'S LADDER: reach a prompt, hold,
+// assert nothing about what the agent can do.
+//
+// It is free text rather than a fixed probe on purpose. `/model xai` is the
+// string that reproduces session proveo-1788935973-18915 — a cecli session that
+// reached a prompt, held for the full window, and then froze on a 403 from
+// api.x.ai the first time its completer touched a provider. The next incident
+// will need a different string, and a rung that only knows one probe would have
+// to be edited to catch it.
+//
+// The value is typed VERBATIM, so it does not submit. Completion fires on the
+// buffer change, which is where this class of failure lives; append a newline
+// (PROVEO_LADDER_PROMPT=$'…\r') when a rung needs the input actually sent.
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+func ladderPrompt() string { return env("PROVEO_LADDER_PROMPT", "") }
+
+// providerRefusals are renders that mean the agent is alive at its prompt and
+// still cannot reach the provider it was configured for. Every entry names the
+// thing that emits it, because a marker list that grows by guess is a liability
+// rather than a test.
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+var providerRefusals = []string{
+	// sandboxd's own verdict, in the three wordings the sbx docs give it.
+	"Blocked by network policy",
+	"Blocked by org policy",
+	"Blocked by local rule for",
+	// The detail line a default-deny block carries.
+	"no matching allow rule",
+	// What raise_for_status renders in any Python agent — and NOT something a
+	// provider says about a credential: api.x.ai answers 401 for missing or bad
+	// credentials and 400 for an incorrect key, never 403.
+	"403 Client Error",
+	// cecli's provider model-list probe, which is the render this rung was
+	// written from.
+	"Failed to fetch",
+	// The load-bearing one: it is the only render that separates "the proxy
+	// blocked me" from "the proxy let me through WITHOUT injecting", and those
+	// have different owners.
+	//
+	// It is safe as a rung failure BECAUSE of what a climb is: childEnvArgs-
+	// NoCredential unsets every provider.DetectVars() entry, so the agent is
+	// meant to hold no key at all. A provider judging a key therefore means one
+	// arrived by a path the climb never chose — a workspace .env sourced with
+	// `set -a`, or a stale entry in the host-wide secret store — which is
+	// exactly the invisible second credential path this rung exists to expose.
+	"Incorrect API key provided",
+}
+
+// firstProviderRefusal returns the refusal that appears EARLIEST IN THE RENDER,
+// not the earliest in the list above. One failure usually prints several of
+// these at once — cecli's probe renders "Failed to fetch … 403 Client Error …"
+// in one line — and scanning in list order would make the slice's arrangement a
+// hidden priority, so reordering it for readability would silently change what
+// every report blames. Position in the transcript is the agent's own ordering,
+// which is the one an operator reads.
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+func firstProviderRefusal(out string) string {
+	best, at := "", -1
+	for _, r := range providerRefusals {
+		i := strings.Index(out, r)
+		if i < 0 || (at >= 0 && i >= at) {
+			continue
+		}
+		best, at = r, i
+	}
+	return best
+}
+
+func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, prompt string) sessionResult {
 	target := ladderTarget()
 	t.Helper()
 	cmd := exec.Command("sbx", argv...)
@@ -464,8 +559,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) se
 		time.Sleep(2 * time.Second)
 	}
 
-	select {
-	case <-exited:
+	onExit := func() {
 		res.out, res.aliveFor = seen(), time.Since(started)
 		res.death = firstMarker(plain(res.out))
 		if res.death == "" {
@@ -474,10 +568,50 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration) se
 		if f := firstAuthFailure(plain(res.out)); f != "" {
 			res.authFailure, res.death = f, ""
 		}
-	case <-time.After(hold):
-		res.aliveFor, res.out = time.Since(started), seen()
 	}
-	return res
+
+	// FIRST USE. `mark` is where the transcript stood before we typed, and the
+	// scan below starts there — a host blocked during the SEED is a different
+	// fault with a different owner, and attributing it to the prompt would
+	// point the report at the wrong rung.
+	// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+	mark := len(seen())
+	if prompt != "" {
+		if _, err := ptmx.WriteString(prompt); err != nil {
+			t.Logf("could not type %q into the session: %v", prompt, err)
+		} else {
+			res.prompted = prompt
+			t.Logf("typed %q at the prompt — watching the render for %s", prompt, hold)
+		}
+	}
+
+	// Poll rather than sleep out the hold: a refusal that arrives at second 3
+	// should not wait for second 45, and an empty prompt still just holds
+	// because nothing is scanned when nothing was typed.
+	deadline = time.Now().Add(hold)
+	for {
+		select {
+		case <-exited:
+			onExit()
+			return res
+		default:
+		}
+		if res.prompted != "" {
+			out := seen()
+			if len(out) > mark {
+				if f := firstProviderRefusal(plain(out[mark:])); f != "" {
+					res.promptFailure, res.out = f, out
+					res.aliveFor = time.Since(started)
+					return res
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			res.aliveFor, res.out = time.Since(started), seen()
+			return res
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 func firstMarker(out string) string {
@@ -807,9 +941,11 @@ func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) 
 
 	argv := append([]string{"run", "--name", name, "-t", img, "--kit", dir},
 		kitAgentFor(t, target), work)
+	// No prompt: this probe's entrypoint is a printf and a sleep, not a TUI —
+	// there is nothing to type into and nothing that would answer.
 	res := holdSbxSession(t, argv,
 		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
-		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second))
+		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second), "")
 
 	// A credential sbx has no stored secret for makes it ASK, and an unattended
 	// run stops there — a distinct fault from a refused block or a dead sandbox.
@@ -825,6 +961,75 @@ func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) 
 			label, credOpen, res.death, out, lastLines(res.out, 30))
 	}
 	return v
+}
+
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+func TestLadderPromptIsEmptyUntilAnOperatorNamesOne(t *testing.T) {
+	// Not parallel: it sets the variable the default is measured against.
+	t.Setenv("PROVEO_LADDER_PROMPT", "")
+	if got := ladderPrompt(); got != "" {
+		t.Fatalf("ladderPrompt() = %q with nothing set; an empty prompt IS the existing "+
+			"ladder, and a default would change every climb", got)
+	}
+	t.Setenv("PROVEO_LADDER_PROMPT", "/model xai")
+	if got := ladderPrompt(); got != "/model xai" {
+		t.Errorf("ladderPrompt() = %q, want the string verbatim — a prompt that gets "+
+			"rewritten cannot reproduce the incident it names", got)
+	}
+}
+
+// The marker list is the whole rung, so its boundary is pinned rather than
+// trusted: it must fire on a refusal and stay silent on a keyless climb, which
+// is the state a climb is deliberately in.
+// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
+func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, out, want, why string
+	}{
+		{name: "sandboxd default deny", want: "Blocked by network policy",
+			out: "Forbidden: Blocked by network policy: domain api.x.ai:443 detail: " +
+				"no matching allow rule — blocked by default deny policy",
+			why: "the verdict upstream renders when a host is on no allow list"},
+		{name: "org policy", want: "Blocked by org policy",
+			out: "HTTP 403 Blocked by org policy", why: "centralised deny, details withheld"},
+		{name: "local deny rule", want: "Blocked by local rule for",
+			out: "Blocked by local rule for api.x.ai", why: "a deny outranks every allow"},
+		{name: "cecli's model-list probe", want: "Failed to fetch",
+			out: "Failed to fetch xai model list: 403 Client Error: Forbidden for url: " +
+				"https://api.x.ai/v1/models",
+			why: "the render measured from session proveo-1788935973-18915"},
+		{name: "raise_for_status alone", want: "403 Client Error",
+			out: "requests.exceptions.HTTPError: 403 Client Error for url: https://api.x.ai/v1/models",
+			why: "any Python agent, and 403 is never a provider's answer about a key"},
+		{name: "sentinel reached the provider", want: "Incorrect API key provided",
+			out: `{"code":"invalid-argument","error":"Incorrect API key provided."}`,
+			why: "the proxy let the leg through without injecting"},
+
+		{name: "render order wins, not list order", want: "Blocked by network policy",
+			out: "Blocked by network policy: domain api.x.ai:443 … then later a " +
+				"403 Client Error from the same leg",
+			why: "the slice's arrangement must not be a hidden priority — reordering it " +
+				"for readability would change what every report blames"},
+
+		{name: "a clean session says nothing",
+			out: "cecli version: 1.4.1 🚀 Launching cecli main model: claude-opus-5",
+			why: "a rung that fires on a healthy render is worse than no rung"},
+		{name: "no credentials presented is the climb's OWN state",
+			out: `401 {"code":"unauthenticated:no-credentials","error":"No credentials presented."}`,
+			why: "a climb unsets every provider var on purpose, so this is expected"},
+		{name: "a seed-time download is not a first-use refusal",
+			out: "npm warn tarball tarball data for foo seems to be corrupted",
+			why: "startup faults are scanned from before the prompt, and owned elsewhere"},
+		{name: "silence", out: "", why: "nothing typed, nothing rendered, nothing to claim"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := firstProviderRefusal(plain(tc.out)); got != tc.want {
+				t.Errorf("firstProviderRefusal = %q, want %q — %s", got, tc.want, tc.why)
+			}
+		})
+	}
 }
 
 // credValueFrom returns the probed value and whether the marker was seen at all.

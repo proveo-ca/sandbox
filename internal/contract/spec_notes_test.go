@@ -26,6 +26,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/posture/one-value-two-renderings.puml",
 	"_spec/internal/run/run-spec.puml",
 	"_spec/internal/sbx/credential-path.puml",
+	"_spec/internal/sbx/kit-sandbox-credential-gap.puml",
 	"_spec/internal/sbx/policy-baseline.puml",
 	"_spec/internal/tmux/driving-a-tty.puml",
 	"_spec/defs/agent-definition-sharing.puml",
