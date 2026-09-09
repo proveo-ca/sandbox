@@ -59,6 +59,30 @@ title Testing strategy — four layers, speed traded for fidelity
 '    whole suite down after that phase. Every phase from Workspace onward never
 '    ran at all.
 '
+' ── AND ONE THAT REPORTED FAIL WHILE TESTING FINE ──────────────────────────
+' The inverse shape, and it reads as a broken product rather than a broken test.
+'
+' A ROOT CONTAINER WRITING INTO A ""t.TempDir()"". e2e/scope_mounts_test.go probes
+' the provisioning paths with ""docker run --user root"" and the temp dir bind-
+' mounted at /w. Root is DELIBERATE — those paths install packages — but anything
+' the install leaves behind is owned by root, and Go's TempDir cleanup runs as the
+' TEST USER. MEASURED: the absent-node_modules subtest supplies no node_modules,
+' so ""ensure_dependency_trees"" auto-installs, and ""pnpm install"" left
+' /w/.pnpm-store and /w/node_modules as root:root —
+'   TempDir RemoveAll cleanup: unlinkat …/.pnpm-store/v10/files/7b: permission denied
+' on a subtest whose own assertion had already PASSED. The signal points at the
+' code under test; the cause is the probe's own leftovers.
+'
+' Turning auto-install off is not the fix: ""_proveo_auto_install_enabled || return 0""
+' is the FIRST line of ensure_dependency_trees, so disabling it silences the very
+' warning the subtest asserts.
+'
+' So ONE helper — ""rootLibProbe"" — owns the invocation and hands ownership back
+' with a ""trap … EXIT"", which fires on the ""exit 1""s the probe scripts use to
+' report failure too. Without that, the first REAL failure here would be followed
+' by a cleanup failure masking it. The file's other probes already avoided this by
+' running as ""--user hostUIDGID(t)""; the four root ones now clean up instead.
+'
 ' ── THE ROSTER IS READ FROM THE IMAGE, NEVER RESTATED ───────────────────────
 ' Subagents are no longer under /opt/<harness>/defaults/agents. They are one
 ' shared tree at /opt/proveo/subagents with a per-harness _roster.json, and

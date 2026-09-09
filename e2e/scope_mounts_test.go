@@ -207,6 +207,34 @@ func verifyCommandsListed(out string) bool {
 	return false
 }
 
+// rootLibProbe runs a script against entrypoint-lib.sh inside the image, as
+// ROOT, with dir bind-mounted at /w.
+//
+// ROOT IS DELIBERATE — these probes exercise provisioning paths that install
+// packages — and it is also why this helper exists rather than four copies of
+// the invocation. A root container writing into a `t.TempDir()` leaves files the
+// TEST USER cannot unlink, and Go's TempDir cleanup then fails the test AFTER
+// its assertions have already passed. MEASURED: the absent-node_modules probe
+// below has no node_modules, so ensure_dependency_trees auto-installs, and
+// `pnpm install` left /w/.pnpm-store and /w/node_modules owned by root:root —
+// `TempDir RemoveAll cleanup: unlinkat .../.pnpm-store/v10/files/7b: permission
+// denied`, on a subtest whose own check had passed.
+//
+// So ownership is handed back before the container exits. The trap fires on
+// every exit path, including the `exit 1`s the scripts use to report failure, so
+// a FAILING probe cleans up too — otherwise the first real failure here would be
+// followed by a cleanup failure masking it.
+func rootLibProbe(t *testing.T, img, dir, script string) (string, error) {
+	t.Helper()
+	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
+		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
+		"--entrypoint", "bash", img, "-c",
+		"export HOME=/tmp/h; mkdir -p $HOME\n"+
+			"trap 'chown -R "+hostUIDGID(t)+" /w 2>/dev/null || true' EXIT\n"+
+			"source /lib.sh 2>/dev/null\n"+script).CombinedOutput()
+	return string(out), err
+}
+
 func TestPythonEnvironmentIsProvisioned(t *testing.T) {
 	img := harnessImage(t, "opencode")
 	dir := t.TempDir()
@@ -227,20 +255,15 @@ func TestPythonEnvironmentIsProvisioned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
-		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
-		"--entrypoint", "bash", img, "-c", `
-export HOME=/tmp/h; mkdir -p $HOME
-source /lib.sh 2>/dev/null
-ensure_python_env /w
+	out, err := rootLibProbe(t, img, dir, `ensure_python_env /w
 [ -n "$VIRTUAL_ENV" ] || { echo "NO_VIRTUAL_ENV"; exit 1; }
 case "$VIRTUAL_ENV" in /w/*) echo "ENV_INSIDE_WORKSPACE"; exit 1 ;; esac
 python -c 'import requests' 2>/dev/null || { echo "DEP_UNIMPORTABLE"; exit 1; }
 pyright --outputjson app.py 2>/dev/null | grep -q reportMissingModuleSource && { echo "PYRIGHT_UNRESOLVED"; exit 1; }
-echo "PYENV_OK"`).CombinedOutput()
+echo "PYENV_OK"`)
 
-	if s := string(out); err != nil || !strings.Contains(s, "PYENV_OK") {
-		t.Fatalf("python environment not provisioned correctly: %v\n%s", err, s)
+	if err != nil || !strings.Contains(out, "PYENV_OK") {
+		t.Fatalf("python environment not provisioned correctly: %v\n%s", err, out)
 	}
 }
 
@@ -251,17 +274,12 @@ func TestPythonEnvironmentSkipsNonPythonWorkspaces(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export const a = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
-		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
-		"--entrypoint", "bash", img, "-c", `
-export HOME=/tmp/h; mkdir -p $HOME
-source /lib.sh 2>/dev/null
-ensure_python_env /w
+	out, err := rootLibProbe(t, img, dir, `ensure_python_env /w
 [ -z "$VIRTUAL_ENV" ] || { echo "PROVISIONED_ANYWAY"; exit 1; }
 [ -d "$HOME/.cache/proveo/venv" ] && { echo "VENV_DIR_CREATED"; exit 1; }
-echo "SKIP_OK"`).CombinedOutput()
-	if s := string(out); err != nil || !strings.Contains(s, "SKIP_OK") {
-		t.Fatalf("non-Python workspace triggered provisioning: %v\n%s", err, s)
+echo "SKIP_OK"`)
+	if err != nil || !strings.Contains(out, "SKIP_OK") {
+		t.Fatalf("non-Python workspace triggered provisioning: %v\n%s", err, out)
 	}
 }
 
@@ -298,21 +316,16 @@ func TestPythonEnvironmentIsProvisionedForNestedProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := exec.Command("docker", "run", "--rm", "--user", "root",
-		"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
-		"--entrypoint", "bash", img, "-c", `
-export HOME=/tmp/h; mkdir -p $HOME
-source /lib.sh 2>/dev/null
-roots="$(_py_project_roots /w)"
+	out, err := rootLibProbe(t, img, dir, `roots="$(_py_project_roots /w)"
 [ "$roots" = "/w/apps/svc" ] || { echo "BAD_ROOTS[$roots]"; exit 1; }
 ensure_python_env /w
 [ -n "$VIRTUAL_ENV" ] || { echo "NO_VIRTUAL_ENV"; exit 1; }
 case "$VIRTUAL_ENV" in /w/*) echo "ENV_INSIDE_WORKSPACE"; exit 1 ;; esac
 python -c 'import requests' 2>/dev/null || { echo "DEP_UNIMPORTABLE"; exit 1; }
-echo "NESTED_OK"`).CombinedOutput()
+echo "NESTED_OK"`)
 
-	if s := string(out); err != nil || !strings.Contains(s, "NESTED_OK") {
-		t.Fatalf("nested Python project not provisioned: %v\n%s", err, s)
+	if err != nil || !strings.Contains(out, "NESTED_OK") {
+		t.Fatalf("nested Python project not provisioned: %v\n%s", err, out)
 	}
 }
 
@@ -336,14 +349,11 @@ func TestHostBuiltDependencyTreesAreReported(t *testing.T) {
 
 	run := func(t *testing.T, dir, script string) string {
 		t.Helper()
-		out, err := exec.Command("docker", "run", "--rm", "--user", "root",
-			"-v", entrypointLibPath(t)+":/lib.sh:ro", "-v", dir+":/w", "-w", "/w",
-			"--entrypoint", "bash", img, "-c",
-			"export HOME=/tmp/h; mkdir -p $HOME\nsource /lib.sh 2>/dev/null\n"+script).CombinedOutput()
+		out, err := rootLibProbe(t, img, dir, script)
 		if err != nil {
 			t.Fatalf("probe failed: %v\n%s", err, out)
 		}
-		return string(out)
+		return out
 	}
 
 	// One workspace, one pass: each language's tree must be found where its own
