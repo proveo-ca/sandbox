@@ -1,0 +1,243 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — can an external append-only ledger coordinate an agent COUNCIL of several `proveo run` instances?
+' status: proposed 2026-09-10, not implemented; nothing in src depends on this file
+' would touch: internal/sbx/run.go (Running, RunningNames), internal/run/helpers.go (StateDir)
+' would touch: internal/egress/plan.go (host.docker.internal add-host gating)
+' would touch: internal/backend/sandbox/sandbox.go (permissions.network.allow)
+'   who signs an entry ........... _spec/_experiments/operator-fingerprint.puml
+'   why each run is isolated ..... _spec/internal/sbx/clone-workspace.puml
+'   the host-wide-store hazard ... _spec/internal/sbx/credential-path.puml
+'   the reachability switch ...... _spec/_plans/claude-in-chrome-reachability.puml
+'   the evidence a run already has _spec/internal/sbx/sandbox-backend.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   the candidate : https://github.com/cloudllm-ai/mentisdb
+'   sandbox ports : https://docs.docker.com/reference/cli/sbx/ports/
+'
+' ── THE QUESTION ────────────────────────────────────────────────────────────
+' Several `proveo run` instances working at once — a COUNCIL rather than one
+' agent — need somewhere to see each other. Today they cannot: each run is a
+' separate sandbox with its own sid, its own clone, its own evidence directory,
+' and NOTHING that tells run B what run A has claimed or concluded.
+'
+' proveo can already enumerate them — `sbx.RunningNames()` — so the missing
+' piece is not discovery. It is a shared, durable place to write.
+'
+' ── THE CANDIDATE, IN ITS OWN WORDS ─────────────────────────────────────────
+' MentisDB describes itself as a "durable semantic memory engine and versioned
+' skill registry for AI agents — a persistent, hash-chained brain that survives
+' context resets, model swaps, and team turnover." Rust daemon with REST/MCP/
+' HTTP, a library crate, and a Python client; MIT; 0.10.x at ~750 commits.
+'
+' WHAT MAPS ONTO WORK THIS TREE HAS ALREADY DONE, which is more than expected:
+'   append-only, SHA-256 hash-chained   the tamper-evidence chain
+'                                       operator-fingerprint.puml specified by
+'                                       hand for the attestation ledger
+'   an AGENT REGISTRY carrying          the identity surface that file needs, in
+'   per-chain SIGNING KEYS (Ed25519)    a store that already expects one
+'   `as_of` point-in-time queries       audit replay: what did the council
+'                                       believe at time T
+'   typed relations — Supersedes,       a correction is a first-class edge
+'   Corrects, ContinuesFrom             rather than a rewritten row
+'   an MCP interface                    a reach an agent already knows how to use
+'
+' So the shape is right, and that is exactly why the failure modes below need
+' stating before anyone adopts it.
+'
+' ── IT DOES NOT SOLVE THE WALL, AND THE WALL IS THE SAME ONE ───────────────
+' A hash chain proves that an entry was not ALTERED OR REORDERED after it was
+' written. It says nothing about whether the entry was TRUE when written. If the
+' agent holds the signing key and writes its own entries — which is the whole
+' design — then the council's ledger is a tamper-evident record of what the
+' agents CLAIMED, and nothing more.
+'
+' That is the identical distinction operator-fingerprint.puml reaches: a
+' signature by the subject over evidence about the subject authenticates origin,
+' not truth. The chain is still worth having; it closes the "edited afterwards"
+' half that a transcript in a writable mount cannot close today. It must simply
+' not be sold as honesty.
+'
+' ── THE LOAD-BEARING UNKNOWN: AN APPEND-ONLY LOG IS NOT A LOCK ─────────────
+' The council use case is not memory, it is CLAIMING. Run A takes a task; run B
+' must not take the same one. An append-only log cannot decide that by itself —
+' two runs can each append "I claim X" and both entries are perfectly valid,
+' perfectly signed and perfectly chained.
+'
+' So the question that decides whether MentisDB serves the COUNCIL, as opposed
+' to serving MEMORY, is whether it offers a linearisation primitive: a
+' compare-and-set, a lease, a unique constraint, an append-if-head-unchanged.
+' UNKNOWN from the README. If it does not, the council needs one elsewhere and
+' the ledger is an audit trail rather than a coordinator — still useful, but a
+' different claim.
+'
+' MEASURE THAT FIRST. Everything else here is downstream of it.
+'
+' ── AND CLONE MODE MEANS IT COORDINATES INTENT, NOT MERGES ─────────────────
+' Each run works in its own clone (clone-workspace.puml), so two runs cannot
+' corrupt one working tree — but their COMMITS diverge and still have to be
+' fetched and merged. A work ledger stops duplicated EFFORT; it does not stop
+' conflicting EDITS. A council that believes otherwise will produce three
+' correct, non-conflicting ledger entries and three incompatible diffs.
+'
+' ── WHERE IT WOULD RUN, AND THE HOLE THAT IMPLIES ──────────────────────────
+' A daemon on the host is the right placement for the same reason
+' `run.StateDir()` is: it is outside every agent's mount, so no agent can
+' rewrite the shared record.
+'
+' But then each sandbox has to REACH it, and that is a deliberate hole:
+'   docker backend   `host.docker.internal` is pointed at 127.0.0.1 with the
+'                    host-reach add-on OFF and at `host-gateway` with it ON —
+'                    the switch already exists and defaults to closed
+'   sbx backend      the daemon's host:port must be added to
+'                    `permissions.network.allow`, and published with
+'                    `sbx ports --publish` if it is to be reached at all
+' Neither is free: a council ledger is the first thing to argue for opening an
+' inbound path from every sandbox to a host service, and that argument should be
+' made explicitly rather than arriving as a dependency.
+'
+' ── THE SHARED-STATE HAZARD IS ALREADY CATALOGUED HERE ─────────────────────
+' A host daemon shared by every run, outliving every run, is the SAME SHAPE as
+' sbx's secret store — and credential-path.puml already wrote down what that
+' costs: "a stale entry from an earlier run can therefore authenticate a later
+' one that never chose it". Substitute "inform" for "authenticate" and the
+' hazard transfers intact: a council reading a ledger cannot tell a current
+' claim from an abandoned one unless entries carry a lease or an expiry.
+'
+' So the provenance work is not optional decoration on this. The four classes
+' operator-fingerprint.puml proposes — human-verified, human-present,
+' agent-cert, agent-asserted — are what let a council weigh an entry at all.
+' Without them every entry reads as equally authoritative, which is how a
+' confident wrong claim propagates through three runs instead of one.
+'
+' ── EXPERIMENTS — NOTHING BELOW IS MEASURED ─────────────────────────────────
+' G1  DOES IT OFFER A LINEARISATION PRIMITIVE?
+'     Compare-and-set, lease, unique constraint, or append-if-head-unchanged.
+'     If not, MentisDB is an audit trail for the council and not its
+'     coordinator, and the claiming problem needs a different answer. This gates
+'     every other question here, so it is first and it is cheap: read the API.
+'
+' G2  WHAT DOES A SECOND WRITER ACTUALLY SEE, AND WHEN?
+'     Two `proveo run` instances appending concurrently: does B observe A's
+'     entry before acting, and what is the visibility delay? A council that
+'     coordinates through a store with lazy reads will double-claim in the gap
+'     regardless of what the API promises.
+'
+' G3  WHOSE KEY SIGNS AN ENTRY, AND CAN A RUN FORGE ANOTHER'S?
+'     The agent registry holds per-chain signing keys. If a run can write under
+'     another run's identity, the ledger's attribution is decorative. Probe it
+'     adversarially — that is the only way this question gets a real answer.
+'
+' G4  WHAT DOES REACHABILITY COST?
+'     Measure the actual opening: the add-host switch on docker, the allow entry
+'     and published port on sbx. Then ask whether a UNIX socket bind-mounted
+'     read-write into each sandbox would do the same job without an inbound
+'     network path — a smaller hole for the same coordination.
+'
+' ── WHAT THIS FILE DELIBERATELY DOES NOT DECIDE ────────────────────────────
+' WHETHER A COUNCIL IS WANTED AT ALL. Several concurrent runs is a capability
+' decision with costs — host memory, provider spend, merge conflicts — that have
+' nothing to do with ledgers. This file assumes the council and asks only what
+' would coordinate it.
+'
+' WHETHER TO ADOPT MentisDB. It is a candidate, read from its README and not
+' run. G1 decides whether it fits the coordination job; nothing here has
+' measured its behaviour, its operational cost, or what depending on a
+' third-party daemon does to proveo's install story.
+'
+' WHETHER THE LEDGER AND THE ATTESTATION LEDGER ARE ONE THING. They want the
+' same properties — append-only, chained, per-writer identity — and merging them
+' would be tidy. It would also make a council's coordination store the same
+' artifact as the provenance record for secrets, which couples two very
+' different blast radii. Named here so the tidiness is a decision.
+title EXPERIMENT — an agent council needs a place to see each other;\na hash chain is not a lock
+
+package "the host" as HOST <<host>> {
+  database "**work ledger**\nappend-only · hash-chained\noutside every agent's mount" as LEDGER <<db>>
+  component "proveo\n""sbx.RunningNames()"" already\nenumerates the council" as PV <<app>>
+  component "the reach switch\n""host.docker.internal"" · allow entry\n· published port" as REACH <<error>>
+}
+
+package "run A" as A <<host>> {
+  component "agent A\nown sid, own clone" as AA <<app>>
+}
+package "run B" as B <<host>> {
+  component "agent B\nown sid, own clone" as AB <<app>>
+}
+
+component "**the double claim**\ntwo valid, signed, chained\nentries for one task" as DUP <<error>>
+component "conflicting diffs\nthe ledger never saw them" as DIFF <<error>>
+
+AA ARROW_MAIN LEDGER : appends a claim
+AB ARROW_MAIN LEDGER : appends a claim
+LEDGER ARROW_ERROR DUP : append-only cannot refuse\nthe second one
+AA ARROW_ERROR DIFF
+AB ARROW_ERROR DIFF : separate clones, separate\ncommits, one merge
+AA ARROW_CLOUD REACH
+REACH ARROW_MAIN LEDGER : a hole that defaults to closed
+PV ARROW_OPTIONAL LEDGER : could write the run's own\nposture and evidence digests
+
+note bottom of LEDGER
+  **A chain proves order, not honesty.** It
+  closes the "edited afterwards" half that a
+  transcript in a writable mount cannot. It
+  does not make an agent's account of itself
+  true, and must not be sold that way.
+end note
+
+note bottom of DUP
+  **G1 is the whole experiment.** Two runs can
+  each append ""I claim X"" and both entries are
+  valid, signed and chained. Coordination needs
+  a compare-and-set or a lease; a log alone
+  cannot refuse the second writer.
+end note
+
+note bottom of REACH
+  **The first real argument for an inbound
+  path.** The docker switch already defaults to
+  closed, and sbx needs an allow entry plus a
+  published port. A bind-mounted socket may do
+  the same job with a smaller hole.
+end note
+
+note bottom of DIFF
+  **It coordinates intent, not merges.** Clone
+  mode keeps two runs from corrupting one tree,
+  and leaves their commits to be fetched and
+  merged. Three tidy entries can still describe
+  three incompatible diffs.
+end note
+
+note right of AB
+  **A stale claim reads like a live one.** Same
+  shape as the secret store: an entry outliving
+  the run that wrote it informs a later council
+  that never chose it, unless entries carry a
+  lease or an expiry.
+end note
+
+legend bottom
+  **What this file settles, and what it only frames**
+  ==
+  **The shape is right, and better than expected**: MentisDB is append-only and
+  SHA-256 hash-chained, carries an agent registry with per-chain Ed25519 signing keys,
+  answers ""as_of"" point-in-time queries and exposes MCP — which is most of what
+  operator-fingerprint.puml specified for a ledger, by hand, before knowing of it.
+  --
+  **And it does not clear the wall.** A chain proves an entry was not altered or
+  reordered after writing; it says nothing about whether the entry was true. With the
+  agent holding the key, the council's record is tamper-evident testimony, not evidence.
+  ==
+  **G1 gates everything**: an append-only log is NOT a lock. Two runs can both validly
+  claim one task. Unless the store offers compare-and-set, a lease or an
+  append-if-head-unchanged, it is the council's audit trail and not its coordinator —
+  useful, but a different claim than the one being made for it.
+  --
+  **Not decided**: whether a council is wanted at all; whether to adopt MentisDB, which
+  has been read and not run; and whether this ledger and the attestation ledger should be
+  one artifact — tidy, and it would couple two very different blast radii.
+end legend
+@enduml

@@ -94,6 +94,53 @@ skinparam noteTextAlignment left
 ' same shape as every false green this tree has catalogued: without it, the
 ' experiment measures that signing works, which nobody doubted.
 '
+' ── THREE YUBIKEYS: ENROLMENT IS PLURAL, AND THAT IS NOT A CONVENIENCE ─────
+' The operator has three. Recording all of them is not redundancy for comfort —
+' it is the only recovery path there is.
+'
+' AN sk PRIVATE KEY CANNOT BE BACKED UP. It is hardware-bound by design; there
+' is no export, no copy, no escrow. One enrolled key means one hardware failure
+' away from being unable to sign anything ever again — and, if a retired line is
+' handled badly, from being unable to VERIFY history either. So a second and
+' third key are the backup, because nothing else can be.
+'
+' allowed_signers takes ONE LINE PER KEY, and the principals field is what ties
+' them together — three lines, same email, same `namespaces` and
+' `verify-required`. Any of the three signs; all three verify.
+'
+' `-O resident` matters for a different loss. A resident key can be pulled back
+' out of the token onto a NEW HOST (`ssh-keygen -K`), so a resident enrolment
+' survives losing the laptop. It does not survive losing the token, which is
+' what the other two are for.
+'
+' ── THE RETIREMENT TRAP, AND THE OPTION THAT AVOIDS IT ─────────────────────
+' Entries in the ledger were signed by a SPECIFIC key. If a token is lost and
+' its allowed_signers line is DELETED, every historical entry that key signed
+' stops verifying — the audit trail silently loses its oldest half, and it looks
+' like tampering rather than like key rotation.
+'
+' `valid-before` is the answer, and it is already in the option list this file
+' quotes: retire the line by bounding it in time instead of removing it. History
+' verifies against a key that was valid when it signed; new signatures from that
+' key do not. Rotation stops being destructive.
+'
+' Which also means the ledger must record WHEN an entry was signed in a form the
+' verifier uses, not merely as a field in the payload — otherwise `valid-before`
+' has nothing to compare against and rotation is back to deletion.
+'
+' ── AND THREE ENROLMENTS ARE THREE CHANCES TO PROVISION ONE WEAKLY ─────────
+' Every `ssh-keygen -t ed25519-sk` is an opportunity to forget
+' `-O verify-required`, and with three tokens the odds triple. This is exactly
+' where the verifier-side option earns its place: because `verify-required` sits
+' in allowed_signers, a weakly-provisioned key FAILS VERIFICATION whatever was
+' chosen at keygen. The guarantee does not depend on remembering a flag.
+'
+' STILL OPEN: whether the three share ONE principal or get distinguishable ones.
+' One principal is simpler and treats the keys as interchangeable; separate
+' principals record WHICH token signed, which is what a targeted revocation
+' needs after a single token is lost. The F1 probe should measure both, since
+' the allowed_signers grammar supports either and the cost is a line.
+'
 ' ── WHAT AGENTS OWN, AND WHY BOTH ARE DEFERRED ─────────────────────────────
 '   THE TUI TRANSCRIPT   agent-writable today, measured. The two candidate
 '                        answers are already known — narrow the home mount so
@@ -544,6 +591,10 @@ skinparam noteTextAlignment left
 '     demanded on this operator's three YubiKeys, that `-Y verify` really
 '     refuses a non-UV signature, and what a `cached` OpenPGP policy looks like
 '     from outside during its 15-second window.
+'     AND THE PLURAL CASE: three lines under one principal all verifying, a
+'     `valid-before` line still verifying its own history while refusing new
+'     signatures, and whether distinguishable principals per token are worth the
+'     extra lines. See the enrolment section above.
 '
 ' F2  IS THE AUTHENTICATOR UNREACHABLE FROM INSIDE A SANDBOX?
 '     Attempt the same signature from inside a run and expect it to FAIL. A pass

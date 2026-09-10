@@ -168,6 +168,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/agent-council-ledger.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/capability-ladder.puml",
       "covers": [
         "e2e/ladder_test.go",
