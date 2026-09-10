@@ -260,7 +260,7 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/all-defs-green.puml",
+      "spec": "_spec/_devops/all-defs-green.puml",
       "covers": [
         "e2e/ladder_test.go",
         "e2e/idle_test.go",
