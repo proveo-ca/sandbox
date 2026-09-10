@@ -3,6 +3,12 @@
 ' purpose: the gates `mise run ci` already enforces locally, and the runners a real CI would need to run them on every push
 ' covers: mise.toml
 ' covers: .golangci.yml
+'   the sibling it is NOT ....... _spec/_devops/release-gate.puml
+'     Both name `mise.toml`, which makes them look like duplicates. They are
+'     not: release-gate owns WHAT MUST BE GREEN and where each half runs, and
+'     assumes a human runs it. This file owns the fact that NOTHING RUNS IT ON
+'     PUSH — `.github` does not exist in this tree at all, re-checked
+'     2026-09-10, so the premise ("that absence IS the plan") still holds.
 ' would touch: .github/workflows/** (does not exist yet — that absence IS the plan)
 title PLANNED — a self-defending pipeline (no CI exists yet)
 

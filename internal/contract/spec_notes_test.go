@@ -16,6 +16,8 @@ var specNotesEnforced = []string{
 	"_spec/_experiments/nested-sbx-kvm.puml",
 	"_spec/_experiments/sbx-kit-capabilities.puml",
 	"_spec/_experiments/operator-fingerprint.puml",
+	"_spec/_experiments/agent-council-ledger.puml",
+	"_spec/_experiments/cdp-shared-browser.puml",
 	"_spec/_devops/sandbox-template-rebase.puml",
 	"_spec/internal/sbx/host-readiness.puml",
 	"_spec/internal/sbx/shell-agent-launch.puml",
@@ -40,8 +42,14 @@ var specNotesEnforced = []string{
 	"_spec/internal/secretref/secret-references.puml",
 	"_spec/internal/sbx/oauth-provisioning.puml",
 	"_spec/_paradigms/retire-dind.puml",
+	"_spec/_paradigms/workspace-boundary.puml",
 	"_spec/_plans/workspace-env-key.puml",
 	"_spec/_plans/host-held-provider-keys.puml",
+	"_spec/_plans/post-close-surface.puml",
+	"_spec/_plans/tools-and-localhost-tunnels.puml",
+	"_spec/_plans/connect-ide.puml",
+	"_spec/_plans/claudecode-autoupdater.puml",
+	"_spec/_plans/sbx-dep-tree-isolation.puml",
 	"_spec/_plans/config-seeding-and-persistence.puml",
 	"_spec/_plans/claude-in-chrome-reachability.puml",
 	"_spec/_plans/image-size-reduction.puml",
@@ -51,7 +59,7 @@ var specNotesEnforced = []string{
 	"_spec/defs/base-image-layers.puml",
 	"_spec/defs/harness-image-layers.puml",
 	"_spec/_paradigms/capability-ladder.puml",
-	"_spec/_plans/all-defs-green.puml",
+	"_spec/_devops/all-defs-green.puml",
 }
 
 const (

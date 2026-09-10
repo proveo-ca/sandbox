@@ -1,0 +1,226 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: RE-SCOPED — sbx owns the host-reach policy and it is currently unsound; what proveo must do ONCE it is trustworthy
+' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/backend/sandbox/sandbox.go (cdpPublish, StartCDPViewport, permissions.network.allow)
+' would touch: internal/sbx/run.go (RunConfig.Publish), internal/egress/plan.go (the add-host switch)
+' would touch: internal/manifest/manifest.go (a capability, if a tunnel becomes one)
+' would touch: packages/lib/entrypoint-lib.sh (ensure_project_tools — the CLIENT half)
+'   the worked example of one direction _spec/_plans/claude-in-chrome-reachability.puml
+'   what proveo built for it ........... _spec/defs/claudecode/chrome-bridge.puml
+'   the host-side viewport ............. _spec/internal/sbx/browser-viewport.puml
+'   the grammar an allow entry must use  _spec/internal/sbx/kit-domain-form.puml
+'   what governs egress on sbx ......... _spec/internal/sbx/policy-baseline.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   sbx ports : https://docs.docker.com/reference/cli/sbx/ports/
+'   upstream, the host.docker.internal policy bug : https://github.com/docker/sbx-releases/issues/546
+'   upstream, UDP forwarding replay ............. : https://github.com/docker/sbx-releases/issues/537
+'
+' ── RE-SCOPED 2026-09-10: THE MECHANISM IS UPSTREAM'S, AND IT IS UNSOUND ──
+' Asked directly whether any of this is proveo's: the reach mechanism is not,
+' and upstream's tracker shows it currently cannot be trusted for the exact host
+' this plan wants to allow. So this is now about what proveo must do ONCE that
+' is fixed — and a reason not to build on it yet.
+'
+'   #546 OPEN — "`sbx policy check` reports a `host.docker.internal` deny rule
+'     as active, but the proxy does not enforce it"
+'     https://github.com/docker/sbx-releases/issues/546
+'     Reported against sbx v0.38.0. The submitter's finding: "the proxy appears
+'     to normalise `host.docker.internal` to `localhost`" when ENFORCING, while
+'     the checker matches the literal rule name — and `localhost`,
+'     `host.docker.internal` and `127.0.0.1` are treated as SEPARATE RESOURCES
+'     rather than aliases. Denying `localhost` directly does block the
+'     connection, which confirms it.
+'
+'   #537 — "UDP port forwarding replays the first reply datagram for the
+'     lifetime of a flow"
+'     https://github.com/docker/sbx-releases/issues/537
+'     Named because the publish direction is the half proveo already uses, and
+'     its UDP behaviour is not sound either.
+'
+' ── #546 IS THE SAME DEFECT THIS TREE HAS ALREADY BEEN BURNED BY ──────────
+' THE NAME proveo WRITES IS NOT THE NAME THE PROXY ENFORCES. That sentence is
+' kit-domain-form.puml verbatim in a different vocabulary: proveo emitted
+' `.x.ai`, sbx enforced nothing, reach never failed on an allow-all baseline and
+' the defect hid until a credential had to match one of those entries.
+'
+' Here the shape is worse in one way and better in another. WORSE: the failure
+' direction is a FALSE SENSE OF SECURITY — a deny that reads correct while
+' traffic flows — which is the one direction an operator cannot detect by
+' trying the thing. BETTER: it is upstream's to fix, it is reported, and the
+' workaround is already known.
+'
+' SO THE INTERIM RULE, IF THIS IS EVER BUILT BEFORE #546 CLOSES: write
+' `localhost:<port>`, not `host.docker.internal:<port>`, because the former is
+' what the proxy demonstrably matches. And never present the grant as
+' narrower than it is — if enforcement normalises to `localhost`, allowing one
+' host service may admit every loopback service, which is a different grant
+' than the one the posture line would claim.
+'
+' ── SO WHAT IS LEFT FOR proveo ─────────────────────────────────────────────
+'   THE TRUST DECISION IS OURS. Whether the agent may reach a host service at
+'     all, per run, explicitly, with the closed default kept. Upstream supplies
+'     a switch; deciding when to throw it is a product question.
+'   THE SPLIT IS OURS. "tools" is not "tunnels" — a client binary in the image
+'     versus reach — and the two fail differently, so the DIAGNOSTICS are ours
+'     to separate. Upstream will never tell an operator that `psql` is missing.
+'   THE SOCKET ALTERNATIVE IS OURS TO PREFER. A bind-mounted UNIX socket needs
+'     no inbound network path and therefore no policy at all, which sidesteps
+'     #546 entirely rather than waiting for it. This is now the FIRST thing to
+'     try, not the third.
+'   GENERALISING `Publish` IS OURS. `cdpPublish` is hardcoded to one purpose and
+'     the second caller turns it into an interface.
+'
+' Everything below was written before the scope was settled, and the trust
+' analysis is still the load-bearing part.
+'
+' ── THE ITEM COVERS TWO DIRECTIONS, AND THEY SHARE NO MACHINERY ────────────
+' "tools & localhost tunnels (e.g. psql, claude-in-chrome)" names one need and
+' two mechanisms. Separating them is the first useful thing this plan does.
+'
+'   HOST -> SANDBOX   something on the operator's machine reaches a service
+'                     INSIDE the run. `RunConfig.Publish` plus
+'                     `sbx ports --publish`. BUILT, for exactly one port.
+'   SANDBOX -> HOST   the agent reaches a service on the operator's machine.
+'                     `host.docker.internal`, plus an allow entry. NOT BUILT.
+'
+' claude-in-chrome is the worked example of the first: `cdpPublish` derives one
+' publish spec and `StartCDPViewport` holds the host end while the run lives. A
+' dev server or a preview URL is the SAME SHAPE and simply has no caller.
+'
+' psql is the worked example of the second, and nothing in that direction exists
+' beyond the raw plumbing.
+'
+' ── DIRECTION TWO IS NOT A PORT, IT IS A TRUST DECISION ────────────────────
+' The plumbing is already there and already gated:
+'   docker backend   `--add-host=host.docker.internal:127.0.0.1` with the
+'                    host-reach add-on OFF, and `:host-gateway` with it ON. The
+'                    switch exists and DEFAULTS TO CLOSED, which is the right
+'                    default and should survive this work.
+'   sbx backend      the target `host.docker.internal:<port>` has to appear in
+'                    `permissions.network.allow`. kit-domain-form.puml settles
+'                    the grammar: exact host and exact host:port are ENFORCED,
+'                    so `host.docker.internal:5432` is expressible and matchable
+'                    without widening anything.
+'
+' BUT THE ALLOWLIST IS THE WRONG MENTAL MODEL FOR IT. Every other entry in that
+' list is an outbound destination on the internet, chosen because the agent needs
+' a provider or a package registry. A host service is a DIFFERENT TRUST DOMAIN:
+' it is the operator's own machine, usually unauthenticated because it only ever
+' listened on loopback, and frequently holding production-shaped data. Granting
+' `host.docker.internal:5432` is not "one more allowed host"; it is handing the
+' agent a database that was safe because nothing could reach it.
+'
+' So it should be per-run and explicit — an opt-in the operator states, not a
+' manifest default and not a side effect of a def declaring a tool.
+'
+' ── AND "TOOLS" IS A SEPARATE HALF FROM "TUNNELS" ─────────────────────────
+' `psql` reaching a host database needs TWO unrelated things:
+'   THE CLIENT   a `psql` binary in the image. That is an image-layer question
+'                — or `ensure_project_tools`, which already installs on demand —
+'                and it has nothing to do with reachability.
+'   THE REACH    the tunnel above.
+' Either without the other is useless, and they fail differently: a missing
+' client fails immediately and legibly, while missing reach fails as a timeout
+' or a 403 that reads like an egress bug. This tree has already spent a session
+' misreading exactly that shape, so the two halves want separate diagnostics.
+'
+' ── THE SHAPE WORTH COPYING IS ALREADY IN THE MANIFEST ─────────────────────
+' `hostBrowser: claude-in-chrome` is a CAPABILITY a def declares, off by
+' default, that grants a specific cross-boundary reach. A tunnel is the same
+' shape, and reusing it means the picker already has a row for it and the
+' posture already has a place to print it.
+'
+' NOT DECIDED, and the first is the load-bearing one:
+'   WHO NAMES THE PORT. A def cannot know the operator runs Postgres on 5432; an
+'     operator should not have to know a def wants it. So the grant is probably
+'     per-run (a flag or a prompt row) with the def only declaring that it CAN
+'     use one — which is a different schema shape than hostBrowser.
+'   WHETHER A SOCKET BEATS A PORT. A bind-mounted UNIX socket needs no inbound
+'     network path at all, and Postgres, Docker and most host daemons offer one.
+'     Smaller hole, same capability, and it sidesteps the allowlist entirely.
+'   WHETHER PUBLISH SHOULD GENERALISE. `cdpPublish` is hardcoded to one purpose.
+'     A dev-server preview is the same mechanism and would be the second caller,
+'     which is the point at which a one-off becomes an interface.
+title RE-SCOPED — the reach mechanism is upstream's and unsound;\nthe trust decision is proveo's
+
+package "the operator's machine" as HOST <<host>> {
+  component "a host service\n""psql"" · a daemon on loopback" as SVC <<error>>
+  component "the reach switch\nadd-host OFF by default" as SW <<app>>
+  component "the host end of a publish\n""StartCDPViewport""" as VIEW <<app>>
+}
+package "the sandbox" as SB <<host>> {
+  component "the agent" as AG <<app>>
+  component "a service in the run\nCDP today; a dev server next" as INSVC <<app>>
+  component "the CLIENT binary\nimage layer or ""ensure_project_tools""" as CLI <<app>>
+}
+component """permissions.network.allow""\n""host.docker.internal:5432""" as ALLOW <<app>>
+
+INSVC ARROW_MAIN VIEW : ""Publish"" + ""sbx ports"" — BUILT,\nfor exactly one port
+AG ARROW_OPTIONAL SW : NOT BUILT
+SW ARROW_MAIN SVC
+ALLOW ARROW_MAIN SW : exact host:port — enforced\ngrammar, no widening
+CLI ARROW_MAIN AG : useless without the reach
+AG ARROW_ERROR SVC : an unauthenticated daemon that\nwas safe because nothing\ncould reach it
+
+note bottom of SVC
+  **A different trust domain.** Every other allow
+  entry is an internet destination the agent
+  needs. A host daemon listened on loopback
+  because it was unreachable, and is usually
+  unauthenticated for exactly that reason.
+end note
+
+note bottom of CLI
+  **Two halves that fail differently.** A missing
+  client fails immediately and legibly; missing
+  reach fails as a timeout or a 403 that reads
+  like an egress bug. This tree has already lost
+  a session to that misreading.
+end note
+
+note bottom of ALLOW
+  **The grammar is not the problem.** Exact
+  ""host:port"" is an ENFORCED sbx pattern, so
+  ""host.docker.internal:5432"" matches without
+  widening anything. The question is whether it
+  should be granted, not whether it can be said.
+end note
+
+note right of VIEW
+  **One caller is a one-off.** ""cdpPublish"" is
+  hardcoded to CDP. A dev-server preview is the
+  same mechanism, and the second caller is the
+  moment this becomes an interface rather than a
+  special case.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Split the item.** HOST -> SANDBOX is a publish and is built for one port;
+  SANDBOX -> HOST is a trust grant and is not built. They share a sentence and no
+  machinery, and treating them as one feature is how the wrong default gets shipped.
+  --
+  **2. Keep the closed default.** The docker add-host switch already defaults to closed.
+  Whatever this becomes, granting the agent a host service stays an explicit per-run
+  opt-in — not a manifest default, and not a side effect of a def declaring a tool.
+  ==
+  **3. Try a socket FIRST, not third.** A bind-mounted UNIX socket needs no inbound
+  network path and therefore no policy, which sidesteps docker/sbx-releases#546 rather
+  than waiting on it. Postgres and Docker both offer one.
+  --
+  **And do not build on #546 while it is open.** ""sbx policy check"" reports a
+  ""host.docker.internal"" deny as active while the proxy normalises it to ""localhost"" and
+  lets traffic through — a deny that reads correct while it does nothing. That is
+  kit-domain-form's defect in another vocabulary: the name proveo writes is not the name
+  the proxy enforces.
+  --
+  **Left open**: who names the port, since a def cannot know the operator's local setup
+  and the operator should not have to know a def's needs; and whether ""Publish"" should
+  generalise, which the second caller will decide.
+end legend
+@enduml

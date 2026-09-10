@@ -94,6 +94,53 @@ skinparam noteTextAlignment left
 ' same shape as every false green this tree has catalogued: without it, the
 ' experiment measures that signing works, which nobody doubted.
 '
+' ── THREE YUBIKEYS: ENROLMENT IS PLURAL, AND THAT IS NOT A CONVENIENCE ─────
+' The operator has three. Recording all of them is not redundancy for comfort —
+' it is the only recovery path there is.
+'
+' AN sk PRIVATE KEY CANNOT BE BACKED UP. It is hardware-bound by design; there
+' is no export, no copy, no escrow. One enrolled key means one hardware failure
+' away from being unable to sign anything ever again — and, if a retired line is
+' handled badly, from being unable to VERIFY history either. So a second and
+' third key are the backup, because nothing else can be.
+'
+' allowed_signers takes ONE LINE PER KEY, and the principals field is what ties
+' them together — three lines, same email, same `namespaces` and
+' `verify-required`. Any of the three signs; all three verify.
+'
+' `-O resident` matters for a different loss. A resident key can be pulled back
+' out of the token onto a NEW HOST (`ssh-keygen -K`), so a resident enrolment
+' survives losing the laptop. It does not survive losing the token, which is
+' what the other two are for.
+'
+' ── THE RETIREMENT TRAP, AND THE OPTION THAT AVOIDS IT ─────────────────────
+' Entries in the ledger were signed by a SPECIFIC key. If a token is lost and
+' its allowed_signers line is DELETED, every historical entry that key signed
+' stops verifying — the audit trail silently loses its oldest half, and it looks
+' like tampering rather than like key rotation.
+'
+' `valid-before` is the answer, and it is already in the option list this file
+' quotes: retire the line by bounding it in time instead of removing it. History
+' verifies against a key that was valid when it signed; new signatures from that
+' key do not. Rotation stops being destructive.
+'
+' Which also means the ledger must record WHEN an entry was signed in a form the
+' verifier uses, not merely as a field in the payload — otherwise `valid-before`
+' has nothing to compare against and rotation is back to deletion.
+'
+' ── AND THREE ENROLMENTS ARE THREE CHANCES TO PROVISION ONE WEAKLY ─────────
+' Every `ssh-keygen -t ed25519-sk` is an opportunity to forget
+' `-O verify-required`, and with three tokens the odds triple. This is exactly
+' where the verifier-side option earns its place: because `verify-required` sits
+' in allowed_signers, a weakly-provisioned key FAILS VERIFICATION whatever was
+' chosen at keygen. The guarantee does not depend on remembering a flag.
+'
+' STILL OPEN: whether the three share ONE principal or get distinguishable ones.
+' One principal is simpler and treats the keys as interchangeable; separate
+' principals record WHICH token signed, which is what a targeted revocation
+' needs after a single token is lost. The F1 probe should measure both, since
+' the allowed_signers grammar supports either and the cost is a line.
+'
 ' ── WHAT AGENTS OWN, AND WHY BOTH ARE DEFERRED ─────────────────────────────
 '   THE TUI TRANSCRIPT   agent-writable today, measured. The two candidate
 '                        answers are already known — narrow the home mount so
@@ -237,128 +284,6 @@ skinparam noteTextAlignment left
 '                             SPIFFE ID, or GitHub Actions workflow identity".
 '                             The IdP asserts the name, not the operator.
 '
-' ── DEFERRED (background) — ALL THREE LEVELS, ONE FORMAT ───────────────────
-' No — and the "no" is the useful part. An agent CANNOT use an sk key: it cannot
-' touch a YubiKey, and that is the invariant rather than a shortcoming. What all
-' three levels DO share is the signature format and one trust store, which is
-' what makes them comparable.
-'
-'   human      `sk-ssh-ed25519@openssh.com` on the YubiKey, listed DIRECTLY in
-'              allowed_signers, principal = the operator's email, option
-'              `verify-required`
-'   agent      a software `ssh-ed25519` key, CERTIFIED per run by a host-held
-'              CA. The allowed_signers line is a `cert-authority` entry with
-'              principals `agent:*` and a `valid-before` at the run's end.
-'   subagent   certified by the same CA under `subagent:*`, narrower and
-'              shorter-lived than its parent
-'
-' THE PRESENCE CLASS IS READ OFF THE TRUST STORE, NOT CLAIMED BY THE SIGNER.
-' `verify-required` "only makes sense for the FIDO authenticator algorithms
-' ecdsa-sk and ed25519-sk", so it can only ever appear on a human line. A
-' verifier therefore learns the class from WHICH allowed_signers entry matched —
-' there is no self-declared class field to lie in, which is the property a
-' ledger written by agents needs most.
-'
-' ── DEFERRED (background) — CERTIFICATES SUPPLY THE DELEGATION ─────────────
-' A flat allowed_signers cannot express "this key was authorised by that key",
-' which is why the subagent level looked unserved. `cert-authority` closes it:
-' "Indicates that this key is accepted as a certificate authority (CA) and that
-' certificates signed by this CA may be accepted for verification."
-'
-' AND THE CONTAINMENT IS DUAL, WHICH IS THE LOAD-BEARING QUOTE: "When verifying
-' signatures made by certificates, the expected principal name must match BOTH
-' the principals pattern in the allowed signers file AND the principals embedded
-' in the certificate itself."
-'
-' So an agent CA pinned to `agent:*,subagent:*` CANNOT mint a human principal.
-' A certificate naming the operator's email fails the allowed_signers pattern on
-' that CA's line and is refused by the verifier — not by policy, by ssh-keygen.
-'
-' ── `namespaces` SEPARATES POWERS, AND IT ANSWERS THE Co-Authored-By PROBLEM ─
-' allowed_signers also takes `namespaces`, which restricts the signature
-' namespaces a key may be used in. Git signs in the `git` namespace. So:
-'
-'   the human line   namespaces="git,proveo-executor"
-'                    may sign commits AND provenance
-'   the agent CA     namespaces="proveo-agent"
-'                    may write provenance, and is STRUCTURALLY UNABLE to
-'                    produce a valid commit signature
-'
-' That turns `Co-Authored-By: Claude Opus 5` from an untestable trailer into
-' something an agent can actually attest — in a namespace it is permitted — while
-' remaining unable to forge the human's commit signature. Separation of powers
-' enforced by the verifier rather than by convention.
-'
-' ── DEFERRED (background) — AN AGENT SIGNING A COMMIT ──────────────────────
-' Two verifiers exist and they do not accept the same thing, which splits the
-' answer cleanly.
-'
-'   A VERIFIER proveo CONTROLS — yes, with certificates. `ssh-keygen -Y verify`
-'     validates a cert-signed signature against a `cert-authority` line, with
-'     the dual principal check quoted above. This is the ledger, in the
-'     `proveo-executor` namespace, and it is the case the open blocker needs.
-'   A FORGE — no, not with certificates. The SSH certificate format
-'     (`ssh-ed25519-cert-v01@openssh.com`) is not supported by GitHub, GitLab or
-'     any code-hosting provider FOR COMMIT SIGNING, "despite working in the
-'     CLI"; there it is only a connectivity credential. GitHub verifies GPG, SSH
-'     KEYS and S/MIME, and matches an uploaded key on an account.
-'
-' SO THE PER-RUN IDENTITY AND THE FORGE BADGE ARE MUTUALLY EXCLUSIVE TODAY, and
-' the trade has to be chosen rather than discovered:
-'   certificates       per-run principal, `valid-before` expiry, one CA line as
-'                      the trust anchor — and no badge anywhere, because no
-'                      forge will read it
-'   one plain key      a badge, if the key is registered to an account — and no
-'                      per-run identity, no expiry, and a long-lived secret that
-'                      an agent has to hold
-'
-' AND THE DEEPER REASON THE `namespaces` SPLIT IS THE RIGHT DEFAULT. A forge
-' badge is BINARY. It says Verified or it does not, with no notion of a presence
-' class, so an agent-signed commit renders exactly as trustworthy as a human's
-' to everyone reading the UI. Putting agents in the `git` namespace therefore
-' does not add agent provenance — it SUBTRACTS meaning from every human
-' signature in the repository, for third parties who cannot see the principal.
-'
-' IF AGENT COMMIT SIGNING IS WANTED ANYWAY, the honest shape is a plain key with
-' principal `agent:<sid>`, verified by a hook or CI check that proveo controls,
-' accepting that the forge will show it unverified. That keeps the audit and
-' keeps the badge honest, at the cost of a UI that says nothing useful.
-'
-' ── THE ACTUAL TARGET: AN IN-proveo AUDIT TRAIL, agent x KEY x LOG ─────────
-' The forge does not matter, which means CERTIFICATES ARE FULLY USABLE and the
-' only verifier is proveo. What is wanted is a trail binding a principal to a
-' key to the artifacts of a run. proveo already produces those artifacts:
-'
-'     PROVEO_HOME/logs/proveo-<sid>.log         the transcript (runlog)
-'     <state>/egress/<sid>/sbx/policy-log.json  the daemon's allow/block record
-'     <state>/egress/<sid>/sbx/kit/spec.yaml    the Kit that was rendered
-'     <state>/egress/<sid>/sbx/memory-evidence   the guest's own account
-'
-' AN ENTRY WOULD BIND: sid, principal (`agent:<sid>`), the cert's key id, a
-' digest per artifact, the namespace, the PREVIOUS ENTRY'S DIGEST, and a
-' signature. The chain is what makes deletion and reordering detectable rather
-' than only modification — a transparency log's one useful property, with no
-' dependency and no network.
-'
-' ── MEASURED PROBLEM 1: THE TRANSCRIPT IS AGENT-WRITABLE ───────────────────
-' `runlog` writes to `filepath.Join(proveohome.Root(os.Getenv), "logs")`, and
-' `proveohome.Prepare` mounts the WHOLE root at `/proveo-home` with
-' `ReadOnly: false`. So the run log sits inside the agent's own read-write
-' mount, and an agent can rewrite the transcript it is the subject of.
-'
-' A digest taken at TEARDOWN therefore attests only "this is what the file held
-' when proveo read it" — never that the agent left it alone. Two answers, and
-' the second is nearly free:
-'   MOVE IT OUT     keep the transcript outside the home mount, or mount the
-'                   root without `logs/`. Changes a path the operator relies on.
-'   HASH AS IT IS   proveo is already the WRITER (rs.Log), so a rolling digest
-'   WRITTEN         costs nothing and makes a mid-run edit detectable by
-'                   comparison. No mount change, no new path.
-'
-' `<state>` — `XDG_STATE_HOME/proveo`, else `~/.local/state/proveo`
-' (run.StateDir) — is NOT in the mount list, so it is the right home for the
-' ledger itself: host-only, and already where the egress evidence rests.
-'
 ' ── CAN AN agent-cert PROTECT THE AGENT'S OWN EVIDENCE? NO ─────────────────
 ' The question was whether a per-run certificate could make a run's evidence —
 ' TUI transcript, network log, observability, resource monitoring — tamper-proof,
@@ -375,63 +300,6 @@ skinparam noteTextAlignment left
 ' And "only the key owner can write it" is a FILESYSTEM property, not a
 ' cryptographic one. A key does not gate writes; it gates BELIEVABLE writes. The
 ' write itself is gated by the mount.
-'
-' ── SO THE REAL QUESTION IS WHO HOLDS THE PEN, AND MOST OF THE LIST IS SAFE ─
-'   network log      `sbx policy log` — written by SANDBOXD on the host. The
-'                    agent never touches the file and cannot author its content.
-'                    proveo copies it at teardown (CapturePolicyLog).
-'   memory/resource  the guest kernel's own account, read from OUTSIDE by
-'                    sbx.MemoryEvidence. Same property.
-'   kit spec         rendered by proveo before the sandbox exists.
-'   TUI transcript   THE EXCEPTION. proveo is the writer (a PTY tee on the
-'                    host), but the FILE lands in the agent's read-write mount.
-'   anything the     forgeable by construction. A cert makes it attributable,
-'   agent authors    never trustworthy.
-'
-' The good news is that three of five are already tamper-proof from the agent's
-' side, and for a reason that has nothing to do with keys: the agent is not the
-' writer and the path is not in its mount.
-'
-' ── MEASURED FROM INSIDE A SANDBOX, FIRST-HAND ─────────────────────────────
-' `proveohome.Prepare` returns ONE mount — the whole root, `ReadOnly: false` —
-' while a def's `home.mounts` list only decides what gets mkdir'd and scrubbed.
-' So the declaration is finer-grained than the enforcement, and `logs/` rides
-' along. From inside a live proveo sandbox:
-'
-'     /proveo-home/logs/  lists EVERY prior run's transcript, mode 0600 and
-'                         OWNED BY THE RUNTIME USER, plus a `latest.log` symlink
-'     the directory       is WRITABLE
-'
-' So an agent can read, edit and delete not only its own transcript but every
-' other run's on that host. That is an integrity problem AND a confidentiality
-' one: a transcript carries the posture block, the detected providers, the
-' secret NAMES that were stored, and the workspace paths.
-'
-' ── THE FIX IS THE MOUNT, NOT THE KEY ──────────────────────────────────────
-'   NARROW THE MOUNT   honour the def's declared subpaths instead of mounting
-'                      the root, or exclude `logs/` explicitly. This is the only
-'                      change that PREVENTS rather than detects.
-'   MOVE THE LOG       write the transcript under `run.StateDir()`, which is
-'                      host-only, and keep PROVEO_HOME for what the agent
-'                      legitimately needs.
-'   DIGEST AS WRITTEN  proveo already holds the pen, so a rolling hash makes a
-'                      later edit DETECTABLE at no cost. The fallback wherever
-'                      prevention is not available.
-'
-' ── WHERE THE CERT GENUINELY HELPS, WHICH IS NOT NOTHING ───────────────────
-'   THE HOST SIGNS THE BUNDLE. Digests of the evidence, signed by a key the
-'     agent cannot reach, let a third party verify LATER that nothing was
-'     altered after the run — an auditor, a CI check, another operator. This is
-'     the role a signature is actually for.
-'   `valid-before` PINS CLAIMS TO A LIFETIME. A per-run certificate expiring at
-'     teardown means an agent cannot produce a BACK-DATED attestation once its
-'     run has ended; the signature fails validity rather than merely looking
-'     odd.
-'   ATTRIBUTION OF SELF-ASSERTED CLAIMS. `agent-asserted` entries stay weak, but
-'     a cert binds each to ONE run, so a false claim is attributable to a
-'     specific sid instead of floating free.
-'
-' Three real roles, none of which is "make the agent's own account trustworthy".
 '
 ' ── MEASURED PROBLEM 2: A SUBAGENT IS NOT A PRINCIPAL YET ──────────────────
 ' `defs/subagents/*.md` are PROMPT FILES, composed into the agent by
@@ -454,58 +322,6 @@ skinparam noteTextAlignment left
 '
 ' Four classes, one of which is deliberately weak and says so. That is more
 ' useful than three classes where the third is fictional.
-'
-' ── THE NAMESPACE NAMES A ROLE, NOT AN ACTION — AND THAT IS A CHOICE ───────
-' The namespace was renamed from `proveo-attest` to `proveo-executor`, and the
-' rename changes the axis rather than the spelling. `attest` named the ACTION;
-' `executor` names the OPERATOR ROLE — the human this repo addresses as
-' Executor. A signature in it therefore reads "the executor authorised this",
-' not "something was attested".
-'
-' WHICH SETTLES A QUESTION THE EARLIER DRAFT LEFT OPEN. It had one namespace per
-' action — `proveo-attest`, `proveo-run`, `proveo-delegate` — and that is now
-' the wrong axis: mixing role-named and action-named namespaces in one
-' allowed_signers file means a grant sometimes says WHO and sometimes says WHAT.
-'
-' So: NAMESPACE IS WHO, PAYLOAD IS WHAT.
-'   proveo-executor   everything a human executor signs
-'   proveo-agent      everything an agent signs, if that is ever built
-'   git               commits and tags — humans only, by default
-' The action — what set a secret, a run manifest, a delegation — goes INSIDE the
-' signed payload, where it can be structured and versioned. That is strictly
-' better than encoding it in a namespace string: a namespace is a coarse grant
-' in a trust store an operator edits by hand, and it should stay coarse.
-'
-' Any namespace proveo verifies ITSELF may use certificates; only what a forge
-' checks is confined to plain keys. Unchanged by the rename.
-'
-' ── WHERE THE RESIDUAL RISK MOVES TO ───────────────────────────────────────
-'   A HUMAN PRINCIPAL MUST NEVER LIST A NON-sk KEY. One software key under the
-'     operator's own principal bypasses `verify-required` for that principal
-'     entirely. The allowed_signers file is the whole security boundary, and
-'     this is the single line that can quietly void it.
-'   THE AGENT CA IS A SOFTWARE KEY ON THE HOST. Whoever holds it mints agent
-'     identities, so it falls under the same invariant — unreachable from inside
-'     a sandbox — and its principals+namespaces pins are what bound a compromise
-'     to agent claims instead of human ones.
-'   F4 MOVES TO THE ISSUER. Distinguishing a subagent now requires a per-subagent
-'     certificate, which means an in-sandbox process asking the host to mint one.
-'     That request path is new surface and is where the subagent question
-'     actually lives — not in the signature format, which handles it.
-'   REVOCATION. ssh has KRLs, but a short `valid-before` per run is the simpler
-'     answer and needs no distribution.
-'
-' ── DEFERRED (background) — SEPARATE CREDENTIAL PROFILES PER CLASS ─────────
-'   human      OIDC email, or an sk key with presence AND verification
-'   agent      one proveo run: a WORKLOAD identity, SPIFFE-shaped
-'   subagent   delegated from its parent run, narrower, and structurally unable
-'              to assert the human class
-'
-' That separation is not a preference. spiffe/spiffe#379 records that the SPIFFE
-' leaf SVID spec and Fulcio's certificate requirements conflict on Extended Key
-' Usage — "a certificate cannot carry codeSigning only while also carrying
-' serverAuth + clientAuth" — so one profile for humans and workloads is not
-' available even if it were wanted. Two profiles, deliberately.
 '
 ' ── WHAT THIS REPO ALREADY CLAIMS AND CANNOT PROVE ──────────────────────────
 ' Every commit in this tree carries `Co-Authored-By: Claude Opus 5
@@ -544,6 +360,10 @@ skinparam noteTextAlignment left
 '     demanded on this operator's three YubiKeys, that `-Y verify` really
 '     refuses a non-UV signature, and what a `cached` OpenPGP policy looks like
 '     from outside during its 15-second window.
+'     AND THE PLURAL CASE: three lines under one principal all verifying, a
+'     `valid-before` line still verifying its own history while refusing new
+'     signatures, and whether distinguishable principals per token are worth the
+'     extra lines. See the enrolment section above.
 '
 ' F2  IS THE AUTHENTICATOR UNREACHABLE FROM INSIDE A SANDBOX?
 '     Attempt the same signature from inside a run and expect it to FAIL. A pass
@@ -629,54 +449,84 @@ skinparam noteTextAlignment left
 ' something was signed. It does not prove they read what they signed, and no
 ' mechanism here can. Any claim stronger than "a human was present" is a claim
 ' this scheme does not support.
+' ── WHAT WAS CUT FROM THIS FILE, AND WHERE IT WENT ─────────────────────────
+' This file reached 840 lines by amendment — a GPG correction, ssh-sk, a
+' three-level design, a forge constraint, an audit trail, a scope cut, plural
+' enrolment — and after the scope cut most of that was background under a
+' decision. The background is deleted rather than archived, with its findings
+' named here so nothing is silently lost:
+'
+'   the certificate design, the three key classes, the agent CA, `namespaces` as
+'     a separation of powers, and the agent-signs-a-commit case — all DEFERRED
+'     by the scope cut, so the design that served them is gone. What survives is
+'     the reason they defer: a signature by the subject over evidence about the
+'     subject authenticates origin and not truth.
+'   the transcript being agent-writable, who holds the pen for each kind of
+'     evidence, the measured `/proveo-home/logs/` reading and the mount-not-the-
+'     key remedy — MOVED to _spec/_paradigms/workspace-boundary.puml, because
+'     they are instances of a class four plans share and not properties of an
+'     ssh-sk experiment.
+'
+' ── AND THE TWO LEDGERS STAY SEPARATE, DECIDED ─────────────────────────────
+' Whether this file's attestation ledger and agent-council-ledger.puml's work
+' ledger should be ONE artifact was left open in both. Decided: SEPARATE.
+'
+' They want the same mechanism — append-only, hash-chained, per-writer identity
+' — and merging them would be tidy. It would also make a council's coordination
+' store the same artifact as the provenance record for credentials, and those
+' have very different blast radii: a coordination ledger is written constantly
+' by every run and read for scheduling, while a provenance ledger is written
+' rarely, by a human with a touch, and read when trust is in question. One
+' artifact means one compromise reaches both, and one retention policy has to
+' serve both.
+'
+' Recorded here so it stops resurfacing as an open question in either file.
+'
 title EXPERIMENT — ssh-sk for the human operator;\nthe agent and cascade halves deferred
 
 actor "human operator" as HUMAN
 node "the host" as HOST <<host>> {
-  component "authenticator\nFIDO2 touch · Secure Enclave" as AUTH <<app>>
+  component "authenticator\nFIDO2 touch, then PIN" as AUTH <<app>>
+  component "**allowed_signers**\nthe trust boundary —\n""verify-required"" lives HERE" as ALLOW <<app>>
   component "software key\n""~/.gnupg"" · ssh-agent socket" as SOFT <<error>>
-component "OpenPGP on the card\ntouch policy: off by default,\n""cached"" = 15s of silence" as PGP <<error>>
-  database "attestation ledger\nhash-chained, host-only\n""<state>/proveo"" — NOT mounted" as LEDGER <<db>>
+  component "OpenPGP on the card\ntouch policy off by default,\n""cached"" = 15s of silence" as PGP <<error>>
+  database "attestation ledger\nhost-only: ""<state>/proveo""" as LEDGER <<db>>
   database "sbx secret store\nsealed · no metadata field" as STORE <<db>>
 }
-node "the sandbox" as SBXN <<host>> {
-  component "the agent\nworkload identity" as AGENT <<app>>
-  component "**the transcript**\n""PROVEO_HOME/logs"" — inside the\nagent's own rw mount" as LOG <<error>>
-  component "subagent\ndelegated, narrower" as SUB <<app>>
-}
+component "the agent, in the sandbox\nno path to the authenticator" as AGENT <<app>>
 component "**the forgery path**\nforwarded agent · HID passthrough" as HOLE <<error>>
 
-HUMAN ARROW_MAIN AUTH : touch — presence, then verification
-AUTH ARROW_MAIN LEDGER : signs (service, fingerprint, when, identity)
+HUMAN ARROW_MAIN AUTH : touch, then PIN
+AUTH ARROW_MAIN ALLOW : the signature asserts\nuser verification
+ALLOW ARROW_MAIN LEDGER : ""-Y verify"" REFUSES one\nthat does not
 LEDGER ARROW_OPTIONAL STORE : beside it, never inside
-SOFT ARROW_ERROR LEDGER : signs identically for ANY\nprocess as that user
-PGP ARROW_ERROR LEDGER : presence possible, but never\nvisible to a verifier
-AUTH ARROW_MAIN PGP : the same YubiKey, a\nweaker guarantee
-CA ARROW_MAIN AGENT : per-run cert, ""valid-before""\nat the run's end
-CA ARROW_MAIN SUB : ""subagent:*"", narrower
-AGENT ARROW_QUEUE LEDGER : namespace ""proveo-agent"" only —\ncannot sign a commit
-AGENT ARROW_ERROR LOG : can rewrite what it is\nthe subject of
-LOG ARROW_OPTIONAL LEDGER : digest it AS WRITTEN,\nnot at teardown
-SUB ARROW_QUEUE AGENT : delegated by certificate
-AUTH ARROW_MAIN ALLOW : the human line carries\n""verify-required""
-ALLOW ARROW_MAIN CA : ""cert-authority"", principals pinned
+SOFT ARROW_ERROR ALLOW : signs identically for ANY\nprocess as that user
+PGP ARROW_ERROR ALLOW : presence possible, never\nvisible to a verifier
+AGENT ARROW_QUEUE LEDGER : may attest ITSELF; a signature\nover its own evidence proves\norigin, not truth
 AGENT ARROW_ERROR HOLE
-HOLE ARROW_ERROR AUTH : the invariant that must be tested
+HOLE ARROW_ERROR AUTH : the invariant F2 must test
 
 note bottom of SOFT
-  **Custody is not presence.** Any process
-  running as that user can sign with it, and on
-  this host that includes proveo. A software key
-  proves possession and never that a human
-  was there.
+  **Custody is not presence.** Any process running
+  as that user can sign with it, and on this host
+  that includes proveo. A software key proves
+  possession and never that a human was there.
 end note
 
 note bottom of AUTH
   **Two different assertions.** Presence says
-  somebody touched it. Verification adds a PIN
-  or biometric, and the authenticator reports
-  whether it succeeded. Only the second narrows
-  it toward WHICH human.
+  somebody touched it. Verification adds a PIN or
+  biometric and the authenticator reports whether
+  it succeeded. Only the second narrows it toward
+  WHICH human.
+end note
+
+note bottom of ALLOW
+  **The class is read here, not claimed.**
+  ""verify-required"" needs an sk key, so it
+  can only appear on a human line — and the
+  VERIFIER requires it. There is no field for a
+  signer to lie in.
 end note
 
 note bottom of PGP
@@ -695,44 +545,11 @@ note bottom of HOLE
   is meaningful without that test passing.
 end note
 
-note bottom of LEDGER
-  **A claim about a value, never the value.**
-  The store stays sealed — that is the security
-  property. Deletion must FAIL CLOSED, or
-  removing the ledger becomes the attack rather
-  than forging it.
-end note
-
-note bottom of LOG
-  **Measured from inside a sandbox.** ""logs/"" is
-  writable and lists EVERY prior run, owned by
-  the runtime user. An agent can edit its own
-  transcript and other runs' too. The fix is the
-  mount; a key cannot gate a write.
-end note
-
 note right of AGENT
-  **A workload, not a person.** No sk key: an
-  agent cannot touch a YubiKey, which is the
-  invariant rather than a gap. It gets a
-  short-lived certificate instead, and a
-  namespace that excludes ""git"".
-end note
-
-note bottom of ALLOW
-  **The class is read here, not claimed.**
-  ""verify-required"" only works for sk keys, so
-  it can only appear on a human line. The
-  verifier learns the class from WHICH entry
-  matched — no field for a signer to lie in.
-end note
-
-note bottom of CA
-  **Containment is dual, and ssh enforces it.**
-  A cert's principal must match the pattern on
-  the CA's line AND the principal inside the
-  cert, so a CA pinned to ""agent:*"" cannot mint
-  the operator's email.
+  **Deferred, and for a reason.** It can attest
+  itself, and that authenticates origin rather
+  than truth — so an agent signing its own
+  evidence buys attribution, never honesty.
 end note
 
 legend bottom

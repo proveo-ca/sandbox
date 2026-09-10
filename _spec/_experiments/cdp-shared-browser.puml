@@ -1,0 +1,232 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — can ONE browser engine serve every def over CDP, instead of a `-browser` image per def?
+' status: proposed 2026-09-10, not implemented; nothing in src depends on this file
+' would touch: internal/sbx/run.go (CDPBrowserPort, CDPRelayPort, cdpRelay, BrowserCDPArgs)
+' would touch: internal/backend/sandbox/sandbox.go (cdpPublish, StartCDPViewport, AGENT_BROWSER_ARGS)
+' would touch: defs/base-node-browser/Dockerfile, internal/contract/browser_layer_test.go
+'   the question this answers ...... _spec/_devops/all-defs-green.puml (R4)
+'   what the layer carries today ... _spec/defs/browser-layer.puml
+'   why the host cannot reach in ... _spec/internal/sbx/browser-viewport.puml
+'   the reach this needs, unbuilt .. _spec/_plans/tools-and-localhost-tunnels.puml
+'   the prize .................... .. _spec/_plans/image-size-reduction.puml
+'   the operator-Chrome case, gated  _spec/_plans/claude-in-chrome-reachability.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   agent-browser : https://github.com/vercel-labs/agent-browser
+'   sbx ports     : https://docs.docker.com/reference/cli/sbx/ports/
+'
+' ── THE QUESTION ────────────────────────────────────────────────────────────
+' R4 in the requirement sheet asks whether `cecli-browser` is absent by design.
+' It is not — but the reason it looked absent by design points at something
+' larger: if agent-browser can drive an engine it did not launch, then the
+' expensive half of the browser layer need not be in any def's image.
+'
+' So: can ONE engine serve every def, and what does that cost?
+'
+' ── THE LEVER EXISTS, AND IT TAKES A REMOTE URL ────────────────────────────
+' agent-browser documents `--cdp <port|url>`, or `AGENT_BROWSER_CDP`: "a port
+' number (e.g., 9222) for local connections ... or a full WebSocket URL (e.g.,
+' wss://... or ws://...) for remote browser services." There is also
+' `--auto-connect` / `AGENT_BROWSER_AUTO_CONNECT` for discovery.
+'
+' A remote engine is therefore a SUPPORTED MODE rather than a trick, and proveo
+' already has the wiring point: the browser layer sets AGENT_BROWSER_* variables
+' (EXECUTABLE_PATH, SKILLS_DIR) and sandbox.Spec injects AGENT_BROWSER_ARGS. One
+' more variable is the entire client-side change.
+'
+' ── WHAT EXISTS TODAY POINTS THE OTHER WAY ─────────────────────────────────
+' The CDP plumbing in this tree runs INWARD-OUT, for a human:
+'   CDPBrowserPort = 9223   Chromium's own DevTools port, LOOPBACK ONLY — which
+'                           is why a relay is needed at all
+'   cdpRelay                a Python TCP forwarder run via `sbx exec`, binding
+'                           0.0.0.0:CDPRelayPort and piping to 127.0.0.1:9223
+'   cdpPublish              publishes that relay port to the host
+'   StartCDPViewport        holds the host end while the run lives
+' Browser inside, operator watching from outside (browser-viewport.puml).
+'
+' THE PROBE INVERTS THAT. Engine outside, agent inside, connecting out — which
+' is the SANDBOX -> HOST direction, and that direction is the unbuilt half of
+' tools-and-localhost-tunnels.puml. This experiment depends on that plan; it
+' cannot be measured before it.
+'
+' ── THE FINDING THAT DECIDES THE TOPOLOGY, BEFORE ANY MEASUREMENT ──────────
+' There are two very different "outside"s, and only one of them is this.
+'
+'   A SIDECAR ENGINE, inside the policy. Its own traffic still leaves through
+'     proveo's egress path, so the allowlist still governs what the agent can
+'     reach by browsing. This is the shape that collapses the image variants.
+'   THE OPERATOR'S OWN CHROME, on the host. Its traffic leaves through the
+'     HOST'S network, not the sandbox's. So an agent driving it browses AROUND
+'     the egress boundary entirely — every allow rule, every tier, every policy
+'     log becomes decorative for anything fetched through that browser.
+'
+' A host-side engine is therefore not a smaller version of this idea; it is an
+' EXFILTRATION PATH wearing the same API. That case already exists, is already
+' gated, and is already specced as its own thing — claude-in-chrome, with
+' `chromebridge.ScopeGate` — and it must not be reached by accident through a
+' variable meant for image size.
+'
+' SO THE TOPOLOGY IS DECIDED IN ADVANCE: sidecar, never host. That is a
+' constraint on the experiment, not an outcome of it.
+'
+' ── AND THE CDP ROUTE COSTS agent-browser ITS OWN CONTAINMENT ──────────────
+' Quoted, because it is the kind of thing a probe discovers too late: with
+' `--cdp` or `--auto-connect`, "pre-existing CDP sessions, auto-connect, Chrome
+' profiles, direct-page provider plugins, agent-browser restore or state-file
+' replay ... reject this option because agent-browser cannot install equivalent
+' containment before page scripts run" — the option being its domain allowlist.
+'
+' So connecting to an engine it did not launch means agent-browser's OWN
+' per-domain containment is unavailable. On a tree whose posture is egress
+' allowlisting that is survivable — proveo's control is at the proxy, not in the
+' tool — but it is a real reduction, and it is only survivable in the sidecar
+' topology above. In the host topology it removes the second fence after the
+' first one was already bypassed.
+'
+' ── CDP IS NOT AN AUTH BOUNDARY, WHICH MATTERS ONCE IT IS SHARED ──────────
+' A CDP endpoint is total control of the browser: any page, any cookie, any
+' stored session. One engine serving several runs therefore needs REAL isolation
+' per run, not politeness.
+'
+' agent-browser claims it: "each session has its own: browser instance, cookies
+' and storage, navigation history, authentication state". That is the right
+' claim and it is the one to verify at the CDP level rather than trust — because
+' the failure is silent and cross-run, and this tree already has a case of one
+' run's state informing another (the stale `sbx secret`).
+'
+' ── THE CHEAPER THING TO TRY FIRST ────────────────────────────────────────
+' If the goal is image size, a shared engine is not the only route. agent-browser
+' supports `--engine lightpanda` beside the default `chrome`. A lightweight
+' engine IN the image may well be smaller than Chromium plus a relay plus a
+' sidecar plus an inbound tunnel — and it keeps every def self-contained, which
+' is worth a great deal on its own.
+'
+' Measure that before building topology. An experiment that skips the cheap
+' alternative and builds the interesting one is how this tree has previously
+' arrived at elaborate answers to questions that had simple ones.
+'
+' ── EXPERIMENTS — NOTHING BELOW IS MEASURED ─────────────────────────────────
+' H1  DOES `--engine lightpanda` DO THE JOB, IN-IMAGE?
+'     Cheapest, and it may end the experiment. Measure the layer size against
+'     Chromium's, then run the existing browser suites against it. If it passes,
+'     no tunnel, no sidecar, no shared state, and every def stays
+'     self-contained.
+'
+' H2  DOES agent-browser DRIVE A REMOTE ENGINE AT ALL, HERE?
+'     `AGENT_BROWSER_CDP=ws://...` against a Chromium in a sidecar, from inside
+'     a run. The documented mode, unverified on this stack. Note that
+'     CDPBrowserPort is loopback-only by design, so the sidecar needs the same
+'     relay treatment the in-sandbox browser already gets — the existing
+'     `cdpRelay` may be reusable verbatim in the other direction.
+'
+' H3  IS PER-RUN ISOLATION REAL AT THE CDP LEVEL?
+'     Two runs against one engine: set a cookie and a logged-in session in one,
+'     and try to read them from the other. A pass here is the difference between
+'     a shared engine and a shared identity. Adversarial, not polite.
+'
+' H4  WHAT DOES THE LOST DOMAIN CONTAINMENT ACTUALLY PERMIT?
+'     With `--cdp` in force, fetch a host the run's allowlist forbids and see
+'     which fence stops it. The answer should be "proveo's proxy" — and if it is
+'     not, the sidecar topology is not as contained as this file assumes.
+'
+' H5  DOES THE PRIZE SURVIVE THE MACHINERY?
+'     Total the cost — a sidecar image, a relay, an allow entry, a published
+'     port, per-run isolation — against four `-browser` variants deleted. If the
+'     sidecar plus plumbing is not decisively smaller, the honest answer is to
+'     leave the variants alone and give cecli one.
+'
+' ── WHAT THIS WOULD BUY, AND WHY IT IS WORTH THE PROBE ────────────────────
+' Four `-browser` variants exist — claudecode, cursor, opencode, and the cecli
+' one that does not. Each carries a Chromium. If one engine can serve them all,
+' image-size-reduction.puml gets its largest single win and R4's gap closes as a
+' side effect rather than as a rebase.
+'
+' If it cannot, the fallback is small and already understood: rebase cecli onto
+' `base-node-browser` and build `cecli-browser` like the other three. That is
+' the outcome to accept quickly if H1 or H2 says so, rather than the one to
+' avoid.
+title EXPERIMENT — one engine over CDP, or a lighter engine per image;\nand why the engine may never live on the host
+
+package "the sandbox" as SB <<host>> {
+  component "the agent\nMCP client, stdio" as AG <<app>>
+  component "agent-browser\n""AGENT_BROWSER_CDP=ws://…""" as AB <<app>>
+}
+component "**sidecar engine**\ninside the egress policy" as SIDE <<app>>
+component "**the operator's Chrome**\noutside it" as HOSTCH <<error>>
+cloud "proveo's egress path\nallowlist · policy log" as EGRESS <<cloud>>
+component "the internet" as NET <<cloud>>
+component "**a second run**\nsharing one engine" as RUN2 <<error>>
+component """--engine lightpanda""\nin-image, no topology" as LP <<app>>
+
+AG ARROW_MAIN AB : spawns it — stdio MCP,\nso the binary is local
+AB ARROW_MAIN SIDE : the documented ""--cdp"" mode
+SIDE ARROW_MAIN EGRESS
+EGRESS ARROW_CLOUD NET : the allowlist still governs
+AB ARROW_ERROR HOSTCH : the same variable, the\nwrong outside
+HOSTCH ARROW_ERROR NET : leaves by the HOST's network —\naround every allow rule
+RUN2 ARROW_ERROR SIDE : cookies · sessions · storage,\nunless isolation is real
+LP ARROW_OPTIONAL AB : the cheap alternative,\nmeasured first
+
+note bottom of HOSTCH
+  **Not a smaller version of this idea.** A
+  host-side engine's traffic leaves by the host's
+  network, so browsing it bypasses the allowlist,
+  the tier and the policy log. That case is
+  claude-in-chrome, and it is gated for a reason.
+end note
+
+note bottom of SIDE
+  **Inside the policy is the whole point.** A
+  sidecar's own traffic still leaves through
+  proveo's egress path, so the allowlist keeps
+  governing what the agent can reach by
+  browsing. Sidecar, never host.
+end note
+
+note bottom of RUN2
+  **CDP is total control, not an auth boundary.**
+  Any page, any cookie, any session. Shared
+  across runs it needs REAL per-run isolation —
+  agent-browser claims it, and H3 verifies it
+  adversarially rather than trusting the claim.
+end note
+
+note bottom of LP
+  **Try the cheap thing first.** A lightweight
+  engine in-image may beat Chromium plus a relay
+  plus a sidecar plus a tunnel — and it keeps
+  every def self-contained, which is worth a lot
+  by itself.
+end note
+
+note right of AB
+  **The client must be local either way.** The MCP
+  server is stdio, so the agent spawns the
+  binary. Only the ENGINE moves; the driver stays
+  in the image, which is why the split is worth
+  anything at all.
+end note
+
+legend bottom
+  **What this file settles before measuring, and what it measures**
+  ==
+  **Settled in advance: sidecar, never host.** A host-side engine's traffic leaves by the
+  host's network, so an agent driving it browses AROUND the allowlist, the tier and the
+  policy log. That is an exfiltration path wearing the same API as an image-size
+  optimisation, and it must not be reached by accident through a variable meant for one.
+  --
+  **Also settled: the CDP mode costs agent-browser its own containment.** Its docs say so
+  outright — with ""--cdp"" it "cannot install equivalent containment before page scripts
+  run". Survivable when proveo's proxy is the fence; not survivable when it is not.
+  ==
+  **H1 first, because it may end the experiment**: ""--engine lightpanda"" in-image needs no
+  tunnel, no sidecar and no shared state. Only if that fails is the topology worth
+  building — and H5 asks whether the machinery is smaller than the four variants it deletes.
+  --
+  **The fallback is fine**: rebase cecli onto ""base-node-browser"" and build ""cecli-browser""
+  like the other three. That is the answer to accept quickly, not the one to avoid.
+end legend
+@enduml

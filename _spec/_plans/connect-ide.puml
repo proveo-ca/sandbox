@@ -1,0 +1,224 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: RE-SCOPED — upstream owns the ssh transport; what proveo must do ONCE it is usable, and the data-loss shape hiding in the default
+' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/sbx/** (there is NO ssh support today — measured by grep)
+' would touch: internal/backend/sandbox/sandbox.go (Publish, PreserveClone, CloneRescueLines)
+' would touch: internal/run/run.go (decideClone), internal/workspace/mount.go
+'   what a clone is and how work returns _spec/internal/sbx/clone-workspace.puml
+'   the cwd hazard an editor would hit .. _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+'   the publish mechanism it needs ...... _spec/_plans/tools-and-localhost-tunnels.puml
+'   where it would be offered ........... _spec/_plans/post-close-surface.puml
+'   what else lives in the home mount ... _spec/_experiments/operator-fingerprint.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+'   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
+'     — direct mode imports the host's file semantics; a clone re-materialises
+'     them. Presence, mode/ownership, architecture and which-tree are one cause
+'     meeting four properties of a file. Keep only this file's distinct half.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   sbx ssh (community write-up) : https://www.ajeetraina.com/ssh-straight-into-your-agent-sandboxes-a-hands-on-look-at-sbx-ssh/
+'   upstream, ssh attach regressed : https://github.com/docker/sbx-releases/issues/530
+'   upstream, remote VS Code asked : https://github.com/docker/sbx-releases/issues/523
+'
+' ── RE-SCOPED 2026-09-10: THE TRANSPORT IS NOT proveo'S TO BUILD ──────────
+' The question was asked directly: is any of this present when running sbx and
+' claudecode natively? For the transport, yes — it is upstream's, it exists, and
+' its tracker says so. So this plan is now about what proveo must do ONCE that
+' transport is usable, and nothing about how to make one.
+'
+' UPSTREAM OWNS IT, AND NAMES IT.
+'   `sbx setup ssh`   the mechanism. Named in docker/sbx-releases#530, which
+'                     records it writing configuration guidance of its own
+'                     ("ControlMaster no").
+'
+'   #530 CLOSED — "Claude Desktop app (Code tab) can't connect to Docker
+'     Sandboxes over SSH anymore, concurrent channels over a Control Master
+'     return exit 255"
+'     https://github.com/docker/sbx-releases/issues/530
+'     Establishes ssh attach as an ESTABLISHED capability that regressed, not a
+'     missing feature. And it carries a caveat proveo must respect: with
+'     channels both multiplexed and concurrent through a ControlMaster, "the
+'     command succeeds every single time and returns the right output — only the
+'     exit status is wrong" — exit 255, reproduced against sbx v0.38.0
+'     independently of the app.
+'
+'   #523 CLOSED, UNANSWERED — "Use VS Code to open an SBX sandbox running on
+'     another computer"
+'     https://github.com/docker/sbx-releases/issues/523
+'     A question about REMOTE attach across machines, closed with no maintainer
+'     response. So local attach is established and remote attach is
+'     unestablished. Do not plan on the second.
+'
+' ── SO WHAT IS LEFT FOR proveo, AND IT IS NOT THE INTERESTING PART ─────────
+' Four things, none of which upstream can do for us because each is about
+' proveo's own choices:
+'
+'   THE CLONE DEFAULT MUST SPEAK UP. proveo chose clone mode as the sbx default.
+'     Upstream will happily attach an editor to it, and the editor will happily
+'     edit a copy that disappears. That warning is ours because the default is
+'     ours.
+'   THE MOUNT MUST NARROW FIRST. An editor brings third-party extensions in with
+'     the agent's mounts, and proveo's home mount currently exposes every prior
+'     run's transcript. Upstream did not put it there.
+'   AFTER-EXIT BEFORE LIVE. Attaching to a KEPT sandbox is one writer; attaching
+'     during a run is two with no mediation. Which one proveo OFFERS is a
+'     product decision, and the post-close surface is where the offer belongs.
+'   DO NOT TRUST THE EXIT STATUS. Per #530, a multiplexed concurrent channel can
+'     return 255 having done the work correctly. Anything proveo shells out over
+'     ssh must not branch on that code, and `ControlMaster no` is upstream's own
+'     mitigation.
+'
+' Everything below this line was written before the scope was settled. It is
+' kept because the clone-mode analysis is still the load-bearing part, and the
+' transport survey is now background.
+'
+' ── WHERE THIS STARTS: proveo HAS NO ssh PATH AT ALL ───────────────────────
+' Measured, not assumed: `internal/sbx` contains no ssh code. `sbx ssh` exists
+' upstream and sbx-kit-capabilities.puml already cites it among its sources, but
+' nothing in proveo invokes it, wraps it, or publishes a port for it. So this
+' item starts from zero rather than from a partial implementation.
+'
+' ── THE MODE DECIDES WHAT "CONNECT" MEANS, AND THE TWO MEANINGS CONFLICT ───
+' This is not one feature. It is two, with opposite semantics, and the workspace
+' mode picks which one the operator gets:
+'
+'   DIRECT MODE   the workspace IS the host tree. An attached editor edits the
+'                 operator's real files. That is what they expect — and it also
+'                 dissolves the isolation the sandbox was providing for edits,
+'                 because now two writers share one tree with no coordination.
+'   CLONE MODE    the DEFAULT on sbx. The editor edits the CLONE. Edits never
+'                 appear on the host, and they are LOST when the sandbox is
+'                 removed unless fetched from `sandbox-<name>` or pushed.
+'
+' AN EDITOR THAT SILENTLY EDITS A DISPOSABLE COPY IS A DATA-LOSS SHAPE, and it
+' is the one the default produces. Someone attaches an IDE, works for an hour,
+' closes the sandbox, and their work is in refs nobody told them about. The
+' first job of this plan is therefore not the transport — it is deciding which
+' mode is supported and making the other LOUD.
+'
+' ── AND CLONE MODE ALREADY HAS THE RETURN PATH, IN PROSE ───────────────────
+' `CloneRescueLines` is the by-hand recipe for getting work out of a clone, and
+' clone-workspace.puml documents the two routes home. So the machinery exists;
+' what is missing is that an IDE user never sees it, because it is printed at
+' teardown to a terminal they were not looking at.
+'
+' Which links this item to the post-close surface: "fetch the clone's refs"
+' being an ACTION rather than a recipe is what makes clone-mode IDE attachment
+' survivable. The two plans are not independent.
+'
+' ── A SECOND WRITER IN ONE TREE IS ITS OWN PROBLEM ────────────────────────
+' Whichever mode, attaching WHILE THE AGENT RUNS puts two writers in one working
+' tree with no locking. The agent rewrites a file the operator has open; the
+' editor writes back from a stale buffer; the agent's next read sees neither.
+' Nothing in proveo mediates that, and nothing in an IDE expects to.
+'
+' virtiofs-cwd-invalidation.puml records a related hazard already measured on
+' this stack — a workspace dentry vanishing under a live agent — so the
+' filesystem underneath is known to be less stable than an editor assumes.
+'
+' THE CHEAPER FRAMING: attach to a KEPT sandbox after the agent has exited. One
+' writer, no race, and the post-close surface is exactly where the offer belongs.
+' A live attach is a bigger feature wearing the same name.
+'
+' ── ATTACHING AN IDE WIDENS WHO READS THE MOUNT ───────────────────────────
+' An editor in the sandbox is another process with the agent's mounts and the
+' agent's credentials. Measured from inside a live sandbox: `/proveo-home/logs/`
+' carries EVERY prior run's transcript, readable and writable. So attaching an
+' IDE hands a second party — the editor, its extensions, and whatever they
+' phone home to — the same access, over a path nobody chose for that purpose.
+'
+' The mount narrowing named in operator-fingerprint.puml is therefore a
+' PRECONDITION for this rather than an unrelated cleanup. Extensions are the
+' sharp end: a language server or a telemetry-happy plugin reads the whole
+' workspace by design.
+'
+' ── BACKGROUND — THE CANDIDATE TRANSPORTS (upstream's problem now) ────────
+'   sbx ssh                    upstream already has it; proveo would wrap it
+'                              rather than build one. Least new surface.
+'   VS Code Remote-SSH         needs an ssh endpoint, then installs a server
+'                              into the sandbox — a write the image did not plan
+'                              for, and a version it does not pin.
+'   devcontainer attach        speaks to a container, not a microVM; how it maps
+'                              onto sbx is unmeasured.
+'   JetBrains Gateway          same ssh dependency, heavier in-sandbox footprint.
+' All four need a reachable endpoint, which is the publish mechanism from
+' tools-and-localhost-tunnels.puml. That plan should land first.
+title RE-SCOPED — upstream owns the ssh transport;\nproveo owns the clone default that loses work
+
+package "the operator's machine" as HOST <<host>> {
+  component "the editor\nplus its extensions" as IDE <<app>>
+  component "the host tree" as TREE <<app>>
+}
+package "the sandbox" as SB <<host>> {
+  component "the clone\nDEFAULT on sbx" as CLONE <<error>>
+  component "the agent\nstill writing, maybe" as AG <<app>>
+  database """/proveo-home""\nevery prior run's transcript" as HOME <<error>>
+}
+component "**work in refs\nnobody mentioned**" as LOST <<error>>
+component "no ssh path in proveo\nmeasured, not assumed" as NOSSH <<error>>
+
+IDE ARROW_OPTIONAL NOSSH : the transport that\ndoes not exist yet
+IDE ARROW_MAIN CLONE : direct mode edits TREE;\nclone mode edits THIS
+CLONE ARROW_ERROR LOST : removed sandbox, unless\nfetched or pushed
+IDE ARROW_ERROR HOME : an extension reads the mount\nit was never granted
+AG ARROW_ERROR CLONE : a second writer, no locking
+TREE ARROW_OPTIONAL IDE
+
+note bottom of CLONE
+  **The default is the dangerous one.** On sbx the
+  editor edits a disposable copy. An hour's work
+  lands in ""refs/proveo/<sid>/"" and nobody said
+  so, because the recipe prints at
+  teardown to a terminal they left.
+end note
+
+note bottom of HOME
+  **An IDE widens who reads the mount.** Measured:
+  ""/proveo-home/logs/"" holds every prior run's
+  transcript, readable and writable. Extensions
+  read a workspace by design, so the mount
+  narrowing is a precondition, not a cleanup.
+end note
+
+note bottom of AG
+  **Two writers, no mediation.** Attaching while
+  the agent runs races on every file. Nothing in
+  proveo arbitrates it and no IDE expects to —
+  and the filesystem underneath already loses a
+  cwd under a live agent.
+end note
+
+note right of NOSSH
+  **This starts at zero.** ""internal/sbx"" has no
+  ssh code; ""sbx ssh"" exists upstream and proveo
+  does not call it. Wrapping it is less surface
+  than building a transport.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Decide which mode is supported, and make the other loud.** Clone mode is the
+  default and it silently edits a copy; an IDE attached to it must say so, before any
+  transport work. This is the whole risk of the item.
+  --
+  **2. Attach AFTER the agent exits, first.** One writer, no race, and the post-close
+  surface is where the offer belongs. A live attach is a larger feature wearing the same
+  name and should be argued separately.
+  ==
+  **3. Narrow the mount before inviting extensions in.** An editor brings third-party
+  code with the agent's access, over a home mount that currently exposes every prior
+  run's transcript.
+  --
+  **4. Use ""sbx setup ssh"" — the transport is upstream's.** docker/sbx-releases#530
+  establishes it as an established capability that regressed, and warns that a multiplexed
+  concurrent channel can return exit 255 having worked correctly, so proveo must not branch
+  on that status. #523 shows REMOTE attach is unestablished — closed, unanswered.
+  --
+  **Left open**: whether a Remote-SSH server writing itself into the image is acceptable
+  given nothing pins its version, and how devcontainer attach maps onto a microVM at all.
+end legend
+@enduml

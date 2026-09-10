@@ -1,0 +1,188 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the foreign-arch dependency tree is ALREADY detected and already isolated on docker — the gap is one Kit field proveo does not model on sbx
+' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/sbx/kit.go (no Volumes field today)
+' would touch: internal/run/run.go (StripDepCopies, the warning at ~660)
+' would touch: internal/workspace/deps.go (DepCopy), internal/workspace/mount.go
+'   the schema field this needs .... _spec/_experiments/sbx-kit-capabilities.puml (volumes[])
+'   why sbx cannot mask a subpath .. _spec/_plans/workspace-env-key.puml
+'   why a clone sidesteps it ....... _spec/internal/sbx/clone-workspace.puml
+'   why a tmpfs is not free ........ _spec/minimum_requirements.puml (no swap)
+'   the OTHER answer to the same problem _spec/_experiments/reusable-clone.puml
+'     — a reused clone keeps a NATIVE tree instead of shadowing a foreign one
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+'   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
+'     — direct mode imports the host's file semantics; a clone re-materialises
+'     them. Presence, mode/ownership, architecture and which-tree are one cause
+'     meeting four properties of a file. Keep only this file's distinct half.
+'
+' ── FIRST: ALMOST ALL OF THIS IS ALREADY BUILT ─────────────────────────────
+' The request was to plan for detecting a foreign-arch `node_modules` and
+' installing instead, and to ask whether that is even possible. It is possible,
+' and it is done. Written down so nobody rebuilds it:
+'
+'   `_dep_probe`                 walks native binaries by per-language name
+'                                pattern, caps the walk (PROVEO_DEPS_PROBE_LIMIT,
+'                                60) and calls `_proveo_foreign_object` on each —
+'                                an OBJECT-FORMAT check, not name matching — then
+'                                names the owning package
+'   `_dep_addons_tree`           on a foreign tree, explains the shape better
+'                                than a plan would: "the portable majority still
+'                                loads, so the failure arrives later, at the
+'                                first call into one of them, naming the TOOL
+'                                rather than the platform"
+'   `_proveo_dep_is_isolated`    reads /proc/self/mountinfo to ask whether the
+'                                tree is ITS OWN MOUNT — i.e. proveo's private
+'                                copy rather than the operator's checkout
+'   ownership decides            isolated -> clear and reinstall. The host's own
+'                                tree -> REFUSE, and name two remedies:
+'                                `--clone`, or `PROVEO_DEPS=reinstall` which
+'                                rewrites the checkout and says so
+'   `workspace.DepCopy`          on the DOCKER backend, dependency trees are
+'                                isolated outright: "dependency trees isolated,
+'                                host untouched"
+'
+' The refusal is the right call and should not be softened: installing Linux
+' binaries into a macOS checkout trades a broken agent for a broken laptop.
+'
+' ── SO THE GAP IS ONE BACKEND, AND ONE FIELD ───────────────────────────────
+' sbx is the exception, deliberately and visibly:
+'
+'   internal/run/run.go:658   `workspace.StripDepCopies(...)` removes the
+'                             isolation mounts on the sbx backend
+'   internal/run/run.go:660   and warns: "sbx mirrors the checkout, so its N
+'                             dependency tree(s) (node_modules, target, .venv …)
+'                             cross into the sandbox as the host built them"
+'
+' The reason is the one workspace-env-key.puml already records for `.env`: sbx
+' takes DIRECTORY workspaces at their own host paths, so there has been nothing
+' to hang a per-subdirectory overlay on.
+'
+' EXCEPT THE KIT SCHEMA LISTS ONE. sbx-kit-capabilities.puml, reading SPEC-v2,
+' records `volumes[]  block or tmpfs, path + size` among what a Kit may declare.
+' And `sbx.Kit` has NO Volumes field — proveo does not model it. So the
+' capability may have been there the whole time and the isolation was ruled out
+' by an assumption rather than by a probe.
+'
+' ── THE PROBE, AND IT IS ONE KIT ───────────────────────────────────────────
+' Declare a `volumes[]` entry — tmpfs, sized — at `<workspace>/node_modules` in
+' a `kind: sandbox` Kit, start a run whose workspace has a foreign
+' `node_modules`, and ask two things:
+'   DOES IT SHADOW?   is the mirrored host tree hidden by the volume, or does the
+'                     directory mount win and the declaration do nothing?
+'   IS IT ISOLATED?   does `_proveo_dep_is_isolated` then return TRUE for it —
+'                     which is the existing signal that unlocks clear-and-
+'                     reinstall with the host untouched
+' A yes to both means the docker path already works here and only the model was
+' missing.
+'
+' ── WHAT WOULD CHANGE, AND WHAT MUST NOT ───────────────────────────────────
+' IF IT WORKS: `StripDepCopies` stops being necessary on sbx, the warning at
+' run.go:660 turns from a fact of life into a fixed defect, and `--clone` stops
+' being the only answer for a direct-mode workspace. Nothing downstream needs
+' rewriting, because `_dep_addons_tree` already does the right thing the moment
+' the tree reports as isolated.
+'
+' WHAT MUST NOT CHANGE: proveo still never rewrites the operator's checkout
+' without `PROVEO_DEPS=reinstall`. A volume that shadows is not permission to
+' install into a tree that does not.
+'
+' ── THE COSTS THAT COULD SINK IT ───────────────────────────────────────────
+'   A tmpfs IS RAM, AND A SANDBOX HAS NO SWAP. minimum_requirements.puml records
+'     that memory pressure in a sandbox does not degrade, it KILLS, with no
+'     OOMKilled flag and no exit message. A monorepo's `node_modules` in tmpfs
+'     is gigabytes of guest memory, so the size must be declared deliberately
+'     and an overflow must fail legibly rather than as a mystery kill.
+'   A BLOCK VOLUME PERSISTS. It survives the run, which reintroduces exactly the
+'     staleness the host-wide secret store taught this tree to distrust: a tree
+'     built for a lockfile nobody has any more.
+'   SEVERAL TREES, NOT ONE. `node_modules`, `target`, `.venv` — the warning
+'     already counts them, so whatever this becomes is per-tree and its cost
+'     multiplies.
+'
+' ── STILL OPEN ─────────────────────────────────────────────────────────────
+' WHETHER A VOLUME CAN SIT INSIDE A MIRRORED DIRECTORY MOUNT AT ALL. That is the
+' whole question and it is unmeasured. The `.env` case failed for a related
+' reason and is the honest prior; a schema field is not a guarantee, as this
+' tree has now learned twice — a pattern that PARSES is not a pattern that
+' MATCHES (kit-domain-form.puml).
+'
+' WHETHER IT IS WORTH IT AT ALL, given `--clone` is already the sbx DEFAULT and
+' already produces exec-correct, arch-correct trees. This only helps the
+' operator who turned the default off, or whose workspace is not a repository.
+' Measure who that is before building for them.
+title PLANNED — the detection and the refusal are built;\nsbx isolation waits on one unmodelled Kit field
+
+component "a foreign ""node_modules""\nbuilt on the host" as FOREIGN <<error>>
+card "already built" as DONE <<host>> {
+  component """_dep_probe""\nobject-format check, capped" as PROBE <<app>>
+  component """_dep_addons_tree""\nexplains the delayed failure" as TREE <<app>>
+  component """_proveo_dep_is_isolated""\nis it OUR mount?" as ISO <<app>>
+}
+component "docker: ""DepCopy""\nhost untouched" as DOCKER <<app>>
+component "sbx: ""StripDepCopies""\nthe tree crosses as built" as SBXN <<error>>
+component """volumes[]"" in the Kit schema\nNO ""Volumes"" field in sbx.Kit" as VOL <<error>>
+component "the operator's checkout\nnever rewritten without\n""PROVEO_DEPS=reinstall""" as HOSTTREE <<error>>
+
+FOREIGN ARROW_MAIN PROBE
+PROBE ARROW_MAIN TREE
+TREE ARROW_MAIN ISO : ownership decides
+ISO ARROW_MAIN DOCKER : isolated -> clear + reinstall
+ISO ARROW_ERROR HOSTTREE : the host's own -> REFUSE,\nname two remedies
+SBXN ARROW_ERROR FOREIGN : no overlay to hang it on
+VOL ARROW_OPTIONAL SBXN : the field that might\nclose it
+
+note bottom of TREE
+  **The message already beats the plan.** "The
+  portable majority still loads, so the failure
+  arrives later, at the first call into one of
+  them, naming the TOOL rather than the
+  platform." Nothing here improves on that.
+end note
+
+note bottom of HOSTTREE
+  **The refusal is correct and stays.** Installing
+  Linux binaries into a macOS checkout trades a
+  broken agent for a broken laptop. A shadowing
+  volume is not permission to write a tree that
+  is not ours.
+end note
+
+note bottom of VOL
+  **Ruled out by assumption, not by probe.**
+  SPEC-v2 lists ""volumes[]"" — block or tmpfs,
+  path and size — and ""sbx\.Kit"" models no such
+  field. The capability may have been there the
+  whole time.
+end note
+
+note right of SBXN
+  **A tmpfs is RAM, and there is no swap.**
+  Memory pressure in a sandbox kills without an
+  OOMKilled flag. A monorepo's tree is gigabytes,
+  so a size must be declared and an overflow must
+  fail legibly.
+end note
+
+legend bottom
+  **What is left to do, which is much less than it looks**
+  ==
+  **Nothing about detection.** ""_dep_probe"" already checks object format rather than
+  names, ""_dep_addons_tree"" already explains the delayed failure, and ownership already
+  decides whether to clear-and-reinstall or refuse. On docker, ""DepCopy"" already isolates.
+  --
+  **One probe**: declare a Kit ""volumes[]"" entry at ""<workspace>/node_modules"" and ask
+  whether it shadows the mirrored tree AND whether ""_proveo_dep_is_isolated"" then reports
+  it as ours. Yes to both means only the model was missing.
+  ==
+  **A schema field is not a guarantee.** The ""\.env"" case failed for a related reason, and
+  this tree has twice learned that a pattern which PARSES is not one that MATCHES.
+  --
+  **And ask who it serves**: ""--clone"" is already the sbx default and already produces
+  arch-correct trees, so this helps only the operator who turned it off or whose workspace
+  is not a repository. Measure that population before building for it.
+end legend
+@enduml

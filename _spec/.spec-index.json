@@ -168,6 +168,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/agent-council-ledger.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_experiments/cdp-shared-browser.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/capability-ladder.puml",
       "covers": [
         "e2e/ladder_test.go",
@@ -255,7 +265,17 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/all-defs-green.puml",
+      "spec": "_spec/_paradigms/workspace-boundary.puml",
+      "covers": [
+        "internal/workspace/mount.go",
+        "internal/workspace/deps.go",
+        "internal/proveohome/proveohome.go",
+        "internal/runlog/runlog.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/all-defs-green.puml",
       "covers": [
         "e2e/ladder_test.go",
         "e2e/idle_test.go",
@@ -369,6 +389,51 @@
         "internal/sbx/run.go",
         "packages/lib/entrypoint-lib.sh",
         "internal/entrypoint/entrypoint.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/post-close-surface.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/runlog/runlog.go",
+        "internal/ui/ui.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/tools-and-localhost-tunnels.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/run.go",
+        "internal/egress/plan.go",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/connect-ide.puml",
+      "covers": [
+        "internal/sbx/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/workspace/mount.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/claudecode-autoupdater.puml",
+      "covers": [
+        "defs/claudecode/harness.manifest"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
+      "covers": [
+        "internal/sbx/kit.go",
+        "internal/run/run.go",
+        "internal/workspace/deps.go",
+        "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
     },

@@ -1,0 +1,215 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: REQUIREMENT SHEET — the bar a def must clear to count as working, and which declared images no suite reaches
+' covers: e2e/ladder_test.go
+' covers: e2e/idle_test.go
+' covers: defs/*/harness.manifest
+' The sibling that owns the COMMANDS and where each half runs: release-gate.puml
+'   (same directory). This file owns the BAR and the COVERAGE; that one owns the
+'   procedure. Keeping them apart is deliberate — a bar that moves with a script
+'   is not a bar.
+' Moved here from _spec/_plans/ on 2026-09-10: what remained after its blockers
+' closed is a standing requirement, not a plan.
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── R1 · THE BAR ───────────────────────────────────────────────────────────
+' "Working" is not "it launched once for me". A def is GREEN when EVERY LADDER
+' RUNG HOLDS on the sbx backend:
+'
+'   PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=<def> \
+'     go test -tags e2e ./e2e/ -run Ladder -v
+'
+' PER DEF, not one climb — claudecode is the default target, so a bare run
+' measures only it. The ladder is the right instrument because a rung failure
+' NAMES ITS LAYER: "not green" arrives with an address rather than a symptom.
+'
+' ── R2 · A DOCKER+EGRESS RESULT DOES NOT SATISFY R1 ────────────────────────
+' Every failure reported against this bar has been on sbx, and the fallback path
+' has passed while sbx died. A sweep on docker answers a question nobody asked,
+' and reporting it as coverage is how a red release goes out green.
+'
+' This is not a statement about the docker backend's worth. It is a statement
+' about which measurement counts for THIS bar.
+'
+' ── R3 · IDLE IS COMPLEMENTARY, AND IS NOT THE GATE ────────────────────────
+' `e2e/idle_test.go` asks a different question — does the assembled run survive
+' being left alone — and NEITHER TEST IMPLIES THE OTHER. Both directions have
+' been observed:
+'   opencode   passed every rung while its idle behaviour was unverified
+'   cursor     passed idle long before its ladder was ever climbed
+' Worth running. Not what blocks a release.
+'
+' ── R4 · COVERAGE: EIGHT IMAGES DECLARED, FIVE REACHED ─────────────────────
+' Four defs declare eight images between them, and the suites touch five. The
+' two that matter are named rather than left to inference:
+'
+'   claudecode-solidity   no suite touches it. It builds FROM the claudecode
+'                         image, so it inherits that layer's verdict — but the
+'                         solidity toolchain on top is UNMEASURED, and
+'                         inheritance is not a test.
+'   cecli-browser         does not exist, so the ladder skips its browser rung.
+'                         ANSWERED BELOW: not "by design" yet, because the
+'                         reason offered for it does not hold.
+'
+' ── R4a · WHY "cecli IS MCP-CAPABLE" DOES NOT ANSWER IT ───────────────────
+' The proposal was that cecli needs no browser image because it speaks MCP and
+' can therefore manage agent-browser. agent-browser does expose an MCP server —
+' `agent-browser mcp` — so the first half is true. The conclusion still does not
+' follow, for one reason: THAT SERVER IS stdio.
+'
+' A stdio MCP server is SPAWNED BY ITS CLIENT. The binary has to exist in the
+' same filesystem as the agent, so MCP changes how cecli TALKS to agent-browser
+' and not where agent-browser LIVES. It cannot be reached as a sidecar over a
+' socket the way an HTTP server could.
+'
+' And the layer is not small. browser_layer_test.go pins what the browser image
+' actually carries, and it is more than a binary:
+'   AGENT_BROWSER_EXECUTABLE_PATH=/opt/proveo/chromium/chrome — PLAYWRIGHT'S
+'     Chromium is the browser, and the Dockerfile is forbidden from running
+'     `agent-browser install` because that "would download a SECOND Chromium"
+'   agent-browser itself comes from a PINNED TARBALL, not `npm install -g`,
+'     because its engines.node floor is above the base image's Node
+'   a skill directory the seed composes
+' cecli also builds FROM `proveo/base`, not `base-node-browser`, so it has no
+' Node layer at all. A cecli-browser is a REBASE, not an added package.
+'
+' ── R4b · THE ROUTE THAT WOULD ACTUALLY WORK, AND WHAT IT BUYS ────────────
+' agent-browser can drive an EXISTING browser over CDP rather than launching
+' one. That splits the layer where its weight is:
+'   the engine    Chromium — the expensive half, and what makes every `-browser`
+'                 variant large
+'   the driver    a native binary plus its MCP server — small
+'
+' If the engine were reachable over CDP from outside the image, cecli would need
+' only the driver. proveo already has CDP plumbing in this shape —
+' `BrowserCDPArgs` adds `--remote-debugging-port`, `cdpPublish` publishes it and
+' `browser-viewport.puml` describes the host watching through it — but that
+' plumbing exists so a HUMAN can watch, not so a second agent can drive.
+'
+' The prize is bigger than cecli if it works: FOUR `-browser` variants collapse
+' into one engine plus a driver, which is exactly the shape
+' _spec/_plans/image-size-reduction.puml is looking for. That makes this worth
+' a probe rather than a preference, and the probe is now written up:
+' _spec/_experiments/cdp-shared-browser.puml. It settles one thing in advance —
+' the engine goes in a SIDECAR and never on the host, because a host-side
+' engine's traffic leaves by the host's network and browses around the whole
+' egress boundary — and it tries the cheap alternative first.
+'
+' SO R4 STAYS OPEN, with the question sharpened: not "does cecli want a
+' browser" but "can one browser serve every def". Until that is measured,
+' cecli-browser is ABSENT AND UNEXPLAINED — which R5 forbids — and the honest
+' interim record is that cecli has no browser capability at all.
+'
+' ── R5 · A SKIP MUST SAY WHICH KIND OF SKIP IT IS ──────────────────────────
+' "Absent by design" and "we forgot" are INDISTINGUISHABLE in test output, and
+' this has cost real accuracy twice already — release-gate.puml records
+' `ladder-all` misreading the ladder verdict in both directions, once certifying
+' four climbs that never happened and once reporting a def that passed every
+' rung as not-run.
+'
+' So a skip is only acceptable when the reason is recorded where the reader
+' lands: cecli-browser's absence belongs in cecli's manifest or in this sheet,
+' not in the silence of a green run.
+'
+' THE OTHER LIVE SKIP, and it is a host capability rather than a decision:
+' `sbxShellHoldsInADetachedPane` gates two e2e tests, one of them the only check
+' that a Kit allowlist CONFINES. _spec/_experiments/sbx-driving-a-session.puml
+' owns retiring it, and R1 cannot be fully measured on a host where it fires.
+'
+' ── WHAT THIS SHEET NO LONGER TRACKS, AND WHERE IT WENT ────────────────────
+' Both of the blockers this file was opened for have closed, and keeping their
+' investigations here would make a requirement sheet read as an open wound.
+'
+'   cecli ladder rung 2, ENOEXEC on the venv entry point
+'     SUPERSEDED, structurally. That rung only exists for a def with no agent of
+'     its own: `shellAgentTarget()` is `BuiltinAgent == "" && !DeclaresOwnAgent`,
+'     and with the agent kit defaulted on cecli DECLARES ITS OWN AGENT — so the
+'     `2-agent-command` rung is never generated for it. The launch defect it
+'     chased is recorded in _spec/internal/sbx/shell-agent-launch.puml, and
+'     _spec/_experiments/sbx-kit-capabilities.puml holds the climb where every
+'     cecli rung held.
+'
+'   internal/ptyproxy PTY tests failing ~1 run in 3
+'     FIXED, and re-measured before removal. The old note said they "do not
+'     survive -count=2 at all"; `go test ./internal/ptyproxy/ -count=3` is now
+'     green in under four seconds. The cause and the fix are in the commit that
+'     drained the child's last output before closing the PTY master.
+'
+' A resolved blocker is deleted from a requirement sheet and kept in the spec
+' that explains it. That is the difference between this file and the plan it
+' used to be.
+title Requirement sheet — what "all defs green" means,\nand the three images nobody measures
+
+card "**R1 · THE BAR**\nevery ladder rung holds, on sbx, PER DEF" as BAR <<host>>
+component "claudecode" as CC <<app>>
+component "cursor" as CU <<app>>
+component "opencode" as OC <<app>>
+component "cecli" as CE <<app>>
+
+component "**R2** a docker+egress pass\nis not a result for this bar" as R2 <<error>>
+component "**R3** idle: complementary,\nnever the gate" as R3 <<app>>
+component "**R4** claudecode-solidity\nunmeasured · cecli-browser absent" as R4 <<error>>
+component "**R5** a skip that does not say\nWHICH kind it is" as R5 <<error>>
+
+BAR ARROW_MAIN CC
+BAR ARROW_MAIN CU
+BAR ARROW_MAIN OC
+BAR ARROW_MAIN CE
+R2 ARROW_ERROR BAR : answers a question\nnobody asked
+R3 ARROW_OPTIONAL BAR : run it; it does not block
+BAR ARROW_ERROR R4
+R4 ARROW_ERROR R5 : an absence and an oversight\nlook identical
+
+note bottom of BAR
+  **A rung failure names its layer.** That is why
+  the ladder is the instrument and not a smoke
+  test: "not green" arrives with an address. And
+  PER DEF — claudecode is the default target, so
+  a bare run measures one of four.
+end note
+
+note bottom of R2
+  **Not a judgement on the backend.** Every
+  failure against this bar has been on sbx, and
+  the fallback passed while sbx died. It is about
+  which measurement counts here, and reporting
+  the other one as coverage ships a red release.
+end note
+
+note bottom of R3
+  **Neither test implies the other**, observed in
+  both directions: opencode passed every rung
+  with idle unverified, and cursor passed idle
+  long before its ladder was climbed.
+end note
+
+note bottom of R5
+  **This has cost accuracy twice.** release-gate
+  records ""ladder-all"" misreading the verdict
+  both ways — certifying four climbs that never
+  ran, then calling a def that passed every rung
+  not-run. A silent skip is not a result.
+end note
+
+legend bottom
+  **How to read this sheet**
+  ==
+  **R1 is the bar and it is per def**: every ladder rung, on sbx. R2 says a docker+egress
+  pass is not a result for it. R3 keeps idle as a useful, non-blocking companion. R4 names
+  the images no suite reaches, and R5 requires a skip to declare which kind it is.
+  --
+  **The commands live next door.** ""release-gate\.puml"" owns the procedure and the split
+  between what runs in a sandbox and what needs a host. A bar that moves whenever a script
+  changes is not a bar, which is why the two are separate files.
+  ==
+  **Both original blockers are closed and were deleted rather than archived here**: cecli's
+  rung-2 ENOEXEC is structurally gone (it declares its own agent, so that rung is never
+  generated), and the ptyproxy flake is fixed and re-measured green at ""-count=3"".
+  --
+  **R4 sharpened, not closed**: "cecli is MCP-capable" does not excuse the missing image —
+  ""agent-browser mcp"" is stdio, so its client spawns it and the binary must be in the
+  image. The route that would work is CDP to an engine OUTSIDE it, and the prize is four
+  ""-browser"" variants collapsing into one engine plus a driver. Worth a probe.
+end legend
+@enduml
