@@ -406,6 +406,13 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/claudecode-autoupdater.puml",
+      "covers": [
+        "defs/claudecode/harness.manifest"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_runtimes/toolchain-provisioning.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",

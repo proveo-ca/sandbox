@@ -49,8 +49,53 @@ skinparam noteTextAlignment left
 '                         solidity toolchain on top is UNMEASURED, and
 '                         inheritance is not a test.
 '   cecli-browser         does not exist, so the ladder skips its browser rung.
-'                         Whether that is deliberate is not recorded anywhere,
-'                         and cecli may simply not want one.
+'                         ANSWERED BELOW: not "by design" yet, because the
+'                         reason offered for it does not hold.
+'
+' ── R4a · WHY "cecli IS MCP-CAPABLE" DOES NOT ANSWER IT ───────────────────
+' The proposal was that cecli needs no browser image because it speaks MCP and
+' can therefore manage agent-browser. agent-browser does expose an MCP server —
+' `agent-browser mcp` — so the first half is true. The conclusion still does not
+' follow, for one reason: THAT SERVER IS stdio.
+'
+' A stdio MCP server is SPAWNED BY ITS CLIENT. The binary has to exist in the
+' same filesystem as the agent, so MCP changes how cecli TALKS to agent-browser
+' and not where agent-browser LIVES. It cannot be reached as a sidecar over a
+' socket the way an HTTP server could.
+'
+' And the layer is not small. browser_layer_test.go pins what the browser image
+' actually carries, and it is more than a binary:
+'   AGENT_BROWSER_EXECUTABLE_PATH=/opt/proveo/chromium/chrome — PLAYWRIGHT'S
+'     Chromium is the browser, and the Dockerfile is forbidden from running
+'     `agent-browser install` because that "would download a SECOND Chromium"
+'   agent-browser itself comes from a PINNED TARBALL, not `npm install -g`,
+'     because its engines.node floor is above the base image's Node
+'   a skill directory the seed composes
+' cecli also builds FROM `proveo/base`, not `base-node-browser`, so it has no
+' Node layer at all. A cecli-browser is a REBASE, not an added package.
+'
+' ── R4b · THE ROUTE THAT WOULD ACTUALLY WORK, AND WHAT IT BUYS ────────────
+' agent-browser can drive an EXISTING browser over CDP rather than launching
+' one. That splits the layer where its weight is:
+'   the engine    Chromium — the expensive half, and what makes every `-browser`
+'                 variant large
+'   the driver    a native binary plus its MCP server — small
+'
+' If the engine were reachable over CDP from outside the image, cecli would need
+' only the driver. proveo already has CDP plumbing in this shape —
+' `BrowserCDPArgs` adds `--remote-debugging-port`, `cdpPublish` publishes it and
+' `browser-viewport.puml` describes the host watching through it — but that
+' plumbing exists so a HUMAN can watch, not so a second agent can drive.
+'
+' The prize is bigger than cecli if it works: FOUR `-browser` variants collapse
+' into one engine plus a driver, which is exactly the shape
+' _spec/_plans/image-size-reduction.puml is looking for. That makes this worth
+' a probe rather than a preference.
+'
+' SO R4 STAYS OPEN, with the question sharpened: not "does cecli want a
+' browser" but "can one browser serve every def". Until that is measured,
+' cecli-browser is ABSENT AND UNEXPLAINED — which R5 forbids — and the honest
+' interim record is that cecli has no browser capability at all.
 '
 ' ── R5 · A SKIP MUST SAY WHICH KIND OF SKIP IT IS ──────────────────────────
 ' "Absent by design" and "we forgot" are INDISTINGUISHABLE in test output, and
@@ -153,7 +198,9 @@ legend bottom
   rung-2 ENOEXEC is structurally gone (it declares its own agent, so that rung is never
   generated), and the ptyproxy flake is fixed and re-measured green at ""-count=3"".
   --
-  **Still unrecorded**: whether ""cecli-browser"" is absent by design. Until someone writes
-  that down, its skip means nothing either way — which is exactly what R5 forbids.
+  **R4 sharpened, not closed**: "cecli is MCP-capable" does not excuse the missing image —
+  ""agent-browser mcp"" is stdio, so its client spawns it and the binary must be in the
+  image. The route that would work is CDP to an engine OUTSIDE it, and the prize is four
+  ""-browser"" variants collapsing into one engine plus a driver. Worth a probe.
 end legend
 @enduml
