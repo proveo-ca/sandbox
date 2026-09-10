@@ -1,10 +1,13 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: the auto-update failure claudecode prints on every run, why granting write permission is the WRONG fix, and the precedent already in the tree
+' purpose: permissions the sandbox boundary denies and claudecode reports every run — the auto-updater, whose fix is to STOP trying, and a workspace hook, whose fix is the opposite
 ' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 ' would touch: defs/claudecode/harness.manifest (agentEnv)
 ' would touch: defs/claudecode/tests/ (the assertion opencode already has)
+' would touch: packages/lib/entrypoint-lib.sh (proveo_install_claude_hooks)
+'   what proveo's own hook install does . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+'   how a clone re-materialises modes ... _spec/internal/sbx/clone-workspace.puml
 '   why the version is pinned at all . _spec/_devops/agent-version-pin.puml
 '   the precedent, done properly ..... defs/opencode/Dockerfile (OPENCODE_AUTO_UPDATE)
 '   the same shape on cursor ......... _spec/defs/cursor/cursor-paradigm.puml
@@ -73,6 +76,77 @@ skinparam noteTextAlignment left
 ' fixed once. Claudecode should follow opencode: set it in `agentEnv`, and assert
 ' it, because an unasserted env var is a comment.
 '
+' ── CASE B · THE WORKSPACE'S OWN STOP HOOK IS DENIED ──────────────────────
+' A second permission failure, reported the same way and needing the OPPOSITE
+' remedy:
+'
+'   ● Ran 1 stop hook
+'     ⎿ Stop hook error: Failed with non-blocking status code: /bin/sh: 1:
+'       <workspace>/.claude/hooks/stop-checks.sh: Permission denied
+'
+' "Its own hooks are denied?" — not its own. That path is the WORKSPACE's hook,
+' brought by the repository being worked on, and the distinction is the whole
+' diagnosis.
+'
+' PROVEO GUARANTEES EXEC FOR THE HOOKS IT SHIPS, AND NOTHING FOR THE REST.
+' `proveo_install_claude_hooks` installs from `/opt/claudecode/defaults/hooks/
+' cwd-guard.sh` — baked into the image, `-rwxr-xr-x`, owned by the runtime user.
+' The same is true of `defs/cursor/defaults/hooks/audit-shell.sh`. A hook the
+' WORKSPACE carries gets none of that: nothing chmods it, nothing validates it,
+' and nothing reports that it will not run until Claude Code tries.
+'
+' ── WHAT IT IS NOT, MEASURED FROM INSIDE A SANDBOX ────────────────────────
+' It is NOT a noexec mount, which is the first guess and is wrong here:
+'     host on /Users/pluvo/.proveo type virtiofs (rw,nosuid,nodev,relatime)
+' `nosuid` and `nodev`, no `noexec`. virtiofs permits execution.
+'
+' And a CLONE-mode workspace sidesteps the question entirely: the clone lands on
+' an ext4 volume inside the VM, git re-materialises it, and files arrive as
+' `-rwxr-xr-x 1 1000 1000` — owned by the runtime user with the exec bit git
+' tracked. The failing path is a DIRECT-mode workspace, where the host's own
+' modes and ownership arrive through virtiofs untouched.
+'
+' ── SO IT IS ONE OF TWO THINGS, AND ONE COMMAND SEPARATES THEM ────────────
+'   NO EXEC BIT ON THE HOST   git tracks exactly one exec bit, so a hook
+'                             committed without it will not run in ANY sandbox,
+'                             or on the host either. The most common cause and
+'                             the least interesting.
+'   UID MISMATCH              the file has +x but a mode that excludes others —
+'                             0700 owned by the host user — while the sandbox
+'                             runs as uid 1000. Then execve returns EACCES and
+'                             /bin/sh prints exactly this line.
+'
+' On the host:
+'     ls -l .claude/hooks/stop-checks.sh; git ls-files -s .claude/hooks/
+' Mode `100755` in the index means git carries the bit and the fault is
+' ownership; `100644` means the bit was never committed and `chmod +x` plus a
+' commit fixes it everywhere at once.
+'
+' ── AND THE REMEDY IS THE INVERSE OF CASE A, WHICH IS THE POINT ───────────
+' These two errors look alike — a permission denial, non-fatal, printed every
+' run — and they must not be fixed alike:
+'
+'   THE AUTO-UPDATER   the operator does NOT want it to succeed. A success
+'                      would unpin the image. Remedy: stop it trying.
+'   THE WORKSPACE HOOK the operator DOES want it to succeed. They wrote it.
+'                      Remedy: make the permission work.
+'
+' THE RULE THAT SEPARATES THEM: ask whether the operator wants the thing to
+' happen. If yes, fix the permission; if no, stop the attempt. A plan that
+' treated "permission denied" as one bug would either grant write access to the
+' npm prefix or silence a hook someone asked for, and both are wrong.
+'
+' WHAT proveo COULD DO for case B, ranked by how little it assumes:
+'   SAY SO EARLY. The seed already walks the workspace. A hook declared in
+'     `.claude/settings.json` that is not executable is knowable before the run
+'     starts, and a posture line beats a stop-hook error on every stop.
+'   DO NOT chmod THE OPERATOR'S TREE. In direct mode that is their file on
+'     their disk; silently changing its mode is the same class of overreach as
+'     shredding a mounted `.env`.
+'   CONSIDER CLONE MODE AS THE ANSWER. It already produces exec-correct,
+'     runtime-owned files. If direct mode is the only broken case, the honest
+'     advice may be "use a clone" rather than new machinery.
+'
 ' ── WHAT IS NOT SETTLED ────────────────────────────────────────────────────
 ' WHETHER THE MESSAGE SHOULD VANISH OR BE REPLACED. Silencing the updater
 ' removes a line that, however useless, told the operator the version is fixed.
@@ -82,7 +156,7 @@ skinparam noteTextAlignment left
 ' WHETHER cecli NEEDS THE SAME. Its sample config sets `check-update: true`, and
 ' whether cecli's updater can write its venv at run time is UNMEASURED. Same
 ' class, different binary, and worth one probe before assuming.
-title PLANNED — claudecode's auto-updater cannot write,\nand the fix is to stop it trying
+title PLANNED — two permission denials reported every run,\nwith opposite remedies
 
 component "the CLI\ninstalled as root at build" as CLI <<app>>
 component "the run\nnon-root, hardened" as RUN <<app>>
@@ -149,8 +223,19 @@ legend bottom
   rewrite its own tooling mid-run against the hardened posture, and the container is
   ephemeral so a successful download is discarded at teardown anyway.
   --
+  **Case B is the inverse, and that is the lesson.** A workspace ""\.claude/hooks"" script
+  denied execution is a permission the operator WANTS granted — so the remedy is not
+  silence but exec. proveo guarantees the bit for hooks it SHIPS (0755, image-baked,
+  runtime-owned) and guarantees nothing for hooks the workspace brings.
+  --
+  **The rule**: ask whether the operator wants the thing to happen. If yes, fix the
+  permission; if no, stop the attempt. Treating "permission denied" as one bug would
+  either grant write access to the npm prefix or silence a hook somebody asked for.
+  ==
   **Left open**: whether the removed line should be replaced by a posture row saying the
-  version is fixed; and whether cecli needs the same — its sample config sets
-  ""check-update: true"" and whether its updater can write the venv is unmeasured.
+  version is fixed; whether cecli needs the same — its sample config sets
+  ""check-update: true"" and whether its updater can write the venv is unmeasured; and
+  whether case B is a proveo fault at all, since clone mode already produces
+  exec-correct, runtime-owned files and only DIRECT mode carries the host's modes in.
 end legend
 @enduml
