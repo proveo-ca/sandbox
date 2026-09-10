@@ -418,6 +418,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
+      "covers": [
+        "internal/sbx/kit.go",
+        "internal/run/run.go",
+        "internal/workspace/deps.go",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_runtimes/toolchain-provisioning.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
