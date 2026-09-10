@@ -10,6 +10,8 @@ skinparam noteTextAlignment left
 '   why sbx cannot mask a subpath .. _spec/_plans/workspace-env-key.puml
 '   why a clone sidesteps it ....... _spec/internal/sbx/clone-workspace.puml
 '   why a tmpfs is not free ........ _spec/minimum_requirements.puml (no swap)
+'   the OTHER answer to the same problem _spec/_experiments/reusable-clone.puml
+'     — a reused clone keeps a NATIVE tree instead of shadowing a foreign one
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 '   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml

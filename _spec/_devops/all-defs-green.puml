@@ -112,6 +112,11 @@ skinparam noteTextAlignment left
 ' lands: cecli-browser's absence belongs in cecli's manifest or in this sheet,
 ' not in the silence of a green run.
 '
+' THE OTHER LIVE SKIP, and it is a host capability rather than a decision:
+' `sbxShellHoldsInADetachedPane` gates two e2e tests, one of them the only check
+' that a Kit allowlist CONFINES. _spec/_experiments/sbx-driving-a-session.puml
+' owns retiring it, and R1 cannot be fully measured on a host where it fires.
+'
 ' ── WHAT THIS SHEET NO LONGER TRACKS, AND WHERE IT WENT ────────────────────
 ' Both of the blockers this file was opened for have closed, and keeping their
 ' investigations here would make a requirement sheet read as an open wound.

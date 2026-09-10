@@ -3,9 +3,32 @@
 skinparam noteTextAlignment left
 ' purpose: E3 — retire the sbx e2e skip, and why `sbx exec` beats `sbx ssh` for it
 ' covers: e2e/sbx_test.go
-' The skip this is about: sbxShellHoldsInADetachedPane, e2e/sbx_test.go:687
+' The skip this is about: sbxShellHoldsInADetachedPane, e2e/sbx_test.go:508
+'   (declared there; consulted at sbx_test.go:536 and sbx_egress_test.go:83 —
+'    the line was 687 when this file was written, re-checked 2026-09-10)
 ' Sibling experiments: sbx-kit-capabilities.puml (E1 adopted, E2 folded in)
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── UPDATE 2026-09-10: THE SKIP HAS SPREAD, SO E3 GOT MORE EXPENSIVE ───────
+' Re-measured, because an experiment nobody references is an experiment nobody
+' re-costs. `sbxShellHoldsInADetachedPane` is now consulted from TWO files, not
+' one:
+'   e2e/sbx_test.go:536        the backend assertion this file was opened for
+'   e2e/sbx_egress_test.go:83  TestSandboxEgressIsConfinedToTheKitAllowlist
+'
+' The second one matters more than the first. That test is the only thing that
+' checks a Kit allowlist actually CONFINES, and it already skips on an allow-all
+' host baseline (policy-baseline.puml). So it now carries TWO independent skip
+' gates, and on a host where either fires, proveo's confinement claim is
+' unmeasured — which is exactly the hole kit-domain-form.puml was written out of:
+' a malformed allowlist cost nothing visible because nothing was checking.
+'
+' So E3 is not "retire a skip in one test". It is the precondition for measuring
+' confinement at all, and its priority should be read that way.
+'
+' Also worth naming: this is a HOST-CAPABILITY skip, and all-defs-green.puml's R5
+' says a skip must declare which kind it is. This one does say so in its message,
+' which is the standard the others should meet.
 '
 ' ── THE SKIP ────────────────────────────────────────────────────────────────
 ' TestSandboxBackendRunsDockerInsideTheSandbox asserts the four things

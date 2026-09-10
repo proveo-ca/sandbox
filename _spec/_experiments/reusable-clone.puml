@@ -5,6 +5,14 @@ skinparam noteTextAlignment left
 ' status: proposed 2026-09-07, not implemented; nothing in src depends on this file
 ' would touch: internal/backend/sandbox/sandbox.go (PreserveClone, liftClonedOutput)
 ' would touch: internal/sbx/run.go (CloneRemote, CloneRefs, CloneFetchArgs), internal/run/run.go (decideClone)
+'   what it would ALSO solve .... _spec/_plans/sbx-dep-tree-isolation.puml
+'     A reused clone keeps its dependency trees between runs, and a clone's
+'     trees are NATIVE — git re-materialised them in the guest. So reuse is a
+'     second answer to the foreign-arch problem that plan chases with a Kit
+'     `volumes[]` entry: not "shadow the host's tree" but "keep the one we
+'     already built". Two experiments, one prize; whichever is measured first
+'     should say so in the other.
+'   the class both sit in ....... _spec/_paradigms/workspace-boundary.puml
 '   the mechanism today .......... _spec/internal/sbx/clone-workspace.puml
 '   the resume state it rhymes with _spec/internal/sbx/state-sync.puml
 '   what a host can carry ........ _spec/minimum_requirements.puml
