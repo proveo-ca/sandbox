@@ -378,6 +378,34 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/post-close-surface.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/runlog/runlog.go",
+        "internal/ui/ui.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/tools-and-localhost-tunnels.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/run.go",
+        "internal/egress/plan.go",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/connect-ide.puml",
+      "covers": [
+        "internal/sbx/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/workspace/mount.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_runtimes/toolchain-provisioning.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",

@@ -1,0 +1,142 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the surface after the agent exits — a flat stream today, and what a choiceui-style one has to answer first
+' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/backend/sandbox/sandbox.go (SectionResults block, KeptLines, CloneRescueLines)
+' would touch: internal/runlog/runlog.go (the artifact name -> path map)
+' would touch: internal/ui/ui.go (SectionResults), internal/choiceui/**
+'   the language it would join ..... _spec/_conventions/tui-design-language.puml
+'   what shipped in that pass ...... _spec/internal/ui/output-vocabulary.puml
+'   surfaces already held back ..... _spec/_plans/tui-style-deferred-surfaces.puml
+'   the prompt it would borrow from  _spec/internal/choiceui/choice-prompt-render.puml
+'   how a short terminal is handled  _spec/internal/choiceui/viewport.puml
+'   the recipes it would replace .... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE SURFACE IS TODAY ──────────────────────────────────────────────
+' `SectionResults` — "after the agent: clones, transcripts" — is a FLAT STREAM
+' of `ui.Storef` lines emitted as teardown discovers things:
+'   the clone's refs under refs/proveo/<sid>/, and the branch names in them
+'   deliverables lifted out of the clone into the output directory
+'   where the transcript is, or that there is none because the sandbox had gone
+'   the policy log and the memory evidence, each as a path
+'   on failure, KeptLines and CloneRescueLines — multi-line RECIPES the operator
+'     is expected to read and retype
+'
+' It is a PRINT, not a surface. Nothing is navigable, nothing is actionable, and
+' the ordering is whatever teardown happened to reach first.
+'
+' ── THE QUESTION A choiceui STYLE HAS TO ANSWER FIRST ──────────────────────
+' Every choiceui surface in this tree is PRE-RUN and interactive: the choice
+' prompt, the topology strip, the viewport rules for a short terminal. They all
+' assume an operator sitting there, because they are how the run gets configured.
+'
+' Post-close is the opposite situation. The agent has exited, the run may have
+' taken hours, and THE OPERATOR MAY HAVE WALKED AWAY. So the first question is
+' not layout, it is lifetime: does proveo stay alive after the agent exits in
+' order to host an interactive surface?
+'
+' AND THE FAILURE MODE IS SPECIFIC. A surface that BLOCKS on input after an
+' unattended run is strictly worse than the stream it replaces — it turns a
+' finished run into a hung terminal, and in CI it hangs a job. So an interactive
+' post-close MUST degrade: to the flat stream when stdin is not a TTY, and to the
+' flat stream after a timeout when it is. That is a requirement, not a polish
+' item, and it is the reason this is a plan rather than a patch.
+'
+' ── WHAT WOULD ACTUALLY BE WORTH THE SURFACE ───────────────────────────────
+' Not prettier paths. ACTIONS, because the recipes already exist as text and
+' turning a recipe into a keystroke is the whole value:
+'   open the transcript            the path is already printed
+'   fetch the clone's refs         CloneRescueLines is that recipe, retyped
+'   show the policy log            a path today; a table of hosts and verdicts
+'                                  is what the operator wanted
+'   keep or remove the sandbox     KeptLines explains the choice in prose
+'   re-run with one thing changed  the choice prompt already knows the form
+'
+' The last one is the interesting one: it closes a loop back to the pre-run
+' surface, which means post-close and the choice prompt are two views of one
+' state rather than two screens.
+'
+' ── WHAT THE ARTIFACT MAP ALREADY GIVES ────────────────────────────────────
+' `runlog` holds a name -> path map — "policy log", "memory", "session state",
+' "egress state", the squid logs on the docker backend. That is already the row
+' set a table would render, so the data model does not need inventing; it needs
+' a renderer and a decision about which rows are actions rather than paths.
+'
+' WHAT IS NOT DECIDED, and both are cheap to get wrong:
+'   TABLE OR STRIP. A table reads well on a wide terminal and wraps badly on a
+'     narrow one; the topology strip exists precisely because a strip survives
+'     a narrow terminal. viewport.puml settled that question once already for
+'     the prompt and its answer should be reused rather than re-derived.
+'   WHETHER A FAILED RUN GETS A DIFFERENT SURFACE. Today failure prints MORE —
+'     the rescue recipes — which is right, and a surface that hides them behind
+'     a keystroke would bury the one thing a stuck operator needs.
+title PLANNED — post-close is a print, not a surface;\nlifetime is the question, not layout
+
+component "the agent exits" as EXIT <<app>>
+component """SectionResults""\na flat stream of ""Storef"" lines" as STREAM <<app>>
+database "the artifact map\n""runlog"": name -> path" as MAP <<db>>
+component "recipes as PROSE\n""CloneRescueLines"" · ""KeptLines""" as RECIPE <<error>>
+component "a choiceui-style surface\nnavigable · actionable" as SURFACE <<app>>
+component "**the hung terminal**\nblocking after an unattended run" as HANG <<error>>
+component "the choice prompt\nthe pre-run view of one state" as PROMPT <<app>>
+
+EXIT ARROW_MAIN STREAM
+MAP ARROW_MAIN STREAM : rows that exist already
+STREAM ARROW_ERROR RECIPE : read it, retype it
+STREAM ARROW_OPTIONAL SURFACE : what this plan proposes
+SURFACE ARROW_ERROR HANG : if it does not degrade
+SURFACE ARROW_MAIN PROMPT : re-run with one thing changed
+RECIPE ARROW_OPTIONAL SURFACE : a recipe becomes a keystroke
+
+note bottom of HANG
+  **The requirement, not a polish item.** After an
+  unattended run nobody is watching. Blocking on
+  input turns a finished run into a hung terminal
+  and a hung CI job, so degrading to the stream
+  is a precondition for building this at all.
+end note
+
+note bottom of RECIPE
+  **The value is the verb.** The rescue recipe is
+  already the right instruction — it is just
+  delivered as text to retype. Turning it into an
+  action is worth more than any amount of
+  restyling the paths around it.
+end note
+
+note bottom of MAP
+  **The data model exists.** ""runlog"" maps
+  names to paths — policy log, memory, session
+  state. What is missing is a renderer and a
+  decision about which rows are actions.
+end note
+
+note right of PROMPT
+  **Two views of one state.** If post-close can
+  re-run with one thing changed, it is not a
+  second screen; it is the choice prompt seen
+  from the other end. That framing decides what
+  the surface owns.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Decide the lifetime.** Does proveo stay alive after the agent exits? Everything
+  else is downstream, and the answer must include a degrade path: flat stream when stdin
+  is not a TTY, flat stream after a timeout when it is.
+  --
+  **2. Pick the verbs before the layout.** Open the transcript, fetch the clone refs,
+  show the policy log as a table, keep or remove the sandbox, re-run with one change. A
+  recipe that becomes a keystroke is the whole point; restyled paths are not.
+  ==
+  **3. Reuse ""viewport\.puml"", do not re-derive it.** Table versus strip on a narrow
+  terminal is a question this tree already answered once for the choice prompt.
+  --
+  **Left open**: whether a FAILED run gets a different surface. Failure currently prints
+  MORE, which is right — burying the rescue recipes behind a keystroke would hide the one
+  thing a stuck operator needs.
+end legend
+@enduml

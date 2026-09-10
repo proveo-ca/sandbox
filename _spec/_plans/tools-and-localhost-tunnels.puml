@@ -1,0 +1,160 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: reaching a service across the sandbox boundary — two directions, one built, and why the item covers two different mechanisms
+' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/backend/sandbox/sandbox.go (cdpPublish, StartCDPViewport, permissions.network.allow)
+' would touch: internal/sbx/run.go (RunConfig.Publish), internal/egress/plan.go (the add-host switch)
+' would touch: internal/manifest/manifest.go (a capability, if a tunnel becomes one)
+' would touch: packages/lib/entrypoint-lib.sh (ensure_project_tools — the CLIENT half)
+'   the worked example of one direction _spec/_plans/claude-in-chrome-reachability.puml
+'   what proveo built for it ........... _spec/defs/claudecode/chrome-bridge.puml
+'   the host-side viewport ............. _spec/internal/sbx/browser-viewport.puml
+'   the grammar an allow entry must use  _spec/internal/sbx/kit-domain-form.puml
+'   what governs egress on sbx ......... _spec/internal/sbx/policy-baseline.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
+'   sbx ports : https://docs.docker.com/reference/cli/sbx/ports/
+'
+' ── THE ITEM COVERS TWO DIRECTIONS, AND THEY SHARE NO MACHINERY ────────────
+' "tools & localhost tunnels (e.g. psql, claude-in-chrome)" names one need and
+' two mechanisms. Separating them is the first useful thing this plan does.
+'
+'   HOST -> SANDBOX   something on the operator's machine reaches a service
+'                     INSIDE the run. `RunConfig.Publish` plus
+'                     `sbx ports --publish`. BUILT, for exactly one port.
+'   SANDBOX -> HOST   the agent reaches a service on the operator's machine.
+'                     `host.docker.internal`, plus an allow entry. NOT BUILT.
+'
+' claude-in-chrome is the worked example of the first: `cdpPublish` derives one
+' publish spec and `StartCDPViewport` holds the host end while the run lives. A
+' dev server or a preview URL is the SAME SHAPE and simply has no caller.
+'
+' psql is the worked example of the second, and nothing in that direction exists
+' beyond the raw plumbing.
+'
+' ── DIRECTION TWO IS NOT A PORT, IT IS A TRUST DECISION ────────────────────
+' The plumbing is already there and already gated:
+'   docker backend   `--add-host=host.docker.internal:127.0.0.1` with the
+'                    host-reach add-on OFF, and `:host-gateway` with it ON. The
+'                    switch exists and DEFAULTS TO CLOSED, which is the right
+'                    default and should survive this work.
+'   sbx backend      the target `host.docker.internal:<port>` has to appear in
+'                    `permissions.network.allow`. kit-domain-form.puml settles
+'                    the grammar: exact host and exact host:port are ENFORCED,
+'                    so `host.docker.internal:5432` is expressible and matchable
+'                    without widening anything.
+'
+' BUT THE ALLOWLIST IS THE WRONG MENTAL MODEL FOR IT. Every other entry in that
+' list is an outbound destination on the internet, chosen because the agent needs
+' a provider or a package registry. A host service is a DIFFERENT TRUST DOMAIN:
+' it is the operator's own machine, usually unauthenticated because it only ever
+' listened on loopback, and frequently holding production-shaped data. Granting
+' `host.docker.internal:5432` is not "one more allowed host"; it is handing the
+' agent a database that was safe because nothing could reach it.
+'
+' So it should be per-run and explicit — an opt-in the operator states, not a
+' manifest default and not a side effect of a def declaring a tool.
+'
+' ── AND "TOOLS" IS A SEPARATE HALF FROM "TUNNELS" ─────────────────────────
+' `psql` reaching a host database needs TWO unrelated things:
+'   THE CLIENT   a `psql` binary in the image. That is an image-layer question
+'                — or `ensure_project_tools`, which already installs on demand —
+'                and it has nothing to do with reachability.
+'   THE REACH    the tunnel above.
+' Either without the other is useless, and they fail differently: a missing
+' client fails immediately and legibly, while missing reach fails as a timeout
+' or a 403 that reads like an egress bug. This tree has already spent a session
+' misreading exactly that shape, so the two halves want separate diagnostics.
+'
+' ── THE SHAPE WORTH COPYING IS ALREADY IN THE MANIFEST ─────────────────────
+' `hostBrowser: claude-in-chrome` is a CAPABILITY a def declares, off by
+' default, that grants a specific cross-boundary reach. A tunnel is the same
+' shape, and reusing it means the picker already has a row for it and the
+' posture already has a place to print it.
+'
+' NOT DECIDED, and the first is the load-bearing one:
+'   WHO NAMES THE PORT. A def cannot know the operator runs Postgres on 5432; an
+'     operator should not have to know a def wants it. So the grant is probably
+'     per-run (a flag or a prompt row) with the def only declaring that it CAN
+'     use one — which is a different schema shape than hostBrowser.
+'   WHETHER A SOCKET BEATS A PORT. A bind-mounted UNIX socket needs no inbound
+'     network path at all, and Postgres, Docker and most host daemons offer one.
+'     Smaller hole, same capability, and it sidesteps the allowlist entirely.
+'   WHETHER PUBLISH SHOULD GENERALISE. `cdpPublish` is hardcoded to one purpose.
+'     A dev-server preview is the same mechanism and would be the second caller,
+'     which is the point at which a one-off becomes an interface.
+title PLANNED — two directions, one built:\npublish out, and a trust decision in
+
+package "the operator's machine" as HOST <<host>> {
+  component "a host service\n""psql"" · a daemon on loopback" as SVC <<error>>
+  component "the reach switch\nadd-host OFF by default" as SW <<app>>
+  component "the host end of a publish\n""StartCDPViewport""" as VIEW <<app>>
+}
+package "the sandbox" as SB <<host>> {
+  component "the agent" as AG <<app>>
+  component "a service in the run\nCDP today; a dev server next" as INSVC <<app>>
+  component "the CLIENT binary\nimage layer or ""ensure_project_tools""" as CLI <<app>>
+}
+component """permissions.network.allow""\n""host.docker.internal:5432""" as ALLOW <<app>>
+
+INSVC ARROW_MAIN VIEW : ""Publish"" + ""sbx ports"" — BUILT,\nfor exactly one port
+AG ARROW_OPTIONAL SW : NOT BUILT
+SW ARROW_MAIN SVC
+ALLOW ARROW_MAIN SW : exact host:port — enforced\ngrammar, no widening
+CLI ARROW_MAIN AG : useless without the reach
+AG ARROW_ERROR SVC : an unauthenticated daemon that\nwas safe because nothing\ncould reach it
+
+note bottom of SVC
+  **A different trust domain.** Every other allow
+  entry is an internet destination the agent
+  needs. A host daemon listened on loopback
+  because it was unreachable, and is usually
+  unauthenticated for exactly that reason.
+end note
+
+note bottom of CLI
+  **Two halves that fail differently.** A missing
+  client fails immediately and legibly; missing
+  reach fails as a timeout or a 403 that reads
+  like an egress bug. This tree has already lost
+  a session to that misreading.
+end note
+
+note bottom of ALLOW
+  **The grammar is not the problem.** Exact
+  ""host:port"" is an ENFORCED sbx pattern, so
+  ""host.docker.internal:5432"" matches without
+  widening anything. The question is whether it
+  should be granted, not whether it can be said.
+end note
+
+note right of VIEW
+  **One caller is a one-off.** ""cdpPublish"" is
+  hardcoded to CDP. A dev-server preview is the
+  same mechanism, and the second caller is the
+  moment this becomes an interface rather than a
+  special case.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Split the item.** HOST -> SANDBOX is a publish and is built for one port;
+  SANDBOX -> HOST is a trust grant and is not built. They share a sentence and no
+  machinery, and treating them as one feature is how the wrong default gets shipped.
+  --
+  **2. Keep the closed default.** The docker add-host switch already defaults to closed.
+  Whatever this becomes, granting the agent a host service stays an explicit per-run
+  opt-in — not a manifest default, and not a side effect of a def declaring a tool.
+  ==
+  **3. Try a socket before a port.** A bind-mounted UNIX socket needs no inbound network
+  path, and Postgres and Docker both offer one. Smaller hole, same capability, and it
+  never touches the allowlist.
+  --
+  **Left open**: who names the port, since a def cannot know the operator's local setup
+  and the operator should not have to know a def's needs; and whether ""Publish"" should
+  generalise, which the second caller will decide.
+end legend
+@enduml
