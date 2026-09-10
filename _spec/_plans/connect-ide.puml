@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: attaching an editor to a sandbox — why the workspace MODE decides what that even means, and the data-loss shape hiding in the default
+' purpose: RE-SCOPED — upstream owns the ssh transport; what proveo must do ONCE it is usable, and the data-loss shape hiding in the default
 ' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 ' would touch: internal/sbx/** (there is NO ssh support today — measured by grep)
 ' would touch: internal/backend/sandbox/sandbox.go (Publish, PreserveClone, CloneRescueLines)
@@ -15,6 +15,60 @@ skinparam noteTextAlignment left
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   sbx ssh (community write-up) : https://www.ajeetraina.com/ssh-straight-into-your-agent-sandboxes-a-hands-on-look-at-sbx-ssh/
+'   upstream, ssh attach regressed : https://github.com/docker/sbx-releases/issues/530
+'   upstream, remote VS Code asked : https://github.com/docker/sbx-releases/issues/523
+'
+' ── RE-SCOPED 2026-09-10: THE TRANSPORT IS NOT proveo'S TO BUILD ──────────
+' The question was asked directly: is any of this present when running sbx and
+' claudecode natively? For the transport, yes — it is upstream's, it exists, and
+' its tracker says so. So this plan is now about what proveo must do ONCE that
+' transport is usable, and nothing about how to make one.
+'
+' UPSTREAM OWNS IT, AND NAMES IT.
+'   `sbx setup ssh`   the mechanism. Named in docker/sbx-releases#530, which
+'                     records it writing configuration guidance of its own
+'                     ("ControlMaster no").
+'
+'   #530 CLOSED — "Claude Desktop app (Code tab) can't connect to Docker
+'     Sandboxes over SSH anymore, concurrent channels over a Control Master
+'     return exit 255"
+'     https://github.com/docker/sbx-releases/issues/530
+'     Establishes ssh attach as an ESTABLISHED capability that regressed, not a
+'     missing feature. And it carries a caveat proveo must respect: with
+'     channels both multiplexed and concurrent through a ControlMaster, "the
+'     command succeeds every single time and returns the right output — only the
+'     exit status is wrong" — exit 255, reproduced against sbx v0.38.0
+'     independently of the app.
+'
+'   #523 CLOSED, UNANSWERED — "Use VS Code to open an SBX sandbox running on
+'     another computer"
+'     https://github.com/docker/sbx-releases/issues/523
+'     A question about REMOTE attach across machines, closed with no maintainer
+'     response. So local attach is established and remote attach is
+'     unestablished. Do not plan on the second.
+'
+' ── SO WHAT IS LEFT FOR proveo, AND IT IS NOT THE INTERESTING PART ─────────
+' Four things, none of which upstream can do for us because each is about
+' proveo's own choices:
+'
+'   THE CLONE DEFAULT MUST SPEAK UP. proveo chose clone mode as the sbx default.
+'     Upstream will happily attach an editor to it, and the editor will happily
+'     edit a copy that disappears. That warning is ours because the default is
+'     ours.
+'   THE MOUNT MUST NARROW FIRST. An editor brings third-party extensions in with
+'     the agent's mounts, and proveo's home mount currently exposes every prior
+'     run's transcript. Upstream did not put it there.
+'   AFTER-EXIT BEFORE LIVE. Attaching to a KEPT sandbox is one writer; attaching
+'     during a run is two with no mediation. Which one proveo OFFERS is a
+'     product decision, and the post-close surface is where the offer belongs.
+'   DO NOT TRUST THE EXIT STATUS. Per #530, a multiplexed concurrent channel can
+'     return 255 having done the work correctly. Anything proveo shells out over
+'     ssh must not branch on that code, and `ControlMaster no` is upstream's own
+'     mitigation.
+'
+' Everything below this line was written before the scope was settled. It is
+' kept because the clone-mode analysis is still the load-bearing part, and the
+' transport survey is now background.
 '
 ' ── WHERE THIS STARTS: proveo HAS NO ssh PATH AT ALL ───────────────────────
 ' Measured, not assumed: `internal/sbx` contains no ssh code. `sbx ssh` exists
@@ -76,7 +130,7 @@ skinparam noteTextAlignment left
 ' sharp end: a language server or a telemetry-happy plugin reads the whole
 ' workspace by design.
 '
-' ── THE CANDIDATE TRANSPORTS, AND WHAT EACH DEMANDS ───────────────────────
+' ── BACKGROUND — THE CANDIDATE TRANSPORTS (upstream's problem now) ────────
 '   sbx ssh                    upstream already has it; proveo would wrap it
 '                              rather than build one. Least new surface.
 '   VS Code Remote-SSH         needs an ssh endpoint, then installs a server
@@ -87,7 +141,7 @@ skinparam noteTextAlignment left
 '   JetBrains Gateway          same ssh dependency, heavier in-sandbox footprint.
 ' All four need a reachable endpoint, which is the publish mechanism from
 ' tools-and-localhost-tunnels.puml. That plan should land first.
-title PLANNED — connect an IDE: the workspace mode decides\nwhat "connect" means, and the default loses work
+title RE-SCOPED — upstream owns the ssh transport;\nproveo owns the clone default that loses work
 
 package "the operator's machine" as HOST <<host>> {
   component "the editor\nplus its extensions" as IDE <<app>>
@@ -154,8 +208,10 @@ legend bottom
   code with the agent's access, over a home mount that currently exposes every prior
   run's transcript.
   --
-  **4. Wrap ""sbx ssh"" rather than building a transport**, and land the publish mechanism
-  from tools-and-localhost-tunnels first — every candidate needs a reachable endpoint.
+  **4. Use ""sbx setup ssh"" — the transport is upstream's.** docker/sbx-releases#530
+  establishes it as an established capability that regressed, and warns that a multiplexed
+  concurrent channel can return exit 255 having worked correctly, so proveo must not branch
+  on that status. #523 shows REMOTE attach is unestablished — closed, unanswered.
   --
   **Left open**: whether a Remote-SSH server writing itself into the image is acceptable
   given nothing pins its version, and how devcontainer attach maps onto a microVM at all.

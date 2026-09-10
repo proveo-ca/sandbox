@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: reaching a service across the sandbox boundary — two directions, one built, and why the item covers two different mechanisms
+' purpose: RE-SCOPED — sbx owns the host-reach policy and it is currently unsound; what proveo must do ONCE it is trustworthy
 ' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 ' would touch: internal/backend/sandbox/sandbox.go (cdpPublish, StartCDPViewport, permissions.network.allow)
 ' would touch: internal/sbx/run.go (RunConfig.Publish), internal/egress/plan.go (the add-host switch)
@@ -16,6 +16,66 @@ skinparam noteTextAlignment left
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   sbx ports : https://docs.docker.com/reference/cli/sbx/ports/
+'   upstream, the host.docker.internal policy bug : https://github.com/docker/sbx-releases/issues/546
+'   upstream, UDP forwarding replay ............. : https://github.com/docker/sbx-releases/issues/537
+'
+' ── RE-SCOPED 2026-09-10: THE MECHANISM IS UPSTREAM'S, AND IT IS UNSOUND ──
+' Asked directly whether any of this is proveo's: the reach mechanism is not,
+' and upstream's tracker shows it currently cannot be trusted for the exact host
+' this plan wants to allow. So this is now about what proveo must do ONCE that
+' is fixed — and a reason not to build on it yet.
+'
+'   #546 OPEN — "`sbx policy check` reports a `host.docker.internal` deny rule
+'     as active, but the proxy does not enforce it"
+'     https://github.com/docker/sbx-releases/issues/546
+'     Reported against sbx v0.38.0. The submitter's finding: "the proxy appears
+'     to normalise `host.docker.internal` to `localhost`" when ENFORCING, while
+'     the checker matches the literal rule name — and `localhost`,
+'     `host.docker.internal` and `127.0.0.1` are treated as SEPARATE RESOURCES
+'     rather than aliases. Denying `localhost` directly does block the
+'     connection, which confirms it.
+'
+'   #537 — "UDP port forwarding replays the first reply datagram for the
+'     lifetime of a flow"
+'     https://github.com/docker/sbx-releases/issues/537
+'     Named because the publish direction is the half proveo already uses, and
+'     its UDP behaviour is not sound either.
+'
+' ── #546 IS THE SAME DEFECT THIS TREE HAS ALREADY BEEN BURNED BY ──────────
+' THE NAME proveo WRITES IS NOT THE NAME THE PROXY ENFORCES. That sentence is
+' kit-domain-form.puml verbatim in a different vocabulary: proveo emitted
+' `.x.ai`, sbx enforced nothing, reach never failed on an allow-all baseline and
+' the defect hid until a credential had to match one of those entries.
+'
+' Here the shape is worse in one way and better in another. WORSE: the failure
+' direction is a FALSE SENSE OF SECURITY — a deny that reads correct while
+' traffic flows — which is the one direction an operator cannot detect by
+' trying the thing. BETTER: it is upstream's to fix, it is reported, and the
+' workaround is already known.
+'
+' SO THE INTERIM RULE, IF THIS IS EVER BUILT BEFORE #546 CLOSES: write
+' `localhost:<port>`, not `host.docker.internal:<port>`, because the former is
+' what the proxy demonstrably matches. And never present the grant as
+' narrower than it is — if enforcement normalises to `localhost`, allowing one
+' host service may admit every loopback service, which is a different grant
+' than the one the posture line would claim.
+'
+' ── SO WHAT IS LEFT FOR proveo ─────────────────────────────────────────────
+'   THE TRUST DECISION IS OURS. Whether the agent may reach a host service at
+'     all, per run, explicitly, with the closed default kept. Upstream supplies
+'     a switch; deciding when to throw it is a product question.
+'   THE SPLIT IS OURS. "tools" is not "tunnels" — a client binary in the image
+'     versus reach — and the two fail differently, so the DIAGNOSTICS are ours
+'     to separate. Upstream will never tell an operator that `psql` is missing.
+'   THE SOCKET ALTERNATIVE IS OURS TO PREFER. A bind-mounted UNIX socket needs
+'     no inbound network path and therefore no policy at all, which sidesteps
+'     #546 entirely rather than waiting for it. This is now the FIRST thing to
+'     try, not the third.
+'   GENERALISING `Publish` IS OURS. `cdpPublish` is hardcoded to one purpose and
+'     the second caller turns it into an interface.
+'
+' Everything below was written before the scope was settled, and the trust
+' analysis is still the load-bearing part.
 '
 ' ── THE ITEM COVERS TWO DIRECTIONS, AND THEY SHARE NO MACHINERY ────────────
 ' "tools & localhost tunnels (e.g. psql, claude-in-chrome)" names one need and
@@ -85,7 +145,7 @@ skinparam noteTextAlignment left
 '   WHETHER PUBLISH SHOULD GENERALISE. `cdpPublish` is hardcoded to one purpose.
 '     A dev-server preview is the same mechanism and would be the second caller,
 '     which is the point at which a one-off becomes an interface.
-title PLANNED — two directions, one built:\npublish out, and a trust decision in
+title RE-SCOPED — the reach mechanism is upstream's and unsound;\nthe trust decision is proveo's
 
 package "the operator's machine" as HOST <<host>> {
   component "a host service\n""psql"" · a daemon on loopback" as SVC <<error>>
@@ -149,9 +209,15 @@ legend bottom
   Whatever this becomes, granting the agent a host service stays an explicit per-run
   opt-in — not a manifest default, and not a side effect of a def declaring a tool.
   ==
-  **3. Try a socket before a port.** A bind-mounted UNIX socket needs no inbound network
-  path, and Postgres and Docker both offer one. Smaller hole, same capability, and it
-  never touches the allowlist.
+  **3. Try a socket FIRST, not third.** A bind-mounted UNIX socket needs no inbound
+  network path and therefore no policy, which sidesteps docker/sbx-releases#546 rather
+  than waiting on it. Postgres and Docker both offer one.
+  --
+  **And do not build on #546 while it is open.** ""sbx policy check"" reports a
+  ""host.docker.internal"" deny as active while the proxy normalises it to ""localhost"" and
+  lets traffic through — a deny that reads correct while it does nothing. That is
+  kit-domain-form's defect in another vocabulary: the name proveo writes is not the name
+  the proxy enforces.
   --
   **Left open**: who names the port, since a def cannot know the operator's local setup
   and the operator should not have to know a def's needs; and whether ""Publish"" should
