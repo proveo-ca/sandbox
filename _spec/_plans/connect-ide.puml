@@ -13,6 +13,11 @@ skinparam noteTextAlignment left
 '   what else lives in the home mount ... _spec/_experiments/operator-fingerprint.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
+'   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
+'     — direct mode imports the host's file semantics; a clone re-materialises
+'     them. Presence, mode/ownership, architecture and which-tree are one cause
+'     meeting four properties of a file. Keep only this file's distinct half.
+'
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   sbx ssh (community write-up) : https://www.ajeetraina.com/ssh-straight-into-your-agent-sandboxes-a-hands-on-look-at-sbx-ssh/
 '   upstream, ssh attach regressed : https://github.com/docker/sbx-releases/issues/530

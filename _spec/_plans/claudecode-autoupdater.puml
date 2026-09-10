@@ -15,6 +15,11 @@ skinparam noteTextAlignment left
 '   where it was seen and dismissed .. _spec/internal/sbx/seed-node-version-abort.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
+'   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
+'     — direct mode imports the host's file semantics; a clone re-materialises
+'     them. Presence, mode/ownership, architecture and which-tree are one cause
+'     meeting four properties of a file. Keep only this file's distinct half.
+'
 ' ── THE SYMPTOM ────────────────────────────────────────────────────────────
 ' Every claudecode run prints:
 '

@@ -1,5 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: the release ordering — ship what exists, then reach and polish, with the isolation substrate on the horizon
+' status: proposed, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 title PLANNED — ship the built work, then reach
 
 component "**Now — ship what exists**" as NOW <<app>>

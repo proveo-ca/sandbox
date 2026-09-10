@@ -265,6 +265,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_paradigms/workspace-boundary.puml",
+      "covers": [
+        "internal/workspace/mount.go",
+        "internal/workspace/deps.go",
+        "internal/proveohome/proveohome.go",
+        "internal/runlog/runlog.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_devops/all-defs-green.puml",
       "covers": [
         "e2e/ladder_test.go",

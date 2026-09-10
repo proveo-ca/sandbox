@@ -1,0 +1,176 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: what crosses the workspace boundary UNCHANGED, what a clone re-materialises, and the four defects that turned out to be one
+' covers: internal/workspace/mount.go
+' covers: internal/workspace/deps.go
+' covers: internal/proveohome/proveohome.go
+' covers: internal/runlog/runlog.go
+' The four instances this class was extracted from:
+'   file PRESENCE ...... _spec/_plans/workspace-env-key.puml
+'   MODE and OWNERSHIP . _spec/_plans/claudecode-autoupdater.puml (case B)
+'   ARCHITECTURE ....... _spec/_plans/sbx-dep-tree-isolation.puml
+'   WHICH TREE ......... _spec/_plans/connect-ide.puml
+' The mode that dissolves it: _spec/internal/sbx/clone-workspace.puml
+' The sibling boundaries: credential-boundary.puml, egress-boundary.puml,
+'   runtime-user-boundary.puml (same directory)
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE CLASS, STATED ONCE ─────────────────────────────────────────────────
+' DIRECT MODE IMPORTS THE HOST'S FILESYSTEM SEMANTICS. A clone RE-MATERIALISES
+' THEM. Every defect below is that one sentence meeting a different property of
+' a file, and each was found separately, by a different route, and written up as
+' its own plan before anyone noticed they rhymed.
+'
+'   PRESENCE       a `.env` beside the code exists inside the sandbox because it
+'                  exists outside it. workspace-env-key.puml
+'   MODE / OWNER   a `.claude/hooks/*.sh` the host can run is EACCES to a
+'                  runtime uid that is not its owner.
+'                  claudecode-autoupdater.puml, case B
+'   ARCHITECTURE   a `node_modules` full of darwin-arm64 objects loads on the
+'                  host and cannot load in the guest.
+'                  sbx-dep-tree-isolation.puml
+'   WHICH TREE     an editor attached to a clone edits a copy the operator will
+'                  never see. connect-ide.puml
+'
+' A CLONE FIXES ALL FOUR AT ONCE, and not by intention: it carries TRACKED files
+' only, git re-materialises them, and the result lands on an ext4 volume inside
+' the VM owned by the runtime user with the one exec bit git records. So the
+' gitignored `.env` never arrives, the hook arrives owned correctly, the foreign
+' `node_modules` never arrives and the seed installs a native one, and there is
+' no ambiguity about which tree an editor is editing — it is the clone, and the
+' only question left is whether the operator was told.
+'
+' WHICH MAKES THE RESIDUAL PRECISE: every one of these is a DIRECT-MODE defect,
+' clone mode is the sbx DEFAULT, and so each plan's real audience is the
+' operator who turned the default off or whose workspace is not a repository.
+' That population is worth measuring before any of them is built for.
+'
+' ── MEASURED, FROM INSIDE A LIVE SANDBOX ───────────────────────────────────
+' Three readings that between them settle what the boundary does, all taken
+' rather than reasoned:
+'
+'   THE MOUNT PERMITS EXECUTION. `host on /Users/… type virtiofs
+'     (rw,nosuid,nodev,relatime)` — nosuid and nodev, NO noexec. So an
+'     unexecutable file is a mode or ownership fault and never the mount's.
+'   A CLONE IS NOT virtiofs AT ALL. The workspace showed as `/dev/vdj … ext4
+'     (rw,relatime)` with files `-rwxr-xr-x 1 1000 1000`. That is why exec, uid
+'     and architecture problems all vanish there together.
+'   THE HOME MOUNT IS WIDER THAN ITS DECLARATION. `proveohome.Prepare` returns
+'     ONE mount — the whole root, ReadOnly:false — while a def's `home.mounts`
+'     list only decides what gets mkdir'd and scrubbed. Measured consequence:
+'     `/proveo-home/logs/` lists EVERY prior run's transcript, owned by the
+'     runtime user, and the directory is WRITABLE.
+'
+' THAT LAST ONE IS THE WORST OF THE FOUR and belongs to no single plan, which is
+' partly why it went unowned: an agent can read and rewrite the transcript of
+' its own run AND of every other run on the host. Integrity and confidentiality
+' at once — a transcript carries the posture block, the detected providers, the
+' secret NAMES that were stored and the workspace paths.
+'
+' ── THE RULE THAT GOVERNS EVERY REMEDY ─────────────────────────────────────
+' NEVER REWRITE THE OPERATOR'S TREE WITHOUT AN EXPLICIT OPT-IN. In direct mode
+' the workspace is their directory on their disk over virtiofs, so:
+'   chmod'ing a hook to make it run          is not proveo's to do
+'   installing native modules over theirs    breaks their host build
+'   shredding a mounted `.env`               destroys their file
+' This is not caution; it is the difference between fixing an agent and breaking
+' a laptop. `PROVEO_DEPS=reinstall` is the shape a legitimate opt-in takes: it
+' names the damage in the flag.
+'
+' ── THE THREE REMEDIES, AND WHAT EACH COSTS ────────────────────────────────
+'   NARROW THE MOUNT      the only one that PREVENTS rather than detects. The
+'                         home mount is the live case: honour the declared
+'                         subpaths, or exclude `logs/`.
+'   SHADOW A SUBPATH      a volume over `node_modules` (or `logs/`) leaves the
+'                         host's untouched. Available on docker today via
+'                         `workspace.DepCopy`; on sbx it waits on a Kit
+'                         `volumes[]` field proveo does not model —
+'                         sbx-dep-tree-isolation.puml owns that probe.
+'   SAY SO EARLY          the seed already walks the workspace, so an
+'                         unexecutable hook, a foreign object tree and a
+'                         mounted key are all knowable BEFORE the agent starts.
+'                         A posture line beats a failure an hour in.
+'
+' ── WHY THIS FILE EXISTS RATHER THAN A FIFTH PLAN ──────────────────────────
+' The four instances were found on four different days, by four different
+' routes, and each was written up as though it were the first. The cost of that
+' is not duplication in the tree — it is that each one re-derived "clone mode
+' already handles this; direct mode is the broken case" and none of them said it
+' where the next reader would find it.
+'
+' So the next instance has somewhere to land. If a fifth property of a file
+' turns out to cross unchanged — timestamps, extended attributes, case
+' sensitivity, symlink targets — it is an entry above and not a new plan.
+title Workspace boundary — direct mode imports the host's file semantics;\na clone re-materialises them
+
+component "the operator's tree\ntheir disk, their modes, their arch" as HOST <<host>>
+
+package "direct mode — virtiofs" as DIRECT <<host>> {
+  component "PRESENCE\na mounted "".env""" as P1 <<error>>
+  component "MODE / OWNER\nEACCES on a hook" as P2 <<error>>
+  component "ARCHITECTURE\nforeign ""node_modules""" as P3 <<error>>
+  component "WHICH TREE\nan editor on a copy" as P4 <<error>>
+}
+component "clone mode — ext4, git\ntracked files, uid 1000,\none exec bit" as CLONE <<app>>
+database "**the home mount**\nthe whole root, rw —\nevery run's transcript" as HOME <<error>>
+component "the agent" as AG <<app>>
+
+HOST ARROW_ERROR DIRECT : crosses unchanged
+HOST ARROW_MAIN CLONE : re-materialised
+DIRECT ARROW_ERROR AG
+CLONE ARROW_MAIN AG : all four dissolve at once
+HOME ARROW_ERROR AG : readable AND writable,\nacross runs
+
+note bottom of CLONE
+  **It fixes all four by accident, not design.**
+  Tracked files only, re-materialised by git onto
+  ext4, owned by the runtime user, carrying the
+  one exec bit git records. Every plan above is
+  therefore a DIRECT-mode plan.
+end note
+
+note bottom of HOME
+  **The worst of them, and it belonged to no
+  plan.** ""Prepare"" mounts the root rw while
+  a def declares subpaths, so an agent can rewrite
+  its own transcript and every other run's —
+  integrity and confidentiality together.
+end note
+
+note bottom of P3
+  **The mount is not the culprit.** Measured:
+  virtiofs here is ""nosuid,nodev"" and NOT
+  ""noexec"". An unexecutable file is a mode or an
+  owner, and a foreign object is an
+  architecture — never the mount.
+end note
+
+note right of HOST
+  **Never rewritten without an opt-in.** chmod'ing
+  a hook, installing over their modules, wiping
+  their "".env"" — each fixes an agent by breaking
+  a laptop. ""PROVEO_DEPS=reinstall"" is what a
+  legitimate opt-in looks like: it names the cost.
+end note
+
+legend bottom
+  **What this file settles**
+  ==
+  **One sentence, four defects**: direct mode imports the host's filesystem semantics and
+  a clone re-materialises them. Presence, mode, architecture and which-tree are that
+  sentence meeting four properties of a file — found on four days, written up four times,
+  each re-deriving the same conclusion where the next reader would not see it.
+  --
+  **So every one of those plans is a DIRECT-mode plan**, clone mode is the sbx default, and
+  their real audience is whoever turned it off or is not in a repository. Measure that
+  population before building for any of them.
+  ==
+  **The rule over every remedy**: never rewrite the operator's tree without an explicit
+  opt-in. Narrowing the mount is the only remedy that PREVENTS; shadowing waits on a Kit
+  field on sbx; saying so early is available today and unused.
+  --
+  **And the fifth instance has a home now.** Timestamps, xattrs, case sensitivity, symlink
+  targets — if one of those crosses unchanged, it is a row here and not a new plan.
+end legend
+@enduml

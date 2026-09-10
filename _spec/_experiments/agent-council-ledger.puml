@@ -112,6 +112,19 @@ skinparam noteTextAlignment left
 ' Without them every entry reads as equally authoritative, which is how a
 ' confident wrong claim propagates through three runs instead of one.
 '
+' ── DECIDED: THIS LEDGER AND THE ATTESTATION LEDGER STAY SEPARATE ──────────
+' Left open in both files, and now closed. They want the same mechanism —
+' append-only, hash-chained, per-writer identity — and merging them would be
+' tidy. It would also make a council's coordination store the same artifact as
+' the provenance record for credentials, and the two have very different blast
+' radii:
+'   THIS ONE      written constantly, by every run, and read for scheduling
+'   THE OTHER     written rarely, by a human with a touch, and read when trust
+'                 is in question
+' One artifact means one compromise reaches both, and one retention policy has
+' to serve both. Separate, cross-referenced, and no longer an open question in
+' either file. See _spec/_experiments/operator-fingerprint.puml.
+'
 ' ── EXPERIMENTS — NOTHING BELOW IS MEASURED ─────────────────────────────────
 ' G1  DOES IT OFFER A LINEARISATION PRIMITIVE?
 '     Compare-and-set, lease, unique constraint, or append-if-head-unchanged.

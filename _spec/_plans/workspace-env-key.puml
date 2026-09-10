@@ -14,6 +14,11 @@ skinparam noteTextAlignment left
 '   the tiers that mask .......... _spec/internal/egress/egress-tiers.puml
 '   why clone mode has tracked-only files _spec/internal/sbx/clone-workspace.puml
 '
+'   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
+'     — direct mode imports the host's file semantics; a clone re-materialises
+'     them. Presence, mode/ownership, architecture and which-tree are one cause
+'     meeting four properties of a file. Keep only this file's distinct half.
+'
 ' ── THE WARNING, AND THE ONE CLAIM IN IT THAT DOES NOT HOLD ────────────────
 ' On every sbx run whose workspace holds a `.env` and whose environment holds a
 ' provider key, proveo says:

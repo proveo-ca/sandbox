@@ -1,5 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: white-labelling through a single brand manifest — the BRAND_* variables one source of truth would carry
+' status: proposed, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 title PLANNED — white-labelling via a brand manifest (not implemented)
 
 database "brand.env\nsingle source of truth" as BRAND <<db>>
