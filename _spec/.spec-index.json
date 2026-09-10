@@ -173,6 +173,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/cdp-shared-browser.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/capability-ladder.puml",
       "covers": [
         "e2e/ladder_test.go",
