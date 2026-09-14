@@ -16,6 +16,7 @@ var configWiring = []struct {
 	class, target, fn string
 }{
 	{"lsp", "claudecode", "configure_claude_lsp"},
+	{"lsp", "codex", "configure_codex_lsp"},
 	{"lsp", "opencode", "configure_opencode_lsp"},
 	{"lsp", "cursor", "configure_cursor_lsp"},
 	{"formatter", "opencode", "configure_opencode_formatter"},

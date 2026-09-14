@@ -978,12 +978,18 @@ ensure_dependency_trees() {
   return 0
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
 proveo_exec_agent() {
   local agent="$1"; shift
   local launch=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
   [[ "${1:-}" == "--" ]] && shift
-  if [[ $# -gt 0 && "$1" != -* ]] && command -v -- "$1" >/dev/null 2>&1; then
+  # `type -P` and not `command -v`: the question is whether the first word is an
+  # executable FILE, because the only thing this branch can do with it is exec it.
+  # `command -v` also answers yes for shell keywords and builtins, and codex's own
+  # `exec` subcommand is one — so `codex exec "prompt"` was read as a launcher
+  # command, and `exec exec …` then died with no such file, never reaching codex.
+  if [[ $# -gt 0 && "$1" != -* ]] && type -P -- "$1" >/dev/null 2>&1; then
     echo "🔁 launcher supplied its own command; running it instead of ${agent}: $1 …"
     exec "$@"
   fi
@@ -996,8 +1002,40 @@ readonly PROVEO_HOUSE_RULES_FILE=/opt/proveo/AGENTS.md
 readonly PROVEO_RULES_START="<!-- >>> proveo house rules (generated — edits are overwritten) >>> -->"
 readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
 
+# _house_rules_target maps a harness to its USER-level instruction file, relative
+# to the agent's home. Empty means the harness has no such file and proveo writes
+# nothing — a decision, not an oversight, so every supported target gets a row.
+#
+# USER level, never the workspace. The workspace is the operator's repository:
+# seeding a file there mutates their checkout, competes with an AGENTS.md they
+# already wrote, and cannot apply at all when one exists. The user layer has none
+# of those problems — both harnesses below merge it with the project's rather than
+# choosing between them, and both rank the project's HIGHER, so a repo can still
+# overrule the house.
+#
+#   claudecode  NONE here — /etc/claude-code/CLAUDE.md, baked by the Dockerfile.
+#               That is the MANAGED POLICY tier: it loads before the user and
+#               project files and cannot be excluded by claudeMdExcludes at any
+#               settings layer, which is what "always processed" requires. The
+#               home file this function would write is the LOWEST tier and a
+#               project CLAUDE.md outranks it.
+#   codex       $CODEX_HOME/AGENTS.md (~/.codex/AGENTS.md) — the documented
+#               global file. Codex reads AGENTS.md natively and ranks the
+#               project's above it, so this ADDS to a repo's own rules rather
+#               than competing with them. It is the lowest tier, which is the
+#               right one: codex has no managed-policy path, so there is nothing
+#               above the project layer to write to.
+#   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
+#               instructions render global first, then project on top.
+#   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
+#               AGENTS.md/CLAUDE.md; its global "User Rules" live in the IDE
+#               settings UI, not a file the CLI reads. Nothing to write.
+#   cecli       NONE established. It seeds a PROJECT CONVENTIONS.md from its own
+#               defaults; no user-level equivalent is documented, and guessing a
+#               path writes a file nothing reads.
 _house_rules_target() { case "$1" in
   claudecode) echo "" ;;
+  codex)      echo ".codex/AGENTS.md" ;;
   opencode)   echo ".config/opencode/AGENTS.md" ;;
   cursor|cecli) echo "" ;;
 esac; }
@@ -1823,12 +1861,59 @@ configure_cursor_lsp() {
   fi
 }
 
+_codex_toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
+
+# LSP arrives over MCP because codex has no external-LSP config — the same
+# bridge cursor uses. The block is written into config.toml between
+# "# >>> proveo lsp" markers, so an operator's own [mcp_servers.*] entries
+# survive a re-run and only what proveo generated is replaced.
+# SPEC: _spec/defs/codex/codex-topology.puml
+configure_codex_lsp() {
+  command -v mcp-language-server >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}"
+  local cfg="$CODEX_HOME/config.toml" langs=() block="" line lang server i n
+  local -a f extra
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    # detect_workspace_lsps prints: lang|count|server|server-arg...|extension-csv
+    # The trailing CSV maps extensions to a language for editors; MCP has no use
+    # for it, so it is dropped rather than passed to the server as an argument.
+    IFS='|' read -ra f <<< "$line"
+    n=${#f[@]}
+    (( n >= 4 )) || continue
+    lang="${f[0]}"; server="${f[2]}"
+    extra=()
+    for (( i = 3; i < n - 1; i++ )); do extra+=("${f[$i]}"); done
+    langs+=("$lang")
+
+    block+="[mcp_servers.lsp_${lang}]"$'\n'
+    block+="command = \"mcp-language-server\""$'\n'
+    block+="args = [$(_codex_toml_str --workspace), $(_codex_toml_str "$scan")"
+    block+=", $(_codex_toml_str --lsp), $(_codex_toml_str "$server")"
+    if (( ${#extra[@]} > 0 )); then
+      block+=", $(_codex_toml_str --)"
+      for i in "${extra[@]}"; do block+=", $(_codex_toml_str "$i")"; done
+    fi
+    block+="]"$'\n'$'\n'
+  done < <(detect_workspace_lsps "$scan")
+
+  (( ${#langs[@]} > 0 )) || return 0
+  mkdir -p "$CODEX_HOME" 2>/dev/null || return 0
+  touch "$cfg" 2>/dev/null || return 0
+  if printf '%s' "$block" | _proveo_write_block "$cfg" \
+       "# >>> proveo lsp (generated — edits are overwritten) >>>" \
+       "# <<< proveo lsp <<<"; then
+    echo "🧠 LSP code intelligence (Codex MCP servers): ${langs[*]}"
+  fi
+}
+
 # SPEC: _spec/_plans/config-seeding-and-persistence.puml,
 _proveo_config_classes() { echo "plugin lsp formatter mcp"; }
 
 _proveo_class_wire() {
   case "$1:$2" in
   lsp:claudecode) echo "configure_claude_lsp" ;;
+  lsp:codex) echo "configure_codex_lsp" ;;
   lsp:opencode) echo "configure_opencode_lsp" ;;
   lsp:cursor) echo "configure_cursor_lsp" ;;
   formatter:opencode) echo "configure_opencode_formatter" ;;
@@ -1933,25 +2018,57 @@ render_subagents() {
   done < "$varfile"
  fi
 
- local seeded=() yaml name body line out i
- for yaml in "$fmdir"/*.yaml; do
-  [[ -e "$yaml" ]] || continue
-  name="$(basename "$yaml" .yaml)"
+ local seeded=() fm name ext body text line out i dest
+ for fm in "$fmdir"/*.yaml "$fmdir"/*.toml; do
+  [[ -e "$fm" ]] || continue
+  ext="${fm##*.}"
+  name="$(basename "$fm" ".$ext")"
   body="$src/$name.md"
   [[ -f "$body" ]] || { echo "⚠️  subagent body missing for $name; skipping" >&2; continue; }
-  [[ "$reseed" == "1" || ! -f "$dst/$name.md" ]] || continue
 
-  out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
-  out+="$(cat "$yaml")"$'\n'"---"$'\n'$'\n'
+  # The harness's token values go into the SHARED body; the frontmatter is copied
+  # through verbatim, because it is the half that is already harness-specific.
+  text=""
   while IFS= read -r line || [[ -n "$line" ]]; do
    for i in "${!keys[@]}"; do
     line="${line//\{\{${keys[$i]}\}\}/${vals[$i]}}"
    done
-   out+="$line"$'\n'
+   text+="$line"$'\n'
   done < "$body"
 
-  if printf '%s' "$out" > "$dst/$name.md" 2>/dev/null; then
-   seeded+=("$name.md")
+  case "$ext" in
+  yaml)
+   dest="$dst/$name.md"
+   [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
+   out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
+   out+="$(cat "$fm")"$'\n'"---"$'\n'$'\n'"$text"
+   ;;
+  toml)
+   # codex declares its agents as TOML documents rather than as a markdown file
+   # with frontmatter, so the body is not appended after a delimiter — it IS a
+   # value, and the delimiter choice is load-bearing.
+   #
+   # A multi-line LITERAL string, never a basic one: literal strings process no
+   # escapes, so the shared markdown travels through byte for byte. The bodies
+   # carry backslash sequences on purpose (spec-keeper documents what a backslash
+   # escape means inside a PlantUML label), and a basic string would eat them
+   # silently — a corruption with no error, in a file nobody re-reads after it is
+   # composed.
+   dest="$dst/$name.toml"
+   [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
+   if [[ "$text" == *"'''"* ]]; then
+    echo "⚠️  subagent body for $name contains ''' (no TOML literal can carry it); skipping" >&2
+    continue
+   fi
+   out="# composed at runtime from $src/$name.md"$'\n'
+   out+="$(cat "$fm")"$'\n'$'\n'
+   out+="developer_instructions = '''"$'\n'"$text'''"$'\n'
+   ;;
+  *) continue ;;
+  esac
+
+  if printf '%s' "$out" > "$dest" 2>/dev/null; then
+   seeded+=("$(basename "$dest")")
   fi
  done
 
@@ -2238,6 +2355,7 @@ proveo_seed() {
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
+ codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
  cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;

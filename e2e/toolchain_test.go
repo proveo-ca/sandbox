@@ -61,7 +61,7 @@ func entrypointLibPath(t *testing.T) string {
 	return p
 }
 
-var toolchainHarnesses = []string{"opencode", "claudecode", "cursor", "cecli"}
+var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor", "cecli"}
 
 func toolchainImage(t *testing.T) string {
 	t.Helper()
