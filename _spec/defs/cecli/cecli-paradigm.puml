@@ -4,6 +4,32 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 
 ' covers: defs/cecli/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cecli/sample.cecli.conf.yml
+' covers: internal/contract/cecli_autoupdater_test.go
+'
+' ── THE UPDATER CANNOT WRITE ITS VENV, SO THE SAMPLE DOES NOT ASK IT TO ────
+' MEASURED from the Dockerfile's own ownership facts: cecli is installed into
+' /opt/cecli by `python3 -m venv` as ROOT at build; the only chowns in the file
+' are /home/agent and /app; the image then drops to `USER cecli` (uid 1000). So
+' /opt/cecli is unwritable at run time — the same shape as claudecode's npm
+' prefix, and the same three arguments apply: a SUCCESSFUL update unpins
+' CECLI_VERSION, a writable venv lets the agent rewrite its own tooling against
+' the hardened posture, and the container is ephemeral so the download is
+' discarded at teardown anyway.
+'
+' WHAT DIFFERS FROM claudecode IS THE SURFACE, NOT THE RULE. cecli's updater is
+' config-driven, not env-driven, and proveo never seeded a live config — the
+' setting existed only in `sample.cecli.conf.yml`, the file whose own header
+' tells the operator to copy it to their project root. So the defect was LATENT
+' rather than printed every run: proveo was recommending an updater its image
+' cannot satisfy. `check-update: false` is the whole fix, asserted in
+' internal/contract/cecli_autoupdater_test.go, which also pins the premise — if
+' /opt/cecli is ever chowned to the runtime user, the test fails and the
+' recommendation gets re-argued instead of drifting.
+'
+' The class, met four times now (claudecode, opencode, cursor, cecli):
+' _spec/defs/claudecode/claudecode-paradigm.puml states it for the env-driven
+' half.
 '
 ' ── THE LOCAL MODEL GOES THROUGH OLLAMA'S OPENAI-COMPATIBLE API ────────────
 ' A local model reaches litellm through Ollama's /v1 route, NOT its native one,

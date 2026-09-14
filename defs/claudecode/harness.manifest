@@ -48,7 +48,8 @@ agentEnv:
   # a successful update would silently replace the version the image was
   # pinned at. Stop the attempt rather than leave every run printing
   # "Auto-update failed: no write permission" and telling an unattended run
-  # to open an interactive `claude doctor`. _spec/_plans/claudecode-autoupdater.puml
+  # to open an interactive `claude doctor`.
+  # SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
   DISABLE_AUTOUPDATER: "1"
 
 capabilities:

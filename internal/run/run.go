@@ -1,3 +1,4 @@
+// SPEC: _spec/_devops/agent-version-pin.puml
 package run
 
 import (
@@ -258,6 +259,10 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		}
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
+	}
+	if v := posture.AgentVersion(p.Image); v != "" {
+		ui.Section(ui.SectionRun)
+		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
 	}
 	warnDindRetired()
 

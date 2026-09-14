@@ -11,6 +11,45 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/test_build.sh
 ' covers: internal/contract/agent_pin_test.go
+' covers: internal/posture/posture.go (AgentVersion)
+' covers: internal/run/run.go
+'
+' ── THE PIN NEEDS A GAUGE, BECAUSE THE UPDATER USED TO BE ONE ──────────────
+' Every harness now switches its CLI's own auto-updater OFF — claudecode by
+' DISABLE_AUTOUPDATER, opencode by OPENCODE_AUTO_UPDATE, cecli by
+' `check-update: false`, cursor by the same class. That is correct: a
+' SUCCESSFUL update replaces the release build.sh resolved and unpins the image.
+'
+' But it moved the update layer UP, and the rung it moved to has no motor and
+' had no dial. Measured rather than assumed:
+'
+'   upstream → image    `proveo_agent_version` resolves the newest release AT
+'                       BUILD TIME and passes it as a build-arg. A real update
+'                       mechanism — but it turns only when a human runs
+'                       `proveo build <target>`. There is no CI in this repo and
+'                       no scheduled rebuild.
+'   image → sbx store   SELF-INVALIDATING, and this was the surprise: sbx.
+'                       HasTemplate compares the local docker image ID against a
+'                       receipt and reloads on mismatch, so a rebuild does reach
+'                       the sandbox without PROVEO_SBX_RELOAD.
+'   store → container   a fresh sandbox per run. Nothing stale can survive here.
+'
+' SO THE ONLY SLACK IS THE TOP RUNG, and before this line existed it was silent:
+' the failing updater was never updating anything, but it did announce once per
+' run that a version was fixed. Removing it left a months-old image
+' indistinguishable from a fresh one. `proveo.agent.version` was already LABELed
+' on the image and asserted by the def tests — the fact was carried and never
+' delivered.
+'
+' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label and run.go
+' prints one line under the `run` section. Best-effort by design: an sbx-only
+' host has no docker to inspect with, docker prints `<no value>` for a missing
+' label, and in every such case the line is OMITTED rather than guessed. A gauge
+' that lies is worse than one that is absent, and neither may fail a run.
+'
+' STILL OPEN: nothing compares the pinned version against what upstream now
+' publishes, so the line says WHICH version, never whether it is old. That check
+' needs a network call proveo does not otherwise make at run time.
 '
 ' ── TWO PINNING SHAPES, AND WHEN EACH IS USED ──────────────────────────────
 ' A. RESOLVED AT BUILD TIME, bare ARG, no default — the AGENT itself, whose

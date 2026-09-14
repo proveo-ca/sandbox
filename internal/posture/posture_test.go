@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/posture/one-value-two-renderings.puml
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml, _spec/_devops/agent-version-pin.puml
 package posture
 
 import (
@@ -249,6 +249,36 @@ func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
 			if tc.wantNot != "" && strings.Contains(got, tc.wantNot) {
 				t.Errorf("Observability(%q, %q, %v) = %q, must not name %q",
 					tc.mode, tc.creds, tc.sandboxed, got, tc.wantNot)
+			}
+		})
+	}
+}
+
+func TestAgentVersionReadsTheLabelAndStaysSilentWhenItCannot(t *testing.T) {
+	orig := dockerImageLabel
+	t.Cleanup(func() { dockerImageLabel = orig })
+
+	for _, tc := range []struct {
+		name, label, want string
+	}{
+		{"the label is the version", "2.1.258", "2.1.258"},
+		{"docker prints <no value> for a missing label", "<no value>", ""},
+		{"no docker, no image, no answer", "", ""},
+		{"whitespace is not a version", "  \n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dockerImageLabel = func(ref, label string) string {
+				if label != AgentVersionLabel {
+					t.Errorf("read label %q, want %q", label, AgentVersionLabel)
+				}
+				v := strings.TrimSpace(tc.label)
+				if v == "<no value>" {
+					return ""
+				}
+				return v
+			}
+			if got := AgentVersion("proveo/claudecode:local"); got != tc.want {
+				t.Errorf("AgentVersion() = %q, want %q", got, tc.want)
 			}
 		})
 	}

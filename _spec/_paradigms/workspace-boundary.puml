@@ -8,7 +8,7 @@ skinparam noteTextAlignment left
 ' covers: internal/runlog/runlog.go
 ' The four instances this class was extracted from:
 '   file PRESENCE ...... _spec/_plans/workspace-env-key.puml
-'   MODE and OWNERSHIP . _spec/_plans/claudecode-autoupdater.puml (case B)
+'   MODE and OWNERSHIP . stated in this file (its plan was retired into it)
 '   ARCHITECTURE ....... _spec/_plans/sbx-dep-tree-isolation.puml
 '   WHICH TREE ......... _spec/_plans/connect-ide.puml
 ' The mode that dissolves it: _spec/internal/sbx/clone-workspace.puml
@@ -25,8 +25,8 @@ skinparam noteTextAlignment left
 '   PRESENCE       a `.env` beside the code exists inside the sandbox because it
 '                  exists outside it. workspace-env-key.puml
 '   MODE / OWNER   a `.claude/hooks/*.sh` the host can run is EACCES to a
-'                  runtime uid that is not its owner.
-'                  claudecode-autoupdater.puml, case B
+'                  runtime uid that is not its owner. Stated in full below,
+'                  its plan having been retired into this file.
 '   ARCHITECTURE   a `node_modules` full of darwin-arm64 objects loads on the
 '                  host and cannot load in the guest.
 '                  sbx-dep-tree-isolation.puml
@@ -67,6 +67,51 @@ skinparam noteTextAlignment left
 ' its own run AND of every other run on the host. Integrity and confidentiality
 ' at once — a transcript carries the posture block, the detected providers, the
 ' secret NAMES that were stored and the workspace paths.
+'
+' ── THE MODE/OWNER INSTANCE IN FULL, AND THE COMMAND THAT DIAGNOSES IT ─────
+' It reports itself once per stop, and never fatally:
+'
+'   ● Ran 1 stop hook
+'     ⎿ Stop hook error: Failed with non-blocking status code: /bin/sh: 1:
+'       <workspace>/.claude/hooks/stop-checks.sh: Permission denied
+'
+' "Its own hooks are denied?" — not its own. That path is the WORKSPACE's hook,
+' brought by the repository being worked on, and the distinction is the whole
+' diagnosis. PROVEO GUARANTEES EXEC FOR THE HOOKS IT SHIPS AND NOTHING FOR THE
+' REST: `proveo_install_claude_hooks` registers its own cwd-guard as the command
+' `bash /opt/claudecode/defaults/hooks/cwd-guard.sh`, so it never needs an exec
+' bit at all — while a workspace hook declared as a bare path does. Nothing
+' chmods a workspace hook, nothing validates it, and nothing reports that it
+' will not run until Claude Code tries.
+'
+' SO IT IS ONE OF TWO THINGS, AND ONE COMMAND SEPARATES THEM:
+'
+'     ls -l .claude/hooks/stop-checks.sh; git ls-files -s .claude/hooks/
+'
+'   100644 in the index  the exec bit was never committed. Git tracks exactly
+'                        one, so the hook runs in NO sandbox and not on the host
+'                        either. `chmod +x` plus a commit fixes it everywhere at
+'                        once. The common cause and the least interesting.
+'   100755 in the index  git carries the bit, so the fault is OWNERSHIP — a mode
+'                        that excludes others (0700, host-owned) meeting a
+'                        runtime uid of 1000. execve returns EACCES and /bin/sh
+'                        prints exactly the line above.
+'
+' AND THE REMEDY IS THE INVERSE OF THE AUTO-UPDATER'S, WHICH IS THE POINT. The
+' two look alike — a permission denial, non-fatal, printed every run — and must
+' not be fixed alike. The operator does NOT want the updater to succeed, so the
+' remedy is to stop it trying (claudecode-paradigm.puml). They DO want their own
+' hook to run, because they wrote it, so the remedy is exec. THE RULE THAT
+' SEPARATES THEM: ask whether the operator wants the thing to happen. If yes,
+' fix the permission; if no, stop the attempt. Treating "permission denied" as
+' one bug would either grant write access to an npm prefix or silence a hook
+' somebody asked for, and both are wrong.
+'
+' NOT BUILT FOR, DELIBERATELY. Clone mode — the sbx default — already lands the
+' hook `-rwxr-xr-x 1 1000 1000`, so this is a direct-mode-only defect, and
+' "SAY SO EARLY" below is the remedy that fits it: a hook named in
+' `.claude/settings.json` that is not executable is knowable before the agent
+' starts. chmod'ing the operator's tree is not proveo's to do.
 '
 ' ── THE RULE THAT GOVERNS EVERY REMEDY ─────────────────────────────────────
 ' NEVER REWRITE THE OPERATOR'S TREE WITHOUT AN EXPLICIT OPT-IN. In direct mode

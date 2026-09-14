@@ -68,7 +68,9 @@
         "defs/claudecode/solidity/Dockerfile",
         "defs/*/test.sh",
         "defs/*/tests/test_build.sh",
-        "internal/contract/agent_pin_test.go"
+        "internal/contract/agent_pin_test.go",
+        "internal/posture/posture.go",
+        "internal/run/run.go"
       ],
       "fingerprint": null
     },
@@ -412,13 +414,6 @@
         "internal/sbx/run.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/workspace/mount.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/claudecode-autoupdater.puml",
-      "covers": [
-        "defs/claudecode/harness.manifest"
       ],
       "fingerprint": null
     },
