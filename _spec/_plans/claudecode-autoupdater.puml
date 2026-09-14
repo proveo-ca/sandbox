@@ -2,12 +2,16 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: permissions the sandbox boundary denies and claudecode reports every run — the auto-updater, whose fix is to STOP trying, and a workspace hook, whose fix is the opposite
-' status: CASE A SHIPPED 2026-09-14 — DISABLE_AUTOUPDATER: "1" in claudecode's
-'   agentEnv (defs/claudecode/harness.manifest), the same default repeated in
-'   defs/claudecode/mcp/entrypoint.sh for a bare `docker run`, and both
-'   asserted in internal/contract/claudecode_autoupdater_test.go — the Go-level
-'   equivalent of opencode's test_security.sh assertion, since claudecode's own
-'   test harness always runs `docker run --entrypoint bash`, which bypasses
+' status: CASE A SHIPPED 2026-09-14. Its durable half now lives in
+'   _spec/defs/claudecode/claudecode-paradigm.puml ("AND THE AUTO-UPDATER IS
+'   TOLD TO STAND DOWN"), which is the owning non-plan diagram and what the
+'   source cites; only the migration story below stays here. The change:
+'   DISABLE_AUTOUPDATER: "1" in agentEnv (defs/claudecode/harness.manifest),
+'   the same default repeated in defs/claudecode/mcp/entrypoint.sh for a bare
+'   `docker run`, both asserted in
+'   internal/contract/claudecode_autoupdater_test.go — the Go-level equivalent
+'   of opencode's test_security.sh assertion, since claudecode's own image test
+'   harness always runs `docker run --entrypoint bash`, which bypasses
 '   entrypoint.sh and so cannot observe an agentEnv/entrypoint-delivered
 '   default the way a baked Dockerfile ENV (opencode's mechanism) can.
 '   CASE B remains open — see "WHAT IT IS NOT" / "WHAT IS NOT SETTLED" below;

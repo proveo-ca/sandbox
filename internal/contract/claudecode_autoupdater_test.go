@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/claudecode-autoupdater.puml
+// SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 package contract_test
 
 import (

@@ -12,6 +12,28 @@
 ' CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (2.1.132+) is the documented opt-out
 ' that wins over a saved setting.
 '
+' ── AND THE AUTO-UPDATER IS TOLD TO STAND DOWN, IN THE SAME BREATH ─────────
+' DISABLE_AUTOUPDATER=1 rides in the same declaration for the same reason: the
+' manifest is what both backends read, and an entrypoint-only default would
+' miss every sbx session.
+'
+' The CLI is installed as root at build and the run is non-root, so nothing
+' grants the runtime user write access to the npm prefix — deliberately. The
+' updater therefore failed on EVERY run and advised `claude doctor`, which is
+' interactive and useless to an unattended session. The remedy is to stop the
+' ATTEMPT rather than grant the permission, and the three reasons are
+' independent: a SUCCESSFUL update replaces the binary CLAUDE_CODE_VERSION
+' pinned at build, so the posture line naming that version becomes a lie
+' (_spec/_devops/agent-version-pin.puml); a writable global npm lets the agent
+' rewrite its own tooling mid-run, against the hardened non-root posture the
+' defs assert; and the container is ephemeral, so a download that wins is
+' discarded at teardown and the cost is paid every run and kept never.
+'
+' opencode reached the same place by a different road — ENV in its Dockerfile
+' (defs/opencode/Dockerfile) — and cursor records the shape a third time. The
+' class is "a CLI auto-updater cannot write where the harness puts it"; the
+' answer is always to stop it trying.
+'
 ' ── AGENTS.md IS BRIDGED, NOT COPIED ───────────────────────────────────────
 ' Claude Code does not read AGENTS.md natively, so when a repo ships one and no
 ' CLAUDE.md, the entrypoint writes a one-line CLAUDE.md containing "@AGENTS.md"
@@ -40,6 +62,7 @@ title claudecode paradigm — ML blackbox algorithm (spec → plan → implement
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/claudecode_renderer_test.go
+' covers: internal/contract/claudecode_autoupdater_test.go
 
 actor "Developer\ngoal + stopping condition" as DEV
 
