@@ -634,9 +634,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		sandbox.ReportUnavailable(sbxUnavailable)
 	case rs.Backend.Sbx:
 		ui.Appf("backend: docker sandboxes (sbx)")
-		if hasAddon(p.Addons, addonChrome) {
-			ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
-		}
 	}
 	// SPEC: _spec/_paradigms/retire-dind.puml
 	var err error

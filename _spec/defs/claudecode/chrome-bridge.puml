@@ -13,6 +13,7 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' covers: internal/contract/browser_layer_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: e2e/chrome_bridge_test.go
+' covers: e2e/claude_in_chrome_test.go
 '
 ' ── WHY A RELAY EXISTS AT ALL ──────────────────────────────────────────────
 ' Claude Code's browser integration is two processes on one machine: the
@@ -121,11 +122,15 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' beside it. Note the image bakes entrypoint-lib.sh, so a seed change is inert
 ' until `proveo build claudecode`.
 '
-' ── WHY THE PICKER BOX AND THE SANDBOX BOX ARE EXCLUSIVE ───────────────────
-' HostBridge is what makes host.docker.internal resolve to the REAL host
-' gateway. OFF, the open+forward path pins that name to the container's own
-' loopback on purpose: an agent that can name the host can probe it. Only the
-' open+forward paths honour it, and the picker greys the add-on elsewhere.
+' ── WHY THE PICKER BOX AND THE SANDBOX BOX WERE EXCLUSIVE (SUPERSEDED) ─────
+' True only pre-2026-09-03, before host.docker.internal was measured reachable
+' from sbx (see "ENABLED ON sbx" above): HostBridge is what makes
+' host.docker.internal resolve to the REAL host gateway. OFF, the open+forward
+' path pins that name to the container's own loopback on purpose: an agent
+' that can name the host can probe it. That part still describes the DOCKER
+' backend and is restated, current, below ("THE BRIDGE IS A TCP RELAY…"). The
+' part that did NOT survive is "and the picker greys the add-on elsewhere" —
+' sbx is not "elsewhere" any more.
 '
 ' ── THE SCOPE GATE EXISTS TWICE, AND A TEST RUNS ONE TABLE THROUGH BOTH ────
 ' chromebridge.ScopeGate on the host, so the picker can grey the box, and
@@ -178,9 +183,14 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' does not displace. Offering the box would sell a bridge to a client that has
 ' already decided not to use it; withholding it hides one that works.
 '
-' DOCKER BACKEND ONLY. On sbx every outbound TCP is proxied and the VM "cannot
-' access your host network directly" (Docker Sandboxes security docs), so the
-' run never sets the variable there and the in-container half is a no-op.
+' DOCKER BACKEND ONLY — SUPERSEDED 2026-09-03. The citation this rested on
+' (every outbound TCP from sbx is proxied and the VM "cannot access your host
+' network directly", per the Docker Sandboxes security docs) describes sbx's
+' general network policy accurately; it just does not describe this one path.
+' Measured from inside a real sbx sandbox — see "ENABLED ON sbx" above —
+' host.docker.internal reaches the host's loopback over the plain TCP relay
+' this file describes, so the run DOES set the variable on sbx now and the
+' in-container half is live there too, not a no-op.
 '
 ' The launch flag is the ONLY thing that turns Chrome integration on for the
 ' session. `claudeInChromeDefaultEnabled` is deliberately NOT written to the
@@ -228,7 +238,7 @@ node "Agent container (docker backend)" as CONT <<host>> {
   component "Claude Code ""--chrome""\nclaude-in-chrome MCP server (CONNECTS)" as CC <<app>>
 }
 
-component "sandbox VM (sbx)\nno route to the host" as SBX <<error>>
+component "sandbox VM (sbx)\n[SUPERSEDED 2026-09-03] once believed to have no route to the host" as SBX <<app>>
 component "session with no accepted scope\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
 component "connection without the token\nclosed before a byte flows" as BAD <<error>>
 
@@ -239,7 +249,7 @@ CSOCK  ARROW_MAIN CRELAY
 CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\nfirst line ""PROVEO-CHROME-BRIDGE <token>""
 RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
 PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
-PICK   ARROW_ERROR SBX : greyed while docker (sandbox) is ticked —\nand on an sbx harness that box is now COMPULSORY,\nso ""PROVEO_SBX=0"" is the only way to reach this add-on
+PICK   ARROW_MAIN SBX : SUPERSEDED 2026-09-03 — used to grey here;\nsbx now gets the relay through the same ""startChromeBridge"" as docker
 PICK   ARROW_ERROR SCOPE : greyed when the session's scopes\nname none of the three (""chromebridge.ScopeGate"")
 RELAY  ARROW_ERROR BAD
 
@@ -276,11 +286,14 @@ note bottom of CC
 end note
 
 note right of SBX
-  **Docker backend only.** Every outbound TCP
-  of a sandbox is proxied on the host and the
-  VM "cannot access your host network
-  directly" (Docker Sandboxes security docs).
-  Fallback prints why, never silently.
+  **Superseded 2026-09-03.** This used to be
+  docker-backend-only: every outbound TCP from
+  a sandbox was believed proxied with no route
+  to the host (Docker Sandboxes security docs).
+  Measured reachable instead — see "ENABLED ON
+  sbx" above. The citation was accurate as
+  general sbx policy; it just did not describe
+  this one loopback-bound relay.
 end note
 
 note right of SCOPE
@@ -320,15 +333,17 @@ note right of SCOPE
 end note
 
 note as SbxViewport #F4F9FB
-  **The sandbox backend takes the other route.** This bridge points OUTWARD: the
-  agent reaches the operator's own Chrome through a relay on the host, named as
-  ""host.docker.internal"" — which only the docker backend's bridge network
-  resolves, and which a sandbox VM cannot name at all. sbx publishes ports the
-  other way (host → sandbox), so it can never serve this direction.
+  **SUPERSEDED 2026-09-03.** This used to claim the sandbox backend could only
+  take the OTHER route — that ""host.docker.internal"" was docker-bridge-only
+  and a sandbox VM could not name it at all. Measured false: see "ENABLED ON
+  sbx" above. host.docker.internal resolves inside an sbx sandbox and reaches
+  the host's loopback, so this same relay now serves the sbx backend too.
 
-  What it can serve is the mirror image: the agent's OWN Chromium, published to
-  host loopback so the operator attaches DevTools or Playwright to it. That is
-  the browser add-on's viewport — _spec/internal/sbx/browser-viewport.puml.
+  What stays a genuinely DIFFERENT capability is the mirror image: the agent's
+  OWN Chromium, published to host loopback so the operator attaches DevTools
+  or Playwright to it. That is the browser add-on's viewport —
+  _spec/internal/sbx/browser-viewport.puml — and it remains distinct from
+  Claude in Chrome even now that both backends share this bridge.
 end note
 
 @enduml
