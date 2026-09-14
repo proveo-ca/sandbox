@@ -44,6 +44,12 @@ env:
 agentEnv:
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"
   CLAUDE_CODE_NO_FLICKER: "0"
+  # The runtime user has no write access to the npm prefix, deliberately —
+  # a successful update would silently replace the version the image was
+  # pinned at. Stop the attempt rather than leave every run printing
+  # "Auto-update failed: no write permission" and telling an unattended run
+  # to open an interactive `claude doctor`. _spec/_plans/claudecode-autoupdater.puml
+  DISABLE_AUTOUPDATER: "1"
 
 capabilities:
   providers: [anthropic]

@@ -2,9 +2,16 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: permissions the sandbox boundary denies and claudecode reports every run — the auto-updater, whose fix is to STOP trying, and a workspace hook, whose fix is the opposite
-' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
-' would touch: defs/claudecode/harness.manifest (agentEnv)
-' would touch: defs/claudecode/tests/ (the assertion opencode already has)
+' status: CASE A SHIPPED 2026-09-14 — DISABLE_AUTOUPDATER: "1" in claudecode's
+'   agentEnv (defs/claudecode/harness.manifest), the same default repeated in
+'   defs/claudecode/mcp/entrypoint.sh for a bare `docker run`, and both
+'   asserted in internal/contract/claudecode_autoupdater_test.go — the Go-level
+'   equivalent of opencode's test_security.sh assertion, since claudecode's own
+'   test harness always runs `docker run --entrypoint bash`, which bypasses
+'   entrypoint.sh and so cannot observe an agentEnv/entrypoint-delivered
+'   default the way a baked Dockerfile ENV (opencode's mechanism) can.
+'   CASE B remains open — see "WHAT IT IS NOT" / "WHAT IS NOT SETTLED" below;
+'   _spec/_plans/ is exempt from the SPEC-reference rule for what is not shipped.
 ' would touch: packages/lib/entrypoint-lib.sh (proveo_install_claude_hooks)
 '   what proveo's own hook install does . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   how a clone re-materialises modes ... _spec/internal/sbx/clone-workspace.puml
@@ -161,7 +168,7 @@ skinparam noteTextAlignment left
 ' WHETHER cecli NEEDS THE SAME. Its sample config sets `check-update: true`, and
 ' whether cecli's updater can write its venv at run time is UNMEASURED. Same
 ' class, different binary, and worth one probe before assuming.
-title PLANNED — two permission denials reported every run,\nwith opposite remedies
+title CASE A SHIPPED, CASE B PLANNED — two permission denials reported every\nrun, with opposite remedies
 
 component "the CLI\ninstalled as root at build" as CLI <<app>>
 component "the run\nnon-root, hardened" as RUN <<app>>
@@ -214,15 +221,16 @@ note right of MSG
 end note
 
 legend bottom
-  **The order to do it in**
+  **The order to do it in — 1 and 2 are SHIPPED**
   ==
-  **1. Set it where the agent runs.** ""DISABLE_AUTOUPDATER: 1"" in claudecode's
+  **1. [DONE] Set it where the agent runs.** ""DISABLE_AUTOUPDATER: 1"" in claudecode's
   ""agentEnv:"", beside the two variables already there. One line, and the whole visible
   defect goes with it.
   --
-  **2. Assert it**, the way ""defs/opencode/tests/test_security.sh"" asserts
-  ""OPENCODE_AUTO_UPDATE"". An unasserted env var is a comment, and this class has already
-  appeared three times in three defs.
+  **2. [DONE] Assert it** — not literally as ""defs/opencode/tests/test_security.sh""
+  does, since that harness always runs through the real entrypoint and claudecode's
+  always bypasses it (""docker run --entrypoint bash""); the Go-level equivalent lives
+  in ""internal/contract/claudecode_autoupdater_test.go"" instead.
   ==
   **Do NOT make the prefix writable.** It defeats the version pin, it lets the agent
   rewrite its own tooling mid-run against the hardened posture, and the container is

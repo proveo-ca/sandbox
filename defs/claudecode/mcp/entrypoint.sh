@@ -120,6 +120,11 @@ fi
 # `docker run`. SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
 export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"
+# The CLI is installed as root at build; the run is non-root, and nothing
+# grants write access to the npm prefix — deliberately, since a SUCCESSFUL
+# update would silently replace the pinned binary. Disable the attempt rather
+# than the symptom. _spec/_plans/claudecode-autoupdater.puml
+export DISABLE_AUTOUPDATER="${DISABLE_AUTOUPDATER:-1}"
 
 CLAUDE_CHROME_ARGS=()
 [[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
