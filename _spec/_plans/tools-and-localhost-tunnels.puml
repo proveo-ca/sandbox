@@ -7,8 +7,7 @@ skinparam noteTextAlignment left
 ' would touch: internal/sbx/run.go (RunConfig.Publish), internal/egress/plan.go (the add-host switch)
 ' would touch: internal/manifest/manifest.go (a capability, if a tunnel becomes one)
 ' would touch: packages/lib/entrypoint-lib.sh (ensure_project_tools — the CLIENT half)
-'   the worked example of one direction _spec/_plans/claude-in-chrome-reachability.puml
-'   what proveo built for it ........... _spec/defs/claudecode/chrome-bridge.puml
+'   the worked example, one direction .. _spec/defs/claudecode/chrome-bridge.puml
 '   the host-side viewport ............. _spec/internal/sbx/browser-viewport.puml
 '   the grammar an allow entry must use  _spec/internal/sbx/kit-domain-form.puml
 '   what governs egress on sbx ......... _spec/internal/sbx/policy-baseline.puml

@@ -292,11 +292,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/claude-in-chrome-reachability.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/config-seeding-and-persistence.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",

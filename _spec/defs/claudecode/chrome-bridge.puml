@@ -15,6 +15,28 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' covers: e2e/chrome_bridge_test.go
 ' covers: e2e/claude_in_chrome_test.go
 '
+' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
+' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,
+' which measured this and is superseded by everything below it.) The
+' claude-in-chrome MCP server — and so /claude-in-chrome — shows up only when
+' all four hold:
+'   1. the operator's machine   Chrome running, the extension connected, and
+'                                the native messaging host alive — it exists
+'                                only while that is true (see CHROME below).
+'   2. the transport             this bridge. THE ONLY ONE PROVEO CAN SUPPLY.
+'   3. the credential's SCOPES   browser-capable (ScopeGate, below) — an env
+'                                token or `claude setup-token` session is
+'                                refused before --chrome is even read.
+'   4. the launch flag           --chrome, which entrypoint.sh appends only
+'                                once proveo_chrome_bridge sets
+'                                PROVEO_CHROME_READY=1 (CC note, below).
+' Miss any one and Claude Code reports the SAME four empty rows — no skill, no
+' command, no MCP server — regardless of which. Only (2) is a proveo bug when
+' it fails; (1), (3) and (4) are facts about the operator's machine and
+' credential that a run reporting nothing sends the reader looking in proveo
+' for anyway. e2e/claude_in_chrome_test.go measures (1)+(2)+(3) together by
+' actually driving a live navigation rather than asserting each in isolation.
+'
 ' ── WHY A RELAY EXISTS AT ALL ──────────────────────────────────────────────
 ' Claude Code's browser integration is two processes on one machine: the
 ' claude-in-chrome MCP server inside the CLI, and a native messaging host that

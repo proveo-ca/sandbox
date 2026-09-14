@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 '   why the host cannot reach in ... _spec/internal/sbx/browser-viewport.puml
 '   the reach this needs, unbuilt .. _spec/_plans/tools-and-localhost-tunnels.puml
 '   the prize .................... .. _spec/_plans/image-size-reduction.puml
-'   the operator-Chrome case, gated  _spec/_plans/claude-in-chrome-reachability.puml
+'   the operator-Chrome case, gated  _spec/defs/claudecode/chrome-bridge.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────

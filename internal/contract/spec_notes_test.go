@@ -51,7 +51,6 @@ var specNotesEnforced = []string{
 	"_spec/_plans/claudecode-autoupdater.puml",
 	"_spec/_plans/sbx-dep-tree-isolation.puml",
 	"_spec/_plans/config-seeding-and-persistence.puml",
-	"_spec/_plans/claude-in-chrome-reachability.puml",
 	"_spec/_plans/image-size-reduction.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
 	"_spec/packages/lib/seed-and-launch.puml",

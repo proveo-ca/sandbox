@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/_plans/claude-in-chrome-reachability.puml
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 
 package e2e
 
@@ -23,17 +23,18 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// TestClaudeInChromeNavigatesTheRealBrowser is the first precondition (1) from
-// the reachability plan turned into a measurement: with a REAL Chrome running
-// on this host and the REAL Claude in Chrome extension connected, a sandboxed
-// claude session must be able to drive it. Nothing here is faked — no stand-in
-// native host, no invented wire protocol. Where chrome_bridge_sbx_test.go
-// proves bytes cross the five hops, this proves the far end is a real page:
-// the sandbox's own claude --chrome session navigates a real Chrome tab to a
-// page this test generated, and the marker only that page could have produced
-// comes back through the whole chain. Missing any of the four preconditions
-// the plan names — a connected extension, the transport, a browser-scoped
-// credential, or the launch flag — is a skip, never a fake substitute. The
+// TestClaudeInChromeNavigatesTheRealBrowser is precondition (1) from
+// chrome-bridge.puml's "FOUR PRECONDITIONS" note turned into a measurement:
+// with a REAL Chrome running on this host and the REAL Claude in Chrome
+// extension connected, a sandboxed claude session must be able to drive it.
+// Nothing here is faked — no stand-in native host, no invented wire protocol.
+// Where chrome_bridge_sbx_test.go proves bytes cross the five hops, this
+// proves the far end is a real page: the sandbox's own claude --chrome
+// session navigates a real Chrome tab to a page this test generated, and the
+// marker only that page could have produced comes back through the whole
+// chain. Missing any of the four preconditions that note names — a connected
+// extension, the transport, a browser-scoped credential, or the launch flag —
+// is a skip, never a fake substitute. The
 // credential specifically must be a persisted /login: an env token (a
 // `claude setup-token` output, or a bare ANTHROPIC_API_KEY) is refused for
 // Chrome regardless of any scope claimed for it, no matter how fresh.
