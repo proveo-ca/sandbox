@@ -6,16 +6,20 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/chromebridge"
+	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -29,7 +33,10 @@ import (
 // page this test generated, and the marker only that page could have produced
 // comes back through the whole chain. Missing any of the four preconditions
 // the plan names — a connected extension, the transport, a browser-scoped
-// credential, or the launch flag — is a skip, never a fake substitute.
+// credential, or the launch flag — is a skip, never a fake substitute. The
+// credential specifically must be a persisted /login: an env token (a
+// `claude setup-token` output, or a bare ANTHROPIC_API_KEY) is refused for
+// Chrome regardless of any scope claimed for it, no matter how fresh.
 func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	if _, err := exec.LookPath(sbx.Binary); err != nil {
 		t.Skipf("%s not on PATH", sbx.Binary)
@@ -45,7 +52,7 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 			"open Chrome with the extension connected and retry", why)
 	}
 	// Precondition (3): the credential has to be browser-capable, not just present.
-	oauthToken, oauthScopes := requireChromeCapableCredential(t)
+	credsJSON := requireChromeCapableCredential(t)
 
 	image := harnessImage(t, "claudecode")
 	if err := sbx.EnsureTemplate(image, func(string, ...any) {}); err != nil {
@@ -97,12 +104,18 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 			"printf '%%s' \"PAGE_TEXT\" > %s",
 		srv.URL, resultFile)
 
+	// The credential travels as the SAME file shape `claude` reads on a real
+	// login — not an env var — so the container's own claude binary refreshes
+	// it itself via the refresh token, exactly like a real `proveo run` session.
+	// base64 sidesteps quoting the JSON through two layers of shell.
 	script := fmt.Sprintf(`set -e
 export HOME=/tmp
 export %s=%q
 export %s=%q
-export %s=%q
-export %s=%q
+mkdir -p /tmp/.claude
+base64 -d <<'PROVEO_CREDS_B64' > /tmp/.claude/.credentials.json
+%s
+PROVEO_CREDS_B64
 source /entrypoint-lib.sh
 proveo_chrome_bridge claudecode
 if [[ "${PROVEO_CHROME_READY:-}" != 1 ]]; then
@@ -113,8 +126,7 @@ claude --dangerously-skip-permissions --chrome -p %q
 `,
 		chromebridge.EnvAddr, relay.ContainerAddr(),
 		chromebridge.EnvToken, relay.Token(),
-		chromebridge.EnvOAuthToken, oauthToken,
-		chromebridge.EnvOAuthScopes, oauthScopes,
+		base64.StdEncoding.EncodeToString(credsJSON),
 		prompt)
 
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
@@ -144,22 +156,36 @@ claude --dangerously-skip-permissions --chrome -p %q
 	t.Logf("real Chrome navigated and returned this run's marker: %s", marker)
 }
 
-// requireChromeCapableCredential skips unless the host holds a Claude Code
-// credential that ScopeGate would actually let through — an API key or a
-// `claude setup-token` session cannot drive Chrome, only a real OAuth login
-// can (chromebridge.go, ScopeGate). It returns the token and scopes to forward
-// into the sandbox.
-func requireChromeCapableCredential(t *testing.T) (token, scopes string) {
+// requireChromeCapableCredential skips unless this host holds a persisted,
+// non-blanked Claude Code login in the proveo home — the ONLY credential
+// shape Chrome integration actually accepts. An env token minted via `claude
+// setup-token` (or a bare ANTHROPIC_API_KEY) is refused for Chrome no matter
+// what CLAUDE_CODE_OAUTH_SCOPES claims for it: Claude Code checks scope
+// against the token's real server-side grant, and a setup-token's grant is
+// always inference-only underneath — the client-declared scope changes
+// nothing. Only an interactive /login's persisted credential carries a real,
+// server-verified browser scope (chromebridge.go's ScopeGate: "a persisted
+// /login ... its real scopes include user:profile"), so that persisted file
+// is what this test forwards into the sandbox — the SAME source `proveo run
+// claudecode` itself uses, not a value someone has to separately mint and
+// keep fresh.
+func requireChromeCapableCredential(t *testing.T) []byte {
 	t.Helper()
-	token = strings.TrimSpace(os.Getenv(chromebridge.EnvOAuthToken))
-	if token == "" {
-		t.Skipf("no browser-capable Claude Code credential on this host — set %s "+
-			"(from an interactive /login, not `claude setup-token`) and %s naming one of %s",
-			chromebridge.EnvOAuthToken, chromebridge.EnvOAuthScopes, strings.Join(chromebridge.BrowserScopes, "/"))
+	homeRoot := proveohome.Root(os.Getenv)
+	if credentials.LoginBlanked("claudecode", homeRoot) {
+		t.Skipf("the login in the proveo home (%s) is empty — macOS moved the token to the "+
+			"Keychain and blanked the file, which the sandbox cannot read either; run "+
+			"`proveo run claudecode --shell` and /login INSIDE that session to put a usable "+
+			"one in the proveo home", homeRoot)
 	}
-	scopes = strings.TrimSpace(os.Getenv(chromebridge.EnvOAuthScopes))
-	if why := chromebridge.ScopeGate(os.Getenv, false); why != "" {
-		t.Skipf("this host's %s lacks browser scope: %s", chromebridge.EnvOAuthToken, why)
+	if ok, _ := credentials.PersistedLogin("claudecode", homeRoot); !ok {
+		t.Skipf("no persisted Claude Code login in the proveo home (%s) — run `proveo run "+
+			"claudecode --shell` and /login INSIDE that session once; a `claude setup-token` "+
+			"or a bare ANTHROPIC_API_KEY cannot drive Chrome no matter how fresh it is", homeRoot)
 	}
-	return token, scopes
+	b, err := os.ReadFile(filepath.Join(homeRoot, ".claude", ".credentials.json"))
+	if err != nil {
+		t.Skipf("persisted login reported usable but could not be read: %v", err)
+	}
+	return b
 }
