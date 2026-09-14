@@ -145,7 +145,6 @@ func (r *Resolver) resolve(name string, ref Ref) Result {
 }
 
 // HasKeychain says whether this resolver's host has a login Keychain at all.
-// SPEC: _spec/internal/secretref/secret-references.puml
 func (r *Resolver) HasKeychain() bool { return r.goos() == "darwin" }
 
 // Keychain reads one generic-password entry. account may be empty to match on

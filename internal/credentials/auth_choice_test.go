@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/credentials/credential-decisions.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/provider/provider-registry.puml, _spec/_paradigms/credential-boundary.puml
 package credentials
 
 import (
@@ -327,7 +327,6 @@ func TestSandboxLoginHintYieldsToAProviderKey(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/provider/provider-registry.puml
 func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 	t.Parallel()
 	held := lookupOf(map[string]string{
@@ -352,7 +351,6 @@ func TestAnotherHarnessPlanCredentialIsNotAProviderKey(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/credential-boundary.puml
 func TestAMountedLoginOutranksAnAmbientEnvValue(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

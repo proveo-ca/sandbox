@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// SPEC: _spec/_devops/agent-version-pin.puml
 var agentPins = []struct {
 	image       string // key into imageDockerfiles
 	buildScript string
@@ -125,7 +124,6 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 	t.Parallel()
 	run := pinHarness(t)
 	// wantNote is the 📌 line on stderr: the version AND how it was chosen.
-	// SPEC: _spec/_devops/agent-version-pin.puml
 	cases := []struct {
 		name     string
 		env      map[string]string

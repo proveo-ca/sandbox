@@ -1,4 +1,4 @@
-// SPEC: _spec/tests/20-contract.puml
+// SPEC: _spec/tests/20-contract.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/_paradigms/retire-dind.puml
 package contract_test
 
 import (
@@ -135,7 +135,6 @@ func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
 
 var dockerfileEntrypoint = regexp.MustCompile(`(?m)^ENTRYPOINT\s+(\[.*\])\s*$`)
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOwnAgentDefsDeclareAnImageEntrypoint(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -319,7 +318,6 @@ func TestSubscriptionHarnesses(t *testing.T) {
 // TestEveryDaemonPromiseIsTheSandbox is what retiring the privileged sidecar
 // leaves behind: one way to get a daemon, so a harness that promises one
 // promises the sandbox.
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -399,7 +397,6 @@ func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 			t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
 		}
 	}
-	// SPEC: _spec/_paradigms/retire-dind.puml
 	for name := range want {
 		found := false
 		for _, m := range ms {

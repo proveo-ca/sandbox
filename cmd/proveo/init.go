@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/sbx/host-readiness.puml
 package main
 
 import (
@@ -496,7 +496,6 @@ func verify(bin string) error {
 // proveo asks and renders; it neither checks virtualisation itself nor repairs
 // anything. Each failing row carries sbx's remediation, which is better than
 // the paraphrase proveo used to print.
-// SPEC: _spec/internal/sbx/host-readiness.puml
 func reportHostReadiness(bin string) []sbx.Check {
 	checks, err := sbx.DiagnoseAt(bin)
 	if err != nil {

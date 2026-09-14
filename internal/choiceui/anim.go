@@ -39,7 +39,6 @@ func (t *ticker) run(post func(tcell.Event) error) {
 }
 
 // frame advances for as long as the prompt is open.
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func (t *ticker) frame() int {
 	return int(time.Since(t.base)/animFrame) + 1
 }

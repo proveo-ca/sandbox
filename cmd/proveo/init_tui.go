@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/choiceui/wireframe.puml
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/sbx/host-readiness.puml
 package main
 
 import (
@@ -65,7 +65,6 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 	// stops. An sbx that is already here is the operator's, whatever its
 	// version — replacing it would be managing their toolchain, so an old one
 	// is reported with instructions instead. `--force` is the explicit ask.
-	// SPEC: _spec/internal/sbx/host-readiness.puml
 	if installed != "" && !o.force {
 		d.Install = installSkip
 	}

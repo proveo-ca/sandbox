@@ -1,5 +1,4 @@
-// SPEC: _spec/cmd/proveo/provision-and-targets.puml,
-// _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
 import (

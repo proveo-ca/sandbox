@@ -1,3 +1,4 @@
+// SPEC: _spec/_paradigms/retire-dind.puml
 package run
 
 import (
@@ -25,7 +26,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx} {
@@ -101,7 +101,6 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestGateAddonsEgressStillGatesTheHostBridge(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
@@ -664,7 +663,6 @@ func TestTheDockerAddonStartsChecked(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	t.Parallel()
 	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox})
@@ -1033,7 +1031,6 @@ func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
 	for _, c := range []struct {
 		value string

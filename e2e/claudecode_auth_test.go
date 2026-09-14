@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/_plans/retire-model-bridging.puml
 
 package e2e
 
@@ -229,7 +229,6 @@ func writeSingleCredentialEnv(t *testing.T, keep string) string {
 	// the harness would land on the provider this key pays for; proveo no longer
 	// chooses a model, so forwarding them steers nothing and only re-exports the
 	// operator's shell into a test fixture.
-	// SPEC: _spec/_plans/retire-model-bridging.puml
 	fmt.Fprintf(&b, "%s=%s\n", keep, hostEnvValue(t, keep))
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {

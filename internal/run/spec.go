@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/runlog/run-transcript.puml
 // Package run holds the resolved contract of a single `proveo run` and the
 // stages that build it.
 package run
@@ -38,7 +39,6 @@ type Spec struct {
 
 	// AgentLaunched separates "the agent ran and exited 0" from "no agent was
 	// ever started" — `--print` and the not-ready paths both return nil.
-	// SPEC: _spec/internal/runlog/run-transcript.puml
 	AgentLaunched bool
 	Model         ModelSpec
 	Docker        DockerSpec

@@ -1,3 +1,4 @@
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 package entrypoint
 
 import (
@@ -65,7 +66,6 @@ func TestGoBashBridgeParity(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestChromeScopeGateParityWithBash(t *testing.T) {
 	t.Parallel()
 	sh, err := exec.LookPath("bash")

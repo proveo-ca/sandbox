@@ -1,5 +1,4 @@
-// SPEC: _spec/tests/testing-strategy.puml,
-// _spec/tests/40-agent-e2e-components.puml
+// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/40-agent-e2e-components.puml
 package tmux
 
 import (

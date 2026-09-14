@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml
 package credentials
 
 import (
@@ -313,7 +313,6 @@ func TestProviderLookupResolvesReferences(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/credentials/credential-decisions.puml
 func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{

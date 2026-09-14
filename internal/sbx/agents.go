@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sbx-kit-contract.puml, _spec/components.puml
+// SPEC: _spec/internal/sbx/sbx-kit-contract.puml, _spec/components.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml
 package sbx
 
 import (
@@ -29,7 +29,6 @@ func AgentFor(target string) (agent string, command []string) {
 
 // ShellLaunch is how a def with NO built-in sbx agent gets launched, and the
 // leading "-c" is the whole point of it.
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func ShellLaunch(target string, extra []string) []string {
 	if target == "" {
 		return nil
@@ -59,7 +58,6 @@ func BuiltinAgent(target string) string { return builtinAgent[target] }
 // EnvAgentKit is now an OPT-OUT. A def with no built-in sbx agent declares
 // itself a COMPLETE AGENT (`kind: sandbox`) rather than borrowing sbx's
 // `shell`, and PROVEO_SBX_AGENT_KIT=0 restores the borrowed path.
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
 
 func AgentKitEnabled() bool {

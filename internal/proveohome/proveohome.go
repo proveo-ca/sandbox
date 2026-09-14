@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/proveohome/proveo-home-components.puml,
-// _spec/internal/proveohome/proveo-home-lifecycle.puml
+// SPEC: _spec/internal/proveohome/proveo-home-components.puml, _spec/internal/proveohome/proveo-home-lifecycle.puml
 package proveohome
 
 import (
@@ -84,7 +83,6 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 // a run survives into the next one.
 const EnvKeepLogins = "PROVEO_KEEP_AGENT_LOGINS"
 
-// SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
 func keepDeniedLogins(getenv func(string) string) bool {
 	switch strings.ToLower(strings.TrimSpace(getenv(EnvKeepLogins))) {
 	case "1", "on", "yes", "true":

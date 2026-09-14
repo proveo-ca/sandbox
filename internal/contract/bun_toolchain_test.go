@@ -1,4 +1,4 @@
-// SPEC: _spec/_runtimes/toolchain-provisioning.puml
+// SPEC: _spec/_runtimes/toolchain-provisioning.puml, _spec/_devops/sandbox-template-rebase.puml
 package contract_test
 
 import (
@@ -21,7 +21,6 @@ func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
 		regexp.MustCompile(`ln -sfn bun /usr/local/bin/bunx`),
 		regexp.MustCompile(`test "\$\(bun --version\)" = "\$\{BUN_VERSION\}"`),
 
-		// SPEC: _spec/_devops/sandbox-template-rebase.puml
 		regexp.MustCompile(`(?m)^ARG NODE_VERSION=\d+\.\d+\.\d+$`),
 		regexp.MustCompile(`(?m)^ARG NODE_SHA256_X64=[0-9a-f]{64}$`),
 		regexp.MustCompile(`(?m)^ARG NODE_SHA256_ARM64=[0-9a-f]{64}$`),

@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/choiceui/topology-strip.puml,
-// _spec/internal/choiceui/topology-states.puml
+// SPEC: _spec/internal/choiceui/topology-strip.puml, _spec/internal/choiceui/topology-states.puml
 package choiceui
 
 import (
@@ -279,7 +278,7 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 }
 
 // drawTraffic rides one mote from the hop out to the clouds, over the wire that
-// is already drawn. SPEC: _spec/internal/choiceui/topology-strip.puml
+// is already drawn.
 func drawTraffic(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit tcell.Style, tick, runLen, from int, rows []int) {
 	if g.pulse == "" || tick <= 0 || fr.Open <= 0 || from <= 0 || from >= col {
 		return

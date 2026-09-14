@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/kit-sandbox-credential-gap.puml
 package e2e
 
 import (
@@ -26,7 +26,6 @@ var authFailures = []string{
 	// as an egress denial and was misread as one for a whole session before
 	// anyone opened the response body — so the wording, not the status, is what
 	// gets recognised here.
-	// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 	"used all available credits",
 	"reached its monthly spending limit",
 	"insufficient_quota",

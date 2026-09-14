@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/agentsettings/choice-cache.puml, _spec/tests/testing-strategy.puml
+// SPEC: _spec/internal/agentsettings/choice-cache.puml, _spec/tests/testing-strategy.puml, _spec/tests/40-agent-e2e-components.puml
 
 package e2e
 
@@ -44,7 +44,6 @@ func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
-	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 
 	home, work := t.TempDir(), t.TempDir()

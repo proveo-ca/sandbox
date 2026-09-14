@@ -1,3 +1,4 @@
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 package main
 
 import (
@@ -548,7 +549,6 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(joined, "proveo_sync_state save") {
 		t.Errorf("save must call the shared sync, not a second copy of the dir list: %v", got)
 	}
-	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	if !strings.Contains(joined, "proveo_sync_tools save") {
 		t.Errorf("teardown must also carry the toolchain tree out: %v", got)
 	}
@@ -563,7 +563,7 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 		t.Errorf("the two syncs must not be chained on success: %v", got)
 	}
 	// `-w /` is not decoration: a virtiofs-invalidated workspace kills the exec at
-	// chdir. SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+	// chdir.
 	w := slices.Index(got, "-w")
 	if w < 0 || w+1 >= len(got) || got[w+1] != "/" || w > slices.Index(got, "s1") {
 		t.Errorf("save must exec from / (an sbx exec flag, before the sandbox name), not from the workspace cwd: %v", got)

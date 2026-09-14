@@ -1,15 +1,14 @@
-// SPEC: _spec/internal/provider/provider-registry.puml
+// SPEC: _spec/internal/provider/provider-registry.puml, _spec/_experiments/sbx-kit-capabilities.puml
 package provider
 
 import "strings"
 
 // AuthOption is one way to authenticate to a provider.
 type AuthOption struct {
-	EnvVar string // env var holding the secret, e.g. "ANTHROPIC_API_KEY"
-	Header string // header to set, e.g. "x-api-key" or "authorization"
-	Query  string // query param to set instead of a header (e.g. Gemini "key")
-	Bearer bool   // prefix the value with "Bearer "
-	// SPEC: _spec/internal/provider/provider-registry.puml
+	EnvVar  string // env var holding the secret, e.g. "ANTHROPIC_API_KEY"
+	Header  string // header to set, e.g. "x-api-key" or "authorization"
+	Query   string // query param to set instead of a header (e.g. Gemini "key")
+	Bearer  bool   // prefix the value with "Bearer "
 	Harness string
 }
 
@@ -30,7 +29,6 @@ type Resolved struct {
 	Query  string
 	Value  string // empty => no injectable key present; strip + pass-through only
 	EnvVar string // which credential was chosen, for reporting
-	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 	Bearer bool
 }
 

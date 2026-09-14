@@ -12,7 +12,6 @@ const Marker = "# added by `proveo setup` — proveo on PATH"
 
 // SbxMarker is the same idea for the OTHER directory proveo puts on PATH: the
 // sbx prefix, written by `proveo init`.
-// SPEC: _spec/internal/shell/setup-path.puml
 const SbxMarker = "# added by `proveo init` — sbx on PATH"
 
 // Shell describes one shell's rc location and PATH syntax.

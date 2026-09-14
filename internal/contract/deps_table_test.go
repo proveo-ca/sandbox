@@ -13,7 +13,7 @@ import (
 )
 
 // The dependency-tree table lives twice — Go and shell — and these tests are
-// the lockstep. SPEC: _spec/packages/lib/dependency-trees.puml
+// the lockstep.
 
 var (
 	classArmRe = regexp.MustCompile(`(?m)^\s*([a-z|]+)\)\s+REPLY=([a-z]+)\s*;;`)

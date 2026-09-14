@@ -1,6 +1,5 @@
-// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml,
-// _spec/defs/claudecode/claudecode-egress-topology.puml
-// _spec/defs/claudecode/claudecode-egress-topology.puml Package egressproxy is
+// SPEC: _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/defs/claudecode/claudecode-egress-topology.puml
+// Package egressproxy is
 package egressproxy
 
 import (

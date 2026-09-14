@@ -1,5 +1,5 @@
 // SPEC: _spec/internal/egress/teardown-and-signals.puml
-// _spec/internal/egress/teardown-and-signals.puml Package dockeregress is the
+// Package dockeregress is the
 package dockeregress
 
 import (

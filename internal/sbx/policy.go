@@ -1,3 +1,4 @@
+// SPEC: _spec/minimum_requirements.puml
 package sbx
 
 import (
@@ -26,7 +27,6 @@ func PolicyLog(sandbox string) ([]byte, error) { return sh.PolicyLog(sandbox) }
 //
 // `docker ps` runs last and its failure is swallowed: a wedged daemon is itself
 // a symptom, and must not cost us the meminfo and dmesg lines above it.
-// SPEC: _spec/minimum_requirements.puml
 const MemoryEvidenceScript = `echo "== meminfo =="
 grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|Committed_AS|Dirty)' /proc/meminfo 2>/dev/null
 echo

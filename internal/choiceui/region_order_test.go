@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (
@@ -6,7 +7,6 @@ import (
 )
 
 // The figure is the LAST region: hint, then the help block, then the strip.
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestFigureStaysBelowTheHintAndTheHelpBlock(t *testing.T) {
 	t.Parallel()
 	fr := Frame{Host: "pluvo", HostOS: "darwin", Square: "sbx · claudecode",

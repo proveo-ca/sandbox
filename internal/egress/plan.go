@@ -1,9 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml,
-// _spec/_conventions/design-decision-ids.puml,
-// _spec/internal/egress/egress-tiers.puml,
-// _spec/internal/egress/teardown-and-signals.puml,
-// _spec/_paradigms/credential-boundary.puml,
-// _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_paradigms/retire-dind.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
 package egress
 
 import (
@@ -206,7 +201,6 @@ func buildOpen(o Options) Plan {
 		if o.HostBridge {
 			b.p.AgentArgs = append(b.p.AgentArgs, hostGatewayAlias)
 		}
-		// SPEC: _spec/_paradigms/retire-dind.puml
 		b.attachLocalModel(net)
 		return b.done()
 	}

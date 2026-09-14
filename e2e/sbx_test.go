@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_paradigms/retire-dind.puml, _spec/_plans/image-size-reduction.puml
 package e2e
 
 import (
@@ -201,7 +201,6 @@ func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
 }
 
 // `sbx create` re-bakes the template (see _spec/_experiments/docker-sandbox.puml)
-// SPEC: _spec/_paradigms/retire-dind.puml
 
 func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
@@ -422,7 +421,6 @@ func renderKit(t *testing.T, target string) string {
 	return filepath.Dir(matches[0])
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
@@ -473,7 +471,6 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
-// SPEC: _spec/_plans/image-size-reduction.puml
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Helper()
 	low := strings.ToLower(got)

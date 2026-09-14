@@ -1,5 +1,5 @@
-// Package verify discovers project verification commands (test/lint/build/…).
 // SPEC: _spec/internal/verify/verification-discovery.puml, _spec/defs/cursor/cursor-paradigm.puml
+// Package verify discovers project verification commands (test/lint/build/…).
 package verify
 
 import (

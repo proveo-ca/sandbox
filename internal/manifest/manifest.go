@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
+// SPEC: _spec/internal/manifest/harness-manifest-schema.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
 package manifest
 
 import (
@@ -42,8 +42,7 @@ type HomeMount struct {
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
 	Mounts  []HomeMount `yaml:"mounts"`
-	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
-	Files []string `yaml:"files"`
+	Files   []string    `yaml:"files"`
 }
 
 // Manifest describes one harness definition.
@@ -60,7 +59,6 @@ type Manifest struct {
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
 	Env          []EnvVar          `yaml:"env"`          // secret/auth env vars the harness reads
 	Config       []string          `yaml:"config"`
-	// SPEC: _spec/internal/manifest/harness-manifest-schema.puml
 	AgentEnv     map[string]string `yaml:"agentEnv"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
@@ -72,7 +70,6 @@ type Manifest struct {
 // DockerMode is how a harness hands its agent a Docker daemon, and after
 // retiring the privileged sidecar there is exactly one way: `sbx` runs the
 // agent in a sandbox VM that has its own daemon, behind a boundary.
-// SPEC: _spec/_paradigms/retire-dind.puml
 type DockerMode string
 
 const (
@@ -165,7 +162,6 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest %q: empty target or image (%q: %q)", m.Name, target, image)
 		}
 	}
-	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	for _, f := range m.Home.Files {
 		name := strings.TrimSpace(f)
 		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\|;`) {

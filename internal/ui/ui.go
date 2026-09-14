@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/ui/output-vocabulary.puml,
-// _spec/_conventions/tui-design-language.puml
+// SPEC: _spec/internal/ui/output-vocabulary.puml, _spec/_conventions/spec-conventions.puml, _spec/internal/runlog/run-transcript.puml, _spec/_conventions/tui-design-language.puml
 package ui
 
 import (
@@ -480,7 +479,6 @@ func displayWidth(b []byte) int {
 	return w
 }
 
-// SPEC: _spec/_conventions/spec-conventions.puml, _spec/internal/runlog/run-transcript.puml
 const (
 	ColorApp   = 0x005F7F // first-party app / runtime service — teal
 	ColorAsync = 0xCBDB2A // queue · scheduler · background — lime

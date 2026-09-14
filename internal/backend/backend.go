@@ -1,5 +1,5 @@
-// SPEC: _spec/internal/backend/exit-code.puml Package backend holds what the
 // SPEC: _spec/internal/backend/exit-code.puml
+// Package backend holds what the
 package backend
 
 import "fmt"

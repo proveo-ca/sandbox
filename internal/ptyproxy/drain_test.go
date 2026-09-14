@@ -1,5 +1,6 @@
 //go:build !windows
 
+// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
 package ptyproxy
 
 import (
@@ -27,7 +28,6 @@ import (
 // in five, which read as flake rather than as this bug. 500 caught it 6 times
 // out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
 // not a half-second of work.
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
 func TestRunDrainsTheChildsOutputBeforeReturning(t *testing.T) {
 	const want = "LAST_WORDS"
 	for i := 0; i < 500; i++ {

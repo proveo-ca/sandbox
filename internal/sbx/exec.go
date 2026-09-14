@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/sbx/sandbox-backend.puml
 package sbx
 
 import (
@@ -41,7 +42,6 @@ func bounded(name string, args ...string) ([]byte, error) {
 // before the pipe is closed out from under it.
 const boundedGrace = 2 * time.Second
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
 func boundedWith(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -62,7 +62,6 @@ func boundedCombinedWith(timeout time.Duration, name string, args ...string) ([]
 	return cmd.CombinedOutput()
 }
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
 func defaultCLI() CLI {
 	return CLI{
 		Version:     func() ([]byte, error) { return bounded(Binary, "version") },

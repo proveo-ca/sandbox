@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 package run
 
 import (
@@ -213,7 +214,6 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestTheFigureFollowsTheHoveredBaseline(t *testing.T) {
 	t.Parallel()
 	const egressRowIdx = 0

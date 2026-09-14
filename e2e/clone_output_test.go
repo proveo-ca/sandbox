@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml
 
 package e2e
 
@@ -19,7 +19,6 @@ import (
 // TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself,
 // not `sbx create`, because the failure it guards lived in proveo's mount
 // assembly.
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

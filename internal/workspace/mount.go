@@ -1,7 +1,4 @@
-// SPEC: _spec/internal/workspace/mount-model.puml,
-// _spec/internal/workspace/mount-symlink-escape.puml,
-// _spec/internal/workspace/worktree-git-linkage.puml,
-// _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
+// SPEC: _spec/internal/workspace/mount-model.puml, _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml, _spec/packages/lib/dependency-trees.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/workspace/worktree-git-linkage.puml, _spec/packages/lib/steps.puml, _spec/_conventions/design-decision-ids.puml
 package workspace
 
 import (
@@ -25,7 +22,6 @@ var rootFiles = []string{
 	"yarn.lock", "turbo.json", "nx.json", "opencode.json", "opencode.jsonc",
 }
 
-// SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/internal/workspace/git-mount-by-scope.puml
 var rootDirs = []string{
 	"_spec",
 	"vendor",
@@ -99,7 +95,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.envMounts("")...)
 	}
-	// SPEC: _spec/packages/lib/dependency-trees.puml
 	mounts = append(mounts, w.depMounts()...)
 
 	mounts = append(mounts, w.worktreeMounts()...)

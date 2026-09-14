@@ -1,3 +1,4 @@
+// SPEC: _spec/_paradigms/capability-ladder.puml
 package sbx
 
 import (
@@ -5,7 +6,6 @@ import (
 	"testing"
 )
 
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func TestShellAgentCommandIsFlagLeading(t *testing.T) {
 	agent, cmd := AgentFor("cecli")
 	if agent != ShellAgent {

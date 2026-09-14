@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/choiceui/figure-fidelities.puml,
-// _spec/internal/choiceui/topology-strip.puml
+// SPEC: _spec/internal/choiceui/figure-fidelities.puml, _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 const (

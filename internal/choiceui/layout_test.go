@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (
@@ -23,7 +24,6 @@ func budgetForm() *Form {
 	}
 }
 
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestLayoutObeysTheDropLadder(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()

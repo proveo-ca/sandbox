@@ -261,7 +261,7 @@ echo DONE`
 // disable, true to enable built-ins" (opencode.ai/config.json). The function
 // used to return early when nothing matched, writing no key at all, which is
 // what printed "LSPs are disabled" on a workspace whose languages proveo could
-// not match. SPEC: _spec/packages/lib/language-server-provisioning.puml
+// not match.
 func TestConfigureOpencodeLspEnablesBuiltinsWhenNothingMatched(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

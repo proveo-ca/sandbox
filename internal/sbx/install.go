@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/sbx/host-readiness.puml
 package sbx
 
 import (
@@ -345,7 +345,6 @@ func Prereqs(h Host, p Probe) []Prereq {
 // whether the host can RUN a sandbox — virtualisation, the daemon, storage,
 // permissions, disk — belongs to `sbx diagnose`, which checks all of it and
 // explains it better; see Diagnose.
-// SPEC: _spec/internal/sbx/host-readiness.puml
 func linuxPrereqs(p Probe) []Prereq {
 	// install.sh checks for mkfs.ext4 and exits 2 before it copies a file, so
 	// this one has to be known before the download.
@@ -458,7 +457,6 @@ func DiagnoseArgs() []string { return []string{"diagnose", "--json"} }
 // host can run a sandbox — it knows about virtualisation, its own daemon, its
 // own storage and its own version skew — and it answers with a remediation
 // proveo would only paraphrase worse.
-// SPEC: _spec/internal/sbx/host-readiness.puml
 type Check struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // pass | fail | skip

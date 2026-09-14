@@ -1,6 +1,6 @@
+// SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
 package egresspolicy
 
-// SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
 var DefaultSinks = []string{
 	"pastebin.com", "hastebin.com", "paste.ee", "ix.io", "0x0.st", "dpaste.com", "ghostbin.com",
 	"webhook.site", "requestbin.com", "pipedream.net", "requestcatcher.com", "beeceptor.com",

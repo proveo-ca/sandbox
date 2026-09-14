@@ -1,3 +1,4 @@
+// SPEC: _spec/_paradigms/retire-dind.puml, _spec/internal/manifest/harness-manifest-schema.puml
 package manifest
 
 import (
@@ -244,7 +245,6 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
 	t.Parallel()
 	base := func(mode DockerMode) Manifest {
@@ -291,7 +291,7 @@ func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
 }
 
 // agentEnv is delivered as an argv on both backends, in NAME order because the
-// plan goldens read it. SPEC: _spec/internal/manifest/harness-manifest-schema.puml
+// plan goldens read it.
 func TestAgentEnv(t *testing.T) {
 	t.Parallel()
 	got, err := Parse([]byte("name: claudecode\nimages:\n  claudecode: img\nagentEnv:\n  CLAUDE_CODE_NO_FLICKER: \"0\"\n  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: \"1\"\n"), "dir")

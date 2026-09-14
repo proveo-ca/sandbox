@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 package ptyproxy
 
 import (
@@ -284,7 +285,6 @@ func TestReplayOfTheCapturedMouseTrace(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -323,7 +323,6 @@ func TestRealKeystrokesStillPassTheFilter(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()
@@ -396,7 +395,6 @@ func TestPlainTypingPassesThroughUnchanged(t *testing.T) {
 
 // The application announces mouse tracking on its OUTPUT stream; the filter
 // reads that to decide whether an incoming mouse report was asked for.
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestMouseTrackingFollowsTheChildsModeSets(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -524,7 +522,6 @@ func TestMouseTrackerDoesNotHoardUnterminatedOutput(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestSolicitedCPRSurvivesTheBlanketDrop(t *testing.T) {
 	f := newInputFilter()
 	f.dropReplies = true // the sbx backend

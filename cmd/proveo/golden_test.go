@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/run/run-spec.puml
+// SPEC: _spec/internal/run/run-spec.puml, _spec/_plans/config-seeding-and-persistence.puml
 package main
 
 import (
@@ -260,7 +260,6 @@ func TestSandboxPlanGolden(t *testing.T) {
 			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
 			{Name: "ANTHROPIC_BASE_URL"},
 		},
-		// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 		Home: manifest.Home{
 			Enabled: true,
 			Mounts:  []manifest.HomeMount{{Host: ".claude", Container: "/proveo-home/.claude", Mode: "rw"}},

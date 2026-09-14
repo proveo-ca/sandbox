@@ -1,5 +1,5 @@
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/wireframe.puml
 // Package choiceui renders the one-shot harness choice prompt.
-// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/agentsettings/choice-cache.puml
 package choiceui
 
 import (
@@ -76,7 +76,6 @@ func (r *Row) helpLines(width int) []helpLine {
 	return out
 }
 
-// SPEC: _spec/internal/choiceui/wireframe.puml
 func (r *Row) unreachableGate() bool {
 	if r.Multi || r.Locked {
 		return false

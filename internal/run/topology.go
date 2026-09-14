@@ -36,7 +36,6 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 	}
 }
 
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func egressTier(f *choiceui.Form, cursor int, fallback string) string {
 	for i := range f.Rows {
 		r := &f.Rows[i]
