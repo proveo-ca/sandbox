@@ -116,7 +116,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	}
 
 	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute))
-	var models, found string
+	var models, found, body string
 	var answered bool
 	observe := func() {
 		out := readFile(transcript)
@@ -125,7 +125,12 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 		}
 		answered = answered || modelAnswered(out, prompt, reply, h)
 		if found == "" {
-			found = firstExisting(work, h.hostPaths)
+			if name := firstExisting(work, h.hostPaths); name != "" {
+				found, body = name, readIn(work, name)
+			}
+		}
+		if found == "" {
+			found, body = deliveredThroughRefs(t, work, h.hostPaths)
 		}
 	}
 	for {
@@ -145,7 +150,20 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	// Let the run end itself where it still can: killing the pane early SIGHUPs
 	// proveo mid-run and strands the egress sidecars and their networks.
 	waitSessionExit(sess, 45*time.Second)
-	observe()
+	// A cloned workspace delivers at TEARDOWN, not while the agent runs: the
+	// commits are fetched into refs/proveo/<sid>/ after the agent exits, and the
+	// session can disappear from tmux before that fetch has finished. Asserting
+	// on the first observation after the pane dies read as "delivered by no
+	// route" on a run whose teardown then printed the refs it had written. So
+	// keep looking for a bounded while.
+	settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
+	for {
+		observe()
+		if found != "" || time.Now().After(settle) {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
 	out := readFile(transcript)
 
 	// Models first: a wrong tier is a distinct failure from a missing file, and
@@ -158,12 +176,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 			"asked for nor any mention of %s. The file alone cannot show the inference "+
 			"loop closed, only that something wrote it\n--- transcript (tail) ---\n%s",
 			reply, filepath.Base(h.promptPath), tail(out, 40))
-	}
-	body := ""
-	if found != "" {
-		body = readIn(work, found)
-	} else {
-		found, body = deliveredThroughRefs(t, work, h.hostPaths)
 	}
 	if found == "" {
 		t.Fatalf("the agent's file reached the host by no route — neither the mounted "+
