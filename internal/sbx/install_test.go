@@ -29,6 +29,15 @@ func TestReleaseIsNotOlderThanTheVersionRunDemands(t *testing.T) {
 	}
 }
 
+func TestMinVersionCoversTheFlagsThisPackageSends(t *testing.T) {
+	t.Parallel()
+	if Older(MinVersion, VersionJSONSince) {
+		t.Fatalf("MinVersion %s is older than %s, where `%s %s` was added — a host at the "+
+			"floor cannot answer ServerState",
+			MinVersion, VersionJSONSince, Binary, strings.Join(VersionJSONArgs(), " "))
+	}
+}
+
 func TestPlanForEverySupportedHost(t *testing.T) {
 	t.Parallel()
 	const prefix = "/home/op/.docker/sbx"
@@ -445,7 +454,7 @@ func TestDiagnoseAtAgainstTheRealBinary(t *testing.T) {
 	var virt bool
 	for _, c := range checks {
 		t.Logf("%-22s %-5s %s", c.Name, c.Status, c.Detail)
-		if c.Status != "pass" && c.Status != "fail" && c.Status != "skip" {
+		if c.Status != "pass" && c.Status != "warn" && c.Status != "fail" && c.Status != "skip" {
 			t.Errorf("%q has status %q, which proveo does not understand", c.Name, c.Status)
 		}
 		if c.Name == "Virtualization" {

@@ -126,6 +126,8 @@ func TestInstalledVersionAsksThePrefixBeforePATH(t *testing.T) {
 	}
 	plan := sbx.Plan{Bin: bin, Prefix: dir}
 
+	t.Setenv("PATH", filepath.Join(dir, "empty"))
+
 	if v, why := installedVersion(plan); v != "" || why == "" {
 		t.Errorf("empty prefix reported version %q / %q, want a reason to install", v, why)
 	}
