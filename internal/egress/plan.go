@@ -54,6 +54,7 @@ type Options struct {
 const (
 	caContainerPath   = "/etc/proveo/mitmproxy-ca-cert.pem"
 	squidUpstream     = "http://squid:3128"
+	squidCachePath    = "/var/spool/squid"
 	inspectProxyURL   = "http://mitm:8888"
 	sidecarOllamaBase = "http://ollama:11434"
 	hostOllamaBase    = "http://host.docker.internal:11434"
@@ -63,6 +64,10 @@ const (
 )
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+// squidCacheVolumePrefix marks the volumes as proveo's, so an operator reading
+// `docker volume ls` can tell what they are and prune them by name.
+const squidCacheVolumePrefix = "proveo-squid-cache-"
 
 func (o Options) squidImage() string  { return orElse(o.SquidImage, "ubuntu/squid:latest") }
 func (o Options) proxyImage() string  { return orElse(o.ProxyImage, "proveo/egress-proxy:latest") }
@@ -285,8 +290,18 @@ func squidRun(o Options, egressNet string) Command {
 	c = append(c, sidecarHardening()...)
 	c = append(c, "--network", egressNet,
 		"-v", o.SquidConfigDir+":/etc/squid:ro",
-		"-v", o.SquidLogDir+":/var/log/squid")
+		"-v", o.SquidLogDir+":/var/log/squid",
+		"-v", SquidCacheVolume(o.AgentName)+":"+squidCachePath)
 	return append(c, o.squidImage())
+}
+
+// SquidCacheVolume names the cache volume ONE def reuses on a host.
+func SquidCacheVolume(agent string) string {
+	name := nonAlnum.ReplaceAllString(agent, "-")
+	if name == "" {
+		name = "shared"
+	}
+	return squidCacheVolumePrefix + name
 }
 
 func proxyRun(o Options, agentNet, upstream string) Command {

@@ -277,8 +277,11 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
 	}
 
-	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
-		t.Errorf("run config name/image = %q/%q", cfg.Name, cfg.Image)
+	if cfg.Name != sbx.SandboxName("claudecode", "") || cfg.Image != "proveo/claudecode:latest" {
+		t.Errorf("run config name/image = %q/%q, want the def-keyed sandbox name", cfg.Name, cfg.Image)
+	}
+	if strings.Contains(cfg.Name, "proveo-1-2") {
+		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
 	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
 		t.Errorf("command = %v, want agent args passed through", cfg.Command)

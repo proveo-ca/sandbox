@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -100,6 +101,9 @@ func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, kit sbx.Kit, secrets [][
 	b.Write(doc)
 	return b.String()
 }
+
+// sandboxNameHash matches the workspace fingerprint in a sandbox name.
+var sandboxNameHash = regexp.MustCompile(`proveo-([a-z0-9]+)-[0-9a-f]{8}`)
 
 func scrub(s string, replacements map[string]string) string {
 	keys := make([]string, 0, len(replacements))
@@ -350,7 +354,14 @@ func TestSandboxPlanGolden(t *testing.T) {
 			got := renderSandboxPlan(t, cfg, kit, secrets)
 			assertNoSecretValues(t, got, oauthValue, keyValue, cursorValue)
 			got = scrub(got, map[string]string{work: "<WORK>", data: "<DATA>", home: "<HOME>"})
+			got = sandboxNameHash.ReplaceAllString(got, "proveo-$1-<WORKHASH>")
 			assertGolden(t, "sbx-"+tc.name, got)
+
+			again, _, _ := sandbox.Spec(tc.in(work, data, home))
+			if cfg.Name != again.Name {
+				t.Errorf("two runs over one workspace named the sandbox %q then %q — each "+
+					"would create and abandon its own VM", cfg.Name, again.Name)
+			}
 		})
 	}
 }

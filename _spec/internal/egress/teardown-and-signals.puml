@@ -5,6 +5,21 @@
 ' covers: internal/run/params.go
 ' covers: e2e/signal_test.go
 ' covers: cmd/proveo/main.go
+' ── THE SQUID CACHE IS A NAMED VOLUME, KEYED TO THE DEF ────────────────────
+' `ubuntu/squid` declares VOLUME /var/spool/squid. A plan that mounts nothing
+' there gets an ANONYMOUS volume per run: a cold cache every time, and one more
+' dangling volume on the host. Measured 2026-09-15 on one developer machine:
+' 318 anonymous volumes, 232 of them squid caches — identified by `swap.state`
+' and the 00-0F tree that `cache_dir ufs /var/spool/squid 100 16 256` creates,
+' owned by uid 13. `docker run --rm` is supposed to take an anonymous volume
+' with the container; a killed run leaves both behind anyway.
+'
+' The mount is now proveo-squid-cache-<def>. Keyed to the DEF, not the session,
+' so the cache survives the run that filled it; keyed PER def, not shared,
+' because two harnesses have different allowlists and must not pool cached
+' objects. The prefix is there so an operator reading `docker volume ls` can
+' tell what these are and prune them by name.
+'
 ' ── THE SIDECAR IMAGE GETS THE HARNESS'S RECENCY RULE ──────────────────────
 ' Settled in cmd/proveo rather than in the run spec, so a --print plan rendered
 ' by a test never depends on what the host happens to have built.

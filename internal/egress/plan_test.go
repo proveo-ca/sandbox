@@ -525,3 +525,59 @@ func noProxyValue(joined string) string {
 	}
 	return rest
 }
+
+func TestSquidCacheVolumeIsPerDefAndOutlivesTheSession(t *testing.T) {
+	t.Parallel()
+
+	squidOf := func(o Options) string {
+		p, err := BuildPlan(o)
+		if err != nil {
+			t.Fatalf("BuildPlan: %v", err)
+		}
+		for _, c := range p.Sidecars {
+			joined := strings.Join(c, " ")
+			if strings.Contains(joined, "squid:latest") {
+				return joined
+			}
+		}
+		t.Fatal("no squid sidecar in a plan that stages one")
+		return ""
+	}
+
+	first := baseOpts("allowlist")
+	second := baseOpts("allowlist")
+	second.SessionID = "proveo-sess-much-later"
+
+	want := "-v " + SquidCacheVolume(first.AgentName) + ":/var/spool/squid"
+	for _, o := range []Options{first, second} {
+		if got := squidOf(o); !strings.Contains(got, want) {
+			t.Errorf("session %s does not mount the def's cache volume:\nwant %q in\n%s",
+				o.SessionID, want, got)
+		}
+	}
+
+	if strings.Contains(SquidCacheVolume(first.AgentName), first.SessionID) {
+		t.Errorf("cache volume %q is session-scoped", SquidCacheVolume(first.AgentName))
+	}
+
+	other := baseOpts("allowlist")
+	other.AgentName = "opencode"
+	if SquidCacheVolume(other.AgentName) == SquidCacheVolume(first.AgentName) {
+		t.Errorf("two defs share cache volume %q — their allowlists differ, so their "+
+			"cached objects must not be pooled", SquidCacheVolume(other.AgentName))
+	}
+}
+
+func TestSquidCacheVolumeNameIsAlwaysLegal(t *testing.T) {
+	t.Parallel()
+	for _, agent := range []string{"claudecode-mcp", "opencode", "a/b c", "", "Ünïcøde"} {
+		got := SquidCacheVolume(agent)
+		if !strings.HasPrefix(got, "proveo-squid-cache-") {
+			t.Errorf("SquidCacheVolume(%q) = %q, want the proveo prefix so an operator "+
+				"can tell what it is in `docker volume ls`", agent, got)
+		}
+		if nonAlnum.MatchString(strings.TrimPrefix(got, "proveo-squid-cache-")) {
+			t.Errorf("SquidCacheVolume(%q) = %q, which docker will refuse", agent, got)
+		}
+	}
+}

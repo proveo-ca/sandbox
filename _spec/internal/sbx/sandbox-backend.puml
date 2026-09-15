@@ -1,6 +1,60 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
+' ── MEASURED GAP: AgentArgs REACH THE DOCKER RENDERING ONLY ────────────────
+' Measured 2026-09-15. `egress.Plan.AgentArgs` carries the env proveo decides
+' for the agent as docker `-e` flags, and exactly one caller reads it:
+' internal/backend/dockeregress (dockeregress.go, ExtraArgs: plan.AgentArgs).
+' The sandbox backend builds cfg.Env from its own sources and never consults
+' the plan, so everything the plan wired is silently dropped under sbx.
+'
+' `grep '"-e", "[A-Z_]+' internal/egress/plan.go` lists 42 distinct variables.
+' Two groups were measured absent inside a real sandbox:
+'
+'   the local-model set   PROVEO_LOCAL_MODEL, OLLAMA_*, OPENAI_*, ANTHROPIC_*,
+'                         ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL — 15 vars
+'                         from localModelArgs. `--local-model` is accepted on
+'                         the command line and then does NOTHING: the sandbox
+'                         backend has no LocalModel field at all.
+'   PROVEO_EGRESS_MODE    the tier the agent and entrypoint-lib.sh both read.
+'
+' Three suite failures, one cause: TestHelloWorldE2E reports
+' `main model in container = "unset"` on all three targets and no PROVEO_MODELS
+' preamble; TestPromptfulE2E drives a real agent against a model that never
+' arrived and times out with nothing done; TestAgentSettingsPersistAcrossRuns
+' reads `TIER=` empty and concludes the choice cache was not re-entered, which
+' it was — the variable simply never crossed.
+'
+' The remaining vars in that list are not all agent-facing (the proxy sidecar
+' takes its own), so the gap is "the plan's agent env has no sandbox route",
+' not "42 variables are missing". Naming the route is the fix; enumerating the
+' survivors is not.
+'
+' ── ONE SANDBOX PER DEF PER WORKSPACE, NOT ONE PER RUN ─────────────────────
+' Measured 2026-09-15: 81 sandboxes on one developer host after a few e2e suite
+' runs, 4 of them still running. The name was the SESSION id, so every run
+' created a VM, seeded it, and abandoned it — paying full creation cost for a
+' sandbox identical to the one it had just discarded, and leaving the discard
+' for the operator to find.
+'
+' `sbx run --name` re-attaches to an existing sandbox and reads the agent and
+' workspace from its spec, so the fix is the NAME: proveo-<target>-<fingerprint
+' of the workspace path>. Keyed on the def alone, a second project would have
+' silently inherited the first project's mounts. See clone-workspace.puml for
+' why the ref namespace does NOT follow this key.
+'
+' The golden pins the name TWICE, and one assertion alone would not have held.
+' It scrubs the fingerprint to `<WORKHASH>`, because the workspace is a fresh
+' `t.TempDir()` on every run and the raw hash would rewrite the golden each
+' time — and then calls `Spec` a second time over the same input to assert the
+' two answers agree. Scrubbing without that second call is precisely how a
+' per-run name would go on passing.
+'
+' Reuse does not pay everywhere. The e2e suite gives each case its own workspace,
+' so def+workspace keying buys it nothing while sbx still sizes every sandbox at
+' half the host; the sweep that keeps that from filling the machine, and the OOM
+' that forced it, are in _spec/tests/testing-strategy.puml.
+'
 ' purpose: how a run reaches the sbx backend, what it hands over, and what it refuses
 ' covers: internal/backend/sandbox/**
 ' covers: internal/sbx/sbx.go
@@ -11,6 +65,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' covers: internal/run/run.go
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
+' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
@@ -466,10 +521,18 @@ end note
 
 note right of SEL
   **""PROVEO_SBX=off"" is the only headless route
-  to docker.** The add-on is default-ON and a
-  run with no TTY no longer reads the choice
-  cache — nothing to seed — so a script, CI, or
-  a test inspecting the docker plan needs a knob.
+  to docker.** Because a run with no TTY skips
+  the choice cache entirely, a script rendering
+  that plan has no other knob — and the e2e
+  suite is nonetheless forbidden to reach for it.
+end note
+
+note as SBXNAME
+  **The name is the reuse key, so a test must pin
+  it twice.** The golden scrubs the workspace
+  fingerprint, which a fresh ""t.TempDir()"" would
+  otherwise rewrite each run, and a second
+  ""Spec"" call asserts both answers agree.
 end note
 
 note bottom of KIT
