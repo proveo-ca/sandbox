@@ -23,10 +23,7 @@ import (
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
 	requireDocker(t)
-	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
-	if !ollamaHasModel(model) {
-		t.Skipf("Ollama model %q not available on the host", model)
-	}
+	model := localModel(t)
 
 	proveoBin := buildProveo(t)
 
@@ -106,7 +103,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
-	cmd = append(cmd, "PROVEO_SBX=off")
 	cmd = append(cmd, proveoBin, "run", h.target,
 		"--egress-mode", "open", "--credentials", "forward",
 		"--local-model", model, "--input", work, "--")
