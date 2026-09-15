@@ -6,6 +6,24 @@
 ' covers: cmd/proveo/main.go
 ' covers: e2e/git_access_test.go
 ' Ownership and worktree scoping: _spec/internal/workspace/git-mount-by-scope.puml.
+' The launch shape the e2e cases share: _spec/tests/testing-strategy.puml.
+'
+' ── THE E2E CASE MEASURES THE RUN'S BRIDGING, NOT THE FUNCTION'S ───────────
+' TestGitIsWritableInEveryHarness launches a real `proveo run <target> --shell`
+' per harness and commits inside it, in place of the `docker run --entrypoint
+' bash` it used to assemble with the mounts and the uid copied out of the run
+' path. The probe script no longer opens with `source /entrypoint-lib.sh;
+' bridge_git_identity "$PWD"`, and dropping that line is the point: the real
+' entrypoint had already bridged before the prompt appeared, so the manual call
+' proved only that the function can be invoked. It never proved that the RUN
+' invokes it, which is the claim this file makes.
+'
+' TestGitWorktreeLinkageIsCoherentAndHostSafe took the same correction, where
+' `ensure_git_safe_directory` was the hand-invoked half.
+'
+' One case keeps a raw `docker run` deliberately, and the reason is recorded in
+' testing-strategy.puml: a bare `.git` mount with no working tree is a shape no
+' real launch constructs, and reproducing it is the whole point of that case.
 title Git identity & context — commits attributable, no host gitconfig mounted
 
 node "Host" as HOST <<host>> {
@@ -30,6 +48,14 @@ BRIDGE ARROW_MAIN GIT : " ""git config --get user.name"" resolves\nfile-free "
 LOCAL ARROW_MAIN GIT : repo-local identity stays authoritative
 BRIDGE ARROW_MAIN REPORT
 REPORT ARROW_MAIN CTR : startup preamble
+
+note left of BRIDGE
+  **The e2e case no longer re-invokes the
+  bridge.** Its probe script used to source
+  entrypoint-lib and call bridge_git_identity,
+  which demonstrated only that the function
+  runs — never that the launch already ran it.
+end note
 
 note right of BRIDGE
   **Why config-env, not a written file.** Writing a

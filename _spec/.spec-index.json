@@ -2,34 +2,6 @@
   "version": 1,
   "specs": [
     {
-      "spec": "_spec/components.puml",
-      "covers": [
-        "cmd/**",
-        "internal/**",
-        "defs/**",
-        "packages/**",
-        "embed.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/minimum_requirements.puml",
-      "covers": [
-        "internal/sbx/sbx.go",
-        "e2e/capacity_test.go",
-        "internal/sbx/limits.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/overview.puml",
-      "covers": [
-        "cmd/proveo/**",
-        "internal/**"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_conventions/design-decision-ids.puml",
       "covers": [
         "cmd/proveo/main.go",
@@ -71,6 +43,15 @@
         "internal/contract/agent_pin_test.go",
         "internal/posture/posture.go",
         "internal/run/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/all-defs-green.puml",
+      "covers": [
+        "e2e/ladder_test.go",
+        "e2e/idle_test.go",
+        "defs/*/harness.manifest"
       ],
       "fingerprint": null
     },
@@ -125,6 +106,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/agent-council-ledger.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_experiments/cdp-shared-browser.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_experiments/docker-sandbox.puml",
       "covers": [
         "internal/sbx/sbx.go",
@@ -139,6 +130,11 @@
         "defs/claudecode/mcp/Dockerfile",
         "defs/base/Dockerfile"
       ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_experiments/operator-fingerprint.puml",
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -162,21 +158,6 @@
         "internal/provider/provider.go",
         "e2e/ladder_test.go"
       ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/operator-fingerprint.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/agent-council-ledger.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/cdp-shared-browser.puml",
-      "covers": [],
       "fingerprint": null
     },
     {
@@ -277,15 +258,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_devops/all-defs-green.puml",
-      "covers": [
-        "e2e/ladder_test.go",
-        "e2e/idle_test.go",
-        "defs/*/harness.manifest"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/ci-pipeline.puml",
       "covers": [
         "mise.toml",
@@ -316,8 +288,28 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/connect-ide.puml",
+      "covers": [
+        "internal/sbx/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/workspace/mount.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/host-execution-fallback.puml",
       "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/host-held-provider-keys.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/secret.go",
+        "internal/sbx/run.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/entrypoint/entrypoint.go"
+      ],
       "fingerprint": null
     },
     {
@@ -332,32 +324,24 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/init-credential-provisioning.puml",
+      "covers": [
+        "cmd/proveo/init.go",
+        "internal/credentials/hints.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/post-close-surface.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/runlog/runlog.go",
+        "internal/ui/ui.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/retire-docker-egress.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/secret-custody.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/ship-and-reach.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tui-style-deferred-surfaces.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/white-label-brand-manifest.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/workspace-env-key.puml",
       "covers": [],
       "fingerprint": null
     },
@@ -379,23 +363,23 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/host-held-provider-keys.puml",
+      "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
       "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/sbx/secret.go",
-        "internal/sbx/run.go",
-        "packages/lib/entrypoint-lib.sh",
-        "internal/entrypoint/entrypoint.go"
+        "internal/sbx/kit.go",
+        "internal/run/run.go",
+        "internal/workspace/deps.go",
+        "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/post-close-surface.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/runlog/runlog.go",
-        "internal/ui/ui.go"
-      ],
+      "spec": "_spec/_plans/secret-custody.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/ship-and-reach.puml",
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -409,22 +393,18 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/connect-ide.puml",
-      "covers": [
-        "internal/sbx/run.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/workspace/mount.go"
-      ],
+      "spec": "_spec/_plans/tui-style-deferred-surfaces.puml",
+      "covers": [],
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
-      "covers": [
-        "internal/sbx/kit.go",
-        "internal/run/run.go",
-        "internal/workspace/deps.go",
-        "packages/lib/entrypoint-lib.sh"
-      ],
+      "spec": "_spec/_plans/white-label-brand-manifest.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/workspace-env-key.puml",
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -440,6 +420,21 @@
         "internal/contract/bun_toolchain_test.go",
         "internal/contract/toolchain_test.go",
         "e2e/toolchain_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo-entrypoint/prep-process-boundary.puml",
+      "covers": [
+        "cmd/proveo-entrypoint/**",
+        "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo-entrypoint/prep-sequence.puml",
+      "covers": [
+        "cmd/proveo-entrypoint/**"
       ],
       "fingerprint": null
     },
@@ -488,17 +483,13 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/cmd/proveo-entrypoint/prep-process-boundary.puml",
+      "spec": "_spec/components.puml",
       "covers": [
-        "cmd/proveo-entrypoint/**",
-        "packages/lib/entrypoint-lib.sh"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/cmd/proveo-entrypoint/prep-sequence.puml",
-      "covers": [
-        "cmd/proveo-entrypoint/**"
+        "cmd/**",
+        "internal/**",
+        "defs/**",
+        "packages/**",
+        "embed.go"
       ],
       "fingerprint": null
     },
@@ -543,33 +534,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/defs/harden-pass.puml",
-      "covers": [
-        "defs/base/proveo-harden",
-        "defs/base/Dockerfile",
-        "defs/base-node/Dockerfile",
-        "defs/base-node-lsp/Dockerfile",
-        "defs/base-node-browser/Dockerfile",
-        "defs/cecli/Dockerfile",
-        "defs/cursor/Dockerfile",
-        "defs/opencode/Dockerfile",
-        "defs/claudecode/mcp/Dockerfile",
-        "defs/claudecode/solidity/Dockerfile"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/defs/harness-image-layers.puml",
-      "covers": [
-        "defs/cecli/Dockerfile",
-        "defs/cursor/Dockerfile",
-        "defs/opencode/Dockerfile",
-        "defs/claudecode/mcp/Dockerfile",
-        "defs/claudecode/solidity/Dockerfile"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/defs/cecli/cecli-paradigm.puml",
       "covers": [
         "defs/cecli/entrypoint.sh",
@@ -597,7 +561,8 @@
         "internal/entrypoint/parity_test.go",
         "internal/contract/browser_layer_test.go",
         "e2e/chrome_bridge_sbx_test.go",
-        "e2e/chrome_bridge_test.go"
+        "e2e/chrome_bridge_test.go",
+        "e2e/claude_in_chrome_test.go"
       ],
       "fingerprint": null
     },
@@ -641,6 +606,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/defs/codex/codex-paradigm.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/codex/codex-topology.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/defs/cursor/cursor-paradigm.puml",
       "covers": [
         "defs/cursor/entrypoint.sh",
@@ -652,6 +627,33 @@
       "spec": "_spec/defs/cursor/cursor-topology.puml",
       "covers": [
         "defs/cursor/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/harden-pass.puml",
+      "covers": [
+        "defs/base/proveo-harden",
+        "defs/base/Dockerfile",
+        "defs/base-node/Dockerfile",
+        "defs/base-node-lsp/Dockerfile",
+        "defs/base-node-browser/Dockerfile",
+        "defs/cecli/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/solidity/Dockerfile"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/harness-image-layers.puml",
+      "covers": [
+        "defs/cecli/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/claudecode/solidity/Dockerfile"
       ],
       "fingerprint": null
     },
@@ -1062,7 +1064,8 @@
         "internal/sbx/clone_test.go",
         "e2e/clone_test.go",
         "internal/backend/sandbox/sandbox_test.go",
-        "e2e/clone_output_test.go"
+        "e2e/clone_output_test.go",
+        "e2e/git_access_test.go"
       ],
       "fingerprint": null
     },
@@ -1083,6 +1086,27 @@
         "cmd/proveo/init.go",
         "cmd/proveo/init_tui.go",
         "e2e/init_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/kit-domain-form.puml",
+      "covers": [
+        "internal/sbx/domain.go",
+        "internal/sbx/domain_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/domain_form_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/own_agent_test.go",
+        "internal/backend/sandbox/provider_gate_test.go",
+        "e2e/ladder_test.go",
+        "internal/sbx/kit.go"
       ],
       "fingerprint": null
     },
@@ -1127,7 +1151,8 @@
         "internal/sbx/limits.go",
         "internal/run/run.go",
         "e2e/idle_test.go",
-        "e2e/chrome_bridge_sbx_test.go"
+        "e2e/chrome_bridge_sbx_test.go",
+        "cmd/proveo/golden_test.go"
       ],
       "fingerprint": null
     },
@@ -1190,27 +1215,6 @@
         "internal/clean/sandbox_liveness_test.go",
         "e2e/resume_test.go",
         "e2e/clone_output_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/sbx/kit-domain-form.puml",
-      "covers": [
-        "internal/sbx/domain.go",
-        "internal/sbx/domain_test.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/domain_form_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/own_agent_test.go",
-        "internal/backend/sandbox/provider_gate_test.go",
-        "e2e/ladder_test.go",
-        "internal/sbx/kit.go"
       ],
       "fingerprint": null
     },
@@ -1306,7 +1310,8 @@
         "internal/workspace/mount.go",
         "internal/workspace/deps.go",
         "internal/workspace/mount_test.go",
-        "e2e/scope_mounts_test.go"
+        "e2e/scope_mounts_test.go",
+        "e2e/git_access_test.go"
       ],
       "fingerprint": null
     },
@@ -1323,6 +1328,23 @@
       "spec": "_spec/internal/wsscan/workspace-scan.puml",
       "covers": [
         "internal/wsscan/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/minimum_requirements.puml",
+      "covers": [
+        "internal/sbx/sbx.go",
+        "e2e/capacity_test.go",
+        "internal/sbx/limits.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/overview.puml",
+      "covers": [
+        "cmd/proveo/**",
+        "internal/**"
       ],
       "fingerprint": null
     },
@@ -1457,7 +1479,9 @@
       "spec": "_spec/tests/42-hello-world-e2e.puml",
       "covers": [
         "e2e/hello_world_test.go",
-        "e2e/samples/**"
+        "e2e/samples/**",
+        "e2e/e2e_test.go",
+        "e2e/local_model_test.go"
       ],
       "fingerprint": null
     },

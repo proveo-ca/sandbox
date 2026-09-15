@@ -6,6 +6,8 @@ title Layer 4 — hello-world E2E (local model, three targets, plain bridge)
 '          three assertions that prove the inference loop closed
 ' covers: e2e/hello_world_test.go
 ' covers: e2e/samples/**
+' covers: e2e/e2e_test.go (localModel, resolveOllamaTag, ollamaTags)
+' covers: e2e/local_model_test.go
 
 participant "go test -tags=e2e\ne2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
@@ -99,6 +101,17 @@ note over RUN
   reachable model server is the sidecar — which on macOS has
   no GPU and generates at CPU speed, roughly 10x slower.
 
+  **The skip guard answers for the id the run requests.** It
+  used to search the whole ""/api/tags"" body for the base name,
+  so a host holding only ""gemma4:26b"" reported ""gemma4"" as
+  available; the run then asked Ollama for ""gemma4"", which is
+  shorthand for ""gemma4:latest"", and died on ""model 'gemma4'
+  not found"". A guard matching something OTHER than what the
+  run will ask for converts a skippable host into a red suite.
+  ""localModel"" now resolves to a real tag — exact, then
+  "":latest"", then a single variant under that base name — and
+  skips, naming what the host does hold, when it cannot.
+
   The workspace ."".env"" is **deleted**, not rewritten. The
   entrypoint sources it //after// docker applies ""-e"", so a
   project ""CECLI_MODEL"" or ""OPENCODE_MODEL"" would outrank
@@ -110,6 +123,14 @@ note over RUN
   different question, asked by
   ""_spec/_paradigms/credential-boundary\.puml"" against an
   endpoint that costs nothing.
+end note
+
+note over OLLAMA
+  **One variant under a base name is an answer;
+  two are a question.** Hosts keep a single
+  quantisation of a local model, and pinning a
+  digest in the suite would make it unrunnable
+  anywhere else, so ambiguity is the operator's.
 end note
 
 note over TMUX

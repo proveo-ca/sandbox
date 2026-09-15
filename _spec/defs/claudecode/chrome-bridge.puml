@@ -37,6 +37,32 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' for anyway. e2e/claude_in_chrome_test.go measures (1)+(2)+(3) together by
 ' actually driving a live navigation rather than asserting each in isolation.
 '
+' ── HOW THAT CASE MEASURES IT: A REAL RUN, AND A HOME OF ITS OWN ───────────
+' It drives a real `proveo run claudecode` end to end under tmux, the way an
+' operator launches it, instead of hand-building the container script or
+' starting the relay itself. The add-on is pre-selected by seeding an isolated
+' agentsettings cache rather than by navigating the picker's checkboxes — the
+' form still renders once and is accepted with a single Enter. From there
+' `proveo run` decides the backend (sbx, preferred wherever it is available for
+' this manifest), starts the real chromebridge.Relay, and the container's own
+' entrypoint chain — proveo_chrome_bridge → PROVEO_CHROME_READY=1 → --chrome —
+' runs unmodified. Anything the case assembled for itself would be a second
+' implementation of the chain this file describes, and the measurement would
+' then corroborate the replica rather than the bridge.
+'
+' THE PROVEO HOME IS ISOLATED, AND ONLY THE LOGIN FILE IS CLONED IN. The run
+' refreshes credentials itself and remembers the add-on choice, and neither may
+' touch the operator's real home. So `.claude/.credentials.json` alone is
+' copied into an otherwise-empty home — at the same relative path
+' credentials.PersistedLogin and LoginBlanked check — and the run is pointed
+' there: a usable /login, with the operator's own home never mounted and never
+' rewritten. CLAUDE_CODE_OAUTH_TOKEN is unset for the child so it cannot shadow
+' the clone.
+'
+' The navigation result is read back off the output mount at both
+' `reports/<name>` and `<name>`, which is the per-target layout rule
+' _spec/tests/42-hello-world-e2e.puml already states for claudecode.
+'
 ' ── WHY A RELAY EXISTS AT ALL ──────────────────────────────────────────────
 ' Claude Code's browser integration is two processes on one machine: the
 ' claude-in-chrome MCP server inside the CLI, and a native messaging host that
@@ -281,6 +307,22 @@ note right of NMH
   server is the client and picks the newest
   socket. Both halves of the bridge keep
   that shape, so neither Claude Code changes.
+end note
+
+note bottom of PICK
+  **The e2e case seeds the add-on and launches
+  the product.** A hand-built container script
+  would re-implement the entrypoint chain this
+  file describes, so the measurement would
+  corroborate the replica rather than the bridge.
+end note
+
+note top of RELAY
+  **The case clones the login, not the home.**
+  Only "".claude/.credentials.json"" is copied
+  into an otherwise-empty proveo home, so the
+  run's own credential refresh never reaches
+  the operator's real one or rewrites it.
 end note
 
 note bottom of RELAY
