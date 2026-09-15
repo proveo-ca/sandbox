@@ -5,6 +5,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -159,6 +160,58 @@ func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 		}
 		return false
 	})
+}
+
+// launchShell starts a real `proveo run target --shell` session under tmux —
+// egress open, credentials forwarded, and the picker skipped — so callers
+// exercise the actual entrypoint chain (workspace scoping, git-identity
+// bridging, dependency-tree provisioning, all of it) rather than a hand-built
+// `docker run --entrypoint bash` substitute for pieces of it. It waits for the
+// container's own shell prompt before returning.
+func launchShell(t *testing.T, proveoBin, target, dir string, extra ...string) *tmux.Session {
+	t.Helper()
+	sess := tmux.New(fmt.Sprintf("proveo-shell-%s-%d", target, time.Now().UnixNano()), nil)
+	t.Cleanup(sess.Kill)
+	cmd := []string{"env",
+		"PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off",
+		proveoBin, "run", target,
+		"--egress-mode", "open", "--credentials", "forward",
+		"--input", dir, "--shell",
+	}
+	cmd = append(cmd, extra...)
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start %s --shell: %v", target, err)
+	}
+	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 2*time.Minute))
+	return sess
+}
+
+// shellExec runs script as a child `bash -c` inside sess's already-live
+// interactive shell — a child process, not the shell itself, so an internal
+// `exit` inside script cannot end the session — and returns everything the
+// pane has shown once script's completion marker appears, plus its exit
+// status. script is exactly the kind of body that used to run under
+// `docker run --entrypoint bash <img> -c script`; callers can keep asserting
+// on it with strings.Contains the same way.
+func shellExec(t *testing.T, sess *tmux.Session, script string, timeout time.Duration) (string, int) {
+	t.Helper()
+	marker := fmt.Sprintf("PROVEO-SHELLEXEC-%d", time.Now().UnixNano())
+	line := "bash -c " + shellQuote([]string{script}) + fmt.Sprintf("; echo %s=$?", marker)
+	if err := sess.SendText(line); err != nil {
+		t.Fatalf("send script: %v", err)
+	}
+	if err := sess.Enter(); err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	screen, err := sess.WaitFor(marker+"=", timeout)
+	if err != nil {
+		t.Fatalf("script never finished within %s: %v\n--- pane ---\n%s", timeout, err, screen)
+	}
+	status := -1
+	if idx := strings.LastIndex(screen, marker+"="); idx >= 0 {
+		fmt.Sscanf(screen[idx+len(marker)+1:], "%d", &status)
+	}
+	return screen, status
 }
 
 func acceptChoicePrompt(t *testing.T, sess *tmux.Session, target string) {

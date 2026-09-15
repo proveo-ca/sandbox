@@ -101,32 +101,29 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	return wt
 }
 
+// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode
+// --shell`, not a hand-built `docker run --entrypoint bash`: the git-safe-dir
+// bridging under test is the real entrypoint's own, already applied before
+// the shell prompt appears, not a manually re-invoked copy of it.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
-	img := harnessImage(t, target)
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
 	wt := newTempWorktree(t)
 
-	args := []string{"run", "--rm"}
-	args = append(args, workspaceMountArgs(t, target, wt)...)
-	args = append(args, worktreeEnvArgs(t, target, wt)...)
-	args = append(args,
-		"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-		"-w", "/app", "--user", hostUIDGID(t),
-		"--entrypoint", "bash", img, "-c", `
-source /entrypoint-lib.sh 2>/dev/null || true
-ensure_git_safe_directory "$PWD" >/dev/null 2>&1 || true
-grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
+	sess := launchShell(t, proveoBin, target, wt)
+	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "DIRTY: $(git status --porcelain | head -2)"; exit 1; }
 proveo-entrypoint verify "$PWD" 2>/dev/null | grep -q . || { echo "NO_VERIFY_COMMANDS"; exit 1; }
 touch CLAUDE.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
 rm -f CLAUDE.md.probe
-echo "WORKTREE_OK"`)
+echo "WORKTREE_OK"`
 
-	out, err := exec.Command("docker", args...).CombinedOutput()
-	if s := string(out); err != nil || !strings.Contains(s, "WORKTREE_OK") {
-		t.Fatalf("worktree workspace unusable: %v\n%s", err, s)
+	out, status := shellExec(t, sess, script, 60*time.Second)
+	if status != 0 || !strings.Contains(out, "WORKTREE_OK") {
+		t.Fatalf("worktree workspace unusable (exit %d):\n%s", status, out)
 	}
 }
 
@@ -148,6 +145,10 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	return args
 }
 
+// TestClaudecodeEntrypointOperatesOnTheInputDir deliberately stays on a raw
+// entrypoint.sh invocation: it relies on PROVEO_SMOKE_TEST, a self-test mode
+// built into the entrypoint script itself with no `proveo run` CLI surface
+// (no flag triggers it), so there is no real launch to convert this into.
 func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
 	const target = "claudecode"
 	img := harnessImage(t, target)
