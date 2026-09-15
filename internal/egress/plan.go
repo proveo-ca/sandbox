@@ -432,3 +432,35 @@ func dirOf(p string) string {
 	}
 	return "."
 }
+
+// AgentEnv is the environment the plan decides FOR THE AGENT, as KEY=VALUE
+// pairs, for a backend that cannot take docker flags.
+//
+// AgentArgs carries that decision as `-e` flags because the docker rendering
+// appends them to `docker run`; the sandbox backend builds its own config and
+// read none of it, so `--local-model` was accepted and then silently did
+// nothing under sbx. Both renderings now read the same decision.
+//
+// Only `-e KEY=VALUE` pairs cross: the rest of AgentArgs is docker topology
+// (--network, --dns, --add-host) that means nothing to a sandbox. Sidecar
+// environment is not here at all — it lives in the sidecar commands.
+func AgentEnv(o Options) ([]string, error) {
+	p, err := BuildPlan(o)
+	if err != nil {
+		return nil, err
+	}
+	return AgentEnvPairs(p.AgentArgs), nil
+}
+
+func AgentEnvPairs(args []string) []string {
+	var out []string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] != "-e" {
+			continue
+		}
+		if kv := args[i+1]; strings.Contains(kv, "=") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}

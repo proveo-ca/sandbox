@@ -662,8 +662,19 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if sbxBridge != nil {
 			defer func() { _ = sbxBridge.Close() }()
 		}
+		// The plan decides the agent's environment once, for both renderings.
+		agentEnv, err := egress.AgentEnv(egress.Options{
+			Mode: p.Mode, Credentials: p.Credentials, SessionID: rs.Sid,
+			AgentName: p.Target, LocalModel: p.LocalModel,
+			HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
+			Providers: rs.Creds.Brokered, AuthVar: p.AuthVar,
+		})
+		if err != nil {
+			return false, fmt.Errorf("agent environment: %w", err)
+		}
 		in := sandbox.Input{
-			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
+			AgentEnv: agentEnv,
+			Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,

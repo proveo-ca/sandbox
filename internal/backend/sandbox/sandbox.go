@@ -447,7 +447,11 @@ type Input struct {
 	Man                    manifest.Manifest
 	// ImageEntrypoint reads the image's declared ENTRYPOINT; a sandbox Kit needs
 	// it verbatim. Injected so Spec stays testable without docker.
-	ImageEntrypoint  func(image string) []string
+	ImageEntrypoint func(image string) []string
+	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
+	// Without it `--local-model` and the egress tier reach the docker rendering
+	// only.
+	AgentEnv         []string
 	Sid, EgDir       string
 	Mounts           []runner.Mount
 	Workdir          string
@@ -657,7 +661,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(env,
+		Env: DeclineMCPGateway(Home(append(append(env, sandboxAgentEnv(in.AgentEnv)...),
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
 		Command: command,
 	}
@@ -1044,4 +1048,35 @@ func customSecretTarget(envVar string, lookup func(string) string) (hosts []stri
 		return hosts, name, len(hosts) > 0
 	}
 	return nil, "", false
+}
+
+// sandboxAgentEnv keeps the pairs a sandbox can honour and drops the ones that
+// name a proxy it does not have.
+//
+// The sandbox rendering runs no proveo egress layer: sbx enforces the policy
+// and terminates TLS itself, so a CA bundle or proxy URL pointing at a
+// mitmproxy that was never started would send every request into a black hole.
+// Everything else the plan decided — the local model set, the egress tier the
+// entrypoint reads — crosses unchanged.
+func sandboxAgentEnv(pairs []string) []string {
+	var out []string
+	for _, kv := range pairs {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || proxyOnlyVar(name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func proxyOnlyVar(name string) bool {
+	switch name {
+	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+		"NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+		"SSL_CERT_FILE", "GIT_SSL_CAINFO", "INSPECT_PROXY", "ENFORCEMENT_PROXY",
+		"PROVEO_EGRESS_CA_CERT":
+		return true
+	}
+	return false
 }
