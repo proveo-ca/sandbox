@@ -189,6 +189,12 @@ func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 	})
 }
 
+// launchShell starts a real `proveo run target --shell` session under tmux —
+// egress open, credentials forwarded, and the picker skipped — so callers
+// exercise the actual entrypoint chain (workspace scoping, git-identity
+// bridging, dependency-tree provisioning, all of it) rather than a hand-built
+// `docker run --entrypoint bash` substitute for pieces of it. It waits for the
+// container's own shell prompt before returning.
 func launchShell(t *testing.T, proveoBin, target, dir string, extra ...string) *tmux.Session {
 	t.Helper()
 	return launchShellEnv(t, proveoBin, target, dir, nil, extra...)
@@ -219,6 +225,13 @@ func launchShellEnv(t *testing.T, proveoBin, target, dir string, env []string, e
 	return sess
 }
 
+// shellExec runs script as a child `bash -c` inside sess's already-live
+// interactive shell — a child process, not the shell itself, so an internal
+// `exit` inside script cannot end the session — and returns everything the
+// pane has shown once script's completion marker appears, plus its exit
+// status. script is exactly the kind of body that used to run under
+// `docker run --entrypoint bash <img> -c script`; callers can keep asserting
+// on it with strings.Contains the same way.
 func shellExec(t *testing.T, sess *tmux.Session, script string, timeout time.Duration) (string, int) {
 	t.Helper()
 	marker := fmt.Sprintf("PROVEO-SHELLEXEC-%d", time.Now().UnixNano())

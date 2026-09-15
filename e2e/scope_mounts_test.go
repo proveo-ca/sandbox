@@ -100,6 +100,10 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	return wt
 }
 
+// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode
+// --shell`, not a hand-built `docker run --entrypoint bash`: the git-safe-dir
+// bridging under test is the real entrypoint's own, already applied before
+// the shell prompt appears, not a manually re-invoked copy of it.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
 	requireHarness(t, target)
