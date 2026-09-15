@@ -51,6 +51,7 @@ func imageExists(ref string) bool {
 func harnessImage(t *testing.T, target string) string {
 	t.Helper()
 	requireDocker(t)
+	sweepSandboxesAfter(t)
 	image := harnessImageName(target)
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)

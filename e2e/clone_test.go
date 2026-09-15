@@ -20,10 +20,6 @@ import (
 var machO = []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c}
 
 // TestCloneLeavesTheHostTreeAlone is the regression guard for the ping-pong.
-// Like TestCloneModeLandsTheCloneAndLiftsTheOutputDir (clone_output_test.go),
-// this drives a real `proveo run claudecode --clone --shell` rather than a
-// hand-built `sbx create --clone`, so the assembly under test is proveo's
-// own, not a replica of it.
 func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

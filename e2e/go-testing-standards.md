@@ -53,13 +53,15 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
 5. **No testify.** Same assertion rules as unit tests; prefer `go-cmp` for structured diffs.
 6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test; no shared Docker
    network names across parallel packages.
-7. **Pin the backend you assert against.** One launch is resolved host-side and rendered
-   twice. A test that inspects a *container* — its ancestor image, its mount table — or
-   proveo's own egress topology is asserting the docker rendering, and `claudecode` and
-   `cursor` take the sandbox backend wherever `sbx` is installed. Set `PROVEO_SBX=off` and
-   say why. Unpinned, such a test does not fail fast: it waits out its full timeout, or
-   passes having inspected nothing. The sandbox rendering has its own suite in
-   `sbx_test.go`.
+7. **Never pin the backend off.** `PROVEO_SBX=off` is banned in this suite. One launch is
+   resolved host-side and rendered twice, and the pin made every such test certify the
+   rendering the host does *not* take — on a machine with `sbx` installed, the backend the
+   operator actually gets was the one nothing asserted. Assert the behaviour instead of the
+   rendering; where a probe truly needs the resolved shape, branch on it the way
+   `assertPlanIsolation` branches on `isSbxArgv`, or skip with the backend named. A wait
+   that hangs unpinned is a wait matching the wrong shape — `waitForContainerShell` matches
+   the prompt's shape, not a literal `/app`, because sbx runs the shell at the workspace's
+   own host path.
 8. **Derive image references; never restate a tag.** `mise run build` tags a local build
    `:local` and only a publish moves `:latest`, so a hardcoded `proveo/x:latest` skips the
    suite on a machine that just built `x` — and on one that has also pulled, silently tests

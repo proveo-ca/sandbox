@@ -201,6 +201,82 @@ title Testing strategy — four layers, speed traded for fidelity
 '   3. Always include exited containers (`docker ps -a`). "Started and died" and
 '      "never started" are different faults and look identical without it.
 '
+' ── A LAYER-4 CASE LAUNCHES THE PRODUCT, NOT A REPLICA OF IT ───────────────
+' Seven cases used to reassemble by hand what `proveo run` assembles itself: a
+' `sbx create -p <host>:9222` plus a manually started CDP relay and a manual
+' `sbx exec … agent-browser open`; a `docker run --entrypoint bash <img> -c
+' script` carrying the mounts, the workdir and the uid copied out of the run
+' path; a `sbx create --clone`. Each was a SECOND implementation of the thing
+' under test, and a second implementation drifts — the replica keeps reporting
+' success after the assembly it imitated has moved. Driving `proveo run
+' <target>` under tmux instead exercises choiceui, add-on selection and the
+' whole entrypoint chain as shipped.
+'
+' The conversion also DELETED work the scripts used to do for themselves. The
+' old bodies began `source /entrypoint-lib.sh; bridge_git_identity "$PWD"` or
+' `ensure_git_safe_directory "$PWD"; scope_git_worktree "$PWD"`, which is the
+' replica in miniature: the real entrypoint had already run all three before
+' the prompt appeared, so the manual call proved only that the function could
+' be invoked, never that the run invokes it.
+'
+' TWO SHARED HELPERS CARRY IT, and each earns its shape.
+'   launchShell — one `proveo run <target> --shell` under tmux, pinned to
+'     `--egress-mode open --credentials forward` with PROVEO_WIZARD=off and
+'     PROVEO_MOUNT_GH_CONFIG=0, returning only once the agent's own prompt
+'     appears. The posture is FIXED so a case asserting on workspace or git
+'     behaviour is not also asserting on egress. The BACKEND is not pinned —
+'     see the ban below — so the prompt it waits for is whichever backend the
+'     host resolves.
+'   shellExec — the script runs as a CHILD `bash -c` of the already-live
+'     interactive shell rather than as the shell itself, so an `exit 1` inside
+'     a probe reports a status instead of ending the session. It returns the
+'     pane plus that status, so bodies written for `docker run … -c script`
+'     keep their `strings.Contains` assertions unchanged.
+'
+' A SEEDED CHOICE, NEVER A DRIVEN CHECKBOX. Where a case needs an add-on on
+' ("browser", "claude-in-chrome"), it writes an agentsettings.Store into an
+' ISOLATED proveo home and lets the real choiceui form come up with the box
+' already ticked; acceptChoicePrompt then confirms it with one Enter, the same
+' pattern every other seeded-choice case uses. Navigating the picker's
+' checkboxes would make each of those cases a test of the form's key bindings
+' as well, and those have moved before.
+'
+' AND TWO CASES THAT MAY NOT CONVERT, named here so nobody converts them later:
+'   TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID mounts ONLY `.git` at
+'     /app/.git — no working tree, no real workspace — to reproduce git's
+'     "dubious ownership" abort under a uid mismatch. A real run always mounts a
+'     full workspace and never constructs that partial shape, so there is no
+'     launch to convert it into.
+'   TestClaudecodeEntrypointOperatesOnTheInputDir depends on PROVEO_SMOKE_TEST,
+'     a self-check built into entrypoint.sh that no `proveo run` flag reaches.
+' The rule the pair draws: a replica is legitimate exactly when it constructs a
+' shape the product cannot, and illegitimate when it merely re-spells one the
+' product already builds.
+'
+' ── A PANE IS AN ECHO CHAMBER: NEVER WAIT ON TEXT YOU TYPED ────────────────
+' Measured 2026-09-15. shellExec typed `bash -c '<script>'; echo <marker>=$?` and
+' then waited for `<marker>=` as a plain substring. The pane shows INPUT as well
+' as output, so the wait was satisfied by the terminal's echo of the command —
+' the same instant it was sent, before bash ran a line of the script. The screen
+' it returned held only the typed line, whose trailing `=$?` parsed as no status,
+' and the -1 fallback dressed that up as an answer. Every tmux-driven test in the
+' suite failed at once, each blaming the thing it was probing: git unwritable in
+' all five harnesses, no scope mode usable, no worktree usable, docker access
+' missing everywhere. One broken probe, thirty-odd false verdicts, and nothing in
+' the output pointing at the probe.
+'
+' Two rules, and the second is why this took a whole suite to notice:
+'   4. A completion marker must be UNSPELLABLE by the input that requests it.
+'      `echo '<head>''<tail>'=$?` keeps the quote characters between the halves on
+'      the typed line and leaves the shell's echo the only place the marker
+'      appears whole. clone_output_test.go already knew this — it matches its
+'      probe's answer by shape at column 0 "because the shell echoes the command
+'      first" — so the knowledge existed and the shared helper did not have it.
+'   5. A probe that cannot read its own answer must FAIL, not return a sentinel.
+'      `status := -1` made a broken probe indistinguishable from a command that
+'      ran and failed. markerStatus returns (int, bool) and shellExec fatals on
+'      false, so the next time this breaks it says so in one line.
+'
 ' A credential the AGENT cannot spend is a condition of the host, not a defect, so
 ' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
 ' the diagnostics attached. That pattern is deliberately narrow — `credit balance
@@ -208,16 +284,27 @@ title Testing strategy — four layers, speed traded for fidelity
 ' `invalid x-api-key`, `invalid api key` — because broadening it to any early exit
 ' would let a real adapter defect leave as a skip.
 '
-' Two waits carry the same reasoning. waitForContainerShell treats the container
+' Two waits carry the same reasoning. waitForContainerShell treats the agent
 ' prompt as the signal that the WHOLE topology came up — sidecars, networks, CA
 ' trust — because proveo only hands the PTY over once the container is running, so
 ' anything failing earlier fails HERE with the scrollback attached rather than as a
-' confusing timeout further down. It matches ":/app$" (or "#"), not "$ ": tmux trims
-' trailing whitespace, so a space-suffixed match never fires. /app is the one shared
-' workdir; /workspace stays accepted only so an older image does not fail the wait.
-' Both are DOCKER mount points — a sandbox run mounts a workspace at its own host
-' path, so a caller that has not pinned PROVEO_SBX=off waits out its deadline for a
-' prompt that cannot appear. acceptChoicePrompt anchors on the key hint
+' confusing timeout further down. It matches the PROMPT'S SHAPE, `…@host:workdir`
+' followed by `$` or `#` at end of line, never a literal workdir, and never "$ ":
+' tmux trims trailing whitespace, so a space-suffixed match never fires.
+'
+' Matching a literal ":/app$" was the whole reason seven tests read as hung.
+' Measured 2026-09-15 across one run, both backends draw a prompt and neither is
+' wrong:
+'
+'   docker   `I have no name!@8101a68d15b5:/app$`
+'   sandbox  `claude@proveo-1789458382-46514:003$`
+'            `opencode@proveo-1789459221-51842:001$`
+'
+' sbx runs the shell with the workspace at its own host path, so bash renders the
+' BASENAME — `001`, `003` — and a matcher looking for the string "/app" cannot
+' fire however long it waits. The prompts were on screen the entire time; four
+' OpenCodeAuth legs each burned a 4-minute deadline staring at one.
+' acceptChoicePrompt anchors on the key hint
 ' ("enter accept", 90s) rather than the form's title: the title is copy, it has been
 ' reworded once, and that reword broke a test that waited on it.
 '
@@ -227,6 +314,31 @@ title Testing strategy — four layers, speed traded for fidelity
 ' sweeps once at least cleanThreshold = 10 containers carrying the
 ' `proveo.egress.session` label have accumulated; below that the risk outweighs the
 ' benefit and the suite-level clean handles it.
+'
+' ── AND SANDBOXES ARE SHARED STATE NEITHER KEY SWEEPS ──────────────────────
+' Measured 2026-09-15. This is the INTERACTION of two decisions, neither wrong on
+' its own. A sandbox is named for its def AND its workspace
+' (_spec/internal/sbx/sandbox-backend.puml) so that a second run re-attaches
+' instead of building another VM — and this suite hands every test its own
+' `t.TempDir()` workspace. Def+workspace keying therefore yields NO reuse here:
+' each test still builds a VM of its own, and the saving the key exists for is
+' exactly the saving a suite cannot collect.
+'
+' sbx sizes an undeclared sandbox at half the HOST rather than half of what is
+' left (the Memory note in sandbox-backend.puml), so a handful alive at once
+' oversubscribes the machine. A 48 GiB host went OOM, the kernel killed the test
+' binary 108 assertions in, and 19 sandboxes survived the process that made them.
+' The suite reported a truncated run, not a resource fault.
+'
+' `sweepSandboxesAfter` closes it, hooked into `harnessImage` so every case that
+' resolves a harness gets it. Three properties, each deliberate:
+'   * it removes only names ABSENT when the test started, so an operator's own
+'     sandboxes and a sibling test's are left alone;
+'   * it is registered BEFORE the tmux session's Kill, because cleanups run LIFO
+'     and the session has to die before the VM underneath it;
+'   * its failures are IGNORED, since proveo's own teardown already removes most
+'     of these and a sweep that reddens a passing test is worse than the leak it
+'     was added to prevent.
 '
 ' ── THE ENVIRONMENT A SUITE HANDS ITS CHILD ─────────────────────────────────
 ' Three traps, all of which present as "the session started and printed nothing":
@@ -240,11 +352,28 @@ title Testing strategy — four layers, speed traded for fidelity
 '   * An isolated HOME is also what makes driving the choice prompt deterministic.
 '     A shared HOME would leak into the developer's real settings AND skip the
 '     prompt on every later run.
-' PROVEO_SBX=off belongs in the same list wherever a test inspects proveo's OWN
-' egress topology — the "-egress" container and the broker.env bind-mounted into
-' it. claudecode takes the sandbox backend wherever sbx is installed, and sbx brings
-' its own credential proxy instead, so unpinned there is no egress container to find
-' and the probe burns its 120s timeout before failing for an unrelated reason.
+' ── PROVEO_SBX=off IS BANNED IN THIS SUITE ─────────────────────────────────
+' No e2e test may pin the backend off. The pin was introduced so a probe could
+' inspect the docker rendering — the "-egress" container, the broker.env bound
+' into it, a mount table — without waiting out a timeout on a host where sbx
+' takes the run. It worked, and that is the problem: on a host with sbx
+' installed, the backend the OPERATOR gets was the one rendering nothing
+' asserted. The suite certified a shape the machine does not run.
+'
+' What replaces it, in order of preference:
+'   1. Assert the BEHAVIOUR, not the rendering. "git history is writable from
+'      inside the harness" holds under both backends; "tracked.txt from the
+'      host mount is committable" holds only under docker, and sbx clones
+'      committed history, so the untracked file never crosses. The second is a
+'      docker fact wearing a git claim — rewrite the probe to create its own
+'      file and the case passes on both.
+'   2. BRANCH on what the run resolved, the way assertPlanIsolation already
+'      branches on isSbxArgv. A plan scraper that finds no `docker run` has
+'      scraped a sandbox plan; read that plan instead of failing.
+'   3. Where a mechanism genuinely exists in one rendering only, say so in the
+'      test name and skip on the other after reading the resolved backend —
+'      never by pinning the host into the shape the assertion wants.
+'
 ' Where the provider must be detected from a workspace .env alone, the test unsets
 ' every provider Detect variable but PRESERVES infrastructure ones such as
 ' DOCKER_HOST, which may point at a remote daemon.
@@ -413,6 +542,46 @@ note as VACUOUS5
   carries no key in argv at all, so a blind sentinel
   loop checked nothing and reported success. The
   docker branch now fails when it declared no key.
+end note
+
+note as REALLAUNCH
+  **Drive the product, not a replica of it.**
+  Seven cases reassembled the mounts, the relay
+  and the clone that ""proveo run"" constructs
+  itself, so a replica could keep reporting
+  success after the assembly it imitated moved.
+end note
+
+note as SHELLHELPERS
+  **The probe is a child; the posture is pinned.**
+  shellExec executes each script as a child
+  ""bash -c"", so an internal ""exit"" reports a
+  status instead of terminating the interactive
+  session; launchShell fixes the egress posture.
+end note
+
+note as SEEDEDCHOICE
+  **Seed the choice; never drive the checkboxes.**
+  An isolated agentsettings.Store brings the real
+  form up already ticked, so a case asserting on
+  an add-on is not simultaneously asserting on
+  the picker's key bindings, which have moved.
+end note
+
+note as NOREPLICA
+  **A replica is legitimate only for a shape the
+  product cannot build.** One case mounts a bare
+  "".git"" to provoke a dubious-ownership abort
+  and another depends on PROVEO_SMOKE_TEST, which
+  no ""proveo run"" flag reaches; both stay raw.
+end note
+
+note as SANDBOXSWEEP
+  **Two sound keys, one leak.** Def+workspace
+  naming buys reuse an operator wants, but every
+  test here owns a fresh ""t.TempDir()"", so each
+  builds its own VM at half the host — 48 GiB
+  went OOM and nineteen sandboxes outlived it.
 end note
 
 note as PREREQ

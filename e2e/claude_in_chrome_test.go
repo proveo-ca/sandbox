@@ -29,18 +29,6 @@ import (
 // with a REAL Chrome running on this host and the REAL Claude in Chrome
 // extension connected, a sandboxed claude session must be able to drive it.
 //
-// Unlike an earlier version of this test, nothing here hand-builds the
-// container script or starts the relay itself: a real `proveo run claudecode`
-// is driven end to end under tmux, exactly the way an operator would launch
-// it. The "claude-in-chrome" add-on is pre-selected by seeding an isolated
-// agent-settings cache (agentsettings.Store) rather than by navigating the
-// picker's checkboxes — the form still renders once and is accepted with a
-// single Enter (acceptChoicePrompt), the same pattern every other e2e test
-// that seeds a choice already uses. From there, `proveo run` itself decides
-// the backend (sbx, preferred when available for this manifest), starts the
-// real chromebridge.Relay, and the container's own entrypoint chain
-// (proveo_chrome_bridge -> PROVEO_CHROME_READY=1 -> --chrome) runs unmodified.
-//
 // Missing any of the four preconditions the puml note names — a connected
 // extension, the transport, a browser-scoped credential, or the launch flag —
 // is a skip, never a fake substitute. The credential specifically must be a
@@ -67,9 +55,6 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 
 	proveoBin := buildProveo(t)
 
-	// An ISOLATED proveo home: proveo run's own credential refresh, and the
-	// addon choice this test seeds, must never touch the operator's real
-	// home — only the persisted login file itself is cloned in.
 	home := t.TempDir()
 	proveoHome := filepath.Join(home, "proveo")
 	cloneLogin(t, realHome, proveoHome, "claudecode")
@@ -81,9 +66,6 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	}
 	resultRel := "chrome-nav-result.txt"
 	promptPath := "/app/output/" + resultRel
-	// claudecode writes deliverables to the output mount; the host side may
-	// land under "reports/" or at the mount root depending on layout — check
-	// both, same as e2e/hello_world_test.go's claudecode case.
 	hostPaths := []string{"reports/" + resultRel, resultRel}
 
 	// The page this test alone can produce, served on loopback where the REAL
@@ -120,7 +102,7 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
 	w := newWatcher(t, sess)
 	var found string
-	w.until("the claude --chrome session to write its navigation result", timeout, func() bool {
+	w.until("the proveo run to write what the browser read", timeout, func() bool {
 		found = firstExisting(work, hostPaths)
 		return found != ""
 	})
@@ -162,11 +144,6 @@ func requireChromeCapableLoginHome(t *testing.T) string {
 	return homeRoot
 }
 
-// cloneLogin copies just the persisted login file out of realHome into an
-// otherwise-empty cloneHome, at the same relative path
-// credentials.PersistedLogin/LoginBlanked check — so proveo run, pointed at
-// cloneHome, finds a usable /login without the operator's real home ever
-// being mounted or refreshed by the run.
 func cloneLogin(t *testing.T, realHome, cloneHome, target string) {
 	t.Helper()
 	rel := filepath.Join(".claude", ".credentials.json")
@@ -183,10 +160,6 @@ func cloneLogin(t *testing.T, realHome, cloneHome, target string) {
 	}
 }
 
-// seedChromeAddon pre-selects the "claude-in-chrome" add-on in an isolated
-// agent-settings cache, so the real choiceui form that proveo run renders
-// comes up with the box already ticked — acceptChoicePrompt then confirms it
-// with one Enter, same as every other seeded-choice e2e test.
 func seedChromeAddon(t *testing.T, proveoHome, target string) {
 	t.Helper()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))

@@ -372,7 +372,6 @@ func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work str
 		"env",
 		"PROVEO_HOME=" + home,
 		"CURSOR_API_KEY=crsr_test_probe",
-		"PROVEO_SBX=off",
 		proveoBin, "run", "cursor",
 		"--egress-mode", "broker",
 	}, extra...)

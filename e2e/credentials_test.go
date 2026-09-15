@@ -217,7 +217,7 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Helper()
 	want := make(map[string]string, len(keys))
 	home := t.TempDir()
-	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t), "PROVEO_SBX=off"}
+	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t)}
 	for _, k := range keys {
 		v := randToken()
 		want[k] = v

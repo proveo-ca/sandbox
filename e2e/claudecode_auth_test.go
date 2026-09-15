@@ -105,7 +105,6 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsFor(t, c.envVar)...)
 	cmd = append(cmd,
-		"PROVEO_SBX=off",
 		"PROVEO_HOME="+t.TempDir(),
 	)
 	cmd = append(cmd, proveoBin, "run", "claudecode",

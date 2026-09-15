@@ -6,6 +6,48 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 ' covers: internal/workspace/deps.go
 ' covers: internal/workspace/mount_test.go
 ' covers: e2e/scope_mounts_test.go
+' covers: e2e/git_access_test.go (TestGitIsUsableInEveryScopeMode)
+'   the shared launch shape ....... _spec/tests/testing-strategy.puml
+'
+' ── MEASURED GAP: THE SANDBOX RENDERING DOES NOT CARRY THIS ────────────────
+' Measured 2026-09-15, sbx v0.42.1, `--input <repo>/apps`, target opencode.
+' Everything this diagram describes holds under the DOCKER rendering and under
+' sbx at ROOT scope. At subproject scope the sandbox workspace carries the scope
+' directory and nothing else:
+'
+'   TestScopeCarriesRootSpecDir/subproject   MISSING_SPEC_DIR — no _spec beside
+'                                            the scope
+'   TestGitIsUsableInEveryScopeMode/subprj   GIT_UNUSABLE — `git rev-parse
+'                                            --is-inside-work-tree` fails; no
+'                                            git common dir crossed
+'
+' Both cases PASS at root scope on the same host and in the same run, so this is
+' the subdir-scope mount computation not reaching the sandbox backend, not a
+' broken sandbox. The two tests are left RED deliberately: they assert what this
+' diagram promises, the promise is not kept in one of two renderings, and the
+' `PROVEO_SBX=off` pin that used to hide it is banned — see
+' _spec/tests/testing-strategy.puml.
+'
+' ── THE SCOPE CASES POINT --input AT THE SUBDIRECTORY ──────────────────────
+' TestGitIsUsableInEveryScopeMode and TestWorktreeWorkspaceIsFullyUsable each
+' launch a real `proveo run <target> --shell` with `--input` aimed at the scoped
+' subdirectory itself, in place of a `docker run` carrying a hand-built mount
+' list and a PROVEO_SCOPE_REL the case set for itself. Scope DETECTION, the
+' root-file and root-dir union, the worktree overlay and the git-safe-dir
+' bridging are then the run's own decisions — the ones this diagram describes —
+' rather than inputs the case supplied to a replica of them.
+'
+' Those probe scripts also lost the preamble that re-invoked
+' `ensure_git_safe_directory` and `scope_git_worktree` by hand, for the same
+' reason: the real entrypoint had already run both before the prompt appeared,
+' so the manual call could only prove the functions exist.
+'
+' TestScopeCarriesRootSpecDir and TestSubdirScopeOmitsUnmountedPaths converted
+' the same way, and their bodies lost the `/app` prefix along with the
+' `docker run` that supplied it. The probes now test `_spec` and `apps/web`
+' RELATIVE to where the shell starts, because only the docker rendering puts the
+' workspace at /app: sbx mounts it at its own host path, so a path literal is a
+' claim about one backend rather than about the scope this diagram describes.
 
 node "Host repo" as HOST <<host>> {
   component "scope dir\n""apps/web""" as SCOPE <<app>>
@@ -33,6 +75,14 @@ RD    ARROW_MAIN M4
 RDD   ARROW_OPTIONAL M5 : present trees only, plain-copied\n""PROVEO_MOUNT_ROOT_DEPS=0"" omits them
 M4    ARROW_QUEUE MASK : walked for secrets
 M5    ARROW_ERROR ARCH
+
+note bottom of SCOPE
+  **The case aims ""--input"" at the subdirectory
+  and lets the run detect the scope.** Supplying
+  PROVEO_SCOPE_REL and a hand-built mount list
+  made the probe assert on values it had chosen
+  rather than on the resolution under test.
+end note
 
 note right of RD
   **The gap this closes.** Before ""rootDirs"", a subdir scope mounted the scope
