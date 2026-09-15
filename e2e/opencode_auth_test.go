@@ -118,11 +118,15 @@ func opencodeProbeLine(c opencodeAuthCase, creds string) string {
 	b.WriteString(`curl -sS --max-time 60 -o /dev/null -w 'PROBE=%{http_code}\n' -X POST`)
 	b.WriteString(` -H 'content-type: application/json'`)
 	fmt.Fprintf(&b, ` -H '%s: %s'`, opencodeSessionHeader, c.session())
-	if creds == "forward" {
-		// Double-quoted so the shell expands it: the secret is read from the
-		// container's own env and never travels on this test's argv.
-		fmt.Fprintf(&b, ` -H "authorization: Bearer $%s"`, opencodeKeyVar)
-	}
+	// The header is sent in BOTH credential modes, because the two backends
+	// broker by opposite mechanisms: proveo's mitmproxy REPLACES whatever header
+	// the request carries (proven by the xai-junk control in
+	// kit-sandbox-credential-gap.puml), while sbx SUBSTITUTES a placeholder the
+	// agent itself sent. Omitting it under sbx left nothing to substitute, and
+	// the 401 that produced read as a credential failure for a working key.
+	// Double-quoted so the shell expands it — the secret never travels on this
+	// test's argv.
+	fmt.Fprintf(&b, ` -H "authorization: Bearer $%s"`, opencodeKeyVar)
 	fmt.Fprintf(&b, ` -d '%s' %s/chat/completions`, c.body(), c.base)
 	return b.String()
 }

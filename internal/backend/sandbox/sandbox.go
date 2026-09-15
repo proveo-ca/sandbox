@@ -151,7 +151,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 		return false
 	default:
 		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
-		for _, l := range CloneRescueLines(cfg.Name, FirstHost(cfg.Mounts), in.RepoRoot) {
+		for _, l := range CloneRescueLines(cfg.Name, in.Sid, FirstHost(cfg.Mounts), in.RepoRoot) {
 			ui.Notef("%s", l)
 		}
 		return false
@@ -160,7 +160,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 
 // CloneRescueLines is the by-hand recipe, using the transport that works on a
 // stopped sandbox.
-func CloneRescueLines(name, workdir, repoRoot string) []string {
+func CloneRescueLines(name, refsKey, workdir, repoRoot string) []string {
 	if workdir == "" || repoRoot == "" {
 		return nil
 	}
@@ -168,12 +168,12 @@ func CloneRescueLines(name, workdir, repoRoot string) []string {
 	return []string{
 		fmt.Sprintf("while %s exists: `sbx exec -w / %s -- git -C %s bundle create - --all > %s`",
 			name, name, workdir, bundle),
-		fmt.Sprintf("then: `git -C %s fetch %s '+refs/heads/*:%s/*'`", repoRoot, bundle, sbx.CloneRefs(name)),
+		fmt.Sprintf("then: `git -C %s fetch %s '+refs/heads/*:%s/*'`", repoRoot, bundle, sbx.CloneRefs(refsKey)),
 	}
 }
 
 func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
-	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...).CombinedOutput()
+	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...).CombinedOutput()
 	return exitCodeOf(err), string(out), err
 }
 
@@ -199,7 +199,7 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	if runErr != nil {
 		return exitCodeOf(runErr), errb.String(), runErr
 	}
-	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, cfg.Name)...).CombinedOutput()
+	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...).CombinedOutput()
 	if err != nil {
 		return exitCodeOf(err), errb.String() + string(out), err
 	}
@@ -228,14 +228,14 @@ func exitCodeOf(err error) int {
 
 func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
-		"--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
+		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/").Output()
 	names := strings.Fields(string(refs))
 	if len(names) == 0 {
 		ui.Notef("clone: the agent left no branches to fetch")
 		return
 	}
 	ui.Section(ui.SectionResults)
-	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
+	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
 	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
 }
 
@@ -648,7 +648,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		command, agent = nil, sbx.ShellAgent
 	}
 	cfg := sbx.RunConfig{
-		Name:    in.Sid,
+		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
 		Image:   in.Image,
 		Memory:  in.Memory,
@@ -764,6 +764,14 @@ func Run(in Input) error {
 	}
 	for _, kv := range secrets {
 		ui.Section(ui.SectionSecrets)
+		if hosts, service, ok := customSecretTarget(kv[0], in.Lookup); ok {
+			ui.Hostf("sandbox secret: %s (custom — sbx does not know %q, so the hosts and the "+
+				"variable are declared with it)", kv[0], service)
+			if err := sbx.SecretSetCustom(hosts, kv[0], kv[1]); err != nil {
+				return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+			}
+			continue
+		}
 		ui.Hostf("sandbox secret: %s (host-side injection)", kv[0])
 		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
 			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
@@ -1010,4 +1018,30 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
 	return creds, domains, secrets
+}
+
+// customSecretTarget answers whether a credential needs `sbx secret set-custom`
+// rather than a plain service secret, and with which hosts.
+//
+// sbx injects a plain service secret only for the thirteen services it has
+// built-in knowledge of. For any other provider it holds the value and knows
+// neither the host to match nor the header to write, which is why a stored
+// `opencode` secret still produced HTTP 401 while the same key forwarded fine.
+// A custom secret carries the hosts and the variable with it, so the proxy can
+// substitute at egress the way it does for a service it knows.
+func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
+	for _, name := range provider.Names() {
+		r, found := provider.ResolveWith(name, envVar, lookup)
+		if !found || !strings.EqualFold(r.EnvVar, envVar) || len(r.Hosts) == 0 {
+			continue
+		}
+		if sbx.IsBuiltinService(name) {
+			return nil, name, false
+		}
+		for _, h := range r.Hosts {
+			hosts = append(hosts, sbx.DomainPatterns(h)...)
+		}
+		return hosts, name, len(hosts) > 0
+	}
+	return nil, "", false
 }
