@@ -7,6 +7,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -158,12 +159,18 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 			"loop closed, only that something wrote it\n--- transcript (tail) ---\n%s",
 			reply, filepath.Base(h.promptPath), tail(out, 40))
 	}
-	if found == "" {
-		t.Fatalf("no hello-world file on the host after the run\n"+
-			"  looked for: %v (under %s)\n--- transcript (tail) ---\n%s",
-			h.hostPaths, work, tail(out, 60))
+	body := ""
+	if found != "" {
+		body = readIn(work, found)
+	} else {
+		found, body = deliveredThroughRefs(t, work, h.hostPaths)
 	}
-	body := readIn(work, found)
+	if found == "" {
+		t.Fatalf("the agent's file reached the host by no route — neither the mounted "+
+			"workspace nor refs/proveo/*\n  looked for: %v (under %s)\n"+
+			"--- refs ---\n%s--- transcript (tail) ---\n%s",
+			h.hostPaths, work, hostProveoRefs(t, work), tail(out, 60))
+	}
 	if !strings.Contains(body, marker) {
 		t.Fatalf("%s exists but lacks this run's marker %q\n--- file ---\n%s", found, marker, body)
 	}
@@ -174,7 +181,38 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 		t.Logf("%s writes no model message to stdout, so the file is the only evidence "+
 			"of the answer here", h.target)
 	}
-	t.Logf("bind mount verified: %s contains %q", filepath.Join(work, found), marker)
+	t.Logf("deliverable verified: %s contains %q", found, marker)
+}
+
+// deliveredThroughRefs looks for the agent's file where a CLONED workspace
+// delivers it.
+//
+// sbx clones a git workspace by default, so the agent writes and commits inside
+// the clone and teardown fetches those commits into refs/proveo/<sid>/ — the
+// mounted directory on the host never gains the file. Checking only the mount
+// is a docker-rendering assumption, and it reported "no hello-world file" for a
+// run whose own transcript said "Commit 261c544 feat: add HELLO_WORLD.txt".
+func deliveredThroughRefs(t *testing.T, work string, paths []string) (name, body string) {
+	t.Helper()
+	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+		for _, p := range paths {
+			out, err := exec.Command("git", "-C", work, "show", ref+":"+p).Output()
+			if err == nil {
+				return p, string(out)
+			}
+		}
+	}
+	return "", ""
+}
+
+func hostProveoRefs(t *testing.T, work string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", work, "for-each-ref",
+		"--format=%(refname)", "refs/proveo/").Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // readFile returns path's contents, or "" if it does not exist yet.
