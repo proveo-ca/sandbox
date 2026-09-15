@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/posture/one-value-two-renderings.puml Package posture
-// SPEC: _spec/internal/posture/one-value-two-renderings.puml
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml, _spec/_devops/agent-version-pin.puml, _spec/_plans/retire-model-bridging.puml
 package posture
 
 import (
@@ -41,6 +40,24 @@ var dockerImageCreated = func(ref string) (time.Time, bool) {
 func ResolveImageChoice(ref string) (chosen string, isLocal bool) {
 	return maintain.ResolveImage(ref, dockerImageCreated)
 }
+
+const AgentVersionLabel = "proveo.agent.version"
+
+var dockerImageLabel = func(ref, label string) string {
+	out, err := exec.Command("docker", "image", "inspect", ref,
+		"--format", fmt.Sprintf("{{index .Config.Labels %q}}", label)).Output()
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "<no value>" {
+		return ""
+	}
+	return v
+}
+
+// AgentVersion names the release the image carries, or "" when it cannot be read.
+func AgentVersion(ref string) string { return dockerImageLabel(ref, AgentVersionLabel) }
 
 var toolingMarkers = []wsscan.Marker{
 	{Label: "go", Names: []string{"go.mod", "go.work"}, Suffixes: []string{".go"}},
@@ -218,7 +235,6 @@ func Observability(mode, credentials string, sandboxed bool) string {
 // which slot each role became for this harness; proveo no longer maps roles onto
 // an agent's own variables, so there is nothing to consult and the roles are
 // reported as they stand.
-// SPEC: _spec/_plans/retire-model-bridging.puml
 func RolesLine(r provider.Roles) string {
 	var parts []string
 	for _, kv := range r.Sorted() {

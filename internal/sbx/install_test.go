@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/sbx/host-readiness.puml
 package sbx
 
 import (
@@ -208,7 +209,7 @@ VERSION_ID="9.4"
 // host can run a sandbox — virtualisation, the daemon, storage, permissions —
 // is `sbx diagnose`'s verdict, and duplicating it here produced false failures:
 // a group-membership proxy reports failure for root, for udev ACL grants and
-// for a 0666 /dev/kvm. SPEC: _spec/internal/sbx/host-readiness.puml
+// for a 0666 /dev/kvm.
 func TestPrereqsCoverInstallBlockersOnly(t *testing.T) {
 	t.Parallel()
 	got := Prereqs(Host{OS: "linux", Arch: "amd64"}, Probe{
@@ -391,7 +392,6 @@ func TestDigestFromProvenanceMatchesBySubjectName(t *testing.T) {
 
 // sbx answers with a row per check and a non-zero exit whenever one fails, so
 // the payload has to be read regardless of the exit status.
-// SPEC: _spec/internal/sbx/host-readiness.puml
 func TestParseDiagnoseReadsSbxsOwnVerdict(t *testing.T) {
 	t.Parallel()
 	const body = `{"checks":[

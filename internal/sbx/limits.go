@@ -1,3 +1,4 @@
+// SPEC: _spec/minimum_requirements.puml
 package sbx
 
 import (
@@ -21,7 +22,6 @@ import (
 // count to divide by. Pre-diagnosing the number was worth less than the
 // headroom it cost. CPULimit is deliberately unchanged; see its own note and
 // _spec/minimum_requirements.puml on why the two knobs are not symmetrical.
-// SPEC: _spec/minimum_requirements.puml
 func MemoryLimit() string {
 	if b, ok := parseMemorySize(os.Getenv(EnvMemory)); ok {
 		return formatMemoryLimit(b)

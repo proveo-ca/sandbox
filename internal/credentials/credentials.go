@@ -1,6 +1,5 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml,
-// _spec/internal/credentials/credential-decisions.puml
-// _spec/internal/credentials/credential-decisions.puml Package credentials
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/secretref/secret-references.puml
+// Package credentials
 package credentials
 
 import (
@@ -50,17 +49,14 @@ func FilterProviders(detected []string, c manifest.Capabilities) []string {
 	return out
 }
 
-// SPEC: _spec/internal/credentials/credential-decisions.puml,
 // _spec/internal/choiceui/wireframe.puml
 const (
 	// AuthUsage bills per token at each provider, against the operator's own keys.
 	AuthUsage = "usage credits"
 	// AuthSubscription bills against a plan: the vendor's own key or login.
 	AuthSubscription = "subscription"
-	// SPEC: _spec/internal/choiceui/wireframe.puml
-	AuthLocal = "local model"
-	// SPEC: _spec/internal/agentsettings/choice-cache.puml
-	AuthVarLogin = "login (proveo home)"
+	AuthLocal        = "local model"
+	AuthVarLogin     = "login (proveo home)"
 )
 
 // IsAuthSentinel reports whether an auth answer names a credential CLASS
@@ -131,7 +127,7 @@ func ProviderKeyVars(man manifest.Manifest, lookup func(string) string) []string
 	var out []string
 	for _, name := range FilterProviders(provider.Detect(lookup), man.Capabilities) {
 		// AuthVarsFor, not AuthVars: another harness's plan credential is not a
-		// key this run can spend. SPEC: _spec/internal/provider/provider-registry.puml
+		// key this run can spend.
 		for _, v := range provider.AuthVarsFor(name, family) {
 			if own[v] || strings.TrimSpace(lookup(v)) == "" {
 				continue
@@ -144,7 +140,6 @@ func ProviderKeyVars(man manifest.Manifest, lookup func(string) string) []string
 
 // WithheldProviders lists the providers this run's auth answer keeps OFF THE
 // WIRE — every one of whose set credentials the suppressor withholds.
-// SPEC: _spec/internal/credentials/credential-decisions.puml
 func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
 	lookup func(string) string, detected []string) []string {
 	if strings.TrimSpace(chosen) == "" {
@@ -174,7 +169,6 @@ func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
 }
 
 // UsableProviders drops the providers this harness can send NO credential to.
-// SPEC: _spec/internal/provider/provider-registry.puml
 func UsableProviders(man manifest.Manifest, detected []string, lookup func(string) string) []string {
 	family := HarnessFamily(man.Name)
 	out := make([]string, 0, len(detected))
@@ -399,7 +393,6 @@ var subscriptionLoginFiles = map[string][]string{
 
 // EffectiveAuthVar resolves an answer to the ONE variable the broker should
 // prefer, or "" when the answer names no variable at all.
-// SPEC: _spec/internal/agentsettings/choice-cache.puml
 func EffectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) string {
 	switch v := strings.TrimSpace(chosen); v {
 	case AuthUsage:
@@ -485,7 +478,6 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
-// SPEC: _spec/internal/secretref/secret-references.puml
 func LoginBlanked(target, homeRoot string) bool {
 	if homeRoot == "" {
 		return false
@@ -510,7 +502,6 @@ func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, look
 	chosen = strings.TrimSpace(chosen)
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)
 	usableLogin = usableLogin && !staleLogin
-	// SPEC: _spec/_paradigms/credential-boundary.puml
 	if chosen == AuthVarLogin || ((chosen == "" || chosen == AuthSubscription) && usableLogin) {
 		owned := map[string]bool{}
 		for _, e := range man.Env {

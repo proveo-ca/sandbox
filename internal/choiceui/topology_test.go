@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (
@@ -301,7 +302,6 @@ func moteAt(rows []string) map[int]int {
 	return out
 }
 
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestTheMoteTravelsFromTheHopToTheClouds(t *testing.T) {
 	t.Parallel()
 	fr := base()

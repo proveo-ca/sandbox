@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/egress/egress-tiers.puml
+// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/egress/egress-tiers.puml, _spec/tests/40-agent-e2e-components.puml
 
 package e2e
 
@@ -20,7 +20,6 @@ import (
 func TestReviewTierConsentGate(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
-	// SPEC: _spec/tests/40-agent-e2e-components.puml
 	requireHarnessCredential(t, target)
 	requireReviewTier(t)
 

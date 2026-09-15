@@ -68,7 +68,9 @@
         "defs/claudecode/solidity/Dockerfile",
         "defs/*/test.sh",
         "defs/*/tests/test_build.sh",
-        "internal/contract/agent_pin_test.go"
+        "internal/contract/agent_pin_test.go",
+        "internal/posture/posture.go",
+        "internal/run/run.go"
       ],
       "fingerprint": null
     },
@@ -292,11 +294,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/claude-in-chrome-reachability.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/config-seeding-and-persistence.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
@@ -417,13 +414,6 @@
         "internal/sbx/run.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/workspace/mount.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/claudecode-autoupdater.puml",
-      "covers": [
-        "defs/claudecode/harness.manifest"
       ],
       "fingerprint": null
     },
@@ -629,7 +619,8 @@
       "covers": [
         "defs/claudecode/mcp/entrypoint.sh",
         "packages/lib/entrypoint-lib.sh",
-        "internal/contract/claudecode_renderer_test.go"
+        "internal/contract/claudecode_renderer_test.go",
+        "internal/contract/claudecode_autoupdater_test.go"
       ],
       "fingerprint": null
     },

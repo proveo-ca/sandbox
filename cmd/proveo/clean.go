@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/clean/clean-lifecycle.puml
+// SPEC: _spec/internal/clean/clean-lifecycle.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
 package main
 
 import (
@@ -51,7 +51,6 @@ func cleanCmd() *cobra.Command {
 	return cmd
 }
 
-// SPEC: _spec/internal/clean/clean-lifecycle.puml
 var toolSubdirs = []string{
 	".local/share/mise",
 	".local/share/proveo",
@@ -60,7 +59,6 @@ var toolSubdirs = []string{
 	"go",
 }
 
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 func toolRoots(root string) []string {
 	roots := []string{root}
 	matches, err := filepath.Glob(filepath.Join(root, "toolchains", "*"))
@@ -151,7 +149,6 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 
-	// SPEC: _spec/_paradigms/retire-dind.puml
 	for _, line := range dockerLines("ps", "-a", "--filter", "name=proveo-dind-",
 		"--format", "{{.Names}}\t{{.State}}") {
 		if f := strings.SplitN(line, "\t", 2); len(f) == 2 {

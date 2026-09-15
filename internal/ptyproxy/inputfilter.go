@@ -68,7 +68,6 @@ func (f *inputFilter) keep(b []byte) bool {
 		// child that sent `CSI 6n` and is blocked waiting. cecli's prompt_toolkit
 		// does exactly that and reports the withheld answer as
 		// "your terminal doesn't support cursor position requests (CPR)".
-		// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 		if isCursorPositionReport(b) && f.cpr.answered() {
 			return true
 		}
@@ -170,7 +169,6 @@ func isNumericParams(b []byte) bool {
 
 // mouseTracker follows the DEC private modes that make a terminal SEND mouse
 // reports, read off the child's output stream.
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 type mouseTracker struct {
 	// on is read by keep() on the input pump and written by observe() on the
 	// output pump: an atomic keeps the input path off the parser's lock.
@@ -254,7 +252,6 @@ const maxOutstandingCPR = 8
 
 // cprTracker counts cursor-position queries the CHILD sent, so their answers
 // can be forwarded even where every unsolicited report is dropped.
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 type cprTracker struct {
 	// outstanding is written by observe() on the output pump and read by
 	// keep() on the input pump; atomic keeps the two off one lock.
@@ -349,7 +346,6 @@ func mouseModeBit(mode int) uint16 {
 
 const maxHeld = 128
 
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	for i := 0; i < len(b); {
 		if b[i] != 0x1b {

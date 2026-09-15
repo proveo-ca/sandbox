@@ -15,7 +15,6 @@ var classicRenderer = map[string]string{
 	"CLAUDE_CODE_NO_FLICKER":               "0",
 }
 
-// SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 func TestClaudecodeManifestDefaultsTheClassicRenderer(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)

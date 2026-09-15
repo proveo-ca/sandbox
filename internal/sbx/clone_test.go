@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml
 package sbx
 
 import (
@@ -124,7 +124,6 @@ func TestRunArgsEmitsPublishBeforeThePositionals(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func TestCloneBundleStreamsFromTheCloneWithoutTheDaemon(t *testing.T) {
 	t.Parallel()
 	const tip = "87c459087afc24d69c98c58fae6e6b182012623f"

@@ -1,3 +1,4 @@
+// SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/_devops/release-gate.puml
 package contract_test
 
 import (
@@ -8,7 +9,6 @@ import (
 	"testing"
 )
 
-// SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestBaseExtendsASandboxTemplate(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
@@ -31,7 +31,6 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 			"(a mention inside a comment does not count)")
 	}
 
-	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	argAt := strings.Index(src, arg[0])
 	firstFROM := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(src)
 	if firstFROM == nil {
@@ -84,7 +83,6 @@ func TestBaseTemplateCarriesTheEngine(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestHardenPassStripsEverySetuidBinary(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/proveo-harden"))
@@ -115,7 +113,6 @@ func TestBaseAssertsWhatItInherits(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_devops/sandbox-template-rebase.puml
 func TestBaseDoesNotInheritTheTemplateWorkdir(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
@@ -165,7 +162,6 @@ func readFileOrFail(t *testing.T, path string) string {
 	return string(b)
 }
 
-// SPEC: _spec/_devops/release-gate.puml
 func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
 	t.Parallel()
 	src := readFileOrFail(t, filepath.Join(repoRoot(t), "mise.toml"))

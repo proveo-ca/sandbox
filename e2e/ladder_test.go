@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/internal/sbx/kit-sandbox-credential-gap.puml
 package e2e
 
 import (
@@ -44,9 +44,7 @@ func sbxAgentFor(t *testing.T, target string) string {
 	return agent
 }
 
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func shellAgentTarget(target string) bool {
-	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 	return sbx.BuiltinAgent(target) == "" && !sbx.DeclaresOwnAgent(target)
 }
 
@@ -207,7 +205,6 @@ func renderPostureKitEnv(t *testing.T, work, target string, extra []string) stri
 	return ""
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func assertKitShape(t *testing.T, specPath, target string) {
 	t.Helper()
 	b, err := os.ReadFile(specPath)
@@ -289,7 +286,6 @@ func TestSandboxLadder(t *testing.T) {
 				// measures whether a session STARTS; this measures whether it
 				// can be USED, which is where a Kit that grants reach without a
 				// credential first becomes visible.
-				// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 				v.detail = fmt.Sprintf("held a prompt, then refused %q on %q",
 					res.promptFailure, res.prompted)
 				t.Fatalf("RUNG BROKE ON FIRST USE — this rung adds %s. The session reached a prompt "+
@@ -353,7 +349,6 @@ func ladderReport(climbed []rungVerdict) string {
 	return b.String()
 }
 
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func probeLaunch(t *testing.T, sandbox string, prog string) string {
 	t.Helper()
 	if sandbox == "" || prog == "" {
@@ -438,14 +433,12 @@ type sessionResult struct {
 // The value is typed VERBATIM, so it does not submit. Completion fires on the
 // buffer change, which is where this class of failure lives; append a newline
 // (PROVEO_LADDER_PROMPT=$'…\r') when a rung needs the input actually sent.
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 func ladderPrompt() string { return env("PROVEO_LADDER_PROMPT", "") }
 
 // providerRefusals are renders that mean the agent is alive at its prompt and
 // still cannot reach the provider it was configured for. Every entry names the
 // thing that emits it, because a marker list that grows by guess is a liability
 // rather than a test.
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 var providerRefusals = []string{
 	// sandboxd's own verdict, in the three wordings the sbx docs give it.
 	"Blocked by network policy",
@@ -484,7 +477,6 @@ var providerRefusals = []string{
 // hidden priority, so reordering it for readability would silently change what
 // every report blames. Position in the transcript is the agent's own ordering,
 // which is the one an operator reads.
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 func firstProviderRefusal(out string) string {
 	best, at := "", -1
 	for _, r := range providerRefusals {
@@ -578,7 +570,6 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 	// scan below starts there — a host blocked during the SEED is a different
 	// fault with a different owner, and attributing it to the prompt would
 	// point the report at the wrong rung.
-	// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 	mark := len(seen())
 	if prompt != "" {
 		if _, err := ptmx.WriteString(prompt); err != nil {
@@ -610,7 +601,6 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 				// An empty account is nobody's bug and makes every rung above
 				// it untestable, which is a Skip, so it must win the race
 				// against the 403 marker below.
-				// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 				if f := firstAuthFailure(since); f != "" {
 					res.authFailure, res.out = f, out
 					res.aliveFor = time.Since(started)
@@ -668,7 +658,6 @@ func sbxReadyForTests() (bool, string) {
 	return true, ""
 }
 
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func TestLadderReportNamesTheFirstFailure(t *testing.T) {
 	t.Parallel()
 	climbed := []rungVerdict{
@@ -720,7 +709,6 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/capability-ladder.puml
 func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "0")
 	if !shellAgentTarget("cecli") {
@@ -802,7 +790,6 @@ func TestQuoteWordSurvivesAQuote(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
 	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
 
@@ -850,7 +837,6 @@ const (
 
 // TestSandboxKitProxyManagesTheCredential asserts the property E1 would
 // otherwise silently drop.
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
 		t.Skip("set PROVEO_LADDER_TEST=1 — this starts a real sandbox")
@@ -980,7 +966,6 @@ func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) 
 	return v
 }
 
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 func TestLadderPromptIsEmptyUntilAnOperatorNamesOne(t *testing.T) {
 	// Not parallel: it sets the variable the default is measured against.
 	t.Setenv("PROVEO_LADDER_PROMPT", "")
@@ -998,7 +983,6 @@ func TestLadderPromptIsEmptyUntilAnOperatorNamesOne(t *testing.T) {
 // The marker list is the whole rung, so its boundary is pinned rather than
 // trusted: it must fire on a refusal and stay silent on a keyless climb, which
 // is the state a climb is deliberately in.
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -1066,7 +1050,6 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 // path, and it arrives as a 403 that looks like a block. The precedence is
 // asserted here because it is invisible at the call site and was measured
 // getting this exact case wrong.
-// SPEC: _spec/internal/sbx/kit-sandbox-credential-gap.puml
 func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 	t.Parallel()
 	for _, out := range []string{

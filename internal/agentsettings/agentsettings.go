@@ -1,5 +1,5 @@
-// Package agentsettings persists the per-harness choice matrix.
 // SPEC: _spec/internal/agentsettings/choice-cache.puml
+// Package agentsettings persists the per-harness choice matrix.
 package agentsettings
 
 import (

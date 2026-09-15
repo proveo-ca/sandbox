@@ -1,3 +1,4 @@
+// SPEC: _spec/_plans/retire-model-bridging.puml
 package main
 
 import (
@@ -70,7 +71,6 @@ func renderRun(t *testing.T, target, image, mode, creds, sbx string) string {
 	// The role names are no longer read from the environment, but a golden run
 	// must still be blind to an operator's own: a stray ARCHITECT_MODEL must not
 	// change what proveo prints, and the day it does, this clears it first.
-	// SPEC: _spec/_plans/retire-model-bridging.puml
 	for _, k := range provider.RoleNames {
 		t.Setenv(k, "")
 	}

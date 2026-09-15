@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/maintain/image-build-deploy.puml,
-// _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/_devops/image-lineage-and-publish.puml
 package main
 
 import (

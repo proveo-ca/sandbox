@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/choiceui/topology-strip.puml
 package choiceui
 
 import (
@@ -277,7 +278,6 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 func TestALongReasonNoLongerWidensTheRow(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
@@ -377,7 +377,6 @@ func hopRow(joined, corner string) string {
 }
 
 // The pane is a HEIGHT fallback, never a preference.
-// SPEC: _spec/internal/choiceui/topology-strip.puml
 func TestTheBlockWinsWheneverItFits(t *testing.T) {
 	t.Parallel()
 	f := tallForm()

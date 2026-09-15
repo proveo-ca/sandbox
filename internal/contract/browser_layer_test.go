@@ -20,7 +20,6 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// SPEC: _spec/defs/browser-layer.puml
 func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base-node-browser/Dockerfile")

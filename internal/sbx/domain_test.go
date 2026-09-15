@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/sbx/kit-domain-form.puml
 package sbx
 
 import (
@@ -7,7 +8,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// SPEC: _spec/internal/sbx/kit-domain-form.puml
 func TestDomainPatternsTranslatesSquidsDotIntoBothHalves(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -1,5 +1,5 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml Package chromebridge is the
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
+// Package chromebridge is the
 package chromebridge
 
 import (

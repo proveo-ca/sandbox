@@ -370,7 +370,6 @@ func runDeps() run.Deps {
 	}
 }
 
-// SPEC: _spec/internal/egress/teardown-and-signals.puml
 func egressProxyImage(getenv func(string) string, resolve func(string) (string, bool)) (image string, isLocal bool) {
 	if v := strings.TrimSpace(getenv("PROVEO_EGRESS_PROXY_IMAGE")); v != "" {
 		return v, false // an explicit override is a decision, not a default

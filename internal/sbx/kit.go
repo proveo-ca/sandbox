@@ -1,3 +1,4 @@
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 package sbx
 
 import (
@@ -18,9 +19,8 @@ type Kit struct {
 	Permissions   KitPermissions `yaml:"permissions,omitempty"`
 	Environment   *KitEnv        `yaml:"environment,omitempty"`
 	Setup         *KitSetup      `yaml:"setup,omitempty"`
-	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
-	Sandbox *KitSandbox `yaml:"sandbox,omitempty"`
-	// "shell" and "credprobe"`. SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+	Sandbox       *KitSandbox    `yaml:"sandbox,omitempty"`
+	// "shell" and "credprobe"`.
 	Credentials []KitCredential `yaml:"credentials,omitempty"`
 }
 

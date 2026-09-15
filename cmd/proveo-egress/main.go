@@ -1,8 +1,5 @@
-// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml,
-// _spec/internal/egressproxy/mitm-and-flow-record.puml,
-// _spec/_paradigms/credential-boundary.puml,
-// _spec/_conventions/design-decision-ids.puml
-// _spec/_conventions/design-decision-ids.puml Command proveo-egress is the
+// SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/internal/egressproxy/mitm-and-flow-record.puml, _spec/_paradigms/credential-boundary.puml, _spec/_conventions/design-decision-ids.puml
+// Command proveo-egress is the
 package main
 
 import (

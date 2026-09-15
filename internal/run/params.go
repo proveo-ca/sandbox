@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/egress/teardown-and-signals.puml
 package run
 
 import (
@@ -16,16 +17,14 @@ type Params struct {
 	Addons                                                                      []string
 	AddonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
 	Roles                                                                       provider.Roles
-	// SPEC: _spec/internal/credentials/credential-decisions.puml
-	RolesRemembered  provider.Roles
-	AuthVar          string
-	HostEnvFile      string
-	Evidence         string
-	Shell, PrintOnly bool
-	Extra            []string
-	// SPEC: _spec/internal/egress/teardown-and-signals.puml
-	ProxyImage      string
-	Clone, CloneSet bool
+	RolesRemembered                                                             provider.Roles
+	AuthVar                                                                     string
+	HostEnvFile                                                                 string
+	Evidence                                                                    string
+	Shell, PrintOnly                                                            bool
+	Extra                                                                       []string
+	ProxyImage                                                                  string
+	Clone, CloneSet                                                             bool
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }
@@ -85,7 +84,6 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
-	// SPEC: _spec/internal/credentials/credential-decisions.puml,
 	// _spec/_plans/retire-model-bridging.puml
 	// The remembered choice is now the ONLY source: the environment no longer
 	// carries a model, so there is nothing to merge it with.

@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/sandbox-template-rebase.puml
 package contract_test
 
 import (
@@ -36,7 +36,6 @@ func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 		t.Error("proveo/base must not apt-install default-jre-headless (194 MB in every " +
 			"descendant); the jre-builder stage provides a 72 MB runtime for plantuml.jar")
 	}
-	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	if strings.Contains(df, "jlink --add-modules") {
 		t.Error("the jlink stage is redundant on a template that ships a full JDK — " +
 			"two Java runtimes in one lineage is the cost this test exists to prevent")
@@ -139,7 +138,6 @@ var harnessDockerfiles = []string{
 	"defs/cecli/Dockerfile",
 }
 
-// SPEC: _spec/_devops/sandbox-template-rebase.puml,
 // _spec/_plans/image-size-reduction.puml
 func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 	t.Parallel()
@@ -175,7 +173,6 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 				"a root:docker socket", rel)
 		}
 	}
-	// SPEC: _spec/_devops/sandbox-template-rebase.puml
 	if !installedPackages(dockerfileBody(t, "defs/base/Dockerfile"))["iptables"] {
 		t.Error("proveo/base must install iptables — the per-sandbox daemon builds its own " +
 			"NAT chain, and every harness inherits the base")
@@ -187,7 +184,6 @@ func TestDockerInSandboxKeepsTheLabelTheGroupAndIptables(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_plans/image-size-reduction.puml
 func TestSolidityPinsItsToolchainAndShipsOnlyWhatItAudits(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/claudecode/solidity/Dockerfile")

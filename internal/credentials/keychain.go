@@ -1,5 +1,4 @@
-// SPEC: _spec/internal/secretref/secret-references.puml,
-// _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/internal/secretref/secret-references.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/_paradigms/credential-boundary.puml
 package credentials
 
 import (
@@ -95,7 +94,6 @@ type KeychainLogin struct {
 }
 
 // ReadKeychainLogin reports what the host's login Keychain holds for this run.
-// SPEC: _spec/internal/secretref/secret-references.puml
 func ReadKeychainLogin(target string, look LookupEnv, r *secretref.Resolver, now time.Time) KeychainLogin {
 	if r == nil || !r.HasKeychain() {
 		return KeychainLogin{Outcome: secretref.Unsupported}
@@ -250,7 +248,6 @@ func (k KeychainLogin) KeychainFailureAdvice() string {
 	return ""
 }
 
-// SPEC: _spec/internal/sbx/oauth-provisioning.puml
 func NeedsSandboxLogin(man manifest.Manifest, sbxBackend, fileLogin bool, stored []string, lookup func(string) string) bool {
 	if !sbxBackend || !man.Subscription || fileLogin {
 		return false

@@ -62,7 +62,6 @@ proveo_exec_agent codex "$@"`
 // says yes and hands the whole argv to `exec`, which has no file to execve. The
 // run died before codex was reached, and the agent-evidence dial rewrites every
 // verbose headless run into exactly this shape.
-// SPEC: _spec/packages/lib/seed-and-launch.puml
 func TestASubcommandNamedLikeAShellKeywordStillReachesTheAgent(t *testing.T) {
 	t.Parallel()
 	out := execAgent(t, "--dangerously-bypass-approvals-and-sandbox", "--", "exec", "--json", "do the thing")

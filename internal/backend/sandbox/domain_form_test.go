@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/sbx/kit-domain-form.puml
 package sandbox
 
 import (
@@ -16,7 +17,6 @@ func has(list []string, want string) bool {
 	return false
 }
 
-// SPEC: _spec/internal/sbx/kit-domain-form.puml
 func TestSquidSuffixReachesTheKitAsBothHalves(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	in := specInput("cecli")

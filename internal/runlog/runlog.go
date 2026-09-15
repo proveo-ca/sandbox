@@ -1,6 +1,6 @@
+// SPEC: _spec/internal/runlog/run-transcript.puml, _spec/minimum_requirements.puml
 // Package runlog gives every run a transcript under PROVEO_HOME/logs so a
 // failure can be diagnosed after the fact.
-// SPEC: _spec/internal/runlog/run-transcript.puml
 package runlog
 
 import (
@@ -99,7 +99,6 @@ const PolicyLogFile = "policy-log.json"
 // MemoryEvidenceFile is the guest's own account of its memory at teardown. A
 // sandbox that died of memory pressure leaves no OOMKilled flag and no exit
 // message, so without this the operator has nothing to read.
-// SPEC: _spec/minimum_requirements.puml
 const MemoryEvidenceFile = "memory-evidence.txt"
 
 // Artifacts records where the evidence for this run lives.

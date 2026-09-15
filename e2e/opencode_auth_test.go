@@ -21,7 +21,6 @@ const opencodeKeyVar = "OPENCODE_API_KEY"
 // TestOpenCodeAuth asserts the CREDENTIAL BOUNDARY for OpenCode's own
 // gateway: that OPENCODE_API_KEY still authenticates after crossing the
 // egress layer.
-// SPEC: _spec/_paradigms/credential-boundary.puml
 func TestOpenCodeAuth(t *testing.T) {
 	requireHarness(t, "opencode")
 

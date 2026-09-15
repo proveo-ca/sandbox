@@ -1,5 +1,6 @@
 //go:build !windows
 
+// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 package ptyproxy
 
 import (
@@ -390,7 +391,6 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 
 // The out pump is where mouse tracking is learned: no PTY needed, the child's
 // bytes are the whole input.
-// SPEC: _spec/internal/ptyproxy/terminal-report-filter.puml
 func TestChildOutputEnablesMouseForwardingThroughTheOutPump(t *testing.T) {
 	t.Parallel()
 	outR, outW, err := os.Pipe()

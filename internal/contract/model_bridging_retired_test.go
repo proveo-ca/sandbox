@@ -1,3 +1,4 @@
+// SPEC: _spec/_plans/retire-model-bridging.puml
 package contract
 
 import (
@@ -12,7 +13,7 @@ import (
 // agent's model: there are no bridge tables, no role-var reads, and no def
 // entrypoint that maps one onto the variable its harness reads. An agent's
 // model comes from its own saved config, and on a first run from its own
-// default. SPEC: _spec/_plans/retire-model-bridging.puml
+// default.
 func repoFile(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", rel))
@@ -134,7 +135,6 @@ func TestTheRoleNameGuardActuallyFires(t *testing.T) {
 //
 // Checked in Go as well as in defs/opencode/tests, because the shell suite needs
 // a built image and this needs to fail in `go test ./...`.
-// SPEC: _spec/_plans/retire-model-bridging.puml
 func TestNoOpencodeSeedNamesAModelByEnvironment(t *testing.T) {
 	for _, rel := range []string{
 		"defs/opencode/sample_opencode.json",

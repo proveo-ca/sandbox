@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/runlog/run-transcript.puml
 package run
 
 import (
@@ -13,7 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// SPEC: _spec/internal/runlog/run-transcript.puml
 func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 	cases := []struct {
 		name     string

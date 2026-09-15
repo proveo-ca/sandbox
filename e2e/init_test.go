@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/tests/testing-strategy.puml
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/tests/testing-strategy.puml, _spec/internal/sbx/host-readiness.puml
 
 package e2e
 
@@ -75,7 +75,6 @@ func TestInitReportsThisHostsPrerequisites(t *testing.T) {
 	// proveo's own checks are install-blockers only. Host readiness — including
 	// virtualisation — is `sbx diagnose`'s, so a check here that blocks the RUN
 	// would be proveo second-guessing sbx again.
-	// SPEC: _spec/internal/sbx/host-readiness.puml
 	for _, c := range checks {
 		if c.Blocks == sbx.BlocksRun {
 			t.Errorf("%q blocks the run; sbx diagnose owns that verdict", c.Name)

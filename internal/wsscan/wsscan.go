@@ -1,5 +1,5 @@
-// Package wsscan finds marker files under a workspace scope.
 // SPEC: _spec/internal/wsscan/workspace-scan.puml, _spec/internal/agentsettings/choice-cache.puml
+// Package wsscan finds marker files under a workspace scope.
 package wsscan
 
 import (

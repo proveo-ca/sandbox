@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/provider/provider-registry.puml
+// SPEC: _spec/internal/provider/provider-registry.puml, _spec/internal/credentials/credential-decisions.puml
 package provider
 
 import (
@@ -107,7 +107,6 @@ const (
 )
 
 // ModelBilling reports how a model id is billed.
-// SPEC: _spec/internal/credentials/credential-decisions.puml
 func ModelBilling(model string) Billing {
 	model = strings.TrimSpace(strings.ToLower(model))
 	i := strings.Index(model, "/")
@@ -139,7 +138,6 @@ func SplitsBilling(name string) bool {
 }
 
 // IsFreeTier reports a gateway model served at no cost.
-// SPEC: _spec/internal/credentials/credential-decisions.puml
 func IsFreeTier(model string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), "-free")
 }

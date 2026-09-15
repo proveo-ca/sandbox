@@ -1,3 +1,4 @@
+// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 package sandbox
 
 import (
@@ -33,7 +34,6 @@ func specFor(t *testing.T, target string, extra ...string) (sbx.RunConfig, sbx.K
 	return cfg, kit
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOptingOutStillBorrowsTheShellAgent(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "0")
 	cfg, kit := specFor(t, "cecli")
@@ -172,7 +172,6 @@ func TestSandboxKitRendersTheSandboxBlock(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic")
@@ -293,7 +292,6 @@ func withStoredSecrets(t *testing.T, names ...string) {
 	t.Cleanup(func() { storedSecretNames = prev })
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestUnstoredServicesAreNotDeclared(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t) // sbx holds nothing
@@ -330,7 +328,6 @@ func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 func TestAgentKitIsTheDefaultForDefsWithNoBuiltinAgent(t *testing.T) {
 	if !sbx.AgentKitEnabled() {
 		t.Fatal("PROVEO_SBX_AGENT_KIT defaults OFF — the flip did not take, or the " +

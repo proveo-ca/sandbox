@@ -11,7 +11,10 @@ auto-commits: true
 auto-save: true
 auto-load: false
 cache-prompts: true
-check-update: true
+# false because the image cannot satisfy it: cecli lives in /opt/cecli, a venv
+# built as root and never chowned, and the run is non-root. An updater that
+# tries there fails every run; one that SUCCEEDED would unpin CECLI_VERSION.
+check-update: false
 debug: false
 enable-context-compaction: true
 context-compaction-max-tokens: 0.8

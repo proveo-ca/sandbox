@@ -1,5 +1,5 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
-// _spec/internal/sbx/sandbox-backend.puml Package sandbox is the sbx backend:
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml
+// Package sandbox is the sbx backend:
 package sandbox
 
 import (
@@ -113,7 +113,6 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func PreserveClone(in Input, cfg sbx.RunConfig) {
 	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return
@@ -134,7 +133,6 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 // output worth quoting, and the error.
 type cloneCarry func(in Input, cfg sbx.RunConfig) (int, string, error)
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry) bool {
 	if running {
 		if _, out, err := viaRemote(in, cfg); err == nil {
@@ -161,7 +159,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 }
 
 // CloneRescueLines is the by-hand recipe, using the transport that works on a
-// stopped sandbox. SPEC: _spec/internal/sbx/clone-workspace.puml
+// stopped sandbox.
 func CloneRescueLines(name, workdir, repoRoot string) []string {
 	if workdir == "" || repoRoot == "" {
 		return nil
@@ -490,7 +488,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	// The registry speaks Squid's `dstdomain`; the Kit speaks sbx's patterns.
 	// This is the one place the two grammars meet, and it has to happen before
 	// anything is deduplicated — `.x.ai` and `x.ai` are one entry afterwards.
-	// SPEC: _spec/internal/sbx/kit-domain-form.puml
 	hosts := map[string]bool{}
 	addHost := func(h string) {
 		for _, p := range sbx.DomainPatterns(h) {
@@ -583,7 +580,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
-	// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
 		env = append(env, proveohome.ConfigSetVar+"="+set)
 	}
@@ -632,14 +628,12 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	agent, launch := sbx.AgentFor(harness)
 	command := launch
 	if len(in.Extra) > 0 {
-		// SPEC: _spec/_paradigms/capability-ladder.puml
 		if agent == sbx.ShellAgent {
 			command = sbx.ShellLaunch(harness, in.Extra)
 		} else {
 			command = in.Extra
 		}
 	}
-	// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 	entrypoint := imageEntrypoint(in)
 	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(harness)
 	if ownAgent && len(entrypoint) == 0 {
@@ -915,7 +909,6 @@ func CapturePolicyLog(egDir, name string) {
 // Best effort throughout. The sandbox may already be gone, and a run that died
 // of memory pressure is the run least able to answer — so every failure here is
 // silent, because a teardown warning about teardown teaches nothing.
-// SPEC: _spec/minimum_requirements.puml
 // memoryEvidence is a var so a teardown test can state what the guest said
 // without a live sandbox — the same seam storedSecretNames uses, and for the
 // same reason: the branch that matters here fires only on an OOM, which is not
@@ -961,7 +954,6 @@ func Selected(man manifest.Manifest) bool {
 	return ok
 }
 
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
 var storedSecretNames = sbx.StoredSecretNames
 
 func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
@@ -999,7 +991,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		// SPEC-v2 requires every inject domain to also appear in
 		// permissions.network.allow, so it has to be the SAME translated form —
 		// a domain sbx cannot match is a credential sbx cannot attach.
-		// SPEC: _spec/internal/sbx/kit-domain-form.puml
 		inject := make([]sbx.KitCredInject, 0, len(r.Hosts)*2)
 		for _, h := range r.Hosts {
 			for _, d := range sbx.DomainPatterns(h) {

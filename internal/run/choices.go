@@ -1,5 +1,4 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml,
-// _spec/internal/choiceui/wireframe.puml
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml
 package run
 
 import (
@@ -93,7 +92,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	return nil
 }
 
-// SPEC: _spec/internal/choiceui/wireframe.puml
 func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile, chosen string) (choiceui.Row, bool) {
 	if !credentials.DeclaresSubscription(man) {
 		return choiceui.Row{}, false
@@ -125,7 +123,6 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	return r, true
 }
 
-// SPEC: _spec/internal/agentsettings/choice-cache.puml
 func authAnswer(chosen string, available []string) string {
 	switch {
 	case chosen == "":
@@ -138,7 +135,6 @@ func authAnswer(chosen string, available []string) string {
 	return "" // a variable name from an older cache: let availability decide
 }
 
-// SPEC: _spec/internal/choiceui/wireframe.puml
 func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
 	backing := credentials.AuthBacking(man, lookup, target, homeRoot, envFile)
 	unavailable := credentials.AuthWhyUnavailable(man, target, homeRoot)
@@ -440,7 +436,6 @@ var addonHelp = map[string]string{
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func executionOptions(man manifest.Manifest) []string {
 	opts := []string{addonHost}
 	if man.Docker == manifest.DockerSbx {
@@ -524,7 +519,6 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {

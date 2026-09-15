@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
 package choiceui
 
 import (
@@ -181,7 +182,7 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 		t.Errorf("a gated option must render its reason\n--- rendered ---\n%s", joined(t, f))
 	}
 	// A MULTI row's Selected is the cursor, not the choice, so it may rest on a
-	// greyed box. SPEC: _spec/internal/choiceui/choice-prompt-render.puml
+	// greyed box.
 	f.Rows[0].Selected = 0
 	f.cycle(0, +1)
 	if f.Rows[0].Selected != 1 {

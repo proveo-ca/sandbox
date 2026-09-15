@@ -1,3 +1,4 @@
+// SPEC: _spec/minimum_requirements.puml, _spec/_paradigms/retire-dind.puml
 package sbx
 
 import (
@@ -566,7 +567,6 @@ var errNoDaemon = errors.New("cannot connect to the docker daemon")
 // With no knob set, proveo declares NOTHING and sbx sizes the sandbox — half the
 // HOST. The old derivation halved `docker info MemTotal`, which is already only
 // the Docker VM's share of the host, so it handed out roughly a quarter.
-// SPEC: _spec/minimum_requirements.puml
 func TestMemoryLimitDefersToSbxWhenNoCountIsDeclared(t *testing.T) {
 	orig := sh.DockerMemTotal
 	defer func() { sh.DockerMemTotal = orig }()
@@ -768,7 +768,6 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func TestAgentForSandboxesEveryTarget(t *testing.T) {
 	t.Parallel()
 	sbxKnows := map[string]bool{
@@ -1119,7 +1118,6 @@ func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/minimum_requirements.puml
 func TestMemoryEvidenceAsksTheGuestAndNamesAKill(t *testing.T) {
 	t.Parallel()
 	args := MemoryEvidenceArgs("proveo-1")

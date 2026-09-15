@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/sbx/clone-workspace.puml
 package run
 
 import (
@@ -49,7 +50,6 @@ func reportLinks(links []workspace.Link) {
 	}
 }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneDefault(getenv func(string) string) bool {
 	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_CLONE"))) {
 	case "0", "off", "no", "false", "disable", "disabled":

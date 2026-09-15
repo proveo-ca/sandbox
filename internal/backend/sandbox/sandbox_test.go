@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml
 package sandbox
 
 import (
@@ -114,7 +114,6 @@ func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 	t.Parallel()
 	in := Input{Clone: true, RepoRoot: "/repo"}

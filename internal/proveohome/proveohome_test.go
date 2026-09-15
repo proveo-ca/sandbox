@@ -1,3 +1,4 @@
+// SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
 package proveohome
 
 import (
@@ -188,7 +189,6 @@ func TestResumeArgs(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/proveohome/proveo-home-lifecycle.puml
 func TestDeniedLoginsPersistOnlyWhenAskedFor(t *testing.T) {
 	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
 		Host: "opencode/share", Container: "/proveo-home/.local/share/opencode",

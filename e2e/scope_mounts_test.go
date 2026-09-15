@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/workspace/subdir-scope-mounts.puml
+// SPEC: _spec/internal/workspace/subdir-scope-mounts.puml, _spec/packages/lib/dependency-trees.puml
 
 package e2e
 
@@ -329,7 +329,6 @@ echo "NESTED_OK"`)
 	}
 }
 
-// SPEC: _spec/packages/lib/dependency-trees.puml
 func TestHostBuiltDependencyTreesAreReported(t *testing.T) {
 	img := harnessImage(t, "opencode")
 

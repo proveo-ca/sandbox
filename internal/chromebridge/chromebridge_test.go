@@ -198,7 +198,6 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func TestScopeGateMirrorsClaudeCodesOwnRule(t *testing.T) {
 	t.Parallel()
 	env := func(kv map[string]string) func(string) string {

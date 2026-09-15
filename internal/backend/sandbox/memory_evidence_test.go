@@ -1,3 +1,4 @@
+// SPEC: _spec/minimum_requirements.puml
 package sandbox
 
 import (
@@ -16,7 +17,6 @@ func withGuestSaying(t *testing.T, out string, err error) {
 	t.Cleanup(func() { memoryEvidence = prev })
 }
 
-// SPEC: _spec/minimum_requirements.puml
 func TestTeardownRecordsWhatTheGuestSaidAboutMemory(t *testing.T) {
 	withGuestSaying(t, "== meminfo ==\nMemTotal: 12157280 kB\nSwapTotal: 0 kB\n", nil)
 	dir := t.TempDir()

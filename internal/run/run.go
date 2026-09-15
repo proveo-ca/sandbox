@@ -1,3 +1,4 @@
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_plans/retire-model-bridging.puml, _spec/_paradigms/retire-dind.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (
@@ -61,7 +62,6 @@ func Do(p Params, d Deps) (err error) {
 		ui.Storef("run log: %s", rs.Log.Path())
 	}
 	// Registered after the log's own Close, so LIFO runs it first.
-	// SPEC: _spec/internal/runlog/run-transcript.puml
 	defer func() { recordOutcome(rs.AgentLaunched, err) }()
 
 	rs.Man, err = d.ManifestFor(p.Target)
@@ -214,7 +214,6 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	// agent's model. What remains is whatever a previous session remembered,
 	// seeded above, and it is kept only as the vocabulary the credential and
 	// billing warnings are written in.
-	// SPEC: _spec/_plans/retire-model-bridging.puml
 	if p.Roles == nil {
 		p.Roles = provider.Roles{}
 	}
@@ -259,12 +258,15 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
 	}
+	if v := posture.AgentVersion(p.Image); v != "" {
+		ui.Section(ui.SectionRun)
+		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
+	}
 	warnDindRetired()
 
 	return nil
 }
 
-// SPEC: _spec/_paradigms/retire-dind.puml
 func warnDindRetired() {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_DIND"))) {
 	case "", "0", "false", "no", "off":
@@ -275,7 +277,6 @@ func warnDindRetired() {
 		"the sandbox instead; unset the variable")
 }
 
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
 	ui.Section(ui.SectionInterface)
 	if !hasAddon(p.Addons, addonChrome) {
@@ -318,7 +319,6 @@ func hostStoreResolver() *secretref.Resolver {
 	}
 }
 
-// SPEC: _spec/internal/sbx/oauth-provisioning.puml
 func reportSandboxLogin(rs *Spec, p *Params) {
 	ui.Section(ui.SectionCredentials)
 	if !credentials.NeedsSandboxLogin(rs.Man, p.willSandbox(rs.Man),
@@ -428,7 +428,6 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 	ui.Section(ui.SectionEgress)
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
-	// SPEC: _spec/internal/credentials/credential-decisions.puml
 	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
 		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
 	usable := credentials.UsableProviders(rs.Man, rs.Creds.Detected, rs.Creds.Lookup)
@@ -481,7 +480,6 @@ func buildPosture(rs *Spec, p *Params) {
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
 }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, whyOff string, err error) {
 	if !p.Clone {
 		return false, "", nil // --clone=false or PROVEO_CLONE=off: the mounted checkout, by choice
@@ -565,7 +563,6 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
 				continue
 			}
-			// SPEC: _spec/_paradigms/credential-boundary.puml
 			if suppressedAuth(k) {
 				continue
 			}
@@ -634,11 +631,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		sandbox.ReportUnavailable(sbxUnavailable)
 	case rs.Backend.Sbx:
 		ui.Appf("backend: docker sandboxes (sbx)")
-		if hasAddon(p.Addons, addonChrome) {
-			ui.Warnf("%s: skipped — a sandbox VM cannot reach the host's Claude in Chrome socket; set PROVEO_SBX=0 to use it", addonChrome)
-		}
 	}
-	// SPEC: _spec/_paradigms/retire-dind.puml
 	var err error
 	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
 	if err != nil {
@@ -727,7 +720,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 }
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
-// and the log closes. SPEC: _spec/internal/runlog/run-transcript.puml
+// and the log closes.
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {

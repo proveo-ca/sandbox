@@ -1,3 +1,4 @@
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml
 package sbx
 
 import (
@@ -50,7 +51,6 @@ func statusOf(out, name string) string {
 // "proveo-<unix>-<pid>").
 const NamePrefix = "proveo-"
 
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml
 func RunningNames() (names []string, ok bool) {
 	if _, err := lookPath(Binary); err != nil {
 		return nil, true // sbx absent: there are no sandboxes, and that is a fact
@@ -165,7 +165,6 @@ func CloneRemote(name string) string { return "sandbox-" + name }
 
 func CloneRefs(name string) string { return "refs/proveo/" + name }
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneSnapshotArgs(name, workdir string) []string {
 	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
 		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
@@ -185,7 +184,6 @@ const CloneBundleEmpty = 4
 var hexOnly = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // CloneBundleArgs streams a git bundle of the clone's branches on stdout.
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneBundleArgs(name, workdir string, have []string) []string {
 	var tips []string
 	for _, h := range have {
@@ -273,7 +271,6 @@ func CDPRelayArgs(name string) []string {
 // nothing to unpack and nothing went wrong.
 const CloneLiftNothing = 3
 
-// SPEC: _spec/internal/sbx/clone-workspace.puml
 func CloneLiftArgs(name, workdir, rel string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		"cd " + bashQuote(workdir) + " && { [ -d " + bashQuote(rel) + " ] || exit " +
@@ -284,7 +281,6 @@ func bashQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// SPEC: _spec/internal/sbx/state-sync.puml, _spec/_plans/config-seeding-and-persistence.puml
 func SaveStateArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		". /entrypoint-lib.sh" +
@@ -301,7 +297,6 @@ func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
 }
 
-// SPEC: _spec/internal/sbx/oauth-provisioning.puml
 var authLoginArgs = map[string][]string{
 	"claude": {"auth", "login"},
 }

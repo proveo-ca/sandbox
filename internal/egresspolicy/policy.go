@@ -1,6 +1,5 @@
-// Package egresspolicy is the stdlib-only egress policy core for firewall mode.
-//
 // SPEC: _spec/internal/egresspolicy/egress-policy-overview.puml, _spec/internal/egresspolicy/egress-policy-components.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/_conventions/design-decision-ids.puml
+// Package egresspolicy is the stdlib-only egress policy core for firewall mode.
 package egresspolicy
 
 import (
