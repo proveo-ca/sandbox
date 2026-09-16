@@ -980,6 +980,10 @@ ensure_dependency_trees() {
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 proveo_exec_agent() {
+  if [[ -n "${PROVEO_SEED_ONLY:-}" ]]; then
+    echo "🌱 seed-only: ${1:-agent} is launched by the sandbox, not by this entrypoint"
+    return 0
+  fi
   local agent="$1"; shift
   local launch=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
@@ -2376,4 +2380,8 @@ proveo_seed() {
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
  proveo_chrome_bridge "$target"
+
+  if [[ "${PROVEO_SEED_ENTRYPOINT:-}" == "1" && -x /entrypoint.sh ]]; then
+    PROVEO_SEED_ONLY=1 /entrypoint.sh || echo "⚠ seed: /entrypoint.sh exited $? — the def's own wiring may be incomplete" >&2
+  fi
 }

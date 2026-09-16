@@ -649,6 +649,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}
+	if !ownAgent {
+		env = append(env, "PROVEO_SEED_ENTRYPOINT=1")
+	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),

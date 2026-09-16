@@ -257,9 +257,12 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 				t.Fatalf("%s: Kit is not parseable YAML: %v\n%s", target, err, raw)
 			}
 
-			if kit.Kind != "mixin" {
-				t.Errorf("%s: kind=%q; a sandbox kind names an agent sbx does not know\n%s",
-					target, kit.Kind, raw)
+			wantKind := "mixin"
+			if sbx.DeclaresOwnAgent(target) {
+				wantKind = "sandbox" // no built-in sbx agent to mix into; the kit names its own
+			}
+			if kit.Kind != wantKind {
+				t.Errorf("%s: kind=%q, want %q\n%s", target, kit.Kind, wantKind, raw)
 			}
 			// SPEC-v2 types this as a string. An int is normalised on the way in, so
 			// the mistake survives validate and only shows up against a stricter reader.
@@ -267,10 +270,12 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 				t.Errorf("%s: schemaVersion=%q, want the string \"2\"\n%s",
 					target, kit.SchemaVersion, raw)
 			}
-			for _, c := range kit.Credentials {
-				t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
-					"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
-					target, c.Service, raw)
+			if !sbx.DeclaresOwnAgent(target) {
+				for _, c := range kit.Credentials {
+					t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
+						"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
+						target, c.Service, raw)
+				}
 			}
 			if builtin := sbx.BuiltinAgent(target); builtin != "" && kit.Name == builtin {
 				t.Errorf("%s: Kit name %q shadows the built-in agent; sbx refuses that outright",

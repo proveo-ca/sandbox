@@ -387,7 +387,7 @@ func TestPlanSubdirRootDirsAreEnvMasked(t *testing.T) {
 
 func TestPlanRootScopeHonorsGitModeRO(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := resolved(t.TempDir())
 	touch(t, filepath.Join(root, ".git", "HEAD"))
 	touch(t, filepath.Join(root, "main.go"))
 

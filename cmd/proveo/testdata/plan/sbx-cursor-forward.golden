@@ -1,5 +1,5 @@
 == sbx argv ==
-sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e MCP_GATEWAY_URL= cursor <WORK>
+sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_SEED_ENTRYPOINT=1 -e PROVEO_WORKDIR=<WORK> -e MCP_GATEWAY_URL= cursor <WORK>
 == secret names ==
 == kit spec.yaml ==
 schemaVersion: "2"
@@ -22,6 +22,7 @@ environment:
         MCP_GATEWAY_URL: ""
         PROVEO_AGENT_EVIDENCE: default
         PROVEO_HOME: /proveo-home
+        PROVEO_SEED_ENTRYPOINT: "1"
         PROVEO_WORKDIR: <WORK>
 setup:
     startup:
