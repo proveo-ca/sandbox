@@ -120,7 +120,7 @@ func dockerImagePresent(t *testing.T, image string) bool {
 // skips.
 func localModel(t *testing.T) string {
 	t.Helper()
-	want := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
+	want := env("PROVEO_TEST_LOCAL_MODEL", "gemma4:e4b")
 	tags, err := ollamaTags()
 	if err != nil {
 		t.Skipf("Ollama unreachable on the host (%v) — no local model to run against", err)
