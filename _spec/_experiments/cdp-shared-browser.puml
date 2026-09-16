@@ -40,7 +40,7 @@ skinparam noteTextAlignment left
 ' ── WHAT EXISTS TODAY POINTS THE OTHER WAY ─────────────────────────────────
 ' The CDP plumbing in this tree runs INWARD-OUT, for a human:
 '   CDPBrowserPort = 9223   Chromium's own DevTools port, LOOPBACK ONLY — which
-'                           is why a relay is needed at all
+'                           is why a relay is needed
 '   cdpRelay                a Python TCP forwarder run via `sbx exec`, binding
 '                           0.0.0.0:CDPRelayPort and piping to 127.0.0.1:9223
 '   cdpPublish              publishes that relay port to the host
@@ -207,7 +207,7 @@ note right of AB
   server is stdio, so the agent spawns the
   binary. Only the ENGINE moves; the driver stays
   in the image, which is why the split is worth
-  anything at all.
+  anything.
 end note
 
 legend bottom

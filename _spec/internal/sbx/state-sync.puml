@@ -142,7 +142,7 @@ note as Proof #F4F9FB
   ""save""'s caller and these tests can see a partial copy — put that status inside
   ""proveo_seed"", which ""proveo-seed"" runs under ""set -euo pipefail"". ONE failed
   file copy then aborted the Kit's startup command and sbx answered "failed to
-  run sandbox container": no sandbox at all, for the sake of a transcript that
+  run sandbox container": no sandbox, for the sake of a transcript that
   did not copy. So the STATUS stays honest and the SEED stays tolerant, and a
   test pins that seam — the sync is replaced with one that fails, everything
   after it is stubbed, and the seed still has to return 0 having gone past it.

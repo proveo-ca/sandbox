@@ -57,7 +57,7 @@ end note
 
 note bottom of E4
   One lib, four harnesses, four different floors: cursor and cecli carry no Node
-  runtime and cecli no LSP at all. Testing only opencode left three images
+  runtime and cecli no LSP. Testing only opencode left three images
   unverified — including whether ""plantuml-lsp"" reaches the runtime-free ones,
   which was the whole point of moving it onto ""proveo/base"".
 end note

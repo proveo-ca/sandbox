@@ -43,7 +43,7 @@ node "One shared lib, four harnesses" as LIB <<host>> {
 }
 
 component """proveo_seed""\nthe ONE step both backends run" as SEED <<app>>
-component "docker: image ENTRYPOINT\nsbx: no entrypoint at all" as BACKENDS <<host>>
+component "docker: image ENTRYPOINT\nsbx: no entrypoint" as BACKENDS <<host>>
 
 component """_proveo_lock_installs""\nflock fd 9" as LOCK <<async>>
 database "PROVEO_HOME\n""~/.local/share/mise"" · shims" as HOME <<db>>
@@ -72,7 +72,7 @@ note right of WALK
 
   That split is why one lib serves four harnesses whose floors differ: opencode
   and claudecode carry the Node language servers, cursor and cecli carry no Node
-  runtime at all, and only the WIRE step differs between them.
+  runtime, and only the WIRE step differs between them.
 end note
 
 note bottom of PRE
@@ -96,7 +96,7 @@ note bottom of RECIPE
   the floor's JRE (present for the plantuml jar) is 17.
 
   A language in NEITHER table is never auto-installed. nil publishes no release
-  assets at all, and ruby-lsp needs a source-compiled ruby these images have no
+  assets, and ruby-lsp needs a source-compiled ruby these images have no
   toolchain for — both are recorded as unreachable rather than silently missing.
 end note
 
@@ -149,7 +149,7 @@ note top of BACKENDS
   **What that cost.** opencode and cursor opened
   on sbx with every server installed and none
   configured — indistinguishable from a harness
-  with no code intelligence at all.
+  with no code intelligence.
 end note
 
 note right of SEED

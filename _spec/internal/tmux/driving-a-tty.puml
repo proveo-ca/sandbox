@@ -6,10 +6,10 @@ skinparam noteTextAlignment left
 '
 ' ── THE AGENTS ONLY EXIST AT A TTY ─────────────────────────────────────────
 ' Every harness proveo runs is an interactive terminal program. Pipe its stdout
-' and it behaves differently or not at all, so an e2e suite that captured output
+' and it behaves differently, or refuses to run, so an e2e suite that captured output
 ' the ordinary way would be testing a mode no operator ever uses. tmux gives the
 ' tests a real terminal to drive, which is the only way the interactive paths —
-' the choice form, the login prompt, ptyproxy — are reachable from a test at all.
+' the choice form, the login prompt, ptyproxy — are reachable from a test.
 '
 ' ── THE PANE IS NOT THE RECORD ─────────────────────────────────────────────
 ' Learned the hard way, and it is the reason assertions read a TRANSCRIPT rather

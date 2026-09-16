@@ -13,7 +13,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 '                         ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL — 15 vars
 '                         from localModelArgs. `--local-model` was accepted on
 '                         the command line and then did NOTHING: the sandbox
-'                         backend has no LocalModel field at all.
+'                         backend has no LocalModel field.
 '   PROVEO_EGRESS_MODE    the tier the agent and entrypoint-lib.sh both read.
 '
 ' Three suite failures, one cause: TestHelloWorldE2E reported
@@ -27,7 +27,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' `sandbox.Input.AgentEnv` carries it into cfg.Env, so both renderings read one
 ' decision. ONLY `-e KEY=VALUE` pairs cross: the rest of AgentArgs is docker
 ' topology (--network, --dns, --add-host) that means nothing to a sandbox, and
-' the sidecar environment was never in AgentArgs at all — it lives in the
+' the sidecar environment was never in AgentArgs — it lives in the
 ' sidecar commands. That is why the fix names a ROUTE rather than enumerating
 ' the 42 variables the old grep found; they are not all agent-facing.
 '
@@ -145,7 +145,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' Prompt detection reads the TUI's own frame rather than proveo's entrypoint
 ' banner: the banner is printed BEFORE the agent starts, so a session can be
 ' fully up without it being the last thing said — and the stock sbx image never
-' prints it at all, which the ladder's rung 0 needs.
+' prints it, which the ladder's rung 0 needs.
 '
 ' PROVEO_IDLE_TARGETS takes a comma-separated list (default: claudecode alone).
 ' Sweeping matters because this failure has only ever been reported on ONE
@@ -326,7 +326,7 @@ note bottom of CLI
   path over virtiofs, the cwd is that path, and the user is the image's own. There
   is no flag to choose a container path, so proveo home travels as a workspace —
   and a bind NESTED under home, the gh config at ""/proveo-home/.config/gh"",
-  cannot be reproduced at all and is dropped.
+  cannot be reproduced and is dropped.
 
   //The HOME redirect that used to be described here is gone.// It was written for
   the docker backend, where proveo runs the agent as the HOST's uid; sbx runs its
@@ -378,7 +378,7 @@ note bottom of KIT
 
   What v0.39 actually rejected in the shipped Kit was narrower than either claim:
   ""image"" (belongs under ""sandbox"") and ""credentialsEnv"" (replaced by
-  ""credentials[]"") are not fields of ""spec\.SpecFile"" at all.
+  ""credentials[]"") are not fields of ""spec\.SpecFile"".
 
   **""sandbox.entrypoint"" is read from the IMAGE**, not restated per def
   (""docker image inspect … .Config.Entrypoint""): the two would drift the moment a
@@ -449,7 +449,7 @@ note right of SEC
   | ""--credentials broker"" (claudecode's default) | ""sbx secret set"" host-side; the name is listed in the Kit's ""credentialsEnv"" and the value never enters argv, the env, or the VM filesystem |
   | ""--credentials forward"" (cursor's only mode)  | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
 
-  cursor cannot use the brokered path at all: it pins TLS to "".cursor\.sh"" /
+  cursor cannot use the brokered path: it pins TLS to "".cursor\.sh"" /
   "".cursor\.com"", so header injection has nothing to inject into. Forwarding
   on the sandbox backend therefore has to match what the docker path already
   does for it, or cursor would reach the agent with no usable key — the
@@ -547,14 +547,14 @@ note as Memory #F4F9FB
   **The share is PER-sandbox, and nothing adds them up.** Each limit binds on its
   own, so N sandboxes ask for N×50% of a machine that has 100% and only the host
   notices. Measured: a 48 GiB host whose daemon reports 23.5 GiB gives ""12031m""
-  each — four of those is 47 GiB, and ""--cpus"" is never passed at all, so every
+  each — four of those is 47 GiB, and ""--cpus"" is never passed, so every
   sandbox also believes it owns all 14 cores.
 
   So the divisor is stated rather than assumed:
     * ""PROVEO_SBX_INSTANCES"" — how many are meant to coexist. Shares then sum to
       the machine instead of to a multiple of it (n=4 → ""6015m"").
     * ""PROVEO_SBX_MEMORY"" — the cap outright, skipping the derivation entirely.
-      It is the only one that works when the daemon cannot be read at all
+      It is the only one that works when the daemon cannot be read
       (""8g"" → ""8192m"").
 
   Neither set leaves the historical half exactly as it was: nobody who set
@@ -686,7 +686,7 @@ end note
 
 note top of SBX
   ""Version"", ""SandboxList"", ""SecretList"" and
-  ""TemplateList"" had no deadline at all until
+  ""TemplateList"" had no deadline until
   this pass. ""Version"" is the one that mattered:
   ""sbx.Available()"" hits it before every launch.
 end note

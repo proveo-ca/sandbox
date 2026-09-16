@@ -155,13 +155,13 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '
 ' Clone cannot move the proveo home. SplitNested only lifts binds nested UNDER
 ' the repository, the home is not one, and it has to stay a host bind or it
-' would not persist at all — persisting is its whole job. So the durable root
+' would not persist — persisting is its whole job. So the durable root
 ' IS a virtiofs passthrough, on both clone and non-clone runs.
 '
 ' Which is why step 2 does NOT run the toolchain out of it. Tools install on the
 ' agent's own disk and are copied across at the edges, the same shape resume
 ' state already uses — one sequential restore into a fresh VM, a delta save at
-' teardown, and no exec crossing virtiofs at all.
+' teardown, and no exec crossing virtiofs.
 '
 ' One thing on the host still writes that tree: `proveo clean --tools`. Its
 ' liveness gate could not see an sbx run, because that backend has no egress
@@ -176,7 +176,7 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' never runs for it. The set is ordered as the manifest declares it, so what
 ' vanished was whichever subtree came last — cursor's whole `.cursor` tree,
 ' including the mcp.json step 3 exists to persist. It restored and saved
-' `.claude` perfectly while doing nothing at all for the entry beside it, which
+' `.claude` perfectly while doing nothing for the entry beside it, which
 ' is the shape of failure that reads as "persistence is flaky".
 '
 ' ── 7a · THE FOUR TRAPS IN THE TOOL HOME ITSELF ───────────────────────────
@@ -236,7 +236,7 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '   TOOLS RESTORE BEFORE PROVISIONING. _proveo_tool_path puts the tree on PATH
 '   and every installer step gates on `command -v`, so a restore landing AFTER
 '   provisioning is a run that reinstalls the whole toolchain beside the copy it
-'   just carried in — slower than no persistence at all, and it still passes.
+'   just carried in — slower than no persistence, and it still passes.
 '
 '   CONFIG RESTORES BEFORE THE WIRING. Every configure_* step merges with
 '   setdefault semantics, so a config restored after them loses the operator's
@@ -403,7 +403,7 @@ legend bottom
   ""proveohome\.ConfigSet"" encodes that same declaration host-side and hands it in
   as ""PROVEO_CONFIG_DIRS""; ""proveo_sync_config"" copies it. One declaration, two
   mechanisms: bind mounts on docker, a copy on sbx where a bind nested under
-  proveo home cannot be expressed at all.
+  proveo home cannot be expressed.
   --
   **3b. And the two syncs must not both move the same bytes.** Config prunes every
   sbx VOLUME inside a declared subtree, discovered from ""/proc/mounts"" rather than
@@ -440,7 +440,7 @@ legend bottom
   enabled** — omitting the key is the off state. Each built-in is gated by
   opencode itself (a command on PATH, a config file, or a package.json /
   composer.json dependency), so proveo answers only what opencode cannot: may
-  they run at all. ""configure_opencode_formatter"" sets ""formatter: true"". LANDED.
+  they run. ""configure_opencode_formatter"" sets ""formatter: true"". LANDED.
   --
   ""claudecode"" a COMMAND HOOK: ""PostToolUse"" with an ""Edit|Write"" matcher in
   ""~/\.claude/settings\.json"" — the file ""proveo_install_claude_hooks"" already

@@ -79,7 +79,7 @@ title The topology strip in every selectable state, on both backends
   .
   That is also why the lane count falls 3 -> 2 -> 1 across the row rather than
   3 -> 2 -> 0: the axis runs riskier to safer, and the safest end still has to
-  let the run work. A frame with no lane at all would say the agent cannot think.
+  let the run work. A frame with no lane would say the agent cannot think.
 }
 ..
 {^"Variant S · the sbx backend — the baseline, and sbx as the broker"
@@ -127,7 +127,7 @@ title The topology strip in every selectable state, on both backends
 }
   .
   'broker' names a different party here than it does on docker: there is no
-  proveo egress layer at all, so proveo steps aside and SBX brokers — the value
+  proveo egress layer, so proveo steps aside and SBX brokers — the value
   never reaches the agent either way, but the hop in the picture is sbx's.
   .
   cursor declares credentials [forward] alone, so its credentials row has one
@@ -147,7 +147,7 @@ title The topology strip in every selectable state, on both backends
   . | . | . | . | - - ▸ <:cloud:>
   () host | . | [ <:key:> <:speech_balloon:> opencode ] | ═══════▸ | - - ▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | . | - - ▸ <:cloud:>
-  **open · forward — BYPASS: no MITM at all, and the real key in the container**
+  **open · forward — BYPASS: no MITM, and the real key in the container**
 }
 }
 {
@@ -287,7 +287,7 @@ title The topology strip in every selectable state, on both backends
   f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> x2, and ───× dark
   f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> x2, and ───× dark
 }
-{^"asked — review — NO mote at all: zero open lanes, so nothing is drawn moving"
+{^"asked — review — NO mote: zero open lanes, so nothing is drawn moving"
   f1 | () host | . | [ def ] | ───▸ | () egress | <:cloud:>  (still, by design)
   f2 | () host | . | [ def ] | ══▸ | (?) egress | <:cloud:>
   f3 | (?) host ◂─ ─ | ─ ─ | ─ ─ [ def ] | ─ ─ | (?) egress | <:cloud:>
@@ -323,7 +323,7 @@ title The topology strip in every selectable state, on both backends
   while you answer. That return lane is the whole point of the tier.
   .
   deny-all's '×' has no return lane because there is nothing to ask. It is a
-  host-wide baseline with no consent mechanism at all, so a refusal there is the
+  host-wide baseline with no consent mechanism, so a refusal there is the
   end of the story rather than the start of a question — and it refuses
   everything EXCEPT the Kit lane, which is what keeps the provider reachable.
   .

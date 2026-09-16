@@ -80,7 +80,7 @@ skinparam noteTextAlignment left
 ' diagnosis. PROVEO GUARANTEES EXEC FOR THE HOOKS IT SHIPS AND NOTHING FOR THE
 ' REST: `proveo_install_claude_hooks` registers its own cwd-guard as the command
 ' `bash /opt/claudecode/defaults/hooks/cwd-guard.sh`, so it never needs an exec
-' bit at all — while a workspace hook declared as a bare path does. Nothing
+' bit — while a workspace hook declared as a bare path does. Nothing
 ' chmods a workspace hook, nothing validates it, and nothing reports that it
 ' will not run until Claude Code tries.
 '

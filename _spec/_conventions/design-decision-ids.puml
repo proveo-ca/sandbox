@@ -80,7 +80,7 @@ note bottom of DEAD
   So the source is the only authority, and every definition below is
   //derived from the prose that cites it//. That prose is quoted closely
   rather than re-imagined: an id whose meaning is reconstructed loosely is
-  worse than no id at all, because it silently re-labels a decision
+  worse than no id, because it silently re-labels a decision
   nobody made.
 
   Four ids —​ **D2 · C2 · C4 · C7** —​ were cited by prose that has since
@@ -97,7 +97,7 @@ note right of D1
   ""builder"" records each network and sidecar together with the command
   that removes it, instead of a second hand-synced cleanup list — the
   original form was a silent container-leak hazard, because forgetting an
-  entry produced no error at all.
+  entry produced no error.
 
   Same principle on the other side: ""attachLocalModel"" is shared by all
   three modes and ""localModelArgs"" is one superset each harness consumes

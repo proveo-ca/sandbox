@@ -74,7 +74,7 @@ skinparam noteTextAlignment left
 '   Storage directories · Directory permissions · Disk space · Version match
 '   Socket · SSH client config · Authentication
 '
-' Several of those proveo never had at all. Its virtualisation hint names
+' Several of those proveo never had. Its virtualisation hint names
 ' nested virtualisation and VDI; proveo's paraphrase never did, and could only
 ' have gone stale. `-o json` yields `checks[]` of {name, status, detail, hint}
 ' — the same shape as proveo's own `Prereq`, so rendering sbx's verdict costs a
@@ -112,7 +112,7 @@ skinparam noteTextAlignment left
 '
 '   BlocksInstall  PROVEO'S. Conditions that decide whether downloading ~100 MB
 '                  is worth it, and that must be known BEFORE sbx exists to be
-'                  asked: the platform having no asset at all, and e2fsprogs —
+'                  asked: the platform having no asset, and e2fsprogs —
 '                  the release's install.sh checks for `mkfs.ext4` and exits 2
 '                  before copying a single file.
 '   BlocksRun      SBX'S. Asked via `DiagnoseAt` AFTER the install, rendered

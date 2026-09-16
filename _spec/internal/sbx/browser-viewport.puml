@@ -151,7 +151,7 @@ note over OP, RUN
   ""claude-in-chrome"" points the OTHER way: the agent reaches OUT to the operator's
   own Chrome through a relay on the host, named as ""host.docker.internal"" — which
   only the docker backend's bridge network resolves, and which a sandbox VM
-  cannot name at all. Published ports run host→sandbox, so they cannot serve it.
+  cannot name. Published ports run host→sandbox, so they cannot serve it.
 
   Nothing leaves this machine: sbx binds published ports on loopback (127.0.0.1
   and ::1) only. The exposure is a CDP endpoint with full control of that

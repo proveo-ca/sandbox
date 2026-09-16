@@ -61,7 +61,7 @@ note right of TIERS
   So the house rules ADD to a repository's rules rather than
   competing with them, and a project can overrule the house. Writing
   them into the workspace to win the ranking was rejected: it mutates
-  the operator's tree, and cannot apply at all where an ""AGENTS.md""
+  the operator's tree, and cannot apply where an ""AGENTS.md""
   already exists.
 end note
 
@@ -89,7 +89,7 @@ note bottom of CLI
   verbosity switch; the only dial is ""codex exec --json"", which emits
   each event as JSONL. A caller's own ""--json"" is a parse contract and
   wins. So verbose here buys structured events in headless runs and
-  nothing at all interactively — which the preamble says out loud
+  nothing interactively — which the preamble says out loud
   rather than implying it bought something.
 end note
 

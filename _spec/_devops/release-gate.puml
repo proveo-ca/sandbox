@@ -13,7 +13,7 @@ skinparam noteTextAlignment left
 ' A proveo sandbox has docker but NOT sbx: the CLI is in no proveo image, and
 ' /dev/kvm does not exist there with no kvm module loaded. So the sbx-backed
 ' checks cannot run where the rest of them do, and a release gate that lives
-' only in one place would either skip them or refuse to run at all.
+' only in one place would either skip them or refuse to run.
 '
 ' IN-SANDBOX (or any host with docker):
 '   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/

@@ -37,7 +37,7 @@ skinparam noteTextAlignment left
 ' 1. THERE ARE TWO ENFORCEMENT MODELS, NOT ONE WITH A SWITCH.
 '    docker+egress: a mitm proxy chained to Squid, governed by proveo's own
 '    tiers `open` / `allowlist` / `review` (internal/egress).
-'    sbx: NO proveo proxy at all. `posture.EnforcedBy(true)` prints
+'    sbx: NO proveo proxy. `posture.EnforcedBy(true)` prints
 '    "sbx — Kit network allowlist + credential proxy (proveo runs no Squid or
 '    MITM)". The run log says it in those words.
 '
@@ -63,7 +63,7 @@ skinparam noteTextAlignment left
 '    (provider.go:157), read only by `internal/egress` (egress.go:25) on its
 '    way to `StageSquidConfig`. The embedded config reaches `dockeregress.Exec`
 '    (run.go:847) and nothing else. `internal/backend/sandbox` imports no
-'    egress package at all, and `run.hopOf` (topology.go:79) returns
+'    egress package, and `run.hopOf` (topology.go:79) returns
 '    "sbx proxy" before it can reach "mitm + squid". So on sbx there is no
 '    Squid hop to widen, narrow or blame — which is WHY a Squid ACL form could
 '    leak into a glob matcher and stay invisible for the life of that backend.
@@ -291,7 +291,7 @@ note bottom of REV
 end note
 
 note bottom of MITM
-  **Q3 — can it observe on sbx at all?**
+  **Q3 — can it observe on sbx?**
   Keeping mitm as observability needs a seat on
   a backend that runs no proveo proxy. Chaining
   into sbx's own proxy is SKETCHED in

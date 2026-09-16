@@ -62,7 +62,7 @@ participant "host Ollama\nhost.docker.internal:11434" as OLLAMA <<host>>
 participant "agent container" as CTR <<host>>
 
 TEST ARROW_MAIN WS : copy samples, ""git init""\nDELETE the dangling .env symlink
-TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n(no ""PROVEO_EGRESS_ENV_FILE"" — no credential at all)"
+TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n(no ""PROVEO_EGRESS_ENV_FILE"" — no credential)"
 TMUX ARROW_MAIN RUN : PTY — the harness needs ""docker run -it""
 RUN ARROW_MAIN CTR : plain bridge + ""ANTHROPIC_BASE_URL"" → Ollama
 CTR ARROW_MAIN CTR : entrypoint prints\n" ""PROVEO_MODELS main=… small=…"" "
@@ -133,7 +133,7 @@ note over TEST
   instead of whether the loop closed, which is proveo's.
 
   **One harness is exempt, by declaration.** ""opencode run""
-  prints its launch line and then nothing at all — not the
+  prints its launch line and then nothing — not the
   reply, not even its own logs despite ""--log-level DEBUG
   --print-logs"". Confirmed from both the pane and the teed
   transcript, so ""repliesOnStdout"" records it in the table
@@ -148,7 +148,7 @@ note over RUN
   it to a cloud provider made the lane hostage to a credit
   balance, and an empty balance is indistinguishable from a
   broken mount: both read as "no file on the host". **No
-  provider credential is supplied at all**, so the run is
+  provider credential is supplied**, so the run is
   provably credit-free rather than merely cheap.
 
   ""open"" + ""forward"" is the only posture that reaches the

@@ -49,7 +49,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' (proxy_tools 0.1.0) and it is pure Python, so setuptools alone builds its
 ' wheel. gcc-14, g++-14, cpp-14, binutils, libstdc++-dev, libgcc-dev and
 ' linux-libc-dev were ~190 MB shipped to an agent image for a compiler nothing
-' invoked. Verified by building both venvs on a base with no compiler at all
+' invoked. Verified by building both venvs on a base with no compiler
 ' before the removal landed.
 '
 ' SERENA GETS ITS OWN VENV. cecli has no native LSP client, so its code
@@ -73,7 +73,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' plus `usermod -aG docker` for both the harness user and `agent`, because the
 ' socket is created root:docker) and the
 ' `com.docker.sandboxes.start-docker="true"` LABEL, which is what sbx reads to
-' decide whether to start a daemon at all; without it sbx records `dind: false`
+' decide whether to start a daemon; without it sbx records `dind: false`
 ' at container creation and `docker version` answers "Cannot connect to the
 ' Docker daemon" beside Compose files the agent can plainly read.
 '

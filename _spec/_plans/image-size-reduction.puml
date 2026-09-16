@@ -569,7 +569,7 @@
 ' (b) `LABEL security.hardened=true` IS FALSE IN EVERY HARNESS. proveo-harden's own
 '     header says every layer that installs extras re-runs the pass; the last
 '     binary-adding layers never do — cecli:105, opencode:69 and :97, cursor:73 and
-'     :105, claudecode/mcp:90,112,120,135,178 — and solidity never runs it at all
+'     :105, claudecode/mcp:90,112,120,135,178 — and solidity never runs it
 '     while inheriting the label.
 ' (c) UNPINNED INSTALLS the repo's own doctrine (_spec/_devops/agent-version-pin.puml)
 '     forbids: all six LSP servers (base-node-lsp:5-11), both `go install ...@latest`

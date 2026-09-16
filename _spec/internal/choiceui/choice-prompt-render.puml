@@ -50,7 +50,7 @@ skinparam noteTextAlignment left
 '
 ' It exists because the picker could only ever explain what it had taken AWAY.
 ' Reason is written when something is gated off, so the two add-ons that were
-' available and ticked carried no text at all, and the operator was left to
+' available and ticked carried no text, and the operator was left to
 ' infer "browser" and "docker (sandbox)" from their names.
 '
 ' The block is drawn BELOW the row, never appended to it: the row is already ~70
@@ -96,7 +96,7 @@ skinparam noteTextAlignment left
 ' rests on in a MULTI row, where the warn style used to erase it.
 '
 ' ── THE REASON HAS ONE HOME, AND IT IS THE HELP BLOCK ──────────────────────
-' It is no longer drawn on the row at all. Inline it trailed the options clipped
+' It is no longer drawn on the row. Inline it trailed the options clipped
 ' to whatever width was left, which is how the locked sbx egress row's runnable
 ' command — the one statement of how to change a host-wide baseline — came to
 ' exist nowhere in full.

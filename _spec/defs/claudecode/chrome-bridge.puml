@@ -247,7 +247,7 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' every turn. The one-time onboarding dialog IS marked seen — it blocks on a
 ' keypress no automation answers, and it carries no posture.
 '
-' Before the browser integration is wired at all — BEFORE `--chrome` and before
+' Before the browser integration is wired — BEFORE `--chrome` and before
 ' CLAUDE_CODE_ENABLE_CFC, so neither overrides it — Claude Code asks whether the
 ' session's OAuth scopes contain any of BrowserScopes, and logs
 '
@@ -399,7 +399,7 @@ end note
 note as SbxViewport #F4F9FB
   **SUPERSEDED 2026-09-03.** This used to claim the sandbox backend could only
   take the OTHER route — that ""host.docker.internal"" was docker-bridge-only
-  and a sandbox VM could not name it at all. Measured false: see "ENABLED ON
+  and a sandbox VM could not name it. Measured false: see "ENABLED ON
   sbx" above. host.docker.internal resolves inside an sbx sandbox and reaches
   the host's loopback, so this same relay now serves the sbx backend too.
 

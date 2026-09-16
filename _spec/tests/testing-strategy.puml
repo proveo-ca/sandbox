@@ -59,7 +59,7 @@ title Testing strategy — four layers, speed traded for fidelity
 '    per-harness case. The old spelling matched nothing, so `eval ""` succeeded
 '    and the call died `command not found` (127) — which under `set -e` took the
 '    whole suite down after that phase. Every phase from Workspace onward never
-'    ran at all.
+'    ran.
 '
 ' ── AND ONE THAT REPORTED FAIL WHILE TESTING FINE ──────────────────────────
 ' The inverse shape, and it reads as a broken product rather than a broken test.
@@ -182,7 +182,7 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ── A FIFTH VACUOUS SHAPE: ZERO OF N, REPORTED AS ALL OF N ──────────────────
 ' The four above are bash. This one is Go, and the same shape. The two backends
 ' keep a secret out of the launch plan by different means: docker declares the
-' `proveo-brokered` sentinel in argv, while sbx puts nothing there at all and hands
+' `proveo-brokered` sentinel in argv, while sbx puts nothing there and hands
 ' values to `sbx secret set` on stdin. Read blind, an sbx plan satisfied the
 ' sentinel loop by containing no keys to check — zero of N, reported as "all
 ' forwarded". assertPlanIsolation now branches on isSbxArgv: on the docker branch
@@ -515,7 +515,7 @@ title Testing strategy — four layers, speed traded for fidelity
 '      isSbxArgv. A plan scraper that finds no `docker run` has scraped a
 '      sandbox plan; read that plan instead of failing. Note what the rule did
 '      to that branch: `--print` renders whichever backend resolves, so the
-'      DOCKER arm now fires only on a host that cannot run sbx at all. It is
+'      DOCKER arm now fires only on a host that cannot run sbx. It is
 '      kept because that host is real, not because the arm is exercised here.
 ' The third technique this list used to carry — skip on the other rendering
 ' where a mechanism exists in one only — is not a technique any more. It is
@@ -646,7 +646,7 @@ note right of L4
   **Two lanes, keyless.** ""e2e_test.go"" runs
   opencode on a local Ollama model and
   ""hello_world_test.go"" runs all three targets
-  on one, supplying no provider credential at all.
+  on one, supplying no provider credential.
   Both assert side effects, not the model's prose.
 end note
 
@@ -708,7 +708,7 @@ end note
 
 note as VACUOUS5
   **Zero of N reads as all of N.** An ""sbx"" plan
-  carries no key in argv at all, so a blind sentinel
+  carries no key in argv, so a blind sentinel
   loop checked nothing and reported success. The
   docker branch now fails when it declared no key.
 end note

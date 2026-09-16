@@ -9,7 +9,7 @@ title cursor paradigm — policy-gated autonomous loop (layered enforcement)
 ' PROXY COMPATIBILITY is two changes, not one. Beside the nested
 ' `network.useHttp1ForAgent` written into cli-config.json, the entrypoint also
 ' exports NODE_USE_ENV_PROXY=1 — the config tells cursor-agent HOW to speak, the
-' env var is what makes node honour HTTP_PROXY/HTTPS_PROXY at all. Both are
+' env var is what makes node honour HTTP_PROXY/HTTPS_PROXY. Both are
 ' applied only when one of the four proxy variables is actually set.
 '
 ' A CALLER'S OWN --output-format WINS. It is a parse contract, not a preference:

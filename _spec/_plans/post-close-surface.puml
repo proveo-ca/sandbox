@@ -95,7 +95,7 @@ note bottom of HANG
   unattended run nobody is watching. Blocking on
   input turns a finished run into a hung terminal
   and a hung CI job, so degrading to the stream
-  is a precondition for building this at all.
+  is a precondition for building this.
 end note
 
 note bottom of RECIPE

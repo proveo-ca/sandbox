@@ -109,7 +109,7 @@ note right of RD
   itself, the root "".git"", and a handful of root FILES — every root DIRECTORY
   except "".git"" and the harness config dir was simply absent. In this fleet
   that hid ""_spec/"" from the agent: the specs it is asked to read and maintain
-  were not in the container at all.
+  were not in the container.
 
   ""rootFiles"" cannot express this. Each entry is bind-mounted as a single file,
   so a directory needs its own list with its own rule.

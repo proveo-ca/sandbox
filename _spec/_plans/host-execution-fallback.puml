@@ -34,7 +34,7 @@ skinparam noteTextAlignment left
 '
 ' If docker+egress is retired (_spec/_plans/retire-docker-egress.puml), the
 ' escape hatch stops meaning "a different container" and starts meaning "no
-' sandbox at all". That is not a smaller promise; it is a CATEGORICALLY
+' sandbox". That is not a smaller promise; it is a CATEGORICALLY
 ' DIFFERENT one, and it deserves its own file rather than a line in a
 ' retirement plan whose subject is something else.
 '

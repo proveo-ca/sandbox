@@ -82,7 +82,7 @@ skinparam noteTextAlignment left
 '
 ' WHAT EACH STEP IS ACTUALLY TESTING, because a green result proves little on
 ' its own:
-'   step 1  that a resident sk key can be made at all on this hardware
+'   step 1  that a resident sk key can be made on this hardware
 '   step 3  THAT A TOUCH AND A PIN ARE DEMANDED. If either is silent, F1 has
 '           failed and the experiment is over.
 '   step 4  THAT `verify-required` IS ENFORCED BY THE CHECKER. Repeat it with a

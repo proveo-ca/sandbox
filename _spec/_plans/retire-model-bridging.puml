@@ -29,7 +29,7 @@ skinparam noteTextAlignment left
 '    onward the seed pinned the model to nothing — and pinned it in the DURABLE
 '    HOME, where it outlives the run. "The agent's own default applies" was the
 '    recorded answer; what actually applied was "". FIXED: the seeds name no
-'    model at all, and ""plan""/""build"" omit their own so a primary agent
+'    model, and ""plan""/""build"" omit their own so a primary agent
 '    inherits the global (opencode.ai/docs/agents). The file with a real default
 '    baked in, ""defaults/opencode.json"", is NOT the one seeded — see the open
 '    item at the bottom.
@@ -99,7 +99,7 @@ skinparam noteTextAlignment left
 ' one's.
 '
 ' ── WHAT WAS DECIDED, AND WHAT LANDED ──────────────────────────────────────
-'   Q1  ANSWERED: the agent's own default. proveo sets no model env at all.
+'   Q1  ANSWERED: the agent's own default. proveo sets no model env.
 '   Q2  DEFERRED: "we will revisit for e2e, full local model support". Nothing
 '       on the PROVEO_LOCAL_MODEL path was touched.
 '   Q3  ANSWERED: Roles survive as the CREDENTIAL vocabulary.

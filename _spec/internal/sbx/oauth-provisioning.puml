@@ -54,7 +54,7 @@ skinparam noteTextAlignment left
 ' the session — any one of those and proveo says nothing.
 '
 ' ── THE ONE REFUSAL, AND THE ONE THAT WAS REMOVED ──────────────────────────
-' A subscription harness with NO credential at all is refused on this backend
+' A subscription harness with NO credential is refused on this backend
 ' before launch. The agent cannot complete a login here: it reaches the prompt,
 ' exits, and the sandbox stops with it — which surfaces ~30s later as an unrelated
 ' 137. Refusing costs nothing; launching costs a minute of image load to reach a
@@ -159,7 +159,7 @@ note bottom of SBXSTORE
 end note
 
 note bottom of LOGIN
-  **No credential at all is refused up front.**
+  **No credential means refusal up front.**
   The agent reaches its login prompt, exits, and
   the sandbox stops with it — surfacing ~30s
   later as an unrelated 137, after a minute of

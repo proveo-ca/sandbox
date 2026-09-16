@@ -19,7 +19,7 @@
 ' call sites, carrying 23 different emoji, and plain mode DROPPED that
 ' decoration rather than degrading it — so a log lost the only thing
 ' distinguishing an image line from a credential line. Second, the fancy
-' rendering was never a rendering: line() emitted no ANSI at all. The palette
+' rendering was never a rendering: line() emitted no ANSI. The palette
 ' had been sitting in this package since the banner needed it, consumed only by
 ' choiceui and WriteBrandBanner, while the stream that carries most of what an
 ' operator reads printed monochrome.

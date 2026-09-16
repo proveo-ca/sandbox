@@ -87,7 +87,7 @@
 '   U+FE00-FE0F    variation selectors — the disagreement itself
 '   U+1F000-1FAFF  the pictographic planes, where most offenders live
 '   U+200D         zero-width joiner — the sequence it builds has no
-'                  predictable width at all
+'                  predictable width
 '   U+E0020-E007F  tag characters — invisible, and they change what the rune
 '                  before them draws
 '   Emoji_Presentation=Yes below U+1F000, as ranges from Unicode's
@@ -158,7 +158,7 @@
 ' ── THE TIER IS ONE TYPE NOW ──────────────────────────────────────────────
 ' Three packages had their own idea of how decorated a terminal is:
 ' posture.GlyphMode (three values, read from PROVEO_GLYPHS), choiceui.GlyphTier
-' (two), and nothing at all in ui, which had only a boolean Plain. A design
+' (two), and nothing in ui, which had only a boolean Plain. A design
 ' language with three notions of its own tier is not one language, so ui owns
 ' the type and the other two alias it. run/topology.go's stripGlyphs — the
 ' function that translated between two of them — is gone.

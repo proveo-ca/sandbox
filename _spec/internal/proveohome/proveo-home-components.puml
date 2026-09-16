@@ -51,7 +51,7 @@ note right of PH
   agent as an arbitrary HOST uid (""--user 501:20""), so HOME
   must not depend on the image's baked passwd entry.
 
-  **sbx sets no HOME at all.** It runs its own agent user
+  **sbx sets no HOME.** It runs its own agent user
   (uid 1000), mounts the session volumes under that user's
   home and has its credential proxy write ""\.credentials\.json""
   there. Redirecting HOME orphaned all three: the agent read

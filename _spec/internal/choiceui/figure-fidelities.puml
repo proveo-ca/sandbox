@@ -167,7 +167,7 @@ title The four fidelities of one figure, and how each was measured
 }
   .
   The pane is the payoff: at 112 columns the figure sits in the margin the rows
-  never use, so it costs no height at all and the fullscreen case needs no
+  never use, so it costs no height and the fullscreen case needs no
   budget. Below that it falls back to B's footer block.
   .
   The digest is what makes the ladder honest. A one-row sentence carries the

@@ -117,7 +117,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' when a copy fails — which is what makes the failure visible to save's caller
 ' and to the tests. Let that status escape and a single failed file copy aborts
 ' the startup command, so sbx reports "failed to run sandbox container" and NO
-' sandbox comes up at all. Losing yesterday's transcripts must never be the
+' sandbox comes up. Losing yesterday's transcripts must never be the
 ' reason today's run cannot start; the function has already said what went wrong
 ' on stderr.
 '

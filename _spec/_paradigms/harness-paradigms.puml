@@ -41,7 +41,7 @@ note bottom of CE
 end note
 
 note top of CC
-  **Why paradigms are specified at all.** Entrypoints,
+  **Why paradigms are specified.** Entrypoints,
   seeded configs and steering files are optimized per
   harness. A change to any def must preserve its paradigm
   — otherwise the defaults drift into a fifth, unstated
@@ -69,7 +69,7 @@ note as AgentsMD #F4F9FB
     ""@AGENTS\.md"" import. An import, not a copy: it is re-read every run
     where a copy would go stale, and a symlink needs Administrator on
     Windows.
-  * **cecli** auto-loads nothing at all — ""CONVENTIONS\.md"" is a naming
+  * **cecli** auto-loads nothing — ""CONVENTIONS\.md"" is a naming
     habit, not a discovered file — so the entrypoint passes whichever of
     ""AGENTS\.md"" / ""CONVENTIONS\.md"" exists via ""--rules"".
 

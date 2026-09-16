@@ -62,7 +62,7 @@ skinparam noteTextAlignment left
 ' and 40ms sits mid-band: long enough that a real Alt-chord, or a CSI split
 ' across two reads, still assembles; short enough to feel instant.
 '
-' Waiting at all costs a goroutine. `pumpIn` used to BLOCK in `Read`, so `held`
+' Waiting costs a goroutine. `pumpIn` used to BLOCK in `Read`, so `held`
 ' was revisited only when more bytes arrived. Press Esc alone and it sat there
 ' indefinitely; press one more key and the buffer became ESC+key, which `escEnd`
 ' calls complete at two bytes and forwarded as an ALT-CHORD. Reported by the
@@ -132,7 +132,7 @@ skinparam noteTextAlignment left
 '
 ' THE ENCODINGS 1005/1006/1015/1016 ARE PARSED AND DELIBERATELY DO NOT LATCH.
 ' They change a report's SHAPE, never whether one is sent — a terminal emits
-' nothing at all for `?1006h` alone. And many TUIs reset the REPORTING modes on
+' nothing for `?1006h` alone. And many TUIs reset the REPORTING modes on
 ' exit while leaving the ENCODING set, so treating an encoding as "on" would
 ' latch mouse forwarding on forever after the TUI exits and reintroduce exactly
 ' the stray-motion corruption the captured trace below pins. This is the
@@ -161,7 +161,7 @@ skinparam noteTextAlignment left
 ' cursor does not emit `?1002h`, so the terminal never hands over, keeps native
 ' selection and scrollback, and proveo's filter has nothing to drop. cursor was
 ' unaffected not because proveo treated it differently but because it never
-' entered this path at all.
+' entered this path.
 '
 ' One inherent consequence, which is NOT a proveo bug: while a TUI holds mouse
 ' tracking, native terminal drag-select stays off. Shift — Option on macOS
@@ -347,7 +347,7 @@ note as N_MOUSE_WHY
   opencode opens ""?1049h ?1002h ?1006h"": the
   terminal hands the mouse over, so native
   select AND scrollback stop. cursor sends no
-  ""?1002h"" and never entered this path at all.
+  ""?1002h"" and never entered this path.
 end note
 
 note as N_SPLIT_UNIT

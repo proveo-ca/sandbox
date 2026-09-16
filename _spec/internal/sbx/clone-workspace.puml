@@ -216,7 +216,7 @@ note bottom of NESTED
   dropped.** sbx clones only into an empty dir,
   so a nested mount arriving first left the agent
   in a root-owned directory holding nothing but
-  ""reports/"" and no clone at all.
+  ""reports/"" and no clone.
 end note
 
 note bottom of SNAP

@@ -27,7 +27,7 @@ skinparam noteTextAlignment left
 '
 ' The fix separates the two jobs the one line was doing: probe writability with
 ' the redirect scoped to a SINGLE command (`: >>"$lock" 2>/dev/null`, returning
-' early when it fails), then take fd 9 without touching fd 2 at all.
+' early when it fails), then take fd 9 without touching fd 2.
 '
 ' _proveo_unlock_installs is the mirror image and must NOT carry `2>/dev/null`
 ' for the same reason. It needs no guard either: closing an fd that was never
@@ -67,7 +67,7 @@ skinparam noteTextAlignment left
 '   package.json, NO go.mod   the seed reaches the node block within a second,
 '                             aborts before the agent session opens, and sbx
 '                             reports "failed to run sandbox container" — no
-'                             sandbox at all.
+'                             sandbox.
 '   package.json AND go.mod   the Go block runs first (_install_go, then
 '                             `go install gopls@latest`), which takes ~15-20s.
 '                             The container is up and the AGENT IS LIVE by the

@@ -194,7 +194,7 @@ skinparam noteTextAlignment left
 ' would be a second source of truth that drifts on the next release. The darwin
 ' tarball needs no installer because it IS the prefix, and it ships
 ' libexec/mkfs.ext4, so the e2fsprogs prerequisite the Linux tarball leaves to
-' the host does not arise there at all.
+' the host does not arise there.
 '
 ' ── THE PACKAGE IS OFFERED; THE REPOSITORY IS ONLY NAMED ───────────────────
 ' Packaged is EXECUTABLE — the release's own .deb or .rpm through the host's
@@ -406,7 +406,7 @@ note bottom of DAEMON
   **The only check about the backend.** Everything
   else interrogates the CLI. A current sbx in front
   of a daemon that never came up is exactly the
-  shape that produces a run with no output at all;
+  shape that produces a run with no output;
   ""server\.state"" was added in 0.42 to say so.
 end note
 @enduml

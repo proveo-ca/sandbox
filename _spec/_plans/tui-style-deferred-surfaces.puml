@@ -39,7 +39,7 @@
 ' quietly. And on the sbx backend most of what it reports is already sbx's job:
 ' the kit seeds the sandbox, and sbx owns the credential path.
 '
-' THE DECISION IT WAITS ON. Whether prep survives sbx at all. If the kit
+' THE DECISION IT WAITS ON. Whether prep survives sbx. If the kit
 ' absorbs the seeding, the preamble does not need a design language — it needs
 ' deleting, and the facts it prints move to the host stream that already has one.
 '

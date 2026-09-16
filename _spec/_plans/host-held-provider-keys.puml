@@ -124,7 +124,7 @@ skinparam noteTextAlignment left
 '               set — the row this whole thread came from
 '
 ' A SINGLE KEY FOR ALL FOUR IS IMPOSSIBLE, and this tree already said why: the
-' cecli manifest records that "Cursor has no bring-your-own-key path at all".
+' cecli manifest records that "Cursor has no bring-your-own-key path".
 ' `providers: [cursor]` is irreducible, and claudecode is pinned to
 ' `[anthropic]`. The intersection of {claudecode, cecli, opencode} is anthropic.
 '
@@ -207,7 +207,7 @@ skinparam noteTextAlignment left
 '     vertex    -> google-vertex       together  -> togetherai
 '     copilot   -> github-copilot      moonshot  -> moonshotai
 '     fireworks -> fireworks-ai        gmi       -> gmicloud
-'     cursor, sambanova                no models.dev entry at all
+'     cursor, sambanova                no models.dev entry
 ' `cursor` having none is consistent with it having no bring-your-own-key path.
 ' The `sync-providers` skill already exists for this reconciliation.
 '
@@ -398,7 +398,7 @@ legend bottom
   ==
   **Not decided here**: where sbx keeps the bytes (Keychain or a daemon file — unmeasured,
   and it changes the threat model); whether a committed "".env"" should refuse a run; whether
-  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4;
+  ""load_env"" should source dotenvs, given the docker firewall tier and Blocker 4;
   and what a Linux host uses before ""secret-service:"" exists — today ""cmd:"" and ""pass:"".
 end legend
 @enduml

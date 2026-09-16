@@ -24,7 +24,7 @@ skinparam noteTextAlignment left
 ' a malformed allowlist cost nothing visible because nothing was checking.
 '
 ' So E3 is not "retire a skip in one test". It is the precondition for measuring
-' confinement at all, and its priority should be read that way.
+' confinement, and its priority should be read that way.
 '
 ' Also worth naming: this is a HOST-CAPABILITY skip, and all-defs-green.puml's R5
 ' says a skip must declare which kind it is. This one does say so in its message,
@@ -64,7 +64,7 @@ skinparam noteTextAlignment left
 ' Which splits the four claims in two:
 '   2 and 3 are about the SANDBOX — what is mounted, what answers inside it.
 '     Both are readable with `sbx exec` against a sandbox that already exists,
-'     with no pane and no agent session at all.
+'     with no pane and no agent session.
 '   1 and 4 are about PROVEO — which backend it chose, and whether it tore the
 '     VM down. Neither needs a session held open either: 1 is visible in
 '     `proveo run --print` or the run log, and 4 is `sbx ls` after teardown.
@@ -126,7 +126,7 @@ note bottom of TMUX
 end note
 
 note bottom of SBOX
-  **Two claims need no session at all.** What is
+  **Two claims need no session.** What is
   mounted and what answers inside are properties
   of the sandbox, readable once it exists —
   which is why the skip may be a test-shape

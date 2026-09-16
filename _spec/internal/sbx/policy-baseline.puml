@@ -44,7 +44,7 @@ skinparam noteTextAlignment left
 ' of the three did anything. sandbox.Spec derives the Kit allowlist from the
 ' harness capabilities and the detected providers and NEVER consults the tier, so
 ' open and allowlist produce an identical sandbox; review is not supported there
-' at all and falls back to docker. A three-option risk axis on which nothing
+' and falls back to docker. A three-option risk axis on which nothing
 ' moves is worse than no axis: it tells the operator they chose a posture.
 '
 ' ── WHAT ACTUALLY GOVERNS ──────────────────────────────────────────────────

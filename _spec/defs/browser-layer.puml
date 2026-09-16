@@ -21,12 +21,12 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' The symlink below proves it: its `find … -path '*/chromium-*/*'` uses a HYPHEN
 ' so it cannot match the shell. Measured at 1.61.0: chromium 624 MB, headless
 ' shell **334 MB**, ffmpeg 3.3 MB — i.e. a quarter of the layer was installed and
-' then excluded by hand. `--no-shell` stops installing it at all.
+' then excluded by hand. `--no-shell` stops installing it.
 '
 ' The trade, stated so nobody rediscovers it: Playwright >=1.49 PREFERS the shell
 ' for its own headless runs, so a project's `playwright test` falls back to full
 ' Chromium — slower to start, same result — while agent-browser, which drives
-' Chromium over CDP, never wanted the shell at all.
+' Chromium over CDP, never wanted the shell.
 '
 ' The `! ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-*` line in the
 ' same RUN is the point of the flag: a future Playwright that ignores

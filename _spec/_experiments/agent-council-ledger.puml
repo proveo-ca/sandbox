@@ -93,7 +93,7 @@ skinparam noteTextAlignment left
 '                    the switch already exists and defaults to closed
 '   sbx backend      the daemon's host:port must be added to
 '                    `permissions.network.allow`, and published with
-'                    `sbx ports --publish` if it is to be reached at all
+'                    `sbx ports --publish` if it is to be reached
 ' Neither is free: a council ledger is the first thing to argue for opening an
 ' inbound path from every sandbox to a host service, and that argument should be
 ' made explicitly rather than arriving as a dependency.
@@ -108,7 +108,7 @@ skinparam noteTextAlignment left
 '
 ' So the provenance work is not optional decoration on this. The four classes
 ' operator-fingerprint.puml proposes — human-verified, human-present,
-' agent-cert, agent-asserted — are what let a council weigh an entry at all.
+' agent-cert, agent-asserted — are what let a council weigh an entry.
 ' Without them every entry reads as equally authoritative, which is how a
 ' confident wrong claim propagates through three runs instead of one.
 '
@@ -249,7 +249,7 @@ legend bottom
   append-if-head-unchanged, it is the council's audit trail and not its coordinator —
   useful, but a different claim than the one being made for it.
   --
-  **Not decided**: whether a council is wanted at all; whether to adopt MentisDB, which
+  **Not decided**: whether a council is wanted; whether to adopt MentisDB, which
   has been read and not run; and whether this ledger and the attestation ledger should be
   one artifact — tidy, and it would couple two very different blast radii.
 end legend

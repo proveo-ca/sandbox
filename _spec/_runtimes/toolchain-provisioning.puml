@@ -227,7 +227,7 @@ note bottom of T4
   ""$GOPATH/bin"" is ALREADY on PATH ("...and it is required"), and the
   call site discarded that message — the operator read only
   ""WARN: g could not install Go"", naming neither cause nor fix. And
-  ""GOROOT"" is no longer exported by proveo at all: an explicit one
+  ""GOROOT"" is no longer exported by proveo: an explicit one
   overrides what the go binary infers from its own path, so the value
   ""g"" needed would now aim a mise toolchain at an empty directory.
 
