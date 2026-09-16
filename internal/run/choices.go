@@ -76,7 +76,14 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if !ok {
 		return fmt.Errorf("cancelled at the choice prompt")
 	}
-	if v := form.Selection("egress"); v != "" && !p.ModeSet {
+	// The "egress" row shows one of two different things. On docker it offers the
+	// egress MODES and the selection is a choice. On the sandbox backend it is a
+	// LOCKED report of the host's sbx policy baseline — allow-all, balanced,
+	// deny-all — which is not a mode and which proveo can re-read at any time
+	// from `sbx policy inspect`. Writing that report into p.Mode put "allow-all"
+	// where every reader expects open|allowlist|review, and the first caller to
+	// hand it to egress.BuildPlan killed the run.
+	if v := form.Selection("egress"); v != "" && !p.ModeSet && !sandboxOn {
 		p.Mode = v
 	}
 	if v := form.Selection("credentials"); v != "" && !p.CredsSet {

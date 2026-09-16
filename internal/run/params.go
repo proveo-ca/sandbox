@@ -3,6 +3,7 @@ package run
 
 import (
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/egress"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -71,7 +72,10 @@ func (p *Params) applyCapabilities(c manifest.Capabilities) error {
 }
 
 func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
-	if !p.ModeSet && cached.Egress != "" {
+	// A choice cached from a sandbox run may hold the host's policy baseline
+	// rather than an egress mode, because the form reported one in the same row.
+	// Only a real mode may seed p.Mode; a baseline is re-read from the host.
+	if !p.ModeSet && egress.ValidMode(cached.Egress) {
 		p.Mode = cached.Egress
 	}
 	if !p.CredsSet && cached.Credentials != "" {

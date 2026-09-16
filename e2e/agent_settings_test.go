@@ -29,7 +29,7 @@ type agentSettingsDoc struct {
 
 func readAgentSettings(t *testing.T, home string) agentSettingsDoc {
 	t.Helper()
-	path := filepath.Join(home, ".proveo", "agent-settings.yml")
+	path := filepath.Join(home, "agent-settings.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
@@ -46,10 +46,11 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	requireHarness(t, target)
 	requireHarnessCredential(t, target)
 
+	// PROVEO_HOME, not HOME: overriding HOME moves sbx's OWN state directory too,
+	// and the run then fails at `sbx template load` against a store it cannot
+	// see — reported as "session exited before the agent shell". Isolating
+	// proveo's home is what this test needs; isolating sbx's is what broke it.
 	home, work := t.TempDir(), t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".proveo"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	bin := buildProveo(t)
 
 	run := func(label string, extra ...string) string {
@@ -60,23 +61,27 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		cmd = append(cmd, childEnvArgs(t)...)
 		cmd = append(cmd,
 			"PROVEO_WIZARD=on",
-			"HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
+			"PROVEO_HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
 		cmd = append(cmd, bin, "run", target, "--input", work, "--shell")
 		cmd = append(cmd, extra...)
 		if err := sess.Start(200, 50, cmd...); err != nil {
 			t.Fatalf("[%s] tmux start: %v", label, err)
 		}
 		acceptChoicePrompt(t, sess, target)
-		time.Sleep(4 * time.Second)
+		waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute))
 		// Read the tier out of the agent's OWN environment: that is the honest signal
 		// that the choice took effect, rather than anything proveo printed host-side.
-		_ = sess.SendText("echo TIER=$PROVEO_EGRESS_MODE")
-		_ = sess.Enter()
-		time.Sleep(2 * time.Second)
+		//
+		// Through shellExec, which waits for a completion marker. The sleeps this
+		// replaces (4s for the shell, 2s for the answer) were long enough on the
+		// docker rendering and not on the sandbox one, so the pane was captured
+		// carrying the typed line and no answer — read as an empty tier, which
+		// this test then reported as a cache that failed to re-enter.
+		probe, _ := shellExec(t, sess, "echo TIER=$PROVEO_EGRESS_MODE", 60*time.Second)
 		_ = sess.SendText("exit")
 		_ = sess.Enter()
 		out, _ := waitSessionExit(sess, 90*time.Second)
-		return out
+		return probe + "\n" + out
 	}
 
 	out1 := run("first")
@@ -95,7 +100,7 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		t.Error("persisted choice carries no capability fingerprint — a manifest change could not invalidate it")
 	}
 
-	path := filepath.Join(home, ".proveo", "agent-settings.yml")
+	path := filepath.Join(home, "agent-settings.yml")
 	edited := strings.Replace(string(mustRead(t, path)), "egress: allowlist", "egress: open", 1)
 	if !strings.Contains(edited, "egress: open") {
 		t.Fatalf("could not rewrite the cached tier in %s:\n%s", path, edited)
