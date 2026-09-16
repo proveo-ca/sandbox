@@ -16,6 +16,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -122,6 +123,9 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 		out := readFile(transcript)
 		if models == "" {
 			models = modelsLine.FindString(out)
+		}
+		if models == "" {
+			models = sandboxModelsLine(t, out)
 		}
 		answered = answered || modelAnswered(out, prompt, reply, h)
 		if found == "" {
@@ -436,4 +440,31 @@ func tail(s string, lines int) string {
 		parts = parts[len(parts)-lines:]
 	}
 	return strings.Join(parts, "\n")
+}
+
+var sandboxNameRE = regexp.MustCompile(`in sandbox '(proveo-[a-z0-9-]+)'`)
+
+// sandboxModelsLine reads the model the agent held, from inside the sandbox
+// that ran it, in the shape the PROVEO_MODELS preamble uses.
+//
+// Under sbx the def's entrypoint runs as a startup command after the agent has
+// launched, so its preamble lands in the kit startup log and never in the
+// transcript. The sandbox outlives a successful run until the sweep, so the
+// agent's own environment is still there to be asked.
+func sandboxModelsLine(t *testing.T, transcript string) string {
+	t.Helper()
+	m := sandboxNameRE.FindStringSubmatch(transcript)
+	if m == nil || !strings.Contains(transcript, "Workspace: ") {
+		return "" // the sandbox is named before it is ready; wait for the launch line
+	}
+	out, err := exec.Command(sbx.Binary, "exec", m[1], "--", "sh", "-lc",
+		`main=${OPENCODE_MODEL:-${ANTHROPIC_MODEL:-${CODEX_MODEL:-}}}; small=${OPENCODE_SMALL_MODEL:-${ANTHROPIC_SMALL_FAST_MODEL:-$main}}; `+
+			`printf 'PROVEO_MODELS main=%s small=%s\n' "${main:-unset}" "${small:-unset}"`).CombinedOutput()
+	if err != nil {
+		if !strings.Contains(string(out), "not found") {
+			t.Logf("sandbox model probe of %s failed (%v): %s", m[1], err, strings.TrimSpace(string(out)))
+		}
+		return ""
+	}
+	return modelsLine.FindString(string(out))
 }

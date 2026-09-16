@@ -39,6 +39,8 @@ func TestPromptfulE2E(t *testing.T) {
 	work := copySampleWorkspace(t)
 	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
+	mustRun(t, work, "git", "add", "-A")
+	mustRun(t, work, "git", "-c", "user.email=e2e@proveo.test", "-c", "user.name=proveo e2e", "commit", "-q", "-m", "sample")
 	sampleAnchor := firstLine(t, filepath.Join(work, "README.md"))
 
 	const marker = "BANANA-E2E-OK"
@@ -59,11 +61,30 @@ func TestPromptfulE2E(t *testing.T) {
 
 	deadline := time.Now().Add(4 * time.Minute)
 	for {
-		mounted := strings.Contains(readIn(work, "FROM_SAMPLE.txt"), sampleAnchor)  // samples/ mounted
-		changed := strings.Contains(readIn(work, "DONE.txt"), marker)               // files changed
-		scraped := strings.Contains(readIn(work, "SCRAPED.html"), "Example Domain") // web scraped
+		mounted := strings.Contains(delivered(t, work, "FROM_SAMPLE.txt"), sampleAnchor)  // samples/ mounted
+		changed := strings.Contains(delivered(t, work, "DONE.txt"), marker)               // files changed
+		scraped := strings.Contains(delivered(t, work, "SCRAPED.html"), "Example Domain") // web scraped
 		if mounted && changed && scraped {
 			return // all four E2E steps verified
+		}
+		if _, err := sess.CaptureAll(); err != nil {
+			// The agent has exited; a cloned workspace delivers at teardown, so
+			// keep asking for a bounded while before calling it incomplete.
+			settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
+			for time.Now().Before(settle) {
+				if strings.Contains(delivered(t, work, "DONE.txt"), marker) {
+					break
+				}
+				time.Sleep(3 * time.Second)
+			}
+			mounted = strings.Contains(delivered(t, work, "FROM_SAMPLE.txt"), sampleAnchor)
+			changed = strings.Contains(delivered(t, work, "DONE.txt"), marker)
+			scraped = strings.Contains(delivered(t, work, "SCRAPED.html"), "Example Domain")
+			if mounted && changed && scraped {
+				break
+			}
+			t.Fatalf("E2E side effects incomplete after the run ended: mounted=%v changed=%v scraped=%v\n--- refs ---\n%s",
+				mounted, changed, scraped, hostProveoRefs(t, work))
 		}
 		if time.Now().After(deadline) {
 			screen, _ := sess.CaptureAll()
@@ -239,4 +260,15 @@ func buildProveo(t *testing.T) string {
 		t.Fatalf("build proveo: %v\n%s", err, out)
 	}
 	return bin
+}
+
+// delivered reads a file the agent produced, from the mounted workspace or,
+// for a cloned workspace, from the refs teardown fetched into the host repo.
+func delivered(t *testing.T, work, rel string) string {
+	t.Helper()
+	if body := readIn(work, rel); body != "" {
+		return body
+	}
+	_, body := deliveredThroughRefs(t, work, []string{rel, "reports/" + rel})
+	return body
 }
