@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -103,8 +104,90 @@ func fixtureWorkspace(t *testing.T) string {
 
 func toolchainSandbox(t *testing.T, target, work string) *tmux.Session {
 	t.Helper()
+	return toolchainSandboxHome(t, target, work, "")
+}
+
+// toolchainSandboxHome runs with a proveo home of the caller's choosing, which
+// is also the toolchain store: sbx tells the sandbox where it is through
+// PROVEO_STATE_HOME. Two runs sharing one home is what "warm" means here.
+func toolchainSandboxHome(t *testing.T, target, work, home string) *tmux.Session {
+	t.Helper()
 	requireHarness(t, target)
-	return launchShell(t, buildProveo(t), target, work)
+	var extra []string
+	if home != "" {
+		extra = append(extra, "PROVEO_HOME="+home)
+	}
+	sess := launchShellEnv(t, buildProveo(t), target, work, extra)
+	waitForSeed(t, sess)
+	return sess
+}
+
+// seedInstalls counts what the SEED installed, which is the only honest measure
+// of the restore: by the time an operator has a prompt, provisioning is the
+// seed's work, not something they run by hand.
+func seedInstalls(t *testing.T, sess *tmux.Session) int {
+	t.Helper()
+	out, _ := shellExec(t, sess,
+		`printf 'INSTALLS %s\n' "$(grep -c 'Installing' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`,
+		60*time.Second)
+	n := -1
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) != 2 || fields[0] != "INSTALLS" {
+			continue
+		}
+		if v, err := strconv.Atoi(fields[1]); err == nil {
+			n = v
+		}
+	}
+	if n < 0 {
+		t.Fatalf("could not read the seed's install count from the startup log:\n%s", out)
+	}
+	return n
+}
+
+// waitForSeed holds until the Kit's startup commands are done. sbx hands the
+// operator a prompt while they are still running, so a probe sent on sight of
+// the prompt races the seed — and loses to its install lock. The startup log
+// opens a line with "> " per command and closes it with "ok"/"fail", so the
+// counts meeting is the seed being finished with the sandbox.
+func waitForSeed(t *testing.T, sess *tmux.Session) {
+	t.Helper()
+	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 12*time.Minute))
+	const probe = `printf 'SEED %s %s\n' ` +
+		`"$(grep -c '^> ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)" ` +
+		`"$(grep -cE '^(ok|fail|error)' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`
+	for {
+		out, _ := shellExec(t, sess, probe, 60*time.Second)
+		started, done := seedCounts(out)
+		if started > 0 && done >= started {
+			t.Logf("seed finished: %d startup command(s)", done)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Logf("seed still running after the wait (%d started, %d done) — measuring anyway", started, done)
+			return
+		}
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func seedCounts(pane string) (started, done int) {
+	for _, line := range strings.Split(pane, "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		// the echoed command spells SEED too, but never followed by two numbers
+		if len(fields) != 3 || fields[0] != "SEED" {
+			continue
+		}
+		a, errA := strconv.Atoi(fields[1])
+		b, errB := strconv.Atoi(fields[2])
+		if errA != nil || errB != nil {
+			continue
+		}
+		started, done = a, b
+	}
+	return started, done
 }
 
 func envPrefix(env map[string]string) string {
@@ -331,44 +414,34 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to run the warm-home idempotence check")
 	}
 	work := fixtureWorkspace(t)
-	env := map[string]string{"PROVEO_LSP_INSTALL": "rust,toml"}
+	home := t.TempDir() // a private toolchain store: this run's saves, nobody else's
 
-	first := toolchainSandbox(t, "opencode", work)
+	first := toolchainSandboxHome(t, "opencode", work, home)
 	requireSandboxGitHubToken(t, first)
-	cold, err := runLib(t, runOpts{sess: first, env: env, timeout: 10 * time.Minute},
-		`ensure_language_servers /work`)
-	if err != nil {
-		t.Fatalf("cold run: %v\n%s", err, cold)
-	}
-	if !strings.Contains(cold, "Installing") {
-		t.Fatalf("cold run installed nothing — the fixture or the sandbox is wrong:\n%s", cold)
+	cold := seedInstalls(t, first)
+	if cold == 0 {
+		t.Fatalf("the first seed installed nothing against an empty store (%s) — "+
+			"the fixture or the store is wrong, so the warm half would prove nothing", home)
 	}
 	teardown := endShell(t, first)
 
 	// Which half broke? The store is the host side of `proveo_sync_tools`, written
 	// at teardown and read by the next run's seed. Naming its state here is what
 	// separates "the save never wrote" from "the restore never read".
-	store := toolStoreEntries(t)
+	store := toolStoreEntries(t, home)
 	if len(store) == 0 {
-		t.Errorf("after teardown the host toolchain store is empty (%s) — the save half never wrote, "+
-			"so no later run can restore anything\n--- teardown ---\n%s", toolStoreDir(), teardown)
-	} else {
-		t.Logf("host toolchain store after teardown: %v", store)
+		t.Fatalf("after teardown the store under %s is empty — the save half never wrote, "+
+			"so no later run can restore anything\n--- teardown ---\n%s", home, teardown)
 	}
+	t.Logf("cold seed installed %d server(s); store now carries %v", cold, store)
 
-	// A second `proveo run` over the SAME workspace is where the operator meets
-	// this claim: the sandbox is keyed by def and workspace, so the toolchain a
-	// previous run installed must still be there.
-	second := toolchainSandbox(t, "opencode", work)
-	warm, err := runLib(t, runOpts{sess: second, env: env, timeout: 10 * time.Minute},
-		`ensure_language_servers /work`)
-	if err != nil {
-		t.Fatalf("warm run: %v\n%s", err, warm)
-	}
-	if strings.Contains(warm, "Installing") {
-		t.Errorf("the second run over the same workspace reinstalled its servers — nothing "+
-			"durable survives a sandbox teardown, so every run pays the download again\n"+
-			"--- warm ---\n%s", warm)
+	// A second `proveo run` over the SAME workspace and the same store is where
+	// the operator meets this claim: what one run installed, the next restores.
+	second := toolchainSandboxHome(t, "opencode", work, home)
+	if warm := seedInstalls(t, second); warm > 0 {
+		t.Errorf("the second run's seed installed %d server(s) again (cold installed %d) — "+
+			"the restore half is not reading the store, so every run pays the download again",
+			warm, cold)
 	}
 	endShell(t, second)
 }
@@ -518,8 +591,10 @@ echo "SCAN=done"`)
 
 // toolStoreDir mirrors _proveo_tool_store: PROVEO_STATE_HOME on the host, which
 // is where a sandbox's toolchain is saved to and restored from.
-func toolStoreDir() string {
-	home := os.Getenv("PROVEO_STATE_HOME")
+func toolStoreDir(home string) string {
+	if home == "" {
+		home = os.Getenv("PROVEO_STATE_HOME")
+	}
 	if home == "" {
 		h, err := os.UserHomeDir()
 		if err != nil {
@@ -530,9 +605,9 @@ func toolStoreDir() string {
 	return filepath.Join(home, "toolchains")
 }
 
-func toolStoreEntries(t *testing.T) []string {
+func toolStoreEntries(t *testing.T, home string) []string {
 	t.Helper()
-	dir := toolStoreDir()
+	dir := toolStoreDir(home)
 	if dir == "" {
 		return nil
 	}

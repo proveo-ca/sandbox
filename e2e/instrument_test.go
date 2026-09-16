@@ -191,6 +191,13 @@ func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
 
 func launchShell(t *testing.T, proveoBin, target, dir string, extra ...string) *tmux.Session {
 	t.Helper()
+	return launchShellEnv(t, proveoBin, target, dir, nil, extra...)
+}
+
+// launchShellEnv is launchShell with env of the caller's own, set on the proveo
+// process before it resolves anything.
+func launchShellEnv(t *testing.T, proveoBin, target, dir string, env []string, extra ...string) *tmux.Session {
+	t.Helper()
 	sess := tmux.New(fmt.Sprintf("proveo-shell-%s-%d", target, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env",
@@ -198,6 +205,11 @@ func launchShell(t *testing.T, proveoBin, target, dir string, extra ...string) *
 		proveoBin, "run", target,
 		"--egress-mode", "open", "--credentials", "forward",
 		"--input", dir, "--shell",
+	}
+	if len(env) > 0 {
+		// env pairs belong before the binary, where `env` still reads them
+		head := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
+		cmd = append(head, cmd[3:]...)
 	}
 	cmd = append(cmd, extra...)
 	if err := sess.Start(220, 50, cmd...); err != nil {
