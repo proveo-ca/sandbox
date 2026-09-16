@@ -71,7 +71,7 @@ var helloHarnesses = []helloHarness{
 		// names it explicitly rather than relying on the cwd.
 		target:          "claudecode",
 		agentArgs:       func(p string) []string { return []string{"-p", p} },
-		promptPath:      "/app/output/HELLO_WORLD.txt",
+		promptPath:      "reports/HELLO_WORLD.txt",
 		hostPaths:       []string{"reports/HELLO_WORLD.txt", "HELLO_WORLD.txt"},
 		repliesOnStdout: true,
 	},
@@ -178,8 +178,8 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	if found == "" {
 		t.Fatalf("the agent's file reached the host by no route — neither the mounted "+
 			"workspace nor refs/proveo/*\n  looked for: %v (under %s)\n"+
-			"--- refs ---\n%s--- transcript (tail) ---\n%s",
-			h.hostPaths, work, hostProveoRefs(t, work), tail(out, 60))
+			"--- refs, and every path they carry ---\n%s--- transcript (tail) ---\n%s",
+			h.hostPaths, work, hostProveoRefTrees(t, work), tail(out, 60))
 	}
 	if !strings.Contains(body, marker) {
 		t.Fatalf("%s exists but lacks this run's marker %q\n--- file ---\n%s", found, marker, body)
@@ -467,4 +467,16 @@ func sandboxModelsLine(t *testing.T, transcript string) string {
 		return ""
 	}
 	return modelsLine.FindString(string(out))
+}
+
+// hostProveoRefTrees lists each fetched ref with the files it carries, so a
+// miss says whether the agent wrote nothing, or wrote somewhere else.
+func hostProveoRefTrees(t *testing.T, work string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+		out, _ := exec.Command("git", "-C", work, "ls-tree", "-r", "--name-only", ref).Output()
+		fmt.Fprintf(&b, "%s\n%s", ref, out)
+	}
+	return b.String()
 }
