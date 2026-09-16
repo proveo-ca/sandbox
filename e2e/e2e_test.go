@@ -68,8 +68,6 @@ func TestPromptfulE2E(t *testing.T) {
 			return // all four E2E steps verified
 		}
 		if _, err := sess.CaptureAll(); err != nil {
-			// The agent has exited; a cloned workspace delivers at teardown, so
-			// keep asking for a bounded while before calling it incomplete.
 			settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
 			for time.Now().Before(settle) {
 				if strings.Contains(delivered(t, work, "DONE.txt"), marker) {

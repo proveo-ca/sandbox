@@ -20,6 +20,7 @@ var specNotesEnforced = []string{
 	"_spec/_experiments/cdp-shared-browser.puml",
 	"_spec/_devops/sandbox-template-rebase.puml",
 	"_spec/internal/sbx/host-readiness.puml",
+	"_spec/internal/sbx/launch-env.puml",
 	"_spec/internal/sbx/shell-agent-launch.puml",
 	"_spec/internal/backend/exit-code.puml",
 	"_spec/internal/broker/off-route-stripping.puml",

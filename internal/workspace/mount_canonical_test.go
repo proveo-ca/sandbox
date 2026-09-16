@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// A subproject scope is handed to the sandbox as sibling workspaces — the
-// scope, .git, _spec — each mounted at its host path. If the scope arrives as
-// typed (/var/...) and its siblings arrive canonical (/private/var/...), the VM
-// sees unrelated trees and git finds no repository from the scope.
 func TestMountsShareOneCanonicalRootForASubprojectScope(t *testing.T) {
 	real := t.TempDir()
 	for _, d := range []string{"apps/web", "_spec", ".git"} {

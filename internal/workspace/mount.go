@@ -57,8 +57,6 @@ func (w MountSpec) ScopeRel() string {
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
-	// One canonical form for every host path: a mount built from the typed
-	// input beside one built from git's own toplevel must land in one tree.
 	w.InputDir, w.RepoRoot = resolved(w.InputDir), resolved(w.RepoRoot)
 	scopeHost, scopeContainer := w.InputDir, "/app"
 	switch {

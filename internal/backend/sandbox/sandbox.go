@@ -1082,9 +1082,7 @@ func startupCommands(target string, ownAgent bool) []sbx.KitCommand {
 	return cmds
 }
 
-// gitSafeDirectoryEnv declares the repository root safe for git, in the
-// environment the agent inherits at launch. A startup command would set it
-// too late: the shell is handed over before the seed has finished.
+// gitSafeDirectoryEnv declares the repository root safe for git, in the env the agent inherits.
 func gitSafeDirectoryEnv(repoRoot string) []string {
 	if repoRoot == "" {
 		return nil
@@ -1102,10 +1100,6 @@ func gitSafeDirectoryEnv(repoRoot string) []string {
 
 // launchConfigEnv renders the def's model wiring in the form the agent reads
 // at launch, for a def whose entrypoint sbx does not run before the agent.
-//
-// opencode selects its model from its config file, not from OPENAI_* env, and
-// honours OPENCODE_CONFIG_CONTENT as an inline config merged at start. The
-// JSON mirrors configure_opencode_local_model in defs/opencode/entrypoint.sh.
 func launchConfigEnv(agent string, agentEnv []string) []string {
 	if agent != "opencode" {
 		return nil
@@ -1152,14 +1146,7 @@ func envValue(env []string, key string) string {
 
 // scopedGitIndexEnv hides the repository paths a subproject scope does not
 // mount, so `git status` in the sandbox does not report them as deleted.
-//
-// The docker entrypoint does this in-process: copy the index, mark every
-// tracked path that is not present skip-worktree, export GIT_INDEX_FILE. Under
-// sbx that export would land in a startup command the agent never inherits
-// from, so the same index is built HOST-SIDE — index entries are worktree-
-// relative, so the file is portable — written under the mounted proveo home,
-// and named in the environment the agent starts with. The host's own .git is
-// never touched.
+// scopedGitIndexEnv names a host-built index that hides the repository paths a scope does not mount.
 func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
 	if in.ScopeRel == "" || in.RepoRoot == "" || in.Sid == "" {
 		return nil

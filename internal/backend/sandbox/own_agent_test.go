@@ -93,9 +93,6 @@ func TestOwnAgentChangesIdentityAndNothingElse(t *testing.T) {
 	}{
 		{"permissions", own.Permissions, mixin.Permissions},
 		{"environment", own.Environment, mixin.Environment},
-		// A mixin's setup is the own-agent setup plus exactly one command: the def's
-		// entrypoint in seed-only mode, because sbx launches the agent for a mixin
-		// and the def's own wiring has to run somewhere. Compare with it removed.
 		{"setup", own.Setup, withoutSeedEntrypoint(mixin.Setup)},
 	} {
 		if got, want := yamlOf(t, blk.own), yamlOf(t, blk.base); got != want {

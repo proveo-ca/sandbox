@@ -132,8 +132,6 @@ var (
 // scrub removes everything that legitimately differs between two runs on two
 // hosts, so a diff means the resolve path changed and nothing else.
 func scrubRun(s, work, home string) string {
-	// Mount hosts are rendered canonical now, so a temp dir under /var appears
-	// as /private/var; scrub both spellings or the golden pins this machine.
 	for _, p := range []string{canonical(work), work} {
 		s = strings.ReplaceAll(s, p, "<WORK>")
 	}

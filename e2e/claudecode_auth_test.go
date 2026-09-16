@@ -142,8 +142,6 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 
 func credentialProbeLine(c claudecodeAuthCase, creds string) string {
 	var b strings.Builder
-	// --max-time keeps a blocked request from hanging the shell; -o /dev/null so a
-	// credential can never be echoed back onto the pane by the response body.
 	b.WriteString(`curl -sS --max-time 30 -o /tmp/probe.body -w 'PROBE=%{http_code}\n'`)
 	b.WriteString(` -H 'anthropic-version: 2023-06-01'`)
 	if c.beta != "" {

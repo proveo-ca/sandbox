@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// The def's entrypoint wires opencode's model into its config file, and under
-// sbx that runs ~20s after the agent has launched. The same wiring now travels
-// as OPENCODE_CONFIG_CONTENT, read at start.
 func TestOpencodeLocalModelIsWiredInTheLaunchEnv(t *testing.T) {
 	env := launchConfigEnv("opencode", []string{
 		"PROVEO_LOCAL_MODEL=gemma4:26b",

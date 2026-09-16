@@ -446,11 +446,6 @@ var sandboxNameRE = regexp.MustCompile(`in sandbox '(proveo-[a-z0-9-]+)'`)
 
 // sandboxModelsLine reads the model the agent held, from inside the sandbox
 // that ran it, in the shape the PROVEO_MODELS preamble uses.
-//
-// Under sbx the def's entrypoint runs as a startup command after the agent has
-// launched, so its preamble lands in the kit startup log and never in the
-// transcript. The sandbox outlives a successful run until the sweep, so the
-// agent's own environment is still there to be asked.
 func sandboxModelsLine(t *testing.T, transcript string) string {
 	t.Helper()
 	m := sandboxNameRE.FindStringSubmatch(transcript)
