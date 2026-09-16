@@ -310,8 +310,11 @@
     {
       "spec": "_spec/_plans/init-credential-provisioning.puml",
       "covers": [
+        "cmd/proveo/init_credentials.go",
         "cmd/proveo/init.go",
-        "internal/credentials/hints.go"
+        "internal/choiceui/choiceui.go",
+        "internal/credentials/hints.go",
+        "internal/run/run.go"
       ],
       "fingerprint": null
     },
@@ -413,6 +416,23 @@
       "covers": [
         "cmd/proveo/ghtoken.go",
         "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/init-credential-entry.puml",
+      "covers": [
+        "cmd/proveo/init_credentials.go",
+        "internal/choiceui/choiceui.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/init-credential-wireframe.puml",
+      "covers": [
+        "cmd/proveo/init_credentials.go",
+        "internal/choiceui/choiceui.go",
+        "apps/cli/public/cli/install.sh"
       ],
       "fingerprint": null
     },
