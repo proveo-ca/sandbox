@@ -12,7 +12,9 @@ skinparam noteTextAlignment left
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
-' Why review needs a pty: _spec/internal/reviewgate/pty-review-proxy.puml.
+' Why a full-screen prompt needs proveo to own the pty:
+' _spec/internal/ptyproxy/pty-ownership.puml. (The review gate that first forced
+' it was retired 2026-09-16 with the docker egress mechanism.)
 ' Why the sandbox box is compulsory and what the escape is:
 ' _spec/internal/sbx/sandbox-backend.puml.
 ' The topology strip drawn under the help block: _spec/internal/choiceui/topology-strip.puml.

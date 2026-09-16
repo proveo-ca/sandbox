@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
+# SPEC: _spec/_paradigms/egress-boundary.puml
 set -euo pipefail
 
 FIREHOL_IPSET="${FIREHOL_IPSET:-firehol_level1}"

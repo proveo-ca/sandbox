@@ -74,6 +74,9 @@ skinparam noteTextAlignment left
 '    cecli's paradigms, the hello-world e2e's three assertions, egress-tiers'
 '    broker pin (roles resolve it from a REMEMBERED assignment now, not the
 '    environment), and cecli's ""covers: defs/bridges/cecli.tsv"".
+'    egress-tiers.puml was itself retired 2026-09-16 with the docker egress
+'    mechanism; the broker pin's surviving half is
+'    _spec/_paradigms/credential-boundary.puml.
 '
 ' WHAT NOW GUARDS IT (internal/contract/model_bridging_retired_test.go):
 '   no seed names a model by environment · --local-model still selects one for

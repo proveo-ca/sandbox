@@ -129,8 +129,9 @@
 '                                 and in _spec/_experiments/docker-sandbox.puml
 '   the backend it moves to ..... _spec/internal/sbx/sandbox-backend.puml
 '   what governs egress there ... _spec/internal/sbx/policy-baseline.puml
-'   the tiers this does NOT decide _spec/internal/egress/egress-tiers.puml
-'   the consent flow at stake ... _spec/internal/reviewgate/pty-review-proxy.puml
+'   the tiers this does NOT decide _spec/internal/sbx/policy-baseline.puml
+'   the consent flow at stake ... retired 2026-09-16 with the docker review
+'                                 gate — _spec/tests/testing-strategy.puml
 '   what this UNBLOCKS .......... _spec/_plans/secret-custody.puml
 '
 ' SCOPE. Eliminate the dind sidecar. The fate of mitmproxy and Squid is

@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml
 package e2e
 
 import (

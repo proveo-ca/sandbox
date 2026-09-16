@@ -23,7 +23,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/sbx/launch-env.puml",
 	"_spec/internal/sbx/shell-agent-launch.puml",
 	"_spec/internal/backend/exit-code.puml",
-	"_spec/internal/broker/off-route-stripping.puml",
+	"_spec/internal/ptyproxy/pty-ownership.puml",
 	"_spec/internal/contract/what-a-contract-test-is.puml",
 	"_spec/internal/credentials/credential-decisions.puml",
 	"_spec/internal/gitidentity/authorship.puml",

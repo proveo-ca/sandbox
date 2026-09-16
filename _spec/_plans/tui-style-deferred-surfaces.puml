@@ -5,7 +5,9 @@
 '   the language they would join .... _spec/_conventions/tui-design-language.puml
 '   what SHIPPED in that pass ....... _spec/internal/ui/output-vocabulary.puml
 '   surface A's boundary ............ _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
-'   surface B's already-styled half . _spec/internal/reviewgate/pty-review-proxy.puml
+'   surface B's already-styled half . retired 2026-09-16 with the docker review
+'                                     gate; the pty half it relied on is now
+'                                     _spec/internal/ptyproxy/pty-ownership.puml
 '   the decision both waited on ..... _spec/_paradigms/retire-dind.puml (APPLIED)
 '   what replaces A's seeding ....... _spec/internal/sbx/sbx-kit-contract.puml
 '   what replaces B's gate .......... _spec/internal/sbx/policy-baseline.puml

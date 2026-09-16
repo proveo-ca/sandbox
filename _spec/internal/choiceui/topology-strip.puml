@@ -20,7 +20,8 @@ skinparam noteTextAlignment left
 '   how the four were chosen .... _spec/internal/choiceui/figure-fidelities.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
-'   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
+'   what the tier words still mean . _spec/internal/sbx/policy-baseline.puml
+'                                    (egress-tiers.puml retired 2026-09-16)
 '   why the sbx row is LOCKED ...... _spec/internal/sbx/policy-baseline.puml
 '   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml

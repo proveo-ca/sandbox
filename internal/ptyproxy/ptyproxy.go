@@ -1,6 +1,6 @@
 //go:build !windows
 
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/ptyproxy/terminal-report-filter.puml
+// SPEC: _spec/internal/runlog/run-transcript.puml, _spec/internal/ptyproxy/terminal-report-filter.puml, _spec/internal/ptyproxy/pty-ownership.puml
 // Package ptyproxy runs a child on a PTY proveo owns, so an overlay can be
 // drawn over the agent's full-screen TUI and dismissed without corrupting it.
 package ptyproxy

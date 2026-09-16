@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/egress/egress-tiers.puml
+// SPEC: _spec/internal/sbx/policy-baseline.puml
 package contract_test
 
 import (

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/_paradigms/egress-boundary.puml
 package run
 
 import (

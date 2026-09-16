@@ -5,6 +5,18 @@
 ' covers: cmd/proveo/main.go
 ' covers: cmd/proveo-egress/**
 ' The credential half of the same hop: _spec/_paradigms/credential-boundary.puml.
+'
+' ── DEPRECATED MECHANISM. READ THIS FIRST ──────────────────────────────────
+' Everything below describes the DOCKER rendering: proveo's own MITM chained to
+' Squid. sbx deprecated it (decided 2026-09-16), sbx is the only runtime the e2e
+' suite asserts, and the six diagrams that documented the mechanism in detail —
+' _spec/internal/egress/**, _spec/internal/egresspolicy/**,
+' _spec/internal/broker/off-route-stripping.puml and
+' _spec/internal/reviewgate/** — were retired in that pass
+' (_spec/tests/testing-strategy.puml records the decision and where each durable
+' fact went). This file survives as the paradigm-level account of a rendering that
+' still SHIPS, so nothing here is a claim about what a run on sbx enforces.
+' What governs there: _spec/internal/sbx/policy-baseline.puml.
 title Network egress boundary — the three modes, and what makes a dangerous posture acceptable
 
 node "Agent container" as CTR <<host>> {
@@ -42,8 +54,9 @@ note right of MITM
   ""--dangerously-skip-permissions"" an acceptable posture:
   the containment is the network, not the agent's manners.
 
-  Method/path policy (read-allow / write-deny / DLP) on
-  this same hop: _spec/internal/egresspolicy/*.puml
+  Method/path policy (read-allow / write-deny / DLP) ran
+  on this same hop. Its diagrams were retired 2026-09-16
+  with the mechanism — see _spec/tests/testing-strategy.puml.
 end note
 
 note bottom of SQUID
@@ -57,8 +70,9 @@ note bottom of SQUID
   What the list admits is a wider question than what the broker injects:
   the reachable set is the endpoints of //every// provider the allowlist
   admits, because a session may call any provider whose key is present.
-  Reach and injection are separate axes — see
-  ""_spec/internal/egress/egress-tiers\.puml"".
+  Reach and injection are separate axes, and that holds on
+  sbx too — see
+  ""_spec/internal/sbx/kit-sandbox-credential-gap\.puml"".
 
   **The two hops must admit the same set, or the mismatch shows up as an
   unreadable denial.** The policy's write allowlist is therefore every

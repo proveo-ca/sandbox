@@ -11,7 +11,33 @@ skinparam noteTextAlignment left
 ' covers: internal/run/params.go (seedFromCache)
 ' covers: internal/run/params_test.go
 ' covers: e2e/sbx_egress_test.go
+' covers: internal/egress/egress.go (Modes, Canonical, ValidMode)
+' covers: internal/contract/egress_vocabulary_test.go
 '   what a refused mode costs downstream . _spec/internal/sbx/sandbox-backend.puml
+'   who holds the key on this backend .... _spec/internal/sbx/credential-path.puml
+'
+' ── THE TIER VOCABULARY OUTLIVES THE MECHANISM IT ONCE NAMED ───────────────
+' Recorded here 2026-09-16, when the docker+egress diagrams were retired
+' (_spec/tests/testing-strategy.puml). sbx deprecated those egress mechanisms, so
+' the MITM-and-Squid hop that `open` / `allowlist` / `review` used to select is no
+' longer what proveo tests or leads with. THE WORDS DID NOT GO WITH IT, and this
+' file is where they now live, because this is the diagram that already explains
+' what the egress axis means on the backend operators actually get.
+'
+' What still holds, and is pinned by internal/contract/egress_vocabulary_test.go:
+'   * `--egress-mode` accepts open | allowlist | review, in that order — riskier
+'     to safer, which is the order the prompt renders them in.
+'   * `egress.Modes()` must equal `entrypoint.CanonicalTiers`. Two lists would
+'     drift, and the container's own prelude parses the second.
+'   * the retired aliases `broker` / `firewall` / `proxy` still canonicalise for
+'     the CLI and must NEVER be understood past it: the in-container `.env` gate
+'     and the broker-sentinel gate both reject them unrenamed, which is what
+'     stops a stale spelling from silently selecting a posture.
+'   * the network tier and `--credentials broker|forward` are SEPARATE axes. The
+'     modes used to conflate them; a mode now names the network tier only.
+' The tier remains inert against the Kit allowlist on this backend, exactly as the
+' rest of this file says. It is a CLI surface and a declared intent, not an
+' enforcement statement — and nothing below should be read as promising a hop.
 '
 ' ── THE ROW WAS DEAD ───────────────────────────────────────────────────────
 ' On the sbx backend the egress axis offered open | allowlist | review and none
@@ -103,11 +129,19 @@ ROW ARROW_ERROR OP : locked row, current value shown,\none runnable command to c
 KIT ARROW_OPTIONAL SBX : adds allow rules ON TOP\n(cannot subtract)
 
 note over ROW
-  **Docker is untouched.** The tier stays real and
-  selectable there, enforced by the Squid and MITM
-  sidecars. ""--egress-mode"" keeps its canonical
-  values on both backends, so nothing the
-  in-container gate parses changed (D4).
+  **The vocabulary outlives the mechanism.** The
+  CLI still takes ""--egress-mode"" open,
+  allowlist or review on both backends, and the
+  prelude still parses them. What they once
+  selected — the docker MITM hop — is not tested.
+end note
+
+note over ROW
+  **One vocabulary, two consumers, pinned.**
+  ""egress.Modes()"" must equal
+  ""entrypoint.CanonicalTiers"", and the retired
+  aliases broker|firewall|proxy still canonicalise
+  for the CLI while meaning nothing past it.
 end note
 
 note over ROW

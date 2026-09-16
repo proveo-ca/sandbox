@@ -17,8 +17,10 @@ skinparam noteTextAlignment left
 '   what waits on deleting it ... _spec/_plans/secret-custody.puml (item d)
 '   the escape hatch's own plan . _spec/_plans/host-execution-fallback.puml
 '   the observability half ...... _spec/internal/egressproxy/mitm-and-flow-record.puml
-'   the tiers at stake .......... _spec/internal/egress/egress-tiers.puml
-'   the consent flow at stake ... _spec/internal/reviewgate/pty-review-proxy.puml
+'   the tier vocabulary's new home _spec/internal/sbx/policy-baseline.puml
+'   the pty the gate relied on .. _spec/internal/ptyproxy/pty-ownership.puml
+'   the retirement that already . _spec/tests/testing-strategy.puml
+'   happened, SPEC-side only
 '   what enforces on sbx ........ _spec/internal/sbx/policy-baseline.puml
 '   the boundary being restated . _spec/_paradigms/egress-boundary.puml
 '   the credential half ......... _spec/_paradigms/credential-boundary.puml
@@ -132,6 +134,29 @@ skinparam noteTextAlignment left
 ' never says the tier is inert against the Kit allowlist. The half-admission is
 ' evidence of the split, not a fix for it.
 '
+' ── 2026-09-16: THE SPEC-SIDE HALF OF Q1 AND Q2 IS NOW DECIDED ─────────────
+' The operator decided: "sbx deprecated these egress mechanisms, retire them."
+' That is a decision about the SPEC, not about the code, and the distinction is
+' the whole of what it settles. The diagrams of the docker mechanism were deleted
+' — _spec/internal/egress/**, _spec/internal/egresspolicy/**,
+' _spec/internal/broker/off-route-stripping.puml, _spec/internal/reviewgate/** —
+' because a reader landing on them could not tell that the rendering they describe
+' is no longer the one proveo tests or leads with.
+'
+' Q1's answer, partially: the tier VOCABULARY survives as a CLI surface and is
+' rehomed to _spec/internal/sbx/policy-baseline.puml. Whether it survives as a
+' MAPPING onto sbx's baseline plus the Kit allowlist is still open, and the
+' printed-tier-vs-written-allowlist defect below is still unfixed.
+' Q2's answer, partially: the review gate's diagram is retired. `internal/
+' reviewgate` itself still compiles and is still wired from cmd/proveo-egress and
+' internal/backend/dockeregress. `internal/ptyproxy` is NOT part of that and must
+' not be swept up with it — internal/backend/sandbox uses it on every interactive
+' sbx run (_spec/internal/ptyproxy/pty-ownership.puml).
+'
+' EVERY QUESTION BELOW REMAINS OPEN as a question about the CODE. Deleting a
+' diagram is not deleting a backend, and nothing above authorises the deletion
+' this plan exists to weigh.
+'
 ' ── THE OPEN QUESTIONS. NONE OF THESE IS ANSWERED HERE ─────────────────────
 ' Q1. WHAT BECOMES OF THE TIER VOCABULARY? Does `open` / `allowlist` / `review`
 '     survive as declared INTENT, mapped onto sbx's baseline plus the Kit
@@ -141,7 +166,7 @@ skinparam noteTextAlignment left
 '
 ' Q2. WHERE DOES THE REVIEW GATE GO? `internal/reviewgate` and its consent flow
 '     are built on the docker proxy chain — a CONNECT hook plus a pty proveo
-'     owns (pty-review-proxy.puml). sbx has no equivalent hop. Is `review`
+'     owns. sbx has no equivalent hop. Is `review`
 '     retired, reimplemented on some other seat, or deferred to the sandbox
 '     vendor? retire-dind already noted it "stops being proveo's to give"; that
 '     was an observation, not a decision.

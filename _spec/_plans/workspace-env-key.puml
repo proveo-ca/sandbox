@@ -11,7 +11,8 @@ skinparam noteTextAlignment left
 '   where a key SHOULD rest ...... _spec/_plans/secret-custody.puml
 '   the sbx credential path ...... _spec/internal/sbx/credential-path.puml
 '   what the agent may hold ...... _spec/_paradigms/credential-boundary.puml
-'   the tiers that mask .......... _spec/internal/egress/egress-tiers.puml
+'   the tier vocabulary that masks _spec/internal/sbx/policy-baseline.puml
+'                                  (egress-tiers.puml retired 2026-09-16)
 '   why clone mode has tracked-only files _spec/internal/sbx/clone-workspace.puml
 '
 '   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml

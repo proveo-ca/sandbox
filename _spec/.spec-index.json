@@ -699,13 +699,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/broker/off-route-stripping.puml",
-      "covers": [
-        "internal/broker/broker.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/internal/cdn/distribution-update.puml",
       "covers": [
         "internal/cdn/**",
@@ -820,59 +813,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/egress/egress-tiers.puml",
-      "covers": [
-        "internal/egress/**",
-        "internal/contract/egress_vocabulary_test.go",
-        "e2e/review_tier_test.go",
-        "cmd/proveo/main.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egress/teardown-and-signals.puml",
-      "covers": [
-        "internal/egress/**",
-        "internal/backend/dockeregress/**",
-        "internal/run/params.go",
-        "e2e/signal_test.go",
-        "cmd/proveo/main.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egresspolicy/egress-policy-components.puml",
-      "covers": [
-        "internal/egresspolicy/**"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egresspolicy/egress-policy-decide.puml",
-      "covers": [
-        "internal/egresspolicy/policy.go",
-        "internal/egresspolicy/secrets.go",
-        "internal/egresspolicy/policy_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egresspolicy/egress-policy-layers.puml",
-      "covers": [
-        "internal/egresspolicy/**",
-        "cmd/proveo-egress/**",
-        "defs/sidecars/squid-proxy/**"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egresspolicy/egress-policy-overview.puml",
-      "covers": [
-        "internal/egresspolicy/**"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/internal/egressproxy/mitm-and-flow-record.puml",
       "covers": [
         "internal/egressproxy/**",
@@ -981,6 +921,19 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/ptyproxy/pty-ownership.puml",
+      "covers": [
+        "internal/ptyproxy/ptyproxy.go",
+        "internal/ptyproxy/overlaytty.go",
+        "internal/ptyproxy/drain_test.go",
+        "internal/ptyproxy/ptyproxy_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/run/helpers.go",
+        "internal/backend/dockeregress/dockeregress.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/ptyproxy/terminal-report-filter.puml",
       "covers": [
         "internal/ptyproxy/inputfilter.go",
@@ -988,26 +941,6 @@
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/ptyproxy_test.go",
         "cmd/proveo/main.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/reviewgate/pty-review-proxy.puml",
-      "covers": [
-        "internal/reviewgate/**",
-        "internal/ptyproxy/ptyproxy.go",
-        "internal/ptyproxy/overlaytty.go",
-        "internal/ptyproxy/ptyproxy_test.go",
-        "internal/ptyproxy/drain_test.go",
-        "e2e/review_tier_test.go",
-        "cmd/proveo/main.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/reviewgate/transport-portability.puml",
-      "covers": [
-        "internal/reviewgate/**"
       ],
       "fingerprint": null
     },
@@ -1152,7 +1085,9 @@
         "internal/run/topology.go",
         "internal/run/params.go",
         "internal/run/params_test.go",
-        "e2e/sbx_egress_test.go"
+        "e2e/sbx_egress_test.go",
+        "internal/egress/egress.go",
+        "internal/contract/egress_vocabulary_test.go"
       ],
       "fingerprint": null
     },
@@ -1528,5 +1463,81 @@
       "fingerprint": null
     }
   ],
-  "unresolved": []
+  "unresolved": [
+    {
+      "spec": "_spec/internal/egress/egress-tiers.puml",
+      "cited_by": [
+        "cmd/proveo/main.go:1",
+        "e2e/review_tier_test.go:3",
+        "internal/contract/egress_vocabulary_test.go:1",
+        "internal/egress/egress.go:1",
+        "internal/egress/exec.go:1",
+        "internal/egress/plan.go:1",
+        "internal/reviewgate/reviewgate.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/egress/teardown-and-signals.puml",
+      "cited_by": [
+        "cmd/proveo/main.go:1",
+        "e2e/signal_test.go:3",
+        "internal/backend/dockeregress/dockeregress.go:1",
+        "internal/egress/exec.go:1",
+        "internal/egress/plan.go:1",
+        "internal/egress/stage.go:1",
+        "internal/run/params.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-components.puml",
+      "cited_by": [
+        "internal/egresspolicy/policy.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-decide.puml",
+      "cited_by": [
+        "internal/egresspolicy/policy.go:1",
+        "internal/egresspolicy/secrets.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-layers.puml",
+      "cited_by": [
+        "defs/sidecars/squid-proxy/update-firehol-ipsets.sh:2",
+        "internal/egresspolicy/defaults.go:1",
+        "internal/egresspolicy/policy.go:1",
+        "internal/egresspolicy/secrets.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/egresspolicy/egress-policy-overview.puml",
+      "cited_by": [
+        "internal/egresspolicy/policy.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/broker/off-route-stripping.puml",
+      "cited_by": [
+        "internal/contract/spec_notes_test.go:26"
+      ]
+    },
+    {
+      "spec": "_spec/internal/reviewgate/pty-review-proxy.puml",
+      "cited_by": [
+        "cmd/proveo/main.go:1",
+        "e2e/review_tier_test.go:3",
+        "internal/ptyproxy/drain_test.go:3",
+        "internal/ptyproxy/overlaytty.go:1",
+        "internal/ptyproxy/ptyproxy.go:3",
+        "internal/reviewgate/reviewgate.go:1"
+      ]
+    },
+    {
+      "spec": "_spec/internal/reviewgate/transport-portability.puml",
+      "cited_by": [
+        "internal/reviewgate/reviewgate.go:1"
+      ]
+    }
+  ]
 }

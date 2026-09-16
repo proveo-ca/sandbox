@@ -427,9 +427,34 @@ title Testing strategy — four layers, speed traded for fidelity
 ' What still EXISTS in the product and is no longer a test subject: the
 ' mitmproxy egress sidecar and its broker.env, the `-egress` container, the
 ' review-tier consent gate, raw `docker run` replicas of a launch, and the
-' docker+egress fallback itself. The product statements about those live in
-' _spec/internal/egress/** and _spec/internal/egresspolicy/**, and they remain
-' true; what changed is that no e2e assertion stands behind them any more.
+' docker+egress fallback itself.
+'
+' THEIR DIAGRAMS ARE NOW RETIRED TOO, and that is a second decision rather than a
+' consequence of this one. Dated 2026-09-16: "sbx deprecated these egress
+' mechanisms, retire them." This block used to end "the product statements about
+' those live in _spec/internal/egress/** and _spec/internal/egresspolicy/**, and
+' they remain true", and that sentence was the over-inference — a reader landing
+' on egress-tiers.puml could not tell that the tier it describes is no longer the
+' rendering proveo tests or leads with, and egress-tiers listed e2e/review_tier
+' _test.go as its coverage for a case that now always skips. So the six diagrams
+' of the docker mechanism were deleted rather than left standing with no proof:
+'   _spec/internal/egress/egress-tiers.puml · teardown-and-signals.puml
+'   _spec/internal/egresspolicy/** (four files)
+'   _spec/internal/broker/off-route-stripping.puml
+'   _spec/internal/reviewgate/pty-review-proxy.puml · transport-portability.puml
+' The code they documented still ships. A diagram retired here is retired because
+' its MECHANISM is deprecated, not because it was a plan that shipped.
+'
+' WHAT DID NOT DIE WITH THEM, and where it went:
+'   the tier vocabulary open|allowlist|review, which the CLI still accepts
+'                       . _spec/internal/sbx/policy-baseline.puml
+'   the credential boundary — inject on route, strip off it, sentinel in the
+'   container . _spec/_paradigms/credential-boundary.puml
+'   who brokers on sbx . _spec/internal/sbx/credential-path.puml
+'   the PTY mechanics, which internal/backend/sandbox still uses on every
+'   interactive sbx run . _spec/internal/ptyproxy/pty-ownership.puml
+' Only the docker-mechanism story — the Squid hop, the DLP layers, the CONNECT
+' consent gate, the sidecar teardown order — went with the files.
 '
 ' WHAT THE RULE TOOK, named so nobody restores one by accident:
 '   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives

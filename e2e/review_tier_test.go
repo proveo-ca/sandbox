@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/egress/egress-tiers.puml, _spec/tests/40-agent-e2e-components.puml
+// SPEC: _spec/tests/40-agent-e2e-components.puml, _spec/tests/testing-strategy.puml
 
 package e2e
 

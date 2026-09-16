@@ -1,0 +1,177 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: who reads the operator's terminal while an agent runs, and how the pumps end without losing the child's last line
+' covers: internal/ptyproxy/ptyproxy.go
+' covers: internal/ptyproxy/overlaytty.go
+' covers: internal/ptyproxy/drain_test.go
+' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
+' covers: internal/run/helpers.go
+' covers: internal/backend/dockeregress/dockeregress.go (ExecAgentWithProxy)
+'   what the input pump then FILTERS . _spec/internal/ptyproxy/terminal-report-filter.puml
+'   what the output pump records ..... _spec/internal/runlog/run-transcript.puml
+'   the modal this hands its screen to _spec/internal/choiceui/choice-prompt-render.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY THIS FILE EXISTS: REHOMED 2026-09-16 ───────────────────────────────
+' Everything below was written down inside _spec/internal/reviewgate/pty-review-
+' proxy.puml, which documented the docker review tier's interactive consent gate.
+' sbx is the runtime under test now and that gate is retired with the mechanism
+' (_spec/tests/testing-strategy.puml) — but `internal/ptyproxy` is NOT retired.
+' internal/backend/sandbox/sandbox.go builds a `ptyproxy.New` on EVERY interactive
+' sbx run, for the stdin report filter and the stdout trace, and internal/run/
+' helpers.go builds one for the bare path. So the PTY mechanics outlive the gate
+' that provoked them. They are kept here rather than deleted with it; the consent
+' prompt, the unix-socket transport and the CONNECT hook are what died.
+'
+' ── THE ONE INVARIANT EVERYTHING ELSE DEFENDS ──────────────────────────────
+' proveo holds the PTY master and hands the child the slave, so the proxy is the
+' ONLY process reading the real terminal. A second reader is not an untidiness:
+' the kernel hands each byte to whichever process gets there first, so keystrokes
+' split nondeterministically between them and no amount of careful drawing fixes
+' it. Every rule below is that invariant defended in one more place.
+'
+' Without a proxy — headless, or any run where `ptyproxy.Usable` is false because
+' stdin or stdout is not a terminal — the child inherits the terminal directly and
+' none of this applies.
+'
+' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
+' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the
+' output pump was started two statements later. A child that writes one line and
+' exits is gone first, and `Run`'s deferred `m.Close()` then tore the master down
+' with the output still inside it. MEASURED at a few percent of runs — and the run
+' that loses its last line is the one that died on it, so the loss lands exactly
+' where the transcript matters most.
+'
+' A read deadline is NOT the alternative fix, and it reads as the obvious one:
+' `os.File.SetReadDeadline` returns nil on `/dev/ptmx` and is then ignored.
+' MEASURED — a read blocked the full 30s until the child exited, deadline set and
+' accepted. The master is also passed to the pump EXPLICITLY, because `p.master`
+' is nil'd by the same defer that closes it and a pump scheduled late used to
+' fetch the nil and copy nothing.
+'
+title The PTY proxy — one reader of the real terminal, and how its pumps end
+
+actor "Operator" as OP
+
+node "proveo — internal/ptyproxy" as PX <<host>> {
+  component """Proxy.Run""\nowns the PTY master" as RUN <<app>>
+  component "stdin pump\nreal tty → master" as IN <<app>>
+  component "stdout pump\nmaster → real tty" as OUT <<app>>
+  component """OverlayTty""\nhand-off channel · operator's tty" as OVER <<app>>
+}
+
+node "agent process" as CH <<host>> {
+  component "PTY slave is its tty\n(sbx agent · docker agent · --shell)" as CHILD <<app>>
+}
+
+component "a SECOND reader\n""tcell.NewScreen"" · a bare prompt" as SECOND <<error>>
+component "the child's last line\nlost to ""m.Close()""" as LOST <<error>>
+
+OP ARROW_MAIN IN : keystrokes
+IN ARROW_MAIN RUN
+RUN ARROW_MAIN CHILD : slave handed to the child
+CHILD ARROW_MAIN OUT
+OUT ARROW_MAIN OP : rendered frames
+IN ARROW_OPTIONAL OVER : re-routed while a modal holds the screen
+OVER ARROW_MAIN OP
+IN ARROW_ERROR SECOND : what the design exists to prevent
+OUT ARROW_ERROR LOST : without the drain
+
+note bottom of IN
+  **One reader, start to finish.** The child holds
+  the slave, so nothing else contends for stdin. A
+  goroutine already blocked in ""read()"" consumes
+  the next byte whatever a flag says, so the pump
+  re-routes rather than standing down.
+end note
+
+note bottom of OVER
+  **A modal is given bytes, never its own tty.**
+  ""OverlayTty"" reads the pump's hand-off channel
+  and writes the operator's terminal, which makes
+  a full-screen prompt the exclusive consumer
+  without a second reader ever existing.
+end note
+
+note bottom of SECOND
+  **""tcell.NewScreen"" is the trap.** It opens
+  ""/dev/tty"" and runs its own input loop, so the
+  modal renders correctly and then takes no
+  keystrokes — measured on a live run. Build over
+  ""NewTerminfoScreenFromTty"" instead.
+end note
+
+note right of OUT
+  **""Run"" does not return until this pump has
+  drained the master.** ""pty.Start"" returns with
+  the child ALREADY RUNNING, so a one-line child
+  exits first and the deferred ""m.Close()"" tears
+  the master down with the output still in it.
+end note
+
+note right of OUT
+  **Only the OUT pump is waited on.** The child
+  was the last holder of the slave, so the master
+  read fails when it exits — a ""WaitGroup"" there
+  costs nothing, bounded by ""drainGrace"" (2s)
+  for a grandchild still holding the slave.
+end note
+
+note right of OUT
+  **The IN pump cannot be waited on.** It blocks
+  reading the operator's stdin, which never
+  reaches EOF, so it can only notice the closed
+  master on the next keystroke. Waiting on it
+  would hang every exit.
+end note
+
+note bottom of LOST
+  **A read deadline is a no-op, not a fix.**
+  ""os.File.SetReadDeadline"" returns nil on
+  ""/dev/ptmx"" and is then ignored: measured, a
+  read blocked the full 30s until the child exited
+  with the deadline set and accepted.
+end note
+
+note top of RUN
+  **The terminal fd is captured once.** Calling
+  ""In\.Fd()"" later races the pump's concurrent
+  close, and forces the file back into blocking
+  mode on every call. Raw mode is restored on
+  every exit path, signals included.
+end note
+
+note top of CHILD
+  **Forward the operator's real SIGWINCH.** The
+  child's tty is the slave, so a window resize the
+  operator makes reaches it only if the proxy
+  passes it on; otherwise a TUI keeps rendering at
+  the size it started with.
+end note
+
+note as Repaint #F4F9FB
+  **Restore by forcing a repaint, never by
+  replaying.** Anything that takes the screen from
+  the child leaves it owning the alternate buffer,
+  so buffered output is dropped and the child is
+  made to repaint instead.
+end note
+
+note as RepaintHow #F4F9FB
+  **The resize must be GENUINE.** Set the PTY to
+  ""cols-1"" and back to ""cols"": both deliver
+  SIGWINCH, and because the dimensions actually
+  change, a TUI that early-outs on a no-op resize
+  still does a full relayout. This is tmux's trick.
+end note
+
+note as RepaintLock #F4F9FB
+  **A bare SIGWINCH at unchanged size is not
+  reliable** — many TUIs skip it. The resize holds
+  the lock for its whole duration, so a child that
+  exits mid-overlay makes it a no-op instead of an
+  operation on a dead fd.
+end note
+@enduml

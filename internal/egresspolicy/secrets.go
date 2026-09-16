@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/egresspolicy/egress-policy-decide.puml, _spec/internal/egresspolicy/egress-policy-layers.puml, _spec/_conventions/design-decision-ids.puml
+// SPEC: _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
 import (

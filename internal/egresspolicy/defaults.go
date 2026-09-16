@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/egresspolicy/egress-policy-layers.puml
+// SPEC: _spec/_conventions/design-decision-ids.puml
 package egresspolicy
 
 var DefaultSinks = []string{

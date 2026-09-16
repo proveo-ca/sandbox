@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml, _spec/internal/reviewgate/transport-portability.puml, _spec/internal/egress/egress-tiers.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml
 // Package reviewgate is the host-side consent gate for the review tier.
 package reviewgate
 

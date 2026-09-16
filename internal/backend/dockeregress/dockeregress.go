@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/internal/ptyproxy/pty-ownership.puml
 // Package dockeregress is the
 package dockeregress
 

@@ -11,8 +11,11 @@
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
 '   what the Kit allowlists ..... internal/backend/sandbox/sandbox.go Spec()
 '   the key on sbx ............. _spec/internal/sbx/credential-path.puml
-'   the docker tiers ........... _spec/internal/egress/egress-tiers.puml
-'   who the '?' actually asks .. _spec/internal/reviewgate/pty-review-proxy.puml
+'   the tier vocabulary ........ _spec/internal/sbx/policy-baseline.puml
+'                                (egress-tiers.puml and the review gate's own
+'                                diagram were retired 2026-09-16 with the
+'                                docker egress mechanism)
+'   the pty a full-screen ask needs _spec/internal/ptyproxy/pty-ownership.puml
 '   the key on docker .......... _spec/_paradigms/credential-boundary.puml
 '
 ' THE CORRECTION THIS FILE EXISTS TO CARRY: there is no single egress axis. The
