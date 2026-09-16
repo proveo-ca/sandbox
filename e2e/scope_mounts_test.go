@@ -140,6 +140,7 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 }
 
 func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker run of the entrypoint")
 	const target = "claudecode"
 	img := harnessImage(t, target)
 	wt := newTempWorktree(t)

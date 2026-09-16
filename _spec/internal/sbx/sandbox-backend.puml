@@ -1,34 +1,52 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
-' ── MEASURED GAP: AgentArgs REACH THE DOCKER RENDERING ONLY ────────────────
-' Measured 2026-09-15. `egress.Plan.AgentArgs` carries the env proveo decides
-' for the agent as docker `-e` flags, and exactly one caller reads it:
-' internal/backend/dockeregress (dockeregress.go, ExtraArgs: plan.AgentArgs).
-' The sandbox backend builds cfg.Env from its own sources and never consults
-' the plan, so everything the plan wired is silently dropped under sbx.
-'
-' `grep '"-e", "[A-Z_]+' internal/egress/plan.go` lists 42 distinct variables.
-' Two groups were measured absent inside a real sandbox:
+' ── THE PLAN'S AGENT ENVIRONMENT REACHES BOTH RENDERINGS ───────────────────
+' `egress.BuildPlan` decides what the AGENT's own environment must hold, and
+' until 2026-09-15 it published that decision only as docker `-e` flags on
+' `Plan.AgentArgs`, which exactly one caller read: internal/backend/dockeregress
+' (dockeregress.go, ExtraArgs: plan.AgentArgs). The sandbox backend builds
+' cfg.Env from its own sources and never consulted the plan, so everything the
+' plan wired was dropped under sbx:
 '
 '   the local-model set   PROVEO_LOCAL_MODEL, OLLAMA_*, OPENAI_*, ANTHROPIC_*,
 '                         ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL — 15 vars
-'                         from localModelArgs. `--local-model` is accepted on
-'                         the command line and then does NOTHING: the sandbox
+'                         from localModelArgs. `--local-model` was accepted on
+'                         the command line and then did NOTHING: the sandbox
 '                         backend has no LocalModel field at all.
 '   PROVEO_EGRESS_MODE    the tier the agent and entrypoint-lib.sh both read.
 '
-' Three suite failures, one cause: TestHelloWorldE2E reports
+' Three suite failures, one cause: TestHelloWorldE2E reported
 ' `main model in container = "unset"` on all three targets and no PROVEO_MODELS
-' preamble; TestPromptfulE2E drives a real agent against a model that never
-' arrived and times out with nothing done; TestAgentSettingsPersistAcrossRuns
-' reads `TIER=` empty and concludes the choice cache was not re-entered, which
+' preamble; TestPromptfulE2E drove a real agent against a model that never
+' arrived and timed out with nothing done; TestAgentSettingsPersistAcrossRuns
+' read `TIER=` empty and concluded the choice cache was not re-entered, which
 ' it was — the variable simply never crossed.
 '
-' The remaining vars in that list are not all agent-facing (the proxy sidecar
-' takes its own), so the gap is "the plan's agent env has no sandbox route",
-' not "42 variables are missing". Naming the route is the fix; enumerating the
-' survivors is not.
+' `egress.AgentEnv(Options)` now returns that decision as KEY=VALUE pairs and
+' `sandbox.Input.AgentEnv` carries it into cfg.Env, so both renderings read one
+' decision. ONLY `-e KEY=VALUE` pairs cross: the rest of AgentArgs is docker
+' topology (--network, --dns, --add-host) that means nothing to a sandbox, and
+' the sidecar environment was never in AgentArgs at all — it lives in the
+' sidecar commands. That is why the fix names a ROUTE rather than enumerating
+' the 42 variables the old grep found; they are not all agent-facing.
+'
+' ── AND THE SANDBOX DROPS THE PAIRS THAT NAME A PROXY IT HAS NOT GOT ───────
+' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY (and the lower-case pair),
+' NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
+' GIT_SSL_CAINFO, INSPECT_PROXY, ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT.
+' This rendering runs no proveo egress layer — sbx enforces the policy and
+' terminates TLS itself — so a CA bundle or proxy URL pointing at a mitmproxy
+' that was never started would send every request into a black hole. Everything
+' else the plan decided crosses unchanged.
+'
+' The mode handed to BuildPlan here is BEST-EFFORT. `p.Mode` does not always
+' hold an egress mode: on this backend the choice row reports sbx's policy
+' BASELINE (_spec/internal/sbx/policy-baseline.puml), so a run started from a
+' cached choice arrived here with "allow-all" and BuildPlan rightly refused it.
+' An unusable mode now falls back to the flag's own default and a failure warns
+' rather than aborting — the agent's environment is worth having, and never
+' worth killing a run for.
 '
 ' ── ONE SANDBOX PER DEF PER WORKSPACE, NOT ONE PER RUN ─────────────────────
 ' Measured 2026-09-15: 81 sandboxes on one developer host after a few e2e suite
@@ -63,6 +81,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' covers: internal/sbx/agents.go
 ' covers: internal/sbx/limits.go
 ' covers: internal/run/run.go
+' covers: internal/egress/plan.go (AgentEnv, AgentEnvPairs)
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
@@ -525,6 +544,30 @@ note right of SEL
   the choice cache entirely, a script rendering
   that plan has no other knob — and the e2e
   suite is nonetheless forbidden to reach for it.
+end note
+
+note as AGENTENV
+  **One decision, two renderings.** The plan used
+  to publish the agent's environment as docker
+  ""-e"" flags only, so ""--local-model"" was
+  accepted and then did nothing under sbx.
+  ""egress.AgentEnv"" returns it as KEY=VALUE.
+end note
+
+note as AGENTENVDROP
+  **Proxy and CA variables are dropped here.**
+  sbx enforces policy and terminates TLS itself,
+  so a bundle naming a mitmproxy that was never
+  started would black-hole every request the
+  agent makes; the rest of the plan crosses.
+end note
+
+note as AGENTENVMODE
+  **Best-effort, never fatal.** ""p.Mode"" may
+  hold sbx's policy baseline rather than an
+  egress mode, so an unusable value falls back
+  to the flag's own default and a BuildPlan
+  failure warns instead of killing the run.
 end note
 
 note as SBXNAME

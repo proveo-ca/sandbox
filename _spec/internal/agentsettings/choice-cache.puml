@@ -23,7 +23,7 @@
 '
 ' ── THE EVIDENCE THE E2E LANE RECORDS ───────────────────────────────────────
 ' TestAgentSettingsPersistAcrossRuns drives two runs of opencode against one
-' isolated HOME and reads the result from agent-settings.yml:
+' isolated PROVEO_HOME and reads the result from agent-settings.yml:
 '   * the FIRST run must persist `egress: allowlist` and `credentials: broker` —
 '     opencode's manifest defaults — and a NON-EMPTY fingerprint. A persisted choice
 '     with no fingerprint is the failure mode where a manifest change could never
@@ -37,10 +37,22 @@
 ' expansion counts, since the shell echoes the command line too. That is the honest
 ' signal that the choice took effect, rather than anything proveo printed host-side.
 '
-' Isolating HOME is what makes any of this deterministic: a shared HOME would leak
-' into the developer's real settings AND skip the prompt on every later run. It also
-' hides ~/.docker and with it the active context, so DOCKER_HOST has to be pinned
-' explicitly or every docker call falls back to /var/run/docker.sock and hangs.
+' It is read through `shellExec`, which returns on a completion marker. The fixed
+' sleeps it replaced (4s for the shell, 2s for the answer) were long enough on the
+' docker rendering and not on the sandbox one, so the pane came back holding the
+' typed line and no answer — an empty tier, which this test then reported as a
+' cache that had failed to re-enter. A lane that asserts a persistence mechanism
+' must not be able to fail on a clock (_spec/tests/testing-strategy.puml).
+'
+' Isolating PROVEO_HOME is what makes any of this deterministic: a shared proveo
+' home would leak into the developer's real settings AND skip the prompt on every
+' later run. It is deliberately NOT an isolated HOME — the two were the same thing
+' until the sandbox backend became the default. HOME also holds sbx's own state
+' directory, so overriding it sent the run to `sbx template load` against a store
+' it could not see, and the failure read as "session exited before the agent
+' shell"; and it hides ~/.docker with the active context, so DOCKER_HOST has to be
+' pinned explicitly or every docker call falls back to /var/run/docker.sock and
+' hangs. PROVEO_HOME isolates what this lane actually needs and nothing else.
 
 title Choice cache — the prompt always appears; the cache only seeds it
 
@@ -70,10 +82,27 @@ note left of TUI
 end note
 
 note left of FILE
-  **Read the tier from the AGENT's own env.** The
-  e2e lane echoes ""PROVEO_EGRESS_MODE"" inside the
-  container: what proveo printed host-side is an
-  intention, and the container's env is the fact.
+  **Read the tier from the AGENT's own env.**
+  The e2e lane echoes ""PROVEO_EGRESS_MODE""
+  inside the container: what proveo printed
+  host-side is an intention, and the container's
+  env is the fact.
+end note
+
+note left of FILE
+  **Isolate PROVEO_HOME, not HOME.** HOME also
+  holds sbx's state directory, so overriding it
+  sent the run to ""sbx template load"" against a
+  store it could not see — an early exit that
+  reads like a defect in the thing under test.
+end note
+
+note left of FILE
+  **A completion marker, never a clock.** The
+  sleeps this lane used were calibrated on the
+  docker rendering, so the sandbox returned a
+  pane holding the typed line alone and the
+  empty tier incriminated the cache it protects.
 end note
 
 note right of TUI

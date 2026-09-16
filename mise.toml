@@ -193,14 +193,23 @@ description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
 [tasks.test-e2e]
-description = "EVERYTHING considered e2e: image + consumer suites, the Go agent suite with its opt-in gates on (idle, signal, toolchain), then the sbx ladder for every def. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
+description = "EVERYTHING considered e2e, on the sbx runtime: image + consumer suites (no mitmproxy, no docker smoke), the Go agent suite with its opt-in gates on (idle, signal, toolchain), then the sbx ladder for every def. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
 dir = "{{config_root}}"
 # The shebang is load-bearing — see test-images. Guarded by
 # internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-mise run test-images
+bash scripts/stage-cli-cdn.sh
+# The image suites that test the sbx runtime. docker-detached-smoke.sh and the
+# mitmproxy sidecar suite are the docker rendering, which is no longer a subject.
+for test_script in \
+  "apps/cli/public/cli/tests/run_tests.sh" \
+  "defs/cecli/test.sh" "defs/claudecode/test.sh" "defs/codex/test.sh" \
+  "defs/opencode/test.sh" "defs/cursor/test.sh"; do
+  printf '\\n==> %s\\n' "$test_script"
+  "$test_script"
+done
 export PROVEO_IDLE_TEST=1 PROVEO_SIGNAL_TEST=1 PROVEO_TOOLCHAIN_TEST=1
 export PROVEO_TEST_GO_TIMEOUT="${PROVEO_TEST_GO_TIMEOUT:-150m}"
 scripts/go-test-coverage.sh e2e "$@"

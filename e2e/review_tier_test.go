@@ -18,6 +18,7 @@ import (
 // TestReviewTierConsentGate is the only test that exercises the review tier
 // as a whole.
 func TestReviewTierConsentGate(t *testing.T) {
+	skipOutsideSbx(t, "the mitmproxy review consent gate")
 	const target = "opencode"
 	requireHarness(t, target)
 	requireHarnessCredential(t, target)

@@ -8,7 +8,10 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/policy.go
 ' covers: internal/sbx/baseline_live_test.go
 ' covers: internal/run/topology.go
+' covers: internal/run/params.go (seedFromCache)
+' covers: internal/run/params_test.go
 ' covers: e2e/sbx_egress_test.go
+'   what a refused mode costs downstream . _spec/internal/sbx/sandbox-backend.puml
 '
 ' ── THE ROW WAS DEAD ───────────────────────────────────────────────────────
 ' On the sbx backend the egress axis offered open | allowlist | review and none
@@ -57,6 +60,31 @@ skinparam noteTextAlignment left
 ' built from the same table shape; internal/sbx TestPolicyBaselineLive (tag
 ' livesbx) is what catches sbx changing that table.
 '
+' ── THE ROW'S REPORT IS NOT A MODE, AND IT LEAKED INTO ONE ─────────────────
+' Measured 2026-09-15. The choice form writes each row's selection back into
+' Params, and on this backend the egress row's value is the BASELINE it
+' reports — allow-all | balanced | deny-all — not open | allowlist | review.
+' Writing that into `p.Mode` put "allow-all" where every reader expects a mode,
+' and the first caller to hand it to `egress.BuildPlan` killed the run. proveo's
+' own run log named it exactly — `outcome: agent environment: egress: unknown
+' mode "allow-all"` — while the browser-viewport e2e saw only the generic
+' "session exited before the agent shell".
+'
+' Two edges close it, because the value can arrive by two routes:
+'   * `promptChoices` no longer writes the egress selection when the sandbox
+'     backend is on. The row is a report, and proveo can re-read it from
+'     `sbx policy inspect` whenever it needs it, so nothing is lost by not
+'     storing it.
+'   * `seedFromCache` seeds `p.Mode` only from a value `egress.ValidMode`
+'     accepts, because a choice cached by an EARLIER sandbox run still holds a
+'     baseline. internal/run/params_test.go pins both directions: each of the
+'     three baselines (and an unreadable one) seeds nothing, and a real mode
+'     still seeds.
+'
+' Downstream, where the mode is only an input to the agent's own environment
+' rather than to enforcement, an unusable value degrades instead of aborting —
+' see _spec/internal/sbx/sandbox-backend.puml.
+'
 ' STILL OPEN: posture.EnforcedBy says "sbx — Kit network allowlist + credential
 ' proxy" whatever the baseline is, which overstates on an allow-all host. Left
 ' unchanged deliberately: the same measurement governs whether an sbx sandbox's
@@ -80,6 +108,22 @@ note over ROW
   sidecars. ""--egress-mode"" keeps its canonical
   values on both backends, so nothing the
   in-container gate parses changed (D4).
+end note
+
+note over ROW
+  **The report is not a mode.** Storing this row
+  in ""p.Mode"" put "allow-all" where every reader
+  expects open|allowlist|review, so the first
+  call to ""BuildPlan"" killed the run under a
+  generic "session exited before the shell".
+end note
+
+note over ROW
+  **Two routes carry it, so two guards.** The form
+  no longer records this selection in ""p.Mode"",
+  and ""seedFromCache"" re-enters only a value
+  ""egress.ValidMode"" recognises, because an
+  earlier sandbox run remembered a baseline.
 end note
 
 note over SBX

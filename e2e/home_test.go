@@ -219,6 +219,7 @@ func TestProveoHomePersistence(t *testing.T) {
 	})
 
 	t.Run("live_shell_roundtrip", func(t *testing.T) {
+		skipOutsideSbx(t, "a docker container started from the cursor image")
 		requireLiveCursorHome(t, cursorImage)
 		home, work := dockerVisibleHomeWork(t)
 		mustRun(t, work, "git", "init", "-q", ".")
@@ -285,6 +286,7 @@ func TestProveoHomePersistence(t *testing.T) {
 	})
 
 	t.Run("live_resume_roundtrip", func(t *testing.T) {
+		skipOutsideSbx(t, "a docker container started from the cursor image")
 		requireLiveCursorHome(t, cursorImage)
 		home, work := dockerVisibleHomeWork(t)
 		mustRun(t, work, "git", "init", "-q", ".")

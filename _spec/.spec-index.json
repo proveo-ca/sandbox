@@ -1136,6 +1136,8 @@
         "internal/sbx/policy.go",
         "internal/sbx/baseline_live_test.go",
         "internal/run/topology.go",
+        "internal/run/params.go",
+        "internal/run/params_test.go",
         "e2e/sbx_egress_test.go"
       ],
       "fingerprint": null
@@ -1150,6 +1152,7 @@
         "internal/sbx/agents.go",
         "internal/sbx/limits.go",
         "internal/run/run.go",
+        "internal/egress/plan.go",
         "e2e/idle_test.go",
         "e2e/chrome_bridge_sbx_test.go",
         "cmd/proveo/golden_test.go"

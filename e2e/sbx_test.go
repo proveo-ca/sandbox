@@ -184,6 +184,7 @@ func TestSandboxBackendKitFlagPointsAtADirectory(t *testing.T) {
 }
 
 func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
+	skipOutsideSbx(t, "the docker+egress fallback")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
 	}

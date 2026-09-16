@@ -99,6 +99,7 @@ echo "GIT_WRITE_OK"`
 }
 
 func TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker run")
 	img := harnessImage(t, "opencode")
 	repo := newTempRepo(t)
 

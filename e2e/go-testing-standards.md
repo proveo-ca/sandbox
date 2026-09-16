@@ -121,3 +121,5 @@ func TestDetect(t *testing.T) {
 ```
 
 **The full sweep is `mise run test-e2e`.** `test-go-e2e` alone is the Go agent suite with its opt-in gates OFF, so it skips the idle-survival, signal and toolchain checks and never climbs the sbx ladder; `test-images` alone is the image and consumer-CLI suites. Only `test-e2e` runs everything this repo considers e2e, and it is the run a release claim has to cite.
+
+**sbx is the runtime under test — nothing else is a subject.** The mitmproxy egress sidecar, the `-egress` container and its `broker.env`, the review-tier consent gate, raw `docker run` replicas, and the docker+egress fallback all still exist in the product, and none of them is asserted here any more. A test whose subject is that rendering calls `skipOutsideSbx(t, subject)` first and says so; it is not deleted, so the record of what it measured survives, and it is not run, so a docker-only pass can never stand in for the runtime the operator actually gets. `mise run test-e2e` leaves the mitmproxy image suite and the docker-detached smoke out for the same reason, and Layer 3 (`test-go-integration`) stays outside the sweep.

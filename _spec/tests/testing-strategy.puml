@@ -200,6 +200,43 @@ title Testing strategy — four layers, speed traded for fidelity
 '      deadAfter = 4.
 '   3. Always include exited containers (`docker ps -a`). "Started and died" and
 '      "never started" are different faults and look identical without it.
+'   4. Read proveo's OWN run log, and read it here. A session that dies early
+'      takes its PROVEO_HOME with it, because that home is a `t.TempDir()` the
+'      framework removes when the test ends — so the one artifact that says WHY
+'      is gone before anyone can open it, and the pane only carries what fit on
+'      screen before the process exited. `runLogTail` scrapes the path out of
+'      the run's own header line and tails the file while the directory still
+'      exists. That capture is the difference between "session exited before
+'      the agent shell" and a cause: it named the next two failures on the run
+'      it was added for, after three wrong guesses had been made without it.
+'      What the log holds, and why it is the record that outlives the terminal,
+'      is _spec/internal/runlog/run-transcript.puml.
+'
+' ── EITHER DELIVERY ROUTE COUNTS, AND THE SECOND ONE ARRIVES LATE ──────────
+' Three tests have now learned the same lesson, so it is stated once here. The
+' two renderings put the agent's work in different places: DOCKER advances the
+' mounted worktree the test can stat, while the SANDBOX clones by default, so
+' the agent writes and commits inside the clone and TEARDOWN fetches those
+' commits into refs/proveo/<sid>/ — the mounted directory never gains the file
+' (_spec/internal/sbx/clone-workspace.puml). A probe that checks only the mount
+' is asserting a docker fact, and pinning the backend to make it true again is
+' banned by the section below. The worktree case and the `-egress` container
+' cases were the first two; hello_world_test.go was the third, and reported "no
+' hello-world file on the host" for a run whose own transcript said
+' `Commit 261c544 feat: add HELLO_WORLD.txt`.
+'
+' Two follow-on faults are the part worth writing down, because accepting both
+' routes is not enough on its own:
+'   * THE FETCH LAGS THE PANE. The tmux session can disappear before teardown
+'     has finished writing the refs, so a single observation taken the moment
+'     the pane dies reads as "delivered by no route" on a run that then printed
+'     the refs it had written. The assertion polls a bounded while longer
+'     (PROVEO_TEST_TEARDOWN_TIMEOUT, 2 minutes) instead of asking once.
+'   * THE NAME AND THE BODY COME FROM ONE PLACE. Reading the file name from
+'     the refs and then the body off disk sets "found" for a file the host does
+'     not hold, and the marker assertion fails against an empty body — a
+'     delivery success reported as a corrupt deliverable. Whichever route
+'     answers returns both values together.
 '
 ' ── A LAYER-4 CASE LAUNCHES THE PRODUCT, NOT A REPLICA OF IT ───────────────
 ' Seven cases used to reassemble by hand what `proveo run` assembles itself: a
@@ -265,17 +302,26 @@ title Testing strategy — four layers, speed traded for fidelity
 ' missing everywhere. One broken probe, thirty-odd false verdicts, and nothing in
 ' the output pointing at the probe.
 '
-' Two rules, and the second is why this took a whole suite to notice:
-'   4. A completion marker must be UNSPELLABLE by the input that requests it.
+' Three rules, and the second is why this took a whole suite to notice:
+'   5. A completion marker must be UNSPELLABLE by the input that requests it.
 '      `echo '<head>''<tail>'=$?` keeps the quote characters between the halves on
 '      the typed line and leaves the shell's echo the only place the marker
 '      appears whole. clone_output_test.go already knew this — it matches its
 '      probe's answer by shape at column 0 "because the shell echoes the command
 '      first" — so the knowledge existed and the shared helper did not have it.
-'   5. A probe that cannot read its own answer must FAIL, not return a sentinel.
+'   6. A probe that cannot read its own answer must FAIL, not return a sentinel.
 '      `status := -1` made a broken probe indistinguishable from a command that
 '      ran and failed. markerStatus returns (int, bool) and shellExec fatals on
 '      false, so the next time this breaks it says so in one line.
+'   7. A FIXED SLEEP IS A TIMING ASSUMPTION ABOUT ONE BACKEND, so wait on the
+'      marker instead. TestAgentSettingsPersistAcrossRuns slept 4s for the shell
+'      and 2s for the answer; both were long enough on the docker rendering and
+'      neither was on the sandbox one, so the pane was captured holding the
+'      typed line and no answer. An empty tier read as a cache that had failed
+'      to re-enter — the test accused the mechanism it exists to protect. It
+'      now waits through waitForContainerShell and shellExec, which return when
+'      the agent has actually answered rather than when a clock says it should
+'      have.
 '
 ' A credential the AGENT cannot spend is a condition of the host, not a defect, so
 ' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
@@ -349,9 +395,20 @@ title Testing strategy — four layers, speed traded for fidelity
 '     silently falls back to /var/run/docker.sock and every docker call — starting
 '     with the image pull — hangs. Pin the endpoint explicitly: dockerHost reads
 '     $DOCKER_HOST, else `docker context inspect`.
-'   * An isolated HOME is also what makes driving the choice prompt deterministic.
-'     A shared HOME would leak into the developer's real settings AND skip the
-'     prompt on every later run.
+'   * ISOLATE PROVEO_HOME, NOT HOME, when what the test needs is proveo's own
+'     settings out of the way. HOME is where every OTHER tool on the host keeps
+'     its state as well, and sbx is one of them: overriding it moves sbx's own
+'     state directory, and the run then dies at `sbx template load` against a
+'     store it cannot see — reported, like every early death on this backend, as
+'     "session exited before the agent shell". Measured 2026-09-15 on
+'     TestAgentSettingsPersistAcrossRuns, which had isolated HOME since it was
+'     written and only broke when the sandbox backend became the default. The
+'     docker-endpoint trap above is the same shape, and PROVEO_HOME avoids it
+'     too. What still needs a whole isolated HOME — a harness CLI's own config —
+'     must pin DOCKER_HOST alongside it.
+'   * An isolated proveo home is also what makes driving the choice prompt
+'     deterministic. A shared one would leak into the developer's real settings
+'     AND skip the prompt on every later run.
 ' ── PROVEO_SBX=off IS BANNED IN THIS SUITE ─────────────────────────────────
 ' No e2e test may pin the backend off. The pin was introduced so a probe could
 ' inspect the docker rendering — the "-egress" container, the broker.env bound
@@ -597,6 +654,38 @@ note as DIAGNOSE
   running' and hides the exit output. Only 4 empty
   captures in a row mean dead, and ""docker ps -a""
   separates 'started and died' from 'never started'.
+end note
+
+note as DELIVERYROUTES
+  **Both routes deliver; the sandbox delivers
+  late.** Teardown writes the agent's commits to
+  ""refs/proveo/<sid>/"" after the tmux session
+  has gone, so an assertion taken at that moment
+  finds nothing and blames the product.
+end note
+
+note as RUNLOGCAP
+  **Capture proveo's own log before the temporary
+  home disappears.** That file is the sole account
+  of an early termination the pane could not
+  retain, and the framework removes the directory
+  containing it when the test finishes.
+end note
+
+note as NOSLEEP
+  **A fixed sleep encodes one backend's timing.**
+  Four seconds for the shell and two for the
+  answer satisfied the docker rendering but not
+  the sandbox, so an empty capture was reported
+  as a persistence failure in the choice cache.
+end note
+
+note as PROVEOHOME
+  **Isolate PROVEO_HOME, not HOME.** Overriding
+  HOME relocates every other tool's state
+  directory as well, and sbx is one of them: the
+  run then dies at ""sbx template load"" against a
+  store it cannot see, reported as an early exit.
 end note
 
 note as TAGPICK

@@ -91,6 +91,7 @@ type runOpts struct {
 }
 
 func runLib(t *testing.T, o runOpts, script string) (string, error) {
+	skipOutsideSbx(t, "a raw docker run of the entrypoint lib")
 	t.Helper()
 	image := o.image
 	if image == "" {
@@ -393,6 +394,7 @@ echo "PLANTUML_COPIES=$(type -a plantuml 2>/dev/null | awk '{print $NF}' \
 }
 
 func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker run per harness image")
 	required := []string{
 		"_proveo_lock_installs",            // §7/§8 concurrency guard
 		"_go_current_version",              // honours a go.mod toolchain pin

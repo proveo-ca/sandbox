@@ -46,6 +46,7 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 
 	// Egress integrity — one live firewall run through the vendor-pinned agent.
 	t.Run("egress_broker_receives_all_keys", func(t *testing.T) {
+		skipOutsideSbx(t, "the -egress sidecar and its broker.env")
 		requireLiveStack(t)
 		assertBrokerReceivesAllKeys(t, proveoBin, keys)
 	})
@@ -55,6 +56,7 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 // vendor-pinned (Cursor) harness plans through real Docker firewall
 // topologies.
 func TestProjectDotEnvAtEgressLayer(t *testing.T) {
+	skipOutsideSbx(t, "a new -egress container")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
 	}
