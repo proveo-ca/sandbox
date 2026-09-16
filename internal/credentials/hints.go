@@ -46,10 +46,12 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 	},
 }
 
-// SandboxAuthRefusal is what `proveo run` says when a subscription harness
-// reaches the sbx backend with nothing to authenticate with — the agent would
-// exit at its login prompt and the sandbox stop with it.
-func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup func(string) string) string {
+// SandboxAuthRoutes is what `proveo run` says when a subscription harness
+// starts with nothing to authenticate with. The run is NOT refused: the agent
+// comes up at its own login, and `/login` is the agent's to complete. These are
+// the routes to a credential that outlives the run, so the next one starts
+// ready rather than at the same screen.
+func SandboxAuthRoutes(man manifest.Manifest, target, homeRoot string, lookup func(string) string) string {
 	if HasUsableAuth(man, target, homeRoot, lookup) {
 		return ""
 	}
@@ -58,8 +60,8 @@ func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup f
 		sh = shell.Shell{Name: "bash", Supported: true}
 	}
 	b := &strings.Builder{}
-	fmt.Fprintf(b, "%s needs a credential and the sbx backend cannot complete a login:\n"+
-		"  the agent exits at its login prompt and the sandbox stops with it.", man.Name)
+	fmt.Fprintf(b, "%s is starting without a credential — it will show its own login.\n"+
+		"  To have the next run start ready, give it one of these:", man.Name)
 	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
 	for _, e := range man.Env {
 		if !e.Secret {
@@ -85,7 +87,8 @@ func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup f
 	b.WriteString("\n  Or hand it to sbx once, and every later run reads it from there:" +
 		"\n      `sbx setup` imports what this host already exports, or `sbx secret set " + sbxService(man) + "`" +
 		"\n      (a provider sbx does not know: `sbx secret set-custom --host <api-host> --env <VAR>`)")
-	b.WriteString("\n  Or use --egress-mode review, which runs on the docker backend where a login persists")
+	b.WriteString("\n  Or complete `/login` inside the agent — it is kept where the def declares, " +
+		"and carried back at teardown")
 	return b.String()
 }
 

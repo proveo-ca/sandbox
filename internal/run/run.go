@@ -382,16 +382,11 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			// The sbx backend has no way to complete a login: the agent reaches its
-			// prompt, exits there, and the sandbox stops with it. Promising that the
-			// agent will handle it is the sentence that makes a refusal read as a crash.
-			if sbxBound(rs, p) {
-				ui.Warnf("no auth present for subscription agent %s — the sandbox backend cannot complete a login, "+
-					"so this run stops before it starts one", rs.Man.Name)
-			} else {
-				ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login",
-					rs.Man.Name)
-			}
+			// What the agent does about it is the agent's: it comes up at its own
+			// login. What proveo says is where a credential would REST, because a
+			// login completed inside only survives what the def declares it keeps.
+			ui.Warnf("no auth present for subscription agent %s — it will come up at its own login screen",
+				rs.Man.Name)
 		case agentio.IsStdinTTY() && WizardEnabled():
 			for name, v := range d.PromptEnv(p.Target, missing) {
 				_ = os.Setenv(name, v)
@@ -737,10 +732,21 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		}
 		if len(rs.Creds.AuthMissingAtStart) > 0 {
 			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
+			// A missing credential is not a reason to refuse. The agent launches and
+			// shows its own login, which is the flow every harness ships and the one
+			// `/login` completes; what proveo owes here is the routes to a credential
+			// that outlives the run, not a closed door.
 			if rs.Man.Subscription && !rs.Creds.LoggedIn {
-				if why := credentials.SandboxAuthRefusal(
+				if why := credentials.SandboxAuthRoutes(
 					rs.Man, p.Target, proveohome.Root(os.Getenv), rs.Creds.Lookup); why != "" {
-					return false, errors.New(why)
+					ui.Section(ui.SectionSecrets)
+					for i, line := range strings.Split(why, "\n") {
+						if i == 0 {
+							ui.Hostf("%s", line)
+							continue
+						}
+						ui.Notef("%s", strings.TrimLeft(line, " "))
+					}
 				}
 			}
 		}

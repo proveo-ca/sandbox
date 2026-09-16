@@ -284,33 +284,51 @@ func TestHasUsableAuthCountsProviderKeys(t *testing.T) {
 	}
 }
 
-// The sandbox refusal used to print claudecode's instructions whatever harness
-// hit it — a cursor run with no key was told to run `claude setup-token`.
-func TestSandboxRefusalSpeaksForTheHarnessItRefused(t *testing.T) {
+// These routes used to print claudecode's instructions whatever harness hit
+// them — a cursor run with no key was told to run `claude setup-token`.
+func TestSandboxAuthRoutesSpeakForTheHarnessThatStarted(t *testing.T) {
 	t.Parallel()
-	cursor := SandboxAuthRefusal(cursorMan(), "cursor", "", lookupOf(nil))
+	cursor := SandboxAuthRoutes(cursorMan(), "cursor", "", lookupOf(nil))
 	switch {
 	case cursor == "":
-		t.Fatal("a cursor run with no credential at all was not refused")
+		t.Fatal("a cursor run with no credential was told nothing about how to get one")
 	case strings.Contains(cursor, "claude setup-token"), strings.Contains(cursor, "CLAUDE_CODE_OAUTH_TOKEN"):
 		t.Errorf("cursor was handed claudecode's instructions:\n%s", cursor)
 	case !strings.Contains(cursor, "CURSOR_API_KEY"):
-		t.Errorf("the refusal never names the credential to obtain:\n%s", cursor)
+		t.Errorf("the routes never name the credential to obtain:\n%s", cursor)
 	}
 	// Vendor-pinned: offering "export a provider key instead" would be a lie.
 	if strings.Contains(cursor, "ANTHROPIC_API_KEY") {
 		t.Errorf("cursor was offered a BYOK path its CLI does not have:\n%s", cursor)
 	}
 
-	oc := SandboxAuthRefusal(opencodeMan(), "opencode", "", lookupOf(nil))
+	oc := SandboxAuthRoutes(opencodeMan(), "opencode", "", lookupOf(nil))
 	if !strings.Contains(oc, "OPENCODE_API_KEY") || !strings.Contains(oc, "ANTHROPIC_API_KEY") {
-		t.Errorf("opencode's refusal names neither side of its choice:\n%s", oc)
+		t.Errorf("opencode's routes name neither side of its choice:\n%s", oc)
 	}
 
-	// And it does not fire at all while something can authenticate.
-	if why := SandboxAuthRefusal(opencodeMan(), "opencode", "",
+	// And they are silent while something can already authenticate.
+	if why := SandboxAuthRoutes(opencodeMan(), "opencode", "",
 		lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); why != "" {
-		t.Errorf("refused a run that had a usable credential:\n%s", why)
+		t.Errorf("advised a run that already held a usable credential:\n%s", why)
+	}
+}
+
+// The run is not refused, and nothing in what it prints may say it was: an
+// operator reading "cannot" where the agent is about to draw its own login is
+// how a working flow gets abandoned.
+func TestTheRoutesNeverReadAsARefusal(t *testing.T) {
+	t.Parallel()
+	for _, man := range []manifest.Manifest{cursorMan(), opencodeMan()} {
+		routes := SandboxAuthRoutes(man, man.Name, "", lookupOf(nil))
+		for _, banned := range []string{"cannot complete", "exits at its login", "stops with it", "refus"} {
+			if strings.Contains(strings.ToLower(routes), banned) {
+				t.Errorf("%s: the routes say %q, but the run proceeds:\n%s", man.Name, banned, routes)
+			}
+		}
+		if !strings.Contains(routes, "/login") {
+			t.Errorf("%s: the routes never mention the login the agent itself offers:\n%s", man.Name, routes)
+		}
 	}
 }
 
