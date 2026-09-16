@@ -223,6 +223,16 @@ note left of FB
   ""--egress-mode review"" asks for it. Def-local shell suites keep covering the
   fallback images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
 
+  **It still SHIPS, and it is no longer TESTED.** sbx is the runtime the e2e
+  suite measures, so every case whose subject is this path — the ""-egress""
+  container, its ""broker.env"", the consent gate, and
+  ""TestSandboxBackendFallsBackToDockerWhenSbxAbsent"" itself — now skips through
+  ""skipOutsideSbx"" (_spec/tests/testing-strategy.puml). Read the two together
+  and nothing contradicts: EXISTING and BEING ASSERTED are different claims,
+  and the title above makes only the first. What it does mean is that a
+  regression on this path will not be caught here, which is a cost the scope
+  decision accepted rather than an oversight to repair.
+
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on

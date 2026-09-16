@@ -1506,7 +1506,8 @@
         "defs/tests/**",
         "defs/*/test.sh",
         "defs/*/tests/*.sh",
-        "defs/sidecars/mitmproxy/test.sh"
+        "defs/sidecars/mitmproxy/test.sh",
+        "e2e/preconditions_test.go"
       ],
       "fingerprint": null
     }

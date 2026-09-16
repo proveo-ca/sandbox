@@ -11,6 +11,8 @@ title Testing strategy — four layers, speed traded for fidelity
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/*.sh
 ' covers: defs/sidecars/mitmproxy/test.sh
+' covers: e2e/preconditions_test.go (skipOutsideSbx)
+'   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (proveo_test_image, and why :latest could only
 ' ever mean "whatever the registry last published") is
@@ -290,6 +292,12 @@ title Testing strategy — four layers, speed traded for fidelity
 ' shape the product cannot, and illegitimate when it merely re-spells one the
 ' product already builds.
 '
+' Both are now SKIPPED as well, and the two rules stack rather than collide. They
+' may not convert, because no launch builds their shape; and they may not run,
+' because the shape they build by hand is a `docker run`. What survives is the
+' record of why each exists, which is the only part a reader ever needed — the
+' day either question comes back, it comes back on sbx.
+'
 ' ── A PANE IS AN ECHO CHAMBER: NEVER WAIT ON TEXT YOU TYPED ────────────────
 ' Measured 2026-09-15. shellExec typed `bash -c '<script>'; echo <marker>=$?` and
 ' then waited for `<marker>=` as a plain substring. The pane shows INPUT as well
@@ -409,27 +417,84 @@ title Testing strategy — four layers, speed traded for fidelity
 '   * An isolated proveo home is also what makes driving the choice prompt
 '     deterministic. A shared one would leak into the developer's real settings
 '     AND skip the prompt on every later run.
-' ── PROVEO_SBX=off IS BANNED IN THIS SUITE ─────────────────────────────────
-' No e2e test may pin the backend off. The pin was introduced so a probe could
-' inspect the docker rendering — the "-egress" container, the broker.env bound
-' into it, a mount table — without waiting out a timeout on a host where sbx
-' takes the run. It worked, and that is the problem: on a host with sbx
-' installed, the backend the OPERATOR gets was the one rendering nothing
-' asserted. The suite certified a shape the machine does not run.
+' ── sbx IS THE RUNTIME UNDER TEST; NOTHING ELSE IS A SUBJECT ───────────────
+' THE GOVERNING RULE, and it decides every question below it: anything mitm or
+' egress outside sbx is neither tested nor a factor, and any test that does not
+' test sbx is SKIPPED. Decided 2026-09-15, and a decision about scope rather
+' than a finding about a defect — the docker rendering is not broken, it has
+' stopped being something this suite makes claims about.
 '
-' What replaces it, in order of preference:
+' What still EXISTS in the product and is no longer a test subject: the
+' mitmproxy egress sidecar and its broker.env, the `-egress` container, the
+' review-tier consent gate, raw `docker run` replicas of a launch, and the
+' docker+egress fallback itself. The product statements about those live in
+' _spec/internal/egress/** and _spec/internal/egresspolicy/**, and they remain
+' true; what changed is that no e2e assertion stands behind them any more.
+'
+' WHAT THE RULE TOOK, named so nobody restores one by accident:
+'   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
+'                         _all_keys · ProjectDotEnvAtEgressLayer
+'   a live container .... ProveoHomePersistence/live_shell_roundtrip and
+'                         /live_resume_roundtrip
+'   sidecar teardown .... SIGINTTearsDownEgressSidecars
+'   the consent gate .... ReviewTierConsentGate
+'   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
+'   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent
+'   raw docker replicas . GitRunsWhenWorktreeOwnerDiffersFromRunAsUID ·
+'                         ClaudecodeEntrypointOperatesOnTheInputDir ·
+'                         toolchain's runLib · ToolchainLibIsCurrentInEveryHarness
+'
+' AND ONE THAT STAYS, because the distinction is the rule's edge:
+' TestCursorEgressException asserts a CLI REFUSAL CONTRACT through `--print` —
+' that an unsupported axis is declined naming what IS allowed. That is a claim
+' about the command surface, which both renderings share, and it costs no
+' container. A test is a docker subject when the RENDERING is what it reads,
+' not when the word "egress" appears in it.
+'
+' SKIPPED, NOT DELETED, and the distinction carries the whole rule. A skipped
+' case keeps the record of what it measured and why, so the day sbx cannot
+' answer a question the docker lane once answered, the probe is still written.
+' A deleted one takes that with it. `skipOutsideSbx(t, subject)` is the first
+' line of each, and it names the subject in the skip text, so `go test -v`
+' prints a scope decision rather than an unexplained gap — the same standard
+' the prerequisite skips above are held to. The suite's own standards doc,
+' e2e/go-testing-standards.md, is where the rule is stated for the people
+' writing these tests; this block is why it holds.
+'
+' The sweep narrows with it: `mise run test-e2e` drops
+' e2e/docker-detached-smoke.sh and defs/sidecars/mitmproxy/test.sh, and the
+' Layer-3 egress integration task (`test-go-integration`) stays outside it —
+' Layer 3 is where the egress topology is still exercised, deliberately, by a
+' task nobody runs on the PR path.
+'
+' ── AND SO PROVEO_SBX=off IS BANNED, WHICH IT ALREADY WAS ──────────────────
+' The ban predates the rule and is now a consequence of it. No e2e test may pin
+' the backend off. The pin was introduced so a probe could inspect the docker
+' rendering — the "-egress" container, the broker.env bound into it, a mount
+' table — without waiting out a timeout on a host where sbx takes the run. It
+' worked, and that was the problem: on a host with sbx installed, the backend
+' the OPERATOR gets was the one rendering nothing asserted. The suite certified
+' a shape the machine does not run.
+'
+' The rule above answers that by removing the reason to reach for the pin at
+' all. Where a case survives because its subject is not the rendering, two
+' techniques still apply, and they are now refinements rather than a ladder:
 '   1. Assert the BEHAVIOUR, not the rendering. "git history is writable from
-'      inside the harness" holds under both backends; "tracked.txt from the
-'      host mount is committable" holds only under docker, and sbx clones
-'      committed history, so the untracked file never crosses. The second is a
-'      docker fact wearing a git claim — rewrite the probe to create its own
-'      file and the case passes on both.
-'   2. BRANCH on what the run resolved, the way assertPlanIsolation already
-'      branches on isSbxArgv. A plan scraper that finds no `docker run` has
-'      scraped a sandbox plan; read that plan instead of failing.
-'   3. Where a mechanism genuinely exists in one rendering only, say so in the
-'      test name and skip on the other after reading the resolved backend —
-'      never by pinning the host into the shape the assertion wants.
+'      inside the harness" is a claim about the harness and holds on sbx;
+'      "tracked.txt from the host mount is committable" holds only under
+'      docker, because sbx clones committed history and the untracked file
+'      never crosses. The second is a docker fact wearing a git claim —
+'      rewrite the probe to create its own file and the claim is about the
+'      harness again.
+'   2. BRANCH on what the run resolved, the way assertPlanIsolation branches on
+'      isSbxArgv. A plan scraper that finds no `docker run` has scraped a
+'      sandbox plan; read that plan instead of failing. Note what the rule did
+'      to that branch: `--print` renders whichever backend resolves, so the
+'      DOCKER arm now fires only on a host that cannot run sbx at all. It is
+'      kept because that host is real, not because the arm is exercised here.
+' The third technique this list used to carry — skip on the other rendering
+' where a mechanism exists in one only — is not a technique any more. It is
+' the default, and the governing rule states it.
 '
 ' Where the provider must be detected from a workspace .env alone, the test unsets
 ' every provider Detect variable but PRESERVES infrastructure ones such as
@@ -438,29 +503,37 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ── WHAT THE CREDENTIAL SUITE ASSERTS, AND OVER WHAT VALUES ─────────────────
 ' Every value is random per run (`tst_` + 24 random bytes, hex), so no real secret
 ' is involved and a leak is unambiguous; a mismatch is reported as sha256 prefix +
-' length, never by printing the key. Two complementary halves:
+' length, never by printing the key. Two complementary halves, and the sbx-only
+' rule above cut between them rather than through either:
 '   * isolation (every agent, deterministic) — one `--print` subtest per agent. The
 '     dry-run builds the agent's docker command through the exact same env code path
-'     as a real run, so it is faithful and needs no containers.
+'     as a real run, so it is faithful and needs no containers. STILL RUNS: its
+'     subject is the env code path, not the rendering that consumes it.
 '   * egress integrity (live) — one firewall run whose broker.env, bind-mounted into
 '     the egress-proxy, must receive each key byte-for-byte. broker.env is
-'     agent-independent, so one agent proves the path.
+'     agent-independent, so one agent proves the path. NOW SKIPPED: broker.env and
+'     the egress-proxy are the docker rendering, and nothing in an sbx run
+'     produces either. The probe is kept because what it measures is still worth
+'     measuring the day anyone asks the question again.
 ' claudecode drives the live half, not cursor: cursor declares capabilities
 ' egress:[open] credentials:[forward], so it has no MITM and therefore no broker at
 ' all. claudecode declares providers:[anthropic], which narrows the detected set to
 ' one — and that is precisely what ARMS the broker; with every key detected the
 ' broker refuses to pin and there is no broker.env to inspect.
-' cursor's exception is asserted separately, and as declared capabilities rather
-' than a target-name special case: the default forwards the REAL key as a bare
+' cursor's exception is asserted separately and STILL RUNS, because it reads a
+' refusal on the command surface through `--print` rather than a rendering. It is
+' declared capabilities rather than a target-name special case: the default
+' forwards the REAL key as a bare
 ' `-e CURSOR_API_KEY`, with no sentinel and no --internal network, and an explicitly
 ' requested unsupported axis is REFUSED naming what IS allowed ("does not support
 ' --egress-mode allowlist (allowed: open)") — not silently rewritten, and no longer
 ' a warn-and-continue that hands over a dead sentinel.
 ' The project-.env variant proves the same boundary from the other end: a key that
 ' exists ONLY in the workspace .env reaches the egress sidecar byte-for-byte while
-' the agent sees the sentinel and an EMPTY /app/.env. It runs against a lightweight
-' probe image (ubuntu:24.04) so the credential path does not depend on any agent
-' CLI's release or install state.
+' the agent sees the sentinel and an EMPTY /app/.env. It ran against a lightweight
+' probe image (ubuntu:24.04) so the credential path did not depend on any agent
+' CLI's release or install state. NOW SKIPPED with the live half, and for the same
+' reason — the egress sidecar it reads is the docker rendering.
 '
 ' ── WHY SOME LAYER-4 CASES HAVE NO CONTAINER AT ALL ─────────────────────────
 ' `proveo init --print` is the one mode that must be safe on any host: it resolves
@@ -513,11 +586,27 @@ note right of L2
 end note
 
 note right of L4
-  **Know which rendering an assertion reads.**
-  Two backends render one launch, so a docker-only
-  expectation applied to both stays red on the
-  sandbox; and a restated image tag stops matching
-  the container the day the tag policy moves.
+  **sbx is the runtime under test.** Two backends
+  render one launch and only one is a subject, so
+  a case reading the docker rendering skips and
+  names itself; a restated image tag still stops
+  matching the day the tag policy moves.
+end note
+
+note as SBXONLY
+  **Scope, not a defect.** The mitmproxy sidecar
+  and the docker fallback still ship; no assertion
+  here stands behind them, because a rendering the
+  operator never receives cannot certify the
+  runtime the operator does receive.
+end note
+
+note as SKIPNOTDELETE
+  **Skipped preserves the question; deleted
+  discards it.** Each retired probe keeps the
+  shape it measured and announces its subject in
+  the skip, so a scope decision reads as a
+  decision rather than an unexplained gap.
 end note
 
 note right of L3
@@ -529,13 +618,11 @@ note right of L3
 end note
 
 note right of L4
-  Two suites, different credentials:
-  * ""e2e_test.go"" — local model (Ollama), opencode,
-    broker mode; keyless and CI-honest
-  * ""hello_world_test.go"" — cloud model, all three
-    targets, firewall + credential broker
-  Both assert **side effects on the host**, never the
-  model's prose. See 42-hello-world-e2e.puml.
+  **Two lanes, keyless.** ""e2e_test.go"" runs
+  opencode on a local Ollama model and
+  ""hello_world_test.go"" runs all three targets
+  on one, supplying no provider credential at all.
+  Both assert side effects, not the model's prose.
 end note
 
 note bottom of COV
