@@ -82,6 +82,9 @@ func SandboxAuthRefusal(man manifest.Manifest, target, homeRoot string, lookup f
 		b.WriteString("\n  Or export a provider key this harness can use instead " +
 			"(ANTHROPIC_API_KEY, OPENAI_API_KEY, …).")
 	}
+	b.WriteString("\n  Or hand it to sbx once, and every later run reads it from there:" +
+		"\n      `sbx setup` imports what this host already exports, or `sbx secret set " + sbxService(man) + "`" +
+		"\n      (a provider sbx does not know: `sbx secret set-custom --host <api-host> --env <VAR>`)")
 	b.WriteString("\n  Or use --egress-mode review, which runs on the docker backend where a login persists")
 	return b.String()
 }
@@ -217,4 +220,20 @@ func HarnessFamily(name string) string {
 		}
 	}
 	return name
+}
+
+// sbxService names the stored secret an operator would set for this harness:
+// sbx authenticates by service, so the name is the provider's, not the env
+// variable's. A harness sbx has no built-in service for gets the def's own name,
+// which is what `secret set-custom` records.
+func sbxService(man manifest.Manifest) string {
+	for _, e := range man.Env {
+		if !e.Secret {
+			continue
+		}
+		if s := strings.ToLower(strings.TrimSuffix(e.Name, "_API_KEY")); s != strings.ToLower(e.Name) {
+			return s
+		}
+	}
+	return man.Name
 }

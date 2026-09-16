@@ -382,7 +382,16 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", rs.Man.Name)
+			// The sbx backend has no way to complete a login: the agent reaches its
+			// prompt, exits there, and the sandbox stops with it. Promising that the
+			// agent will handle it is the sentence that makes a refusal read as a crash.
+			if sbxBound(rs, p) {
+				ui.Warnf("no auth present for subscription agent %s — the sandbox backend cannot complete a login, "+
+					"so this run stops before it starts one", rs.Man.Name)
+			} else {
+				ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login",
+					rs.Man.Name)
+			}
 		case agentio.IsStdinTTY() && WizardEnabled():
 			for name, v := range d.PromptEnv(p.Target, missing) {
 				_ = os.Setenv(name, v)
@@ -606,6 +615,12 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 	}
 
 	return nil
+}
+
+// sbxBound answers the backend question early, before selectBackend resolves it,
+// so a warning printed at credential time can say what will actually happen.
+func sbxBound(rs *Spec, p *Params) bool {
+	return rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled()
 }
 
 func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
