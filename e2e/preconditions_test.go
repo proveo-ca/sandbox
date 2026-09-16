@@ -78,11 +78,6 @@ func requireReviewTier(t *testing.T) {
 }
 
 // skipOutsideSbx skips a test whose subject is the docker rendering.
-//
-// sbx is the runtime this suite measures. The mitmproxy egress sidecar, its
-// broker.env, the `-egress` container and the docker+egress fallback still
-// exist in the product, but they are no longer test subjects: a test that only
-// holds on that rendering says nothing about what the operator runs.
 func skipOutsideSbx(t *testing.T, subject string) {
 	t.Helper()
 	t.Skipf("sbx is the runtime under test; %s belongs to the docker rendering, which this suite no longer asserts", subject)

@@ -46,12 +46,6 @@ func diagnostics(lastScreen string) string {
 }
 
 // runLogTail reads the log the run names in its own header.
-//
-// A session that dies early takes its PROVEO_HOME with it — t.TempDir() is
-// removed when the test ends — so the one artifact that says WHY is gone before
-// anyone can open it, and the pane only carries what fit on screen before the
-// process exited. Reading it here, while the directory still exists, is the
-// difference between "session exited before the agent shell" and a cause.
 func runLogTail(screen string) string {
 	m := runLogPath.FindStringSubmatch(screen)
 	if m == nil {

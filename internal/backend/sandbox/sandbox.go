@@ -449,8 +449,6 @@ type Input struct {
 	// it verbatim. Injected so Spec stays testable without docker.
 	ImageEntrypoint func(image string) []string
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
-	// Without it `--local-model` and the egress tier reach the docker rendering
-	// only.
 	AgentEnv         []string
 	Sid, EgDir       string
 	Mounts           []runner.Mount
@@ -1052,12 +1050,6 @@ func customSecretTarget(envVar string, lookup func(string) string) (hosts []stri
 
 // sandboxAgentEnv keeps the pairs a sandbox can honour and drops the ones that
 // name a proxy it does not have.
-//
-// The sandbox rendering runs no proveo egress layer: sbx enforces the policy
-// and terminates TLS itself, so a CA bundle or proxy URL pointing at a
-// mitmproxy that was never started would send every request into a black hole.
-// Everything else the plan decided — the local model set, the egress tier the
-// entrypoint reads — crosses unchanged.
 func sandboxAgentEnv(pairs []string) []string {
 	var out []string
 	for _, kv := range pairs {

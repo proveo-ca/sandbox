@@ -72,9 +72,6 @@ func (p *Params) applyCapabilities(c manifest.Capabilities) error {
 }
 
 func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
-	// A choice cached from a sandbox run may hold the host's policy baseline
-	// rather than an egress mode, because the form reported one in the same row.
-	// Only a real mode may seed p.Mode; a baseline is re-read from the host.
 	if !p.ModeSet && egress.ValidMode(cached.Egress) {
 		p.Mode = cached.Egress
 	}

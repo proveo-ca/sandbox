@@ -662,15 +662,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if sbxBridge != nil {
 			defer func() { _ = sbxBridge.Close() }()
 		}
-		// The plan decides the agent's environment once, for both renderings.
-		//
-		// p.Mode does not always hold an egress mode. On this backend the choice
-		// form offers sbx's POLICY BASELINES — allow-all, balanced, deny-all —
-		// and stores the selection in the same field, so a run started from a
-		// cached choice arrives here with "allow-all". BuildPlan rightly refuses
-		// it. The environment is worth having on a best-effort basis and is
-		// never worth killing a run for, so an unusable mode falls back to the
-		// flag's own default and a failure warns rather than aborts.
 		agentMode := p.Mode
 		if !egress.ValidMode(agentMode) {
 			agentMode = "allowlist"

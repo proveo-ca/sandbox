@@ -46,10 +46,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	requireHarness(t, target)
 	requireHarnessCredential(t, target)
 
-	// PROVEO_HOME, not HOME: overriding HOME moves sbx's OWN state directory too,
-	// and the run then fails at `sbx template load` against a store it cannot
-	// see — reported as "session exited before the agent shell". Isolating
-	// proveo's home is what this test needs; isolating sbx's is what broke it.
 	home, work := t.TempDir(), t.TempDir()
 	bin := buildProveo(t)
 
@@ -71,12 +67,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute))
 		// Read the tier out of the agent's OWN environment: that is the honest signal
 		// that the choice took effect, rather than anything proveo printed host-side.
-		//
-		// Through shellExec, which waits for a completion marker. The sleeps this
-		// replaces (4s for the shell, 2s for the answer) were long enough on the
-		// docker rendering and not on the sandbox one, so the pane was captured
-		// carrying the typed line and no answer — read as an empty tier, which
-		// this test then reported as a cache that failed to re-enter.
 		probe, _ := shellExec(t, sess, "echo TIER=$PROVEO_EGRESS_MODE", 60*time.Second)
 		_ = sess.SendText("exit")
 		_ = sess.Enter()

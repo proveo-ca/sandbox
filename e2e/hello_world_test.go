@@ -150,12 +150,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	// Let the run end itself where it still can: killing the pane early SIGHUPs
 	// proveo mid-run and strands the egress sidecars and their networks.
 	waitSessionExit(sess, 45*time.Second)
-	// A cloned workspace delivers at TEARDOWN, not while the agent runs: the
-	// commits are fetched into refs/proveo/<sid>/ after the agent exits, and the
-	// session can disappear from tmux before that fetch has finished. Asserting
-	// on the first observation after the pane dies read as "delivered by no
-	// route" on a run whose teardown then printed the refs it had written. So
-	// keep looking for a bounded while.
 	settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
 	for {
 		observe()
@@ -198,12 +192,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 
 // deliveredThroughRefs looks for the agent's file where a CLONED workspace
 // delivers it.
-//
-// sbx clones a git workspace by default, so the agent writes and commits inside
-// the clone and teardown fetches those commits into refs/proveo/<sid>/ — the
-// mounted directory on the host never gains the file. Checking only the mount
-// is a docker-rendering assumption, and it reported "no hello-world file" for a
-// run whose own transcript said "Commit 261c544 feat: add HELLO_WORLD.txt".
 func deliveredThroughRefs(t *testing.T, work string, paths []string) (name, body string) {
 	t.Helper()
 	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
