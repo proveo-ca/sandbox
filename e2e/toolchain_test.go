@@ -183,13 +183,15 @@ func requireSandboxGitHubToken(t *testing.T, sess *tmux.Session) {
 
 // endShell closes a sandbox session the way an operator does, so the run's own
 // teardown is what removes the sandbox.
-func endShell(t *testing.T, sess *tmux.Session) {
+func endShell(t *testing.T, sess *tmux.Session) string {
 	t.Helper()
 	_ = sess.SendText("exit")
 	_ = sess.Enter()
-	if _, exited := waitSessionExit(sess, 3*time.Minute); !exited {
+	out, exited := waitSessionExit(sess, 3*time.Minute)
+	if !exited {
 		t.Logf("the sandbox session did not exit after `exit`")
 	}
+	return out
 }
 
 func detectedLanguages(t *testing.T, o runOpts) map[string]bool {
@@ -341,7 +343,18 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 	if !strings.Contains(cold, "Installing") {
 		t.Fatalf("cold run installed nothing — the fixture or the sandbox is wrong:\n%s", cold)
 	}
-	endShell(t, first)
+	teardown := endShell(t, first)
+
+	// Which half broke? The store is the host side of `proveo_sync_tools`, written
+	// at teardown and read by the next run's seed. Naming its state here is what
+	// separates "the save never wrote" from "the restore never read".
+	store := toolStoreEntries(t)
+	if len(store) == 0 {
+		t.Errorf("after teardown the host toolchain store is empty (%s) — the save half never wrote, "+
+			"so no later run can restore anything\n--- teardown ---\n%s", toolStoreDir(), teardown)
+	} else {
+		t.Logf("host toolchain store after teardown: %v", store)
+	}
 
 	// A second `proveo run` over the SAME workspace is where the operator meets
 	// this claim: the sandbox is keyed by def and workspace, so the toolchain a
@@ -501,4 +514,35 @@ echo "SCAN=done"`)
 	if strings.Contains(out, "DUPLICATE") {
 		t.Errorf("a tool is installed in more than one layer:\n%s", out)
 	}
+}
+
+// toolStoreDir mirrors _proveo_tool_store: PROVEO_STATE_HOME on the host, which
+// is where a sandbox's toolchain is saved to and restored from.
+func toolStoreDir() string {
+	home := os.Getenv("PROVEO_STATE_HOME")
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		home = filepath.Join(h, ".proveo")
+	}
+	return filepath.Join(home, "toolchains")
+}
+
+func toolStoreEntries(t *testing.T) []string {
+	t.Helper()
+	dir := toolStoreDir()
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
 }
