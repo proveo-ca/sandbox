@@ -103,6 +103,14 @@ note bottom of L2
   off because it confines the agent to part of a tree that is already
   a disposable copy while its prompts stall an unattended loop —
   a cost with no matching benefit, not an impossibility.
+  ""PROVEO_CODEX_SANDBOX"" turns it back on per run.
+
+  **The caller's own posture wins, and it has to: passing both is
+  fatal, not redundant.** proveo appends its flag only when the argv
+  carries none of codex's own approval or sandbox flags, because clap
+  reads the pair as a CONFLICT and fails the run outright rather than
+  degrading to one of the two. A posture proveo cannot supply is
+  therefore always reachable by supplying it directly.
 end note
 
 @enduml

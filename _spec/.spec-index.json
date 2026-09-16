@@ -184,6 +184,9 @@
         "internal/run/run.go",
         "e2e/claudecode_auth_test.go",
         "e2e/opencode_auth_test.go",
+        "defs/cecli/harness.manifest",
+        "internal/contract/cecli_providers_test.go",
+        "internal/backend/sandbox/provider_gate_test.go",
         "e2e/sbx_test.go"
       ],
       "fingerprint": null
@@ -289,11 +292,7 @@
     },
     {
       "spec": "_spec/_plans/connect-ide.puml",
-      "covers": [
-        "internal/sbx/run.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/workspace/mount.go"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
