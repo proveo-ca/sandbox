@@ -102,6 +102,17 @@ func env(k, def string) string {
 	return def
 }
 
+func mustOutput(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	c := exec.Command(name, args...)
+	c.Dir = dir
+	out, err := c.Output()
+	if err != nil {
+		t.Fatalf("%s %v: %v", name, args, err)
+	}
+	return string(out)
+}
+
 func mustRun(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	c := exec.Command(name, args...)
