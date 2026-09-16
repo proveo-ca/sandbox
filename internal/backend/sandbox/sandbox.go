@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -659,9 +660,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(append(append(env, sandboxAgentEnv(in.AgentEnv)...),
-			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts)),
-			"GIT_DISCOVERY_ACROSS_FILESYSTEM=1"), gitSafeDirectoryEnv(in.RepoRoot)...), mounts)),
+		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), mounts)),
 		Command: command,
 	}
 	var creds []sbx.KitCredential
@@ -1099,4 +1098,154 @@ func gitSafeDirectoryEnv(repoRoot string) []string {
 		"GIT_CONFIG_KEY_0=safe.directory",
 		"GIT_CONFIG_VALUE_0=" + root,
 	}
+}
+
+// launchConfigEnv renders the def's model wiring in the form the agent reads
+// at launch, for a def whose entrypoint sbx does not run before the agent.
+//
+// opencode selects its model from its config file, not from OPENAI_* env, and
+// honours OPENCODE_CONFIG_CONTENT as an inline config merged at start. The
+// JSON mirrors configure_opencode_local_model in defs/opencode/entrypoint.sh.
+func launchConfigEnv(agent string, agentEnv []string) []string {
+	if agent != "opencode" {
+		return nil
+	}
+	model, base := envValue(agentEnv, "PROVEO_LOCAL_MODEL"), envValue(agentEnv, "OLLAMA_API_BASE")
+	if model == "" {
+		return nil
+	}
+	if base == "" {
+		base = "http://ollama:11434"
+	}
+	cfg := map[string]any{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			"ollama": map[string]any{
+				"npm":     "@ai-sdk/openai-compatible",
+				"name":    "Ollama (local)",
+				"options": map[string]any{"baseURL": strings.TrimRight(base, "/") + "/v1", "apiKey": "ollama"},
+				"models":  map[string]any{model: map[string]any{"name": model + " (local)"}},
+			},
+		},
+		"model":       "ollama/" + model,
+		"small_model": "ollama/" + model,
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return []string{
+		"OPENCODE_CONFIG_CONTENT=" + string(b),
+		"OPENCODE_MODEL=ollama/" + model,
+		"OPENCODE_SMALL_MODEL=ollama/" + model,
+	}
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// scopedGitIndexEnv hides the repository paths a subproject scope does not
+// mount, so `git status` in the sandbox does not report them as deleted.
+//
+// The docker entrypoint does this in-process: copy the index, mark every
+// tracked path that is not present skip-worktree, export GIT_INDEX_FILE. Under
+// sbx that export would land in a startup command the agent never inherits
+// from, so the same index is built HOST-SIDE — index entries are worktree-
+// relative, so the file is portable — written under the mounted proveo home,
+// and named in the environment the agent starts with. The host's own .git is
+// never touched.
+func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
+	if in.ScopeRel == "" || in.RepoRoot == "" || in.Sid == "" {
+		return nil
+	}
+	home := stateHomeHost(binds)
+	src := filepath.Join(in.RepoRoot, ".git", "index")
+	if home == "" || !exists(src) {
+		return nil
+	}
+	dst := filepath.Join(home, "git-index", in.Sid)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return nil
+	}
+	var hidden []string
+	for _, rel := range trackedFiles(in.RepoRoot) {
+		if !mountedHost(filepath.Join(in.RepoRoot, rel), binds) {
+			hidden = append(hidden, rel)
+		}
+	}
+	if len(hidden) > 0 {
+		cmd := exec.Command("git", append([]string{"-C", in.RepoRoot, "update-index", "--skip-worktree", "--"}, hidden...)...)
+		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+dst)
+		if err := cmd.Run(); err != nil {
+			return nil
+		}
+	}
+	return []string{"GIT_INDEX_FILE=" + dst}
+}
+
+func stateHomeHost(binds []sbx.Mount) string {
+	for _, m := range binds {
+		if m.Container == proveohome.ContainerHome {
+			return m.Host
+		}
+	}
+	return ""
+}
+
+func trackedFiles(repoRoot string) []string {
+	out, err := exec.Command("git", "-C", repoRoot, "ls-files", "-z").Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files
+}
+
+func mountedHost(path string, binds []sbx.Mount) bool {
+	p := filepath.Clean(path)
+	for _, m := range binds {
+		h := filepath.Clean(m.Host)
+		if p == h || strings.HasPrefix(p, h+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o644)
+}
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// launchEnv is everything the agent must already hold when sbx starts it: the
+// plan's decision, the workdir, git's reach across the mount boundary and the
+// repository's safety, the def's model wiring, and the scoped index.
+func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []string {
+	binds := WorkspaceBinds(mounts)
+	out := append([]string{}, env...)
+	out = append(out, sandboxAgentEnv(in.AgentEnv)...)
+	out = append(out, "PROVEO_WORKDIR="+FirstHost(binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1")
+	out = append(out, gitSafeDirectoryEnv(in.RepoRoot)...)
+	out = append(out, launchConfigEnv(agent, in.AgentEnv)...)
+	out = append(out, scopedGitIndexEnv(in, binds)...)
+	return out
 }
