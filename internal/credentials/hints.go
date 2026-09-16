@@ -3,14 +3,9 @@ package credentials
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"runtime"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/shell"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 type subscriptionAuthHint struct {
@@ -44,52 +39,6 @@ var SubscriptionAuthHints = map[string]map[string]subscriptionAuthHint{
 				"Zen (`opencode/<model>`) and Go (`opencode-go/<model>`)",
 		},
 	},
-}
-
-// SandboxAuthRoutes is what `proveo run` says when a subscription harness
-// starts with nothing to authenticate with. The run is NOT refused: the agent
-// comes up at its own login, and `/login` is the agent's to complete. These are
-// the routes to a credential that outlives the run, so the next one starts
-// ready rather than at the same screen.
-func SandboxAuthRoutes(man manifest.Manifest, target, homeRoot string, lookup func(string) string) string {
-	if HasUsableAuth(man, target, homeRoot, lookup) {
-		return ""
-	}
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
-	if !ok {
-		sh = shell.Shell{Name: "bash", Supported: true}
-	}
-	b := &strings.Builder{}
-	fmt.Fprintf(b, "%s is starting without a credential — it will show its own login.\n"+
-		"  To have the next run start ready, give it one of these:", man.Name)
-	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
-	for _, e := range man.Env {
-		if !e.Secret {
-			continue
-		}
-		hint := byHarness[e.Name]
-		if hint.HowTo == "" {
-			hint.HowTo = e.Description
-		}
-		fmt.Fprintf(b, "\n  Obtain %s", e.Name)
-		if hint.HowTo != "" {
-			fmt.Fprintf(b, " — %s", hint.HowTo)
-		}
-		if hint.Login != "" {
-			fmt.Fprintf(b, "\n      (or `%s` on the host)", hint.Login)
-		}
-		fmt.Fprintf(b, "\n      %s", sh.ExportLine(e.Name, "<token>"))
-	}
-	if VendorPinnedWhy(man) == "" {
-		b.WriteString("\n  Or export a provider key this harness can use instead " +
-			"(ANTHROPIC_API_KEY, OPENAI_API_KEY, …).")
-	}
-	b.WriteString("\n  Or hand it to sbx once, and every later run reads it from there:" +
-		"\n      `sbx setup` imports what this host already exports, or `sbx secret set " + sbxService(man) + "`" +
-		"\n      (a provider sbx does not know: `sbx secret set-custom --host <api-host> --env <VAR>`)")
-	b.WriteString("\n  Or complete `/login` inside the agent — it is kept where the def declares, " +
-		"and carried back at teardown")
-	return b.String()
 }
 
 func CredentialReachedAgent(man manifest.Manifest, target, homeRoot string, env []string, secrets [][2]string, lookup func(string) string) bool {
@@ -171,48 +120,6 @@ func NoCredentialHint(man manifest.Manifest, target, homeRoot string, env []stri
 		"  a store entry can already exist while holding an EMPTY value: `sbx secret ls` shows",
 		"  the name either way, and `sbx secret set` overwrites it")
 	return lines
-}
-
-func PrintSubscriptionAuthHints(man manifest.Manifest, missing []manifest.EnvVar, out io.Writer) {
-	if len(missing) == 0 {
-		return
-	}
-	p := ui.New(out)
-	p.Notef("")
-	p.Hostf("No auth was set for %s — persist a key for the next run:", man.Name)
-
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
-	if !ok {
-		sh = shell.Shell{Name: "bash", Supported: true}
-	}
-	home, _ := os.UserHomeDir()
-	rc := sh.RCFile(runtime.GOOS, home)
-
-	byHarness := SubscriptionAuthHints[HarnessFamily(man.Name)]
-	for _, e := range missing {
-		hint := byHarness[e.Name]
-		if hint.HowTo == "" && e.Description != "" {
-			hint.HowTo = e.Description
-		}
-		if hint.HowTo != "" {
-			fmt.Fprintf(out, "\n  %s — %s\n", e.Name, hint.HowTo)
-		} else {
-			fmt.Fprintf(out, "\n  %s\n", e.Name)
-		}
-		if hint.Login != "" {
-			fmt.Fprintf(out, "  In-sandbox login: %s (agent handles auth; login tokens may be scrubbed from proveo home)\n", hint.Login)
-		}
-		placeholder := "…"
-		fmt.Fprintf(out, "  Prefer one of:\n")
-		fmt.Fprintf(out, "    • local project .env (gitignored, mode 0600):\n")
-		fmt.Fprintf(out, "        printf '%%s\\n' '%s=%s' >> .env && chmod 600 .env\n", e.Name, placeholder)
-		fmt.Fprintf(out, "    • SAFE host location (shell rc / secret manager / OS keychain — never commit keys):\n")
-		fmt.Fprintf(out, "        %s\n", sh.ExportLine(e.Name, placeholder))
-		if rc != "" {
-			fmt.Fprintf(out, "        # then append that line to %s\n", rc)
-		}
-	}
-	fmt.Fprintln(out)
 }
 
 func HarnessFamily(name string) string {

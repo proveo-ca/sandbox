@@ -1063,3 +1063,24 @@ func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// SPEC: _spec/_plans/init-credential-provisioning.puml
+// A run that starts without a credential says ONE line. The screenful of routes
+// it used to print — obtain, export, sbx setup, secret set, set-custom, /login —
+// was read as a wall of text and skipped, which is worse than saying less.
+func TestTheNoCredentialNoticeIsOneLine(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if !strings.Contains(body, "run `proveo init` to persist credentials between runs") {
+		t.Error("the notice no longer names `proveo init`, the one place a credential is provisioned")
+	}
+	for _, gone := range []string{"PrintSubscriptionAuthHints", "SandboxAuthRoutes", "SandboxAuthRefusal"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("%s is back on the run path — it prints a screenful where one line is wanted", gone)
+		}
+	}
+}

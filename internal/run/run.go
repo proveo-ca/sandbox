@@ -382,10 +382,10 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			// What the agent does about it is the agent's: it comes up at its own
-			// login. What proveo says is where a credential would REST, because a
-			// login completed inside only survives what the def declares it keeps.
-			ui.Warnf("no auth present for subscription agent %s — it will come up at its own login screen",
+			// One line. The agent comes up at its own login and handles it; the only
+			// thing proveo has to add is where a credential would REST between runs,
+			// and that is one command now rather than a screenful of routes.
+			ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
 				rs.Man.Name)
 		case agentio.IsStdinTTY() && WizardEnabled():
 			for name, v := range d.PromptEnv(p.Target, missing) {
@@ -730,26 +730,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
 			return true, nil
 		}
-		if len(rs.Creds.AuthMissingAtStart) > 0 {
-			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
-			// A missing credential is not a reason to refuse. The agent launches and
-			// shows its own login, which is the flow every harness ships and the one
-			// `/login` completes; what proveo owes here is the routes to a credential
-			// that outlives the run, not a closed door.
-			if rs.Man.Subscription && !rs.Creds.LoggedIn {
-				if why := credentials.SandboxAuthRoutes(
-					rs.Man, p.Target, proveohome.Root(os.Getenv), rs.Creds.Lookup); why != "" {
-					ui.Section(ui.SectionSecrets)
-					for i, line := range strings.Split(why, "\n") {
-						if i == 0 {
-							ui.Hostf("%s", line)
-							continue
-						}
-						ui.Notef("%s", strings.TrimLeft(line, " "))
-					}
-				}
-			}
-		}
 		rs.AgentLaunched = true
 		return true, sandbox.Run(in)
 	}
@@ -837,9 +817,6 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	if err := d.PreflightImages(plan, rs.Man, p.Image); err != nil {
 		return err
-	}
-	if len(rs.Creds.AuthMissingAtStart) > 0 {
-		credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
