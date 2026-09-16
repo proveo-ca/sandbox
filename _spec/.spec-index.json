@@ -302,13 +302,7 @@
     },
     {
       "spec": "_spec/_plans/host-held-provider-keys.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/sbx/secret.go",
-        "internal/sbx/run.go",
-        "packages/lib/entrypoint-lib.sh",
-        "internal/entrypoint/entrypoint.go"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -332,11 +326,7 @@
     },
     {
       "spec": "_spec/_plans/post-close-surface.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/runlog/runlog.go",
-        "internal/ui/ui.go"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -363,12 +353,7 @@
     },
     {
       "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
-      "covers": [
-        "internal/sbx/kit.go",
-        "internal/run/run.go",
-        "internal/workspace/deps.go",
-        "packages/lib/entrypoint-lib.sh"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -383,12 +368,7 @@
     },
     {
       "spec": "_spec/_plans/tools-and-localhost-tunnels.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/sbx/run.go",
-        "internal/egress/plan.go",
-        "packages/lib/entrypoint-lib.sh"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
@@ -537,7 +517,9 @@
       "covers": [
         "defs/cecli/entrypoint.sh",
         "packages/lib/entrypoint-lib.sh",
-        "defs/bridges/cecli.tsv"
+        "defs/cecli/sample.cecli.conf.yml",
+        "internal/contract/cecli_autoupdater_test.go",
+        "internal/contract/mcp_class_test.go"
       ],
       "fingerprint": null
     },
@@ -842,8 +824,8 @@
       "spec": "_spec/internal/entrypoint/model-alias-bridges.puml",
       "covers": [
         "internal/entrypoint/**",
-        "internal/contract/model_bridging_retired_test.go",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/model_bridging_retired_test.go"
       ],
       "fingerprint": null
     },
@@ -1038,7 +1020,8 @@
         "internal/sbx/domain.go",
         "internal/sbx/domain_test.go",
         "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/domain_form_test.go"
+        "internal/backend/sandbox/domain_form_test.go",
+        "defs/cecli/harness.manifest"
       ],
       "fingerprint": null
     },
@@ -1300,7 +1283,12 @@
       "covers": [
         "internal/sbx/sbx.go",
         "e2e/capacity_test.go",
-        "internal/sbx/limits.go"
+        "internal/sbx/limits.go",
+        "internal/sbx/policy.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/memory_evidence_test.go",
+        "internal/sbx/sbx_test.go",
+        "internal/runlog/runlog.go"
       ],
       "fingerprint": null
     },

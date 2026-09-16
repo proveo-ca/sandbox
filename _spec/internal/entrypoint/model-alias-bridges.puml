@@ -44,7 +44,7 @@
 ' A TSV row is: slot, targets, roles, default, transform, want. Applied in file
 ' order, and ROW ORDER IS LOAD-BEARING: a "$VAR" default must run AFTER the row
 ' that sets VAR. A `$`-prefixed default means "read this other environment
-' variable", not "use this literal"; a bare "-" means no default at all.
+' variable", not "use this literal"; a bare "-" means no default.
 '
 ' Within a row: the first non-empty variable in `roles` wins, then the default;
 ' `targets` is a comma-separated list and each target is skipped when it is
@@ -75,11 +75,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Model aliases — one declared table, four harness dialects
 ' purpose: how ARCHITECT/EDITOR/SMALL_MODEL become each harness's own env vars
-' covers: defs/bridges/**
-' covers: internal/provider/slots.go
 ' covers: internal/entrypoint/**
-' covers: internal/contract/model_slots_test.go
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/model_bridging_retired_test.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 
 folder "Host" as HOST <<host>> {

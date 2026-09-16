@@ -5,7 +5,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/domain.go
 ' covers: internal/sbx/domain_test.go
 ' covers: internal/backend/sandbox/sandbox.go
-' covers: internal/backend/sandbox/sandbox_test.go
+' covers: internal/backend/sandbox/domain_form_test.go
+' covers: defs/cecli/harness.manifest
 ' The Kit schema this serves: sbx-kit-contract.puml (same directory).
 ' Why an allow-all baseline hid it: policy-baseline.puml (same directory).
 ' The plan whose forcing example this corrects: _spec/_plans/retire-docker-egress.puml
@@ -31,7 +32,7 @@ skinparam noteTextAlignment left
 '
 ' A LEADING DOT IS NOT ON THAT LIST. `.example.com` is Squid `dstdomain`
 ' notation, where it means "this domain and every subdomain". sbx has no such
-' shape, so the pattern matches nothing at all — not the apex, not a subdomain.
+' shape, so the pattern matches nothing — not the apex, not a subdomain.
 '
 ' ── WHAT proveo EMITTED, AND WHY NOBODY SAW IT ──────────────────────────────
 ' `provider.Entry` carries TWO domain fields that look interchangeable and are
