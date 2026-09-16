@@ -192,6 +192,21 @@ done
 description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
+[tasks.test-e2e]
+description = "EVERYTHING considered e2e: image + consumer suites, the Go agent suite with its opt-in gates on (idle, signal, toolchain), then the sbx ladder for every def. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
+dir = "{{config_root}}"
+# The shebang is load-bearing — see test-images. Guarded by
+# internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+mise run test-images
+export PROVEO_IDLE_TEST=1 PROVEO_SIGNAL_TEST=1 PROVEO_TOOLCHAIN_TEST=1
+export PROVEO_TEST_GO_TIMEOUT="${PROVEO_TEST_GO_TIMEOUT:-150m}"
+scripts/go-test-coverage.sh e2e "$@"
+mise run ladder-all
+"""
+
 [tasks.ladder-all]
 description = "Climb the sbx ladder for every def (host only: needs sbx)"
 dir = "{{config_root}}"

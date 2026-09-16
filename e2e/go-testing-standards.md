@@ -119,3 +119,5 @@ func TestDetect(t *testing.T) {
 	}
 }
 ```
+
+**The full sweep is `mise run test-e2e`.** `test-go-e2e` alone is the Go agent suite with its opt-in gates OFF, so it skips the idle-survival, signal and toolchain checks and never climbs the sbx ladder; `test-images` alone is the image and consumer-CLI suites. Only `test-e2e` runs everything this repo considers e2e, and it is the run a release claim has to cite.
