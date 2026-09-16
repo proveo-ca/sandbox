@@ -72,6 +72,17 @@ func SeedCommand(target string) KitCommand {
 	}
 }
 
+// SeedEntrypointCommand runs the def's entrypoint up to, not including, the
+// agent launch: PROVEO_SEED_ONLY makes proveo_exec_agent return instead of
+// exec, so a mixin kit gets the def's own wiring while sbx launches the agent.
+func SeedEntrypointCommand() KitCommand {
+	return KitCommand{
+		Command:     []string{"/usr/bin/env", "PROVEO_SEED_ONLY=1", "/entrypoint.sh"},
+		User:        "1000",
+		Description: "proveo: the def's own wiring, launch skipped",
+	}
+}
+
 // KitSandbox names the image and what runs in it.
 type KitSandbox struct {
 	Image      string             `yaml:"image"`

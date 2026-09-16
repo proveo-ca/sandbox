@@ -649,9 +649,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}
-	if !ownAgent {
-		env = append(env, "PROVEO_SEED_ENTRYPOINT=1")
-	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
@@ -663,7 +660,8 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env: DeclineMCPGateway(Home(append(append(env, sandboxAgentEnv(in.AgentEnv)...),
-			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
+			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts)),
+			"GIT_DISCOVERY_ACROSS_FILESYSTEM=1"), mounts)),
 		Command: command,
 	}
 	var creds []sbx.KitCredential
@@ -687,7 +685,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
 		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
-		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(in.Target)}},
+		Setup:         &sbx.KitSetup{Startup: startupCommands(in.Target, ownAgent)},
 	}
 	if ownAgent {
 		kit.Kind = "sandbox"
@@ -1074,4 +1072,13 @@ func proxyOnlyVar(name string) bool {
 		return true
 	}
 	return false
+}
+
+// startupCommands is the seed, plus the def's own entrypoint for a mixin kit.
+func startupCommands(target string, ownAgent bool) []sbx.KitCommand {
+	cmds := []sbx.KitCommand{sbx.SeedCommand(target)}
+	if !ownAgent {
+		cmds = append(cmds, sbx.SeedEntrypointCommand())
+	}
+	return cmds
 }

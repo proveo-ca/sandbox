@@ -2381,7 +2381,4 @@ proveo_seed() {
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
  proveo_chrome_bridge "$target"
 
-  if [[ "${PROVEO_SEED_ENTRYPOINT:-}" == "1" && -x /entrypoint.sh ]]; then
-    PROVEO_SEED_ONLY=1 /entrypoint.sh || echo "⚠ seed: /entrypoint.sh exited $? — the def's own wiring may be incomplete" >&2
-  fi
 }

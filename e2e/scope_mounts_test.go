@@ -33,11 +33,12 @@ func TestScopeCarriesRootSpecDir(t *testing.T) {
 			}
 			sess := launchShell(t, proveoBin, target, input)
 
-			script := `[ -d _spec ] || { echo "MISSING_SPEC_DIR"; exit 1; }
-grep -q x _spec/c.puml || { echo "SPEC_UNREADABLE"; exit 1; }
-printf 'edited by the agent\n' > _spec/written.puml || { echo "SPEC_READONLY"; exit 1; }
-rm -f _spec/written.puml
-[ -d apps/web ] || { echo "MISSING_SCOPE"; exit 1; }
+			script := `root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "NO_REPO_ROOT"; exit 1; }
+[ -d "$root/_spec" ] || { echo "MISSING_SPEC_DIR"; exit 1; }
+grep -q x "$root/_spec/c.puml" || { echo "SPEC_UNREADABLE"; exit 1; }
+printf 'edited by the agent\n' > "$root/_spec/written.puml" || { echo "SPEC_READONLY"; exit 1; }
+rm -f "$root/_spec/written.puml"
+[ -d "$root/apps/web" ] || { echo "MISSING_SCOPE"; exit 1; }
 echo "SPEC_OK"`
 
 			out, status := shellExec(t, sess, script, 60*time.Second)
