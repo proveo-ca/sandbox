@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_paradigms/egress-boundary.puml
+// SPEC: _spec/_plans/retire-docker-egress.puml
 package e2e
 
 import (

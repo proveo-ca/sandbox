@@ -16,7 +16,8 @@ skinparam noteTextAlignment left
 '   the plan that creates this .. _spec/_plans/retire-docker-egress.puml
 '   what kept a container here .. _spec/_paradigms/retire-dind.puml (APPLIED)
 '   what would be forfeited (1) . _spec/_paradigms/credential-boundary.puml
-'   what would be forfeited (2) . _spec/_paradigms/egress-boundary.puml
+'   what would be forfeited (2) . egress-boundary.puml retired 2026-09-16;
+'                                 _spec/_plans/retire-docker-egress.puml
 '   what would be forfeited (3) . _spec/_paradigms/runtime-user-boundary.puml
 '   what would be forfeited (4) . _spec/internal/sbx/clone-workspace.puml
 '   why a host may not qualify .. _spec/internal/sbx/host-readiness.puml
@@ -82,8 +83,9 @@ skinparam noteTextAlignment left
 '     THE AGENT CAN SIMPLY UNSET. `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` are a
 '     convention, not a boundary: the process they constrain is the process that
 '     can rewrite them. IS THAT WORTH OFFERING AT ALL, or is an honest "no
-'     enforcement" better than a boundary that LOOKS like one? egress-boundary's
-'     three modes all assume a hop the agent cannot route around.
+'     enforcement" better than a boundary that LOOKS like one? The three docker
+'     modes all assumed a hop the agent cannot route around (egress-boundary.puml,
+'     retired 2026-09-16 — see _spec/_plans/retire-docker-egress.puml).
 '
 ' Q4. WHAT DOES proveo STILL PROVIDE WITH NO SANDBOX? This is the case FOR
 '     keeping the mode, so it has to be enumerated rather than assumed. The

@@ -1,4 +1,4 @@
-// SPEC: _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/egress-boundary.puml
+// SPEC: _spec/_conventions/design-decision-ids.puml, _spec/_plans/retire-docker-egress.puml
 // Package egresspolicy is the stdlib-only egress policy core for firewall mode.
 package egresspolicy
 

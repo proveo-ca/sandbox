@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml
+// SPEC: _spec/_plans/retire-docker-egress.puml
 // Package reviewgate is the host-side consent gate for the review tier.
 package reviewgate
 

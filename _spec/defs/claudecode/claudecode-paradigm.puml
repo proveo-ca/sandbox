@@ -92,8 +92,9 @@ note right of CLI
   **The dangerous flag is deliberate** — and is only
   acceptable because containment is external: hardened
   container + enforced egress + credential broker
-  (_spec/_paradigms/egress-boundary.puml,
-   _spec/_paradigms/credential-boundary.puml).
+  (_spec/_paradigms/credential-boundary.puml; the egress
+   half's diagram was retired 2026-09-16 — see
+   _spec/_plans/retire-docker-egress.puml).
   Nothing here relies on the model's restraint.
 
   Small verifiable loops beat large open-ended tasks;

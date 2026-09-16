@@ -12,8 +12,9 @@ skinparam noteTextAlignment left
 '   ARCHITECTURE ....... _spec/_plans/sbx-dep-tree-isolation.puml
 '   WHICH TREE ......... _spec/_plans/connect-ide.puml
 ' The mode that dissolves it: _spec/internal/sbx/clone-workspace.puml
-' The sibling boundaries: credential-boundary.puml, egress-boundary.puml,
-'   runtime-user-boundary.puml (same directory)
+' The sibling boundaries: credential-boundary.puml, runtime-user-boundary.puml
+'   (same directory). egress-boundary.puml was retired 2026-09-16 with the
+'   docker egress mechanism — _spec/_plans/retire-docker-egress.puml.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── THE CLASS, STATED ONCE ─────────────────────────────────────────────────

@@ -22,7 +22,8 @@ skinparam noteTextAlignment left
 '   the retirement that already . _spec/tests/testing-strategy.puml
 '   happened, SPEC-side only
 '   what enforces on sbx ........ _spec/internal/sbx/policy-baseline.puml
-'   the boundary being restated . _spec/_paradigms/egress-boundary.puml
+'   the boundary being restated . egress-boundary.puml retired 2026-09-16;
+'                                 this file is now its only account
 '   the credential half ......... _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -156,6 +157,55 @@ skinparam noteTextAlignment left
 ' EVERY QUESTION BELOW REMAINS OPEN as a question about the CODE. Deleting a
 ' diagram is not deleting a backend, and nothing above authorises the deletion
 ' this plan exists to weigh.
+'
+' ── 2026-09-16, SECOND PASS: THIS FILE IS NOW THE ONLY SPEC-SIDE ACCOUNT ───
+' _spec/_paradigms/egress-boundary.puml was retired too, on the operator's
+' decision and knowing what it strands: internal/egress/**, internal/egresspolicy
+' /** and cmd/proveo-egress/** now have NO covering diagram, and internal/
+' reviewgate has had none since the first pass. Deprecated packages stay
+' diagram-less. Their `SPEC:` pointers were repointed HERE, because a plan about
+' deleting them is what honestly describes their future.
+'
+' What that diagram held, so a reader knows what was lost rather than guessing:
+' the three docker modes and their topology (agent -> MITM -> Squid), the
+' one-domain-list-two-enforcement-points rule, and the HITL rationale — which
+' survives, restated in _spec/defs/claudecode/claudecode-paradigm.puml: the
+' `--dangerously-skip-permissions` posture is acceptable only because containment
+' is external, never because the model is well behaved.
+'
+' ── THE LOCAL-MODEL FINDINGS, KEPT BECAUSE NOTHING ELSE HOLDS THEM ─────────
+' These were MEASURED, they lived only in that diagram, and a grep of _spec/
+' confirmed no other file states any of them. They describe the add-on as it runs
+' on the DOCKER rendering; `--local-model` has no sbx equivalent — see
+' _spec/internal/sbx/sandbox-backend.puml, "the backend has no LocalModel field".
+' They are recorded here as measurements, NOT as part of this plan's proposal.
+'
+'   MACOS LOSES THE GPU IN A SIDECAR, so inference moves to the host. A Linux
+'     container cannot reach the Metal GPU, so an in-network sidecar runs
+'     CPU-only and is unusably slow, while the host's Ollama at
+'     `host.docker.internal` is GPU-accelerated. The redirection is honoured
+'     only in the open tier; the locked tiers keep the isolated sidecar
+'     regardless. `PROVEO_LOCAL_MODEL_SIDECAR=1` forces the sidecar anyway.
+'   THE SIDECAR IS GPU-ACCELERATED ONLY ON LINUX with the NVIDIA container
+'     runtime registered in Docker, which is what makes `--gpus all` valid.
+'     Passing it without the runtime makes the sidecar fail to start, so the
+'     runtime list from `docker info` is probed and the flag added only on a
+'     positive match.
+'   THE CONTEXT WINDOW IS RAISED TO 32k, and that is a FLOOR rather than a
+'     preference. Ollama's default of 2-4k truncates tool schemas plus repo
+'     context, which breaks every local-capable harness: agentic coding does not
+'     degrade gracefully when the schema itself is cut off. 32k is what the
+'     vendor docs recommend for agent use.
+'   ONE ENDPOINT, THREE PROVIDER DIALECTS. The local-model env is a superset each
+'     harness consumes selectively, speaking to the same Ollama at once as
+'     OpenAI-compatible (`OPENAI_BASE_URL` + `…/v1`, opencode), as litellm/Ollama
+'     (`OLLAMA_API_BASE` + `ollama_chat/<model>`, cecli/aider) and as Anthropic
+'     Messages (`ANTHROPIC_BASE_URL` at Ollama's native endpoint, Claude Code) —
+'     one superset rather than per-harness wiring that drifts. Per-harness
+'     variable bridging: _spec/internal/entrypoint/model-alias-bridges.puml.
+'   THE VENDOR EXCEPTIONS. cursor is vendor-pinned and takes no custom base URL;
+'     claudecode speaks the Anthropic API shape, not Ollama's OpenAI-compatible
+'     endpoint, so the sidecar is not a drop-in there.
 '
 ' ── THE OPEN QUESTIONS. NONE OF THESE IS ANSWERED HERE ─────────────────────
 ' Q1. WHAT BECOMES OF THE TIER VOCABULARY? Does `open` / `allowlist` / `review`

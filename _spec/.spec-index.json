@@ -192,15 +192,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_paradigms/egress-boundary.puml",
-      "covers": [
-        "internal/egress/**",
-        "cmd/proveo/main.go",
-        "cmd/proveo-egress/**"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_paradigms/git-identity.puml",
       "covers": [
         "internal/gitidentity/**",
