@@ -6,6 +6,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -34,10 +35,36 @@ func diagnostics(lastScreen string) string {
 		b.WriteString(lastScreen)
 		b.WriteString("\n")
 	}
+	if log := runLogTail(lastScreen); log != "" {
+		b.WriteString("--- run log (proveo's own, every line incl. warnings) ---\n")
+		b.WriteString(log)
+		b.WriteString("\n")
+	}
 	b.WriteString("--- containers (incl. exited) ---\n")
 	b.WriteString(dockerPSAll())
 	return b.String()
 }
+
+// runLogTail reads the log the run names in its own header.
+//
+// A session that dies early takes its PROVEO_HOME with it — t.TempDir() is
+// removed when the test ends — so the one artifact that says WHY is gone before
+// anyone can open it, and the pane only carries what fit on screen before the
+// process exited. Reading it here, while the directory still exists, is the
+// difference between "session exited before the agent shell" and a cause.
+func runLogTail(screen string) string {
+	m := runLogPath.FindStringSubmatch(screen)
+	if m == nil {
+		return ""
+	}
+	b, err := os.ReadFile(strings.TrimSpace(m[1]))
+	if err != nil {
+		return ""
+	}
+	return tail(string(b), 40)
+}
+
+var runLogPath = regexp.MustCompile(`run log: (\S+\.log)`)
 
 // dockerPSAll lists every container including exited ones.
 func dockerPSAll() string {
