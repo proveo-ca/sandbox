@@ -5,14 +5,16 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 ' covers: internal/workspace/mount.go
 ' covers: internal/workspace/deps.go
 ' covers: internal/workspace/mount_test.go
+' covers: internal/workspace/mount_canonical_test.go
+' covers: cmd/proveo/run_golden_test.go (scrubRun)
 ' covers: e2e/scope_mounts_test.go
 ' covers: e2e/git_access_test.go (TestGitIsUsableInEveryScopeMode)
 '   the shared launch shape ....... _spec/tests/testing-strategy.puml
 '
-' ── MEASURED GAP: THE SANDBOX RENDERING DOES NOT CARRY THIS ────────────────
+' ── MEASURED GAP, AND WHAT CLOSED IT ───────────────────────────────────────
 ' Measured 2026-09-15, sbx v0.42.1, `--input <repo>/apps`, target opencode.
-' Everything this diagram describes holds under the DOCKER rendering and under
-' sbx at ROOT scope. At subproject scope the sandbox workspace carries the scope
+' Everything this diagram describes held under the DOCKER rendering and under
+' sbx at ROOT scope. At subproject scope the sandbox workspace carried the scope
 ' directory and nothing else:
 '
 '   TestScopeCarriesRootSpecDir/subproject   MISSING_SPEC_DIR — no _spec beside
@@ -21,12 +23,28 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 '                                            --is-inside-work-tree` fails; no
 '                                            git common dir crossed
 '
-' Both cases PASS at root scope on the same host and in the same run, so this is
-' the subdir-scope mount computation not reaching the sandbox backend, not a
-' broken sandbox. The two tests are left RED deliberately: they assert what this
-' diagram promises, the promise is not kept in one of two renderings, and the
-' `PROVEO_SBX=off` pin that used to hide it is banned — see
-' _spec/tests/testing-strategy.puml.
+' Both cases PASSED at root scope on the same host and in the same run, so this
+' was never a broken sandbox. Three separate causes, each fixed 2026-09-15/16:
+'
+'   ONE SPELLING PER HOST PATH. `Plan` built the scope mount from the TYPED
+'     InputDir and its siblings (.git, _spec) from git's canonical RepoRoot.
+'     Docker bound them all under /app, where the difference is invisible; sbx
+'     mounts each workspace at its own HOST path, and on macOS /var is not
+'     /private/var — so the VM received two unrelated trees and git, standing in
+'     the scope, found no repository beside it. `Plan` now resolves BOTH roots
+'     through EvalSymlinks before it computes anything.
+'   GIT MAY CROSS THE MOUNT BOUNDARY. Each virtiofs workspace is its own
+'     filesystem and git will not walk up across one, so the sandbox environment
+'     carries GIT_DISCOVERY_ACROSS_FILESYSTEM=1.
+'   THE SYNTHESISED ROOT IS DECLARED SAFE. git then refused it for dubious
+'     ownership; the three GIT_CONFIG_* variables travel in the kit environment
+'     rather than in a startup command, which the agent would launch without.
+'   The last two are not this diagram's: _spec/internal/sbx/launch-env.puml.
+'
+' The golden pays for the first one. Mount hosts are rendered canonical now, so
+' a `t.TempDir()` under /var appears as /private/var, and `scrubRun` replaces
+' BOTH spellings — scrubbing only what the test typed would pin the recorded
+' plan to the machine that produced it.
 '
 ' ── THE SCOPE CASES POINT --input AT THE SUBDIRECTORY ──────────────────────
 ' TestGitIsUsableInEveryScopeMode and TestWorktreeWorkspaceIsFullyUsable each
@@ -44,10 +62,12 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 '
 ' TestScopeCarriesRootSpecDir and TestSubdirScopeOmitsUnmountedPaths converted
 ' the same way, and their bodies lost the `/app` prefix along with the
-' `docker run` that supplied it. The probes now test `_spec` and `apps/web`
-' RELATIVE to where the shell starts, because only the docker rendering puts the
-' workspace at /app: sbx mounts it at its own host path, so a path literal is a
-' claim about one backend rather than about the scope this diagram describes.
+' `docker run` that supplied it. A path literal is a claim about one backend —
+' only the docker rendering puts the workspace at /app — and a path RELATIVE to
+' where the shell starts is a claim about one scope. So the probe asks git
+' instead: `root=$(git rev-parse --show-toplevel)` first, then `$root/_spec` and
+' `$root/apps/web`. That also makes the probe fail in the right place, with
+' NO_REPO_ROOT, when the repository is the thing that did not cross.
 
 node "Host repo" as HOST <<host>> {
   component "scope dir\n""apps/web""" as SCOPE <<app>>
@@ -126,6 +146,22 @@ note right of M2
   This is the only branch where "".git"" gets a mount of its own, and the only
   one where ""gitMode"" is consulted — see
   ""_spec/internal/workspace/git-mount-by-scope.puml"".
+end note
+
+note as N_CANON
+  **One canonical spelling, or the siblings land
+  in different trees.** The scope arrives typed,
+  git reports the root canonicalised, and sbx
+  mounts each workspace at its own host path — so
+  /var and /private/var are two repositories.
+end note
+
+note as N_PROBE
+  **The probe asks git where the root is.** A
+  literal names one backend's layout and a
+  relative path names one scope, so the case
+  resolves the toplevel first and fails as
+  NO_REPO_ROOT when the repository did not cross.
 end note
 
 note bottom of M1

@@ -155,6 +155,17 @@ skinparam noteTextAlignment left
 '                    within seconds there with proveo uninvolved — so an e2e probe
 '                    cannot drive an sbx session to a prompt the way the docker
 '                    ones are driven (e2e/sbx_test.go checks for it and skips).
+'
+' ── AMENDMENT 2026-09-16: "SURVIVES" IS NOT "IN TIME" ──────────────────────
+' The split above is about PERSISTENCE, and there is a second axis it does not
+' state. Measured on sbx 0.42.1: the agent's shell is handed over at t≈0 while
+' the startup dispatcher reports `dispatcher complete` at t+15–30s, and
+' `KitCommand` (command/user/description) has no blocking form to ask it to
+' wait. So file-shaped work survives its own process but can land AFTER the
+' agent has read for the last time — fatal for a one-shot run, harmless for a
+' session an operator keeps driving. Anything the agent must hold at its FIRST
+' instruction therefore belongs in `environment.variables`, resolved host-side:
+' _spec/internal/sbx/launch-env.puml.
 ' ────────────────────────────────────────────────────────────────────────────
 
 title sbx Kit contract — schema source, validate handoff, session, exit code
@@ -251,6 +262,14 @@ note bottom of SPLIT
   because that command exports into a process the
   agent never inherits; file-shaped survives; and
   launch-shaped becomes the entrypoint itself.
+end note
+
+note bottom of SPLIT
+  **Surviving the process is not arriving in
+  time.** The agent begins work before the
+  startup dispatcher finishes, so file-shaped
+  seeding is dependable in a driven session and
+  already too late for a one-shot instruction.
 end note
 
 @enduml

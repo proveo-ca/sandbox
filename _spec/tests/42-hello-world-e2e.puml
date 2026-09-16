@@ -23,6 +23,29 @@ title Layer 4 — hello-world E2E (local model, three targets, plain bridge)
 ' and the marker check would then fail against an empty body, reporting a
 ' delivered file as a corrupt one.
 '
+' ── THE THIRD ASSERTION KEEPS ITS SHAPE AND CHANGES ITS SOURCE ─────────────
+' The PROVEO_MODELS assertion still says "both tiers name the local model". What
+' moved is where the line is read. The preamble is printed by the def entrypoint,
+' which on docker is the agent's own parent process — so the line is in the
+' transcript. Under a MIXIN Kit that entrypoint runs only as a startup command
+' (MEASURED: _spec/packages/lib/seed-and-launch.puml), so its output goes to
+' /var/log/sbx-kit-startup.log and the transcript never carries it however long
+' the lane waits. So the lane falls back to
+' asking the SANDBOX what the agent holds — `sbx exec <name> -- sh -lc`, reading
+' OPENCODE_MODEL / ANTHROPIC_MODEL / CODEX_MODEL and their small-model siblings,
+' and formatting them in exactly the preamble's shape so one matcher serves both
+' sources. It runs WHILE the agent runs, and that is a window rather than a
+' convenience: the run's own teardown removes the sandbox (`sbx rm`), so a probe
+' deferred to the end has nothing left to ask. The name is scraped from the
+' transcript, and the probe waits for the launch line before it fires, because
+' the name is printed before the sandbox is ready to answer.
+'
+' ── A MISS NOW SAYS WHICH MISS IT IS ───────────────────────────────────────
+' "the agent's file reached the host by no route" was true of two different runs:
+' one where the agent wrote nothing, and one where it wrote somewhere the lane
+' does not look. The failure lists every fetched ref WITH the paths it carries
+' (`git ls-tree -r --name-only`), which separates them without a second run.
+'
 ' And the fetch can lag the pane. teardown publishes those refs after the tmux
 ' session has already disappeared, so the single observation this lane used to
 ' take at that moment read as "delivered by no route" on a run that went on to
@@ -70,10 +93,15 @@ note over TEST
     cloud default means one harness stopped doing it — and
     that half would quietly bill a provider.
 
-  Per-target paths differ by workspace layout: ""app""
-  targets write ""HELLO_WORLD.txt"" at the mount root;
-  ""app"" (claudecode) is told to write to
-  ""/app/output"" and is checked under ""reports/"".
+  Per-target paths differ by workspace layout, and the
+  prompt now names the OPERATOR's path rather than a
+  backend's mount point. Most targets write
+  ""HELLO_WORLD.txt"" at the workspace root; claudecode is
+  told ""reports/HELLO_WORLD.txt"", which is the directory
+  a cloned sandbox lifts at teardown and the one the
+  host is checked under either way. ""/app/output"" was
+  docker's mount point, and under sbx it named a
+  directory on no route the host can read.
 end note
 
 note over TEST
@@ -167,6 +195,22 @@ note over REFS
   satisfies "found" for a file the host has not
   got, so the marker comparison then fails and a
   delivered file is reported as a corrupt one.
+end note
+
+note over CTR
+  **The model is asked of the sandbox, not the
+  pane alone.** A mixin runs the def entrypoint
+  as a startup command, so its preamble reaches
+  the kit log rather than the transcript and the
+  lane reads the agent's environment directly.
+end note
+
+note over CTR
+  **The window closes with the run.** Teardown
+  removes the sandbox, so the probe belongs in
+  the poll loop, after the launch line has said
+  the sandbox can answer and before the session
+  that keeps it alive has ended.
 end note
 
 note over OLLAMA

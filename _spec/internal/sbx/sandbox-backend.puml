@@ -31,6 +31,20 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' sidecar commands. That is why the fix names a ROUTE rather than enumerating
 ' the 42 variables the old grep found; they are not all agent-facing.
 '
+' ── AND THAT ROUTE IS ONE CASE OF A LARGER RULE ────────────────────────────
+' The framing above — "the plan's decision must reach both renderings" — reads
+' as a one-off repair, and it is not. MEASURED 2026-09-15/16, sbx 0.42.1: sbx
+' does NOT gate the agent launch on the Kit's startup commands. The interactive
+' shell is handed over at t≈0 while the dispatcher reports `dispatcher complete`
+' at t+15–30s, and the schema offers no blocking form (`KitCommand` is
+' command/user/description). So the def entrypoint's role under sbx is SPLIT:
+' anything the agent must HOLD at launch — environment, config file, git index,
+' safe.directory — is proveo's to render HOST-SIDE into the kit environment;
+' anything that may happen AFTER launch — seed composition, house rules — may
+' stay a startup command. `launchEnv` is where the first half is assembled, and
+' the plan's agent environment is simply its first entry.
+'   what the agent holds at launch .. _spec/internal/sbx/launch-env.puml
+'
 ' ── AND THE SANDBOX DROPS THE PAIRS THAT NAME A PROXY IT HAS NOT GOT ───────
 ' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY (and the lower-case pair),
 ' NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
@@ -86,6 +100,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
+'   what the agent holds at launch _spec/internal/sbx/launch-env.puml
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
@@ -578,6 +593,14 @@ note as AGENTENVMODE
   egress mode, so an unusable value falls back
   to the flag's own default and a BuildPlan
   failure warns instead of killing the run.
+end note
+
+note as LAUNCHHOLD
+  **Startup commands run after the launch.**
+  sbx hands the shell over while the kit
+  dispatcher still has 15 to 30 seconds to run,
+  so everything the agent must already hold is
+  resolved host-side into the kit environment.
 end note
 
 note as SBXNAME

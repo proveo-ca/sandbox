@@ -1106,7 +1106,21 @@
         "internal/backend/sandbox/own_agent_test.go",
         "internal/backend/sandbox/provider_gate_test.go",
         "e2e/ladder_test.go",
+        "e2e/sbx_test.go",
         "internal/sbx/kit.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/launch-env.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/launch_config_test.go",
+        "internal/backend/sandbox/own_agent_test.go",
+        "internal/sbx/kit.go",
+        "cmd/proveo/testdata/plan/sbx-claudecode-broker.golden",
+        "cmd/proveo/testdata/plan/sbx-claudecode-shell-clone-datadir.golden",
+        "cmd/proveo/testdata/plan/sbx-cursor-forward.golden"
       ],
       "fingerprint": null
     },
@@ -1313,6 +1327,8 @@
         "internal/workspace/mount.go",
         "internal/workspace/deps.go",
         "internal/workspace/mount_test.go",
+        "internal/workspace/mount_canonical_test.go",
+        "cmd/proveo/run_golden_test.go",
         "e2e/scope_mounts_test.go",
         "e2e/git_access_test.go"
       ],
