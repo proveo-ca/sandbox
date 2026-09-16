@@ -659,9 +659,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(append(env, sandboxAgentEnv(in.AgentEnv)...),
+		Env: DeclineMCPGateway(Home(append(append(append(env, sandboxAgentEnv(in.AgentEnv)...),
 			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts)),
-			"GIT_DISCOVERY_ACROSS_FILESYSTEM=1"), mounts)),
+			"GIT_DISCOVERY_ACROSS_FILESYSTEM=1"), gitSafeDirectoryEnv(in.RepoRoot)...), mounts)),
 		Command: command,
 	}
 	var creds []sbx.KitCredential
@@ -1081,4 +1081,22 @@ func startupCommands(target string, ownAgent bool) []sbx.KitCommand {
 		cmds = append(cmds, sbx.SeedEntrypointCommand())
 	}
 	return cmds
+}
+
+// gitSafeDirectoryEnv declares the repository root safe for git, in the
+// environment the agent inherits at launch. A startup command would set it
+// too late: the shell is handed over before the seed has finished.
+func gitSafeDirectoryEnv(repoRoot string) []string {
+	if repoRoot == "" {
+		return nil
+	}
+	root := repoRoot
+	if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
+		root = r
+	}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=" + root,
+	}
 }
