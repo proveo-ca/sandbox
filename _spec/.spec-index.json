@@ -607,12 +607,23 @@
     },
     {
       "spec": "_spec/defs/codex/codex-paradigm.puml",
-      "covers": [],
+      "covers": [
+        "defs/codex/entrypoint.sh",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/codex/defaults/config.toml",
+        "defs/codex/Dockerfile",
+        "defs/codex/build.sh",
+        "defs/codex/run.sh",
+        "internal/contract/agents_shared_test.go"
+      ],
       "fingerprint": null
     },
     {
       "spec": "_spec/defs/codex/codex-topology.puml",
-      "covers": [],
+      "covers": [
+        "defs/codex/**",
+        "packages/lib/entrypoint-lib.sh"
+      ],
       "fingerprint": null
     },
     {

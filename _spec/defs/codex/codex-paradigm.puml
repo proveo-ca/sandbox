@@ -1,5 +1,14 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how codex is steered and gated inside the container — the instruction tiers, the read-only review split, and why its own sandbox is off
+' covers: defs/codex/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/codex/defaults/config.toml
+' covers: defs/codex/Dockerfile
+' covers: defs/codex/build.sh
+' covers: defs/codex/run.sh
+' covers: internal/contract/agents_shared_test.go
+'   the def's resolved topology ... _spec/defs/codex/codex-topology.puml
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV

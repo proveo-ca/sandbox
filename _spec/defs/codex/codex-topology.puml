@@ -1,5 +1,9 @@
 @startuml CodexTopology
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+' purpose: the codex def's resolved topology — the harness layer, the seeded $CODEX_HOME, the loop, and the container boundary
+' covers: defs/codex/**
+' covers: packages/lib/entrypoint-lib.sh
+'   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80
