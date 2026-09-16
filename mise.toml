@@ -241,7 +241,7 @@ dir = "{{config_root}}"
 # bash array. Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
 #
 # ONE CLIMB PER DEF, not one climb. PROVEO_LADDER_TARGET defaults to claudecode,
-# so a bare `-run Ladder` measures a quarter of the fleet — and ladder_test.go
+# so a bare `-run Ladder` measures a fifth of the fleet — and ladder_test.go
 # says the sbx fixes proved for claudecode were applied to cursor BY SYMMETRY,
 # not by measurement. A release gate that climbs once has one data point.
 #
@@ -257,7 +257,7 @@ dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -uo pipefail
-targets=(cecli claudecode cursor opencode)
+targets=(cecli claudecode codex cursor opencode)
 declare -a verdicts=()
 rc=0
 for t in "${targets[@]}"; do
