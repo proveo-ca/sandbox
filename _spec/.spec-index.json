@@ -1031,6 +1031,15 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/kit-lifecycle.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/sandbox_stale_test.go",
+        "internal/sbx/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
       "covers": [
         "internal/backend/sandbox/sandbox.go",

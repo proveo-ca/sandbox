@@ -753,8 +753,8 @@ func Run(in Input) error {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
-	cfg = reuseOrCreate(cfg, sbx.Exists)
-	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
+	launchCfg := reuseOrCreate(cfg, sbx.Exists)
+	if err := sbx.EnsureTemplate(launchCfg.Image, func(f string, a ...any) {
 		ui.Appf(f, a...)
 	}); err != nil {
 		return err
@@ -787,8 +787,8 @@ func Run(in Input) error {
 	if len(secrets) > 0 {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
-	defer StartCDPViewport(in, cfg)()
-	args := sbx.RunArgs(cfg)
+	defer StartCDPViewport(in, launchCfg)()
+	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
@@ -818,6 +818,7 @@ func Run(in Input) error {
 			ui.Appf(f, a...)
 		}); err == nil {
 			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
+			args = sbx.RunArgs(cfg)
 			runErr = run()
 			endedAt = time.Now()
 		}
@@ -1257,9 +1258,10 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 // workspaces to and stopped before the agent started.
 //
 // It needs none. That name can only exist for THIS workspace, so the existing
-// sandbox already has it; re-attaching keeps the Kit, the environment and the
-// agent, and drops what sbx refuses to change on a sandbox that exists.
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
+// sandbox reads its Kit, environment, agent and workspace from its stored spec.
+// Re-attaching passes only the name plus trailing agent arguments; the full cfg
+// remains available to preserve clone and agent state after the child exits.
+// SPEC: _spec/internal/sbx/kit-lifecycle.puml
 func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
 	if !exists(cfg.Name) {
 		return cfg

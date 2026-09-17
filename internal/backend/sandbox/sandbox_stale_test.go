@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -9,8 +10,8 @@ import (
 // A failed run is kept for diagnosis and the next run over that workspace
 // derives the same name, so proveo used to hand sbx a sandbox it refuses to
 // give workspaces to — and the operator had to remove it by hand between every
-// attempt. SPEC: _spec/internal/sbx/sandbox-backend.puml
-func TestAnExistingSandboxIsReattachedNotRecreated(t *testing.T) {
+// attempt. SPEC: _spec/internal/sbx/kit-lifecycle.puml
+func TestAnExistingSandboxIsReattachedWithNameAndAgentArgsOnly(t *testing.T) {
 	t.Parallel()
 	cfg := sbx.RunConfig{
 		Name:    "proveo-cursor-177e7812",
@@ -23,28 +24,13 @@ func TestAnExistingSandboxIsReattachedNotRecreated(t *testing.T) {
 		Mounts:  []sbx.Mount{{Host: "/w"}},
 		Env:     []string{"HOME=/proveo-home"},
 		Agent:   "cursor",
+		Command: []string{"--resume", "thread-1"},
 	}
 	got := reuseOrCreate(cfg, func(string) bool { return true })
 
-	for _, bad := range []struct {
-		what string
-		got  bool
-	}{
-		{"workspaces", len(got.Mounts) > 0},
-		{"a template", got.Image != ""},
-		{"published ports", len(got.Publish) > 0},
-		{"a memory size", got.Memory != ""},
-		{"a cpu count", got.CPUs > 0},
-	} {
-		if bad.got {
-			t.Errorf("re-attach still passes %s; sbx refuses those on a sandbox that exists", bad.what)
-		}
-	}
-	if got.Name != cfg.Name || got.KitDir != cfg.KitDir || got.Agent != cfg.Agent {
-		t.Errorf("re-attach lost the identity it must keep: %+v", got)
-	}
-	if len(got.Env) != len(cfg.Env) {
-		t.Errorf("re-attach dropped the environment: %v", got.Env)
+	want := []string{"run", "--name", cfg.Name, "--", "--resume", "thread-1"}
+	if args := sbx.RunArgs(got); !reflect.DeepEqual(args, want) {
+		t.Errorf("re-attach args = %q, want the existing name plus agent args only %q", args, want)
 	}
 }
 
