@@ -7,7 +7,7 @@ skinparam noteTextAlignment left
 ' would touch: internal/run/run.go (StripDepCopies, the warning at ~660)
 ' would touch: internal/workspace/deps.go (DepCopy), internal/workspace/mount.go
 '   the schema field this needs .... _spec/_experiments/sbx-kit-capabilities.puml (volumes[])
-'   why sbx cannot mask a subpath .. _spec/_plans/workspace-env-key.puml
+'   why sbx cannot mask a subpath .. _spec/_paradigms/workspace-boundary.puml
 '   why a clone sidesteps it ....... _spec/internal/sbx/clone-workspace.puml
 '   why a tmpfs is not free ........ _spec/minimum_requirements.puml (no swap)
 '   the OTHER answer to the same problem _spec/_experiments/reusable-clone.puml
@@ -57,7 +57,7 @@ skinparam noteTextAlignment left
 '                             dependency tree(s) (node_modules, target, .venv …)
 '                             cross into the sandbox as the host built them"
 '
-' The reason is the one workspace-env-key.puml already records for `.env`: sbx
+' The reason is the one workspace-boundary.puml already records for `.env`: sbx
 ' takes DIRECTORY workspaces at their own host paths, so there has been nothing
 ' to hang a per-subdirectory overlay on.
 '

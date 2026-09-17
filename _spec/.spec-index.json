@@ -212,6 +212,18 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_paradigms/resource_management.puml",
+      "covers": [
+        "internal/sbx/limits.go",
+        "internal/sbx/sbx.go",
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/memory_evidence_test.go",
+        "e2e/capacity_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/retire-dind.puml",
       "covers": [
         "internal/manifest/**",
@@ -224,18 +236,6 @@
         "internal/contract/contract_test.go",
         "e2e/sbx_test.go",
         "e2e/hello_world_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_paradigms/resource_management.puml",
-      "covers": [
-        "internal/sbx/limits.go",
-        "internal/sbx/sbx.go",
-        "internal/run/run.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/memory_evidence_test.go",
-        "e2e/capacity_test.go"
       ],
       "fingerprint": null
     },
@@ -272,33 +272,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/config-seeding-and-persistence.puml",
-      "covers": [
-        "packages/lib/entrypoint-lib.sh",
-        "internal/proveohome/**",
-        "internal/manifest/manifest.go",
-        "internal/sbx/run.go",
-        "internal/clean/clean.go",
-        "cmd/proveo/clean.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/contract/tool_home_test.go",
-        "internal/contract/tool_sync_test.go",
-        "internal/contract/config_set_test.go",
-        "internal/contract/config_sync_test.go",
-        "internal/contract/config_files_test.go",
-        "internal/contract/mcp_class_test.go",
-        "internal/contract/formatter_class_test.go",
-        "cmd/proveo/clean_tool_roots_test.go",
-        "cmd/proveo/golden_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/connect-ide.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/enhancements.puml",
       "covers": [],
       "fingerprint": null
@@ -310,7 +283,13 @@
     },
     {
       "spec": "_spec/_plans/host-held-provider-keys.puml",
-      "covers": [],
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/secret.go",
+        "internal/sbx/run.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/entrypoint/entrypoint.go"
+      ],
       "fingerprint": null
     },
     {
@@ -330,8 +309,20 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/plugin-class-beyond-claudecode.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/lsp_config_parity_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/post-close-surface.puml",
-      "covers": [],
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/runlog/runlog.go",
+        "internal/ui/ui.go"
+      ],
       "fingerprint": null
     },
     {
@@ -358,7 +349,12 @@
     },
     {
       "spec": "_spec/_plans/sbx-dep-tree-isolation.puml",
-      "covers": [],
+      "covers": [
+        "internal/sbx/kit.go",
+        "internal/run/run.go",
+        "internal/workspace/deps.go",
+        "packages/lib/entrypoint-lib.sh"
+      ],
       "fingerprint": null
     },
     {
@@ -373,7 +369,12 @@
     },
     {
       "spec": "_spec/_plans/tools-and-localhost-tunnels.puml",
-      "covers": [],
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/run.go",
+        "internal/egress/plan.go",
+        "packages/lib/entrypoint-lib.sh"
+      ],
       "fingerprint": null
     },
     {
@@ -383,11 +384,6 @@
     },
     {
       "spec": "_spec/_plans/white-label-brand-manifest.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/workspace-env-key.puml",
       "covers": [],
       "fingerprint": null
     },
@@ -541,7 +537,8 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/cecli/sample.cecli.conf.yml",
         "internal/contract/cecli_autoupdater_test.go",
-        "internal/contract/mcp_class_test.go"
+        "internal/contract/mcp_class_test.go",
+        "defs/bridges/cecli.tsv"
       ],
       "fingerprint": null
     },
@@ -1037,6 +1034,23 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/ide-attach.puml",
+      "covers": [
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/home_access.go",
+        "internal/sbx/sbx.go",
+        "internal/sbx/run.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/backend/sandbox/sandbox_test.go",
+        "internal/backend/sandbox/home_access_test.go",
+        "internal/contract/config_files_test.go",
+        "cmd/proveo/golden_test.go",
+        "cmd/proveo/main_test.go",
+        "e2e/home_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/kit-domain-form.puml",
       "covers": [
         "internal/sbx/domain.go",
@@ -1328,6 +1342,28 @@
       "covers": [
         "cmd/proveo/**",
         "internal/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/config-seeding-and-persistence.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "internal/proveohome/**",
+        "internal/manifest/manifest.go",
+        "internal/sbx/run.go",
+        "internal/clean/clean.go",
+        "cmd/proveo/clean.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/contract/tool_home_test.go",
+        "internal/contract/tool_sync_test.go",
+        "internal/contract/config_set_test.go",
+        "internal/contract/config_sync_test.go",
+        "internal/contract/config_files_test.go",
+        "internal/contract/mcp_class_test.go",
+        "internal/contract/formatter_class_test.go",
+        "cmd/proveo/clean_tool_roots_test.go",
+        "cmd/proveo/golden_test.go"
       ],
       "fingerprint": null
     },

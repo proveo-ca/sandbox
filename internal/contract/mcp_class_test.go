@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/defs/cecli/cecli-paradigm.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/defs/cecli/cecli-paradigm.puml
 package contract_test
 
 import (

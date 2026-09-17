@@ -7,10 +7,10 @@ skinparam noteTextAlignment left
 ' covers: internal/proveohome/proveohome.go
 ' covers: internal/runlog/runlog.go
 ' The four instances this class was extracted from:
-'   file PRESENCE ...... _spec/_plans/workspace-env-key.puml
+'   file PRESENCE ...... stated in this file (workspace-env-key retired here)
 '   MODE and OWNERSHIP . stated in this file (its plan was retired into it)
 '   ARCHITECTURE ....... _spec/_plans/sbx-dep-tree-isolation.puml
-'   WHICH TREE ......... _spec/_plans/connect-ide.puml
+'   WHICH TREE ......... _spec/internal/sbx/ide-attach.puml
 ' The mode that dissolves it: _spec/internal/sbx/clone-workspace.puml
 ' The sibling boundaries: credential-boundary.puml, runtime-user-boundary.puml
 '   (same directory). egress-boundary.puml was retired 2026-09-16 with the
@@ -24,7 +24,8 @@ skinparam noteTextAlignment left
 ' its own plan before anyone noticed they rhymed.
 '
 '   PRESENCE       a `.env` beside the code exists inside the sandbox because it
-'                  exists outside it. workspace-env-key.puml
+'                  exists outside it. Stated below; clone via proveo init is
+'                  the close, so a gitignored file never arrives.
 '   MODE / OWNER   a `.claude/hooks/*.sh` the host can run is EACCES to a
 '                  runtime uid that is not its owner. Stated in full below,
 '                  its plan having been retired into this file.
@@ -32,7 +33,7 @@ skinparam noteTextAlignment left
 '                  host and cannot load in the guest.
 '                  sbx-dep-tree-isolation.puml
 '   WHICH TREE     an editor attached to a clone edits a copy the operator will
-'                  never see. connect-ide.puml
+'                  never see. ide-attach.puml
 '
 ' A CLONE FIXES ALL FOUR AT ONCE, and not by intention: it carries TRACKED files
 ' only, git re-materialises them, and the result lands on an ext4 volume inside
@@ -68,6 +69,18 @@ skinparam noteTextAlignment left
 ' its own run AND of every other run on the host. Integrity and confidentiality
 ' at once — a transcript carries the posture block, the detected providers, the
 ' secret NAMES that were stored and the workspace paths.
+'
+' ── THE PRESENCE INSTANCE ──────────────────────────────────────────────────
+' A `.env` beside the code is inside the sandbox because it is outside it. sbx
+' takes directory workspaces at their host paths, so there is no per-file overlay
+' to hang a docker-style `/dev/null` mask on, and shredding the mount would
+' destroy the operator's file. The product answer is clone mode — proveo's sbx
+' default, established by `proveo init` — which carries TRACKED files only.
+' A gitignored `.env` never arrives.
+'
+' The residual is whoever passed `--clone=false`, is not in a repository, or
+' COMMITTED the file. host-held-provider-keys.puml owns whether a committed
+' `.env` should refuse a run; this file owns the presence class.
 '
 ' ── THE MODE/OWNER INSTANCE IN FULL, AND THE COMMAND THAT DIAGNOSES IT ─────
 ' It reports itself once per stop, and never fatally:
@@ -167,6 +180,13 @@ HOST ARROW_MAIN CLONE : re-materialised
 DIRECT ARROW_ERROR AG
 CLONE ARROW_MAIN AG : all four dissolve at once
 HOME ARROW_ERROR AG : readable AND writable,\nacross runs
+
+note bottom of P1
+  **Clone is the close.** A gitignored "".env""
+  never arrives: proveo init makes clone the
+  sbx default. Direct mode still mounts the
+  file whole; a shred would destroy theirs.
+end note
 
 note bottom of CLONE
   **It fixes all four by accident, not design.**

@@ -103,6 +103,19 @@ func TestRemoveArgsForcesNonInteractively(t *testing.T) {
 	}
 }
 
+func TestSetupSSHArgsAndHostAreUpstreamOwned(t *testing.T) {
+	t.Parallel()
+	if got, want := SetupSSHArgs(), []string{"setup", "ssh"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("SetupSSHArgs() = %q, want %q", got, want)
+	}
+	if got, want := SSHHost("proveo-1-2"), "proveo-1-2.sbx"; got != want {
+		t.Errorf("SSHHost() = %q, want %q", got, want)
+	}
+	if got := SSHHost("  "); got != "" {
+		t.Errorf("SSHHost of an empty name = %q, want nothing to connect to", got)
+	}
+}
+
 // A run that failed before creating anything must not be reported as a failed
 // teardown — the real error is the one `sbx run` already printed.
 func TestNotFoundRecognisesAnAbsentSandbox(t *testing.T) {

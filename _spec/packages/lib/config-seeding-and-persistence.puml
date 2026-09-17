@@ -1,9 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Config seeding and persistence — one chain for LSPs, MCPs, formatters and plugins
+title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyond-claudecode is a later plan, hook-formatters stay unwired
 
-' purpose: why only LSPs have a detect→provide→wire chain, why nothing that chain writes survives an sbx run, and the one shape that fixes both
+' purpose: the detect→provide→probe→wire chain, and how tools MOVE while configs COPY so an sbx teardown does not discard them
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/proveohome/**
 ' covers: internal/manifest/manifest.go
@@ -15,7 +15,11 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 ' covers: internal/contract/config_files_test.go
 ' covers: internal/contract/mcp_class_test.go, internal/contract/formatter_class_test.go
 ' covers: cmd/proveo/clean_tool_roots_test.go, cmd/proveo/golden_test.go
-' PARTLY LANDED — steps 1 and 2 of the legend are implemented; 3-5 are not.
+' APPLIED 2026-09-17. Numbered steps 1-5 landed. Closed out of _plans.
+'   plugin beyond claudecode ... _spec/_plans/plugin-class-beyond-claudecode.puml
+'   re-wire policy ............. formatter/MCP skip if declared; LSP setdefault
+'                                every open — the mix, not a gap
+'   hook formatters ............ standing note; not this chain
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
 '   step 2 · install location ..... packages/lib/entrypoint-lib.sh (_proveo_tool_home,
 '                                   _proveo_container_platform, _proveo_tool_path)
@@ -45,16 +49,13 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
 '   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
-'   what now LEANS on this chain .. _spec/_plans/retire-model-bridging.puml
-'                                   That plan retires model choice by
-'                                   environment and puts an agent's model in the
-'                                   saved config this one carries. Its Q1 (what a
-'                                   FIRST run gets, before any config is saved) is
-'                                   answerable only by steps 3-5 below, which are
-'                                   NOT implemented — so the dependency runs both
-'                                   ways and neither should move without the other.
+'   what leans on this chain ..... _spec/_plans/retire-model-bridging.puml
+'                                   Q1 is the agent's own default, not a seed.
+'                                   This file carries the saved config that
+'                                   plan named; it no longer blocks that one.
+'   plugin beyond claudecode ..... _spec/_plans/plugin-class-beyond-claudecode.puml
 '
-' ── FOUR CONFIG CLASSES, ONE OF THEM IMPLEMENTED ──────────────────────────
+' ── FOUR CONFIG CLASSES, WIRED WHERE THE SURFACE IS A YES/NO ──────────────
 ' A harness opens onto a workspace and needs four kinds of thing configured
 ' before it is useful. They differ only in the file format at the end:
 '
@@ -63,15 +64,17 @@ title Config seeding and persistence — one chain for LSPs, MCPs, formatters an
 '   LSP         _lsp_walk (ext+marker image layer, else   configure_claude_lsp
 '               map, ranked by count) mise / ubi          configure_opencode_lsp
 '                                                         configure_cursor_lsp
-'   MCP         —                     —                   —
-'   formatters  —                     —                   —   (opencode's registry
-'                                                              exists and is OFF)
-'   plugins     — (fixed list)        image seed dir      proveo_enable_claude_
-'                                                         lsp_plugins
+'                                                         configure_codex_lsp
+'   MCP         —                     /opt/serena         configure_cecli_mcp
+'                                     (handshake probe)   (cecli only)
+'   formatters  —                     harness built-ins   configure_opencode_
+'                                                         formatter only
+'   plugins     fixed list            image seed dir      configure_claude_
+'                                                         plugins (claudecode)
 '
-' Only the LSP row is a chain. The plugin row is a fixed list against one
-' harness's baked marketplace cache. The MCP and formatter rows are empty, and
-' nothing in the tree says whether that is a decision or an omission.
+' The plugin row is a fixed list against one harness's baked marketplace cache.
+' Hook-shaped formatters (claudecode, cursor, cecli) stay unwired: a hook asks
+' proveo to pick a command per project, and guessing rewrites source.
 '
 ' For the formatter row the answer turned out to be neither: opencode ships 24
 ' built-in formatters and DISABLES them unless the config says otherwise, so the
@@ -490,9 +493,17 @@ legend bottom
   same shape ""_claude_lsp_plugins"" is already pinned by. If ""--print"" ever reports
   which classes a run will wire, the table is where that reader goes.
   ==
-  **Left open on purpose.** Whether the plugin row generalises past claudecode at
-  all, given the seed dir is one vendor's marketplace cache; and whether a wired
-  config should be RE-wired on every open or only when detection changes, once it
-  stops being free.
+  **Decided 2026-09-17 — this file leaves _plans.**
+  --
+  **Plugin beyond claudecode** is a later plan, not a hole here:
+  _spec/_plans/plugin-class-beyond-claudecode.puml. The seed is one vendor's
+  marketplace cache; a second class waits on a second seed.
+  --
+  **Re-wire mix is the policy.** Formatter and MCP skip when the operator's key
+  already exists; LSP setdefault-merges every open. No fingerprint, no first-open
+  gate. Codified, not deferred.
+  --
+  **Hook formatters stay unwired.** claudecode PostToolUse, cursor afterFileEdit
+  and cecli lint-cmd wait on the dependency-tree pin knowledge. Not this chain.
 end legend
 @enduml

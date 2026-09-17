@@ -151,6 +151,10 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	return args
 }
 
+// TestClaudecodeEntrypointOperatesOnTheInputDir deliberately stays on a raw
+// entrypoint.sh invocation: it relies on PROVEO_SMOKE_TEST, a self-test mode
+// built into the entrypoint script itself with no `proveo run` CLI surface
+// (no flag triggers it), so there is no real launch to convert this into.
 func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
 	skipOutsideSbx(t, "a raw docker run of the entrypoint")
 	const target = "claudecode"

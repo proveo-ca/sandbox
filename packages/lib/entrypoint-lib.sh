@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml
 
 ensure_runtime_user() {
  local uid gid
@@ -333,7 +333,7 @@ _proveo_auto_install_enabled() {
   return 0
 }
 
-# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 
 _proveo_durable_home() {
   local d="${PROVEO_STATE_HOME:-}"
@@ -1818,7 +1818,7 @@ configure_opencode_lsp() {
   echo "─────────────────────────────────────────────────────"
 }
 
-# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 configure_opencode_formatter() {
   command -v jq >/dev/null 2>&1 || return 0
   case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1917,7 +1917,7 @@ configure_codex_lsp() {
   fi
 }
 
-# SPEC: _spec/_plans/config-seeding-and-persistence.puml,
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml,
 _proveo_config_classes() { echo "plugin lsp formatter mcp"; }
 
 _proveo_class_wire() {
@@ -2108,7 +2108,7 @@ _proveo_volume_state_dirs() {
  done < <(_proveo_volume_mounts)
 }
 
-# SPEC: _spec/_plans/config-seeding-and-persistence.puml
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 _proveo_config_entries() {
  [[ -n "${PROVEO_CONFIG_DIRS:-}" ]] || return 0
  printf '%s\n' "$PROVEO_CONFIG_DIRS" | tr ';' '\n'
@@ -2186,7 +2186,7 @@ _proveo_config_file() {
 }
 
 proveo_sync_config() {
- local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home entry hrel arel deny src dst lock rc=0
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" files_host="${PROVEO_CONFIG_FILES_ROOT:-}" home entry hrel arel deny src dst lock rc=0
  case "$mode" in
  restore | save) ;;
  *) return 2 ;;
@@ -2195,6 +2195,7 @@ proveo_sync_config() {
  off | false | 0 | no | disable | disabled) return 0 ;;
  esac
  [[ -n "$host" && -d "$host" ]] || return 0
+ [[ -n "$files_host" && -d "$files_host" ]] || files_host="$host"
  home="$(_proveo_agent_home)"
  [[ -n "$home" ]] || return 0
 
@@ -2221,8 +2222,8 @@ proveo_sync_config() {
  while IFS= read -r entry; do
   [[ -n "$entry" ]] || continue
   case "$mode" in
-  restore) src="$host/$entry" dst="$home/$entry" ;;
-  save) src="$home/$entry" dst="$host/$entry" ;;
+  restore) src="$files_host/$entry" dst="$home/$entry" ;;
+  save) src="$home/$entry" dst="$files_host/$entry" ;;
   esac
   _proveo_config_file "$src" "$dst" || rc=1
  done < <(_proveo_config_file_names)

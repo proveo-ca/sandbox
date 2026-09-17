@@ -691,6 +691,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				"reads from its own env will be missing", err)
 			agentEnv = nil
 		}
+		homeAccess, err := sandbox.PrepareHomeAccess(
+			rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)
+		if err != nil {
+			return false, err
+		}
 		in := sandbox.Input{
 			AgentEnv: agentEnv,
 			Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
@@ -716,8 +721,10 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			CPUs:             sbx.CPULimit(),
 			HomeRoot:         rs.Creds.HomePlan.Root,
 			RunLog:           rs.Log.Path(),
+			HomeAccess:       homeAccess,
 		}
 		if p.PrintOnly {
+			defer homeAccess.Cleanup()
 			cfg, kit, secrets := sandbox.Spec(in)
 			if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
 				return false, fmt.Errorf("write sandbox kit: %w", err)

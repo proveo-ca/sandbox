@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 package proveohome
 
 import (
@@ -10,8 +10,9 @@ import (
 
 // ConfigSetVar and ConfigFilesVar are the variables proveo_sync_config reads.
 const (
-	ConfigSetVar   = "PROVEO_CONFIG_DIRS"
-	ConfigFilesVar = "PROVEO_CONFIG_FILES"
+	ConfigSetVar       = "PROVEO_CONFIG_DIRS"
+	ConfigFilesVar     = "PROVEO_CONFIG_FILES"
+	ConfigFilesRootVar = "PROVEO_CONFIG_FILES_ROOT"
 )
 
 func ConfigFiles(h manifest.Home) string {

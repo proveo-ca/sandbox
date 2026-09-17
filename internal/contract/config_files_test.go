@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/ide-attach.puml
 package contract_test
 
 import (
@@ -88,5 +88,33 @@ echo "rc=$?"`
 	if b, err := os.ReadFile(filepath.Join(state, ".cecli.conf.yml")); err != nil ||
 		!strings.Contains(string(b), "serena") {
 		t.Fatalf("save did not carry ~/.cecli.conf.yml out: %v", err)
+	}
+}
+
+func TestConfigSyncCanUseANarrowRootForHomeFiles(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state, files := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(files, ".claude.json"), []byte("narrow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `source "$1/packages/lib/entrypoint-lib.sh"
+proveo_sync_config restore`
+	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t))
+	cmd.Env = append(os.Environ(),
+		"HOME="+agent,
+		"PROVEO_HOME=",
+		"PROVEO_STATE_HOME="+state,
+		proveohome.ConfigFilesRootVar+"="+files,
+		"PROVEO_CONFIG_DIRS=",
+		"PROVEO_CONFIG_FILES=.claude.json")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restore through narrow root: %v\n%s", err, out)
+	}
+	if b, err := os.ReadFile(filepath.Join(agent, ".claude.json")); err != nil || string(b) != "narrow" {
+		t.Fatalf("config came from the broad state root, not the narrow file root: %q, %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(state, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("broad state root unexpectedly gained the file: %v", err)
 	}
 }

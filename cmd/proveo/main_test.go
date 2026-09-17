@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/ide-attach.puml
 package main
 
 import (
@@ -398,6 +398,15 @@ func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
 	}
 	if !strings.Contains(got[1], log) {
 		t.Errorf("the transcript path must be named verbatim, got %q", got[1])
+	}
+
+	attach := sandbox.IDEAttachLines(sandbox.Input{Clone: true, RepoRoot: "/host/repo"},
+		sbx.RunConfig{Name: name, Mounts: []sbx.Mount{{Host: "/host/repo"}}})
+	joined := strings.Join(attach, "\n")
+	for _, want := range []string{"sbx setup ssh", name + ".sbx", "DISPOSABLE CLONE", "refs/proveo/" + name} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("kept-sandbox attach guidance dropped %q: %q", want, joined)
+		}
 	}
 
 	// No transcript is a real state — runlog.Open failing must not print a line
