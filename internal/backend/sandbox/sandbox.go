@@ -749,6 +749,9 @@ func Run(in Input) error {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
+	if why := staleSandbox(cfg, sbx.Exists); why != nil {
+		return why
+	}
 	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
 		ui.Appf(f, a...)
 	}); err != nil {
@@ -1235,4 +1238,21 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 	out = append(out, launchConfigEnv(agent, in.AgentEnv)...)
 	out = append(out, scopedGitIndexEnv(in, binds)...)
 	return out
+}
+
+// staleSandbox catches the collision proveo creates for itself: the name is
+// derived from def and workspace so runs reuse one sandbox, and a failed run is
+// KEPT for diagnosis — so the next run over that workspace meets a sandbox it
+// cannot hand workspaces to, and sbx says so in its own words rather than
+// proveo's. The operator is one command from unblocked and should be told which.
+// SPEC: _spec/internal/sbx/sandbox-backend.puml
+func staleSandbox(cfg sbx.RunConfig, exists func(string) bool) error {
+	if len(cfg.Mounts) == 0 || !exists(cfg.Name) {
+		return nil
+	}
+	ui.Warnf("sandbox %s is still here from an earlier run — sbx will not give an existing sandbox "+
+		"new workspaces, and this run has some", cfg.Name)
+	ui.Notef("look first if the earlier run was kept for diagnosis: `sbx exec %s -- sh`", cfg.Name)
+	ui.Notef("then remove it and run again: `sbx rm --force %s`", cfg.Name)
+	return fmt.Errorf("sandbox %s already exists", cfg.Name)
 }
