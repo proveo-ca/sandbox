@@ -306,31 +306,33 @@ func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
 	}
 }
 
-func TestTheSandboxStoresCredentialsWhateverTheHarnessAsksFor(t *testing.T) {
+func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
 	}
-	in := sandbox.Input{
-		Target:   "cursor",
-		Image:    "proveo/cursor:latest",
-		Evidence: EvidenceDefault,
-		Forwards: true, // the harness asks for forward; sbx answers for it
-		Man: manifest.Manifest{
-			Name: "cursor",
-			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
-			Capabilities: manifest.Capabilities{
-				Hosts:       []string{"api2.cursor.sh"},
-				Egress:      []string{"open"},
-				Credentials: []string{"forward"},
+	in := func(forwards bool) sandbox.Input {
+		return sandbox.Input{
+			Target:   "cursor",
+			Image:    "proveo/cursor:latest",
+			Evidence: EvidenceDefault,
+			Forwards: forwards,
+			Man: manifest.Manifest{
+				Name: "cursor",
+				Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
+				Capabilities: manifest.Capabilities{
+					Hosts:       []string{"api2.cursor.sh"},
+					Egress:      []string{"open"},
+					Credentials: []string{"forward", "broker"},
+				},
 			},
-		},
-		Sid:    "proveo-cursor-1",
-		Lookup: lookup,
+			Sid:    "proveo-cursor-1",
+			Lookup: lookup,
+		}
 	}
 
-	cfg, kit, secrets := sandbox.Spec(in)
-
+	// Brokered: sbx's store holds it and the agent's environment carries none.
+	cfg, kit, secrets := sandbox.Spec(in(false))
 	if len(secrets) != 1 || secrets[0][0] != "CURSOR_API_KEY" {
 		t.Errorf("secrets = %v, want the key routed to sbx's store", secrets)
 	}
@@ -339,8 +341,28 @@ func TestTheSandboxStoresCredentialsWhateverTheHarnessAsksFor(t *testing.T) {
 	}
 	for _, e := range cfg.Env {
 		if e == "CURSOR_API_KEY" || strings.HasPrefix(e, "CURSOR_API_KEY=") {
-			t.Errorf("the key reached the agent's environment as %q — the proxy holds it now", e)
+			t.Errorf("brokered, yet the key reached the agent's environment as %q", e)
 		}
+	}
+
+	// Forward: the operator chose the complete route, and the backend must honour
+	// it — brokering covers only the hosts sbx's proxy sees, and an agent that
+	// talks to others has nothing of its own without this.
+	cfg, _, secrets = sandbox.Spec(in(true))
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none: forward was chosen", secrets)
+	}
+	var bare bool
+	for _, e := range cfg.Env {
+		if e == "CURSOR_API_KEY" {
+			bare = true
+		}
+		if strings.HasPrefix(e, "CURSOR_API_KEY=") {
+			t.Errorf("forwarded key must stay a bare -e name, got %q (value would ride argv)", e)
+		}
+	}
+	if !bare {
+		t.Errorf("cfg.Env = %v, want CURSOR_API_KEY forwarded from the host", cfg.Env)
 	}
 }
 

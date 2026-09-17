@@ -541,6 +541,10 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
 			return
 		}
+		if in.Forwards {
+			addForward(name) // the operator chose the complete route over the safer one
+			return
+		}
 		secrets = append(secrets, [2]string{name, v})
 	}
 	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot, in.Lookup)
