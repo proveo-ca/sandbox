@@ -380,31 +380,17 @@ func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui
 	if !sandboxOn {
 		return r
 	}
-	for i, opt := range r.Options {
-		if opt != "forward" {
-			continue
-		}
-		if r.Off == nil {
-			r.Off = make([]bool, len(r.Options))
-		}
-		r.Off[i] = true
-		if r.Selected == i {
-			r.Selected = brokerIndex(r.Options)
-		}
-	}
-	r.Reason = "sbx holds the credential and its proxy attaches the header outbound, so the agent " +
-		"never reads one — forward would put the value in its environment instead. A credential the " +
-		"proxy cannot attach — signed per request (AWS) or read as a file (GCP) — is forwarded, and the run names it."
+	// Brokering is PER HOST. Measured 2026-09-16: a cursor run reached
+	// api2.cursor.sh through the proxy 131 times and authenticated fine, while
+	// api3.cursor.sh and agentn.global.api5.cursor.sh went transparent and
+	// forward-bypass — no header attached — and the agent exited seconds after a
+	// model switch. Gating forward off made that unrecoverable, so it stays
+	// selectable and the cost of each route is stated instead.
+	r.Reason = "broker keeps the value in sbx's store and its proxy attaches the header outbound, " +
+		"so the agent never reads a credential — but only for the hosts that proxy covers, and an " +
+		"agent that talks to others loses auth there. forward puts the value in the agent's " +
+		"environment: weaker, and complete."
 	return r
-}
-
-func brokerIndex(options []string) int {
-	for i, o := range options {
-		if o == "broker" {
-			return i
-		}
-	}
-	return 0
 }
 
 func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {

@@ -7,31 +7,22 @@ import (
 )
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml
-func TestForwardIsGatedOffWhenSbxRunsTheAgent(t *testing.T) {
+func TestForwardStaysSelectableOnSbxWithItsCostStated(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
-		Name:         "claudecode",
+		Name:         "cursor",
 		Capabilities: manifest.Capabilities{Credentials: []string{"forward", "broker"}},
 	}
 	row := credentialsRow(man, "forward", true)
 
-	var forwardAt = -1
 	for i, o := range row.Options {
-		if o == "forward" {
-			forwardAt = i
+		if i < len(row.Off) && row.Off[i] {
+			t.Errorf("%q is gated off on sbx; brokering covers only the hosts its proxy sees, "+
+				"so removing the complete route leaves an agent no way to authenticate the rest", o)
 		}
 	}
-	if forwardAt < 0 {
-		t.Fatalf("forward is gone from %v — a withdrawn option answers no question", row.Options)
-	}
-	if forwardAt >= len(row.Off) || !row.Off[forwardAt] {
-		t.Error("forward is selectable on sbx, where it would hand the agent a spendable credential")
-	}
-	if got := row.Options[row.Selected]; got != "broker" {
-		t.Errorf("selected %q, want broker: it is the only mode sbx can honour", got)
-	}
 	if row.Reason == "" {
-		t.Error("no reason given; a greyed option that says nothing is what teaches an operator to distrust the form")
+		t.Error("no reason given, so the operator cannot tell what either route costs")
 	}
 }
 
