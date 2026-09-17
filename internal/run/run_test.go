@@ -306,7 +306,11 @@ func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
 	}
 }
 
-func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
+// sbx is the runtime, so a credential goes to its store and its proxy attaches
+// the header outbound. `--credentials forward` asked proveo to put the value in
+// the agent's own environment instead, which is the posture this stopped
+// offering: the manifest may still name it, and the sandbox backend ignores it.
+func TestTheSandboxStoresCredentialsWhateverTheHarnessAsksFor(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
@@ -315,7 +319,7 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 		Target:   "cursor",
 		Image:    "proveo/cursor:latest",
 		Evidence: EvidenceDefault,
-		Forwards: true,
+		Forwards: true, // the harness asks for forward; sbx answers for it
 		Man: manifest.Manifest{
 			Name: "cursor",
 			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
@@ -331,25 +335,60 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 
 	cfg, kit, secrets := sandbox.Spec(in)
 
-	if len(secrets) != 0 {
-		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
+	if len(secrets) != 1 || secrets[0][0] != "CURSOR_API_KEY" {
+		t.Errorf("secrets = %v, want the key routed to sbx's store", secrets)
 	}
-	// The Kit never declares credentials at all now — brokered or forwarded, the
-	// built-in agent owns that service and a mixin repeating it is rejected.
 	if kit.Kind != "mixin" {
 		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
+	for _, e := range cfg.Env {
+		if e == "CURSOR_API_KEY" || strings.HasPrefix(e, "CURSOR_API_KEY=") {
+			t.Errorf("the key reached the agent's environment as %q — the proxy holds it now", e)
+		}
+	}
+}
+
+// The three the registry gives no host or header: nothing can attach them, so
+// they are forwarded and the run is expected to say so rather than drop them.
+func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"AWS_ACCESS_KEY_ID": "AKIA-value"}[k]
+	}
+	in := sandbox.Input{
+		Target:   "cecli",
+		Image:    "proveo/cecli:latest",
+		Evidence: EvidenceDefault,
+		Man: manifest.Manifest{
+			Name: "cecli",
+			Env:  []manifest.EnvVar{{Name: "AWS_ACCESS_KEY_ID", Secret: true}},
+			Capabilities: manifest.Capabilities{
+				Egress:      []string{"open"},
+				Credentials: []string{"broker"},
+			},
+		},
+		Sid:    "proveo-cecli-1",
+		Lookup: lookup,
+	}
+
+	cfg, _, secrets := sandbox.Spec(in)
+
+	for _, kv := range secrets {
+		if kv[0] == "AWS_ACCESS_KEY_ID" {
+			t.Error("stored a credential sbx's proxy has no host or header to attach")
+		}
+	}
 	var bare bool
 	for _, e := range cfg.Env {
-		if e == "CURSOR_API_KEY" {
+		if e == "AWS_ACCESS_KEY_ID" {
 			bare = true
 		}
-		if strings.HasPrefix(e, "CURSOR_API_KEY=") {
+		if strings.HasPrefix(e, "AWS_ACCESS_KEY_ID=") {
 			t.Errorf("forwarded key must stay a bare -e name, got %q (value would ride argv)", e)
 		}
 	}
 	if !bare {
-		t.Errorf("cfg.Env = %v, want a bare CURSOR_API_KEY forwarded from the host", cfg.Env)
+		t.Errorf("cfg.Env = %v, want AWS_ACCESS_KEY_ID forwarded: nothing else can carry it", cfg.Env)
 	}
 }
 

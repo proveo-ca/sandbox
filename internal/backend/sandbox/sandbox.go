@@ -513,20 +513,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	sort.Strings(allow)
 
-	var secrets [][2]string
-	addSecret := func(name string) {
-		v := in.Lookup(name)
-		if v == "" {
-			return
-		}
-		for _, kv := range secrets {
-			if kv[0] == name {
-				return
-			}
-		}
-		secrets = append(secrets, [2]string{name, v})
-	}
-	forwards := in.Forwards
+	// sbx is the runtime, and its proxy is where a credential belongs: stored
+	// host-side, substituted on the way out, never in the agent's environment.
+	// Only what the proxy cannot attach is forwarded, and the run says so.
 	var forwarded []string
 	addForward := func(name string) {
 		if in.Lookup(name) == "" {
@@ -539,16 +528,30 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 		forwarded = append(forwarded, name)
 	}
+
+	var secrets [][2]string
+	addSecret := func(name string) {
+		v := in.Lookup(name)
+		if v == "" {
+			return
+		}
+		for _, kv := range secrets {
+			if kv[0] == name {
+				return
+			}
+		}
+		if _, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreUninjectable {
+			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
+			return
+		}
+		secrets = append(secrets, [2]string{name, v})
+	}
 	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot, in.Lookup)
 	for _, e := range in.Man.Env {
 		if !e.Secret {
 			continue
 		}
 		if suppressedAuth(e.Name) {
-			continue
-		}
-		if forwards {
-			addForward(e.Name)
 			continue
 		}
 		addSecret(e.Name)
@@ -558,10 +561,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			continue
 		}
 		if suppressedAuth(k) {
-			continue
-		}
-		if forwards {
-			addForward(k)
 			continue
 		}
 		addSecret(k)
@@ -774,9 +773,16 @@ func Run(in Input) error {
 			}
 			continue
 		}
-		ui.Hostf("sandbox secret: %s (host-side injection)", kv[0])
-		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
-			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+		// sbx authenticates by SERVICE, so a store entry named for the env var is
+		// one its proxy never reads. The registry is the authority for that id:
+		// six of them do not follow "the variable minus _API_KEY".
+		name, _ := credentials.StoreName(kv[0], in.Target)
+		if name == "" {
+			name = kv[0]
+		}
+		ui.Hostf("sandbox secret: %s stored as %s — sbx's proxy attaches it, the agent never holds it", kv[0], name)
+		if err := sbx.SecretSet(name, kv[1]); err != nil {
+			return fmt.Errorf("sandbox secret %s: %w", name, err)
 		}
 	}
 	if len(secrets) > 0 {

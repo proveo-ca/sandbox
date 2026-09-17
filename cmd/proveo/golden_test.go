@@ -307,7 +307,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 			},
 		},
 		{
-			name: "cursor-forward",
+			name: "cursor-key",
 			in: func(work, data, home string) sandbox.Input {
 				return sandbox.Input{
 					Target:   "cursor",

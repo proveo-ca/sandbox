@@ -45,7 +45,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
 			egressRow(man, p.Mode, sandboxOn),
-			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
+			credentialsRow(man, p.credentialsOrDefault(), sandboxOn),
 		),
 	}
 	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
@@ -373,6 +373,41 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 	"`sbx policy reset && sbx policy init allow-all|balanced|deny-all`"
 
 var policyBaseline = sbx.PolicyBaseline
+
+// credentialsRow is an axis with one option left on sbx. The proxy holds the
+// value and substitutes it outbound, so the agent never has a spendable
+// credential in its environment — which is the thing forward gives up.
+func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
+	r := axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, mode)
+	if !sandboxOn {
+		return r
+	}
+	for i, opt := range r.Options {
+		if opt != "forward" {
+			continue
+		}
+		if r.Off == nil {
+			r.Off = make([]bool, len(r.Options))
+		}
+		r.Off[i] = true
+		if r.Selected == i {
+			r.Selected = brokerIndex(r.Options)
+		}
+	}
+	r.Reason = "sbx holds the credential and its proxy attaches the header outbound, so the agent " +
+		"never reads one — forward would put the value in its environment instead. A credential the " +
+		"proxy cannot attach — signed per request (AWS) or read as a file (GCP) — is forwarded, and the run names it."
+	return r
+}
+
+func brokerIndex(options []string) int {
+	for i, o := range options {
+		if o == "broker" {
+			return i
+		}
+	}
+	return 0
+}
 
 func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
 	if !sandboxOn {

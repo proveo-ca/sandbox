@@ -79,17 +79,6 @@ func subscriptionHowTo(def string) string {
 	return "the agent's own login, run once — proveo never sees the token"
 }
 
-// subscriptionStore keeps the two kinds apart.
-func subscriptionStore(providerName, def string) string {
-	if def != "" && def != providerName {
-		return def
-	}
-	if def != "" {
-		return def + "-sub"
-	}
-	return providerName + "-sub"
-}
-
 // narrowProviders is the def's own vendor list. An empty list means the def
 // routes anywhere — opencode and cecli — and gets the short list instead.
 func narrowProviders(m manifest.Manifest) []string {
@@ -151,7 +140,16 @@ func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(stri
 			if len(own) > 0 {
 				vendor = own[0]
 			}
-			store := subscriptionStore(vendor, m.Name)
+			store := m.Name
+			for _, e := range m.Env {
+				if e.Secret {
+					if n, k := credentials.StoreName(e.Name, m.Name); k == credentials.StoreSubscription {
+						store = n
+						break
+					}
+				}
+			}
+			_ = vendor
 			if !seen[store] {
 				seen[store] = true
 				out = append(out, credSlot{
