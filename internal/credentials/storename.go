@@ -17,18 +17,7 @@ const (
 )
 
 // StoreName is the name sbx authenticates by for one credential variable.
-//
-// StoreUninjectable is not "sbx cannot hold it" — `sbx secret set-custom` takes
-// any host and variable, and proveo already uses it for every provider sbx has
-// no built-in service for. It means the proxy cannot ATTACH it: an AWS key is
-// signed into each request and GOOGLE_APPLICATION_CREDENTIALS names a file the
-// client reads, so a placeholder in the variable is useless to the agent.
-// azure is in that set only because the registry gives it no Hosts or Auth; its
-// key IS a static `api-key` header on known domains, so filling those in would
-// move it. Injectability is answered per ENTRY, so bedrock's two variables share
-// an answer: giving that entry hosts to rescue AWS_BEARER_TOKEN_BEDROCK would
-// mark the SigV4 signing key beside it brokerable too, and no substitution
-// produces a signature. SPEC: _spec/_plans/host-held-provider-keys.puml
+// SPEC: _spec/_plans/host-held-provider-keys.puml
 func StoreName(envVar, def string) (name string, kind StoreKind) {
 	envVar = strings.TrimSpace(envVar)
 	if envVar == "" {
@@ -46,8 +35,7 @@ func StoreName(envVar, def string) (name string, kind StoreKind) {
 	return service, StoreAPIKey
 }
 
-// providerOfVar resolves through the registry rather than trimming _API_KEY off
-// the variable: six ids are deliberate and do not follow the pattern.
+// providerOfVar resolves an env var to its registry provider.
 func providerOfVar(envVar string) (service string, injectable bool) {
 	for _, name := range provider.Names() {
 		e, ok := provider.Lookup(name)

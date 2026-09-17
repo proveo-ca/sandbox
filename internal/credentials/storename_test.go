@@ -24,9 +24,6 @@ func TestAPIKeysTakeTheRegistrysOwnID(t *testing.T) {
 
 func TestAPlanTokenNeverLandsOnTheAPIKeysID(t *testing.T) {
 	t.Parallel()
-	// Measured: a subscription stored as `anthropic` makes the proxy attach an
-	// OAuth token into an x-api-key header, and the provider answers 401 to a
-	// credential that is good.
 	name, kind := StoreName("CLAUDE_CODE_OAUTH_TOKEN", "claudecode")
 	if name == "anthropic" {
 		t.Fatal("a plan token took the api key's id; the proxy would attach it as x-api-key")
@@ -41,9 +38,6 @@ func TestADefNamedForItsProviderTakesTheSubSuffix(t *testing.T) {
 	if name, _ := StoreName("CURSOR_API_KEY", "cursor"); name != "cursor" {
 		t.Errorf("an api key still takes the provider id, got %q", name)
 	}
-	// No def in the registry is named for its provider AND carries a plan token
-	// today, so the rule is exercised with a def name that would collide: the
-	// suffix is what keeps the two kinds off one id when one ever does.
 	if name, kind := StoreName("CLAUDE_CODE_OAUTH_TOKEN", "anthropic"); name != "anthropic-sub" || kind != StoreSubscription {
 		t.Errorf("StoreName = %q/%v, want anthropic-sub so the api key keeps `anthropic`", name, kind)
 	}

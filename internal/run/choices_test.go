@@ -7,9 +7,6 @@ import (
 )
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml
-// On sbx the credential lives in the proxy, so `forward` — which puts the value
-// in the agent's own environment — is drawn and gated rather than dropped: an
-// option that vanishes is one an operator cannot find out about.
 func TestForwardIsGatedOffWhenSbxRunsTheAgent(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{

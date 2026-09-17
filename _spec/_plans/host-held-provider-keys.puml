@@ -245,6 +245,11 @@ skinparam noteTextAlignment left
 ' `agentCredentials` skips a provider when there is nothing to attach, and
 ' `--credentials forward` is then the ONLY route to the agent.
 '
+' AND "UNINJECTABLE" IS NOT "sbx CANNOT HOLD IT". `sbx secret set-custom` takes
+' any host and variable, and proveo already uses it for every provider sbx has no
+' built-in service for. It means the PROXY CANNOT ATTACH the value — which is a
+' statement about the credential's shape, not about the store's reach.
+'
 ' CORRECTED 2026-09-16. This section used to read "signed requests — bedrock,
 ' azure, vertex — SigV4 signs the whole request", which is true of ONE of the
 ' three. They were measured, and the causes are different in ways that decide

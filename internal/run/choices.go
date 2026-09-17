@@ -374,9 +374,7 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 
 var policyBaseline = sbx.PolicyBaseline
 
-// credentialsRow is an axis with one option left on sbx. The proxy holds the
-// value and substitutes it outbound, so the agent never has a spendable
-// credential in its environment — which is the thing forward gives up.
+// credentialsRow is the credentials axis.
 func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
 	r := axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, mode)
 	if !sandboxOn {

@@ -306,10 +306,6 @@ func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
 	}
 }
 
-// sbx is the runtime, so a credential goes to its store and its proxy attaches
-// the header outbound. `--credentials forward` asked proveo to put the value in
-// the agent's own environment instead, which is the posture this stopped
-// offering: the manifest may still name it, and the sandbox backend ignores it.
 func TestTheSandboxStoresCredentialsWhateverTheHarnessAsksFor(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
@@ -348,8 +344,6 @@ func TestTheSandboxStoresCredentialsWhateverTheHarnessAsksFor(t *testing.T) {
 	}
 }
 
-// The three the registry gives no host or header: nothing can attach them, so
-// they are forwarded and the run is expected to say so rather than drop them.
 func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {

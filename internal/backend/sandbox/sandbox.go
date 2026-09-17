@@ -513,9 +513,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	sort.Strings(allow)
 
-	// sbx is the runtime, and its proxy is where a credential belongs: stored
-	// host-side, substituted on the way out, never in the agent's environment.
-	// Only what the proxy cannot attach is forwarded, and the run says so.
 	var forwarded []string
 	addForward := func(name string) {
 		if in.Lookup(name) == "" {
@@ -773,9 +770,6 @@ func Run(in Input) error {
 			}
 			continue
 		}
-		// sbx authenticates by SERVICE, so a store entry named for the env var is
-		// one its proxy never reads. The registry is the authority for that id:
-		// six of them do not follow "the variable minus _API_KEY".
 		name, _ := credentials.StoreName(kv[0], in.Target)
 		if name == "" {
 			name = kv[0]
