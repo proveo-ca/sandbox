@@ -132,6 +132,21 @@ func CreateArgs(cfg RunConfig) []string {
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
 }
 
+// Reattach is the argv for a sandbox that already exists. sbx refuses to give
+// one new workspaces, a new template or new published ports — and it needs
+// none: the name is derived from def and workspace, so an existing sandbox of
+// that name already holds this workspace. What stays is the Kit, the
+// environment and the agent.
+func Reattach(cfg RunConfig) RunConfig {
+	cfg.Mounts = nil
+	cfg.Publish = nil
+	cfg.Image = ""
+	cfg.Memory = ""
+	cfg.CPUs = 0
+	cfg.Clone = false
+	return cfg
+}
+
 func RunArgs(cfg RunConfig) []string {
 	args := []string{"run"}
 	if cfg.Name != "" {
