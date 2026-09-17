@@ -27,10 +27,7 @@ type Row struct {
 	Radio    bool
 	Divider  bool
 
-	// A field row takes typing instead of options. Masked never renders what was
-	// typed, which is what lets a secret be entered in the form at all; Held says
-	// the value is already somewhere and the field replaces it rather than
-	// setting it, and Warn marks one resting somewhere it should not.
+	// A field row takes typing instead of options.
 	// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
 	Field       bool
 	Heading     string // the divider's text, when the group is not named for this row
@@ -263,9 +260,8 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 }
 
-// typing routes a keystroke into a field row. It answers true when the key
-// belonged to the field, so a letter is never also a navigation command: `q`
-// inside a key would otherwise cancel the form mid-paste.
+// typing routes a keystroke into a field row, and answers true when the key
+// belonged to it.
 func (f *Form) typing(cursor int, ev *tcell.EventKey) bool {
 	if cursor < 0 || cursor >= len(f.Rows) || !f.Rows[cursor].Field {
 		return false
@@ -725,9 +721,7 @@ func sortedKeys(m map[string]string) []string {
 
 const fieldWidth = 38
 
-// drawField renders one field: its state glyph, then the box. A masked field
-// shows a dot per rune and never the rune, so the value an operator typed is
-// nowhere on the screen — the placeholder says what the box holds instead.
+// drawField renders one field: its state glyph, then the box.
 func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 	glyph, st := "  ", p.idle
 	switch {

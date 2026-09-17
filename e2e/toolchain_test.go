@@ -107,9 +107,7 @@ func toolchainSandbox(t *testing.T, target, work string) *tmux.Session {
 	return toolchainSandboxHome(t, target, work, "")
 }
 
-// toolchainSandboxHome runs with a proveo home of the caller's choosing, which
-// is also the toolchain store: sbx tells the sandbox where it is through
-// PROVEO_STATE_HOME. Two runs sharing one home is what "warm" means here.
+// toolchainSandboxHome runs with a proveo home of the caller's choosing.
 func toolchainSandboxHome(t *testing.T, target, work, home string) *tmux.Session {
 	t.Helper()
 	requireHarness(t, target)
@@ -122,9 +120,7 @@ func toolchainSandboxHome(t *testing.T, target, work, home string) *tmux.Session
 	return sess
 }
 
-// seedInstalls counts what the SEED installed, which is the only honest measure
-// of the restore: by the time an operator has a prompt, provisioning is the
-// seed's work, not something they run by hand.
+// seedInstalls counts what the seed installed.
 func seedInstalls(t *testing.T, sess *tmux.Session) int {
 	t.Helper()
 	out, _ := shellExec(t, sess,
@@ -146,11 +142,7 @@ func seedInstalls(t *testing.T, sess *tmux.Session) int {
 	return n
 }
 
-// waitForSeed holds until the Kit's startup commands are done. sbx hands the
-// operator a prompt while they are still running, so a probe sent on sight of
-// the prompt races the seed — and loses to its install lock. The startup log
-// opens a line with "> " per command and closes it with "ok"/"fail", so the
-// counts meeting is the seed being finished with the sandbox.
+// waitForSeed holds until the Kit's startup commands are done.
 func waitForSeed(t *testing.T, sess *tmux.Session) {
 	t.Helper()
 	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 12*time.Minute))
@@ -203,9 +195,7 @@ func envPrefix(env map[string]string) string {
 	return b.String()
 }
 
-// runLib drives the entrypoint lib where it actually runs: inside a sandbox the
-// operator's own `proveo run` created. The lib is baked at /entrypoint-lib.sh,
-// and the fixture is the sandbox's workspace, so the scripts' /work becomes $PWD.
+// runLib drives the entrypoint lib inside a sandbox `proveo run` created.
 func runLib(t *testing.T, o runOpts, script string) (string, error) {
 	t.Helper()
 	sess := o.sess
@@ -224,10 +214,6 @@ func runLib(t *testing.T, o runOpts, script string) (string, error) {
 	if to == 0 {
 		to = 5 * time.Minute
 	}
-	// The pane carries the command it echoed as well as its output, so a script
-	// that prints the word an assertion greps for matches itself. Fence the output
-	// between sentinels the echoed line cannot spell — the same split shellExec's
-	// own marker uses.
 	full := envPrefix(o.env) + "source /entrypoint-lib.sh 2>/dev/null\n" +
 		"_fence=LIBOUT; printf '%s-BEGIN\\n' \"$_fence\"\n" +
 		strings.ReplaceAll(script, "/work", `"$PWD"`) +
@@ -251,9 +237,7 @@ func fencedOutput(pane string) string {
 	return strings.TrimSpace(rest)
 }
 
-// requireSandboxGitHubToken keeps the ubi recipes off the 60/hr anonymous limit.
-// sbx injects the token for its own `github` service, so the check belongs inside
-// the sandbox rather than on the host.
+// requireSandboxGitHubToken keeps the ubi recipes off the anonymous rate limit.
 func requireSandboxGitHubToken(t *testing.T, sess *tmux.Session) {
 	t.Helper()
 	out, status := shellExec(t, sess, `gh auth token >/dev/null 2>&1 && echo GH-TOKEN-OK || echo GH-TOKEN-NO`,
@@ -425,9 +409,7 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 	}
 	teardown := endShell(t, first)
 
-	// Which half broke? The store is the host side of `proveo_sync_tools`, written
-	// at teardown and read by the next run's seed. Naming its state here is what
-	// separates "the save never wrote" from "the restore never read".
+	// Name the store's state in the failure message.
 	store := toolStoreEntries(t, home)
 	if len(store) == 0 {
 		t.Fatalf("after teardown the store under %s is empty — the save half never wrote, "+

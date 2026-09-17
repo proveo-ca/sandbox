@@ -382,9 +382,6 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			// One line. The agent comes up at its own login and handles it; the only
-			// thing proveo has to add is where a credential would REST between runs,
-			// and that is one command now rather than a screenful of routes.
 			ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
 				rs.Man.Name)
 		case agentio.IsStdinTTY() && WizardEnabled():

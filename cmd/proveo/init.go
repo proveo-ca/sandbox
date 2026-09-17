@@ -145,9 +145,6 @@ func doInit(o initOptions) error {
 		return err
 	}
 
-	// The fourth stage: readiness is not the same as being able to run anything.
-	// A host with sbx installed and no credential still meets every agent at its
-	// login prompt, which is where they exit.
 	return credentialStage(o)
 }
 

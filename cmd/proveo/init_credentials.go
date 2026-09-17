@@ -21,9 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// credKind says which of the two things a slot holds. One store id cannot carry
-// both: a proxy attaching an OAuth token into an x-api-key header answers 401 to
-// a credential that is good.
+// credKind says which of the two things a slot holds.
 type credKind int
 
 const (
@@ -81,9 +79,7 @@ func subscriptionHowTo(def string) string {
 	return "the agent's own login, run once — proveo never sees the token"
 }
 
-// subscriptionStore keeps the two kinds apart. A subscription takes the def
-// name; where the def is NAMED for its provider that would collide with the api
-// key's id, so it takes <service>-sub instead.
+// subscriptionStore keeps the two kinds apart.
 func subscriptionStore(providerName, def string) string {
 	if def != "" && def != providerName {
 		return def
@@ -104,10 +100,7 @@ func narrowProviders(m manifest.Manifest) []string {
 }
 
 // surveyCredentials builds the screen: one group per def, its subscription
-// first, then the api keys that def can actually spend. A def that routes
-// anywhere gets the short list — providers a def runs on, plus any key already
-// on this host — because drawing all thirty buries the four that decide whether
-// any agent starts.
+// first, then the api keys that def can actually spend.
 func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(string) string) []credSlot {
 	held := map[string]bool{}
 	for _, s := range stored {
@@ -265,10 +258,7 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 	return rows
 }
 
-// credentialStage is `proveo init`'s fourth stage, and the last screen of the
-// install: the one place a credential is provisioned, so nobody has to know
-// which env var a harness reads. It offers; it never gates the run, because an
-// agent without a credential still launches and shows its own login.
+// credentialStage is `proveo init`'s fourth stage.
 func credentialStage(o initOptions) error {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
@@ -301,9 +291,6 @@ func credentialStage(o initOptions) error {
 	if err != nil || !ok {
 		return err
 	}
-	// By index, not by label: a def named for its own provider gives the
-	// subscription and the key the same label — cursor and cursor — and a
-	// lookup by name would hand one field's value to the other credential.
 	for i, s := range slots {
 		value := ""
 		if i < len(form.Rows) {
@@ -344,10 +331,7 @@ func reportCredentials(slots []credSlot) {
 	}
 }
 
-// provisionSlot writes one credential under BOTH names: the service id the
-// broker path reads, and the env var name the forward path and every harness
-// read. Until that map lands, one secret occupies two entries — and an operator
-// reading `sbx secret ls` would otherwise find a duplicate they did not create.
+// provisionSlot writes one credential under BOTH names.
 func provisionSlot(s credSlot, value string) error {
 	names := append([]string{s.Store}, s.Also...)
 	for _, n := range names {
@@ -365,9 +349,7 @@ func provisionSlot(s credSlot, value string) error {
 	return nil
 }
 
-// verifyProbes is how init answers "spendable" rather than "present". A
-// provider with no cheap authenticated endpoint is reported as unverified,
-// never as good and never as bad.
+// verifyProbes is the table of authenticated probes, one per provider.
 var verifyProbes = map[string]struct {
 	URL    string
 	Header map[string]string

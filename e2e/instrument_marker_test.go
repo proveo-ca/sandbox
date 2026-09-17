@@ -9,14 +9,6 @@ import (
 	"testing"
 )
 
-// A tmux pane shows the command typed into it as well as the command's output.
-// shellExec matched its completion marker as a plain substring, so every probe
-// in the suite "completed" the instant the marker was ECHOED — before bash had
-// run anything — and returned the typed line, which carries "=$?" and parses as
-// no status. Every sandbox-driving test then reported the thing it was probing
-// as broken with "exit -1" and an empty pane. These two tests pin the halves of
-// the fix: the typed line must not spell the marker, and a line that does not
-// answer with digits must not read as a status.
 func TestShellExecLineNeverSpellsTheMarker(t *testing.T) {
 	const marker = "PROVEO-SHELLEXEC-1789456759122517000"
 	line := shellExecLine("echo hi", marker)
