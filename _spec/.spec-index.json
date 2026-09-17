@@ -252,31 +252,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/backlog-line-items.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/chess-analytics.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/chess-save-difficulty.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/chess-ui-primitives.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/chess-user-journey.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/ci-pipeline.puml",
       "covers": [
         "mise.toml",
@@ -312,21 +287,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/deploy-death-animation-layers.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/forfeit-as-loss.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/game-export-localstorage.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/host-execution-fallback.puml",
       "covers": [],
       "fingerprint": null
@@ -349,11 +309,6 @@
     },
     {
       "spec": "_spec/_plans/init-credential-provisioning.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/pawn-first-phase-gas-move.puml",
       "covers": [],
       "fingerprint": null
     },
@@ -406,36 +361,6 @@
     },
     {
       "spec": "_spec/_plans/tui-style-deferred-surfaces.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/turn-45-draw-stop.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tutorial-interactive-siege.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tutorial-pawn-gas-collision.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tutorial-ships.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tutorial-siege-lines.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/tutorial-turn-21-prep.puml",
       "covers": [],
       "fingerprint": null
     },
