@@ -1,0 +1,95 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: first-phase pawn gas and occupying the square are ONE action, so the extra CC is not spent
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no pawn, gas, CC, or phase types exist under
+'   the sandbox checkout (measured 2026-09-17). Locate the owning engine
+'   module before a covers: line can be honest.
+'   the collision this must not break _spec/_plans/tutorial-pawn-gas-collision.puml
+'   the animation that must not gate it _spec/_plans/deploy-death-animation-layers.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "allow pawn 1st phase gas + move onto square (saves CC)" is a RULES change,
+' not a tutorial beat and not a sprite. Three claims are already in the sentence:
+'   FIRST PHASE   gas is legal in phase 1 of the pawn's activation
+'   PLUS MOVE     occupying the target square is the same action, not a follow-up
+'   SAVES CC      today's split spends an extra CC; joining them is the value
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+' Guessing any of these is how a wrong legal move ships:
+'   what gas does to the square and to units standing on it
+'   whether occupying is optional or required once gas is declared
+'   whether the saved CC is the activation tax or a second action point
+'   friendly fire — the collision tutorial names ally tank vs mecha, so gas
+'     already has a collision story this rule must not contradict
+'
+' CC is left as the token the backlog used. Expanding it to a type name before
+' the owning module is found invents a vocabulary the engine may not share.
+title PLANNED — first-phase pawn gas occupies the square;\nthe saved CC is the whole value
+
+component "phase 1 of the pawn" as P1 <<app>>
+component "gas on the square" as GAS <<app>>
+component "occupy the square" as OCC <<app>>
+component "**two CC spent**\ngas, then a second move" as TAX <<error>>
+component "one action, one CC" as JOIN <<app>>
+component "collision with an ally\ntank vs mecha" as HIT <<error>>
+
+P1 ARROW_MAIN GAS
+GAS ARROW_ERROR TAX : today, a second spend
+OCC ARROW_ERROR TAX
+GAS ARROW_OPTIONAL JOIN : what this plan allows
+OCC ARROW_OPTIONAL JOIN
+JOIN ARROW_ERROR HIT : legal gas can still\nstrike a friend
+
+note bottom of TAX
+  **Gas and occupying are billed as separate
+  activations, so an extra command counter is
+  spent for a single intent.** Joining that
+  activation recovers the wasted counter and later
+  phases remain unchanged until a test names them.
+end note
+
+note bottom of JOIN
+  **Occupying the square belongs to first-phase
+  gas rather than a sequel activation.** Phase one
+  may vent and stand without a second counter,
+  leaving later phases unchanged until a
+  measurement requires otherwise.
+end note
+
+note bottom of HIT
+  **Friendly fire remains a separate collision
+  rule from the joined activation.** The tutorial
+  names an allied tank versus a mecha, so this
+  join must not quietly cancel that collision.
+end note
+
+note right of GAS
+  **Gas payload remains unspecified in the backlog
+  item and must not be invented during planning.**
+  Measure its effect on tiles and units in the
+  owning module before any covers line can be
+  honest.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Find the cost table.** Name the type that spends CC, the phase gate on
+  pawn gas, and the move-onto-square action as they exist today. Until those
+  three are real symbols, this plan has no honest covers: line.
+  --
+  **2. Make the join the legal form.** One activation: phase-1 gas may occupy
+  the target square and spend one CC. Keep the split illegal, or keep it as a
+  more expensive option — pick one and test both.
+  ==
+  **3. Freeze collision before teaching it.** Ally tank vs mecha is
+  tutorial-pawn-gas-collision.puml. If the join changes who is hit, the
+  tutorial is teaching a lie.
+  --
+  **Left open**: the name behind CC; whether occupy is mandatory after gas;
+  whether a pawn already on the square still pays.
+end legend
+@enduml

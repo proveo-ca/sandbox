@@ -1,0 +1,79 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: chess analytics reads the same outcome enum the engine writes — it does not re-score a match
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no analytics store, tally, or chart types exist
+'   under the sandbox checkout (measured 2026-09-17). Locate the owning UI
+'   and persist modules before a covers: line can be honest.
+'   outcome mapping it must wait on ..... _spec/_plans/forfeit-as-loss.puml
+'   the kit for its widgets ............. _spec/_plans/chess-ui-primitives.puml
+'   difficulty as a grouping key ........ _spec/_plans/chess-save-difficulty.puml
+'   export as a fixture source .......... _spec/_plans/game-export-localstorage.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "analytics" is a READ MODEL over finished games. Wins, losses, draws,
+' forfeits-as-losses, maybe difficulty. It does not decide a winner. If it
+' re-scores, it will fight the engine the first time a rules patch lands.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   which charts, which time window
+'   local-only vs a server
+'   whether a running game appears
+'
+' Forfeit-as-loss has to land first or the tallies will treat a concede as a
+' void and the dashboard will lie after the mapping changes.
+title PLANNED — analytics is a read model;\nit does not re-score a match
+
+database "finished games\noutcome enum · difficulty" as GAMES <<db>>
+component "tally / read model" as TALLY <<app>>
+component "dashboard widgets" as DASH <<app>>
+component "**re-score in the chart**\nfights the engine" as RESCORE <<error>>
+component "forfeit → loss mapping" as MAP <<app>>
+component "primitive kit" as KIT <<app>>
+
+GAMES ARROW_MAIN TALLY
+MAP ARROW_MAIN GAMES : writes the enum
+TALLY ARROW_MAIN DASH
+TALLY ARROW_ERROR RESCORE
+KIT ARROW_MAIN DASH
+
+note bottom of RESCORE
+  **Charts must not replay chess, because a widget
+  that walks moves to decide a winner forks the
+  dashboard on a rules patch.** Count the stored
+  outcome enumeration instead of reconstructing
+  it.
+end note
+
+note bottom of MAP
+  **Forfeit mapping has to land before tallies,
+  because counts built against a void will jump
+  when concede becomes a loss.** Snapshot the
+  dashboard only after that enumeration is stable.
+end note
+
+note right of DASH
+  **Dashboard widgets come from the shared kit
+  rather than a one-off chart treatment.** A third
+  restyle of the same row is the failure the
+  primitive plan exists to prevent.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. After forfeit-as-loss.** Confirm the outcome enum, then define the
+  first tallies: games, wins, losses (including forfeit), draws, by
+  difficulty if the key exists.
+  --
+  **2. Read, do not replay.** The dashboard binds to the tally. Export files
+  can backfill, but a dump is a fixture, not a second scorer.
+  ==
+  **3. Use kit widgets.** Table and summary row first. Fancy charts are a
+  later slice and still consume the same tally.
+  --
+  **Left open**: time windows; opponent grouping; whether tutorials count.
+end legend
+@enduml

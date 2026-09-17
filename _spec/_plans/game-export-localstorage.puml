@@ -1,0 +1,82 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: a finished or in-progress game that lives in localStorage can be exported as a file the player keeps
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no localStorage game blob, export, or replay
+'   types exist under the sandbox checkout (measured 2026-09-17). Locate the
+'   owning persist module before a covers: line can be honest.
+'   outcome this file must copy ........ _spec/_plans/forfeit-as-loss.puml
+'   the draw bug it must be able to dump _spec/_plans/turn-45-draw-stop.puml
+'   difficulty the blob should record .. _spec/_plans/chess-save-difficulty.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "game export from localstorage" is a PORTABILITY gap. The live store is the
+' browser's localStorage. The player needs a file they can keep, send, or
+' attach to a bug. The store stays; the file is a copy, not a migrate-off.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   import of that file (export-only is a valid first slice)
+'   schema versioning and forward readers
+'   whether a partial turn-45 dump is in scope for the first ship
+'   PII: player names, tokens, anything that is not the board
+'
+' A dump that omits the outcome enum will fight forfeit-as-loss and the draw
+' stop: the file will disagree with the screen. Export reads the same record
+' the engine writes, or it is not an export.
+title PLANNED — localStorage stays the live store;\nexport is a file copy of that record
+
+database "localStorage\nlive game record" as LS <<db>>
+component "export action" as EX <<app>>
+component "**a file the player keeps**\nboard · clock · outcome · version" as FILE <<app>>
+component "import (not required\nfor the first slice)" as IMP <<app>>
+component "**a dump that disagrees**\nwith the screen" as LIE <<error>>
+
+LS ARROW_MAIN EX
+EX ARROW_MAIN FILE
+FILE ARROW_OPTIONAL IMP
+EX ARROW_ERROR LIE : if it rebuilds state\ninstead of copying it
+
+note bottom of LS
+  **The live localStorage store is not the export
+  feature, because finished games already persist
+  there between sessions.** Export serialises that
+  blob rather than inventing a second save format
+  that can drift.
+end note
+
+note bottom of FILE
+  **Version the envelope, because an unversioned
+  dump becomes unreadable the moment a field is
+  renamed.** Wrap the record with a schema
+  identifier so a later import can refuse rather
+  than crash.
+end note
+
+note right of LIE
+  **Copy the stored record rather than
+  reconstructing the board by replaying historical
+  moves.** Reconstruction will disagree the moment
+  a rules patch lands, so persist exactly what was
+  stored.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Document the live blob.** Key name, JSON shape, which fields are the
+  board, the clocks, the outcome, and the difficulty. No covers: line until
+  that shape is copied from code, not guessed.
+  --
+  **2. Ship export as a download.** Same JSON, plus a schema version. Outcome
+  must be the engine's enum (forfeit is a loss once that plan lands). Do not
+  strip the turn-45 trace — that dump is how the draw bug gets a fixture.
+  ==
+  **3. Import is a second slice.** A reader that round-trips the file is
+  worth doing after one real export has been used as a bug attachment.
+  --
+  **Left open**: filename; whether multiple slots export as a zip; stripping
+  display names.
+end legend
+@enduml

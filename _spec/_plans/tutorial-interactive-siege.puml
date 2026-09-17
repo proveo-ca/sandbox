@@ -1,0 +1,82 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: siege is taught by playing a gated siege, not by a slide that describes one
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no tutorial runner or siege mode exists under
+'   the sandbox checkout (measured 2026-09-17). Locate the owning tutorial
+'   module before a covers: line can be honest.
+'   the lines this mode is made of .... _spec/_plans/tutorial-siege-lines.puml
+'   ships if they take part ........... _spec/_plans/tutorial-ships.puml
+'   turn-21 prep as a later beat ...... _spec/_plans/tutorial-turn-21-prep.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "interactive siege mode" is a TUTORIAL SHAPE. The player acts inside a siege,
+' with gates, not a film of one. The engine's siege rules are the teacher; the
+' tutorial only sequences which verbs are unlocked.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   win condition of a siege (lines, ships, clock, king)
+'   how many beats, and whether skip exists
+'   whether this is a mode flag on the engine or a scripted match
+'
+' A scripted match that bypasses the engine will teach a siege the live game
+' does not play. The tutorial issues legal moves in a real siege, or it is a
+' slide with extra buttons.
+title PLANNED — siege tutorial is a gated real siege;\nnot a slide that describes one
+
+component "siege rules (engine)" as RULE <<app>>
+component "tutorial gates\nwhich verbs are live" as GATE <<app>>
+component "the player acts" as PLAY <<app>>
+component "**a film of a siege**\nno legal move is issued" as SLIDE <<error>>
+component "siege lines beat" as LINES <<app>>
+component "ships beat (if in siege)" as SHIP <<app>>
+
+RULE ARROW_MAIN GATE
+GATE ARROW_MAIN PLAY
+PLAY ARROW_MAIN RULE : legal moves only
+SLIDE ARROW_ERROR PLAY : buttons that do not\nhit the engine
+LINES ARROW_MAIN GATE
+SHIP ARROW_OPTIONAL GATE
+
+note bottom of SLIDE
+  **Description is not interactive mode, because a
+  caption over an idle engine teaches the wrong
+  activity.** Every beat must submit a legal
+  action the live rules already accept.
+end note
+
+note bottom of GATE
+  **Gates unlock verbs rather than outcomes, so
+  ships may remain hidden until siege lines are
+  placed.** The tutorial nevertheless may not
+  force a victory the engine would refuse.
+end note
+
+note right of RULE
+  **Siege has two owners: line and ship lessons
+  are separate plans because each is a distinct
+  tutorial beat.** This file owns only the runner
+  that sequences those beats against live rules.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Name live siege.** What starts it, what ends it, which pieces may act.
+  If that contract is fuzzy, write tutorial-siege-lines.puml first — a runner
+  with no line rule is a slide.
+  --
+  **2. Build the runner as a gated match.** Same engine, restricted verb set,
+  fail-closed if the player issues an out-of-beat move. No skip that writes
+  a won siege without play.
+  ==
+  **3. Drop beats in, one plan each.** Lines, then ships if they belong, then
+  turn-21 prep. Interactive mode is done when those beats run inside it, not
+  when a menu row exists.
+  --
+  **Left open**: skip; whether ranked play can enter this mode; how failure
+  retries a beat without resetting the board illegally.
+end legend
+@enduml

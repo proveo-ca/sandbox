@@ -1,0 +1,79 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the chosen difficulty is persisted and restored on the next enter — picking it every game is the bug
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no difficulty enum or persist key exists under
+'   the sandbox checkout (measured 2026-09-17). Locate the owning UI and
+'   persist modules before a covers: line can be honest.
+'   the picker primitive ................ _spec/_plans/chess-ui-primitives.puml
+'   the journey beat .................... _spec/_plans/chess-user-journey.puml
+'   the export that should copy it ...... _spec/_plans/game-export-localstorage.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "save difficulty selection" is a PERSISTENCE beat on the journey. The player
+' picks a difficulty, the pick is stored, the next enter restores it. A default
+' that ignores last time is the defect.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   the enum (easy / normal / hard, or a rating)
+'   localStorage vs account
+'   whether a match in progress may change difficulty mid-game
+'
+' Saving only in memory dies on refresh. Saving a second copy that export
+' does not read will disagree in bug dumps.
+title PLANNED — last difficulty is restored on enter;\na forgotten pick is the defect
+
+component "difficulty picker" as PICK <<app>>
+component "persist key" as KEY <<db>>
+component "next enter restores" as REST <<app>>
+component "**in-memory only**\nrefresh forgets the pick" as MEM <<error>>
+component "game export blob" as EX <<app>>
+component "localStorage live game" as LS <<db>>
+
+PICK ARROW_MAIN KEY
+KEY ARROW_MAIN REST
+REST ARROW_MAIN PICK : default = last
+PICK ARROW_ERROR MEM
+KEY ARROW_MAIN EX
+LS ARROW_OPTIONAL KEY
+
+note bottom of MEM
+  **An in-memory variable is not a save, because a
+  refresh makes the player reselect difficulty
+  every session.** The persistence key has to
+  outlive the browser tab.
+end note
+
+note bottom of KEY
+  **One persistence key has two readers: the
+  journey restores from it and export copies it.**
+  A third encoding inside the game blob is how
+  dumps disagree with the picker.
+end note
+
+note right of PICK
+  **The shared picker is the control, including
+  for analytics and tutorial gates.** Do not draw
+  a second difficulty widget that can drift from
+  the saved enumeration.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Name the enum and the key.** What values exist today, where a pick is
+  stored if at all. If it is already in the game blob, restore from there
+  instead of adding a parallel key.
+  --
+  **2. Write on confirm, read on enter.** Picker uses the primitive kit.
+  Changing mid-game is out of scope until a test names it.
+  ==
+  **3. Include it in export.** The dump of a game names the difficulty it
+  was played at. Analytics can group on that field later.
+  --
+  **Left open**: per-mode vs global; account sync; whether tutorial difficulty
+  is a separate key.
+end legend
+@enduml

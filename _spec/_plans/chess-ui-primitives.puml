@@ -1,0 +1,80 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: reusable chess UI primitives — one component per interaction, so journey, difficulty, and analytics do not restyle a board three times
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no chess board, picker, or HUD primitives exist
+'   under the sandbox checkout (measured 2026-09-17). Locate the owning UI
+'   package before a covers: line can be honest.
+'   the journey that consumes them ...... _spec/_plans/chess-user-journey.puml
+'   difficulty control ................. _spec/_plans/chess-save-difficulty.puml
+'   analytics widgets .................. _spec/_plans/chess-analytics.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "reusable UI primitives" is a FOUNDATION slice. Buttons, the board chrome,
+' a picker, a dialog, a toast — named once, used by the other chess plans.
+' Restyling each screen in place is how the journey forks.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   the kit (web, native, existing design system)
+'   which widgets are in v1
+'   accessibility beyond "must be used by the journey"
+'
+' This file lands first among the chess plans. Journey, difficulty, and
+' analytics that ship ahead of it will invent a second kit.
+title PLANNED — one primitive kit for chess UI;\njourney and analytics do not restyle the board
+
+component "primitive kit" as KIT <<app>>
+component "board chrome · picker\ndialog · toast · list row" as W <<app>>
+component "user journey screens" as JOURNEY <<app>>
+component "difficulty control" as DIFF <<app>>
+component "analytics widgets" as AN <<app>>
+component "**a third restyle**\nof the same control" as FORK <<error>>
+
+KIT ARROW_MAIN W
+W ARROW_MAIN JOURNEY
+W ARROW_MAIN DIFF
+W ARROW_MAIN AN
+JOURNEY ARROW_ERROR FORK : if it draws its own
+DIFF ARROW_ERROR FORK
+AN ARROW_ERROR FORK
+
+note bottom of KIT
+  **Primitives are the contract: a picker
+  difficulty cannot reuse is not primitive yet.**
+  Extract after two call sites rather than after
+  one decorative mock.
+end note
+
+note bottom of FORK
+  **Three visual treatments of the same control is
+  the failure this kit exists to prevent.** If
+  analytics invents a table the journey cannot
+  host, the shared primitive set did not land.
+end note
+
+note right of W
+  **The first shared set is board chrome, a gated
+  picker, a confirm dialog, and a toast.** Charts
+  wait on the analytics plan rather than expanding
+  this kit prematurely.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Inventory the live screens.** List every chess control that already
+  exists. Deduplicate names. That list is the kit, not a redesign.
+  --
+  **2. Extract the shared set.** Board chrome, picker, dialog, toast, list
+  row. Each has one props contract. Difficulty and analytics may not add a
+  look; they may add a prop.
+  ==
+  **3. Ban screen-local restyles.** Journey work that needs a new widget
+  extends the kit in this file's spirit, or it is a fork.
+  --
+  **Left open**: visual language; whether proveo choiceui is a reference or
+  unrelated; mobile density.
+end legend
+@enduml

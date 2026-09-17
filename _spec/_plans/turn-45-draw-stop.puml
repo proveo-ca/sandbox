@@ -1,0 +1,85 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: a game that stops around turn 45 with a failed draw is a bug to reproduce, then a resolver to fix — not a new mode
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no turn counter, draw resolver, or stop
+'   condition exists under the sandbox checkout (measured 2026-09-17). Locate
+'   the owning engine module before a covers: line can be honest.
+'   forfeit must stay a different mapping _spec/_plans/forfeit-as-loss.puml
+'   export is how the fixture is captured _spec/_plans/game-export-localstorage.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "game stopped? Turn 45 draw failed?" is an INCIDENT, not a feature. Two
+' observations, both uncertain:
+'   the game STOPPED (UI hung, rules ended, or persist refused)
+'   a DRAW at about TURN 45 FAILED (claim rejected, detector threw, or
+'     the stop was mislabelled as a draw)
+'
+' Treat those as hypotheses until a dump exists. Shipping a "turn 45 always
+' draws" patch without a fixture is how a second stop gets invented.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   fifty-move, repetition, stalemate, or a house draw clock
+'   whether 45 is exact or "late game"
+'   host vs guest vs tutorial
+'
+' Do not fold this into forfeit-as-loss. A failed draw that becomes a forfeit
+' is a third bug.
+title PLANNED — reproduce the turn-45 stop;\ndo not invent a draw rule to paper over it
+
+component "turn ~45" as T45 <<app>>
+component "draw claim or detector" as DRAW <<app>>
+component "**the game stops**\nhung UI · ended rules · persist fail" as STOP <<error>>
+component "a dump from localStorage" as DUMP <<app>>
+component "draw resolver with a fixture" as FIX <<app>>
+component "**a new draw rule**\nwith no failing case" as FAKE <<error>>
+
+T45 ARROW_MAIN DRAW
+DRAW ARROW_ERROR STOP
+STOP ARROW_OPTIONAL DUMP : export the blob
+DUMP ARROW_MAIN FIX
+STOP ARROW_ERROR FAKE : if patched from the title
+FAKE ARROW_ERROR DRAW
+
+note bottom of STOP
+  **Stop is three independent failures: a hung
+  interface, a terminal rules state, or a refused
+  persist.** Classify which failure a captured
+  dump shows before selecting a module to patch.
+end note
+
+note bottom of DRAW
+  **A failed draw is not a refused claim: a legal
+  draw that throws is a resolver defect.** A claim
+  the rules reject is operating as designed, and
+  the fixture has to distinguish those cases.
+end note
+
+note right of FAKE
+  **Do not introduce a house draw at turn forty-
+  five, because the reported number is a clue
+  rather than a specification.** A synthetic rule
+  at that turn would conceal the genuine detector.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Capture one blob.** Use game-export-localstorage.puml (or a debug copy
+  of the key) at the moment of the stop. Record turn number, whose clock,
+  last move, and the exact on-screen copy.
+  --
+  **2. Classify before coding.** Hung UI, rules terminal state, or persist
+  exception. Only the second belongs in the draw resolver; the first is a
+  journey bug, the third is the export/persist path.
+  ==
+  **3. Fix with that fixture as a test.** Replay the dump; the draw either
+  completes to a draw outcome or is rejected without stopping the game. Do
+  not map it to a forfeit.
+  --
+  **Left open**: which draw law is in play; whether tutorials share the
+  resolver; whether 45 is reproducible or a coincidence.
+end legend
+@enduml

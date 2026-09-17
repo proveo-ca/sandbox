@@ -1,0 +1,79 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: turn 21 has a prep decision the tutorial must freeze and teach, then hand back to the live clock
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: not in this tree — no turn-21 prep, tutorial freeze, or siege
+'   clock types exist under the sandbox checkout (measured 2026-09-17). Locate
+'   the owning tutorial module before a covers: line can be honest.
+'   the runner this beat sits in ........ _spec/_plans/tutorial-interactive-siege.puml
+'   the draw bug it must not resemble ... _spec/_plans/turn-45-draw-stop.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT THE LINE ITEM SETTLES ─────────────────────────────────────────────
+' "turn 21 prep" is a DATED BEAT. At turn 21 the live game asks for a prep
+' choice (what that choice is: unmeasured). The tutorial must stop on that
+' turn, make the decision visible, and resume without skipping the tax.
+'
+' ── WHAT IT DOES NOT SETTLE ────────────────────────────────────────────────
+'   what "prep" spends or places at 21
+'   whether 21 is 0-based, 1-based, or a named phase
+'   whether this beat is siege-only
+'
+' A freeze that never resumes is the turn-45 stop in tutorial clothes. The
+' clock has to start again after the choice, on turn 21's remaining work, not
+' on turn 22 invented by the freeze.
+title PLANNED — freeze on turn 21, teach the prep,\nhand the same turn back to the clock
+
+component "live turn 21" as T21 <<app>>
+component "prep decision" as PREP <<app>>
+component "tutorial freeze + copy" as TEACH <<app>>
+component "resume same turn" as RES <<app>>
+component "**clock jumps to 22**\nor never starts again" as SKIP <<error>>
+component "turn-45 stop (unrelated)" as T45 <<error>>
+
+T21 ARROW_MAIN PREP
+PREP ARROW_MAIN TEACH
+TEACH ARROW_MAIN RES
+RES ARROW_MAIN T21 : remaining work
+TEACH ARROW_ERROR SKIP
+SKIP ARROW_ERROR T45 : same shape, later
+
+note bottom of TEACH
+  **The beat must exhibit the preparation levy and
+  then collect it as a legal engine action.** A
+  tooltip over a running clock is not preparation,
+  because it never submits that cost.
+end note
+
+note bottom of SKIP
+  **Resume is the difficult half, because ending
+  the freeze on turn twenty-two skips the
+  preparation levy.** Never resuming produces a
+  hung game, and both outcomes fail this item.
+end note
+
+note right of T21
+  **Measure turn twenty-one in the live engine
+  before authoring tutorial copy.** If ordinary
+  play has no preparation on that turn, this beat
+  would teach an invented house rule.
+end note
+
+legend bottom
+  **The order to do it in**
+  ==
+  **1. Find the live hook.** What the engine does at turn 21 in a real siege
+  (and in a real non-siege). If nothing, the number in the backlog is a
+  content cue — do not invent a prep phase to match the title.
+  --
+  **2. Freeze only that decision.** Disable other verbs, keep the board, keep
+  the turn index. Submit the prep as a legal engine action.
+  ==
+  **3. Resume the same turn.** Remaining movement, clocks, and siege lines
+  continue as if the player had paused. Add a test that the turn counter is
+  still 21.
+  --
+  **Left open**: copy; whether prep can be undone; siege-only vs all modes.
+end legend
+@enduml

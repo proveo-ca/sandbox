@@ -1,0 +1,105 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the 2026-09-17 backlog lines mapped to one plan file per concern, including the three sandbox items that already had plans
+' status: proposed 2026-09-17; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   sandbox post-close ............... _spec/_plans/post-close-surface.puml
+'   sandbox tools and tunnels ........ _spec/_plans/tools-and-localhost-tunnels.puml
+'   sandbox connect IDE .............. _spec/_plans/connect-ide.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' Sandbox items were already planned in this tree. Engine, tutorial, and chess
+' items have no matching source here (measured 2026-09-17); each child plan
+' starts by locating the owning module before a covers: line can be honest.
+'
+' The trailing backlog fragment "engine: android into actionable plans" is
+' treated as the conversion instruction, not as an Android port. No android
+' plan is authored unless that product shows up as a real line item.
+title PLANNED — backlog line → one plan file;\nsandbox already had the three
+
+package "sandbox (this tree)" as SBX <<host>> {
+  component "post-close UX\npost-close-surface.puml" as PC <<app>>
+  component "tools and tunnels\ntools-and-localhost-tunnels.puml" as TT <<app>>
+  component "connect IDE\nconnect-ide.puml" as IDE <<app>>
+}
+
+package "engine (no source here)" as ENG <<cloud>> {
+  component "pawn gas + occupy\npawn-first-phase-gas-move.puml" as GAS <<app>>
+  component "forfeit as loss\nforfeit-as-loss.puml" as FORF <<app>>
+  component "deploy x death layers\ndeploy-death-animation-layers.puml" as ANIM <<app>>
+  component "export localStorage\ngame-export-localstorage.puml" as EX <<app>>
+  component "turn 45 draw stop\nturn-45-draw-stop.puml" as T45 <<error>>
+}
+
+package "tutorial (no source here)" as TUT <<cloud>> {
+  component "interactive siege\ntutorial-interactive-siege.puml" as SIEGE <<app>>
+  component "turn 21 prep\ntutorial-turn-21-prep.puml" as T21 <<app>>
+  component "gas collision fixture\ntutorial-pawn-gas-collision.puml" as COL <<app>>
+  component "siege lines\ntutorial-siege-lines.puml" as LINES <<app>>
+  component "ships\ntutorial-ships.puml" as SHIPS <<app>>
+}
+
+package "chess UI (no source here)" as CH <<cloud>> {
+  component "UI primitives\nchess-ui-primitives.puml" as PRIM <<app>>
+  component "user journey\nchess-user-journey.puml" as JOUR <<app>>
+  component "save difficulty\nchess-save-difficulty.puml" as DIFF <<app>>
+  component "analytics\nchess-analytics.puml" as AN <<app>>
+}
+
+GAS ARROW_MAIN COL
+LINES ARROW_MAIN SIEGE
+SHIPS ARROW_OPTIONAL SIEGE
+T21 ARROW_OPTIONAL SIEGE
+PRIM ARROW_MAIN JOUR
+JOUR ARROW_MAIN DIFF
+FORF ARROW_MAIN AN
+DIFF ARROW_OPTIONAL AN
+EX ARROW_OPTIONAL T45
+PC ARROW_OPTIONAL IDE
+TT ARROW_OPTIONAL IDE
+
+note bottom of SBX
+  **The sandbox items are already planned and are
+  not restated in this map.** Lifetime, trust, and
+  clone-mode data loss live in those three files,
+  and this diagram only points.
+end note
+
+note bottom of ENG
+  **This checkout contains no game engine, so each
+  child plan begins by locating the owning
+  module.** Coverage stays empty until that glob
+  is a real path in the tree.
+end note
+
+note bottom of TUT
+  **Tutorial beats wait on live rules: collision
+  waits on the gas join, and siege mode waits on a
+  real line type.** Captioned slides are not
+  interactive lessons and must not substitute for
+  play.
+end note
+
+note right of CH
+  **Chess UI lands as kit, then path, then
+  persist, with analytics reading the outcome
+  enumeration rather than re-scoring.** Difficulty
+  is a journey beat rather than a standalone page.
+end note
+
+legend bottom
+  **Suggested order across areas**
+  ==
+  **Sandbox (this repo):** those three files are the work — post-close
+  lifetime, then tunnels/sockets, then IDE attach after exit.
+  --
+  **Engine:** pawn gas join → forfeit mapping → turn-45 reproduce → export
+  dump → animation layers (rules must not wait on clips).
+  ==
+  **Tutorial:** siege lines type → interactive runner → gas-collision
+  fixture → ships if they contact lines → turn-21 freeze/resume.
+  --
+  **Chess UI:** primitives → journey → save difficulty → analytics after
+  forfeit-as-loss.
+end legend
+@enduml
