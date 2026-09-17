@@ -933,6 +933,7 @@ func CapturePolicyLog(egDir, name string) {
 var memoryEvidence = sbx.MemoryEvidence
 
 func CaptureMemoryEvidence(egDir, name string) {
+	restarted := !sbx.Running(name)
 	if egDir == "" || name == "" {
 		return
 	}
@@ -958,6 +959,14 @@ func CaptureMemoryEvidence(egDir, name string) {
 		ui.Warnf("the guest kernel reported an out-of-memory kill — a sandbox has NO SWAP, "+
 			"so memory pressure kills rather than slows. Raise the ceiling with "+
 			"`PROVEO_SBX_MEMORY=16g` (capped at 32g) and see %s", path)
+		return
+	}
+	if restarted {
+		// `sbx exec` starts a stopped sandbox, so this reading is a FRESH boot:
+		// its dmesg is empty and its meminfo is idle. Silence here is not
+		// evidence of no kill — it is evidence the kill's boot is gone.
+		ui.Notef("memory evidence: %s — the sandbox had already stopped, so this is a fresh boot; "+
+			"a kill in the boot that died left no trace to read", path)
 		return
 	}
 	ui.Storef("memory evidence: %s", path)
