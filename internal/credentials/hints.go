@@ -132,10 +132,6 @@ func HarnessFamily(name string) string {
 	return name
 }
 
-// sbxService names the stored secret an operator would set for this harness:
-// sbx authenticates by service, so the name is the provider's, not the env
-// variable's. A harness sbx has no built-in service for gets the def's own name,
-// which is what `secret set-custom` records.
 func sbxService(man manifest.Manifest) string {
 	for _, e := range man.Env {
 		if !e.Secret {

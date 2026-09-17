@@ -612,12 +612,6 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// sbxBound answers the backend question early, before selectBackend resolves it,
-// so a warning printed at credential time can say what will actually happen.
-func sbxBound(rs *Spec, p *Params) bool {
-	return rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled()
-}
-
 func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 	rs.Backend.Sbx = false
 	sbxUnavailable := ""
