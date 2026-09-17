@@ -309,13 +309,7 @@
     },
     {
       "spec": "_spec/_plans/init-credential-provisioning.puml",
-      "covers": [
-        "cmd/proveo/init_credentials.go",
-        "cmd/proveo/init.go",
-        "internal/choiceui/choiceui.go",
-        "internal/credentials/hints.go",
-        "internal/run/run.go"
-      ],
+      "covers": [],
       "fingerprint": null
     },
     {
