@@ -43,7 +43,7 @@
 ' Both writes are best-effort: the workspace may be a read-only mount, and a
 ' failure warns and continues rather than killing the run. This is a PROJECT
 ' file and therefore distinct from the house rules, which are never written to
-' the workspace at all (_spec/packages/lib/house-rules.puml).
+' the workspace (_spec/packages/lib/house-rules.puml).
 '
 ' seed_claude_proveo_home covers the other direction: when proveo mounts
 ' ~/.proveo at /proveo-home and sets HOME, the image's baked .claude.json and
@@ -92,8 +92,9 @@ note right of CLI
   **The dangerous flag is deliberate** — and is only
   acceptable because containment is external: hardened
   container + enforced egress + credential broker
-  (_spec/_paradigms/egress-boundary.puml,
-   _spec/_paradigms/credential-boundary.puml).
+  (_spec/_paradigms/credential-boundary.puml; the egress
+   half's diagram was retired 2026-09-16 — see
+   _spec/_plans/retire-docker-egress.puml).
   Nothing here relies on the model's restraint.
 
   Small verifiable loops beat large open-ended tasks;

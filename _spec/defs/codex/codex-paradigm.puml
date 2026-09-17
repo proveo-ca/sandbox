@@ -1,5 +1,14 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how codex is steered and gated inside the container — the instruction tiers, the read-only review split, and why its own sandbox is off
+' covers: defs/codex/entrypoint.sh
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/codex/defaults/config.toml
+' covers: defs/codex/Dockerfile
+' covers: defs/codex/build.sh
+' covers: defs/codex/run.sh
+' covers: internal/contract/agents_shared_test.go
+'   the def's resolved topology ... _spec/defs/codex/codex-topology.puml
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV
@@ -52,7 +61,7 @@ note right of TIERS
   So the house rules ADD to a repository's rules rather than
   competing with them, and a project can overrule the house. Writing
   them into the workspace to win the ranking was rejected: it mutates
-  the operator's tree, and cannot apply at all where an ""AGENTS.md""
+  the operator's tree, and cannot apply where an ""AGENTS.md""
   already exists.
 end note
 
@@ -80,7 +89,7 @@ note bottom of CLI
   verbosity switch; the only dial is ""codex exec --json"", which emits
   each event as JSONL. A caller's own ""--json"" is a parse contract and
   wins. So verbose here buys structured events in headless runs and
-  nothing at all interactively — which the preamble says out loud
+  nothing interactively — which the preamble says out loud
   rather than implying it bought something.
 end note
 
@@ -94,6 +103,14 @@ note bottom of L2
   off because it confines the agent to part of a tree that is already
   a disposable copy while its prompts stall an unattended loop —
   a cost with no matching benefit, not an impossibility.
+  ""PROVEO_CODEX_SANDBOX"" turns it back on per run.
+
+  **The caller's own posture wins, and it has to: passing both is
+  fatal, not redundant.** proveo appends its flag only when the argv
+  carries none of codex's own approval or sandbox flags, because clap
+  reads the pair as a CONFLICT and fails the run outright rather than
+  degrading to one of the two. A posture proveo cannot supply is
+  therefore always reachable by supplying it directly.
 end note
 
 @enduml

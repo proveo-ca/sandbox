@@ -24,7 +24,7 @@ func TestClonePreservationTargetsRefsThatOutliveTheRemote(t *testing.T) {
 		t.Errorf("refs = %q, want refs/proveo/<name>", refs)
 	}
 
-	fetch := strings.Join(CloneFetchArgs("/home/op/repo", name), " ")
+	fetch := strings.Join(CloneFetchArgs("/home/op/repo", name, name), " ")
 	for _, want := range []string{"-C /home/op/repo", "fetch", "--no-tags", CloneRemote(name), "+refs/heads/*:" + refs + "/*"} {
 		if !strings.Contains(fetch, want) {
 			t.Errorf("fetch argv %q lacks %q", fetch, want)
@@ -303,4 +303,55 @@ func runBundleScript(t *testing.T, workdir string, tips []string, dest string) i
 		t.Fatalf("running the bundle script: %v\n%s", err, errb.String())
 	}
 	return 0
+}
+
+func TestSandboxNameIsStablePerDefAndWorkspace(t *testing.T) {
+	t.Parallel()
+	const work = "/Users/op/projects/api"
+
+	first := SandboxName("claudecode", work)
+	if second := SandboxName("claudecode", work); second != first {
+		t.Errorf("two runs of one def in one workspace got %q and %q — every run would "+
+			"create and abandon another sandbox", first, second)
+	}
+	if other := SandboxName("claudecode", "/Users/op/projects/web"); other == first {
+		t.Errorf("a second workspace reused %q, so it would inherit the first "+
+			"project's mounts", other)
+	}
+	if other := SandboxName("opencode", work); other == first {
+		t.Errorf("two defs share sandbox %q", other)
+	}
+	if !strings.HasPrefix(first, "proveo-claudecode-") {
+		t.Errorf("SandboxName = %q; an operator reading `sbx ls` must see the def", first)
+	}
+	for _, c := range []struct{ target, workspace string }{
+		{"a/b c", work}, {"claudecode", ""}, {"Ünïcøde", work},
+	} {
+		if got := SandboxName(c.target, c.workspace); nonAlnumSbx.MatchString(got) {
+			t.Errorf("SandboxName(%q, %q) = %q, which sbx will refuse", c.target, c.workspace, got)
+		}
+	}
+}
+
+func TestCloneRefsAreKeyedPerRunNotPerSandbox(t *testing.T) {
+	t.Parallel()
+	const sandbox = "proveo-claudecode-1a2b3c4d"
+
+	first := strings.Join(CloneFetchArgs("/repo", sandbox, "proveo-100-1"), " ")
+	second := strings.Join(CloneFetchArgs("/repo", sandbox, "proveo-200-2"), " ")
+
+	for _, c := range []struct{ argv, refs string }{
+		{first, "refs/proveo/proveo-100-1/*"}, {second, "refs/proveo/proveo-200-2/*"},
+	} {
+		if !strings.Contains(c.argv, c.refs) {
+			t.Errorf("fetch %q does not land in %q", c.argv, c.refs)
+		}
+		if !strings.Contains(c.argv, CloneRemote(sandbox)) {
+			t.Errorf("fetch %q does not read from the reused sandbox's remote", c.argv)
+		}
+	}
+	if first == second {
+		t.Error("two runs of one sandbox fetched into the same namespace — the second " +
+			"would force-overwrite the first run's preserved work")
+	}
 }

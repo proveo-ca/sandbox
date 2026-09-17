@@ -5,6 +5,49 @@ title Toolchain e2e — proving the language registry is true as BEHAVIOUR
 ' covers: e2e/toolchain_test.go, internal/contract/toolchain_test.go,
 ' covers: e2e/testdata/polyglot22
 '         e2e/testdata/polyglot22
+'   the pane-echo rules these probes obey . _spec/tests/testing-strategy.puml
+'   what the seed actually installs ....... _spec/_runtimes/toolchain-provisioning.puml
+'
+' ── WHAT "WARM" MEANS, AND WHY THE STORE IS THE THING MEASURED ─────────────
+' Migrated from e2e/toolchain_test.go 2026-09-16; these are the properties the
+' suite depends on rather than details of one helper.
+'
+' WARM IS TWO RUNS SHARING ONE PROVEO HOME, and that home is also the toolchain
+' store — sbx tells the sandbox where it is through `PROVEO_STATE_HOME`. So the
+' idempotence case is not "run it twice and see"; it is "write the store, then
+' prove the next run reads it".
+'
+' THE HONEST MEASURE IS WHAT THE SEED INSTALLED, not what is present. By the time
+' an operator has a prompt, provisioning is the seed's work — counting anything
+' else credits the image, or the developer's own hand, with the restore.
+'
+' AND A FAILURE HAS TWO HALVES THAT LOOK IDENTICAL. The store is the HOST side of
+' `proveo_sync_tools`, written at teardown and read by the next run's seed. A case
+' that names the store's state when it fails separates "the save never wrote" from
+' "the restore never read"; one that reports only "not installed" leaves both
+' equally likely and neither testable.
+'
+' ── THE SEED RACE: A PROMPT IS NOT A FINISHED SANDBOX ──────────────────────
+' sbx hands the operator a prompt WHILE the Kit's startup commands are still
+' running, so a probe sent on sight of the prompt races the seed and loses to its
+' install lock. Waiting on the prompt is the intuitive thing and it is wrong.
+'
+' The startup log is what closes it: it opens a line with "> " per command and
+' closes each with "ok" or "fail", so the two counts meeting is the seed being
+' finished with the sandbox. That is an observable end state rather than a sleep,
+' which is the same rule the pane-echo section of testing-strategy.puml states for
+' markers — never wait on a timer where the system publishes a completion.
+'
+' ── THE LIB IS DRIVEN WHERE IT RUNS ────────────────────────────────────────
+' `runLib` exercises the entrypoint lib inside a sandbox the operator's own
+' `proveo run` created, not a replica assembled by the test. The lib is baked at
+' `/entrypoint-lib.sh` and the fixture is the sandbox's workspace, so the scripts'
+' `/work` becomes `$PWD`. A replica would corroborate the replica.
+'
+' Its GitHub token requirement belongs inside the sandbox for the same reason: the
+' ubi recipes would otherwise hit the 60/hr anonymous limit, and sbx injects the
+' token for its own `github` service — so the host holding one proves nothing
+' about what the recipes can reach.
 
 node "Layer 2 — contract (no Docker)" as L2 <<host>> {
   component "registry self-consistency\nfour maps must agree" as C1 <<app>>
@@ -57,7 +100,7 @@ end note
 
 note bottom of E4
   One lib, four harnesses, four different floors: cursor and cecli carry no Node
-  runtime and cecli no LSP at all. Testing only opencode left three images
+  runtime and cecli no LSP. Testing only opencode left three images
   unverified — including whether ""plantuml-lsp"" reaches the runtime-free ones,
   which was the whole point of moving it onto ""proveo/base"".
 end note

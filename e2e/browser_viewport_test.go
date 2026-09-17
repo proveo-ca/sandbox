@@ -9,69 +9,106 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
-// browser add-on publishes, using the same three builders the run uses.
+// browser add-on publishes by driving a real `proveo run claudecode --shell`
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
 	}
-	image := harnessImage(t, "claudecode-browser")
+	const target = "claudecode"
+	requireTmux(t)
+	harnessImage(t, target+"-browser") // the image the add-on actually swaps in
+
+	proveoBin := buildProveo(t)
+	home := t.TempDir()
+	seedBrowserAddon(t, home, target)
 
 	work := t.TempDir()
-	name := fmt.Sprintf("proveo-viewport-%d", time.Now().Unix())
-	hostPort := sandbox.FreeLoopbackPort()
-	if hostPort == 0 {
-		t.Fatal("no free loopback port")
+	sess := tmux.New(fmt.Sprintf("proveo-viewport-%d", time.Now().UnixNano()), nil)
+	t.Cleanup(sess.Kill)
+
+	cmd := []string{"env", "PROVEO_HOME=" + home,
+		proveoBin, "run", target, "--input", work, "--shell"}
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	acceptChoicePrompt(t, sess, target)
+
+	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute)
+	w := newWatcher(t, sess)
+	waitForContainerShell(t, w, timeout)
+
+	url := viewportURL(w.Screen())
+	if url == "" {
+		t.Fatalf("no browser viewport line printed by the run — the add-on did not "+
+			"start the relay:\n%s", w.Screen())
 	}
 
-	create := exec.Command(sbx.Binary, "create", "--name", name, "-t", image,
-		"-p", fmt.Sprintf("%d:%d", hostPort, sbx.CDPRelayPort),
-		"-e", "AGENT_BROWSER_ARGS="+sbx.BrowserCDPArgs(""),
-		"shell", work)
-	if out, err := create.CombinedOutput(); err != nil {
-		t.Fatalf("sbx create: %v\n%s", err, out)
-	}
-	t.Cleanup(func() { _ = exec.Command(sbx.Binary, "rm", "--force", name).Run() })
+	shellExec(t, sess, "agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1", 20*time.Second)
 
-	// The relay, exactly as the run starts it. Held for the test's life, because
-	// its whole point is that the exec's lifetime bounds the exposure.
-	relay := exec.Command(sbx.Binary, sbx.CDPRelayArgs(name)...)
-	if err := relay.Start(); err != nil {
-		t.Fatalf("start relay: %v", err)
-	}
-	t.Cleanup(func() { _ = relay.Process.Kill() })
-
-	// The AGENT's browser, opened by the agent's own tool rather than by a
-	// hand-rolled Chromium — so what the host attaches to is what the agent uses.
-	open := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--",
-		"bash", "-lc", "agent-browser open about:blank >/tmp/ab.log 2>&1 &")
-	if out, err := open.CombinedOutput(); err != nil {
-		t.Fatalf("agent-browser open: %v\n%s", err, out)
-	}
-
-	url := fmt.Sprintf("http://127.0.0.1:%d/json/list", hostPort)
-	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute))
+	listURL := url + "/json/list"
+	deadline := time.Now().Add(timeout)
 	var last string
 	for time.Now().Before(deadline) {
-		targets, body := cdpTargets(url)
+		targets, body := cdpTargets(listURL)
 		last = body
 		if len(targets) > 0 {
-			t.Logf("viewport reached %d target(s) through 127.0.0.1:%d; first: %s",
-				len(targets), hostPort, targets[0])
+			t.Logf("viewport reached %d target(s) through %s; first: %s", len(targets), listURL, targets[0])
 			return
 		}
 		time.Sleep(3 * time.Second)
 	}
-	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q", url, last)
+	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q", listURL, last)
+}
+
+// viewportLineRE matches StartCDPViewport's own announcement
+var viewportLineRE = regexp.MustCompile(`browser viewport: (http://\S+)`)
+
+func viewportURL(screen string) string {
+	m := viewportLineRE.FindStringSubmatch(screen)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+func seedBrowserAddon(t *testing.T, proveoHome, target string) {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	var caps manifest.Capabilities
+	found := false
+	for _, m := range ms {
+		if _, ok := m.Images[target]; ok {
+			caps, found = m.Capabilities, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no manifest declares target %q", target)
+	}
+	st := &agentsettings.Store{}
+	st.Remember(target, caps, agentsettings.Choice{
+		Egress:      "allowlist",
+		Credentials: "broker",
+		Addons:      []string{"browser"},
+	})
+	if err := st.Save(proveoHome); err != nil {
+		t.Fatalf("seed agent settings: %v", err)
+	}
 }
 
 func cdpTargets(url string) ([]string, string) {

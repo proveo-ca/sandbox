@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/maintain"
 
@@ -35,11 +36,23 @@ func harnessImageName(target string) string {
 	if pinned := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(target), ""); pinned != "" {
 		return pinned
 	}
-	repo := "proveo/" + target
-	if ref := repo + ":" + maintain.LocalTag; imageExists(ref) {
-		return ref
+	// Resolve it the way a run does, not the way a test finds it convenient:
+	// proveo takes :local only when it is NEWER than :latest, so a stale local
+	// build is what the suite would certify and what no operator would run.
+	ref, _ := maintain.ResolveImage("proveo/"+target+":"+maintain.PublishTag, imageCreated)
+	return ref
+}
+
+func imageCreated(ref string) (time.Time, bool) {
+	out, err := exec.Command("docker", "image", "inspect", "--format", "{{.Created}}", ref).Output()
+	if err != nil {
+		return time.Time{}, false
 	}
-	return repo + ":" + maintain.PublishTag
+	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(out)))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return ts, true
 }
 
 // imageExists reports whether the local daemon holds ref. Split out of
@@ -51,6 +64,7 @@ func imageExists(ref string) bool {
 func harnessImage(t *testing.T, target string) string {
 	t.Helper()
 	requireDocker(t)
+	sweepSandboxesAfter(t)
 	image := harnessImageName(target)
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)
@@ -74,4 +88,10 @@ func requireReviewTier(t *testing.T) {
 	if h := strings.TrimSpace(os.Getenv("DOCKER_HOST")); h != "" && !strings.HasPrefix(h, "unix://") {
 		t.Skipf("--egress-mode review needs a local docker daemon (DOCKER_HOST=%s)", h)
 	}
+}
+
+// skipOutsideSbx skips a test whose subject is the docker rendering.
+func skipOutsideSbx(t *testing.T, subject string) {
+	t.Helper()
+	t.Skipf("sbx is the runtime under test; %s belongs to the docker rendering, which this suite no longer asserts", subject)
 }

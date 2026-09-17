@@ -128,7 +128,7 @@ note bottom of R2
   An em dash is one column and three bytes, so a
   byte count rejects a legal note. The ""over""
   form was invisible to the checker, which read a
-  21-note diagram as having none at all.
+  21-note diagram as having none.
 end note
 
 note top of R4

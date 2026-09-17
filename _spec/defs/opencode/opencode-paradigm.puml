@@ -94,7 +94,7 @@ note bottom of EP
   injects the real bearer on "".opencode.ai"" only.
 
   **The def DECLARES it now, and that is what 'unaware' meant.** For a long
-  while the manifest listed no ""env:"" at all, so ""OPENCODE_API_KEY"" was a
+  while the manifest listed no ""env:"", so ""OPENCODE_API_KEY"" was a
   provider key proveo detected and nothing more: not the harness's plan, so
   ""--credentials forward"" had nothing to forward (the e2e case skipped for
   exactly that reason), ""CredentialReachedAgent"" could not see it, and the
@@ -105,7 +105,7 @@ note bottom of EP
 
   ""subscription: true"" here is about the PROMPT, not about a login flow: never
   ask for this key ahead of time, because the operator may be running on their
-  own provider keys — or on the gateway's free models with no key at all. The
+  own provider keys — or on the gateway's free models with no key. The
   paths that read that flag as 'this harness has no credential' were the ones
   that had to learn the difference: the sbx refusal and the sbx login hint both
   yield to a usable provider key now.

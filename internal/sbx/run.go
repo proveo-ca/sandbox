@@ -2,6 +2,8 @@
 package sbx
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -98,6 +100,18 @@ type Mount struct {
 
 func AgentName(target string) string { return "proveo-" + target }
 
+// SandboxName is the identity ONE def reuses in ONE workspace.
+func SandboxName(target, workspace string) string {
+	name := nonAlnumSbx.ReplaceAllString(target, "-")
+	if workspace == "" {
+		return "proveo-" + name
+	}
+	sum := sha256.Sum256([]byte(workspace))
+	return "proveo-" + name + "-" + hex.EncodeToString(sum[:4])
+}
+
+var nonAlnumSbx = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
 // RunConfig describes one agent run on the sbx backend.
 type RunConfig struct {
 	Name    string // sandbox/session name; empty lets sbx assign one
@@ -116,6 +130,21 @@ type RunConfig struct {
 func CreateArgs(cfg RunConfig) []string {
 	cfg.Command = nil
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
+}
+
+// Reattach is the argv for a sandbox that already exists. sbx refuses to give
+// one new workspaces, a new template or new published ports — and it needs
+// none: the name is derived from def and workspace, so an existing sandbox of
+// that name already holds this workspace. What stays is the Kit, the
+// environment and the agent.
+func Reattach(cfg RunConfig) RunConfig {
+	cfg.Mounts = nil
+	cfg.Publish = nil
+	cfg.Image = ""
+	cfg.Memory = ""
+	cfg.CPUs = 0
+	cfg.Clone = false
+	return cfg
 }
 
 func RunArgs(cfg RunConfig) []string {
@@ -171,9 +200,10 @@ func CloneSnapshotArgs(name, workdir string) []string {
 			"commit -q -m 'proveo: uncommitted work at teardown (left in the clone by the agent)')"}
 }
 
-func CloneFetchArgs(repoRoot, name string) []string {
-	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(name),
-		"+refs/heads/*:" + CloneRefs(name) + "/*"}
+// CloneFetchArgs lifts the sandbox's branches onto the host.
+func CloneFetchArgs(repoRoot, sandbox, refsKey string) []string {
+	return []string{"-C", repoRoot, "fetch", "--no-tags", "--quiet", CloneRemote(sandbox),
+		"+refs/heads/*:" + CloneRefs(refsKey) + "/*"}
 }
 
 // CloneBundleEmpty is the exit status the bundle script reserves for "the clone

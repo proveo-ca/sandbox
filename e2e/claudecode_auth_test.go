@@ -105,7 +105,6 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsFor(t, c.envVar)...)
 	cmd = append(cmd,
-		"PROVEO_SBX=off",
 		"PROVEO_HOME="+t.TempDir(),
 	)
 	cmd = append(cmd, proveoBin, "run", "claudecode",
@@ -127,6 +126,10 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 		return probeStatus(w.Screen()) != ""
 	})
 
+	if strings.Contains(w.Screen(), "PROBE_REASON=credits") {
+		t.Skipf("%s is valid and the account has no credits — the provider answered 'credit balance is "+
+			"too low' under --egress-mode %s --credentials %s; fund it to exercise this path", c.envVar, mode, creds)
+	}
 	if got := probeStatus(w.Screen()); got != "200" {
 		w.Fatalf("%s reached the provider as HTTP %s under --egress-mode %s --credentials %s, want 200 — "+
 			"the host accepted this same credential on this same endpoint, so the egress layer is what changed the answer",
@@ -139,9 +142,7 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 
 func credentialProbeLine(c claudecodeAuthCase, creds string) string {
 	var b strings.Builder
-	// --max-time keeps a blocked request from hanging the shell; -o /dev/null so a
-	// credential can never be echoed back onto the pane by the response body.
-	b.WriteString(`curl -sS --max-time 30 -o /dev/null -w 'PROBE=%{http_code}\n'`)
+	b.WriteString(`curl -sS --max-time 30 -o /tmp/probe.body -w 'PROBE=%{http_code}\n'`)
 	b.WriteString(` -H 'anthropic-version: 2023-06-01'`)
 	if c.beta != "" {
 		fmt.Fprintf(&b, " -H 'anthropic-beta: %s'", c.beta)
@@ -156,6 +157,7 @@ func credentialProbeLine(c claudecodeAuthCase, creds string) string {
 		fmt.Fprintf(&b, ` -H "%s: %s"`, c.header, value)
 	}
 	b.WriteString(" https://api.anthropic.com/v1/models")
+	b.WriteString(`; grep -q 'credit balance is too low' /tmp/probe.body && echo PROBE_REASON=credits; rm -f /tmp/probe.body`)
 	return b.String()
 }
 

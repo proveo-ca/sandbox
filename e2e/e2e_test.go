@@ -6,6 +6,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,10 +30,7 @@ func TestPromptfulE2E(t *testing.T) {
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}
-	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
-	if !ollamaHasModel(model) {
-		t.Skipf("Ollama model %q not available on the host", model)
-	}
+	model := localModel(t)
 
 	proveoBin := buildProveo(t)
 
@@ -41,6 +39,8 @@ func TestPromptfulE2E(t *testing.T) {
 	work := copySampleWorkspace(t)
 	removeWorkspaceEnv(t, work)
 	mustRun(t, work, "git", "init", "-q", ".")
+	mustRun(t, work, "git", "add", "-A")
+	mustRun(t, work, "git", "-c", "user.email=e2e@proveo.test", "-c", "user.name=proveo e2e", "commit", "-q", "-m", "sample")
 	sampleAnchor := firstLine(t, filepath.Join(work, "README.md"))
 
 	const marker = "BANANA-E2E-OK"
@@ -61,11 +61,28 @@ func TestPromptfulE2E(t *testing.T) {
 
 	deadline := time.Now().Add(4 * time.Minute)
 	for {
-		mounted := strings.Contains(readIn(work, "FROM_SAMPLE.txt"), sampleAnchor)  // samples/ mounted
-		changed := strings.Contains(readIn(work, "DONE.txt"), marker)               // files changed
-		scraped := strings.Contains(readIn(work, "SCRAPED.html"), "Example Domain") // web scraped
+		mounted := strings.Contains(delivered(t, work, "FROM_SAMPLE.txt"), sampleAnchor)  // samples/ mounted
+		changed := strings.Contains(delivered(t, work, "DONE.txt"), marker)               // files changed
+		scraped := strings.Contains(delivered(t, work, "SCRAPED.html"), "Example Domain") // web scraped
 		if mounted && changed && scraped {
 			return // all four E2E steps verified
+		}
+		if _, err := sess.CaptureAll(); err != nil {
+			settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
+			for time.Now().Before(settle) {
+				if strings.Contains(delivered(t, work, "DONE.txt"), marker) {
+					break
+				}
+				time.Sleep(3 * time.Second)
+			}
+			mounted = strings.Contains(delivered(t, work, "FROM_SAMPLE.txt"), sampleAnchor)
+			changed = strings.Contains(delivered(t, work, "DONE.txt"), marker)
+			scraped = strings.Contains(delivered(t, work, "SCRAPED.html"), "Example Domain")
+			if mounted && changed && scraped {
+				break
+			}
+			t.Fatalf("E2E side effects incomplete after the run ended: mounted=%v changed=%v scraped=%v\n--- refs ---\n%s",
+				mounted, changed, scraped, hostProveoRefs(t, work))
 		}
 		if time.Now().After(deadline) {
 			screen, _ := sess.CaptureAll()
@@ -85,6 +102,17 @@ func env(k, def string) string {
 	return def
 }
 
+func mustOutput(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	c := exec.Command(name, args...)
+	c.Dir = dir
+	out, err := c.Output()
+	if err != nil {
+		t.Fatalf("%s %v: %v", name, args, err)
+	}
+	return string(out)
+}
+
 func mustRun(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	c := exec.Command(name, args...)
@@ -99,16 +127,84 @@ func dockerImagePresent(t *testing.T, image string) bool {
 	return imageExists(image)
 }
 
-func ollamaHasModel(model string) bool {
+// localModel resolves the configured model to the EXACT tag Ollama serves, or
+// skips.
+func localModel(t *testing.T) string {
+	t.Helper()
+	want := env("PROVEO_TEST_LOCAL_MODEL", "gemma4:e4b")
+	tags, err := ollamaTags()
+	if err != nil {
+		t.Skipf("Ollama unreachable on the host (%v) — no local model to run against", err)
+	}
+	got, why := resolveOllamaTag(want, tags)
+	if why != "" {
+		t.Skipf("local model %q: %s", want, why)
+	}
+	if got != want {
+		t.Logf("local model %q resolved to %q", want, got)
+	}
+	return got
+}
+
+// resolveOllamaTag picks the tag to request, or explains why it cannot.
+func resolveOllamaTag(want string, tags []string) (string, string) {
+	for _, tag := range tags {
+		if tag == want {
+			return tag, ""
+		}
+	}
+	if strings.Contains(want, ":") {
+		return "", fmt.Sprintf("not on the host; present: %s", strings.Join(tags, ", "))
+	}
+	for _, tag := range tags {
+		if tag == want+":latest" {
+			return tag, ""
+		}
+	}
+	var under []string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, want+":") {
+			under = append(under, tag)
+		}
+	}
+	switch len(under) {
+	case 0:
+		return "", fmt.Sprintf("not on the host; present: %s", strings.Join(tags, ", "))
+	case 1:
+		return under[0], ""
+	default:
+		return "", fmt.Sprintf("ambiguous — %s all match; set PROVEO_TEST_LOCAL_MODEL to one",
+			strings.Join(under, ", "))
+	}
+}
+
+// ollamaTags reads every model name the host serves. The body is decoded in
+// full: a single Read truncates a long list at an arbitrary byte.
+func ollamaTags() ([]string, error) {
 	resp, err := http.Get("http://localhost:11434/api/tags")
 	if err != nil {
-		return false
+		return nil, err
 	}
 	defer resp.Body.Close()
-	buf := make([]byte, 1<<16)
-	n, _ := resp.Body.Read(buf)
-	// Match "gemma4" against "gemma4:latest" etc.
-	return strings.Contains(string(buf[:n]), strings.SplitN(model, ":", 2)[0])
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET /api/tags: %s", resp.Status)
+	}
+	var body struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(body.Models))
+	for _, m := range body.Models {
+		out = append(out, m.Name)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no models pulled")
+	}
+	return out, nil
 }
 
 // removeWorkspaceEnv drops the sample's .env from the copy, leaving the run with
@@ -173,4 +269,15 @@ func buildProveo(t *testing.T) string {
 		t.Fatalf("build proveo: %v\n%s", err, out)
 	}
 	return bin
+}
+
+// delivered reads a file the agent produced, from the mounted workspace or,
+// for a cloned workspace, from the refs teardown fetched into the host repo.
+func delivered(t *testing.T, work, rel string) string {
+	t.Helper()
+	if body := readIn(work, rel); body != "" {
+		return body
+	}
+	_, body := deliveredThroughRefs(t, work, []string{rel, "reports/" + rel})
+	return body
 }

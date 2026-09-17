@@ -57,6 +57,7 @@ func (w MountSpec) ScopeRel() string {
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
+	w.InputDir, w.RepoRoot = resolved(w.InputDir), resolved(w.RepoRoot)
 	scopeHost, scopeContainer := w.InputDir, "/app"
 	switch {
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):

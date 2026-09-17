@@ -187,7 +187,7 @@ skinparam noteTextAlignment left
 ' Whether the RENAMED user needs its own sudo grant. The template grants
 ' NOPASSWD:ALL to `agent` by name; after the rename that name belongs to a
 ' recreated uid-1000 user, so the grant survives while the working user
-' (claude/cursor/cecli) has none. Our images shipped NO sudo at all until now,
+' (claude/cursor/cecli) has none. Our images shipped NO sudo until now,
 ' so granting one is a posture change and is the operator's call, not a
 ' packaging detail. Nothing is known to need it yet: sbx starts the daemon
 ' itself and does not invoke dockerd through the agent's sudo (scoped sudo was

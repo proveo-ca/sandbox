@@ -67,7 +67,7 @@ skinparam noteTextAlignment left
 '     versus reach — and the two fail differently, so the DIAGNOSTICS are ours
 '     to separate. Upstream will never tell an operator that `psql` is missing.
 '   THE SOCKET ALTERNATIVE IS OURS TO PREFER. A bind-mounted UNIX socket needs
-'     no inbound network path and therefore no policy at all, which sidesteps
+'     no inbound network path and therefore no policy, which sidesteps
 '     #546 entirely rather than waiting for it. This is now the FIRST thing to
 '     try, not the third.
 '   GENERALISING `Publish` IS OURS. `cdpPublish` is hardcoded to one purpose and
@@ -139,7 +139,7 @@ skinparam noteTextAlignment left
 '     per-run (a flag or a prompt row) with the def only declaring that it CAN
 '     use one — which is a different schema shape than hostBrowser.
 '   WHETHER A SOCKET BEATS A PORT. A bind-mounted UNIX socket needs no inbound
-'     network path at all, and Postgres, Docker and most host daemons offer one.
+'     network path, and Postgres, Docker and most host daemons offer one.
 '     Smaller hole, same capability, and it sidesteps the allowlist entirely.
 '   WHETHER PUBLISH SHOULD GENERALISE. `cdpPublish` is hardcoded to one purpose.
 '     A dev-server preview is the same mechanism and would be the second caller,

@@ -10,7 +10,7 @@ skinparam noteTextAlignment left
 ' What a launch must not drop: _spec/packages/lib/seed-and-launch.puml.
 '
 ' ── THE METHOD ─────────────────────────────────────────────────────────────
-' Start with the smallest thing that can run an agent at all — stock sbx, stock
+' Start with the smallest thing that can run an agent — stock sbx, stock
 ' image, no proveo — and add exactly ONE capability per rung. Run the same
 ' scenario at each. The first rung that fails NAMES ITS OWNER, because it is the
 ' only rung that introduced anything.
@@ -29,7 +29,7 @@ skinparam noteTextAlignment left
 '                          plus the proveo home mounted as a workspace
 '
 ' RUNG 0 IS THE ONE THAT MATTERS and the one nobody runs first. It answers a
-' question no amount of reading proveo can: is this proveo's bug at all? A
+' question no amount of reading proveo can: is this proveo's bug? A
 ' failure there is upstream's, and the record already holds two — sbx does not
 ' support CLAUDE_CODE_OAUTH_TOKEN (sbx-releases#11) and its forward proxy
 ' rewrites the Authorization header on api.anthropic.com (sbx-releases#210).
@@ -86,7 +86,7 @@ skinparam noteTextAlignment left
 ' were carried to cursor by SYMMETRY, not by measurement — and a contract checked
 ' against one harness is a contract with one data point.
 '
-' The open case WAS opencode: it died IDLE on sbx with no input at all, at
+' The open case WAS opencode: it died IDLE on sbx with no input, at
 ' roughly startup + 30s, while cursor and claudecode survived the same wait
 ' (e2e/idle_test.go, SPEC: _spec/internal/sbx/sandbox-backend.puml).
 '
@@ -117,7 +117,7 @@ skinparam noteTextAlignment left
 ' that cannot tell them apart costs more than it catches.
 '
 ' The mirror rule at the sbx adapter: a def WITH a built-in agent carries no
-' command at all, because that agent already launches itself — adding one is
+' command, because that agent already launches itself — adding one is
 ' the other way to arrive at `opencode opencode`.
 title Capability ladder — add one thing per rung, and the first failure names its owner
 
@@ -146,7 +146,7 @@ R3 ARROW_ERROR OWNER : proveo's own
 note bottom of R0
   **Rung 0 is the one nobody runs first.** It
   answers what reading proveo cannot: is it
-  proveo's bug at all?
+  proveo's bug?
 end note
 
 note bottom of R0

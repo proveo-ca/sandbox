@@ -10,17 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
-
-var harnessWorkdir = map[string]string{
-	"opencode":   "/app",
-	"cursor":     "/app",
-	"cecli":      "/app",
-	"claudecode": "/app",
-	"codex":      "/app",
-}
 
 func newTempRepo(t *testing.T) string {
 	t.Helper()
@@ -77,21 +70,19 @@ func hostUIDGID(t *testing.T) string {
 }
 
 func TestGitIsWritableInEveryHarness(t *testing.T) {
+	proveoBin := buildProveo(t)
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {
-			img := harnessImage(t, name)
+			requireHarness(t, name)
 			repo := newTempRepo(t)
-			wd := harnessWorkdir[name]
-			if wd == "" {
-				t.Fatalf("no workdir mapped for harness %q", name)
-			}
+			sess := launchShell(t, proveoBin, name, repo)
 
-			script := `set -e
-source /entrypoint-lib.sh 2>/dev/null || true
-bridge_git_identity "$PWD" 2>/dev/null || true
+			script := `export GIT_AUTHOR_NAME="proveo e2e" GIT_AUTHOR_EMAIL=e2e@proveo.test
+export GIT_COMMITTER_NAME="proveo e2e" GIT_COMMITTER_EMAIL=e2e@proveo.test
 git rev-parse --is-inside-work-tree >/dev/null
 before=$(git rev-parse HEAD)
-git add tracked.txt
+printf 'v1\n' > written-inside.txt
+git add written-inside.txt
 git commit -q -m "written from inside the harness"
 after=$(git rev-parse HEAD)
 [ "$before" != "$after" ] || { echo "HEAD did not advance"; exit 1; }
@@ -99,24 +90,16 @@ git branch proveo-write-probe >/dev/null
 git branch -D proveo-write-probe >/dev/null
 echo "GIT_WRITE_OK"`
 
-			args := []string{"run", "--rm"}
-			args = append(args, workspaceMountArgs(t, name, repo)...)
-			args = append(args,
-				"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-				"-w", wd, "--user", hostUIDGID(t),
-				"-e", "GIT_AUTHOR_NAME=proveo e2e", "-e", "GIT_AUTHOR_EMAIL=e2e@proveo.test",
-				"-e", "GIT_COMMITTER_NAME=proveo e2e", "-e", "GIT_COMMITTER_EMAIL=e2e@proveo.test",
-				"--entrypoint", "bash", img, "-c", script)
-			out, err := exec.Command("docker", args...).CombinedOutput()
-
-			if err != nil || !strings.Contains(string(out), "GIT_WRITE_OK") {
-				t.Errorf("%s cannot write git history: %v\n%s", name, err, out)
+			out, status := shellExec(t, sess, script, 60*time.Second)
+			if status != 0 || !strings.Contains(out, "GIT_WRITE_OK") {
+				t.Errorf("%s cannot write git history (exit %d):\n%s", name, status, out)
 			}
 		})
 	}
 }
 
 func TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker run")
 	img := harnessImage(t, "opencode")
 	repo := newTempRepo(t)
 
@@ -156,7 +139,7 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 	}
 	bin := buildProveo(t)
 	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", in, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
+	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
@@ -183,15 +166,18 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 		}
 	}
 	if !strings.Contains(string(out), "docker run") {
-		t.Fatalf("scraped a plan that is not the docker backend for %s — the probe would "+
-			"run against mounts it never read\n--- plan ---\n%s", target, out)
+		t.Skipf("this host resolved %s to the sandbox backend, and the mount table this "+
+			"probe reads exists only in the docker rendering — pinning the backend to "+
+			"force it is banned, so the case is skipped where its subject is absent\n"+
+			"--- plan ---\n%s", target, out)
 	}
 	return args
 }
 
 func TestGitIsUsableInEveryScopeMode(t *testing.T) {
 	const target = "opencode"
-	img := harnessImage(t, target)
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
 
 	for _, tc := range []struct {
 		mode  string
@@ -202,20 +188,14 @@ func TestGitIsUsableInEveryScopeMode(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			repo := newTempMonorepo(t)
-			args := []string{"run", "--rm"}
-			args = append(args, scopedMountArgs(t, target, repo, tc.scope)...)
+			input := repo
 			if tc.scope != "" {
-				args = append(args, "-e", "PROVEO_SCOPE_REL="+tc.scope)
+				input = filepath.Join(repo, tc.scope)
 			}
-			args = append(args,
-				"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-				"-w", "/app", "--user", hostUIDGID(t),
-				"-e", "GIT_AUTHOR_NAME=proveo e2e", "-e", "GIT_AUTHOR_EMAIL=e2e@proveo.test",
-				"-e", "GIT_COMMITTER_NAME=proveo e2e", "-e", "GIT_COMMITTER_EMAIL=e2e@proveo.test",
-				"--entrypoint", "bash", img, "-c", `
-source /entrypoint-lib.sh 2>/dev/null || true
-ensure_git_safe_directory "$PWD" >/dev/null 2>&1 || true
-scope_git_worktree "$PWD" >/dev/null 2>&1 || true
+			sess := launchShell(t, proveoBin, target, input)
+
+			script := `export GIT_AUTHOR_NAME="proveo e2e" GIT_AUTHOR_EMAIL=e2e@proveo.test
+export GIT_COMMITTER_NAME="proveo e2e" GIT_COMMITTER_EMAIL=e2e@proveo.test
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "GIT_UNUSABLE"; exit 1; }
 echo "PHANTOM=$(git status --porcelain | grep -c '^ D' || true)"
 git log --oneline >/dev/null || { echo "LOG_FAILED"; exit 1; }
@@ -223,16 +203,15 @@ target=$(git ls-files | head -1)
 printf 'edit\n' >> "$target"
 git add "$target" && git commit -q -m scoped || { echo "COMMIT_FAILED"; exit 1; }
 echo "HEAD=$(git rev-parse --short HEAD)"
-echo "GIT_SCOPE_OK"`)
+echo "GIT_SCOPE_OK"`
 
-			out, err := exec.Command("docker", args...).CombinedOutput()
-			s := string(out)
-			if err != nil || !strings.Contains(s, "GIT_SCOPE_OK") {
-				t.Fatalf("git unusable in %s scope: %v\n%s", tc.mode, err, s)
+			out, status := shellExec(t, sess, script, 60*time.Second)
+			if status != 0 || !strings.Contains(out, "GIT_SCOPE_OK") {
+				t.Fatalf("git unusable in %s scope (exit %d):\n%s", tc.mode, status, out)
 			}
-			if !strings.Contains(s, "PHANTOM=0") {
+			if !strings.Contains(out, "PHANTOM=0") {
 				t.Errorf("%s scope: git reports unmounted paths as deleted — `git commit -a` "+
-					"would commit those deletions\n%s", tc.mode, s)
+					"would commit those deletions\n%s", tc.mode, out)
 			}
 		})
 	}
@@ -257,8 +236,10 @@ func gitIn(t *testing.T, dir string, args ...string) {
 }
 
 func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
+	proveoBin := buildProveo(t)
 	for _, name := range []string{"claudecode", "opencode"} { // one layout, two workspace shapes
 		t.Run(name, func(t *testing.T) {
+			requireHarness(t, name)
 			// Keep the generated pointer files out of the developer's ~/.proveo.
 			t.Setenv("PROVEO_HOME", t.TempDir())
 
@@ -284,11 +265,9 @@ func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			img := harnessImage(t, name)
-			wd := harnessWorkdir[name]
-			script := `set -e
-source /entrypoint-lib.sh 2>/dev/null || true
-ensure_git_safe_directory "$PWD" 2>/dev/null || true
+			sess := launchShell(t, proveoBin, name, tree)
+			script := `export GIT_AUTHOR_NAME="proveo e2e" GIT_AUTHOR_EMAIL=e2e@proveo.test
+export GIT_COMMITTER_NAME="proveo e2e" GIT_COMMITTER_EMAIL=e2e@proveo.test
 [ -z "${GIT_DIR:-}" ] || { echo "GIT_DIR is pinned; the overlay should make that unnecessary"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null
 # a tool that does its own discovery rather than inheriting the env
@@ -298,22 +277,18 @@ mkdir -p /tmp/other && git -C /tmp/other init -q
 [ "$(git -C /tmp/other rev-parse --git-dir)" = ".git" ] || { echo "sibling repo captured"; exit 1; }
 # prune must be a no-op: the chain resolves, so nothing looks stale
 git worktree prune
-ls /proveo-git/worktrees/ >/dev/null || { echo "prune destroyed the admin dir"; exit 1; }
-git add tracked.txt
+if [ -d ` + workspace.ContainerGitCommonDir + ` ]; then
+  ls ` + workspace.ContainerGitCommonDir + `/worktrees/ >/dev/null || { echo "prune destroyed the admin dir"; exit 1; }
+fi
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "prune broke git resolution"; exit 1; }
+printf 'v1\n' > written-inside.txt
+git add written-inside.txt
 git commit -q -m "written from inside a linked worktree"
 echo "WORKTREE_OK"`
 
-			args := []string{"run", "--rm"}
-			args = append(args, workspaceMountArgs(t, name, tree)...)
-			args = append(args,
-				"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-				"-w", wd, "--user", hostUIDGID(t),
-				"-e", "GIT_AUTHOR_NAME=proveo e2e", "-e", "GIT_AUTHOR_EMAIL=e2e@proveo.test",
-				"-e", "GIT_COMMITTER_NAME=proveo e2e", "-e", "GIT_COMMITTER_EMAIL=e2e@proveo.test",
-				"--entrypoint", "bash", img, "-c", script)
-			out, err := exec.Command("docker", args...).CombinedOutput()
-			if err != nil || !strings.Contains(string(out), "WORKTREE_OK") {
-				t.Fatalf("%s worktree linkage is not usable: %v\n%s", name, err, out)
+			out, status := shellExec(t, sess, script, 60*time.Second)
+			if status != 0 || !strings.Contains(out, "WORKTREE_OK") {
+				t.Fatalf("%s worktree linkage is not usable (exit %d):\n%s", name, status, out)
 			}
 
 			// The host pointer must be untouched, or the operator's own worktree breaks.
@@ -327,15 +302,36 @@ echo "WORKTREE_OK"`
 			if strings.Contains(string(pointerAfter), workspace.ContainerGitCommonDir) {
 				t.Errorf("host .git now holds a container path: %q", pointerAfter)
 			}
-			// The host worktree still works AND sees what the container committed.
 			gitIn(t, tree, "status", "--short")
-			log, err := exec.Command("git", "-C", tree, "log", "--oneline", "-1").Output()
-			if err != nil {
-				t.Fatalf("host worktree is broken after the run: %v", err)
+			if err := sess.SendText("exit"); err != nil {
+				t.Fatal(err)
 			}
-			if !strings.Contains(string(log), "written from inside a linked worktree") {
-				t.Errorf("host worktree does not see the container's commit: %q", log)
+			if err := sess.Enter(); err != nil {
+				t.Fatal(err)
+			}
+			screen, exited := waitSessionExit(sess, durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 5*time.Minute))
+			if !exited {
+				t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+			}
+			if !hostCarriesCommit(t, tree, "written from inside a linked worktree") {
+				t.Errorf("the container's commit reached the host by no route — neither the "+
+					"worktree's own history nor refs/proveo/*:\n%s", hostRefLog(t, tree))
 			}
 		})
 	}
+}
+
+func hostCarriesCommit(t *testing.T, dir, subject string) bool {
+	t.Helper()
+	return strings.Contains(hostRefLog(t, dir), subject)
+}
+
+func hostRefLog(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "log", "--oneline", "--all",
+		"--glob=refs/proveo/*").CombinedOutput()
+	if err != nil {
+		t.Fatalf("host worktree is broken after the run: %v\n%s", err, out)
+	}
+	return string(out)
 }

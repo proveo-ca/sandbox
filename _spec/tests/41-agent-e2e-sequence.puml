@@ -23,6 +23,30 @@ skinparam shadowing false
 ' mount), DONE.txt (the marker BANANA-E2E-OK, proving a write), and SCRAPED.html
 ' (example.com's stable title "Example Domain", proving egress). Waiting on the
 ' marker alone would let a broken mount or a blocked egress pass.
+'
+' ── THE SAMPLE IS COMMITTED, NOT MERELY INITIALISED ────────────────────────
+' (the same rule testing-strategy.puml states for probes: sbx clones COMMITTED
+'  history, so an untracked file never crosses into the sandbox)
+' The lane used to `git init` the copied sample and stop there. A CLONE carries
+' COMMITS, so under sbx's default clone the agent opened a workspace whose files
+' were untracked and absent: `head -1 README.md` had nothing to read, and the
+' first assertion failed on an empty FROM_SAMPLE.txt while the agent had done
+' everything it was asked. The lane now `git add -A` and commits with its own
+' identity flags — a repo with no user.email cannot commit, and setting one
+' globally on a developer host is not the suite's to do.
+'
+' ── THE THREE READS GO THROUGH ONE ACCESSOR ────────────────────────────────
+' Each side effect is read by `delivered`, which answers from the mounted
+' workspace when there is one and otherwise from the refs teardown fetched —
+' trying both the bare path and `reports/<path>`, because a cloned run lifts the
+' agent's output directory there (_spec/internal/sbx/clone-workspace.puml).
+'
+' ── AND THE RUN ENDING IS NOT THE ANSWER ARRIVING ──────────────────────────
+' When the tmux session is gone the poll does not conclude: a cloned workspace
+' delivers at TEARDOWN, so the lane keeps asking for a bounded settle window
+' (PROVEO_TEST_TEARDOWN_TIMEOUT, default 2 minutes), re-reads all three, and only
+' then fails — printing the refs it did find, so "incomplete" says whether the
+' agent wrote nothing or wrote where nothing looked.
 
 title Layer 4 · Agent E2E — promptful flow (-tags=e2e; assert the side effect)
 
@@ -55,5 +79,21 @@ Test -> Tmux : Kill (+ egress teardown)
 note over Test, FS
 Assert the **side effect** (DONE.txt), never the transcript — the model's prose
 is non-deterministic. Poll with timeout; never a fixed sleep.
+end note
+
+note over Test, FS
+  **A clone carries commits, so the sample is
+  committed.** An initialised but uncommitted
+  workspace reaches the agent with no files
+  present, and the mount assertion then fails on
+  a run that did everything it was asked.
+end note
+
+note over Test, FS
+  **The run ending is not the answer arriving.**
+  A cloned workspace delivers at teardown, so a
+  dead session starts a bounded settle window
+  instead of a verdict, and the failure prints
+  the refs it found beside what it wanted.
 end note
 @enduml

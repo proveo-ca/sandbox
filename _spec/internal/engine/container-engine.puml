@@ -42,7 +42,7 @@ note right of CLS
 end note
 
 note bottom of PROF
-  **Why detection exists at all.** macOS is a field of alternatives — OrbStack,
+  **Why detection exists.** macOS is a field of alternatives — OrbStack,
   Colima, Rancher Desktop, Podman, Lima — and Docker Desktop is one option among
   them, not the default. A hint that says "start Docker Desktop" to an OrbStack
   user is worse than no hint: it names software they deliberately removed.
@@ -65,7 +65,7 @@ note bottom of DET
   engine is a **naming** concern, never a backend choice — nothing here can
   stand in for ""sbx"" (own kernel per sandbox, see
   ""_spec/internal/sbx/sandbox-backend\.puml""), and ""sbx"" in turn needs no
-  docker engine at all. That is why the sbx-unavailable warning names the
+  docker engine. That is why the sbx-unavailable warning names the
   engine //and// says the install is standalone: read without it, "sbx CLI not
   found" is taken as "reinstall Docker Desktop".
 end note

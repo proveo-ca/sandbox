@@ -56,7 +56,7 @@ title The harden pass — one script, re-run by every layer that installs
 '     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode and
 '     claudecode — but several harnesses add root-owned binaries AFTER their last
 '     proveo-harden call, and defs/claudecode/solidity/Dockerfile never calls the
-'     script at all while inheriting the label from proveo/claudecode. The label
+'     script while inheriting the label from proveo/claudecode. The label
 '     is a claim about the layer that wrote it, not about the image.
 ' (b) The `/opt` sweep strips the setuid bit from Chromium's `chrome-sandbox`
 '     helper as a SIDE EFFECT (defs/base-node-browser/Dockerfile installs into

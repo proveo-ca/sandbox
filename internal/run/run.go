@@ -382,7 +382,8 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		case rs.Man.Subscription:
 			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			ui.Warnf("no auth present for subscription agent %s — running anyway; the agent will handle login", rs.Man.Name)
+			ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
+				rs.Man.Name)
 		case agentio.IsStdinTTY() && WizardEnabled():
 			for name, v := range d.PromptEnv(p.Target, missing) {
 				_ = os.Setenv(name, v)
@@ -456,11 +457,23 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// credentialsPosture reports what the run will DO, not what was asked for. The
+// posture is written before the backend is resolved, and sbx stores every
+// credential its proxy can attach whatever the flag said — so printing the
+// request read as a contradiction: `credentials forward` two lines above
+// `stored as cursor — the agent never holds it`.
+func credentialsPosture(rs *Spec, p *Params) string {
+	if p.willSandbox(rs.Man) {
+		return "broker (sbx proxy)"
+	}
+	return p.credentialsOrDefault()
+}
+
 func buildPosture(rs *Spec, p *Params) {
 	rs.Posture = posture.Posture{
 		Target:         p.Target,
 		EgressTier:     p.Mode,
-		Credentials:    p.credentialsOrDefault(),
+		Credentials:    credentialsPosture(rs, p),
 		AddOns:         strings.Join(p.Addons, ","),
 		AgentEvidence:  p.evidenceOrDefault(),
 		DetectedKeys:   strings.Join(rs.Creds.Detected, ","),
@@ -662,8 +675,25 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if sbxBridge != nil {
 			defer func() { _ = sbxBridge.Close() }()
 		}
+		agentMode := p.Mode
+		if !egress.ValidMode(agentMode) {
+			agentMode = "allowlist"
+		}
+		agentEnv, err := egress.AgentEnv(egress.Options{
+			Mode: agentMode, Credentials: p.Credentials, SessionID: rs.Sid,
+			AgentName: p.Target, LocalModel: p.LocalModel,
+			HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
+			Providers: rs.Creds.Brokered, AuthVar: p.AuthVar,
+		})
+		if err != nil {
+			ui.Warnf("agent environment unavailable (%v) — the run continues without "+
+				"the variables the plan decided, so a local model or tier the agent "+
+				"reads from its own env will be missing", err)
+			agentEnv = nil
+		}
 		in := sandbox.Input{
-			Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
+			AgentEnv: agentEnv,
+			Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
@@ -702,15 +732,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			}
 			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
 			return true, nil
-		}
-		if len(rs.Creds.AuthMissingAtStart) > 0 {
-			credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
-			if rs.Man.Subscription && !rs.Creds.LoggedIn {
-				if why := credentials.SandboxAuthRefusal(
-					rs.Man, p.Target, proveohome.Root(os.Getenv), rs.Creds.Lookup); why != "" {
-					return false, errors.New(why)
-				}
-			}
 		}
 		rs.AgentLaunched = true
 		return true, sandbox.Run(in)
@@ -799,9 +820,6 @@ func execute(rs *Spec, p *Params, d Deps) error {
 	}
 	if err := d.PreflightImages(plan, rs.Man, p.Image); err != nil {
 		return err
-	}
-	if len(rs.Creds.AuthMissingAtStart) > 0 {
-		credentials.PrintSubscriptionAuthHints(rs.Man, rs.Creds.AuthMissingAtStart, os.Stderr)
 	}
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {

@@ -163,7 +163,7 @@ skinparam noteTextAlignment left
 '
 '     So E2 IS NOT AVAILABLE TO A MIXIN, which is what proveo contributes for
 '     every def backed by a built-in agent (claudecode -> claude, cursor,
-'     opencode). Those three cannot declare credentials[] at all, at any risk
+'     opencode). Those three cannot declare credentials[], at any risk
 '     level, because the parent already did.
 '
 '     E2 IS ONLY REACHABLE ON THE E1 PATH. A `kind: sandbox` kit is a complete
@@ -199,7 +199,7 @@ skinparam noteTextAlignment left
 '       gate OFF  cecli borrows `shell`, `shell` declares the credential,
 '                 so cecli's env holds a SENTINEL
 '       gate ON   cecli runs agent proveo-cecli from OUR sandbox kit, and
-'                 sbx.Kit has no Credentials field at all — nothing declares
+'                 sbx.Kit has no Credentials field — nothing declares
 '                 the credential, so nothing proxy-manages it
 '
 '     E1 therefore risks moving cecli from a sentinel to NO CREDENTIAL AT ALL:
@@ -227,7 +227,7 @@ skinparam noteTextAlignment left
 '     which key attaches to which host under which header.
 '
 '     WHAT IS SKIPPED, AND WHY. A provider is left out when it is not
-'     broker-injectable at all (signed requests: bedrock, azure, vertex —
+'     broker-injectable (signed requests: bedrock, azure, vertex —
 '     nothing to attach), when no key is present, or when it authenticates by
 '     QUERY PARAMETER. sbx injects into a header and has no query form, so
 '     declaring such a service would sentinel the variable and then attach the
@@ -264,7 +264,7 @@ skinparam noteTextAlignment left
 '         either need sbx running or would assert nothing.
 '       `--shell` still selects sbx's own shell. The gate must not steal an
 '         explicit request for the stock agent, and a built-in-backed def must
-'         never reach it at all — sbx refuses a Kit shadowing a built-in name.
+'         never reach it — sbx refuses a Kit shadowing a built-in name.
 '
 '     ── WHAT STILL BLOCKS DEFAULTING THE GATE ON ───────────────────────────
 '     One measurement, and it is cheap. Everything above is verified in Go —
@@ -508,7 +508,7 @@ skinparam noteTextAlignment left
 '     former, so any E2 work must set secrets under the SERVICE name.
 '
 '     Gated when built, like E1: credentials are the one subsystem where a wrong
-'     answer is not a degraded run but no run at all.
+'     answer is not a degraded run but no run.
 '
 ' E3  `sbx ssh` as the e2e entry path
 '     sbx-kit-contract records that the shell agent "does NOT survive a

@@ -277,8 +277,11 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
 	}
 
-	if cfg.Name != "proveo-1-2" || cfg.Image != "proveo/claudecode:latest" {
-		t.Errorf("run config name/image = %q/%q", cfg.Name, cfg.Image)
+	if cfg.Name != sbx.SandboxName("claudecode", "") || cfg.Image != "proveo/claudecode:latest" {
+		t.Errorf("run config name/image = %q/%q, want the def-keyed sandbox name", cfg.Name, cfg.Image)
+	}
+	if strings.Contains(cfg.Name, "proveo-1-2") {
+		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
 	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
 		t.Errorf("command = %v, want agent args passed through", cfg.Command)
@@ -303,38 +306,51 @@ func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
 	}
 }
 
-func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
+func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
 	}
-	in := sandbox.Input{
-		Target:   "cursor",
-		Image:    "proveo/cursor:latest",
-		Evidence: EvidenceDefault,
-		Forwards: true,
-		Man: manifest.Manifest{
-			Name: "cursor",
-			Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
-			Capabilities: manifest.Capabilities{
-				Hosts:       []string{"api2.cursor.sh"},
-				Egress:      []string{"open"},
-				Credentials: []string{"forward"},
+	in := func(forwards bool) sandbox.Input {
+		return sandbox.Input{
+			Target:   "cursor",
+			Image:    "proveo/cursor:latest",
+			Evidence: EvidenceDefault,
+			Forwards: forwards,
+			Man: manifest.Manifest{
+				Name: "cursor",
+				Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
+				Capabilities: manifest.Capabilities{
+					Hosts:       []string{"api2.cursor.sh"},
+					Egress:      []string{"open"},
+					Credentials: []string{"forward", "broker"},
+				},
 			},
-		},
-		Sid:    "proveo-cursor-1",
-		Lookup: lookup,
+			Sid:    "proveo-cursor-1",
+			Lookup: lookup,
+		}
 	}
 
-	cfg, kit, secrets := sandbox.Spec(in)
-
-	if len(secrets) != 0 {
-		t.Errorf("secrets = %v, want none: forward mode must not route through sbx secret set", secrets)
+	// Brokered: sbx's store holds it and the agent's environment carries none.
+	cfg, kit, secrets := sandbox.Spec(in(false))
+	if len(secrets) != 1 || secrets[0][0] != "CURSOR_API_KEY" {
+		t.Errorf("secrets = %v, want the key routed to sbx's store", secrets)
 	}
-	// The Kit never declares credentials at all now — brokered or forwarded, the
-	// built-in agent owns that service and a mixin repeating it is rejected.
 	if kit.Kind != "mixin" {
 		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
+	}
+	for _, e := range cfg.Env {
+		if e == "CURSOR_API_KEY" || strings.HasPrefix(e, "CURSOR_API_KEY=") {
+			t.Errorf("brokered, yet the key reached the agent's environment as %q", e)
+		}
+	}
+
+	// Forward: the operator chose the complete route, and the backend must honour
+	// it — brokering covers only the hosts sbx's proxy sees, and an agent that
+	// talks to others has nothing of its own without this.
+	cfg, _, secrets = sandbox.Spec(in(true))
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none: forward was chosen", secrets)
 	}
 	var bare bool
 	for _, e := range cfg.Env {
@@ -346,7 +362,49 @@ func TestSandboxSpecForwardsCredentialsWhenTheHarnessRequiresIt(t *testing.T) {
 		}
 	}
 	if !bare {
-		t.Errorf("cfg.Env = %v, want a bare CURSOR_API_KEY forwarded from the host", cfg.Env)
+		t.Errorf("cfg.Env = %v, want CURSOR_API_KEY forwarded from the host", cfg.Env)
+	}
+}
+
+func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
+	lookup := func(k string) string {
+		return map[string]string{"AWS_ACCESS_KEY_ID": "AKIA-value"}[k]
+	}
+	in := sandbox.Input{
+		Target:   "cecli",
+		Image:    "proveo/cecli:latest",
+		Evidence: EvidenceDefault,
+		Man: manifest.Manifest{
+			Name: "cecli",
+			Env:  []manifest.EnvVar{{Name: "AWS_ACCESS_KEY_ID", Secret: true}},
+			Capabilities: manifest.Capabilities{
+				Egress:      []string{"open"},
+				Credentials: []string{"broker"},
+			},
+		},
+		Sid:    "proveo-cecli-1",
+		Lookup: lookup,
+	}
+
+	cfg, _, secrets := sandbox.Spec(in)
+
+	for _, kv := range secrets {
+		if kv[0] == "AWS_ACCESS_KEY_ID" {
+			t.Error("stored a credential sbx's proxy has no host or header to attach")
+		}
+	}
+	var bare bool
+	for _, e := range cfg.Env {
+		if e == "AWS_ACCESS_KEY_ID" {
+			bare = true
+		}
+		if strings.HasPrefix(e, "AWS_ACCESS_KEY_ID=") {
+			t.Errorf("forwarded key must stay a bare -e name, got %q (value would ride argv)", e)
+		}
+	}
+	if !bare {
+		t.Errorf("cfg.Env = %v, want AWS_ACCESS_KEY_ID forwarded: nothing else can carry it", cfg.Env)
 	}
 }
 
@@ -1058,5 +1116,38 @@ func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
 		if c.warns && !strings.Contains(buf.String(), "docker: sbx") {
 			t.Errorf("PROVEO_DIND=%q must name the replacement, got %q", c.value, buf.String())
 		}
+	}
+}
+
+// SPEC: _spec/_plans/init-credential-provisioning.puml
+// A run that starts without a credential says ONE line. The screenful of routes
+// it used to print — obtain, export, sbx setup, secret set, set-custom, /login —
+// was read as a wall of text and skipped, which is worse than saying less.
+func TestTheNoCredentialNoticeIsOneLine(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if !strings.Contains(body, "run `proveo init` to persist credentials between runs") {
+		t.Error("the notice no longer names `proveo init`, the one place a credential is provisioned")
+	}
+	for _, gone := range []string{"PrintSubscriptionAuthHints", "SandboxAuthRoutes", "SandboxAuthRefusal"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("%s is back on the run path — it prints a screenful where one line is wanted", gone)
+		}
+	}
+}
+
+func TestThePostureNamesTheCredentialRouteThatWillHappen(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}
+	p := &Params{Target: "cursor", Credentials: "forward"}
+	rs := &Spec{Man: man}
+	// A run bound for sbx stores the credential whatever the flag asked for, so
+	// reporting the request contradicted the secrets section two lines below it.
+	if got := credentialsPosture(rs, p); got == "forward" {
+		t.Errorf("posture says %q while the run will store the value and let the proxy attach it", got)
 	}
 }

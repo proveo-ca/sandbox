@@ -34,7 +34,7 @@ note right of GI
 
   Two more holes: any pattern containing / * ? [ is unusable as a
   basename prune (""**/node_modules"" never matched), and a repo
-  relying on ""core.excludesFile"" supplied nothing at all.
+  relying on ""core.excludesFile"" supplied nothing.
 
   So the derived names are now **additive only** — read from the
   scope //and// the repo root — on top of a set that always applies.

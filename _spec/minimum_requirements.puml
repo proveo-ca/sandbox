@@ -8,6 +8,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/policy.go
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/memory_evidence_test.go
+' covers: internal/sbx/sbx_test.go
+' covers: internal/runlog/runlog.go
 '
 ' ── REVISED 2026-09-08: proveo NO LONGER DECLARES A DEFAULT SHARE ──────────
 ' Everything below about VMs sizing at boot is still true. What changed is the
@@ -71,7 +73,7 @@ skinparam noteTextAlignment left
 '
 ' CHECKED 2026-09-08, and the answer is still no. sbx offers --memory at create
 ' and run only — no resize, no hotplug, no balloon — and docker/sbx-releases has
-' NO ballooning or free-page-reporting request open at all. The nearest tracked
+' NO ballooning or free-page-reporting request open. The nearest tracked
 ' thing is #447, asking for zram (compressed swap in RAM), and it is blocked at
 ' the kernel: the guest is 6.12.44 built with CONFIG_ZRAM, CONFIG_ZSWAP and
 ' CONFIG_MODULES all off, so zram cannot even be loaded as a module.
@@ -188,7 +190,7 @@ note right of CLI
 
   ""PROVEO_SBX_MEMORY"" — the cap outright ("8g", "8192m",
   bytes). Skips the derivation, so it is the only one that
-  works when the daemon cannot be read at all.
+  works when the daemon cannot be read.
 
   ""PROVEO_SBX_CPUS"" — likewise for cores, and the only
   way to pin an exact count.

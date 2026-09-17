@@ -124,7 +124,7 @@ note bottom of DOCS
   routes through ""openrouter"" or a custom OpenAI-compatible endpoint,
   because every individually allowlisted host is unvetted egress
   surface. Local runtimes (Ollama, LM Studio, llama\.cpp) are not
-  providers at all — no egress to allowlist.
+  providers — no egress to allowlist.
 
   Keep this reconciled with upstream via the ""sync-providers"" skill.
 end note

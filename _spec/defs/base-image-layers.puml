@@ -44,7 +44,7 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 ' the tree — a README edit re-ran the compile. `./cmd/proveo-entrypoint` needs
 ' internal/entrypoint and internal/verify and nothing else: the root package's
 ' embeds are not in its dependency graph, so defs/ and packages/ are not required
-' here. The root .dockerignore stops the rest from reaching the daemon at all.
+' here. The root .dockerignore stops the rest from reaching the daemon.
 '
 ' ── STAGE 2: THE JRE, BUILT WITH jlink, NOT INSTALLED ───────────────────────
 ' `default-jre-headless` was the largest single package in this image — dpkg

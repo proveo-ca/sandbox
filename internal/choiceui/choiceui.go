@@ -26,6 +26,16 @@ type Row struct {
 	OffWhy   map[string]string
 	Radio    bool
 	Divider  bool
+
+	// A field row takes typing instead of options.
+	// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
+	Field       bool
+	Heading     string // the divider's text, when the group is not named for this row
+	Value       string
+	Placeholder string
+	Masked      bool
+	Held        bool
+	Warn        bool
 }
 
 func (r *Row) cursorAt() int {
@@ -200,6 +210,9 @@ func (f *Form) Run() (confirmed bool, err error) {
 				}
 				continue
 			}
+			if f.typing(cursor, ev) {
+				continue
+			}
 			switch ev.Key() {
 			case tcell.KeyEscape, tcell.KeyCtrlC:
 				return false, nil
@@ -245,6 +258,42 @@ func (f *Form) Run() (confirmed bool, err error) {
 			}
 		}
 	}
+}
+
+// typing routes a keystroke into a field row, and answers true when the key
+// belonged to it.
+func (f *Form) typing(cursor int, ev *tcell.EventKey) bool {
+	if cursor < 0 || cursor >= len(f.Rows) || !f.Rows[cursor].Field {
+		return false
+	}
+	r := &f.Rows[cursor]
+	switch ev.Key() {
+	case tcell.KeyRune:
+		r.Value += string(ev.Rune())
+		f.changed()
+		return true
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if runes := []rune(r.Value); len(runes) > 0 {
+			r.Value = string(runes[:len(runes)-1])
+			f.changed()
+		}
+		return true
+	case tcell.KeyCtrlU:
+		r.Value = ""
+		f.changed()
+		return true
+	}
+	return false
+}
+
+// Value is what was typed into a field row, empty when it was left alone.
+func (f *Form) FieldValue(label string) string {
+	for _, r := range f.Rows {
+		if r.Field && r.Label == label {
+			return r.Value
+		}
+	}
+	return ""
 }
 
 func (f *Form) axisLabel() bool {
@@ -463,7 +512,11 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 	case lineBlank:
 		return
 	case lineHeading:
-		label := " " + r.Label + " "
+		text := r.Label
+		if r.Heading != "" {
+			text = r.Heading
+		}
+		label := " " + text + " "
 		pad := (72 - len([]rune(label))) / 2
 		if pad < 0 {
 			pad = 0
@@ -479,11 +532,15 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		labelStyle = p.brand
 	}
 	rowLabel := r.Label
-	if r.Divider && named {
+	if r.Divider && named && r.Heading == "" {
 		rowLabel = "" // the heading above it is on screen and already says this
 	}
 	c.put(bodyIndent, labelStyle, marker+rowLabel)
 	x := bodyIndent + 22
+	if r.Field {
+		f.drawField(c, p, r, x, ln.row == cursor)
+		return
+	}
 	for j, opt := range r.Options {
 		var glyph string
 		st := p.idle
@@ -660,4 +717,38 @@ func sortedKeys(m map[string]string) []string {
 		}
 	}
 	return out
+}
+
+const fieldWidth = 38
+
+// drawField renders one field: its state glyph, then the box.
+func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
+	glyph, st := "  ", p.idle
+	switch {
+	case r.Warn:
+		glyph, st = "! ", p.warn
+	case r.Held:
+		glyph, st = "\u2713 ", p.brand
+	}
+	c.put(x, st, glyph)
+	x += 2
+
+	body, bodyStyle := r.Placeholder, p.idle
+	if r.Value != "" {
+		body, bodyStyle = r.Value, p.body
+		if r.Masked {
+			body = strings.Repeat("\u2022", len([]rune(r.Value)))
+		}
+	}
+	if w := len([]rune(body)); w > fieldWidth {
+		body = string([]rune(body)[:fieldWidth])
+	} else {
+		body += strings.Repeat(" ", fieldWidth-w)
+	}
+	if focused {
+		bodyStyle = bodyStyle.Underline(true)
+	}
+	c.put(x, p.idle, "[")
+	c.put(x+1, bodyStyle, body)
+	c.put(x+1+fieldWidth, p.idle, "]")
 }

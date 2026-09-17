@@ -20,7 +20,8 @@ skinparam noteTextAlignment left
 '   how the four were chosen .... _spec/internal/choiceui/figure-fidelities.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
-'   what the tiers actually do ..... _spec/internal/egress/egress-tiers.puml
+'   what the tier words still mean . _spec/internal/sbx/policy-baseline.puml
+'                                    (egress-tiers.puml retired 2026-09-16)
 '   why the sbx row is LOCKED ...... _spec/internal/sbx/policy-baseline.puml
 '   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
@@ -43,7 +44,7 @@ skinparam noteTextAlignment left
 ' FANS OUT to every open lane in the same frame, because that is what a junction
 ' does — one stream in, several out. And it is NEVER DRAWN ON A REFUSED LANE:
 ' the refusal is the tier's whole statement, and animating traffic down it would
-' contradict the figure it is painted on. No open lane at all — review, where
+' contradict the figure it is painted on. No open lane — review, where
 ' the lane kind is LaneAsked — means no traffic is drawn, which is the correct
 ' picture of a tier that asks before anything moves.
 '
@@ -199,7 +200,7 @@ skinparam noteTextAlignment left
 ' A fixture that wants a PANE has to be short. Once the block wins wherever the
 ' block fits, a tall test terminal draws the block — so the pane's own tests
 ' sweep at a height too short for the block and tall enough for the pane, which
-' is the only shape in which the pane is chosen at all.
+' is the only shape in which the pane is chosen.
 '
 ' ── THE PANE IS A HEIGHT FALLBACK, AND THE ORDER IS THE WHOLE RULE ────────
 ' The block figure is the full drawing. paneCols shrinks every connector run to
@@ -222,7 +223,7 @@ skinparam noteTextAlignment left
 ' ── THE FOURTH FIDELITY: THE CAPTION, ALONE ───────────────────────────────
 ' `stripFit` has four values, not two — none, DIGEST, block, pane — and the
 ' digest is the one that survives a narrow terminal. `stripCols` (72) is the
-' figure's FLOOR: below it the picture is not drawn at all and `digestRows` (2,
+' figure's FLOOR: below it the picture is not drawn and `digestRows` (2,
 ' one blank and the caption) carries the same four facts in one sentence. What a
 ' narrow terminal loses is the PICTURE, never the information — which is the
 ' only reason the figure was allowed to have a floor in the first place.
@@ -483,7 +484,7 @@ note bottom of TRAFFIC
   taking turns.** It rides the spine to the
   junction and fans out to EVERY open lane — and
   onto no refused one. Review has no open lane,
-  so review draws no traffic at all.
+  so review draws no traffic.
 end note
 
 note top of PAINT
@@ -511,7 +512,7 @@ note top of COLS
 end note
 
 note top of COLS
-  **A short form gets no pane at all.** It is
+  **A short form gets no pane.** It is
   refused unless the body can hold the figure's
   four rows, so the fidelity that costs no height
   is still not free of the form: there has to be

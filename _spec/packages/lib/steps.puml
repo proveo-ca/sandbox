@@ -33,7 +33,7 @@
 ' names are filled back from it for tools that read only those. Every bridge
 ' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
 '
-' Under egress mode open|allowlist|review the file is not sourced at all — a
+' Under egress mode open|allowlist|review the file is not sourced — a
 ' containment step, not an optimisation (see the note on step 4 below).
 '
 ' apply_broker_sentinel then runs in those same three modes: every name listed in
@@ -189,7 +189,7 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
 
   //The "".env"" skip is a containment step, not an optimisation.// Under
   proxy/firewall the wrapper has already masked ""/app/\.env"" and kept the
-  secret host-side, so the lib does not source the file at all — a leaked
+  secret host-side, so the lib does not source the file — a leaked
   or unmasked copy must not be able to re-export keys into the agent
   process. Non-secret harness flags travel as ""-e"" instead.
 

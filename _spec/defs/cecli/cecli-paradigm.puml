@@ -6,6 +6,7 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cecli/sample.cecli.conf.yml
 ' covers: internal/contract/cecli_autoupdater_test.go
+' covers: internal/contract/mcp_class_test.go
 '
 ' ── THE UPDATER CANNOT WRITE ITS VENV, SO THE SAMPLE DOES NOT ASK IT TO ────
 ' MEASURED from the Dockerfile's own ownership facts: cecli is installed into
@@ -133,7 +134,7 @@ note bottom of MCP
 end note
 
 note bottom of CONV
-  **cecli auto-loads no conventions file at all.** ""CONVENTIONS\.md"" is a
+  **cecli auto-loads no conventions file.** ""CONVENTIONS\.md"" is a
   naming habit rather than a feature, and ""AGENTS\.md"" is not read either —
   both have to be passed with ""--rules"", so the entrypoint hands it
   whichever the project actually ships.

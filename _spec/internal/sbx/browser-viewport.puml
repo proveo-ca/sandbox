@@ -49,6 +49,27 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 '
 ' Every link measured 2026-09-02 against sbx (schema 1.132.0), Chromium 149.0.7827.0
 ' and agent-browser 0.36.0, on proveo/claudecode-browser.
+'
+' ── THE E2E CASE NAMES THE TARGET, NOT THE BROWSER IMAGE ───────────────────
+' TestBrowserViewportReachesTheAgentsChromium drives a real `proveo run
+' claudecode --shell` with the "browser" add-on pre-selected, in place of the
+' three pieces it used to hand-assemble: a `sbx create -p <hostPort>:9222`, a
+' manually started relay, and a manual `sbx exec … agent-browser open`.
+'
+' The target stays "claudecode". run.go's `rs.Backend.BrowserImage` lookup keys
+' on `target+"-browser"`, so passing the browser image name directly as the
+' target would bypass the very wiring the case exists to prove — it is the
+' ADD-ON, not a separate "claudecode-browser" target, that swaps the image in
+' and starts the relay.
+'
+' Two further choices follow one rule: assert on what the product published,
+' never on a value the test knows by another route. The host port is read out
+' of the run's own `browser viewport: <url>` announcement — the string an
+' operator reads — rather than reconstructed from a port the test picked; and
+' the page is opened with `agent-browser` inside the session rather than by a
+' hand-rolled Chromium, so the endpoint the host attaches to is the one the
+' AGENT is using.
+'   the harness this rides on ...... _spec/tests/testing-strategy.puml
 
 actor "Operator" as OP
 participant "proveo run\n(browser add-on ticked)" as RUN <<app>>
@@ -69,6 +90,22 @@ FWD ARROW_MAIN RELAY : forwarded connection\n(arrives from a NON-loopback peer)
 RELAY ARROW_MAIN CDP : re-dialled as a loopback client
 CDP ARROW_MAIN OP : target list · page WS URLs · a page it can drive
 FWD ARROW_ERROR CDP : publishing 9223 directly — reset, always
+
+note over RUN
+  **The add-on swaps the image; the target never
+  changes.** BrowserImage is resolved as
+  ""<target>-browser"", so an e2e case naming the
+  browser image directly would bypass exactly the
+  wiring it was written to demonstrate.
+end note
+
+note over FWD
+  **Read the port the run itself published.**
+  The case parses the ""browser viewport: <url>""
+  announcement an operator reads and opens the
+  page through ""agent-browser"" inside the
+  session, so it attaches to the agent's own.
+end note
 
 note over CDP
   **Chromium's DevTools endpoint refuses every peer that is not loopback**, and
@@ -114,7 +151,7 @@ note over OP, RUN
   ""claude-in-chrome"" points the OTHER way: the agent reaches OUT to the operator's
   own Chrome through a relay on the host, named as ""host.docker.internal"" — which
   only the docker backend's bridge network resolves, and which a sandbox VM
-  cannot name at all. Published ports run host→sandbox, so they cannot serve it.
+  cannot name. Published ports run host→sandbox, so they cannot serve it.
 
   Nothing leaves this machine: sbx binds published ports on loopback (127.0.0.1
   and ::1) only. The exposure is a CDP endpoint with full control of that

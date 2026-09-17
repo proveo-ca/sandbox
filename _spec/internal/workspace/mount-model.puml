@@ -78,7 +78,7 @@ note right of PICK
   **Anything unresolved means the repo root.** Entry 0 is ""<repo root>"", and
   Esc/Ctrl-C (""ErrAbort""), a finder failure, and any invalid or empty
   numbered input all resolve to the empty scope — the whole repo, never a
-  half-chosen subdirectory. Whether stdin counts as a terminal at all is one
+  half-chosen subdirectory. Whether stdin counts as a terminal is one
   shared ioctl check, described in
   ""_spec/internal/choiceui/choice-prompt-render\.puml"".
 end note
@@ -92,7 +92,7 @@ note bottom of ENV
 
   They //must// arrive as env because the file they would otherwise be read
   from is not there to read: ""\.env"" is masked on the proxy and firewall
-  tiers, and the app layout does not mount it at all.
+  tiers, and the app layout does not mount it.
 
   **""--local-model"" overrides them by construction, not by a conditional.**
   Its ""-e"" pairs land in ""plan\.AgentArgs"", which docker applies //after//

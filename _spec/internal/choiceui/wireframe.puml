@@ -3,7 +3,6 @@
 ' purpose: the resolved layout of one screenful, and how a gated element is drawn in it
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/run/choices.go
-' covers: internal/provider/slots.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
@@ -50,7 +49,7 @@
 '                     COMING SOON — `--local-model` already runs the Ollama
 '                     sidecar, but nothing routes THIS row to it, so it is drawn
 '                     and gated rather than left out. The axis is where an
-'                     operator looks to find out an option exists at all.
+'                     operator looks to find out an option exists.
 '
 ' AN UNAVAILABLE OPTION IS GATED, NEVER DROPPED. cursor's CLI has no
 ' bring-your-own-key path, so "usage credits" is off with the reason attached —
@@ -70,7 +69,7 @@
 ' the moment the row carried any Help, which is exactly the shape of the auth
 ' row: cursor drew `usage credits` greyed out and said NOTHING about why, the
 ' one thing drawing it was supposed to communicate. The egress row escaped this
-' only by carrying no Help map at all.
+' only by carrying no Help map.
 '
 ' A Multi row is not affected and keeps its old behaviour: cycle() moves onto
 ' gated options there and toggle() refuses, so its OffWhy is reachable and
@@ -175,7 +174,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   .
   The picker could only ever explain what it had taken AWAY: ""Reason"" is written
   when an option is gated off, so the add-ons that were available and ticked
-  carried no text at all and "browser" had to be inferred from its name.
+  carried no text and "browser" had to be inferred from its name.
   ""Help"" describes the option the CURSOR is on, one row at a time — describing
   every option of every row at once is the wall of text this replaces.
 

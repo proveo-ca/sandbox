@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/_plans/retire-docker-egress.puml
 package e2e
 
 import (
@@ -37,6 +37,7 @@ func dockerNamesMatching(t *testing.T, sid string) []string {
 }
 
 func TestSIGINTTearsDownEgressSidecars(t *testing.T) {
+	skipOutsideSbx(t, "egress sidecar teardown")
 	if os.Getenv("PROVEO_SIGNAL_TEST") != "1" {
 		t.Skip("set PROVEO_SIGNAL_TEST=1 to run the SIGINT teardown check (needs docker, ~90s)")
 	}

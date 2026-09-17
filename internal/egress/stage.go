@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/_plans/retire-docker-egress.puml
 package egress
 
 import (

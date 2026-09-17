@@ -72,7 +72,7 @@ skinparam noteTextAlignment left
 '     because its engines.node floor is above the base image's Node
 '   a skill directory the seed composes
 ' cecli also builds FROM `proveo/base`, not `base-node-browser`, so it has no
-' Node layer at all. A cecli-browser is a REBASE, not an added package.
+' Node layer. A cecli-browser is a REBASE, not an added package.
 '
 ' ── R4b · THE ROUTE THAT WOULD ACTUALLY WORK, AND WHAT IT BUYS ────────────
 ' agent-browser can drive an EXISTING browser over CDP rather than launching
@@ -99,7 +99,7 @@ skinparam noteTextAlignment left
 ' SO R4 STAYS OPEN, with the question sharpened: not "does cecli want a
 ' browser" but "can one browser serve every def". Until that is measured,
 ' cecli-browser is ABSENT AND UNEXPLAINED — which R5 forbids — and the honest
-' interim record is that cecli has no browser capability at all.
+' interim record is that cecli has no browser capability.
 '
 ' ── R5 · A SKIP MUST SAY WHICH KIND OF SKIP IT IS ──────────────────────────
 ' "Absent by design" and "we forgot" are INDISTINGUISHABLE in test output, and
@@ -131,8 +131,8 @@ skinparam noteTextAlignment left
 '     cecli rung held.
 '
 '   internal/ptyproxy PTY tests failing ~1 run in 3
-'     FIXED, and re-measured before removal. The old note said they "do not
-'     survive -count=2 at all"; `go test ./internal/ptyproxy/ -count=3` is now
+'     FIXED, and re-measured before removal. The old note recorded them as not
+'     surviving `-count=2`; `go test ./internal/ptyproxy/ -count=3` is now
 '     green in under four seconds. The cause and the fix are in the commit that
 '     drained the child's last output before closing the PTY master.
 '

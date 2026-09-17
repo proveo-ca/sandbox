@@ -28,15 +28,6 @@ scope_git_worktree "$(pwd)"
 
 printf 'PROVEO_MODELS main=%s\n' "${CODEX_MODEL:-unset}"
 
-# $CODEX_HOME is resolved ONCE, here, from the home proveo_seed itself writes to —
-# not from $HOME directly, and not from an inherited value.
-#
-# The three could disagree. proveo_seed resolves its destination through
-# _proveo_agent_home, which prefers PROVEO_HOME: under sbx a setup command runs as
-# `user: "1000"`, which resets HOME from /etc/passwd, so the seed's home and the
-# process's are not always the same one. A CODEX_HOME pointing anywhere else finds
-# none of the config, house rules or subagents that were just written — a session
-# that comes up with no setup at all and no error to explain it.
 _codex_home="$(_proveo_agent_home)/.codex"
 if [[ -n "${CODEX_HOME:-}" && "${CODEX_HOME}" != "$_codex_home" ]]; then
   echo "ℹ️  CODEX_HOME=${CODEX_HOME} overridden to ${_codex_home} — the seed writes"
@@ -150,8 +141,6 @@ case "${1:-}" in
     ;;
 esac
 
-# The caller's own posture wins: passing both ours and theirs is a clap CONFLICT,
-# which fails the run outright rather than degrading to one of the two.
 codex_has_posture_flag() {
   local a
   for a in "$@"; do

@@ -42,7 +42,7 @@ note right of LOST
 
   Observed before this was specified:
   * opencode ignored ""ARCHITECT_MODEL"" → baked default
-  * claudecode had no ""ANTHROPIC_MODEL"" at all
+  * claudecode had no ""ANTHROPIC_MODEL""
   * ""find_env_file"" searched the wrong directory
     (masked in real runs only because ""proveo run""
      passes ""docker run -w /app"")

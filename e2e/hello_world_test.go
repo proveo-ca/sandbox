@@ -7,6 +7,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -23,10 +25,7 @@ import (
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
 	requireDocker(t)
-	model := env("PROVEO_TEST_LOCAL_MODEL", "gemma4")
-	if !ollamaHasModel(model) {
-		t.Skipf("Ollama model %q not available on the host", model)
-	}
+	model := localModel(t)
 
 	proveoBin := buildProveo(t)
 
@@ -72,7 +71,7 @@ var helloHarnesses = []helloHarness{
 		// names it explicitly rather than relying on the cwd.
 		target:          "claudecode",
 		agentArgs:       func(p string) []string { return []string{"-p", p} },
-		promptPath:      "/app/output/HELLO_WORLD.txt",
+		promptPath:      "reports/HELLO_WORLD.txt",
 		hostPaths:       []string{"reports/HELLO_WORLD.txt", "HELLO_WORLD.txt"},
 		repliesOnStdout: true,
 	},
@@ -106,7 +105,6 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
-	cmd = append(cmd, "PROVEO_SBX=off")
 	cmd = append(cmd, proveoBin, "run", h.target,
 		"--egress-mode", "open", "--credentials", "forward",
 		"--local-model", model, "--input", work, "--")
@@ -119,16 +117,24 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	}
 
 	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute))
-	var models, found string
+	var models, found, body string
 	var answered bool
 	observe := func() {
 		out := readFile(transcript)
 		if models == "" {
 			models = modelsLine.FindString(out)
 		}
+		if models == "" {
+			models = sandboxModelsLine(t, out)
+		}
 		answered = answered || modelAnswered(out, prompt, reply, h)
 		if found == "" {
-			found = firstExisting(work, h.hostPaths)
+			if name := firstExisting(work, h.hostPaths); name != "" {
+				found, body = name, readIn(work, name)
+			}
+		}
+		if found == "" {
+			found, body = deliveredThroughRefs(t, work, h.hostPaths)
 		}
 	}
 	for {
@@ -148,7 +154,14 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	// Let the run end itself where it still can: killing the pane early SIGHUPs
 	// proveo mid-run and strands the egress sidecars and their networks.
 	waitSessionExit(sess, 45*time.Second)
-	observe()
+	settle := time.Now().Add(durationEnv(t, "PROVEO_TEST_TEARDOWN_TIMEOUT", 2*time.Minute))
+	for {
+		observe()
+		if found != "" || time.Now().After(settle) {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
 	out := readFile(transcript)
 
 	// Models first: a wrong tier is a distinct failure from a missing file, and
@@ -163,11 +176,11 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 			reply, filepath.Base(h.promptPath), tail(out, 40))
 	}
 	if found == "" {
-		t.Fatalf("no hello-world file on the host after the run\n"+
-			"  looked for: %v (under %s)\n--- transcript (tail) ---\n%s",
-			h.hostPaths, work, tail(out, 60))
+		t.Fatalf("the agent's file reached the host by no route — neither the mounted "+
+			"workspace nor refs/proveo/*\n  looked for: %v (under %s)\n"+
+			"--- refs, and every path they carry ---\n%s--- transcript (tail) ---\n%s",
+			h.hostPaths, work, hostProveoRefTrees(t, work), tail(out, 60))
 	}
-	body := readIn(work, found)
 	if !strings.Contains(body, marker) {
 		t.Fatalf("%s exists but lacks this run's marker %q\n--- file ---\n%s", found, marker, body)
 	}
@@ -178,7 +191,32 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 		t.Logf("%s writes no model message to stdout, so the file is the only evidence "+
 			"of the answer here", h.target)
 	}
-	t.Logf("bind mount verified: %s contains %q", filepath.Join(work, found), marker)
+	t.Logf("deliverable verified: %s contains %q", found, marker)
+}
+
+// deliveredThroughRefs looks for the agent's file where a CLONED workspace
+// delivers it.
+func deliveredThroughRefs(t *testing.T, work string, paths []string) (name, body string) {
+	t.Helper()
+	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+		for _, p := range paths {
+			out, err := exec.Command("git", "-C", work, "show", ref+":"+p).Output()
+			if err == nil {
+				return p, string(out)
+			}
+		}
+	}
+	return "", ""
+}
+
+func hostProveoRefs(t *testing.T, work string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", work, "for-each-ref",
+		"--format=%(refname)", "refs/proveo/").Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // readFile returns path's contents, or "" if it does not exist yet.
@@ -402,4 +440,38 @@ func tail(s string, lines int) string {
 		parts = parts[len(parts)-lines:]
 	}
 	return strings.Join(parts, "\n")
+}
+
+var sandboxNameRE = regexp.MustCompile(`in sandbox '(proveo-[a-z0-9-]+)'`)
+
+// sandboxModelsLine reads the model the agent held, from inside the sandbox
+// that ran it, in the shape the PROVEO_MODELS preamble uses.
+func sandboxModelsLine(t *testing.T, transcript string) string {
+	t.Helper()
+	m := sandboxNameRE.FindStringSubmatch(transcript)
+	if m == nil || !strings.Contains(transcript, "Workspace: ") {
+		return "" // the sandbox is named before it is ready; wait for the launch line
+	}
+	out, err := exec.Command(sbx.Binary, "exec", m[1], "--", "sh", "-lc",
+		`main=${OPENCODE_MODEL:-${ANTHROPIC_MODEL:-${CODEX_MODEL:-}}}; small=${OPENCODE_SMALL_MODEL:-${ANTHROPIC_SMALL_FAST_MODEL:-$main}}; `+
+			`printf 'PROVEO_MODELS main=%s small=%s\n' "${main:-unset}" "${small:-unset}"`).CombinedOutput()
+	if err != nil {
+		if !strings.Contains(string(out), "not found") {
+			t.Logf("sandbox model probe of %s failed (%v): %s", m[1], err, strings.TrimSpace(string(out)))
+		}
+		return ""
+	}
+	return modelsLine.FindString(string(out))
+}
+
+// hostProveoRefTrees lists each fetched ref with the files it carries, so a
+// miss says whether the agent wrote nothing, or wrote somewhere else.
+func hostProveoRefTrees(t *testing.T, work string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+		out, _ := exec.Command("git", "-C", work, "ls-tree", "-r", "--name-only", ref).Output()
+		fmt.Fprintf(&b, "%s\n%s", ref, out)
+	}
+	return b.String()
 }

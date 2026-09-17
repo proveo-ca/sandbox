@@ -29,7 +29,7 @@ skinparam noteTextAlignment left
 '    onward the seed pinned the model to nothing — and pinned it in the DURABLE
 '    HOME, where it outlives the run. "The agent's own default applies" was the
 '    recorded answer; what actually applied was "". FIXED: the seeds name no
-'    model at all, and ""plan""/""build"" omit their own so a primary agent
+'    model, and ""plan""/""build"" omit their own so a primary agent
 '    inherits the global (opencode.ai/docs/agents). The file with a real default
 '    baked in, ""defaults/opencode.json"", is NOT the one seeded — see the open
 '    item at the bottom.
@@ -74,6 +74,9 @@ skinparam noteTextAlignment left
 '    cecli's paradigms, the hello-world e2e's three assertions, egress-tiers'
 '    broker pin (roles resolve it from a REMEMBERED assignment now, not the
 '    environment), and cecli's ""covers: defs/bridges/cecli.tsv"".
+'    egress-tiers.puml was itself retired 2026-09-16 with the docker egress
+'    mechanism; the broker pin's surviving half is
+'    _spec/_paradigms/credential-boundary.puml.
 '
 ' WHAT NOW GUARDS IT (internal/contract/model_bridging_retired_test.go):
 '   no seed names a model by environment · --local-model still selects one for
@@ -96,7 +99,7 @@ skinparam noteTextAlignment left
 ' one's.
 '
 ' ── WHAT WAS DECIDED, AND WHAT LANDED ──────────────────────────────────────
-'   Q1  ANSWERED: the agent's own default. proveo sets no model env at all.
+'   Q1  ANSWERED: the agent's own default. proveo sets no model env.
 '   Q2  DEFERRED: "we will revisit for e2e, full local model support". Nothing
 '       on the PROVEO_LOCAL_MODEL path was touched.
 '   Q3  ANSWERED: Roles survive as the CREDENTIAL vocabulary.

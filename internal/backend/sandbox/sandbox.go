@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -151,7 +152,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 		return false
 	default:
 		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
-		for _, l := range CloneRescueLines(cfg.Name, FirstHost(cfg.Mounts), in.RepoRoot) {
+		for _, l := range CloneRescueLines(cfg.Name, in.Sid, FirstHost(cfg.Mounts), in.RepoRoot) {
 			ui.Notef("%s", l)
 		}
 		return false
@@ -160,7 +161,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 
 // CloneRescueLines is the by-hand recipe, using the transport that works on a
 // stopped sandbox.
-func CloneRescueLines(name, workdir, repoRoot string) []string {
+func CloneRescueLines(name, refsKey, workdir, repoRoot string) []string {
 	if workdir == "" || repoRoot == "" {
 		return nil
 	}
@@ -168,12 +169,12 @@ func CloneRescueLines(name, workdir, repoRoot string) []string {
 	return []string{
 		fmt.Sprintf("while %s exists: `sbx exec -w / %s -- git -C %s bundle create - --all > %s`",
 			name, name, workdir, bundle),
-		fmt.Sprintf("then: `git -C %s fetch %s '+refs/heads/*:%s/*'`", repoRoot, bundle, sbx.CloneRefs(name)),
+		fmt.Sprintf("then: `git -C %s fetch %s '+refs/heads/*:%s/*'`", repoRoot, bundle, sbx.CloneRefs(refsKey)),
 	}
 }
 
 func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
-	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name)...).CombinedOutput()
+	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...).CombinedOutput()
 	return exitCodeOf(err), string(out), err
 }
 
@@ -199,7 +200,7 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	if runErr != nil {
 		return exitCodeOf(runErr), errb.String(), runErr
 	}
-	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, cfg.Name)...).CombinedOutput()
+	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...).CombinedOutput()
 	if err != nil {
 		return exitCodeOf(err), errb.String() + string(out), err
 	}
@@ -228,14 +229,14 @@ func exitCodeOf(err error) int {
 
 func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
-		"--format=%(refname:short)", sbx.CloneRefs(cfg.Name)+"/").Output()
+		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/").Output()
 	names := strings.Fields(string(refs))
 	if len(names) == 0 {
 		ui.Notef("clone: the agent left no branches to fetch")
 		return
 	}
 	ui.Section(ui.SectionResults)
-	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(cfg.Name), strings.Join(names, " "))
+	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
 	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
 }
 
@@ -447,7 +448,9 @@ type Input struct {
 	Man                    manifest.Manifest
 	// ImageEntrypoint reads the image's declared ENTRYPOINT; a sandbox Kit needs
 	// it verbatim. Injected so Spec stays testable without docker.
-	ImageEntrypoint  func(image string) []string
+	ImageEntrypoint func(image string) []string
+	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
+	AgentEnv         []string
 	Sid, EgDir       string
 	Mounts           []runner.Mount
 	Workdir          string
@@ -510,20 +513,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	sort.Strings(allow)
 
-	var secrets [][2]string
-	addSecret := func(name string) {
-		v := in.Lookup(name)
-		if v == "" {
-			return
-		}
-		for _, kv := range secrets {
-			if kv[0] == name {
-				return
-			}
-		}
-		secrets = append(secrets, [2]string{name, v})
-	}
-	forwards := in.Forwards
 	var forwarded []string
 	addForward := func(name string) {
 		if in.Lookup(name) == "" {
@@ -536,16 +525,34 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 		forwarded = append(forwarded, name)
 	}
+
+	var secrets [][2]string
+	addSecret := func(name string) {
+		v := in.Lookup(name)
+		if v == "" {
+			return
+		}
+		for _, kv := range secrets {
+			if kv[0] == name {
+				return
+			}
+		}
+		if _, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreUninjectable {
+			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
+			return
+		}
+		if in.Forwards {
+			addForward(name) // the operator chose the complete route over the safer one
+			return
+		}
+		secrets = append(secrets, [2]string{name, v})
+	}
 	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot, in.Lookup)
 	for _, e := range in.Man.Env {
 		if !e.Secret {
 			continue
 		}
 		if suppressedAuth(e.Name) {
-			continue
-		}
-		if forwards {
-			addForward(e.Name)
 			continue
 		}
 		addSecret(e.Name)
@@ -555,10 +562,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			continue
 		}
 		if suppressedAuth(k) {
-			continue
-		}
-		if forwards {
-			addForward(k)
 			continue
 		}
 		addSecret(k)
@@ -648,7 +651,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		command, agent = nil, sbx.ShellAgent
 	}
 	cfg := sbx.RunConfig{
-		Name:    in.Sid,
+		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
 		Image:   in.Image,
 		Memory:  in.Memory,
@@ -657,8 +660,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env: DeclineMCPGateway(Home(append(env,
-			"PROVEO_WORKDIR="+FirstHost(WorkspaceBinds(mounts))), mounts)),
+		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), mounts)),
 		Command: command,
 	}
 	var creds []sbx.KitCredential
@@ -682,7 +684,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
 		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
-		Setup:         &sbx.KitSetup{Startup: []sbx.KitCommand{sbx.SeedCommand(in.Target)}},
+		Setup:         &sbx.KitSetup{Startup: startupCommands(in.Target, ownAgent)},
 	}
 	if ownAgent {
 		kit.Kind = "sandbox"
@@ -751,6 +753,7 @@ func Run(in Input) error {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
+	cfg = reuseOrCreate(cfg, sbx.Exists)
 	if err := sbx.EnsureTemplate(cfg.Image, func(f string, a ...any) {
 		ui.Appf(f, a...)
 	}); err != nil {
@@ -764,9 +767,21 @@ func Run(in Input) error {
 	}
 	for _, kv := range secrets {
 		ui.Section(ui.SectionSecrets)
-		ui.Hostf("sandbox secret: %s (host-side injection)", kv[0])
-		if err := sbx.SecretSet(kv[0], kv[1]); err != nil {
-			return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+		if hosts, service, ok := customSecretTarget(kv[0], in.Lookup); ok {
+			ui.Hostf("sandbox secret: %s (custom — sbx does not know %q, so the hosts and the "+
+				"variable are declared with it)", kv[0], service)
+			if err := sbx.SecretSetCustom(hosts, kv[0], kv[1]); err != nil {
+				return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
+			}
+			continue
+		}
+		name, _ := credentials.StoreName(kv[0], in.Target)
+		if name == "" {
+			name = kv[0]
+		}
+		ui.Hostf("sandbox secret: %s stored as %s — sbx's proxy attaches it, the agent never holds it", kv[0], name)
+		if err := sbx.SecretSet(name, kv[1]); err != nil {
+			return fmt.Errorf("sandbox secret %s: %w", name, err)
 		}
 	}
 	if len(secrets) > 0 {
@@ -916,6 +931,7 @@ func CapturePolicyLog(egDir, name string) {
 var memoryEvidence = sbx.MemoryEvidence
 
 func CaptureMemoryEvidence(egDir, name string) {
+	restarted := !sbx.Running(name)
 	if egDir == "" || name == "" {
 		return
 	}
@@ -941,6 +957,14 @@ func CaptureMemoryEvidence(egDir, name string) {
 		ui.Warnf("the guest kernel reported an out-of-memory kill — a sandbox has NO SWAP, "+
 			"so memory pressure kills rather than slows. Raise the ceiling with "+
 			"`PROVEO_SBX_MEMORY=16g` (capped at 32g) and see %s", path)
+		return
+	}
+	if restarted {
+		// `sbx exec` starts a stopped sandbox, so this reading is a FRESH boot:
+		// its dmesg is empty and its meminfo is idle. Silence here is not
+		// evidence of no kill — it is evidence the kill's boot is gone.
+		ui.Notef("memory evidence: %s — the sandbox had already stopped, so this is a fresh boot; "+
+			"a kill in the boot that died left no trace to read", path)
 		return
 	}
 	ui.Storef("memory evidence: %s", path)
@@ -1010,4 +1034,237 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
 	return creds, domains, secrets
+}
+
+// customSecretTarget answers whether a credential needs `sbx secret set-custom`
+// rather than a plain service secret, and with which hosts.
+//
+// sbx injects a plain service secret only for the thirteen services it has
+// built-in knowledge of. For any other provider it holds the value and knows
+// neither the host to match nor the header to write, which is why a stored
+// `opencode` secret still produced HTTP 401 while the same key forwarded fine.
+// A custom secret carries the hosts and the variable with it, so the proxy can
+// substitute at egress the way it does for a service it knows.
+func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
+	for _, name := range provider.Names() {
+		r, found := provider.ResolveWith(name, envVar, lookup)
+		if !found || !strings.EqualFold(r.EnvVar, envVar) || len(r.Hosts) == 0 {
+			continue
+		}
+		if sbx.IsBuiltinService(name) {
+			return nil, name, false
+		}
+		for _, h := range r.Hosts {
+			hosts = append(hosts, sbx.DomainPatterns(h)...)
+		}
+		return hosts, name, len(hosts) > 0
+	}
+	return nil, "", false
+}
+
+// sandboxAgentEnv keeps the pairs a sandbox can honour and drops the ones that
+// name a proxy it does not have.
+func sandboxAgentEnv(pairs []string) []string {
+	var out []string
+	for _, kv := range pairs {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || proxyOnlyVar(name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func proxyOnlyVar(name string) bool {
+	switch name {
+	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+		"NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+		"SSL_CERT_FILE", "GIT_SSL_CAINFO", "INSPECT_PROXY", "ENFORCEMENT_PROXY",
+		"PROVEO_EGRESS_CA_CERT":
+		return true
+	}
+	return false
+}
+
+// startupCommands is the seed, plus the def's own entrypoint for a mixin kit.
+func startupCommands(target string, ownAgent bool) []sbx.KitCommand {
+	cmds := []sbx.KitCommand{sbx.SeedCommand(target)}
+	if !ownAgent {
+		cmds = append(cmds, sbx.SeedEntrypointCommand())
+	}
+	return cmds
+}
+
+// gitSafeDirectoryEnv declares the repository root safe for git, in the env the agent inherits.
+func gitSafeDirectoryEnv(repoRoot string) []string {
+	if repoRoot == "" {
+		return nil
+	}
+	root := repoRoot
+	if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
+		root = r
+	}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=" + root,
+	}
+}
+
+// launchConfigEnv renders the def's model wiring in the form the agent reads
+// at launch, for a def whose entrypoint sbx does not run before the agent.
+func launchConfigEnv(agent string, agentEnv []string) []string {
+	if agent != "opencode" {
+		return nil
+	}
+	model, base := envValue(agentEnv, "PROVEO_LOCAL_MODEL"), envValue(agentEnv, "OLLAMA_API_BASE")
+	if model == "" {
+		return nil
+	}
+	if base == "" {
+		base = "http://ollama:11434"
+	}
+	cfg := map[string]any{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			"ollama": map[string]any{
+				"npm":     "@ai-sdk/openai-compatible",
+				"name":    "Ollama (local)",
+				"options": map[string]any{"baseURL": strings.TrimRight(base, "/") + "/v1", "apiKey": "ollama"},
+				"models":  map[string]any{model: map[string]any{"name": model + " (local)"}},
+			},
+		},
+		"model":       "ollama/" + model,
+		"small_model": "ollama/" + model,
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return []string{
+		"OPENCODE_CONFIG_CONTENT=" + string(b),
+		"OPENCODE_MODEL=ollama/" + model,
+		"OPENCODE_SMALL_MODEL=ollama/" + model,
+	}
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// scopedGitIndexEnv hides the repository paths a subproject scope does not
+// mount, so `git status` in the sandbox does not report them as deleted.
+// scopedGitIndexEnv names a host-built index that hides the repository paths a scope does not mount.
+func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
+	if in.ScopeRel == "" || in.RepoRoot == "" || in.Sid == "" {
+		return nil
+	}
+	home := stateHomeHost(binds)
+	src := filepath.Join(in.RepoRoot, ".git", "index")
+	if home == "" || !exists(src) {
+		return nil
+	}
+	dst := filepath.Join(home, "git-index", in.Sid)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return nil
+	}
+	var hidden []string
+	for _, rel := range trackedFiles(in.RepoRoot) {
+		if !mountedHost(filepath.Join(in.RepoRoot, rel), binds) {
+			hidden = append(hidden, rel)
+		}
+	}
+	if len(hidden) > 0 {
+		cmd := exec.Command("git", append([]string{"-C", in.RepoRoot, "update-index", "--skip-worktree", "--"}, hidden...)...)
+		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+dst)
+		if err := cmd.Run(); err != nil {
+			return nil
+		}
+	}
+	return []string{"GIT_INDEX_FILE=" + dst}
+}
+
+func stateHomeHost(binds []sbx.Mount) string {
+	for _, m := range binds {
+		if m.Container == proveohome.ContainerHome {
+			return m.Host
+		}
+	}
+	return ""
+}
+
+func trackedFiles(repoRoot string) []string {
+	out, err := exec.Command("git", "-C", repoRoot, "ls-files", "-z").Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files
+}
+
+func mountedHost(path string, binds []sbx.Mount) bool {
+	p := filepath.Clean(path)
+	for _, m := range binds {
+		h := filepath.Clean(m.Host)
+		if p == h || strings.HasPrefix(p, h+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o644)
+}
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// launchEnv is everything the agent must already hold when sbx starts it: the
+// plan's decision, the workdir, git's reach across the mount boundary and the
+// repository's safety, the def's model wiring, and the scoped index.
+func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []string {
+	binds := WorkspaceBinds(mounts)
+	out := append([]string{}, env...)
+	out = append(out, sandboxAgentEnv(in.AgentEnv)...)
+	out = append(out, "PROVEO_WORKDIR="+FirstHost(binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1")
+	out = append(out, gitSafeDirectoryEnv(in.RepoRoot)...)
+	out = append(out, launchConfigEnv(agent, in.AgentEnv)...)
+	out = append(out, scopedGitIndexEnv(in, binds)...)
+	return out
+}
+
+// reuseOrCreate answers the collision proveo creates for itself: the sandbox
+// name is derived from def and workspace so runs reuse one VM, and a failed run
+// is KEPT for diagnosis — so the next run met a sandbox sbx will not give new
+// workspaces to and stopped before the agent started.
+//
+// It needs none. That name can only exist for THIS workspace, so the existing
+// sandbox already has it; re-attaching keeps the Kit, the environment and the
+// agent, and drops what sbx refuses to change on a sandbox that exists.
+// SPEC: _spec/internal/sbx/sandbox-backend.puml
+func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
+	if !exists(cfg.Name) {
+		return cfg
+	}
+	ui.Notef("re-attaching to %s, which an earlier run left here — its workspace is this one", cfg.Name)
+	ui.Notef("for a sandbox built fresh instead: `sbx rm --force %s`", cfg.Name)
+	return sbx.Reattach(cfg)
 }

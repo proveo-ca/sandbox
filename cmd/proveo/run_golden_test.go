@@ -132,8 +132,12 @@ var (
 // scrub removes everything that legitimately differs between two runs on two
 // hosts, so a diff means the resolve path changed and nothing else.
 func scrubRun(s, work, home string) string {
-	s = strings.ReplaceAll(s, work, "<WORK>")
-	s = strings.ReplaceAll(s, home, "<HOME>")
+	for _, p := range []string{canonical(work), work} {
+		s = strings.ReplaceAll(s, p, "<WORK>")
+	}
+	for _, p := range []string{canonical(home), home} {
+		s = strings.ReplaceAll(s, p, "<HOME>")
+	}
 	if wd, err := os.Getwd(); err == nil {
 		s = strings.ReplaceAll(s, wd, "<REPO>")
 	}
@@ -152,4 +156,11 @@ func mustWrite(t *testing.T, path, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func canonical(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }

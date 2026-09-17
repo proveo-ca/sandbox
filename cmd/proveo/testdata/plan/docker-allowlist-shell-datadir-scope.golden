@@ -5,7 +5,7 @@ docker network create --label proveo.egress.session=sid --internal sid-cecli-mit
 docker network create --label proveo.egress.session=sid --internal sid-mitm-squid-net
 docker network create --label proveo.egress.session=sid sid-squid-egress-net
 == sidecars ==
-docker run -d --rm --name sid-squid --label proveo.egress.session=sid --security-opt=no-new-privileges:true --pids-limit=256 --network sid-squid-egress-net -v /st/squid/config:/etc/squid:ro -v /st/squid/logs:/var/log/squid ubuntu/squid:latest
+docker run -d --rm --name sid-squid --label proveo.egress.session=sid --security-opt=no-new-privileges:true --pids-limit=256 --network sid-squid-egress-net -v /st/squid/config:/etc/squid:ro -v /st/squid/logs:/var/log/squid -v proveo-squid-cache-cecli:/var/spool/squid ubuntu/squid:latest
 docker run -d --rm --name sid-egress --user 501:20 --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=256 --memory=512m --label proveo.egress.session=sid --network sid-cecli-mitm-net --network-alias mitm -e PROVEO_EGRESS_LISTEN=:8888 -e PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem -e PROVEO_EGRESS_FLOWS=/flows/flows.ndjson -v /st/mitmproxy/confdir:/confdir -v /st/mitmproxy/flows:/flows -e PROVEO_EGRESS_UPSTREAM=http://squid:3128 proveo/egress-proxy:latest
 == connects ==
 docker network connect --alias squid sid-mitm-squid-net sid-squid

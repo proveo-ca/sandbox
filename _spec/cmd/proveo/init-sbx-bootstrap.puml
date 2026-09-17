@@ -194,7 +194,7 @@ skinparam noteTextAlignment left
 ' would be a second source of truth that drifts on the next release. The darwin
 ' tarball needs no installer because it IS the prefix, and it ships
 ' libexec/mkfs.ext4, so the e2fsprogs prerequisite the Linux tarball leaves to
-' the host does not arise there at all.
+' the host does not arise there.
 '
 ' ── THE PACKAGE IS OFFERED; THE REPOSITORY IS ONLY NAMED ───────────────────
 ' Packaged is EXECUTABLE — the release's own .deb or .rpm through the host's
@@ -229,6 +229,14 @@ skinparam noteTextAlignment left
 ' off PATH by design, so a re-run concluded "sbx is not on PATH" and downloaded
 ' the whole release again, however many times it was invoked.
 '
+' The test that pins that ORDER has to empty PATH for its own duration, and the
+' reason is a rule about tests rather than about init. On a developer machine
+' that already carries sbx, the fallback answered first and the assertion about
+' an EMPTY prefix read 0.39.0 out of the host's own binary. A test that only
+' passes where the tool under discussion is absent is asserting a property of
+' the machine, not of the code, and it fails for the people most likely to run
+' it.
+'
 ' ── THE DIGEST IS PUBLISHED FOR SOME ASSETS AND NOT OTHERS ─────────────────
 ' The release ships no checksums file. It ships in-toto SLSA statements whose
 ' subject[].digest.sha256 covers the artifact the BUILD produced — which for
@@ -255,14 +263,28 @@ skinparam noteTextAlignment left
 ' The subject is matched by NAME. These statements carry a list, and taking
 ' subject[0] would silently verify against whatever a future build puts first.
 '
-' ── THE PIN IS NOT THE FLOOR ───────────────────────────────────────────────
-' Release (0.42.0) is what init hands you. MinVersion (0.39.0) is what the run
-' path refuses below. A host already carrying something in between is LEFT
-' ALONE — refusing a working 0.40 to install 0.42 would be proveo taking a
-' decision that is not its to take. The one invariant is that Release may never
-' be the older of the two, or init would produce a host its own backend rejects;
-' a test asserts it, because the two constants live in different lines of the
-' same file and only one of them ever gets bumped.
+' ── THE PIN IS NOT THE FLOOR, THOUGH TODAY THEY MEET ───────────────────────
+' Release (0.42.0) is what init hands you. MinVersion is what the run path
+' refuses below, and it is a claim about the CLI SURFACE this build drives, not
+' a preference for newness. They are equal as of 2026-09-15 because the surface
+' moved: `version --json` — and the `server.state` that ServerState reads rather
+' than parsing error text — arrived in 0.42.0, and 0.42.0 is also where sbx
+' stopped opening its own setup wizard, which is why init runs `sbx setup`.
+'
+' The floor used to sit at 0.39.0, three releases below the flags the package
+' was already sending. A 0.39.0 host therefore PASSED Available() and then met
+' `ERROR: unknown flag: --json` from inside a run, and `proveo init` printed
+' that same command back as advice the host could not follow. The floor now
+' names its reason: VersionJSONSince is a constant next to MinVersion, and a
+' test refuses a floor older than it, so the next 0.4x-only flag has somewhere
+' to declare itself instead of failing deep in a sandbox.
+'
+' The two invariants, each with a test: Release may never be the OLDER of the
+' two, or init would produce a host its own backend rejects; and MinVersion may
+' never be older than the flags this package sends. Nothing stops them diverging
+' again — a host carrying something above the floor and below the pin is still
+' LEFT ALONE, because refusing a working 0.43 to install 0.42 would be proveo
+' taking a decision that is not its to take.
 '
 ' Assets are addressed by exact tag and the GitHub API is never consulted, so
 ' init works behind a proxy that allows github.com and nothing else, and cannot
@@ -364,6 +386,14 @@ note bottom of ASK
   does nothing — it is host-wide.
 end note
 
+note left of PREFIX
+  **Prefix first, PATH second — and the test
+  empties PATH.** A developer machine that
+  already carries sbx answered from PATH, so an
+  assertion about the empty prefix read 0.39.0
+  and depended on the host lacking the tool.
+end note
+
 note bottom of PREFIX
   **Not on PATH yet, and login knows it.** install.sh
   prints the export line itself, so init drives the
@@ -376,7 +406,7 @@ note bottom of DAEMON
   **The only check about the backend.** Everything
   else interrogates the CLI. A current sbx in front
   of a daemon that never came up is exactly the
-  shape that produces a run with no output at all;
+  shape that produces a run with no output;
   ""server\.state"" was added in 0.42 to say so.
 end note
 @enduml

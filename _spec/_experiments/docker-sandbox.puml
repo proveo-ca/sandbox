@@ -151,7 +151,7 @@ note bottom of m_bake #E7F0FF
   mismatches forever and re-loads a multi-GB tar on EVERY launch. It compares a
   **receipt** proveo writes at load time instead, which still reloads a genuine
   rebuild and ignores a bake. The staleness the ID check was added for is real —
-  a repo-tag-only match once served a pre-rebuild image with no ""/app"" at all —
+  a repo-tag-only match once served a pre-rebuild image with no ""/app"" —
   so presence alone is not enough either.
 end note
 

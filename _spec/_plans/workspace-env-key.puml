@@ -11,7 +11,8 @@ skinparam noteTextAlignment left
 '   where a key SHOULD rest ...... _spec/_plans/secret-custody.puml
 '   the sbx credential path ...... _spec/internal/sbx/credential-path.puml
 '   what the agent may hold ...... _spec/_paradigms/credential-boundary.puml
-'   the tiers that mask .......... _spec/internal/egress/egress-tiers.puml
+'   the tier vocabulary that masks _spec/internal/sbx/policy-baseline.puml
+'                                  (egress-tiers.puml retired 2026-09-16)
 '   why clone mode has tracked-only files _spec/internal/sbx/clone-workspace.puml
 '
 '   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
@@ -115,7 +116,7 @@ skinparam noteTextAlignment left
 '                                               it with `set -a`. This is the only
 '                                               posture the warning describes.
 '   sbx · every tier                            mounted whole, unmasked, no
-'                                               prelude at all. READABLE.
+'                                               prelude. READABLE.
 '
 ' So the sentence proveo prints on sbx describes the one case that is not sbx.
 title PLANNED — a key in the workspace .env: sourced on one posture, readable on most
@@ -180,7 +181,7 @@ note bottom of WS
   **There is no per-file overlay to hang a mask
   on.** sbx takes DIRECTORY workspaces at their
   own host paths, so ""\.env"" arrives with
-  everything else or not at all.
+  everything else: the mount is all or nothing.
 end note
 
 note top of WS
@@ -209,7 +210,7 @@ note bottom of CLONE
   **The default posture already closes it.** A
   clone carries TRACKED files only, and a
   ""\.env"" is gitignored by habit, so it never
-  reaches the sandbox at all.
+  reaches the sandbox.
 end note
 
 note top of CLONE
@@ -255,7 +256,7 @@ legend bottom
   ==
   **Left open on purpose.** Whether a COMMITTED ""\.env"" should block an sbx run
   outright; whether the docker mask should key on ""--credentials forward"" rather
-  than on the tier; and whether ""load_env"" should stop sourcing dotenvs at all now
+  than on the tier; and whether ""load_env"" should stop sourcing dotenvs now
   that a broker and a host store both exist.
 end legend
 @enduml

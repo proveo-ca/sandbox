@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/egress-boundary.puml, _spec/_paradigms/retire-dind.puml, _spec/_conventions/design-decision-ids.puml, _spec/internal/egress/egress-tiers.puml, _spec/internal/egress/teardown-and-signals.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/_plans/retire-docker-egress.puml, _spec/_paradigms/retire-dind.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/claudecode/chrome-bridge.puml
 package egress
 
 import (
@@ -54,6 +54,7 @@ type Options struct {
 const (
 	caContainerPath   = "/etc/proveo/mitmproxy-ca-cert.pem"
 	squidUpstream     = "http://squid:3128"
+	squidCachePath    = "/var/spool/squid"
 	inspectProxyURL   = "http://mitm:8888"
 	sidecarOllamaBase = "http://ollama:11434"
 	hostOllamaBase    = "http://host.docker.internal:11434"
@@ -63,6 +64,10 @@ const (
 )
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+// squidCacheVolumePrefix marks the volumes as proveo's, so an operator reading
+// `docker volume ls` can tell what they are and prune them by name.
+const squidCacheVolumePrefix = "proveo-squid-cache-"
 
 func (o Options) squidImage() string  { return orElse(o.SquidImage, "ubuntu/squid:latest") }
 func (o Options) proxyImage() string  { return orElse(o.ProxyImage, "proveo/egress-proxy:latest") }
@@ -285,8 +290,18 @@ func squidRun(o Options, egressNet string) Command {
 	c = append(c, sidecarHardening()...)
 	c = append(c, "--network", egressNet,
 		"-v", o.SquidConfigDir+":/etc/squid:ro",
-		"-v", o.SquidLogDir+":/var/log/squid")
+		"-v", o.SquidLogDir+":/var/log/squid",
+		"-v", SquidCacheVolume(o.AgentName)+":"+squidCachePath)
 	return append(c, o.squidImage())
+}
+
+// SquidCacheVolume names the cache volume ONE def reuses on a host.
+func SquidCacheVolume(agent string) string {
+	name := nonAlnum.ReplaceAllString(agent, "-")
+	if name == "" {
+		name = "shared"
+	}
+	return squidCacheVolumePrefix + name
 }
 
 func proxyRun(o Options, agentNet, upstream string) Command {
@@ -416,4 +431,27 @@ func dirOf(p string) string {
 		return p[:i]
 	}
 	return "."
+}
+
+// AgentEnv is the environment the plan decides FOR THE AGENT, as KEY=VALUE
+// pairs, for a backend that cannot take docker flags.
+func AgentEnv(o Options) ([]string, error) {
+	p, err := BuildPlan(o)
+	if err != nil {
+		return nil, err
+	}
+	return AgentEnvPairs(p.AgentArgs), nil
+}
+
+func AgentEnvPairs(args []string) []string {
+	var out []string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] != "-e" {
+			continue
+		}
+		if kv := args[i+1]; strings.Contains(kv, "=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

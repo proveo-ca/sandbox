@@ -1,0 +1,182 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Launch environment — what the agent must already hold when sbx starts it
+
+' purpose: why everything the agent needs AT LAUNCH is rendered host-side into the kit environment, and what that environment carries
+' covers: internal/backend/sandbox/sandbox.go (launchEnv, launchConfigEnv, gitSafeDirectoryEnv, scopedGitIndexEnv, startupCommands)
+' covers: internal/backend/sandbox/launch_config_test.go
+' covers: internal/backend/sandbox/own_agent_test.go
+' covers: internal/sbx/kit.go (SeedEntrypointCommand)
+' covers: cmd/proveo/testdata/plan/sbx-claudecode-broker.golden
+' covers: cmd/proveo/testdata/plan/sbx-claudecode-shell-clone-datadir.golden
+' covers: cmd/proveo/testdata/plan/sbx-cursor-key.golden
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' Siblings, so this one stays about the LAUNCH INSTANT:
+'   the backend that builds it ..... _spec/internal/sbx/sandbox-backend.puml
+'   the Kit's three work kinds ..... _spec/internal/sbx/sbx-kit-contract.puml
+'   the seed's own step order ...... _spec/packages/lib/seed-and-launch.puml
+'   one canonical host path ........ _spec/internal/workspace/subdir-scope-mounts.puml
+'
+' ── MEASURED: THE KIT'S STARTUP COMMANDS DO NOT GATE THE AGENT LAUNCH ──────
+' Measured 2026-09-15/16, sbx 0.42.1, on the development host: the interactive
+' shell is handed over at t≈0, and the kit dispatcher reports `dispatcher
+' complete` at t+15–30s. Nothing in the Kit schema can change that ordering —
+' `KitCommand` is command/user/description and offers no blocking form, so
+' there is no way to ask sbx to wait for a startup command before it launches.
+'
+' Two consequences, and they are different in kind:
+'   an EXPORT   never arrives. A setup command runs in its own process, so a
+'               variable it exports reaches nothing the agent inherits. This
+'               was already the rule (sbx-kit-contract.puml, env-shaped work);
+'               the measurement says only that it is not a near miss.
+'   a WRITE     arrives LATE. Files do outlive the command that wrote them, but
+'               a one-shot run (`-p "prompt"`, `run <task>`) can be finished
+'               before the write lands, so file-shaped work is safe only for a
+'               session the operator keeps driving.
+'
+' ── THE RULE THIS LEAVES ───────────────────────────────────────────────────
+' Anything the agent must HOLD at launch — its environment, its config file,
+' its git index, the repository's safety — is proveo's to resolve HOST-SIDE and
+' render into the kit environment. Anything that may legitimately happen AFTER
+' launch — seed composition, house rules, toolchain provisioning — may stay a
+' startup command. `launchEnv` is the first half of that rule made concrete.
+'
+' ── WHAT launchEnv CARRIES, AND WHY EACH ITEM CANNOT WAIT ──────────────────
+'   the plan's own env            egress.AgentEnv, filtered (sandbox-backend.puml)
+'   PROVEO_WORKDIR                the mount's HOST path; sbx has no -w
+'   GIT_DISCOVERY_ACROSS_FILE…=1  each virtiofs workspace is its OWN filesystem
+'                                 and git will not walk up across one, so a
+'                                 scope mounted beside its .git finds no repo.
+'   GIT_CONFIG_COUNT / KEY_0 /    git refuses the repository root it is then
+'   VALUE_0 = safe.directory      shown, for dubious ownership. The docker
+'                                 entrypoint exports the same three in-process;
+'                                 under sbx that process is not the agent's.
+'   OPENCODE_CONFIG_CONTENT       opencode selects its model from its CONFIG
+'   OPENCODE_MODEL / _SMALL_MODEL file, not from OPENAI_* env. The inline JSON
+'                                 mirrors configure_opencode_local_model in
+'                                 defs/opencode/entrypoint.sh, and was measured
+'                                 against the image: with it set, `opencode
+'                                 models` lists the local ollama/<model>.
+'   GIT_INDEX_FILE                the scoped index, below.
+'
+' The root handed to safe.directory is EvalSymlinks'd for the same reason the
+' mounts are: one spelling, or the declaration names a path git never sees.
+'
+' ── THE SCOPED INDEX IS BUILT ON THE HOST ──────────────────────────────────
+' A subproject scope mounts the scope and a few siblings, so every OTHER tracked
+' path is absent inside the sandbox and `git status` reports the repository as
+' mostly deleted. The docker entrypoint answers this in-process: copy .git/index,
+' mark every tracked path that is not present skip-worktree, export
+' GIT_INDEX_FILE. Under sbx the export would die with the startup command, so
+' the same index is built HOST-SIDE instead — index entries are worktree-RELATIVE,
+' which is what makes the file portable — written under the mounted proveo home
+' at git-index/<sid>, and named in the environment the agent starts with. The
+' host's own .git is never touched: the copy is what `update-index` is pointed at.
+'
+' ── THE MIXIN'S THIRD STARTUP COMMAND ──────────────────────────────────────
+' `startupCommands` appends `/usr/bin/env PROVEO_SEED_ONLY=1 /entrypoint.sh` for
+' a mixin kit only; a `kind: sandbox` kit declares the image's own ENTRYPOINT as
+' its process prefix and needs no such command. PROVEO_SEED_ONLY makes
+' `proveo_exec_agent` return instead of exec — the script is wanted for its
+' wiring, and the agent sbx launched is the only one that may exist.
+' The kit ENVIRONMENT is deliberately identical between the two kinds, which is
+' what `own_agent_test.go` asserts — it compares the two setups with exactly that
+' one command removed.
+'
+' SETTLED 2026-09-16 — it is the ONLY run, not a second one. The question was
+' whether the def entrypoint ALSO runs as the container's process prefix under a
+' mixin. It does not, measured three ways on sbx v0.42.1 (target opencode):
+'   · before the seed-only command existed, a sandbox probed after `dispatcher
+'     complete` held opencode.json with `"provider": {}` and an EMPTY
+'     $OPENCODE_MODEL — configure_opencode_local_model had run nowhere.
+'   · Promptful's transcript reached `> build …` and `Error: Invalid API Key`
+'     with no `🚀 Launching opencode` line, which the def echoes immediately
+'     before proveo_exec_agent.
+'   · with the command in place, that launch line and `🌱 seed-only: …` appear
+'     ONLY under 002-startup-opencode-posture/001-cmd.sh in
+'     /var/log/sbx-kit-startup.log, and opencode.json then carries
+'     provider.ollama.
+' The deciding factor is which Kit supplies the `sandbox:` block: a mixin leaves
+' it to sbx's built-in agent, whose command replaces the image's entrypoint. The
+' kind-by-kind account is in _spec/packages/lib/seed-and-launch.puml, which this
+' measurement corrected. Nothing above changes — the rule is about what a startup
+' command cannot deliver in time — but the stakes do: for a mixin this command is
+' the def's ONLY chance to run, so anything dropped from it is dropped outright.
+
+component """sandbox.Spec"" → ""launchEnv""\nresolved HOST-side, before the run" as LE <<app>>
+component "kit ""environment.variables""\nwhat the agent inherits" as ENV <<app>>
+component "kit ""setup.startup""\n""proveo-seed"" · seed-only entrypoint" as SU <<app>>
+
+component "agent session\nshell handed over at t≈0" as AG <<app>>
+component """dispatcher complete""\nt+15–30s, after the agent" as DISP <<error>>
+
+component "git reach + safety\n""GIT_DISCOVERY_ACROSS_FILESYSTEM""\n""safe.directory"" as GIT_CONFIG_*" as GITENV <<app>>
+component "opencode model wiring\n""OPENCODE_CONFIG_CONTENT""" as OC <<app>>
+database "scoped index\n<proveo home>/git-index/<sid>" as IDX <<db>>
+
+LE ARROW_MAIN ENV
+ENV ARROW_MAIN AG : held at the first instruction
+LE ARROW_MAIN GITENV
+LE ARROW_MAIN OC
+LE ARROW_MAIN IDX : built on the host, named in the env
+SU ARROW_QUEUE DISP
+DISP ARROW_ERROR AG : too late for anything the agent holds
+
+note bottom of DISP
+  **Startup commands do not gate the launch.**
+  sbx hands the shell over immediately, while the
+  kit dispatcher reports completion 15 to 30
+  seconds later, so an export written there
+  reaches a process the agent already started.
+end note
+
+note bottom of LE
+  **The rule the race leaves.** Whatever the
+  agent must already hold — its environment, its
+  config, its index — proveo renders host-side
+  into the kit; whatever may land afterwards can
+  stay a startup command.
+end note
+
+note right of GITENV
+  **Git needs two facts before it will look.**
+  Each virtiofs workspace is its own filesystem,
+  so discovery must be told to cross one, and the
+  synthesised root is refused for dubious
+  ownership until safe.directory declares it.
+end note
+
+note right of OC
+  **opencode reads its model from a file, not
+  from the environment.** So the wiring travels
+  as an inline config in OPENCODE_CONFIG_CONTENT,
+  merged at start — measured against the image,
+  which then lists the local model as its own.
+end note
+
+note bottom of IDX
+  **The index is built on the host and named in
+  the environment.** Index entries are worktree
+  relative, so the copy relocates intact; the
+  host repository is never touched, and every
+  tracked path no mount covers is skip-worktree.
+end note
+
+note bottom of SU
+  **A mixin kit gets a third startup command.**
+  PROVEO_SEED_ONLY makes proveo_exec_agent return
+  instead of exec, so the def's own wiring runs
+  while the kit environment stays identical
+  between the two kinds.
+end note
+
+note right of AG
+  **A write is late rather than lost.** Files
+  outlive the command that produced them, so
+  composition may remain a startup step, while
+  anything a one-shot instruction must already
+  hold is resolved before the agent launches.
+end note
+@enduml

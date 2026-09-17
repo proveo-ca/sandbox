@@ -166,18 +166,18 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 
 func TestCloneRescueUsesATransportThatWorksOnAStoppedSandbox(t *testing.T) {
 	t.Parallel()
-	lines := CloneRescueLines("proveo-1-2", "/host/repo", "/host/repo")
+	lines := CloneRescueLines("proveo-claudecode-1a2b3c4d", "proveo-1-2", "/host/repo", "/host/repo")
 	joined := strings.Join(lines, "\n")
 
-	if strings.Contains(joined, "git fetch sandbox-proveo-1-2") {
+	if strings.Contains(joined, "git fetch sandbox-proveo-claudecode-1a2b3c4d") {
 		t.Errorf("the recipe still reaches for the daemon that is not listening:\n%s", joined)
 	}
-	for _, want := range []string{"sbx exec -w / proveo-1-2", "bundle create", "git -C /host/repo fetch", "refs/proveo/proveo-1-2/*"} {
+	for _, want := range []string{"sbx exec -w / proveo-claudecode-1a2b3c4d", "bundle create", "git -C /host/repo fetch", "refs/proveo/proveo-1-2/*"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("rescue recipe lacks %q:\n%s", want, joined)
 		}
 	}
-	if got := CloneRescueLines("sb", "", "/repo"); got != nil {
+	if got := CloneRescueLines("sb", "sid", "", "/repo"); got != nil {
 		t.Errorf("no workspace means no recipe to give, got %v", got)
 	}
 }

@@ -1,5 +1,5 @@
 == sbx argv ==
-sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/claudecode:latest -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_SCOPE_REL=apps/web -e PROVEO_WORKDIR=<WORK> -e MCP_GATEWAY_URL= shell <WORK> <DATA>:ro
+sbx run --name proveo-claudecode-<WORKHASH> --kit /st/sbx/kit -t proveo/claudecode:latest -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_SCOPE_REL=apps/web -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e MCP_GATEWAY_URL= shell <WORK> <DATA>:ro
 == secret names ==
 CLAUDE_CODE_OAUTH_TOKEN
 ANTHROPIC_API_KEY
@@ -20,6 +20,7 @@ environment:
     variables:
         ANTHROPIC_BASE_URL: https://api.anthropic.com
         GIT_AUTHOR_NAME: Executor
+        GIT_DISCOVERY_ACROSS_FILESYSTEM: "1"
         HOME: /proveo-home
         MCP_GATEWAY_URL: ""
         PROVEO_AGENT_EVIDENCE: verbose
@@ -35,3 +36,9 @@ setup:
             - claudecode
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
+        - command:
+            - /usr/bin/env
+            - PROVEO_SEED_ONLY=1
+            - /entrypoint.sh
+          user: "1000"
+          description: 'proveo: the def''s own wiring, launch skipped'

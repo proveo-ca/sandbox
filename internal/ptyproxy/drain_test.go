@@ -1,6 +1,6 @@
 //go:build !windows
 
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
+// SPEC: _spec/internal/ptyproxy/pty-ownership.puml
 package ptyproxy
 
 import (

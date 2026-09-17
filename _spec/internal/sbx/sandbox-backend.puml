@@ -1,6 +1,92 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
+' ── THE PLAN'S AGENT ENVIRONMENT REACHES BOTH RENDERINGS ───────────────────
+' `egress.BuildPlan` decides what the AGENT's own environment must hold, and
+' until 2026-09-15 it published that decision only as docker `-e` flags on
+' `Plan.AgentArgs`, which exactly one caller read: internal/backend/dockeregress
+' (dockeregress.go, ExtraArgs: plan.AgentArgs). The sandbox backend builds
+' cfg.Env from its own sources and never consulted the plan, so everything the
+' plan wired was dropped under sbx:
+'
+'   the local-model set   PROVEO_LOCAL_MODEL, OLLAMA_*, OPENAI_*, ANTHROPIC_*,
+'                         ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL — 15 vars
+'                         from localModelArgs. `--local-model` was accepted on
+'                         the command line and then did NOTHING: the sandbox
+'                         backend has no LocalModel field.
+'   PROVEO_EGRESS_MODE    the tier the agent and entrypoint-lib.sh both read.
+'
+' Three suite failures, one cause: TestHelloWorldE2E reported
+' `main model in container = "unset"` on all three targets and no PROVEO_MODELS
+' preamble; TestPromptfulE2E drove a real agent against a model that never
+' arrived and timed out with nothing done; TestAgentSettingsPersistAcrossRuns
+' read `TIER=` empty and concluded the choice cache was not re-entered, which
+' it was — the variable simply never crossed.
+'
+' `egress.AgentEnv(Options)` now returns that decision as KEY=VALUE pairs and
+' `sandbox.Input.AgentEnv` carries it into cfg.Env, so both renderings read one
+' decision. ONLY `-e KEY=VALUE` pairs cross: the rest of AgentArgs is docker
+' topology (--network, --dns, --add-host) that means nothing to a sandbox, and
+' the sidecar environment was never in AgentArgs — it lives in the
+' sidecar commands. That is why the fix names a ROUTE rather than enumerating
+' the 42 variables the old grep found; they are not all agent-facing.
+'
+' ── AND THAT ROUTE IS ONE CASE OF A LARGER RULE ────────────────────────────
+' The framing above — "the plan's decision must reach both renderings" — reads
+' as a one-off repair, and it is not. MEASURED 2026-09-15/16, sbx 0.42.1: sbx
+' does NOT gate the agent launch on the Kit's startup commands. The interactive
+' shell is handed over at t≈0 while the dispatcher reports `dispatcher complete`
+' at t+15–30s, and the schema offers no blocking form (`KitCommand` is
+' command/user/description). So the def entrypoint's role under sbx is SPLIT:
+' anything the agent must HOLD at launch — environment, config file, git index,
+' safe.directory — is proveo's to render HOST-SIDE into the kit environment;
+' anything that may happen AFTER launch — seed composition, house rules — may
+' stay a startup command. `launchEnv` is where the first half is assembled, and
+' the plan's agent environment is simply its first entry.
+'   what the agent holds at launch .. _spec/internal/sbx/launch-env.puml
+'
+' ── AND THE SANDBOX DROPS THE PAIRS THAT NAME A PROXY IT HAS NOT GOT ───────
+' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY (and the lower-case pair),
+' NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
+' GIT_SSL_CAINFO, INSPECT_PROXY, ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT.
+' This rendering runs no proveo egress layer — sbx enforces the policy and
+' terminates TLS itself — so a CA bundle or proxy URL pointing at a mitmproxy
+' that was never started would send every request into a black hole. Everything
+' else the plan decided crosses unchanged.
+'
+' The mode handed to BuildPlan here is BEST-EFFORT. `p.Mode` does not always
+' hold an egress mode: on this backend the choice row reports sbx's policy
+' BASELINE (_spec/internal/sbx/policy-baseline.puml), so a run started from a
+' cached choice arrived here with "allow-all" and BuildPlan rightly refused it.
+' An unusable mode now falls back to the flag's own default and a failure warns
+' rather than aborting — the agent's environment is worth having, and never
+' worth killing a run for.
+'
+' ── ONE SANDBOX PER DEF PER WORKSPACE, NOT ONE PER RUN ─────────────────────
+' Measured 2026-09-15: 81 sandboxes on one developer host after a few e2e suite
+' runs, 4 of them still running. The name was the SESSION id, so every run
+' created a VM, seeded it, and abandoned it — paying full creation cost for a
+' sandbox identical to the one it had just discarded, and leaving the discard
+' for the operator to find.
+'
+' `sbx run --name` re-attaches to an existing sandbox and reads the agent and
+' workspace from its spec, so the fix is the NAME: proveo-<target>-<fingerprint
+' of the workspace path>. Keyed on the def alone, a second project would have
+' silently inherited the first project's mounts. See clone-workspace.puml for
+' why the ref namespace does NOT follow this key.
+'
+' The golden pins the name TWICE, and one assertion alone would not have held.
+' It scrubs the fingerprint to `<WORKHASH>`, because the workspace is a fresh
+' `t.TempDir()` on every run and the raw hash would rewrite the golden each
+' time — and then calls `Spec` a second time over the same input to assert the
+' two answers agree. Scrubbing without that second call is precisely how a
+' per-run name would go on passing.
+'
+' Reuse does not pay everywhere. The e2e suite gives each case its own workspace,
+' so def+workspace keying buys it nothing while sbx still sizes every sandbox at
+' half the host; the sweep that keeps that from filling the machine, and the OOM
+' that forced it, are in _spec/tests/testing-strategy.puml.
+'
 ' purpose: how a run reaches the sbx backend, what it hands over, and what it refuses
 ' covers: internal/backend/sandbox/**
 ' covers: internal/sbx/sbx.go
@@ -9,9 +95,12 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' covers: internal/sbx/agents.go
 ' covers: internal/sbx/limits.go
 ' covers: internal/run/run.go
+' covers: internal/egress/plan.go (AgentEnv, AgentEnvPairs)
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
+' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
+'   what the agent holds at launch _spec/internal/sbx/launch-env.puml
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
@@ -56,7 +145,7 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' Prompt detection reads the TUI's own frame rather than proveo's entrypoint
 ' banner: the banner is printed BEFORE the agent starts, so a session can be
 ' fully up without it being the last thing said — and the stock sbx image never
-' prints it at all, which the ladder's rung 0 needs.
+' prints it, which the ladder's rung 0 needs.
 '
 ' PROVEO_IDLE_TARGETS takes a comma-separated list (default: claudecode alone).
 ' Sweeping matters because this failure has only ever been reported on ONE
@@ -149,6 +238,16 @@ note left of FB
   ""--egress-mode review"" asks for it. Def-local shell suites keep covering the
   fallback images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
 
+  **It still SHIPS, and it is no longer TESTED.** sbx is the runtime the e2e
+  suite measures, so every case whose subject is this path — the ""-egress""
+  container, its ""broker.env"", the consent gate, and
+  ""TestSandboxBackendFallsBackToDockerWhenSbxAbsent"" itself — now skips through
+  ""skipOutsideSbx"" (_spec/tests/testing-strategy.puml). Read the two together
+  and nothing contradicts: EXISTING and BEING ASSERTED are different claims,
+  and the title above makes only the first. What it does mean is that a
+  regression on this path will not be caught here, which is a cost the scope
+  decision accepted rather than an oversight to repair.
+
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
@@ -227,7 +326,7 @@ note bottom of CLI
   path over virtiofs, the cwd is that path, and the user is the image's own. There
   is no flag to choose a container path, so proveo home travels as a workspace —
   and a bind NESTED under home, the gh config at ""/proveo-home/.config/gh"",
-  cannot be reproduced at all and is dropped.
+  cannot be reproduced and is dropped.
 
   //The HOME redirect that used to be described here is gone.// It was written for
   the docker backend, where proveo runs the agent as the HOST's uid; sbx runs its
@@ -279,7 +378,7 @@ note bottom of KIT
 
   What v0.39 actually rejected in the shipped Kit was narrower than either claim:
   ""image"" (belongs under ""sandbox"") and ""credentialsEnv"" (replaced by
-  ""credentials[]"") are not fields of ""spec\.SpecFile"" at all.
+  ""credentials[]"") are not fields of ""spec\.SpecFile"".
 
   **""sandbox.entrypoint"" is read from the IMAGE**, not restated per def
   (""docker image inspect … .Config.Entrypoint""): the two would drift the moment a
@@ -350,7 +449,7 @@ note right of SEC
   | ""--credentials broker"" (claudecode's default) | ""sbx secret set"" host-side; the name is listed in the Kit's ""credentialsEnv"" and the value never enters argv, the env, or the VM filesystem |
   | ""--credentials forward"" (cursor's only mode)  | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
 
-  cursor cannot use the brokered path at all: it pins TLS to "".cursor\.sh"" /
+  cursor cannot use the brokered path: it pins TLS to "".cursor\.sh"" /
   "".cursor\.com"", so header injection has nothing to inject into. Forwarding
   on the sandbox backend therefore has to match what the docker path already
   does for it, or cursor would reach the agent with no usable key — the
@@ -448,14 +547,14 @@ note as Memory #F4F9FB
   **The share is PER-sandbox, and nothing adds them up.** Each limit binds on its
   own, so N sandboxes ask for N×50% of a machine that has 100% and only the host
   notices. Measured: a 48 GiB host whose daemon reports 23.5 GiB gives ""12031m""
-  each — four of those is 47 GiB, and ""--cpus"" is never passed at all, so every
+  each — four of those is 47 GiB, and ""--cpus"" is never passed, so every
   sandbox also believes it owns all 14 cores.
 
   So the divisor is stated rather than assumed:
     * ""PROVEO_SBX_INSTANCES"" — how many are meant to coexist. Shares then sum to
       the machine instead of to a multiple of it (n=4 → ""6015m"").
     * ""PROVEO_SBX_MEMORY"" — the cap outright, skipping the derivation entirely.
-      It is the only one that works when the daemon cannot be read at all
+      It is the only one that works when the daemon cannot be read
       (""8g"" → ""8192m"").
 
   Neither set leaves the historical half exactly as it was: nobody who set
@@ -466,10 +565,50 @@ end note
 
 note right of SEL
   **""PROVEO_SBX=off"" is the only headless route
-  to docker.** The add-on is default-ON and a
-  run with no TTY no longer reads the choice
-  cache — nothing to seed — so a script, CI, or
-  a test inspecting the docker plan needs a knob.
+  to docker.** Because a run with no TTY skips
+  the choice cache entirely, a script rendering
+  that plan has no other knob — and the e2e
+  suite is nonetheless forbidden to reach for it.
+end note
+
+note as AGENTENV
+  **One decision, two renderings.** The plan used
+  to publish the agent's environment as docker
+  ""-e"" flags only, so ""--local-model"" was
+  accepted and then did nothing under sbx.
+  ""egress.AgentEnv"" returns it as KEY=VALUE.
+end note
+
+note as AGENTENVDROP
+  **Proxy and CA variables are dropped here.**
+  sbx enforces policy and terminates TLS itself,
+  so a bundle naming a mitmproxy that was never
+  started would black-hole every request the
+  agent makes; the rest of the plan crosses.
+end note
+
+note as AGENTENVMODE
+  **Best-effort, never fatal.** ""p.Mode"" may
+  hold sbx's policy baseline rather than an
+  egress mode, so an unusable value falls back
+  to the flag's own default and a BuildPlan
+  failure warns instead of killing the run.
+end note
+
+note as LAUNCHHOLD
+  **Startup commands run after the launch.**
+  sbx hands the shell over while the kit
+  dispatcher still has 15 to 30 seconds to run,
+  so everything the agent must already hold is
+  resolved host-side into the kit environment.
+end note
+
+note as SBXNAME
+  **The name is the reuse key, so a test must pin
+  it twice.** The golden scrubs the workspace
+  fingerprint, which a fresh ""t.TempDir()"" would
+  otherwise rewrite each run, and a second
+  ""Spec"" call asserts both answers agree.
 end note
 
 note bottom of KIT
@@ -547,7 +686,7 @@ end note
 
 note top of SBX
   ""Version"", ""SandboxList"", ""SecretList"" and
-  ""TemplateList"" had no deadline at all until
+  ""TemplateList"" had no deadline until
   this pass. ""Version"" is the one that mattered:
   ""sbx.Available()"" hits it before every launch.
 end note

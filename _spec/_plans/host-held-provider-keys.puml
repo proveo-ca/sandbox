@@ -14,6 +14,8 @@ skinparam noteTextAlignment left
 '   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
 '   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
 '   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
+'   the surface that provisions it . _spec/_plans/init-credential-provisioning.puml
+'   the registry entries B4 turns on internal/provider/provider.go (Hosts, Auth)
 '   how the open blocker gets answered _spec/_experiments/operator-fingerprint.puml
 '
 ' ── THE PROPOSAL, IN THE OPERATOR'S WORDS ──────────────────────────────────
@@ -97,7 +99,11 @@ skinparam noteTextAlignment left
 '                         setup prompt is not an obstacle.
 '   B4 forward            REQUIRE A HOST-RESOLVABLE REFERENCE for providers
 '                         that cannot be injected. A DECIDED CONSTRAINT, not an
-'                         open question.
+'                         open question. Still DECIDED-not-built as of
+'                         2026-09-16, and DEFERRED by the operator; since
+'                         72848db it is the only route by which a real value
+'                         still enters a sandbox. The three cases differ —
+'                         see the B4 section below.
 '
 ' So ONE BLOCKER REMAINS OPEN: provenance, below. Everything else has a chosen
 ' direction.
@@ -124,7 +130,7 @@ skinparam noteTextAlignment left
 '               set — the row this whole thread came from
 '
 ' A SINGLE KEY FOR ALL FOUR IS IMPOSSIBLE, and this tree already said why: the
-' cecli manifest records that "Cursor has no bring-your-own-key path at all".
+' cecli manifest records that "Cursor has no bring-your-own-key path".
 ' `providers: [cursor]` is irreducible, and claudecode is pinned to
 ' `[anthropic]`. The intersection of {claudecode, cecli, opencode} is anthropic.
 '
@@ -207,7 +213,7 @@ skinparam noteTextAlignment left
 '     vertex    -> google-vertex       together  -> togetherai
 '     copilot   -> github-copilot      moonshot  -> moonshotai
 '     fireworks -> fireworks-ai        gmi       -> gmicloud
-'     cursor, sambanova                no models.dev entry at all
+'     cursor, sambanova                no models.dev entry
 ' `cursor` having none is consistent with it having no bring-your-own-key path.
 ' The `sync-providers` skill already exists for this reconciliation.
 '
@@ -236,11 +242,50 @@ skinparam noteTextAlignment left
 ' surface.
 '
 ' ── DECIDED CONSTRAINT (was blocker 4): THE STORE CANNOT SERVE forward ────
-' `agentCredentials` skips a provider when there is nothing to attach:
-'   signed requests   bedrock, azure, vertex — SigV4 signs the whole request,
-'                     so no header carries the secret
-'   query parameter   sbx injects into a header and has no query form
-' For those, `--credentials forward` is the ONLY route to the agent.
+' `agentCredentials` skips a provider when there is nothing to attach, and
+' `--credentials forward` is then the ONLY route to the agent.
+'
+' AND "UNINJECTABLE" IS NOT "sbx CANNOT HOLD IT". `sbx secret set-custom` takes
+' any host and variable, and proveo already uses it for every provider sbx has no
+' built-in service for. It means the PROXY CANNOT ATTACH the value — which is a
+' statement about the credential's shape, not about the store's reach.
+'
+' CORRECTED 2026-09-16. This section used to read "signed requests — bedrock,
+' azure, vertex — SigV4 signs the whole request", which is true of ONE of the
+' three. They were measured, and the causes are different in ways that decide
+' how much work each needs:
+'
+'   bedrock   `AWS_ACCESS_KEY_ID` is a SigV4 SIGNING KEY. The signature is
+'             computed over each request from the secret, so no proxy
+'             substitution can produce one — this is the genuine mechanism
+'             limit, and the only one.
+'             `AWS_BEARER_TOKEN_BEDROCK` is a bearer token and WOULD broker.
+'             What stops it is the registry: the entry carries a region regex
+'             (`bedrock-runtime.<region>.amazonaws.com`) rather than host
+'             patterns `secret set-custom` accepts.
+'   vertex    `GOOGLE_APPLICATION_CREDENTIALS` names a FILE. The client reads
+'             the JSON and exchanges it for an OAuth token, so a placeholder in
+'             the variable is useless — and so is a reference that resolves to a
+'             VALUE. The file itself has to reach the sandbox, which is the one
+'             case B4's "host-resolvable reference" shape may not cover.
+'   azure     NOT A MECHANISM LIMIT. `AZURE_OPENAI_API_KEY` is a static
+'             `api-key` header on four known domains (`.openai.azure.com`,
+'             `.cognitiveservices.azure.com`, `.inference.ai.azure.com`,
+'             `.services.ai.azure.com`). Its registry entry simply has no
+'             `Hosts` or `Auth`. Filling those in moves azure to the brokered
+'             path and OUT of B4 entirely — so nobody should plan custody work
+'             for it. It is a registry gap wearing a constraint's clothes.
+'
+' AND THE FIX FOR ONE IS A TRAP FOR ANOTHER — measured in the tree, and the
+' reason the two bedrock variables cannot be rescued together. `providerOfVar`
+' computes `injectable = len(e.Hosts) > 0 && len(e.Auth) > 0`, and those fields
+' are per-ENTRY, not per-variable. The bedrock entry's `Detect` lists BOTH
+' `AWS_BEARER_TOKEN_BEDROCK` and `AWS_ACCESS_KEY_ID`. So adding Hosts and Auth
+' to rescue the bearer token marks the SIGNING KEY injectable in the same
+' stroke, and a signing key routed through the brokered path cannot work.
+' Whoever does the azure registry fix must not reach for bedrock's entry with
+' the same hand: it needs per-variable injectability first, or it needs the two
+' AWS variables split into separate entries.
 '
 ' AND forward CANNOT BE SERVED BY THE STORE. Read in the tree:
 '     func (c *ChildEnv) Add(name string, lookup func(string) string) {
@@ -260,6 +305,39 @@ skinparam noteTextAlignment left
 ' The alternative was refusing them on sbx outright. Rejected: it would drop
 ' bedrock, azure and vertex from the backend proveo is standardising on, to
 ' close an exposure the operator can already choose not to take.
+'
+' ── WHAT 72848db DID TO B4: IT IS NOW THE ONLY HOLE, NOT ONE OF SEVERAL ────
+' STILL DECIDED, STILL NOT BUILT, and implementation is DEFERRED by the
+' operator — recorded 2026-09-16 so the sharpening below is not read as a
+' start signal.
+'
+' `72848db` made sbx the only credential path: every INJECTABLE credential is
+' stored under the service id sbx's proxy authenticates by, and the agent's
+' environment gets none of them. The forward fall-through is unchanged —
+' `addSecret` asks `credentials.StoreName`, a `StoreUninjectable` kind falls
+' through to `addForward` (sandbox.go:543), and that emits a bare `-e NAME` so
+' sbx passes the host value into the VM.
+'
+' The consequence is what makes B4 worth more now than when it was decided. It
+' used to be one exposure among several; it is now the SINGLE remaining route by
+' which a real credential value enters a sandbox, and therefore the single
+' remaining hole in credential-boundary.puml's property. The reference
+' requirement is what closes it, and the set it has to close over is three
+' providers — two, if the azure registry gap is filled and it leaves B4.
+'
+' WHAT IS STILL UNDECIDED, and deliberately left so:
+'   * whether a forwarded credential should be VISIBLE in the run header as the
+'     weaker posture it is, and what that line says. A posture the operator
+'     cannot see is one they cannot choose against.
+'   * what a credentials FILE needs — a mount, its lifetime, whether a clone
+'     carries it. vertex is the case that needs more than a variable, and B4's
+'     decided shape does not obviously stretch to it.
+'   * whether azure should be split out of this plan entirely once its registry
+'     entry gains Hosts and Auth. It is listed here today only because the code
+'     cannot tell a registry gap from a mechanism limit.
+'   * whether `AWS_BEARER_TOKEN_BEDROCK` can reach `set-custom`, given
+'     the per-entry injectability trap above. If it can, this shrinks to two
+'     cases and vertex is the only hard one.
 '
 ' ── THE SMALLEST FIRST STEP, AND IT IS NOT A NEW MECHANISM ─────────────────
 ' `load_env` already refuses to source a dotenv when PROVEO_EGRESS_MODE names a
@@ -398,7 +476,7 @@ legend bottom
   ==
   **Not decided here**: where sbx keeps the bytes (Keychain or a daemon file — unmeasured,
   and it changes the threat model); whether a committed "".env"" should refuse a run; whether
-  ""load_env"" should source dotenvs at all, given the docker firewall tier and Blocker 4;
+  ""load_env"" should source dotenvs, given the docker firewall tier and Blocker 4;
   and what a Linux host uses before ""secret-service:"" exists — today ""cmd:"" and ""pass:"".
 end legend
 @enduml

@@ -284,36 +284,6 @@ func TestHasUsableAuthCountsProviderKeys(t *testing.T) {
 	}
 }
 
-// The sandbox refusal used to print claudecode's instructions whatever harness
-// hit it — a cursor run with no key was told to run `claude setup-token`.
-func TestSandboxRefusalSpeaksForTheHarnessItRefused(t *testing.T) {
-	t.Parallel()
-	cursor := SandboxAuthRefusal(cursorMan(), "cursor", "", lookupOf(nil))
-	switch {
-	case cursor == "":
-		t.Fatal("a cursor run with no credential at all was not refused")
-	case strings.Contains(cursor, "claude setup-token"), strings.Contains(cursor, "CLAUDE_CODE_OAUTH_TOKEN"):
-		t.Errorf("cursor was handed claudecode's instructions:\n%s", cursor)
-	case !strings.Contains(cursor, "CURSOR_API_KEY"):
-		t.Errorf("the refusal never names the credential to obtain:\n%s", cursor)
-	}
-	// Vendor-pinned: offering "export a provider key instead" would be a lie.
-	if strings.Contains(cursor, "ANTHROPIC_API_KEY") {
-		t.Errorf("cursor was offered a BYOK path its CLI does not have:\n%s", cursor)
-	}
-
-	oc := SandboxAuthRefusal(opencodeMan(), "opencode", "", lookupOf(nil))
-	if !strings.Contains(oc, "OPENCODE_API_KEY") || !strings.Contains(oc, "ANTHROPIC_API_KEY") {
-		t.Errorf("opencode's refusal names neither side of its choice:\n%s", oc)
-	}
-
-	// And it does not fire at all while something can authenticate.
-	if why := SandboxAuthRefusal(opencodeMan(), "opencode", "",
-		lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})); why != "" {
-		t.Errorf("refused a run that had a usable credential:\n%s", why)
-	}
-}
-
 // The same question, asked by the sbx login hint: a provider key the harness
 // can use means the sandbox is not credential-less.
 func TestSandboxLoginHintYieldsToAProviderKey(t *testing.T) {

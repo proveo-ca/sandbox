@@ -19,6 +19,7 @@ import (
 // The whole Claude in Chrome bridge minus the two ends that need a human: bytes
 // written by a client inside the container must come back through all five hops.
 func TestChromeBridgeCarriesTheHostSocketIntoTheContainer(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker container (TestChromeBridgeOnSbxReachesTheHostFromTheSandbox is the sbx sibling)")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not on PATH")
 	}

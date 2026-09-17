@@ -184,6 +184,7 @@ func TestSandboxBackendKitFlagPointsAtADirectory(t *testing.T) {
 }
 
 func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
+	skipOutsideSbx(t, "the docker+egress fallback")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
 	}
@@ -256,9 +257,12 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 				t.Fatalf("%s: Kit is not parseable YAML: %v\n%s", target, err, raw)
 			}
 
-			if kit.Kind != "mixin" {
-				t.Errorf("%s: kind=%q; a sandbox kind names an agent sbx does not know\n%s",
-					target, kit.Kind, raw)
+			wantKind := "mixin"
+			if sbx.DeclaresOwnAgent(target) {
+				wantKind = "sandbox" // no built-in sbx agent to mix into; the kit names its own
+			}
+			if kit.Kind != wantKind {
+				t.Errorf("%s: kind=%q, want %q\n%s", target, kit.Kind, wantKind, raw)
 			}
 			// SPEC-v2 types this as a string. An int is normalised on the way in, so
 			// the mistake survives validate and only shows up against a stricter reader.
@@ -266,10 +270,12 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 				t.Errorf("%s: schemaVersion=%q, want the string \"2\"\n%s",
 					target, kit.SchemaVersion, raw)
 			}
-			for _, c := range kit.Credentials {
-				t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
-					"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
-					target, c.Service, raw)
+			if !sbx.DeclaresOwnAgent(target) {
+				for _, c := range kit.Credentials {
+					t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
+						"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
+						target, c.Service, raw)
+				}
 			}
 			if builtin := sbx.BuiltinAgent(target); builtin != "" && kit.Name == builtin {
 				t.Errorf("%s: Kit name %q shadows the built-in agent; sbx refuses that outright",
@@ -542,6 +548,12 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
 	mustRun(t, work, "git", "config", "user.name", "proveo e2e")
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("boundary probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, work, "git", "add", "-A")
+	mustRun(t, work, "git", "commit", "-qm", "seed")
+	hostHead := strings.TrimSpace(mustOutput(t, work, "git", "rev-parse", "HEAD"))
 
 	before, canList := sbxSandboxNames()
 	if !canList {
@@ -601,25 +613,31 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 
 	const mark = "SBX-MOUNT-OK"
 	probe := "{ ls /var/run/docker.sock >/dev/null 2>&1 && echo HAS-SOCKET || echo NO-SOCKET; " +
-		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; } > " +
-		probeDocker + " 2>&1; printf %s " + mark + " > " + probeMount
-	if err := sess.SendText(probe); err != nil {
-		t.Fatalf("send probe: %v", err)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("send probe newline: %v", err)
+		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; }; " +
+		"printf 'AGENT_HEAD=%s\\n' \"$(git rev-parse HEAD 2>/dev/null || echo none)\"; " +
+		"printf %s " + mark + " > " + probeMount
+	pane, status := shellExec(t, sess, probe, 3*time.Minute)
+	if status != 0 {
+		t.Fatalf("%s: the boundary probe exited %d\n--- pane ---\n%s", target, status, pane)
 	}
 
-	// Claim 2 — the mount. The marker is written INSIDE the sandbox and read on
-	// the host, so its arrival is the bind working in the direction that matters.
-	w.until("the sandbox to write through the workspace mount", 3*time.Minute, func() bool {
-		return strings.Contains(readIn(work, probeMount), mark) &&
-			strings.TrimSpace(readIn(work, probeDocker)) != ""
-	})
+	// Claim 2 — the workspace. On the default (clone) plan nothing the agent writes
+	// reaches the host until teardown, so the reachable claim is that the tree it
+	// stands in is THIS workspace: same commit, from the run's own git daemon. Only
+	// a live bind can be asserted by a file arriving host-side.
+	if agentHead := paneValue(pane, "AGENT_HEAD="); agentHead != hostHead {
+		t.Errorf("%s: the sandbox stands on commit %q, want the workspace's %q — "+
+			"the clone did not come from this checkout", target, agentHead, hostHead)
+	}
+	if !strings.Contains(w.Screen(), "private clone") {
+		w.until("the sandbox to write through the workspace mount", 2*time.Minute, func() bool {
+			return strings.Contains(readIn(work, probeMount), mark)
+		})
+	}
 
 	// Claim 3 — the daemon. This is the whole point of `docker: sbx` now that it is
 	// the only way a harness gets one.
-	assertSandboxSuppliesDocker(t, target, strings.TrimSpace(readIn(work, probeDocker)))
+	assertSandboxSuppliesDocker(t, target, probeReport(pane))
 
 	// Claim 4 — teardown. Exit the shell rather than killing the pane, so the
 	// run's own `sbx rm` (VM + images + volumes) is what gets exercised.
@@ -646,12 +664,33 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	}
 }
 
-// probeMount / probeDocker are written by the sandbox into the mounted
-// workspace, so the assertions read host-side files rather than scraping a pane.
-const (
-	probeMount  = "SBX_MOUNT.txt"
-	probeDocker = "SBX_DOCKER.txt"
-)
+const probeMount = "SBX_MOUNT.txt"
+
+// SPEC: _spec/_experiments/docker-sandbox.puml
+func probeReport(pane string) string {
+	var keep []string
+	for _, line := range strings.Split(pane, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "HAS-SOCKET", line == "NO-SOCKET":
+			keep = append(keep, line)
+		case strings.HasPrefix(line, "SERVER:") && !strings.Contains(line, "printf"):
+			keep = append(keep, line)
+		}
+	}
+	return strings.Join(keep, "\n")
+}
+
+func paneValue(pane, key string) string {
+	for _, line := range strings.Split(pane, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, key) || strings.Contains(line, "rev-parse") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(line, key))
+	}
+	return ""
+}
 
 func promptReady(screen string) bool {
 	lines := strings.Split(screen, "\n")

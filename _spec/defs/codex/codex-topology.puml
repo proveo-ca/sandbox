@@ -1,5 +1,9 @@
 @startuml CodexTopology
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+' purpose: the codex def's resolved topology — the harness layer, the seeded $CODEX_HOME, the loop, and the container boundary
+' covers: defs/codex/**
+' covers: packages/lib/entrypoint-lib.sh
+'   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80
@@ -76,8 +80,22 @@ note right of Home
   This is why ""CODEX_HOME"" is deliberately NOT baked into the image.
   An absolute path frozen at build time resolves past the mount, back
   into the image's own home — and everything above is silently
-  discarded with the container. The entrypoint resolves it once, from
-  ""$HOME"", and exports it so the CLI and every helper agree.
+  discarded with the container. The entrypoint resolves it ONCE and
+  exports it, so the CLI and every helper agree.
+end note
+
+note as CodexHomeSeed #F4F9FB
+  **It resolves from the SEED's home, not from ""$HOME"" directly, and
+  the two are not always the same one.** ""proveo_seed"" finds its
+  destination through ""_proveo_agent_home"", which prefers
+  ""PROVEO_HOME"" — while under sbx a setup command runs as user "1000",
+  which resets ""HOME"" from ""/etc/passwd"".
+
+  A ""CODEX_HOME"" taken from the process's own ""HOME"" can therefore name
+  a directory the seed never wrote to, holding none of the config,
+  house rules or subagents just installed. That surfaces as a session
+  coming up with no setup and no error to explain it, which is
+  why the entrypoint warns when an inherited value disagrees.
 end note
 
 note bottom of Subagents

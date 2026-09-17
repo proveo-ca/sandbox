@@ -192,6 +192,48 @@ done
 description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
+[tasks.test-images-sbx]
+description = "Image + consumer CLI suites that test the sbx runtime (no mitmproxy sidecar, no docker-detached smoke)"
+dir = "{{config_root}}"
+# The shebang is load-bearing — see test-images. Guarded by
+# internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/stage-cli-cdn.sh
+tests=(
+  "apps/cli/public/cli/tests/run_tests.sh"
+  "defs/cecli/test.sh"
+  "defs/claudecode/test.sh"
+  "defs/codex/test.sh"
+  "defs/opencode/test.sh"
+  "defs/cursor/test.sh"
+)
+for test_script in "${tests[@]}"; do
+  printf '\\n==> %s\\n' "$test_script"
+  "$test_script"
+done
+"""
+
+[tasks.test-e2e]
+description = "Everything e2e up to tier 3, on the sbx runtime: image + consumer suites, then the Go agent suite (opt-in gates off; ~45m)"
+dir = "{{config_root}}"
+depends = ["test-images-sbx"]
+run = "scripts/go-test-coverage.sh e2e"
+
+[tasks.test-e2e-full]
+description = "test-e2e plus tier 4: the Go agent suite with idle, signal and toolchain gates on (150m ceiling), then the sbx ladder for every def. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
+dir = "{{config_root}}"
+depends = ["test-images-sbx"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+export PROVEO_IDLE_TEST=1 PROVEO_SIGNAL_TEST=1 PROVEO_TOOLCHAIN_TEST=1
+export PROVEO_TEST_GO_TIMEOUT="${PROVEO_TEST_GO_TIMEOUT:-150m}"
+scripts/go-test-coverage.sh e2e "$@"
+mise run ladder-all
+"""
+
 [tasks.ladder-all]
 description = "Climb the sbx ladder for every def (host only: needs sbx)"
 dir = "{{config_root}}"
@@ -199,7 +241,7 @@ dir = "{{config_root}}"
 # bash array. Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
 #
 # ONE CLIMB PER DEF, not one climb. PROVEO_LADDER_TARGET defaults to claudecode,
-# so a bare `-run Ladder` measures a quarter of the fleet — and ladder_test.go
+# so a bare `-run Ladder` measures a fifth of the fleet — and ladder_test.go
 # says the sbx fixes proved for claudecode were applied to cursor BY SYMMETRY,
 # not by measurement. A release gate that climbs once has one data point.
 #
@@ -215,7 +257,7 @@ dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -uo pipefail
-targets=(cecli claudecode cursor opencode)
+targets=(cecli claudecode codex cursor opencode)
 declare -a verdicts=()
 rc=0
 for t in "${targets[@]}"; do

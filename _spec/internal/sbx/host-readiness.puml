@@ -74,11 +74,34 @@ skinparam noteTextAlignment left
 '   Storage directories · Directory permissions · Disk space · Version match
 '   Socket · SSH client config · Authentication
 '
-' Several of those proveo never had at all. Its virtualisation hint names
+' Several of those proveo never had. Its virtualisation hint names
 ' nested virtualisation and VDI; proveo's paraphrase never did, and could only
-' have gone stale. `--json` yields `checks[]` of {name, status: pass|fail|skip,
-' detail, hint} — the same shape as proveo's own `Prereq`, so rendering sbx's
-' verdict costs a parse and no translation.
+' have gone stale. `-o json` yields `checks[]` of {name, status, detail, hint}
+' — the same shape as proveo's own `Prereq`, so rendering sbx's verdict costs a
+' parse and no translation.
+'
+' ── THE FLAG IS `-o json`: THE ONE SPELLING BOTH VERSIONS ACCEPT ──────────
+' Measured 2026-09-15 on both versions, because the answer differs by version.
+'
+'   v0.39.0   `diagnose --help` offers only
+'             `-o, --output string   Output format: "json" or "github-issue"`,
+'             and `diagnose --json` exits 1: `ERROR: unknown flag: --json`.
+'   v0.42.1   `diagnose --help` also lists
+'             `    --json            Output in JSON format (alias for
+'             --output json)`, and `diagnose --json` exits 0 with the payload.
+'
+' So `--json` on diagnose is a 0.42.x ALIAS for `--output json`, not a spelling
+' that always existed — and it did not exist at the old 0.39.0 floor, which is
+' the version the host was running when every sandbox test failed at once
+' behind a host proveo could not read. `-o json` is what BOTH versions accept,
+' which is why the code sends it, and it stays the right choice now that the
+' floor has risen to 0.42.0: it is the canonical spelling the alias points at.
+' Guessing the house style rather than reading the command's own help cost the
+' whole e2e suite one run.
+'
+' `status` has a FOURTH value the first reading missed: `warn`, which the real
+' binary returns for an available update. Only `fail` may block; treating warn
+' as failure would refuse every host running anything but the newest sbx.
 '
 ' `sbx setup` is NOT the home for this and was checked: its help promises to
 ' "prepare Docker Sandboxes", but it only imports agent secrets and configures
@@ -89,7 +112,7 @@ skinparam noteTextAlignment left
 '
 '   BlocksInstall  PROVEO'S. Conditions that decide whether downloading ~100 MB
 '                  is worth it, and that must be known BEFORE sbx exists to be
-'                  asked: the platform having no asset at all, and e2fsprogs —
+'                  asked: the platform having no asset, and e2fsprogs —
 '                  the release's install.sh checks for `mkfs.ext4` and exits 2
 '                  before copying a single file.
 '   BlocksRun      SBX'S. Asked via `DiagnoseAt` AFTER the install, rendered
@@ -133,7 +156,7 @@ actor "operator" as OP
 node "the host" as HOST <<host>> {
   component "proveo init — verify\nreportHostReadiness" as INIT <<app>>
   component "internal/sbx.Prereqs\nBlocksInstall + BlocksNothing only" as PRE <<app>>
-  component "<prefix>/bin/sbx diagnose --json\n12 checks, each with its own hint" as DIAG <<cloud>>
+  component "<prefix>/bin/sbx diagnose -o json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
   database "an sbx already installed\nthe operator's, whatever its version" as OWNED <<db>>
 }
 
@@ -185,6 +208,14 @@ note bottom of PKG
   human will use the tool. Docker treats its own
   ""docker"" group the same way, warned as
   granting "root-level privileges".
+end note
+
+note top of DIAG
+  **""-o json"" is what both floors accept.**
+  ""--json"" is a 0.42.x alias that a 0.39.0 host
+  rejected outright, and reading the house style
+  instead of the command's help left proveo
+  unable to parse any host for a whole suite run.
 end note
 
 note left of DIAG

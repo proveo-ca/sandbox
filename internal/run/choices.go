@@ -45,7 +45,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
 		Rows: applicableRows(
 			egressRow(man, p.Mode, sandboxOn),
-			axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, p.credentialsOrDefault()),
+			credentialsRow(man, p.credentialsOrDefault(), sandboxOn),
 		),
 	}
 	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
@@ -76,7 +76,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if !ok {
 		return fmt.Errorf("cancelled at the choice prompt")
 	}
-	if v := form.Selection("egress"); v != "" && !p.ModeSet {
+	if v := form.Selection("egress"); v != "" && !p.ModeSet && !sandboxOn {
 		p.Mode = v
 	}
 	if v := form.Selection("credentials"); v != "" && !p.CredsSet {
@@ -373,6 +373,25 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 	"`sbx policy reset && sbx policy init allow-all|balanced|deny-all`"
 
 var policyBaseline = sbx.PolicyBaseline
+
+// credentialsRow is the credentials axis.
+func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
+	r := axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, mode)
+	if !sandboxOn {
+		return r
+	}
+	// Brokering is PER HOST. Measured 2026-09-16: a cursor run reached
+	// api2.cursor.sh through the proxy 131 times and authenticated fine, while
+	// api3.cursor.sh and agentn.global.api5.cursor.sh went transparent and
+	// forward-bypass — no header attached — and the agent exited seconds after a
+	// model switch. Gating forward off made that unrecoverable, so it stays
+	// selectable and the cost of each route is stated instead.
+	r.Reason = "broker keeps the value in sbx's store and its proxy attaches the header outbound, " +
+		"so the agent never reads a credential — but only for the hosts that proxy covers, and an " +
+		"agent that talks to others loses auth there. forward puts the value in the agent's " +
+		"environment: weaker, and complete."
+	return r
+}
 
 func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
 	if !sandboxOn {

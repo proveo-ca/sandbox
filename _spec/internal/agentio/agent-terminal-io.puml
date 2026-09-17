@@ -34,7 +34,7 @@ skinparam noteTextAlignment left
 ' Tail retains the last 24 non-empty lines. It is a tee, not a filter: everything
 ' still reaches the destination untouched and only the retained copy is cleaned
 ' up for replay. The cleaning matters — a TUI's output is mostly escapes, and a
-' tail full of cursor moves is harder to read than no tail at all:
+' tail full of cursor moves is harder to read than no tail:
 '   * ANSI/OSC sequences stripped, remaining control bytes dropped (tab kept)
 '   * consecutive identical lines collapse — a redrawn status line is ONE line
 '   * an unterminated fragment is flushed on read, and capped at 8 KiB so a TUI

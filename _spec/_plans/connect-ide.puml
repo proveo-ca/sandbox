@@ -219,6 +219,6 @@ legend bottom
   on that status. #523 shows REMOTE attach is unestablished — closed, unanswered.
   --
   **Left open**: whether a Remote-SSH server writing itself into the image is acceptable
-  given nothing pins its version, and how devcontainer attach maps onto a microVM at all.
+  given nothing pins its version, and how devcontainer attach maps onto a microVM.
 end legend
 @enduml

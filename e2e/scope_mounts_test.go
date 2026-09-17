@@ -15,7 +15,8 @@ import (
 
 func TestScopeCarriesRootSpecDir(t *testing.T) {
 	const target = "opencode"
-	img := harnessImage(t, target)
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
 
 	for _, tc := range []struct {
 		mode  string
@@ -26,21 +27,23 @@ func TestScopeCarriesRootSpecDir(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			repo := newTempMonorepo(t)
-			args := []string{"run", "--rm"}
-			args = append(args, scopedMountArgs(t, target, repo, tc.scope)...)
-			args = append(args, "-w", "/app", "--user", hostUIDGID(t),
-				"--entrypoint", "bash", img, "-c", `
-[ -d /app/_spec ] || { echo "MISSING_SPEC_DIR"; exit 1; }
-grep -q x /app/_spec/c.puml || { echo "SPEC_UNREADABLE"; exit 1; }
-printf 'edited by the agent\n' > /app/_spec/written.puml || { echo "SPEC_READONLY"; exit 1; }
-rm -f /app/_spec/written.puml
-[ -d /app/apps/web ] || { echo "MISSING_SCOPE"; exit 1; }
-echo "SPEC_OK"`)
+			input := repo
+			if tc.scope != "" {
+				input = filepath.Join(repo, tc.scope)
+			}
+			sess := launchShell(t, proveoBin, target, input)
 
-			out, err := exec.Command("docker", args...).CombinedOutput()
-			s := string(out)
-			if err != nil || !strings.Contains(s, "SPEC_OK") {
-				t.Fatalf("%s scope cannot reach a writable _spec: %v\n%s", tc.mode, err, s)
+			script := `root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "NO_REPO_ROOT"; exit 1; }
+[ -d "$root/_spec" ] || { echo "MISSING_SPEC_DIR"; exit 1; }
+grep -q x "$root/_spec/c.puml" || { echo "SPEC_UNREADABLE"; exit 1; }
+printf 'edited by the agent\n' > "$root/_spec/written.puml" || { echo "SPEC_READONLY"; exit 1; }
+rm -f "$root/_spec/written.puml"
+[ -d "$root/apps/web" ] || { echo "MISSING_SCOPE"; exit 1; }
+echo "SPEC_OK"`
+
+			out, status := shellExec(t, sess, script, 60*time.Second)
+			if status != 0 || !strings.Contains(out, "SPEC_OK") {
+				t.Fatalf("%s scope cannot reach a writable _spec (exit %d):\n%s", tc.mode, status, out)
 			}
 		})
 	}
@@ -48,21 +51,17 @@ echo "SPEC_OK"`)
 
 func TestSubdirScopeOmitsUnmountedPaths(t *testing.T) {
 	const target = "opencode"
-	img := harnessImage(t, target)
+	requireHarness(t, target)
 	repo := newTempMonorepo(t)
+	sess := launchShell(t, buildProveo(t), target, filepath.Join(repo, "apps"))
 
-	args := []string{"run", "--rm"}
-	args = append(args, scopedMountArgs(t, target, repo, "apps")...)
-	args = append(args, "-w", "/app", "--user", hostUIDGID(t),
-		"--entrypoint", "bash", img, "-c", `
-[ -e /app/libs ] && { echo "LIBS_PRESENT"; exit 1; }
-[ -e /app/unmounted ] && { echo "UNMOUNTED_PRESENT"; exit 1; }
-echo "NARROWED_OK"`)
+	script := `[ -e libs ] && { echo "LIBS_PRESENT"; exit 1; }
+[ -e unmounted ] && { echo "UNMOUNTED_PRESENT"; exit 1; }
+echo "NARROWED_OK"`
 
-	out, err := exec.Command("docker", args...).CombinedOutput()
-	s := string(out)
-	if err != nil || !strings.Contains(s, "NARROWED_OK") {
-		t.Fatalf("a subdir scope must not carry unrelated repo paths: %v\n%s", err, s)
+	out, status := shellExec(t, sess, script, 60*time.Second)
+	if status != 0 || !strings.Contains(out, "NARROWED_OK") {
+		t.Fatalf("a subdir scope must not carry unrelated repo paths (exit %d):\n%s", status, out)
 	}
 }
 
@@ -103,30 +102,30 @@ func newTempWorktree(t *testing.T) (worktree string) {
 
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
-	img := harnessImage(t, target)
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
 	wt := newTempWorktree(t)
 
-	args := []string{"run", "--rm"}
-	args = append(args, workspaceMountArgs(t, target, wt)...)
-	args = append(args, worktreeEnvArgs(t, target, wt)...)
-	args = append(args,
-		"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-		"-w", "/app", "--user", hostUIDGID(t),
-		"--entrypoint", "bash", img, "-c", `
-source /entrypoint-lib.sh 2>/dev/null || true
-ensure_git_safe_directory "$PWD" >/dev/null 2>&1 || true
-grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
+	sess := launchShell(t, proveoBin, target, wt)
+	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "DIRTY: $(git status --porcelain | head -2)"; exit 1; }
+unexpected=$(git status --porcelain | grep -v '^?? CLAUDE\.md$' || true)
+[ -z "$unexpected" ] || { echo "DIRTY: $(printf '%s' "$unexpected" | head -2)"; exit 1; }
 proveo-entrypoint verify "$PWD" 2>/dev/null | grep -q . || { echo "NO_VERIFY_COMMANDS"; exit 1; }
 touch CLAUDE.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
 rm -f CLAUDE.md.probe
-echo "WORKTREE_OK"`)
+echo "WORKTREE_OK"`
 
-	out, err := exec.Command("docker", args...).CombinedOutput()
-	if s := string(out); err != nil || !strings.Contains(s, "WORKTREE_OK") {
-		t.Fatalf("worktree workspace unusable: %v\n%s", err, s)
+	out, status := shellExec(t, sess, script, 60*time.Second)
+	if status != 0 || !strings.Contains(out, "WORKTREE_OK") {
+		t.Fatalf("worktree workspace unusable (exit %d):\n%s", status, out)
+	}
+
+	seeded, _ := shellExec(t, sess, `git status --porcelain | head -5`, 30*time.Second)
+	if !strings.Contains(seeded, "?? CLAUDE.md") {
+		t.Errorf("claudecode left the worktree untouched, but its entrypoint seeds CLAUDE.md "+
+			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)
 	}
 }
 
@@ -134,7 +133,7 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 	t.Helper()
 	bin := buildProveo(t)
 	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", input, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_SBX=off")
+	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
@@ -149,6 +148,7 @@ func worktreeEnvArgs(t *testing.T, target, input string) []string {
 }
 
 func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
+	skipOutsideSbx(t, "a raw docker run of the entrypoint")
 	const target = "claudecode"
 	img := harnessImage(t, target)
 	wt := newTempWorktree(t)

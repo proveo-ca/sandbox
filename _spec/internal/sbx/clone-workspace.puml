@@ -11,6 +11,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/clone_test.go
 ' covers: internal/backend/sandbox/sandbox_test.go
 ' covers: e2e/clone_output_test.go
+' covers: e2e/git_access_test.go (hostCarriesCommit, hostRefLog)
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -32,6 +33,15 @@ skinparam noteTextAlignment left
 ' an error rather than a fallback, because it asked for a promise that cannot
 ' be kept.
 '
+' ── THE REGRESSION GUARD DRIVES THE REAL RUN ───────────────────────────────
+' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone
+' --shell` rather than the `sbx create --clone` it used to build by hand. What
+' it guards — the decideClone verdict, the dropped nested bind, the lift at
+' teardown — is then proveo's own assembly rather than a replica, and a replica
+' agrees with itself indefinitely while the run it stands in for moves.
+' TestCloneModeLandsTheCloneAndLiftsTheOutputDir already worked this way, so the
+' two now share one launch shape (_spec/tests/testing-strategy.puml).
+'
 ' ── NOTHING MAY BE MOUNTED UNDER THE REPOSITORY IN CLONE MODE ──────────────
 ' sbx clones only into an EMPTY workspace, and it mounts every positional
 ' workspace at its own host path. So an output dir nested under the repository
@@ -52,10 +62,35 @@ skinparam noteTextAlignment left
 ' `sbx rm` drops the clone with the VM and sbx's own guidance is to fetch or
 ' push before removing; an agent that stopped mid-edit has nothing to push.
 '
-' Then every branch is fetched into refs/proveo/<name>/. REFS, not a
+' Then every branch is fetched into refs/proveo/<sid>/. REFS, not a
 ' remote-tracking namespace: sbx removes its sandbox-<name> remote with the
 ' sandbox, and `git remote remove` deletes refs/remotes/<remote>/* with it.
 ' refs/proveo/ is proveo's own and outlives both.
+'
+' ── THE SANDBOX IS REUSED; THE REF NAMESPACE IS NOT ────────────────────────
+' These two keys look like one and are not. The SANDBOX is named for the def
+' and its workspace (`proveo-<target>-<workspace fingerprint>`) so a second run
+' re-attaches to the VM the first one built — `sbx run --name` reads the
+' workspace out of the existing sandbox's spec, which is why the workspace is
+' in the key: a different project under the same def must not inherit the
+' first one's mounts.
+'
+' The REFS stay keyed to the SESSION, because the fetch is a force fetch
+' (`+refs/heads/*`). A namespace as stable as the sandbox would have each run
+' overwrite the work the last one left on the host — the one thing this whole
+' path exists to preserve. CloneFetchArgs therefore takes both: the sandbox
+' names the remote, the session names the destination.
+'
+' ── EITHER DELIVERY ROUTE IS ARRIVAL, AND A TEST MUST ACCEPT BOTH ──────────
+' The two renderings put the agent's commit in different places, so a probe
+' asking "did the work reach the host" has to look in both. The DOCKER rendering
+' advances the mounted worktree's own HEAD as the agent commits; the SANDBOX
+' rendering commits inside a clone and lands nothing until teardown fetches it
+' into refs/proveo/<sid>/. `hostCarriesCommit` in e2e/git_access_test.go
+' therefore waits for the session to exit and then reads `git log --all
+' --glob=refs/proveo/*`. A `git log -1` on HEAD is a docker fact wearing a git
+' claim, and pinning the backend to make it true again is banned
+' (_spec/tests/testing-strategy.puml).
 '
 ' ── THE ONE LEG THAT COULD NOT WORK WHEN IT WAS NEEDED ─────────────────────
 ' The `sandbox-<name>` git remote is served by a DAEMON that lives only while
@@ -168,12 +203,20 @@ note bottom of CLONE
   there is an error, not a fallback.
 end note
 
+note as CLONEGUARD
+  **The guard launches the product it guards.**
+  A hand-built ""sbx create --clone"" agrees with
+  itself indefinitely, so the regression case
+  now exercises ""proveo run --clone --shell""
+  and reads the decideClone verdict it recorded.
+end note
+
 note bottom of NESTED
   **It failed SILENTLY, which is why the bind is
   dropped.** sbx clones only into an empty dir,
   so a nested mount arriving first left the agent
   in a root-owned directory holding nothing but
-  ""reports/"" and no clone at all.
+  ""reports/"" and no clone.
 end note
 
 note bottom of SNAP
@@ -197,6 +240,14 @@ note bottom of BUNDLE
   are filtered IN THE CONTAINER by ""git cat-file
   -e"", so an over-broad list is safe. Exit 4 means
   "nothing the host lacks" — a note, not a failure.
+end note
+
+note as DELIVERY
+  **Either route counts as arrival.** Docker moves
+  the mounted worktree's own HEAD; the sandbox
+  lands the work under ""refs/proveo/<sid>/"" at
+  teardown, so a probe reading ""log -1"" alone
+  asserts a docker fact dressed as a git one.
 end note
 
 note bottom of REFS

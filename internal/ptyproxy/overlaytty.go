@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/reviewgate/pty-review-proxy.puml
+// SPEC: _spec/internal/ptyproxy/pty-ownership.puml
 //go:build !windows
 
 package ptyproxy

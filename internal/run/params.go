@@ -1,8 +1,9 @@
-// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/egress/teardown-and-signals.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/policy-baseline.puml
 package run
 
 import (
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/egress"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -71,7 +72,7 @@ func (p *Params) applyCapabilities(c manifest.Capabilities) error {
 }
 
 func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
-	if !p.ModeSet && cached.Egress != "" {
+	if !p.ModeSet && egress.ValidMode(cached.Egress) {
 		p.Mode = cached.Egress
 	}
 	if !p.CredsSet && cached.Credentials != "" {

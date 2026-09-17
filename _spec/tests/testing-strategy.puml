@@ -11,6 +11,8 @@ title Testing strategy — four layers, speed traded for fidelity
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/*.sh
 ' covers: defs/sidecars/mitmproxy/test.sh
+' covers: e2e/preconditions_test.go (skipOutsideSbx)
+'   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (proveo_test_image, and why :latest could only
 ' ever mean "whatever the registry last published") is
@@ -57,7 +59,7 @@ title Testing strategy — four layers, speed traded for fidelity
 '    per-harness case. The old spelling matched nothing, so `eval ""` succeeded
 '    and the call died `command not found` (127) — which under `set -e` took the
 '    whole suite down after that phase. Every phase from Workspace onward never
-'    ran at all.
+'    ran.
 '
 ' ── AND ONE THAT REPORTED FAIL WHILE TESTING FINE ──────────────────────────
 ' The inverse shape, and it reads as a broken product rather than a broken test.
@@ -180,7 +182,7 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ── A FIFTH VACUOUS SHAPE: ZERO OF N, REPORTED AS ALL OF N ──────────────────
 ' The four above are bash. This one is Go, and the same shape. The two backends
 ' keep a secret out of the launch plan by different means: docker declares the
-' `proveo-brokered` sentinel in argv, while sbx puts nothing there at all and hands
+' `proveo-brokered` sentinel in argv, while sbx puts nothing there and hands
 ' values to `sbx secret set` on stdin. Read blind, an sbx plan satisfied the
 ' sentinel loop by containing no keys to check — zero of N, reported as "all
 ' forwarded". assertPlanIsolation now branches on isSbxArgv: on the docker branch
@@ -200,6 +202,134 @@ title Testing strategy — four layers, speed traded for fidelity
 '      deadAfter = 4.
 '   3. Always include exited containers (`docker ps -a`). "Started and died" and
 '      "never started" are different faults and look identical without it.
+'   4. Read proveo's OWN run log, and read it here. A session that dies early
+'      takes its PROVEO_HOME with it, because that home is a `t.TempDir()` the
+'      framework removes when the test ends — so the one artifact that says WHY
+'      is gone before anyone can open it, and the pane only carries what fit on
+'      screen before the process exited. `runLogTail` scrapes the path out of
+'      the run's own header line and tails the file while the directory still
+'      exists. That capture is the difference between "session exited before
+'      the agent shell" and a cause: it named the next two failures on the run
+'      it was added for, after three wrong guesses had been made without it.
+'      What the log holds, and why it is the record that outlives the terminal,
+'      is _spec/internal/runlog/run-transcript.puml.
+'
+' ── EITHER DELIVERY ROUTE COUNTS, AND THE SECOND ONE ARRIVES LATE ──────────
+' Three tests have now learned the same lesson, so it is stated once here. The
+' two renderings put the agent's work in different places: DOCKER advances the
+' mounted worktree the test can stat, while the SANDBOX clones by default, so
+' the agent writes and commits inside the clone and TEARDOWN fetches those
+' commits into refs/proveo/<sid>/ — the mounted directory never gains the file
+' (_spec/internal/sbx/clone-workspace.puml). A probe that checks only the mount
+' is asserting a docker fact, and pinning the backend to make it true again is
+' banned by the section below. The worktree case and the `-egress` container
+' cases were the first two; hello_world_test.go was the third, and reported "no
+' hello-world file on the host" for a run whose own transcript said
+' `Commit 261c544 feat: add HELLO_WORLD.txt`.
+'
+' Two follow-on faults are the part worth writing down, because accepting both
+' routes is not enough on its own:
+'   * THE FETCH LAGS THE PANE. The tmux session can disappear before teardown
+'     has finished writing the refs, so a single observation taken the moment
+'     the pane dies reads as "delivered by no route" on a run that then printed
+'     the refs it had written. The assertion polls a bounded while longer
+'     (PROVEO_TEST_TEARDOWN_TIMEOUT, 2 minutes) instead of asking once.
+'   * THE NAME AND THE BODY COME FROM ONE PLACE. Reading the file name from
+'     the refs and then the body off disk sets "found" for a file the host does
+'     not hold, and the marker assertion fails against an empty body — a
+'     delivery success reported as a corrupt deliverable. Whichever route
+'     answers returns both values together.
+'
+' ── A LAYER-4 CASE LAUNCHES THE PRODUCT, NOT A REPLICA OF IT ───────────────
+' Seven cases used to reassemble by hand what `proveo run` assembles itself: a
+' `sbx create -p <host>:9222` plus a manually started CDP relay and a manual
+' `sbx exec … agent-browser open`; a `docker run --entrypoint bash <img> -c
+' script` carrying the mounts, the workdir and the uid copied out of the run
+' path; a `sbx create --clone`. Each was a SECOND implementation of the thing
+' under test, and a second implementation drifts — the replica keeps reporting
+' success after the assembly it imitated has moved. Driving `proveo run
+' <target>` under tmux instead exercises choiceui, add-on selection and the
+' whole entrypoint chain as shipped.
+'
+' The conversion also DELETED work the scripts used to do for themselves. The
+' old bodies began `source /entrypoint-lib.sh; bridge_git_identity "$PWD"` or
+' `ensure_git_safe_directory "$PWD"; scope_git_worktree "$PWD"`, which is the
+' replica in miniature: the real entrypoint had already run all three before
+' the prompt appeared, so the manual call proved only that the function could
+' be invoked, never that the run invokes it.
+'
+' TWO SHARED HELPERS CARRY IT, and each earns its shape.
+'   launchShell — one `proveo run <target> --shell` under tmux, pinned to
+'     `--egress-mode open --credentials forward` with PROVEO_WIZARD=off and
+'     PROVEO_MOUNT_GH_CONFIG=0, returning only once the agent's own prompt
+'     appears. The posture is FIXED so a case asserting on workspace or git
+'     behaviour is not also asserting on egress. The BACKEND is not pinned —
+'     see the ban below — so the prompt it waits for is whichever backend the
+'     host resolves.
+'   shellExec — the script runs as a CHILD `bash -c` of the already-live
+'     interactive shell rather than as the shell itself, so an `exit 1` inside
+'     a probe reports a status instead of ending the session. It returns the
+'     pane plus that status, so bodies written for `docker run … -c script`
+'     keep their `strings.Contains` assertions unchanged.
+'
+' A SEEDED CHOICE, NEVER A DRIVEN CHECKBOX. Where a case needs an add-on on
+' ("browser", "claude-in-chrome"), it writes an agentsettings.Store into an
+' ISOLATED proveo home and lets the real choiceui form come up with the box
+' already ticked; acceptChoicePrompt then confirms it with one Enter, the same
+' pattern every other seeded-choice case uses. Navigating the picker's
+' checkboxes would make each of those cases a test of the form's key bindings
+' as well, and those have moved before.
+'
+' AND TWO CASES THAT MAY NOT CONVERT, named here so nobody converts them later:
+'   TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID mounts ONLY `.git` at
+'     /app/.git — no working tree, no real workspace — to reproduce git's
+'     "dubious ownership" abort under a uid mismatch. A real run always mounts a
+'     full workspace and never constructs that partial shape, so there is no
+'     launch to convert it into.
+'   TestClaudecodeEntrypointOperatesOnTheInputDir depends on PROVEO_SMOKE_TEST,
+'     a self-check built into entrypoint.sh that no `proveo run` flag reaches.
+' The rule the pair draws: a replica is legitimate exactly when it constructs a
+' shape the product cannot, and illegitimate when it merely re-spells one the
+' product already builds.
+'
+' Both are now SKIPPED as well, and the two rules stack rather than collide. They
+' may not convert, because no launch builds their shape; and they may not run,
+' because the shape they build by hand is a `docker run`. What survives is the
+' record of why each exists, which is the only part a reader ever needed — the
+' day either question comes back, it comes back on sbx.
+'
+' ── A PANE IS AN ECHO CHAMBER: NEVER WAIT ON TEXT YOU TYPED ────────────────
+' Measured 2026-09-15. shellExec typed `bash -c '<script>'; echo <marker>=$?` and
+' then waited for `<marker>=` as a plain substring. The pane shows INPUT as well
+' as output, so the wait was satisfied by the terminal's echo of the command —
+' the same instant it was sent, before bash ran a line of the script. The screen
+' it returned held only the typed line, whose trailing `=$?` parsed as no status,
+' and the -1 fallback dressed that up as an answer. Every tmux-driven test in the
+' suite failed at once, each blaming the thing it was probing: git unwritable in
+' all five harnesses, no scope mode usable, no worktree usable, docker access
+' missing everywhere. One broken probe, thirty-odd false verdicts, and nothing in
+' the output pointing at the probe.
+'
+' Three rules, and the second is why this took a whole suite to notice:
+'   5. A completion marker must be UNSPELLABLE by the input that requests it.
+'      `echo '<head>''<tail>'=$?` keeps the quote characters between the halves on
+'      the typed line and leaves the shell's echo the only place the marker
+'      appears whole. clone_output_test.go already knew this — it matches its
+'      probe's answer by shape at column 0 "because the shell echoes the command
+'      first" — so the knowledge existed and the shared helper did not have it.
+'   6. A probe that cannot read its own answer must FAIL, not return a sentinel.
+'      `status := -1` made a broken probe indistinguishable from a command that
+'      ran and failed. markerStatus returns (int, bool) and shellExec fatals on
+'      false, so the next time this breaks it says so in one line.
+'   7. A FIXED SLEEP IS A TIMING ASSUMPTION ABOUT ONE BACKEND, so wait on the
+'      marker instead. TestAgentSettingsPersistAcrossRuns slept 4s for the shell
+'      and 2s for the answer; both were long enough on the docker rendering and
+'      neither was on the sandbox one, so the pane was captured holding the
+'      typed line and no answer. An empty tier read as a cache that had failed
+'      to re-enter — the test accused the mechanism it exists to protect. It
+'      now waits through waitForContainerShell and shellExec, which return when
+'      the agent has actually answered rather than when a clock says it should
+'      have.
 '
 ' A credential the AGENT cannot spend is a condition of the host, not a defect, so
 ' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
@@ -208,16 +338,27 @@ title Testing strategy — four layers, speed traded for fidelity
 ' `invalid x-api-key`, `invalid api key` — because broadening it to any early exit
 ' would let a real adapter defect leave as a skip.
 '
-' Two waits carry the same reasoning. waitForContainerShell treats the container
+' Two waits carry the same reasoning. waitForContainerShell treats the agent
 ' prompt as the signal that the WHOLE topology came up — sidecars, networks, CA
 ' trust — because proveo only hands the PTY over once the container is running, so
 ' anything failing earlier fails HERE with the scrollback attached rather than as a
-' confusing timeout further down. It matches ":/app$" (or "#"), not "$ ": tmux trims
-' trailing whitespace, so a space-suffixed match never fires. /app is the one shared
-' workdir; /workspace stays accepted only so an older image does not fail the wait.
-' Both are DOCKER mount points — a sandbox run mounts a workspace at its own host
-' path, so a caller that has not pinned PROVEO_SBX=off waits out its deadline for a
-' prompt that cannot appear. acceptChoicePrompt anchors on the key hint
+' confusing timeout further down. It matches the PROMPT'S SHAPE, `…@host:workdir`
+' followed by `$` or `#` at end of line, never a literal workdir, and never "$ ":
+' tmux trims trailing whitespace, so a space-suffixed match never fires.
+'
+' Matching a literal ":/app$" was the whole reason seven tests read as hung.
+' Measured 2026-09-15 across one run, both backends draw a prompt and neither is
+' wrong:
+'
+'   docker   `I have no name!@8101a68d15b5:/app$`
+'   sandbox  `claude@proveo-1789458382-46514:003$`
+'            `opencode@proveo-1789459221-51842:001$`
+'
+' sbx runs the shell with the workspace at its own host path, so bash renders the
+' BASENAME — `001`, `003` — and a matcher looking for the string "/app" cannot
+' fire however long it waits. The prompts were on screen the entire time; four
+' OpenCodeAuth legs each burned a 4-minute deadline staring at one.
+' acceptChoicePrompt anchors on the key hint
 ' ("enter accept", 90s) rather than the form's title: the title is copy, it has been
 ' reworded once, and that reword broke a test that waited on it.
 '
@@ -228,6 +369,31 @@ title Testing strategy — four layers, speed traded for fidelity
 ' `proveo.egress.session` label have accumulated; below that the risk outweighs the
 ' benefit and the suite-level clean handles it.
 '
+' ── AND SANDBOXES ARE SHARED STATE NEITHER KEY SWEEPS ──────────────────────
+' Measured 2026-09-15. This is the INTERACTION of two decisions, neither wrong on
+' its own. A sandbox is named for its def AND its workspace
+' (_spec/internal/sbx/sandbox-backend.puml) so that a second run re-attaches
+' instead of building another VM — and this suite hands every test its own
+' `t.TempDir()` workspace. Def+workspace keying therefore yields NO reuse here:
+' each test still builds a VM of its own, and the saving the key exists for is
+' exactly the saving a suite cannot collect.
+'
+' sbx sizes an undeclared sandbox at half the HOST rather than half of what is
+' left (the Memory note in sandbox-backend.puml), so a handful alive at once
+' oversubscribes the machine. A 48 GiB host went OOM, the kernel killed the test
+' binary 108 assertions in, and 19 sandboxes survived the process that made them.
+' The suite reported a truncated run, not a resource fault.
+'
+' `sweepSandboxesAfter` closes it, hooked into `harnessImage` so every case that
+' resolves a harness gets it. Three properties, each deliberate:
+'   * it removes only names ABSENT when the test started, so an operator's own
+'     sandboxes and a sibling test's are left alone;
+'   * it is registered BEFORE the tmux session's Kill, because cleanups run LIFO
+'     and the session has to die before the VM underneath it;
+'   * its failures are IGNORED, since proveo's own teardown already removes most
+'     of these and a sweep that reddens a passing test is worse than the leak it
+'     was added to prevent.
+'
 ' ── THE ENVIRONMENT A SUITE HANDS ITS CHILD ─────────────────────────────────
 ' Three traps, all of which present as "the session started and printed nothing":
 '   * env(1) on BSD/macOS requires every -u option BEFORE any NAME=value operand,
@@ -237,14 +403,124 @@ title Testing strategy — four layers, speed traded for fidelity
 '     silently falls back to /var/run/docker.sock and every docker call — starting
 '     with the image pull — hangs. Pin the endpoint explicitly: dockerHost reads
 '     $DOCKER_HOST, else `docker context inspect`.
-'   * An isolated HOME is also what makes driving the choice prompt deterministic.
-'     A shared HOME would leak into the developer's real settings AND skip the
-'     prompt on every later run.
-' PROVEO_SBX=off belongs in the same list wherever a test inspects proveo's OWN
-' egress topology — the "-egress" container and the broker.env bind-mounted into
-' it. claudecode takes the sandbox backend wherever sbx is installed, and sbx brings
-' its own credential proxy instead, so unpinned there is no egress container to find
-' and the probe burns its 120s timeout before failing for an unrelated reason.
+'   * ISOLATE PROVEO_HOME, NOT HOME, when what the test needs is proveo's own
+'     settings out of the way. HOME is where every OTHER tool on the host keeps
+'     its state as well, and sbx is one of them: overriding it moves sbx's own
+'     state directory, and the run then dies at `sbx template load` against a
+'     store it cannot see — reported, like every early death on this backend, as
+'     "session exited before the agent shell". Measured 2026-09-15 on
+'     TestAgentSettingsPersistAcrossRuns, which had isolated HOME since it was
+'     written and only broke when the sandbox backend became the default. The
+'     docker-endpoint trap above is the same shape, and PROVEO_HOME avoids it
+'     too. What still needs a whole isolated HOME — a harness CLI's own config —
+'     must pin DOCKER_HOST alongside it.
+'   * An isolated proveo home is also what makes driving the choice prompt
+'     deterministic. A shared one would leak into the developer's real settings
+'     AND skip the prompt on every later run.
+' ── sbx IS THE RUNTIME UNDER TEST; NOTHING ELSE IS A SUBJECT ───────────────
+' THE GOVERNING RULE, and it decides every question below it: anything mitm or
+' egress outside sbx is neither tested nor a factor, and any test that does not
+' test sbx is SKIPPED. Decided 2026-09-15, and a decision about scope rather
+' than a finding about a defect — the docker rendering is not broken, it has
+' stopped being something this suite makes claims about.
+'
+' What still EXISTS in the product and is no longer a test subject: the
+' mitmproxy egress sidecar and its broker.env, the `-egress` container, the
+' review-tier consent gate, raw `docker run` replicas of a launch, and the
+' docker+egress fallback itself.
+'
+' THEIR DIAGRAMS ARE NOW RETIRED TOO, and that is a second decision rather than a
+' consequence of this one. Dated 2026-09-16: "sbx deprecated these egress
+' mechanisms, retire them." This block used to end "the product statements about
+' those live in _spec/internal/egress/** and _spec/internal/egresspolicy/**, and
+' they remain true", and that sentence was the over-inference — a reader landing
+' on egress-tiers.puml could not tell that the tier it describes is no longer the
+' rendering proveo tests or leads with, and egress-tiers listed e2e/review_tier
+' _test.go as its coverage for a case that now always skips. So the six diagrams
+' of the docker mechanism were deleted rather than left standing with no proof:
+'   _spec/internal/egress/egress-tiers.puml · teardown-and-signals.puml
+'   _spec/internal/egresspolicy/** (four files)
+'   _spec/internal/broker/off-route-stripping.puml
+'   _spec/internal/reviewgate/pty-review-proxy.puml · transport-portability.puml
+' The code they documented still ships. A diagram retired here is retired because
+' its MECHANISM is deprecated, not because it was a plan that shipped.
+'
+' WHAT DID NOT DIE WITH THEM, and where it went:
+'   the tier vocabulary open|allowlist|review, which the CLI still accepts
+'                       . _spec/internal/sbx/policy-baseline.puml
+'   the credential boundary — inject on route, strip off it, sentinel in the
+'   container . _spec/_paradigms/credential-boundary.puml
+'   who brokers on sbx . _spec/internal/sbx/credential-path.puml
+'   the PTY mechanics, which internal/backend/sandbox still uses on every
+'   interactive sbx run . _spec/internal/ptyproxy/pty-ownership.puml
+' Only the docker-mechanism story — the Squid hop, the DLP layers, the CONNECT
+' consent gate, the sidecar teardown order — went with the files.
+'
+' WHAT THE RULE TOOK, named so nobody restores one by accident:
+'   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
+'                         _all_keys · ProjectDotEnvAtEgressLayer
+'   a live container .... ProveoHomePersistence/live_shell_roundtrip and
+'                         /live_resume_roundtrip
+'   sidecar teardown .... SIGINTTearsDownEgressSidecars
+'   the consent gate .... ReviewTierConsentGate
+'   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
+'   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent
+'   raw docker replicas . GitRunsWhenWorktreeOwnerDiffersFromRunAsUID ·
+'                         ClaudecodeEntrypointOperatesOnTheInputDir ·
+'                         toolchain's runLib · ToolchainLibIsCurrentInEveryHarness
+'
+' AND ONE THAT STAYS, because the distinction is the rule's edge:
+' TestCursorEgressException asserts a CLI REFUSAL CONTRACT through `--print` —
+' that an unsupported axis is declined naming what IS allowed. That is a claim
+' about the command surface, which both renderings share, and it costs no
+' container. A test is a docker subject when the RENDERING is what it reads,
+' not when the word "egress" appears in it.
+'
+' SKIPPED, NOT DELETED, and the distinction carries the whole rule. A skipped
+' case keeps the record of what it measured and why, so the day sbx cannot
+' answer a question the docker lane once answered, the probe is still written.
+' A deleted one takes that with it. `skipOutsideSbx(t, subject)` is the first
+' line of each, and it names the subject in the skip text, so `go test -v`
+' prints a scope decision rather than an unexplained gap — the same standard
+' the prerequisite skips above are held to. The suite's own standards doc,
+' e2e/go-testing-standards.md, is where the rule is stated for the people
+' writing these tests; this block is why it holds.
+'
+' The sweep narrows with it: `mise run test-e2e` drops
+' e2e/docker-detached-smoke.sh and defs/sidecars/mitmproxy/test.sh, and the
+' Layer-3 egress integration task (`test-go-integration`) stays outside it —
+' Layer 3 is where the egress topology is still exercised, deliberately, by a
+' task nobody runs on the PR path.
+'
+' ── AND SO PROVEO_SBX=off IS BANNED, WHICH IT ALREADY WAS ──────────────────
+' The ban predates the rule and is now a consequence of it. No e2e test may pin
+' the backend off. The pin was introduced so a probe could inspect the docker
+' rendering — the "-egress" container, the broker.env bound into it, a mount
+' table — without waiting out a timeout on a host where sbx takes the run. It
+' worked, and that was the problem: on a host with sbx installed, the backend
+' the OPERATOR gets was the one rendering nothing asserted. The suite certified
+' a shape the machine does not run.
+'
+' The rule above answers that by removing the reason to reach for the pin at
+' all. Where a case survives because its subject is not the rendering, two
+' techniques still apply, and they are now refinements rather than a ladder:
+'   1. Assert the BEHAVIOUR, not the rendering. "git history is writable from
+'      inside the harness" is a claim about the harness and holds on sbx;
+'      "tracked.txt from the host mount is committable" holds only under
+'      docker, because sbx clones committed history and the untracked file
+'      never crosses. The second is a docker fact wearing a git claim —
+'      rewrite the probe to create its own file and the claim is about the
+'      harness again.
+'   2. BRANCH on what the run resolved, the way assertPlanIsolation branches on
+'      isSbxArgv. A plan scraper that finds no `docker run` has scraped a
+'      sandbox plan; read that plan instead of failing. Note what the rule did
+'      to that branch: `--print` renders whichever backend resolves, so the
+'      DOCKER arm now fires only on a host that cannot run sbx. It is
+'      kept because that host is real, not because the arm is exercised here.
+' The third technique this list used to carry — skip on the other rendering
+' where a mechanism exists in one only — is not a technique any more. It is
+' the default, and the governing rule states it.
+'
 ' Where the provider must be detected from a workspace .env alone, the test unsets
 ' every provider Detect variable but PRESERVES infrastructure ones such as
 ' DOCKER_HOST, which may point at a remote daemon.
@@ -252,29 +528,37 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ── WHAT THE CREDENTIAL SUITE ASSERTS, AND OVER WHAT VALUES ─────────────────
 ' Every value is random per run (`tst_` + 24 random bytes, hex), so no real secret
 ' is involved and a leak is unambiguous; a mismatch is reported as sha256 prefix +
-' length, never by printing the key. Two complementary halves:
+' length, never by printing the key. Two complementary halves, and the sbx-only
+' rule above cut between them rather than through either:
 '   * isolation (every agent, deterministic) — one `--print` subtest per agent. The
 '     dry-run builds the agent's docker command through the exact same env code path
-'     as a real run, so it is faithful and needs no containers.
+'     as a real run, so it is faithful and needs no containers. STILL RUNS: its
+'     subject is the env code path, not the rendering that consumes it.
 '   * egress integrity (live) — one firewall run whose broker.env, bind-mounted into
 '     the egress-proxy, must receive each key byte-for-byte. broker.env is
-'     agent-independent, so one agent proves the path.
+'     agent-independent, so one agent proves the path. NOW SKIPPED: broker.env and
+'     the egress-proxy are the docker rendering, and nothing in an sbx run
+'     produces either. The probe is kept because what it measures is still worth
+'     measuring the day anyone asks the question again.
 ' claudecode drives the live half, not cursor: cursor declares capabilities
 ' egress:[open] credentials:[forward], so it has no MITM and therefore no broker at
 ' all. claudecode declares providers:[anthropic], which narrows the detected set to
 ' one — and that is precisely what ARMS the broker; with every key detected the
 ' broker refuses to pin and there is no broker.env to inspect.
-' cursor's exception is asserted separately, and as declared capabilities rather
-' than a target-name special case: the default forwards the REAL key as a bare
+' cursor's exception is asserted separately and STILL RUNS, because it reads a
+' refusal on the command surface through `--print` rather than a rendering. It is
+' declared capabilities rather than a target-name special case: the default
+' forwards the REAL key as a bare
 ' `-e CURSOR_API_KEY`, with no sentinel and no --internal network, and an explicitly
 ' requested unsupported axis is REFUSED naming what IS allowed ("does not support
 ' --egress-mode allowlist (allowed: open)") — not silently rewritten, and no longer
 ' a warn-and-continue that hands over a dead sentinel.
 ' The project-.env variant proves the same boundary from the other end: a key that
 ' exists ONLY in the workspace .env reaches the egress sidecar byte-for-byte while
-' the agent sees the sentinel and an EMPTY /app/.env. It runs against a lightweight
-' probe image (ubuntu:24.04) so the credential path does not depend on any agent
-' CLI's release or install state.
+' the agent sees the sentinel and an EMPTY /app/.env. It ran against a lightweight
+' probe image (ubuntu:24.04) so the credential path did not depend on any agent
+' CLI's release or install state. NOW SKIPPED with the live half, and for the same
+' reason — the egress sidecar it reads is the docker rendering.
 '
 ' ── WHY SOME LAYER-4 CASES HAVE NO CONTAINER AT ALL ─────────────────────────
 ' `proveo init --print` is the one mode that must be safe on any host: it resolves
@@ -327,11 +611,27 @@ note right of L2
 end note
 
 note right of L4
-  **Know which rendering an assertion reads.**
-  Two backends render one launch, so a docker-only
-  expectation applied to both stays red on the
-  sandbox; and a restated image tag stops matching
-  the container the day the tag policy moves.
+  **sbx is the runtime under test.** Two backends
+  render one launch and only one is a subject, so
+  a case reading the docker rendering skips and
+  names itself; a restated image tag still stops
+  matching the day the tag policy moves.
+end note
+
+note as SBXONLY
+  **Scope, not a defect.** The mitmproxy sidecar
+  and the docker fallback still ship; no assertion
+  here stands behind them, because a rendering the
+  operator never receives cannot certify the
+  runtime the operator does receive.
+end note
+
+note as SKIPNOTDELETE
+  **Skipped preserves the question; deleted
+  discards it.** Each retired probe keeps the
+  shape it measured and announces its subject in
+  the skip, so a scope decision reads as a
+  decision rather than an unexplained gap.
 end note
 
 note right of L3
@@ -343,13 +643,11 @@ note right of L3
 end note
 
 note right of L4
-  Two suites, different credentials:
-  * ""e2e_test.go"" — local model (Ollama), opencode,
-    broker mode; keyless and CI-honest
-  * ""hello_world_test.go"" — cloud model, all three
-    targets, firewall + credential broker
-  Both assert **side effects on the host**, never the
-  model's prose. See 42-hello-world-e2e.puml.
+  **Two lanes, keyless.** ""e2e_test.go"" runs
+  opencode on a local Ollama model and
+  ""hello_world_test.go"" runs all three targets
+  on one, supplying no provider credential.
+  Both assert side effects, not the model's prose.
 end note
 
 note bottom of COV
@@ -410,9 +708,49 @@ end note
 
 note as VACUOUS5
   **Zero of N reads as all of N.** An ""sbx"" plan
-  carries no key in argv at all, so a blind sentinel
+  carries no key in argv, so a blind sentinel
   loop checked nothing and reported success. The
   docker branch now fails when it declared no key.
+end note
+
+note as REALLAUNCH
+  **Drive the product, not a replica of it.**
+  Seven cases reassembled the mounts, the relay
+  and the clone that ""proveo run"" constructs
+  itself, so a replica could keep reporting
+  success after the assembly it imitated moved.
+end note
+
+note as SHELLHELPERS
+  **The probe is a child; the posture is pinned.**
+  shellExec executes each script as a child
+  ""bash -c"", so an internal ""exit"" reports a
+  status instead of terminating the interactive
+  session; launchShell fixes the egress posture.
+end note
+
+note as SEEDEDCHOICE
+  **Seed the choice; never drive the checkboxes.**
+  An isolated agentsettings.Store brings the real
+  form up already ticked, so a case asserting on
+  an add-on is not simultaneously asserting on
+  the picker's key bindings, which have moved.
+end note
+
+note as NOREPLICA
+  **A replica is legitimate only for a shape the
+  product cannot build.** One case mounts a bare
+  "".git"" to provoke a dubious-ownership abort
+  and another depends on PROVEO_SMOKE_TEST, which
+  no ""proveo run"" flag reaches; both stay raw.
+end note
+
+note as SANDBOXSWEEP
+  **Two sound keys, one leak.** Def+workspace
+  naming buys reuse an operator wants, but every
+  test here owns a fresh ""t.TempDir()"", so each
+  builds its own VM at half the host — 48 GiB
+  went OOM and nineteen sandboxes outlived it.
 end note
 
 note as PREREQ
@@ -428,6 +766,38 @@ note as DIAGNOSE
   running' and hides the exit output. Only 4 empty
   captures in a row mean dead, and ""docker ps -a""
   separates 'started and died' from 'never started'.
+end note
+
+note as DELIVERYROUTES
+  **Both routes deliver; the sandbox delivers
+  late.** Teardown writes the agent's commits to
+  ""refs/proveo/<sid>/"" after the tmux session
+  has gone, so an assertion taken at that moment
+  finds nothing and blames the product.
+end note
+
+note as RUNLOGCAP
+  **Capture proveo's own log before the temporary
+  home disappears.** That file is the sole account
+  of an early termination the pane could not
+  retain, and the framework removes the directory
+  containing it when the test finishes.
+end note
+
+note as NOSLEEP
+  **A fixed sleep encodes one backend's timing.**
+  Four seconds for the shell and two for the
+  answer satisfied the docker rendering but not
+  the sandbox, so an empty capture was reported
+  as a persistence failure in the choice cache.
+end note
+
+note as PROVEOHOME
+  **Isolate PROVEO_HOME, not HOME.** Overriding
+  HOME relocates every other tool's state
+  directory as well, and sbx is one of them: the
+  run then dies at ""sbx template load"" against a
+  store it cannot see, reported as an early exit.
 end note
 
 note as TAGPICK

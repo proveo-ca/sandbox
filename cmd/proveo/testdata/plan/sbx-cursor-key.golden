@@ -1,5 +1,5 @@
 == sbx argv ==
-sbx run --name proveo-sid --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e MCP_GATEWAY_URL= cursor <WORK>
+sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e MCP_GATEWAY_URL= cursor <WORK>
 == secret names ==
 == kit spec.yaml ==
 schemaVersion: "2"
@@ -18,6 +18,7 @@ permissions:
 environment:
     variables:
         GIT_AUTHOR_NAME: Executor
+        GIT_DISCOVERY_ACROSS_FILESYSTEM: "1"
         HOME: /proveo-home
         MCP_GATEWAY_URL: ""
         PROVEO_AGENT_EVIDENCE: default
@@ -30,3 +31,9 @@ setup:
             - cursor
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
+        - command:
+            - /usr/bin/env
+            - PROVEO_SEED_ONLY=1
+            - /entrypoint.sh
+          user: "1000"
+          description: 'proveo: the def''s own wiring, launch skipped'

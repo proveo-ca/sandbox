@@ -93,7 +93,7 @@ func TestOwnAgentChangesIdentityAndNothingElse(t *testing.T) {
 	}{
 		{"permissions", own.Permissions, mixin.Permissions},
 		{"environment", own.Environment, mixin.Environment},
-		{"setup", own.Setup, mixin.Setup},
+		{"setup", own.Setup, withoutSeedEntrypoint(mixin.Setup)},
 	} {
 		if got, want := yamlOf(t, blk.own), yamlOf(t, blk.base); got != want {
 			t.Errorf("%s changed with the kind: got %q, want %q", blk.name, got, want)
@@ -465,4 +465,20 @@ func TestEveryTargetFollowsItsHarnessAgent(t *testing.T) {
 			})
 		}
 	}
+}
+
+func withoutSeedEntrypoint(setup *sbx.KitSetup) *sbx.KitSetup {
+	if setup == nil {
+		return nil
+	}
+	out := *setup
+	out.Startup = nil
+	want := sbx.SeedEntrypointCommand()
+	for _, c := range setup.Startup {
+		if c.Description == want.Description {
+			continue
+		}
+		out.Startup = append(out.Startup, c)
+	}
+	return &out
 }

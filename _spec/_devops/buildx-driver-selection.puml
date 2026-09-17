@@ -115,7 +115,7 @@ note bottom of DNS
   ""Could not resolve"" for a resolver that //answered// negatively
   (""EAI_NONAME"": split-horizon or VPN DNS, a container-DNS shim with no
   upstream) and ""Temporary failure resolving"" when there is no reachable
-  resolver at all (dropped forwarding, no nameserver). Only the second
+  resolver (dropped forwarding, no nameserver). Only the second
   points at ""net\.ipv4\.ip_forward"" or a firewalld zone.
 
   Recreating the builder re-reads ""resolv\.conf"":

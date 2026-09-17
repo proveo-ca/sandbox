@@ -14,7 +14,9 @@ import (
 const Binary = "sbx"
 
 // MinVersion is the oldest sbx whose CLI surface this package targets.
-const MinVersion = "0.39.0"
+const MinVersion = "0.42.0"
+
+const VersionJSONSince = "0.42.0"
 
 var (
 	lookPath  = exec.LookPath
