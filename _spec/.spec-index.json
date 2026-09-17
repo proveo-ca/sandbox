@@ -228,6 +228,18 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_paradigms/resource_management.puml",
+      "covers": [
+        "internal/sbx/limits.go",
+        "internal/sbx/sbx.go",
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/memory_evidence_test.go",
+        "e2e/capacity_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_paradigms/runtime-user-boundary.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
@@ -283,6 +295,11 @@
     },
     {
       "spec": "_spec/_plans/connect-ide.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/enhancements.puml",
       "covers": [],
       "fingerprint": null
     },
@@ -1344,6 +1361,7 @@
       "covers": [
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/lsp_config_parity_test.go",
+        "internal/contract/seed_abort_test.go",
         "internal/sbx/kit.go"
       ],
       "fingerprint": null

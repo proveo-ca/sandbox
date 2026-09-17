@@ -1,0 +1,164 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: describe sbx resource defaults, then define a blank-slate proveo capacity model for about four agents
+' covers: internal/sbx/limits.go
+' covers: internal/sbx/sbx.go
+' covers: internal/run/run.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/memory_evidence_test.go
+' covers: e2e/capacity_test.go
+' current evidence: _spec/minimum_requirements.puml
+' related lifecycle: _spec/internal/sbx/kit-lifecycle.puml
+' status: current defaults measured on sbx v0.42.x; proveo capacity manager proposed 2026-09-17
+title Resource management — sbx defaults first;\nthen a four-agent proveo capacity model
+
+package "CURRENT — sbx owns each guest independently" as CURRENT {
+  node "host\nRAM · logical CPUs" as HOST <<host>>
+  component "sbx sandbox A\n**50% host RAM, fixed at boot**\n**all host CPUs**\n**no swap**" as SBXA <<cloud>>
+  component "sbx sandbox B\nsame independent defaults" as SBXB <<cloud>>
+  component "sbx sandbox C\nsame independent defaults" as SBXC <<cloud>>
+  component "sbx sandbox D\nsame independent defaults" as SBXD <<cloud>>
+  component "agent + Kit startup + nested Docker\nshare one guest budget" as LOAD <<app>>
+  component "OOM cliff\nprocess cannot fork · guest/session stops" as OOM <<error>>
+
+  HOST ARROW_MAIN SBXA
+  HOST ARROW_MAIN SBXB
+  HOST ARROW_MAIN SBXC
+  HOST ARROW_MAIN SBXD
+  SBXA ARROW_MAIN LOAD
+  LOAD ARROW_ERROR OOM
+}
+
+package "BLANK SLATE — proveo manages host capacity" as FUTURE {
+  component "1 · discover host capacity\nRAM · CPUs · existing proveo leases" as DISCOVER <<app>>
+  component "2 · reserve host headroom\nnever offer 100% to guests" as RESERVE <<app>>
+  database "host-wide lease ledger\nsandbox · profile · RAM · CPUs · phase" as LEDGER <<db>>
+  component "3 · classify the requested run\nlite · standard · heavy · explicit" as PROFILE <<app>>
+  component "4 · admission decision" as ADMIT <<choice>>
+  queue "wait with reason\nand estimated requirement" as WAIT
+  component "5 · prepare before attach\nrestore · dependencies · wiring" as PREPARE <<async>>
+  component "6 · attach the agent\nonly after preparation completes" as ATTACH <<app>>
+  component "7 · observe and account\npeak · OOM · duration · release" as OBSERVE <<app>>
+
+  DISCOVER ARROW_MAIN RESERVE
+  RESERVE ARROW_MAIN LEDGER : allocatable pool
+  PROFILE ARROW_MAIN ADMIT : requested fixed share
+  LEDGER ARROW_MAIN ADMIT : active reservations
+  ADMIT ARROW_MAIN PREPARE : enough unleased capacity
+  ADMIT ARROW_OPTIONAL WAIT : otherwise
+  WAIT ARROW_MAIN ADMIT : lease released
+  PREPARE ARROW_MAIN ATTACH : dispatcher complete
+  ATTACH ARROW_MAIN OBSERVE
+  OBSERVE ARROW_MAIN LEDGER : release + measured peak
+  OBSERVE ARROW_OPTIONAL PROFILE : recommend a safer class next run
+}
+
+cloud "FUTURE sbx capability\nminimum reservation · balloon/reclaim · maximum cap" as ELASTIC
+CURRENT ARROW_OPTIONAL FUTURE : replace independent guesses\nwith one host decision
+FUTURE ARROW_OPTIONAL ELASTIC : true on-demand memory requires\nhypervisor + guest support
+
+note top of CURRENT
+  **The simple default.** With no ""-m"", sbx
+  gives each sandbox half of host RAM. It gives
+  each every CPU. RAM is fixed for that guest;
+  neither proveo nor sbx rebalances it later.
+end note
+
+note bottom of OOM
+  **There is no elastic minimum.** The guest has
+  no swap, ballooning, free-page reporting or
+  hot-resize. A ""--memory"" value is both boot
+  size and ceiling, not an on-demand reservation.
+end note
+
+note bottom of SBXD
+  **Defaults do not compose.** Four independent
+  sandboxes each advertising 50% describe 200%
+  of host RAM. sbx does not reserve host headroom
+  or arbitrate across proveo processes.
+end note
+
+note right of LOAD
+  **The peak overlaps today.** sbx attaches the
+  agent before Kit startup completes. Cursor,
+  dependency downloads and nested Docker can
+  consume the same fixed pool simultaneously.
+end note
+
+note right of LEDGER
+  **A declaration is not coordination.** An
+  environment variable in one shell cannot see
+  runs from another. The ledger needs leases,
+  owner liveness and stale-lease recovery.
+end note
+
+note bottom of PROFILE
+  **Profiles are admission units, not promises.**
+  Initial sizes are hypotheses. Replace them with
+  measured p95 working sets plus margin, separated
+  by harness and capabilities.
+end note
+
+note bottom of PREPARE
+  **Remove the avoidable peak.** Create and seed
+  first, wait on the dispatcher's completion, then
+  attach the agent. Heavy preparation receives its
+  own concurrency gate.
+end note
+
+note bottom of WAIT
+  **Queue instead of kill.** A fifth run, or a
+  heavy run on a full 16 GiB host, waits and says
+  which lease blocks it. ""--no-wait"" fails before
+  creating a sandbox.
+end note
+
+note bottom of OBSERVE
+  **No invisible auto-growth.** A fixed guest
+  cannot resize. An OOM records the startup log
+  and requested/observed budget, then recommends
+  recreation in a larger profile.
+end note
+
+note right of ELASTIC
+  **The desired contract is min/target/max.** The
+  host lends unused pages and reclaims reported
+  free pages up to a hard cap. Until sbx exposes
+  this, proveo must not pretend a fixed size is
+  elastic.
+end note
+
+legend bottom
+  **Starting profiles — validate with measurements before making these defaults**
+  ==
+  **lite · 3 GiB** — agent edits/reasons; no browser, nested build or automatic
+  dependency provisioning.
+  **standard · 6 GiB** — ordinary tests or browser; dependencies prepared before attach.
+  **heavy · 10 GiB** — nested Docker, image builds or large language/toolchain setup.
+  An explicit ""PROVEO_SBX_MEMORY"" remains an escape hatch, but admission accounts it.
+  ==
+  **Host matrix for an intention of about four simultaneous agents**
+  |= Host RAM |= Reserved for host |= Guest pool |= Honest four-agent posture |
+  | 16 GiB | 4 GiB | 12 GiB | 4 lite; or 2 standard; or 1 heavy. Four heavy is rejected. |
+  | 32 GiB | 6 GiB | 26 GiB | 4 standard with 2 GiB pool slack; or 2 heavy. |
+  | 48 GiB | 8 GiB | 40 GiB | 4 heavy at 10 GiB each. |
+  Profiles mix by ordinary bin packing; the rows are examples, not separate modes.
+  ==
+  **CPU policy** — CPU time is schedulable, unlike RAM. For target concurrency N,
+  cap each guest near ""ceil(2 × logical CPUs / N)"", bounded to 2…8 vCPUs, so
+  aggregate entitlement may oversubscribe about 2× while idle agents cost little.
+  Explicit CPU overrides enter the same ledger.
+  ==
+  **Meaning of "four agents".** Four live lite agents can fit on 16 GiB only by
+  excluding heavyweight capabilities from those 3 GiB guests. proveo must never market
+  four arbitrary agents on every host: a profile that can build containers is a
+  materially different reservation from one that edits text.
+  ==
+  **Required CLI surface**
+  * ""proveo capacity"" — total, reserve, leases, queue and measured peaks.
+  * ""proveo run --resource-profile auto|lite|standard|heavy"".
+  * ""proveo run --concurrency-target 4"" — policy input, not proof of capacity.
+  * ""proveo clean"" — releases only dead leases; a live sandbox keeps its reservation.
+end legend
+@enduml

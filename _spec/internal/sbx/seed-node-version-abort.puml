@@ -138,9 +138,10 @@ note over NODE
   one line up does.
 
   ""_lsp_custom_install"" and ""_mise_install"" also return
-  non-zero here, and are LEFT ALONE: theirs are real failures
-  (unsupported language, installer error) and neither is
-  assigned in a command substitution.
+  non-zero for real installer failures. Their callers assign
+  the output only as an ""if"" condition, where ""set -e"" does
+  not abort; they capture the status, warn, and let the seed
+  continue without that language's code intelligence.
 end note
 
 note over SEED

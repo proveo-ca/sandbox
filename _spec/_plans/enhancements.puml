@@ -1,0 +1,102 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: rank the three CLI changes with the greatest product leverage after the sbx-Kit adversarial review
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' evidence: _spec/_paradigms/primer.md
+' would touch: internal/run/**, internal/backend/sandbox/**, internal/sbx/**, internal/posture/**
+' would touch: internal/cdn/**, apps/cli/public/cli/install.sh, apps/cli/public/cli/latest.json
+' informed by: _spec/internal/sbx/kit-lifecycle.puml, _spec/_paradigms/credential-boundary.puml
+' informed by: _spec/_paradigms/workspace-boundary.puml, _spec/internal/sbx/clone-workspace.puml
+title PLANNED — the top three CLI enhancements\nmanaged Kits · one truthful plan · transactional delivery
+
+component "the installed\n**proveo CLI**" as CLI <<app>>
+component "**#2 ONE RESOLVED RUN CONTRACT**\nresolve → validate → render → execute → finalize" as CONTRACT <<app>>
+component "**#1 MANAGED KIT RECONCILIATION**\nstatus · reuse · recreate · inspect · remove" as KITS <<app>>
+component "**#3 TRANSACTIONAL DELIVERY**\none release identity · verify · atomic replace · rollback" as RELEASE <<app>>
+cloud "sbx\nstored Kit spec + sandbox" as SBX
+database "proveo receipt\nKit hash · image identity · workspace\nclone mode · grants · limits" as RECEIPT <<db>>
+folder "committed Git input\n+ fetched refs/output" as CLONE
+component "exact operator posture\nhuman text + JSON" as POSTURE <<app>>
+component "mixed release\npartial install\nimplicit no-TTY init" as INSTALLFAIL <<error>>
+component "silent stale reuse\nnew choices, old sandbox spec" as DRIFT <<error>>
+component "plan says one thing\nexecution does another" as SPLIT <<error>>
+
+RELEASE ARROW_MAIN CLI : installs a known artifact
+CLI ARROW_MAIN CONTRACT : one source of run truth
+CONTRACT ARROW_MAIN POSTURE : explain exactly this object
+CONTRACT ARROW_MAIN KITS : supplies desired fingerprint
+KITS ARROW_MAIN RECEIPT : compare desired with stored
+RECEIPT ARROW_MAIN SBX : compatible -> name-only reuse
+RECEIPT ARROW_OPTIONAL SBX : absent/drift -> create or recreate
+SBX ARROW_MAIN CLONE : committed input; preserve output refs
+
+RELEASE ARROW_ERROR INSTALLFAIL : eliminates
+CONTRACT ARROW_ERROR SPLIT : eliminates
+KITS ARROW_ERROR DRIFT : eliminates
+
+note right of KITS
+  **Why #1.** Handling sbx Kits is the product,
+  but lifecycle is still implicit. A deterministic
+  name proves workspace identity, not that the
+  stored spec matches today's requested grants.
+end note
+
+note bottom of RECEIPT
+  **Reuse is a compatibility decision.** Reattach
+  only when the receipt matches. Drift must name
+  the changed fields and require ""--recreate"" or
+  an interactive choice; non-TTY runs fail clearly.
+end note
+
+note right of CONTRACT
+  **Why #2.** ""run.go"" and the sandbox adapter
+  currently derive policy, credentials, mounts and
+  prose across phases. One immutable object makes
+  the displayed posture the executed posture.
+end note
+
+note bottom of POSTURE
+  **Make ""--print"" zero-effect.** Add JSON output
+  for automation; include backend, Kit/image identity,
+  clone boundary, mounts, credential custody, network
+  grants, resources and teardown policy.
+end note
+
+note left of RELEASE
+  **Why #3.** Every runtime guarantee starts with
+  the binary the operator received. Split metadata,
+  non-atomic replacement and implicit init weaken
+  trust before the first Kit is rendered.
+end note
+
+note bottom of RELEASE
+  **One release transaction.** A versioned manifest
+  binds artifact URLs and digests. Stage everything,
+  verify provenance, reject destination symlinks,
+  atomically rename, and roll back on failure.
+end note
+
+legend bottom
+  **Acceptance, in value order**
+  ==
+  **#1 Managed Kits** — ""proveo kit status"" shows desired versus stored identity;
+  exact matches reattach with name + agent args only; drift never silently reuses old
+  environment, policy, workspace mode or limits; success preserves clone/state before
+  removal; failure keeps evidence and prints inspect/remove/recreate actions.
+  --
+  **#2 Resolved contract** — interactive, ""--print"" and JSON all consume the same
+  immutable plan execution consumes; printing performs no writes; contradictory
+  credential, egress, workspace or lifecycle claims fail validation before sbx starts.
+  --
+  **#3 Transactional delivery** — displayed version, downloaded binary and checksum
+  come from one identity; verification precedes every final-path mutation; interruption
+  leaves the previous CLI usable; no-TTY installation does not bootstrap sbx unless
+  explicitly requested.
+  ==
+  **Delivery order is not rank order.** Build #2 first because its fingerprint and
+  validation make #1 safe. #3 is independent and can ship in parallel. More harnesses,
+  visual polish and deeper legacy-Docker parity remain below these three: they expand
+  surface area without first making the core Kit path trustworthy and explainable.
+end legend
+@enduml

@@ -5,6 +5,7 @@ title Language-server provisioning — §8 of the shared entrypoint lib
 ' purpose: how a workspace's languages become installed, eligible, wired language servers — and what each harness's config format calls "enabled"
 ' covers: packages/lib/entrypoint-lib.sh (ensure_language_servers, configure_claude_lsp, configure_opencode_lsp, configure_cursor_lsp, proveo_seed)
 ' covers: internal/contract/lsp_config_parity_test.go
+' covers: internal/contract/seed_abort_test.go
 ' covers: internal/sbx/kit.go (SeedCommand)
 '
 ' ── FOR OPENCODE, AN ABSENT KEY IS THE DISABLED CASE ───────────────────────
@@ -57,6 +58,7 @@ RECIPE ARROW_MAIN INST
 INST ARROW_QUEUE LOCK : serialize across runs
 INST ARROW_CLOUD NET : fetch
 INST ARROW_MAIN HOME : install once
+INST ARROW_ERROR SEED : installer failure is captured\nwarn + continue
 HOME ARROW_MAIN WIRE : ""command -v"" finds it
 SEED ARROW_MAIN INST : ""proveo_provision_toolchain""
 SEED ARROW_MAIN WIRE : per-target ""case"", AFTER the install
@@ -114,6 +116,12 @@ note right of NET
   routinely and loses code intelligence silently. The token is resolved from
   the operator's gh session (see ""_spec/cmd/proveo/github-credentials.puml"")
   and passed to the single install command, never exported to the agent.
+
+  **Fetch failure is not startup failure.** ""proveo-seed"" runs under
+  ""set -euo pipefail"", so both installer assignments execute as the condition
+  of an ""if"". Their status is captured there, reported as a warning, and the
+  seed continues. A registry outage may remove code intelligence from one
+  language; it must not stop the named sandbox.
 end note
 
 note bottom of WIRE

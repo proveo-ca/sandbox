@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/seed-node-version-abort.puml
+// SPEC: _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/language-server-provisioning.puml
 package contract_test
 
 import (
@@ -56,6 +56,65 @@ echo SEED_REACHED_THE_END`
 			"this is entrypoint-lib.sh's node-version lookup: proveo-seed runs under `set -euo pipefail`, "+
 			"so a helper that reports \"nothing found\" as non-zero kills the whole startup command — "+
 			"the container never starts, or the agent dies mid-session", err, out)
+	}
+}
+
+func TestLanguageServerInstallFailureDoesNotAbortSeed(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	for _, tc := range []struct {
+		name, source, server, overrides string
+	}{
+		{
+			name:   "mise installer",
+			source: "main.cpp",
+			server: "missing-clangd",
+			overrides: `
+_lsp_server() { [[ "$1" == cpp ]] && echo missing-clangd; return 0; }
+_lsp_precondition() { return 0; }`,
+		},
+		{
+			name:   "custom installer",
+			source: "Main.java",
+			server: "missing-jdtls",
+			overrides: `
+_lsp_server() { [[ "$1" == java ]] && echo missing-jdtls; return 0; }
+_lsp_mise_spec() { return 0; }
+_lsp_has_custom_install() { [[ "$1" == java ]]; }
+_lsp_custom_install() { echo simulated custom installer failure; return 43; }`,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home, bin, ws := t.TempDir(), t.TempDir(), t.TempDir()
+			if err := os.WriteFile(filepath.Join(ws, tc.source), []byte("fixture\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "mise"), []byte("#!/bin/sh\necho simulated mise failure\nexit 42\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			script := `set -euo pipefail
+source "$1/packages/lib/entrypoint-lib.sh"
+export HOME="$2" PATH="$3:/usr/bin:/bin" PROVEO_WORKDIR="$4"
+_proveo_github_token() { return 0; }
+` + tc.overrides + `
+proveo_seed cursor
+echo SEED_REACHED_THE_END`
+			out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, bin, ws).CombinedOutput()
+			got := string(out)
+			if err != nil || !strings.Contains(got, "SEED_REACHED_THE_END") {
+				t.Fatalf("an LSP installer failure aborted the seed (%v)\n%s\n"+
+					"proveo-seed runs under `set -euo pipefail`, so installer status must be captured "+
+					"from a conditional context before it is reported as a warning", err, out)
+			}
+			for _, want := range []string{"Installing " + tc.server, "Failed to install " + tc.server} {
+				if !strings.Contains(got, want) {
+					t.Errorf("installer failure was not reported (%q missing):\n%s", want, out)
+				}
+			}
+		})
 	}
 }
 
