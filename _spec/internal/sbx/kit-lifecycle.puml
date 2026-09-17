@@ -1,0 +1,90 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the lifecycle of a proveo-rendered sbx Kit and its deterministic sandbox
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/sandbox_stale_test.go
+' covers: internal/sbx/run.go
+title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures, remove success
+
+state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
+state "sandbox name exists?" as EXISTS <<choice>>
+state "fresh launch config\nname + Kit + image + env + agent\n+ mounts/clone/ports/limits" as CREATE
+state "reattach launch config\nname + trailing agent args ONLY" as REUSE
+state "sbx run" as RUN
+state "sandbox exists after error?" as CREATED <<choice>>
+state "reload image template\nretry once with FULL create config" as RETRY
+state "agent/session running" as LIVE
+state "child result" as RESULT <<choice>>
+state "preserve clone + sync state\nusing the retained FULL config" as PRESERVE
+state "kept for diagnosis" as KEPT
+state "sbx rm --force" as REMOVE
+state "removed" as REMOVED
+state "removal warning\nsandbox remains stale" as STALE
+state "launch failed\nno sandbox to retain" as FAILED
+
+[*] --> RESOLVE
+RESOLVE --> EXISTS : WriteKit is per run;\nsecret values are never in it
+EXISTS --> CREATE : no
+EXISTS --> REUSE : yes
+CREATE --> RUN
+REUSE --> RUN
+RUN --> LIVE : agent session opens
+RUN --> CREATED : command error before session
+CREATED --> RETRY : no
+RETRY --> RUN : template reload succeeded
+RETRY --> FAILED : reload or retry failed
+CREATED --> PRESERVE : yes
+LIVE --> RESULT : sbx child exits
+RESULT --> PRESERVE : exit != 0
+RESULT --> PRESERVE : exit == 0
+PRESERVE --> KEPT : run failed
+PRESERVE --> REMOVE : run succeeded
+REMOVE --> REMOVED : success or already absent
+REMOVE --> STALE : other error; warn
+KEPT --> REUSE : next proveo run,\nsame target + workspace
+KEPT --> REMOVE : operator cleanup
+STALE --> REUSE : next proveo run
+FAILED --> [*]
+REMOVED --> [*]
+
+note right of CREATE
+  **Creation-only fields travel once.**
+  sbx accepts the Kit, template, environment,
+  agent, workspace, clone, ports and limits only
+  while creating the named sandbox.
+end note
+
+note right of REUSE
+  **The stored spec owns a reused sandbox.**
+  Passing ""--kit"" here is rejected before the
+  agent starts: ""--kit can only be used when
+  creating a new sandbox"".
+
+  The same applies to every other creation-only
+  field. The supported shape is:
+  ""sbx run --name <existing> [-- AGENT_ARGS…]"".
+end note
+
+note bottom of PRESERVE
+  **Launch config and lifecycle metadata differ.**
+  Reattach strips fields from the argv, not from
+  proveo's retained full config. Clone recovery
+  still needs the workspace path; state sync still
+  needs the host state-home environment.
+end note
+
+note bottom of KEPT
+  **Failure retains evidence deliberately.**
+  The next run reuses the VM by deterministic name.
+  ""sbx rm --force <name>"" discards it when a fresh
+  Kit, image, workspace or limits are required.
+end note
+
+note bottom of REMOVE
+  **Success is disposable.** After clone output and
+  state are copied home, proveo removes the sandbox.
+  A removal failure is warning-only but leaves a
+  stale name that follows the reuse branch next run.
+end note
+@enduml

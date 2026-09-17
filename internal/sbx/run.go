@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml
+// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/sbx/kit-lifecycle.puml
 package sbx
 
 import (
@@ -132,19 +132,17 @@ func CreateArgs(cfg RunConfig) []string {
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
 }
 
-// Reattach is the argv for a sandbox that already exists. sbx refuses to give
-// one new workspaces, a new template or new published ports — and it needs
-// none: the name is derived from def and workspace, so an existing sandbox of
-// that name already holds this workspace. What stays is the Kit, the
-// environment and the agent.
+// Reattach is the launch config for a sandbox that already exists. Its stored
+// spec owns the Kit, image, environment, agent, workspaces, ports and limits;
+// sbx accepts only the existing name plus optional trailing agent arguments.
+//
+// Callers must retain the full config separately: mounts and env are still
+// needed to preserve clone and agent state after the reattached run exits.
 func Reattach(cfg RunConfig) RunConfig {
-	cfg.Mounts = nil
-	cfg.Publish = nil
-	cfg.Image = ""
-	cfg.Memory = ""
-	cfg.CPUs = 0
-	cfg.Clone = false
-	return cfg
+	return RunConfig{
+		Name:    cfg.Name,
+		Command: append([]string(nil), cfg.Command...),
+	}
 }
 
 func RunArgs(cfg RunConfig) []string {

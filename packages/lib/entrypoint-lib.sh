@@ -1668,11 +1668,17 @@ ensure_language_servers() {
 
     echo "📦 Detected ${lang} (${cnt} files). Installing ${cmd}..."
     if [[ -n "$spec" ]]; then
-      out="$(_mise_install "$spec" "$gh_token")"
-      rc=$?
+      if out="$(_mise_install "$spec" "$gh_token")"; then
+        rc=0
+      else
+        rc=$?
+      fi
     else
-      out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)"
-      rc=$?
+      if out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)"; then
+        rc=0
+      else
+        rc=$?
+      fi
       [[ -n "$out" ]] && printf '%s\n' "$out"
     fi
 
