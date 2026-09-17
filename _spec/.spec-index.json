@@ -1051,7 +1051,7 @@
         "internal/sbx/kit.go",
         "cmd/proveo/testdata/plan/sbx-claudecode-broker.golden",
         "cmd/proveo/testdata/plan/sbx-claudecode-shell-clone-datadir.golden",
-        "cmd/proveo/testdata/plan/sbx-cursor-forward.golden"
+        "cmd/proveo/testdata/plan/sbx-cursor-key.golden"
       ],
       "fingerprint": null
     },

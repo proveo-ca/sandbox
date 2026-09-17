@@ -25,7 +25,10 @@ const (
 // client reads, so a placeholder in the variable is useless to the agent.
 // azure is in that set only because the registry gives it no Hosts or Auth; its
 // key IS a static `api-key` header on known domains, so filling those in would
-// move it. SPEC: _spec/_plans/init-credential-provisioning.puml
+// move it. Injectability is answered per ENTRY, so bedrock's two variables share
+// an answer: giving that entry hosts to rescue AWS_BEARER_TOKEN_BEDROCK would
+// mark the SigV4 signing key beside it brokerable too, and no substitution
+// produces a signature. SPEC: _spec/_plans/host-held-provider-keys.puml
 func StoreName(envVar, def string) (name string, kind StoreKind) {
 	envVar = strings.TrimSpace(envVar)
 	if envVar == "" {
