@@ -1117,3 +1117,15 @@ func TestTheNoCredentialNoticeIsOneLine(t *testing.T) {
 		}
 	}
 }
+
+func TestThePostureNamesTheCredentialRouteThatWillHappen(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}
+	p := &Params{Target: "cursor", Credentials: "forward"}
+	rs := &Spec{Man: man}
+	// A run bound for sbx stores the credential whatever the flag asked for, so
+	// reporting the request contradicted the secrets section two lines below it.
+	if got := credentialsPosture(rs, p); got == "forward" {
+		t.Errorf("posture says %q while the run will store the value and let the proxy attach it", got)
+	}
+}

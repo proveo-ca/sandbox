@@ -457,11 +457,23 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// credentialsPosture reports what the run will DO, not what was asked for. The
+// posture is written before the backend is resolved, and sbx stores every
+// credential its proxy can attach whatever the flag said — so printing the
+// request read as a contradiction: `credentials forward` two lines above
+// `stored as cursor — the agent never holds it`.
+func credentialsPosture(rs *Spec, p *Params) string {
+	if p.willSandbox(rs.Man) {
+		return "broker (sbx proxy)"
+	}
+	return p.credentialsOrDefault()
+}
+
 func buildPosture(rs *Spec, p *Params) {
 	rs.Posture = posture.Posture{
 		Target:         p.Target,
 		EgressTier:     p.Mode,
-		Credentials:    p.credentialsOrDefault(),
+		Credentials:    credentialsPosture(rs, p),
 		AddOns:         strings.Join(p.Addons, ","),
 		AgentEvidence:  p.evidenceOrDefault(),
 		DetectedKeys:   strings.Join(rs.Creds.Detected, ","),
