@@ -3,6 +3,7 @@ package choiceui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -129,6 +130,11 @@ var paneCols = topoCols{
 const (
 	figureRows = 7
 	paneRows   = figureRows
+
+	trafficBurst    = 5
+	trafficGapMin   = 300 * time.Millisecond
+	trafficGapMax   = 1000 * time.Millisecond
+	trafficCooldown = 1500 * time.Millisecond
 )
 
 func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, tick int) {
@@ -274,29 +280,106 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 	if fr.Lane == LaneAsked {
 		newPen(s, col+4, y0+2).write(dim, g.cloud)
 	}
-	drawTraffic(s, y0, col, fr, g, lit, tick, runLen, from, rows)
+	drawTraffic(s, y0, col, fr, g, lit, dim, tick, runLen, from, rows)
 }
 
-// drawTraffic rides one mote from the hop out to the clouds, over the wire that
-// is already drawn.
-func drawTraffic(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit tcell.Style, tick, runLen, from int, rows []int) {
-	if g.pulse == "" || tick <= 0 || fr.Open <= 0 || from <= 0 || from >= col {
+// drawTraffic rides motes from the hop out to the clouds, over the wire that is
+// already drawn. A burst of five spawn 300–1000ms apart; each follows the spine
+// then one randomly chosen lane — open ones to a cloud, refused ones into the
+// × dead-end. After the fifth, 1500ms of cooldown. The schedule is a pure
+// function of tick.
+func drawTraffic(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen, from int, rows []int) {
+	total := fr.Open + fr.Refused
+	if g.pulse == "" || tick <= 0 || total <= 0 || from <= 0 || from >= col {
 		return
 	}
 	spine := col - from
+	if spine <= 0 || runLen < 0 {
+		return
+	}
+	for _, m := range trafficMotes(tick, spine, runLen, fr.Open, fr.Refused) {
+		if m.pos < spine {
+			newPen(s, from+m.pos, y0+2).write(lit, g.pulse)
+			continue
+		}
+		if m.lane < 0 || m.lane >= total || m.lane >= len(rows) {
+			continue
+		}
+		style := lit
+		if m.lane >= fr.Open {
+			style = dim
+		}
+		x := col + 1 + (m.pos - spine)
+		newPen(s, x, rows[m.lane]).write(style, g.pulse)
+	}
+}
+
+type trafficMote struct {
+	pos  int // cells along hop → spine → chosen lane
+	lane int // 0 .. open+refused-1; which row it takes past the junction
+}
+
+// trafficMotes is the burst schedule at tick: five sequential motes, then a
+// cooldown, forever. Gaps and lanes come from a hash of the mote index, so the
+// same tick always paints the same picture. Lane choice is among every drawn
+// row, so a limited hop sends some motes into the dead-ends.
+func trafficMotes(tick, spine, runLen, open, refused int) []trafficMote {
+	total := open + refused
+	if tick <= 0 || spine <= 0 || runLen < 0 || total <= 0 {
+		return nil
+	}
+	elapsed := time.Duration(tick-1) * animFrame
+	var out []trafficMote
+	var spawn time.Duration
+	for n := 0; spawn <= elapsed; n++ {
+		lane := trafficLane(n, total)
+		pathDur := time.Duration(trafficPath(spine, runLen, lane, open)) * animFrame
+		if age := elapsed - spawn; age < pathDur {
+			out = append(out, trafficMote{pos: int(age / animFrame), lane: lane})
+		}
+		spawn += trafficStep(n)
+	}
+	return out
+}
+
+func trafficPath(spine, runLen, lane, open int) int {
 	path := spine + runLen
-	if path <= 0 {
-		return
+	if lane >= open {
+		path++ // one extra cell: the × at the dead-end
 	}
-	pos := ((tick % path) + path) % path
-	if pos < spine {
-		newPen(s, from+pos, y0+2).write(lit, g.pulse)
-		return
+	return path
+}
+
+func trafficStep(n int) time.Duration {
+	if (n+1)%trafficBurst == 0 {
+		return trafficCooldown
 	}
-	x := col + 1 + (pos - spine)
-	for i := 0; i < fr.Open && i < len(rows); i++ {
-		newPen(s, x, rows[i]).write(lit, g.pulse)
+	return trafficGap(n + 1)
+}
+
+func trafficGap(n int) time.Duration {
+	span := int64((trafficGapMax-trafficGapMin)/time.Millisecond) + 1
+	return trafficGapMin + time.Duration(trafficHash(uint64(n), 1)%uint64(span))*time.Millisecond
+}
+
+func trafficLane(n, lanes int) int {
+	if lanes <= 1 {
+		return 0
 	}
+	if lanes > 3 {
+		lanes = 3
+	}
+	return int(trafficHash(uint64(n), 2) % uint64(lanes))
+}
+
+func trafficHash(n, salt uint64) uint64 {
+	x := n + salt*0x9e3779b97f4a7c15
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return x
 }
 
 func keyIf(g glyphSet, fr Frame, at KeyHome) string {

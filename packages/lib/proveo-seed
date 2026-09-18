@@ -3,4 +3,12 @@
 set -euo pipefail
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh
-proveo_seed "$@"
+# A seed miss must not tear the sandbox down. sbx's durable-startup dispatcher
+# treats any non-zero startup command as fatal and `exit $rc`s the container
+# while the agent session is already live (~15s into a go.mod workspace).
+rc=0
+proveo_seed "$@" || rc=$?
+if (( rc != 0 )); then
+  printf 'proveo-seed: proveo_seed exited %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+fi
+exit 0

@@ -32,7 +32,17 @@ environment:
 setup:
     startup:
         - command:
-            - /usr/local/bin/proveo-seed
+            - /bin/sh
+            - -c
+            - |-
+              set +e
+              /usr/local/bin/proveo-seed "$1"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then
+                printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+              fi
+              exit 0
+            - proveo-seed
             - claudecode
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'

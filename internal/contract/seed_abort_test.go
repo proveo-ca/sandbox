@@ -88,6 +88,14 @@ _lsp_custom_install() { echo simulated custom installer failure; return 43; }`,
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			home, bin, ws := t.TempDir(), t.TempDir(), t.TempDir()
+			t.Cleanup(func() {
+				_ = filepath.Walk(home, func(path string, info os.FileInfo, err error) error {
+					if err == nil {
+						_ = os.Chmod(path, 0o700)
+					}
+					return nil
+				})
+			})
 			if err := os.WriteFile(filepath.Join(ws, tc.source), []byte("fixture\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -205,5 +213,50 @@ unset GITHUB_TOKEN GH_TOKEN
 					"command substitution under `set -e`", c.name, err, got)
 			}
 		})
+	}
+}
+
+func TestProveoSeedScriptNeverExitsNonZero(t *testing.T) {
+	t.Parallel()
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "packages/lib/proveo-seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, `proveo_seed "$@" ||`) {
+		t.Error("proveo-seed must catch proveo_seed's status — a bare call under set -e exits the dispatcher")
+	}
+	if !strings.Contains(s, "exit 0") {
+		t.Error("proveo-seed must end with exit 0 so sbx's startup dispatcher cannot tear a live agent down")
+	}
+}
+
+func TestLanguageServerMiseFailureDoesNotAbortTheSeed(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	home := t.TempDir()
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "README.md"), []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "mise"), []byte("#!/bin/sh\necho mise refused >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	script := `set -euo pipefail
+source "$1/packages/lib/entrypoint-lib.sh"
+export HOME="$2"
+export PATH="$3:/usr/bin:/bin"
+ensure_language_servers "$4"
+echo LSP_REACHED_THE_END`
+	out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, bin, ws).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "LSP_REACHED_THE_END") {
+		t.Fatalf("ensure_language_servers aborted when mise failed (%v)\n%s\n"+
+			"`out=\"$(_mise_install)\"; rc=$?` never assigns rc under set -e — the seed "+
+			"exits, sbx's dispatcher tears the sandbox down, and the agent dies ~15s in", err, out)
 	}
 }

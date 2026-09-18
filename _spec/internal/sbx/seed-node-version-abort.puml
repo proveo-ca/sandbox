@@ -137,11 +137,11 @@ note over NODE
   until someone assigns it under ""set -e"" — which the caller
   one line up does.
 
-  ""_lsp_custom_install"" and ""_mise_install"" also return
-  non-zero for real installer failures. Their callers assign
-  the output only as an ""if"" condition, where ""set -e"" does
-  not abort; they capture the status, warn, and let the seed
-  continue without that language's code intelligence.
+  ""_lsp_custom_install"" and ""_mise_install"" return non-zero
+  on a real installer miss. ""ensure_language_servers"" assigns
+  both in a command substitution, so the status must be taken
+  with ""|| rc=$?"" — a bare ""out=""$(_mise_install)""; rc=$?""
+  never assigns rc: set -e exits first and the live agent dies.
 end note
 
 note over SEED
@@ -152,10 +152,11 @@ note over SEED
   and sends them into ""sbx exec"" after a cause that was never
   in there.
 
-  ""internal/contract/seed_abort_test\.go"" pins both halves:
-  the helper returns 0 on absence, and the caller's two lines
-  survive ""set -euo pipefail"" against a package.json with no
-  ""engines\.node"".
+  ""internal/contract/seed_abort_test\.go"" pins the helper,
+  the caller's two lines, a mise-failure that must not abort,
+  and proveo-seed's ""exit 0"". ""SeedCommand"" wraps the same
+  invariant on the host Kit so it takes effect without an
+  image rebuild: sbx's dispatcher ""exit $rc"" never sees a miss.
 end note
 
 note over SEED #F4F9FB

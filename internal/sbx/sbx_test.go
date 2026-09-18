@@ -211,6 +211,19 @@ func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
 	}
 }
 
+func TestSeedCommandNeverFailsTheDispatcher(t *testing.T) {
+	cmd := SeedCommand("cursor").Command
+	if !CommandNamesSeed(cmd) {
+		t.Fatalf("SeedCommand = %v, does not name proveo-seed", cmd)
+	}
+	joined := strings.Join(cmd, "\n")
+	for _, needle := range []string{SeedBinary, "exit 0", "set +e"} {
+		if !strings.Contains(joined, needle) {
+			t.Errorf("SeedCommand missing %q — a non-zero seed would tear a live agent down:\n%s", needle, joined)
+		}
+	}
+}
+
 func TestWriteKitOmitsEmptyNetwork(t *testing.T) {
 	dir := t.TempDir()
 	kitDir, err := WriteKit(dir, Kit{

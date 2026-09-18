@@ -257,16 +257,13 @@ note bottom of m_pull #FFF6E5
   image it handed over.
 end note
 
-note as m_open #FBECEC
-  **OPEN — cursor stops right after its shell appears.** With the workspace,
-  agent-name and template fixes in, cursor creates a sandbox, prints
-  ""cursor@<sandbox>:<workspace>$"" and is then stopped —
-  ""ERROR: sandbox "<name>" was stopped"", proveo exits 1. claudecode completes the
-  same flow. Not yet diagnosed; ""sbx"" has an "auto-stopped runtime after last
-  session disconnected" path that is the first place to look.
-
-  ""TestEveryHarnessGetsTheDockerAccessItPromises"" reports it by name rather than
-  as a timeout, which is the point of that probe.
+note as m_open #EBF3EC
+  **CLOSED — leaked DA1 tail.** Cursor
+  2026.09.15 probes kitty then DA1. A
+  40ms idle released ""ESC[?6"" and the
+  letter ""c"" became a prompt. Filter:
+  terminal-report-filter.puml. Gate:
+  ""mise run test-e2e-full"".
 end note
 
 

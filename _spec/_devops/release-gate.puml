@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: what must be green before publishing images, and where each part runs
 ' covers: mise.toml
 ' covers: e2e/ladder_test.go
+' covers: e2e/idle_test.go
 ' covers: internal/contract/base_template_test.go
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
@@ -38,6 +39,12 @@ skinparam noteTextAlignment left
 '      It runs the SAME Kit twice, with and without credentials[], and fails if
 '      both give the same value — so it proves the declaration CAUSES the
 '      sentinel rather than merely coinciding with it.
+'   8  silent-death idle, PER DEF — `mise run test-e2e-full` is this plus 6:
+'        PROVEO_IDLE_TEST=1 PROVEO_IDLE_TARGETS=cecli,claudecode,cursor,opencode \
+'        PROVEO_IDLE_FOR=45s go test -tags e2e ./e2e/ -run TestAgentSurvivesIdleAtPrompt
+'      The ladder holds raw `sbx run`. Idle holds `proveo run`, where a leaked
+'      DA1 becomes a prompt and the sandbox "was stopped". 45s is past sbx's
+'      30s auto-stop and the ~14s cursor death; a SKIP is not a pass.
 '
 ' ── THE VERDICT ITSELF IS A THING THAT CAN BE WRONG ─────────────────────────
 ' `ladder-all` reads the ladder's result out of `go test` output, and it has
@@ -101,6 +108,7 @@ node "in-sandbox · docker only" as BOX <<host>> {
 }
 
 node "host only · needs sbx" as HOST <<host>> {
+  component "idle × 4 defs\nproveo run · zero input" as IDLE <<db>>
   component "ladder × 4 defs\ncecli claudecode cursor opencode" as LAD <<db>>
   component "credential control\nsame Kit, with and without" as CRED <<db>>
 }
@@ -111,17 +119,26 @@ component "not covered\namd64 · consent prompt · dotenv" as GAP <<error>>
 GO ARROW_MAIN BUILD
 BUILD ARROW_MAIN TI
 TI ARROW_MAIN E2E
-E2E ARROW_MAIN LAD : hand off to the host
+E2E ARROW_MAIN IDLE : hand off to the host
+IDLE ARROW_MAIN LAD
 LAD ARROW_MAIN CRED
 CRED ARROW_MAIN PUB : only now
 GAP ARROW_ERROR PUB : known blind spots
 
-note bottom of LAD
-  **One climb per def, not one climb.** The
-  target defaults to claudecode, so a bare run
-  measures a quarter of the fleet — and cursor
-  inherited its fixes by symmetry rather than
-  measurement.
+note bottom of HOST
+  **Idle is the other host half.** The
+  ladder holds raw ""sbx run""; idle
+  holds ""proveo run"", where the DA1
+  leak lives. ""test-e2e-full"" runs
+  both, per def. A SKIP is not a pass.
+end note
+
+note right of LAD
+  **One climb per def, not one climb.**
+  The target defaults to claudecode,
+  so a bare run measures a quarter of
+  the fleet. ""test-e2e-full"" climbs
+  all four, then idles all four.
 end note
 
 note bottom of LAD

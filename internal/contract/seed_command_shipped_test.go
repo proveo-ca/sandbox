@@ -37,7 +37,10 @@ var baseDockerfiles = map[string]string{
 
 func TestEverySbxImageShipsTheKitsStartupCommand(t *testing.T) {
 	t.Parallel()
-	binary := sbx.SeedCommand("opencode").Command[0] // /usr/local/bin/proveo-seed
+	binary := sbx.SeedBinary
+	if !sbx.CommandNamesSeed(sbx.SeedCommand("opencode").Command) {
+		t.Fatal("SeedCommand no longer names proveo-seed — the Kit would start without the seed step")
+	}
 
 	ms, err := manifest.LoadFS(proveo.Manifests)
 	if err != nil {

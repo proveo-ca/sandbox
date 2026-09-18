@@ -270,6 +270,14 @@ note bottom of CMDWRAP
   both backends reach the same code.
 end note
 
+note as N_SEED_NEVER_ABORT
+  **A miss must not stop the sandbox.**
+  proveo-seed ""exit 0""s a failure.
+  SeedCommand wraps the same on the
+  host Kit so a stale image cannot
+  ""exit $rc"" the dispatcher.
+end note
+
 note bottom of ORDER
   **Order is a dependency, not a preference.**
   State restores first, so a resumed session's

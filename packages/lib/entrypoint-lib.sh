@@ -1667,18 +1667,14 @@ ensure_language_servers() {
     fi
 
     echo "📦 Detected ${lang} (${cnt} files). Installing ${cmd}..."
+    # `out="$(failing_cmd)"; rc=$?` never assigns rc: set -e exits the seed
+    # first, and sbx tears down the live agent. A failed LSP install is a
+    # warning. `|| rc=$?` is what makes the status reachable.
+    rc=0
     if [[ -n "$spec" ]]; then
-      if out="$(_mise_install "$spec" "$gh_token")"; then
-        rc=0
-      else
-        rc=$?
-      fi
+      out="$(_mise_install "$spec" "$gh_token")" || rc=$?
     else
-      if out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)"; then
-        rc=0
-      else
-        rc=$?
-      fi
+      out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)" || rc=$?
       [[ -n "$out" ]] && printf '%s\n' "$out"
     fi
 

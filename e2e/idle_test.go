@@ -99,6 +99,8 @@ func detectBackend(raw string) string {
 func idleTargets() []string {
 	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
 	if raw == "" {
+		// The long 5-minute wait stays one def. `mise run test-e2e-full` sets
+		// all four at 45s — that is the silent-death gate.
 		return []string{"claudecode"}
 	}
 	var out []string
@@ -125,7 +127,7 @@ func idleAtPrompt(t *testing.T, target string) {
 
 	idle := durationEnv(t, "PROVEO_IDLE_FOR", 5*time.Minute)
 	startup := durationEnv(t, "PROVEO_IDLE_STARTUP", 5*time.Minute) // image load can be slow
-	work := t.TempDir()
+	work := idleWorkspace(t)
 
 	trace := filepath.Join(t.TempDir(), "stdin.trace")
 	t.Cleanup(func() {
@@ -207,7 +209,13 @@ func idleAtPrompt(t *testing.T, target string) {
 		time.Sleep(2 * time.Second)
 	}
 	backend := detectBackend(seen())
-	t.Logf("agent reached a prompt on the %s backend — now waiting %s with ZERO input", backend, idle)
+	t.Logf("agent reached a prompt on the %s backend — injecting the reports a real terminal answers, then waiting %s with no further input", backend, idle)
+
+	// creack/pty does not answer Device Attributes. A host terminal does, and
+	// Cursor 2026.09.15 probes kitty-push then DA1 at startup. Without these
+	// writes, idle-all certified a path that never saw the bytes that kill
+	// `proveo run cursor` on a real tty.
+	injectTerminalReports(t, ptmx)
 
 	// ── do nothing, on purpose ───────────────────────────────────────────────
 	select {
@@ -272,6 +280,53 @@ func lastLines(s string, n int) string {
 		out = append([]string{lines[i]}, out...)
 	}
 	return "── last output ──\n" + strings.Join(out, "\n")
+}
+
+// idleWorkspace is the shape that died at ~16s: go.mod (gopls / go mod
+// download) plus a package.json with no engines.node (the node-version lookup).
+// An empty TempDir never reached that seed path, so the idle gate passed while
+// `proveo run cursor` against this repo did not.
+func idleWorkspace(t *testing.T) string {
+	t.Helper()
+	work := t.TempDir()
+	for _, f := range []struct{ name, body string }{
+		{"go.mod", "module idle.test\n\ngo 1.22\n"},
+		{"main.go", "package idle\n"},
+		{"package.json", `{"name":"idle-fixture","version":"0.0.0"}` + "\n"},
+	} {
+		if err := os.WriteFile(filepath.Join(work, f.name), []byte(f.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return work
+}
+
+// injectTerminalReports writes the stdin bursts a host terminal emits when
+// Cursor probes kitty keyboard and DA1. The filter must drop every one; a leak
+// is a prompt nobody typed and the sandbox auto-stops.
+func injectTerminalReports(t *testing.T, w *os.File) {
+	t.Helper()
+	for _, seq := range [][]byte{
+		[]byte("\x1b[>1u"),  // kitty push (Cursor 2026.09.15)
+		[]byte("\x1b[?6c"),  // complete VT102 DA1
+		[]byte("\x1b[?62;"), // split DA1 prefix; tail follows
+	} {
+		if _, err := w.Write(seq); err != nil {
+			t.Fatalf("inject terminal report: %v", err)
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := w.Write([]byte("c")); err != nil { // DA1 tail
+		t.Fatalf("inject DA1 tail: %v", err)
+	}
+	// Orphan CSI body (ESC already released as a keypress on a real tty).
+	// Do not write a lone ESC here: Cursor would take it as a key.
+	if _, err := w.Write([]byte("[?6c")); err != nil {
+		t.Fatalf("inject orphan DA1: %v", err)
+	}
+	if _, err := w.Write([]byte("\x9b?6c")); err != nil {
+		t.Fatalf("inject 8-bit DA1: %v", err)
+	}
 }
 
 func TestDetectBackendReadsMoreThanProveosOwnLine(t *testing.T) {

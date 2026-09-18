@@ -38,6 +38,10 @@ type Proxy struct {
 
 	escIdle time.Duration
 
+	// truncatedReportIdle is how long an incomplete CSI/DCS/OSC/APC is held
+	// before it is DROPPED. Zero means DefaultTruncatedReportIdle.
+	truncatedReportIdle time.Duration
+
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
@@ -175,12 +179,16 @@ func (p *Proxy) setRestore(st *term.State) {
 	p.mu.Unlock()
 }
 
-// DefaultEscIdle is how long a partial escape waits for its continuation
-// before being forwarded as the keypress it is. 25-50ms is the conventional
-// terminal ESC timeout (vim's ttimeoutlen, kitty's esc-timeout); 40ms sits
-// mid-band — long enough that a real Alt-chord or CSI split across two reads
-// still arrives whole, short enough to feel instant.
+// DefaultEscIdle is how long a lone ESC waits for a continuation before being
+// forwarded as the keypress it is. 25-50ms is the conventional terminal ESC
+// timeout (vim's ttimeoutlen, kitty's esc-timeout); 40ms sits mid-band.
 const DefaultEscIdle = 40 * time.Millisecond
+
+// DefaultTruncatedReportIdle is how long an incomplete CSI/DCS/OSC/APC is held
+// before the stump is dropped. These prefixes are never a keypress; releasing
+// them on DefaultEscIdle forwarded the tail of a Device Attributes reply as
+// the letter "c" and sbx enqueued it as a prompt.
+const DefaultTruncatedReportIdle = 2 * time.Second
 
 type inRead struct {
 	b   []byte
@@ -215,12 +223,22 @@ func (p *Proxy) pumpInFrom(r io.Reader) {
 	if idleAfter <= 0 {
 		idleAfter = DefaultEscIdle
 	}
+	truncAfter := p.truncatedReportIdle
+	if truncAfter <= 0 {
+		truncAfter = DefaultTruncatedReportIdle
+	}
 	chunks := readChunks(r)
 	var held []byte // a partial escape sequence carried from the previous read
 	for {
 		var idle <-chan time.Time
+		dropHeld := false
 		if len(held) > 0 {
-			idle = time.After(idleAfter)
+			if truncatedReport(held) {
+				idle = time.After(truncAfter)
+				dropHeld = true
+			} else {
+				idle = time.After(idleAfter)
+			}
 		}
 		select {
 		case c, ok := <-chunks:
@@ -249,18 +267,44 @@ func (p *Proxy) pumpInFrom(r io.Reader) {
 				return
 			}
 		case <-idle:
-			// No continuation came: it was a keypress, not a prefix. Forward it
-			// verbatim — a lone ESC is how the agent's TUI closes a modal.
 			out := held
 			held = nil
 			if p.Tap != nil {
-				p.Tap(out, true)
+				p.Tap(out, !dropHeld)
 			}
+			if dropHeld {
+				continue
+			}
+			// No continuation came: a lone ESC is the keypress it looks like.
 			if !p.deliver(out) {
 				return
 			}
 		}
 	}
+}
+
+// truncatedReport is an incomplete CSI / DCS / OSC / APC, including 8-bit CSI
+// and an orphan DA1 body whose ESC was already released. A lone ESC is the
+// only held prefix that is a keypress; these are report (or arrow-key) stumps
+// and must not be released on DefaultEscIdle.
+func truncatedReport(held []byte) bool {
+	if len(held) == 0 {
+		return false
+	}
+	if held[0] == 0x9b {
+		return true
+	}
+	if isOrphanReportStart(held) {
+		return true
+	}
+	if len(held) < 2 || held[0] != 0x1b {
+		return false
+	}
+	switch held[1] {
+	case '[', 'P', ']', '_', '^':
+		return true
+	}
+	return false
 }
 
 // deliver hands input to the overlay if one is up, else to the child's PTY.

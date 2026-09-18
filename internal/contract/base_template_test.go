@@ -185,3 +185,42 @@ func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
 		t.Error("a ladder that never ran reads as having run — the gate would certify nothing")
 	}
 }
+
+func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "mise.toml"))
+	if !strings.Contains(src, "[tasks.test-e2e-full]") {
+		t.Fatal("mise run test-e2e-full is missing — that is the host gate that must catch sandbox was stopped")
+	}
+	if !strings.Contains(src, "[tasks.idle-all]") {
+		t.Fatal("idle-all is missing — test-e2e-full cannot sweep proveo run idle without it")
+	}
+	for _, needle := range []string{
+		"PROVEO_IDLE_TEST=1",
+		"TestAgentSurvivesIdleAtPrompt",
+		"PROVEO_IDLE_FOR",
+		"mise run idle-all",
+		"mise run ladder-all",
+	} {
+		if !strings.Contains(src, needle) {
+			t.Errorf("the silent-death gate is missing %q", needle)
+		}
+	}
+	idle := readFileOrFail(t, filepath.Join(repoRoot(t), "e2e/idle_test.go"))
+	for _, needle := range []string{
+		"idleWorkspace",
+		"injectTerminalReports",
+		`\x1b[?6c`,
+		"go.mod",
+		"package.json",
+	} {
+		if !strings.Contains(idle, needle) {
+			t.Errorf("idle_test.go is missing %q — an empty TempDir and a PTY that never answers DA1 is how this gate passed while proveo run cursor died", needle)
+		}
+	}
+	for _, def := range []string{"cecli", "claudecode", "cursor", "opencode"} {
+		if !strings.Contains(src, def) {
+			t.Errorf("idle-all/test-e2e-full does not name %s — a per-def death would not run", def)
+		}
+	}
+}

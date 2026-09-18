@@ -286,7 +286,7 @@ func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
 			// user or it composes into a home the agent never reads.
 			var seeded bool
 			for _, st := range kit.Setup.Startup {
-				if len(st.Command) > 0 && strings.HasSuffix(st.Command[0], "proveo-seed") {
+				if sbx.CommandNamesSeed(st.Command) {
 					seeded = true
 					if st.User != "1000" {
 						t.Errorf("%s: seed runs as user %q, want the agent's 1000", target, st.User)

@@ -28,6 +28,7 @@ func TestClassifyTerminalReport(t *testing.T) {
 		want reportKind
 	}{
 		{"device attributes", daReply, reportReply},
+		{"8-bit CSI device attributes", []byte("\x9b?62;4c"), reportReply},
 		{"secondary device attributes", []byte("\x1b[>0;276;0c"), reportReply},
 		{"xtversion DCS", xtversion, reportReply},
 		{"mode report", decrpm, reportReply},
@@ -163,7 +164,10 @@ func TestDropRepliesRemovesEvenAnUnpairedReport(t *testing.T) {
 	f := newInputFilter()
 	f.dropReplies = true
 
-	for _, b := range [][]byte{daReply, xtversion, decrpm, cursorReport, focusIn, focusOut} {
+	for _, b := range [][]byte{
+		daReply, xtversion, decrpm, cursorReport, focusIn, focusOut,
+		[]byte("\x1b[>1u"), []byte("\x1b[?u"), []byte("\x1b[<u"),
+	} {
 		if f.keep(b) {
 			t.Errorf("report %q reached a prompt stream that never asked for it", b)
 		}
@@ -295,6 +299,10 @@ func TestKittyRepliesAreNotKeystrokes(t *testing.T) {
 		{"kitty graphics error (APC)", []byte("\x1b_Gi=31337;ENOTSUPPORTED\x1b\\")},
 		{"kitty keyboard flags (CSI ? u)", []byte("\x1b[?5u")},
 		{"kitty keyboard flags, zero", []byte("\x1b[?0u")},
+		{"kitty keyboard query echo (CSI ? u)", []byte("\x1b[?u")},
+		{"kitty keyboard push (CSI > 1 u)", []byte("\x1b[>1u")},
+		{"kitty keyboard pop (CSI < u)", []byte("\x1b[<u")},
+		{"kitty keyboard set (CSI = 1;1 u)", []byte("\x1b[=1;1u")},
 	} {
 		if got := classifyTerminalReport(tc.b); got != reportReply {
 			t.Errorf("%s: classified %v, want reportReply — it reaches the agent as input",
@@ -343,6 +351,16 @@ func TestASplitReplyDoesNotLeakItsTail(t *testing.T) {
 	}
 	if len(held) != 0 {
 		t.Errorf("still holding %q after the reply completed", held)
+	}
+}
+
+func TestKittyPushIsNotAKeypress(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	fwd, held := f.split([]byte("\x1b[>1u"))
+	if len(fwd) != 0 || len(held) != 0 {
+		t.Errorf("split(CSI > 1 u) = %q held %q; cursor emits this at startup and sbx would enqueue it as a prompt", fwd, held)
 	}
 }
 
@@ -608,5 +626,37 @@ func TestOutstandingCursorQueriesAreBounded(t *testing.T) {
 	if kept > maxOutstandingCPR {
 		t.Errorf("kept %d reports; a child that queries and never reads must not build "+
 			"an unbounded licence to forward stray reports (cap %d)", kept, maxOutstandingCPR)
+	}
+}
+
+func TestSplitDropsOrphanDA1OnAPromptStream(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	out, held := f.split([]byte("[?6c"))
+	if len(out) != 0 || len(held) != 0 {
+		t.Fatalf("orphan DA1 leaked onto the prompt stream: out=%q held=%q", out, held)
+	}
+	out, held = f.split([]byte("x"))
+	if string(out) != "x" || len(held) != 0 {
+		t.Fatalf("keystroke after an orphan DA1: out=%q held=%q", out, held)
+	}
+
+	// Docker: DropReports is off, so an orphan body is still typing — the
+	// agent holds a real tty and a withheld answer would leave it waiting.
+	tty := newInputFilter()
+	out, held = tty.split([]byte("[?6c"))
+	if string(out) != "[?6c" || len(held) != 0 {
+		t.Fatalf("docker must still forward an unrecognised burst: out=%q held=%q", out, held)
+	}
+}
+
+func TestSplitDropsEightBitDA1OnAPromptStream(t *testing.T) {
+	t.Parallel()
+	f := newInputFilter()
+	f.dropReplies = true
+	out, held := f.split([]byte("\x9b?62;4c"))
+	if len(out) != 0 || len(held) != 0 {
+		t.Fatalf("8-bit DA1 leaked onto the prompt stream: out=%q held=%q", out, held)
 	}
 }

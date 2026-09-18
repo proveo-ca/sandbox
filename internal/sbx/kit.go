@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -64,9 +65,26 @@ type KitCommand struct {
 	Description string   `yaml:"description,omitempty"`
 }
 
+// SeedBinary is the path every sbx image must COPY the seed to. SeedCommand
+// names it; a non-zero exit from that binary must not reach sbx's dispatcher.
+const SeedBinary = "/usr/local/bin/proveo-seed"
+
+// seedNeverAbort is the -c script SeedCommand runs. sbx's durable-startup
+// dispatcher uses `set -e` and `exit $rc` on any startup command, which tears
+// down a live agent session. A seed miss is a warning, never that. The wrap
+// lives here — on the host Kit — so it takes effect without rebuilding the
+// image that ships proveo-seed.
+const seedNeverAbort = `set +e
+/usr/local/bin/proveo-seed "$1"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+fi
+exit 0`
+
 func SeedCommand(target string) KitCommand {
 	return KitCommand{
-		Command:     []string{"/usr/local/bin/proveo-seed", target},
+		Command:     []string{"/bin/sh", "-c", seedNeverAbort, "proveo-seed", target},
 		User:        "1000",
 		Description: "proveo: compose subagents, settings and workspace trust",
 	}
@@ -81,6 +99,17 @@ func SeedEntrypointCommand() KitCommand {
 		User:        "1000",
 		Description: "proveo: the def's own wiring, launch skipped",
 	}
+}
+
+// CommandNamesSeed reports whether a Kit startup argv invokes the seed, whether
+// as the binary itself or inside the host-side never-abort wrapper.
+func CommandNamesSeed(cmd []string) bool {
+	for _, a := range cmd {
+		if strings.Contains(a, "proveo-seed") {
+			return true
+		}
+	}
+	return false
 }
 
 // KitSandbox names the image and what runs in it.
