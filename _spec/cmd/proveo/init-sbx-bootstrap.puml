@@ -137,16 +137,17 @@ skinparam noteTextAlignment left
 ' Asked, through the same choiceui the run picker uses — without that
 ' picker's "◀ riskier … safer ▶" legend. Init's radios are not a safety
 ' axis (NoAxis); ranking a prefix that way had no value.
-'   install ....... rootless tarball | distro package (root, no digest) |
+'   sbx install ... rootless tarball | distro package (root, no digest) |
 '                   keep what is installed. This is sbx from GitHub, not a
 '                   second copy of proveo — proveo is already on PATH from the
 '                   CDN installer. Packaged is GATED, never dropped, when this
 '                   host has no .deb/.rpm, so the alternative stays visible
 '                   (and names Alt — brew, winget — when that is the published
 '                   path proveo cannot pin).
-'   prefix ........ ~/.docker/sbx | /usr/local — home is the default (no
-'                   root); collapsed to one option when --prefix already said
-'   PATH .......... write the shell rc | print the line
+'   sbx location .. /usr/local | ~/.docker/sbx — /usr/local is leftmost;
+'                   home stays the default (Selected, no root). Collapsed to
+'                   one option when --prefix already said
+'   PATH .......... add to shell rc | print only
 '   ── next steps ── a Heading, not a row. Sign-in used to declare Divider
 '                   with no Heading, so choiceui stole its label and it drew
 '                   as radios with no name — read as a missing "sbx init".

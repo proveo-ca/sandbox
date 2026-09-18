@@ -113,6 +113,11 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 		t.Errorf("tarball help must say this is sbx, not a second proveo from the CDN, got %q", install.Help[installTarball])
 	}
 
+	path := rows[byLabel[rowPath]]
+	if diff := cmp.Diff([]string{pathAddRC, pathPrint}, path.Options); diff != "" {
+		t.Errorf("PATH options mismatch (-want +got):\n%s", diff)
+	}
+
 	signIn := rows[byLabel[rowSignIn]]
 	if !signIn.Divider || signIn.Heading != rowNext {
 		t.Errorf("sign-in must open the %q group (so its own label stays), got Divider=%v Heading=%q",
@@ -191,7 +196,7 @@ func TestDescribeDecisionsNamesEveryChoiceItMade(t *testing.T) {
 		Install: installTarball, Prefix: "/opt/sbx",
 		AddPath: true, Login: true, Wizard: false, Gh: true, Git: false, Baseline: sbx.BaselineDenyAll,
 	})
-	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", "gh: yes", "git identity: no", sbx.BaselineDenyAll} {
+	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", "gh: yes", "git identity: no", sbx.BaselineDenyAll, rowInstall, rowPrefix} {
 		if !strings.Contains(got, want) {
 			t.Errorf("describeDecisions() = %q, missing %q", got, want)
 		}
@@ -208,7 +213,7 @@ func TestPrefixOptionsCollapseToAnExplicitChoice(t *testing.T) {
 		t.Errorf("prefixOptions(--prefix) = %v, want only what was asked for", got)
 	}
 	def := sbx.DefaultPrefix(homeDir())
-	want := []string{def, prefixSystem}
+	want := []string{prefixSystem, def}
 	if diff := cmp.Diff(want, prefixOptions(def)); diff != "" {
 		t.Errorf("prefixOptions(default) mismatch (-want +got):\n%s", diff)
 	}
@@ -246,8 +251,12 @@ func TestInitRowsGateAPackagedInstallThisHostCannotRun(t *testing.T) {
 
 	prefix := rows[byLabel[rowPrefix]]
 	home := sbx.DefaultPrefix(homeDir())
-	if diff := cmp.Diff([]string{home, prefixSystem}, prefix.Options); diff != "" {
-		t.Errorf("prefix options mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{prefixSystem, home}, prefix.Options); diff != "" {
+		t.Errorf("location options mismatch (-want +got):\n%s", diff)
+	}
+	if prefix.Selected != indexOf(prefix.Options, home) {
+		t.Errorf("Selected = %d (%q), want the home prefix as default even though /usr/local is leftmost",
+			prefix.Selected, prefix.Options[prefix.Selected])
 	}
 	if !strings.Contains(prefix.Help[home], "safer") {
 		t.Errorf("home prefix help must say it is the safer default, got %q", prefix.Help[home])

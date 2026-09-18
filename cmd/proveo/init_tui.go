@@ -27,8 +27,8 @@ const (
 	installPackaged = "distro package"
 	installSkip     = "keep what is installed"
 
-	rowInstall  = "install"
-	rowPrefix   = "prefix"
+	rowInstall  = "sbx install"
+	rowPrefix   = "sbx location"
 	rowPath     = "PATH"
 	rowSignIn   = "sign in"
 	rowWizard   = "sbx setup"
@@ -39,16 +39,19 @@ const (
 
 	baselineLeave = "leave as is"
 	prefixSystem  = "/usr/local"
+
+	pathAddRC = "add to shell rc"
+	pathPrint = "print only"
 )
 
-// prefixOptions are the two the release's own installer documents: its
-// default per-user prefix first, then the system-wide one. An explicit
-// --prefix is the only option there is.
+// prefixOptions are the two the release's own installer documents. /usr/local
+// is leftmost (the system-wide choice); the home prefix stays the default
+// (Selected). An explicit --prefix is the only option there is.
 func prefixOptions(def string) []string {
 	if def != sbx.DefaultPrefix(homeDir()) {
 		return []string{def}
 	}
-	return []string{def, prefixSystem}
+	return []string{prefixSystem, def}
 }
 
 func homeDir() string {
@@ -108,7 +111,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		out.Prefix = v
 	}
 	if v := form.Selection(rowPath); v != "" {
-		out.AddPath = v == "add to my shell rc"
+		out.AddPath = v == pathAddRC
 	}
 	if v := form.Selection(rowSignIn); v != "" {
 		out.Login = v == "now"
@@ -172,12 +175,12 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 			Label: rowPrefix, Options: popts, Selected: indexOf(popts, def.Prefix), Help: help,
 		})
 
-		pathOpts := []string{"add to my shell rc", "print the line, change nothing"}
+		pathOpts := []string{pathAddRC, pathPrint}
 		rows = append(rows, choiceui.Row{
 			Label: rowPath, Options: pathOpts, Selected: indexOf(pathOpts, pathChoice(def.AddPath)),
 			Help: map[string]string{
-				"add to my shell rc":             "the prefix is off PATH by design; without this, `sbx` will not resolve",
-				"print the line, change nothing": "nothing is written to your dotfiles",
+				pathAddRC: "the prefix is off PATH by design; without this, `sbx` will not resolve",
+				pathPrint: "nothing is written to your dotfiles — the export line is printed instead",
 			},
 		})
 	}
@@ -214,9 +217,9 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 
 func pathChoice(add bool) string {
 	if add {
-		return "add to my shell rc"
+		return pathAddRC
 	}
-	return "print the line, change nothing"
+	return pathPrint
 }
 
 func nowLaterRow(label string, def, locked bool, why string, help map[string]string) choiceui.Row {
@@ -308,9 +311,9 @@ func indexOf(opts []string, want string) int {
 // describeDecisions is what init prints when it did NOT ask — the non-TTY path,
 // where the operator finds out afterwards what was chosen for them.
 func describeDecisions(d initDecisions) string {
-	parts := []string{"install: " + d.Install}
+	parts := []string{rowInstall + ": " + d.Install}
 	if d.Prefix != "" {
-		parts = append(parts, "prefix: "+d.Prefix)
+		parts = append(parts, rowPrefix+": "+d.Prefix)
 	}
 	parts = append(parts,
 		"PATH: "+yesNo(d.AddPath),
