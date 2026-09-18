@@ -131,14 +131,25 @@ skinparam noteTextAlignment left
 ' answerable by a person at a screen and by defaults nobody was asked for, and
 ' only the second is testable without a terminal. Defaults are the contract.
 '
-' Asked, through the same choiceui the run picker uses:
-'   install ....... release tarball (rootless) | distro package (root, and no
-'                   published digest covers it) | keep what is installed
-'   prefix ........ ~/.docker/sbx | /usr/local — collapsed to one option when
-'                   --prefix already said
+' Asked, through the same choiceui the run picker uses — without that
+' picker's "◀ riskier … safer ▶" legend. Init's radios are not a safety
+' axis (NoAxis); ranking a prefix that way had no value.
+'   install ....... rootless tarball | distro package (root, no digest) |
+'                   keep what is installed. This is sbx from GitHub, not a
+'                   second copy of proveo — proveo is already on PATH from the
+'                   CDN installer. Packaged is GATED, never dropped, when this
+'                   host has no .deb/.rpm, so the alternative stays visible
+'                   (and names Alt — brew, winget — when that is the published
+'                   path proveo cannot pin).
+'   prefix ........ ~/.docker/sbx | /usr/local — home is the default (no
+'                   root); collapsed to one option when --prefix already said
 '   PATH .......... write the shell rc | print the line
-'   sign in ....... now | later
-'   sbx setup ..... now | later
+'   ── next steps ── a Heading, not a row. Sign-in used to declare Divider
+'                   with no Heading, so choiceui stole its label and it drew
+'                   as radios with no name — read as a missing "sbx init".
+'                   Both rows keep their labels under this heading:
+'   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
+'   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
 '   baseline ...... only when the host currently allows every host
 '
 ' A row a flag already settled is drawn LOCKED with the flag named, never
@@ -205,14 +216,17 @@ skinparam noteTextAlignment left
 ' loud as unverified. The release ships one .deb per Ubuntu generation and a
 ' single rockylinux8 .rpm for the whole RPM family; an unrecognised distro gets
 ' none, which is not an error — the tarball plan never needed to know the
-' distro. When the package wins, placement belongs to the package manager, so
-' the plan's Bin and Prefix are cleared exactly as they are for the MSI.
+' distro. The radio is still drawn, gated, so "distro package" does not vanish
+' and look like the tarball is the only way sbx arrives. When the package wins,
+' placement belongs to the package manager, so the plan's Bin and Prefix are
+' cleared exactly as they are for the MSI.
 '
-' Alt is only PRINTED, and only on apt hosts. It installs from a repository
-' instead of from this release, so proveo cannot pin what it lands — and the
-' documented Linux path (`get.docker.com` + `apt install docker-sbx`) has no
-' published dnf equivalent. Naming an apt command on a Rocky host would be
-' advice that cannot be followed, so nothing is named there.
+' Alt is never a selectable option. It installs from a repository, Homebrew or
+' WinGet instead of from this release, so proveo cannot pin what it lands. On a
+' host with no Packaged it is NAMED in the gated option's reason — that is how
+' brew and winget stay visible. The documented Linux path (`get.docker.com` +
+' `apt install docker-sbx`) has no published dnf equivalent, so Rocky names
+' none.
 '
 ' ── REFUSE THE PREFIX BEFORE DOWNLOADING INTO IT, AND STAY IDEMPOTENT ──────
 ' /usr/local is an offered choice and it is the one that lands on a prefix this
@@ -384,6 +398,13 @@ note bottom of ASK
   decision must also have an answer nobody was
   asked for. The baseline is the only default that
   does nothing — it is host-wide.
+end note
+
+note left of ASK
+  **Heading names the group.** A divider with no
+  Heading steals the row label, which is why "sign
+  in" drew as radios with no name beside "sbx
+  setup". "next steps" leaves both labels on.
 end note
 
 note left of PREFIX

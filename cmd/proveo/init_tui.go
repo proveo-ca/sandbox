@@ -21,7 +21,7 @@ type initDecisions struct {
 }
 
 const (
-	installTarball  = "release tarball"
+	installTarball  = "rootless tarball"
 	installPackaged = "distro package"
 	installSkip     = "keep what is installed"
 
@@ -31,17 +31,20 @@ const (
 	rowSignIn   = "sign in"
 	rowWizard   = "sbx setup"
 	rowBaseline = "network baseline"
+	rowNext     = "next steps"
 
 	baselineLeave = "leave as is"
+	prefixSystem  = "/usr/local"
 )
 
-// prefixOptions are the two the release's own installer documents: its default
-// per-user prefix, and the system-wide one it names in the same breath.
+// prefixOptions are the two the release's own installer documents: its
+// default per-user prefix first, then the system-wide one. An explicit
+// --prefix is the only option there is.
 func prefixOptions(def string) []string {
 	if def != sbx.DefaultPrefix(homeDir()) {
-		return []string{def} // an explicit --prefix is the only option there is
+		return []string{def}
 	}
-	return []string{def, "/usr/local"}
+	return []string{def, prefixSystem}
 }
 
 func homeDir() string {
@@ -79,6 +82,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Title:  fmt.Sprintf("init — ready %s for sbx %s", describeHost(host), sbx.Release),
 		Header: initHeader(plan, installed, checks),
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
+		NoAxis: true,
 		Rows:   initRows(plan, installed, def, o),
 	}
 
@@ -113,7 +117,10 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 }
 
 func initHeader(plan sbx.Plan, installed string, checks []sbx.Prereq) []string {
-	out := []string{"asset   " + plan.Asset}
+	out := []string{
+		"sbx     the backend proveo runs on — proveo itself is already on PATH from the CDN",
+		"asset   " + plan.Asset,
+	}
 	if plan.Provenance != nil {
 		out = append(out, "digest  verified against the release's provenance")
 	} else {
@@ -133,42 +140,24 @@ func initHeader(plan sbx.Plan, installed string, checks []sbx.Prereq) []string {
 
 func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions) []choiceui.Row {
 	var rows []choiceui.Row
-
-	// What to install. The packaged option is drawn only where the release
-	// ships one, and the skip option only where there is something to keep.
-	opts := []string{installTarball}
-	help := map[string]string{
-		installTarball: "from " + plan.Asset + ", into a prefix you own — no root",
-	}
-	if plan.Packaged != nil {
-		opts = append(opts, installPackaged)
-		help[installPackaged] = plan.Packaged.Why
-	}
-	if installed != "" {
-		opts = append(opts, installSkip)
-		help[installSkip] = "sbx " + installed + " stays; init still checks and signs in"
-	}
-	install := choiceui.Row{
-		Label: rowInstall, Options: opts, Selected: indexOf(opts, def.Install), Help: help,
-	}
-	if o.force {
-		install.Locked, install.Reason = true, "--force was passed: a reinstall was asked for"
-		install.Hover = indexOf(opts, installTarball)
-		install.Selected = install.Hover
-	}
-	rows = append(rows, install)
+	rows = append(rows, installRow(plan, installed, def, o))
 
 	// Where it lands. Only meaningful for the prefix-based plans; the MSI owns
 	// its own location and there is nothing to choose.
 	if plan.Prefix != "" {
 		popts := prefixOptions(def.Prefix)
+		home := sbx.DefaultPrefix(homeDir())
+		help := map[string]string{
+			prefixSystem: "system-wide, and the install step will need to be run as root — " +
+				"choose the home prefix unless you know you want this",
+		}
+		if def.Prefix == home {
+			help[home] = "per-user, no root — the safer default, and the release installer's own"
+		} else {
+			help[def.Prefix] = "the prefix --prefix asked for"
+		}
 		rows = append(rows, choiceui.Row{
-			Label: rowPrefix, Options: popts, Selected: indexOf(popts, def.Prefix),
-			Help: map[string]string{
-				def.Prefix: "the release installer's own default; needs no root",
-				"/usr/local": "system-wide, and the install step will need to be run as root — " +
-					"choose the default unless you know you want this",
-			},
+			Label: rowPrefix, Options: popts, Selected: indexOf(popts, def.Prefix), Help: help,
 		})
 
 		pathOpts := []string{"add to my shell rc", "print the line, change nothing"}
@@ -181,13 +170,15 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 		})
 	}
 
-	rows = append(rows, nowLaterRow(rowSignIn, def.Login, o.skipLogin, "--skip-login was passed", map[string]string{
-		"now":   "`sbx login` owns the credential; proveo never sees it",
-		"later": "pulls inside a run will fail until you have signed in",
-	}))
+	signIn := nowLaterRow(rowSignIn, def.Login, o.skipLogin, "--skip-login was passed", map[string]string{
+		"now":   "next: `sbx login` — Docker Hub OAuth so image pulls work; proveo never sees the credential",
+		"later": "skip for now; pulls inside a run fail until you have signed in",
+	})
+	signIn.Divider, signIn.Heading = true, rowNext
+	rows = append(rows, signIn)
 
 	rows = append(rows, nowLaterRow(rowWizard, def.Wizard, o.skipSetup, "--skip-setup was passed", map[string]string{
-		"now":   "`sbx setup` — 0.42 stopped opening this on its own",
+		"now":   "next: `sbx setup` — the first-run wizard (SSH, daemon). 0.42 stopped opening it on its own",
 		"later": "a host nobody sets up stays half-configured, with no prompt to say so",
 	}))
 
@@ -212,9 +203,56 @@ func nowLaterRow(label string, def, locked bool, why string, help map[string]str
 	if !def {
 		sel = 1
 	}
-	r := choiceui.Row{Label: label, Options: opts, Selected: sel, Help: help, Divider: label == rowSignIn}
+	r := choiceui.Row{Label: label, Options: opts, Selected: sel, Help: help}
 	if locked {
 		r.Locked, r.Reason, r.Hover = true, why, 1
+	}
+	return r
+}
+
+// installRow always draws the distro package so the alternative is visible,
+// even on a host that cannot run one. Dropping it is what made "release
+// tarball" look like the only way sbx arrives — and like a second copy of
+// proveo, which came from the CDN and is already on PATH. Default first:
+// the rootless tarball, then the root package, then keep what is here.
+func installRow(plan sbx.Plan, installed string, def initDecisions, o initOptions) choiceui.Row {
+	opts := []string{installTarball, installPackaged}
+	help := map[string]string{
+		installTarball: "sbx from " + plan.Asset + ", into a prefix you own — no root. " +
+			"Proveo is already on PATH from the CDN; this is the backend it runs on",
+		installPackaged: "sbx via the host package manager, system-wide — needs root, and no published digest covers it",
+	}
+	off := make([]bool, len(opts))
+	var reason string
+	switch {
+	case plan.Packaged != nil:
+		help[installPackaged] = plan.Packaged.Why
+	case strings.TrimSpace(plan.Alt) != "":
+		off[indexOf(opts, installPackaged)] = true
+		reason = "not offered: proveo cannot pin a package-manager install — " + plan.Alt
+		help[installPackaged] = reason
+	default:
+		off[indexOf(opts, installPackaged)] = true
+		reason = "no .deb/.rpm on this OS — the tarball is what the pinned release publishes here"
+		help[installPackaged] = reason
+	}
+	if installed != "" {
+		opts = append(opts, installSkip)
+		off = append(off, false)
+		help[installSkip] = "sbx " + installed + " stays; init still checks and signs in"
+	}
+	r := choiceui.Row{
+		Label:    rowInstall,
+		Options:  opts,
+		Selected: indexOf(opts, def.Install),
+		Help:     help,
+		Off:      off,
+		Reason:   reason,
+	}
+	if o.force {
+		r.Locked, r.Reason = true, "--force was passed: a reinstall was asked for"
+		r.Hover = indexOf(opts, installTarball)
+		r.Selected = r.Hover
 	}
 	return r
 }

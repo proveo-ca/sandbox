@@ -178,7 +178,21 @@ func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(stri
 			})
 		}
 	}
-	return out
+	return groupSlots(out)
+}
+
+// groupSlots puts every subscription first, then the usage keys. The keys are
+// not owned by the def that happened to list them — any agent can spend one.
+func groupSlots(slots []credSlot) []credSlot {
+	var subs, keys []credSlot
+	for _, s := range slots {
+		if s.Kind == kindKey {
+			keys = append(keys, s)
+			continue
+		}
+		subs = append(subs, s)
+	}
+	return append(subs, keys...)
 }
 
 // subscriptionEnvVars are the non-key vars that carry a plan token, so a token
@@ -236,7 +250,7 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 	for _, s := range slots {
 		group := s.Def + " — subscription"
 		if s.Kind == kindKey {
-			group = s.Def + " — api keys"
+			group = "usage api keys"
 		}
 		row := choiceui.Row{
 			Label:       s.Label,

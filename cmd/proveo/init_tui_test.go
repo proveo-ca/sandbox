@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -92,11 +94,26 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 	// The RPM host must be offered the distro package, since the release ships
 	// one for it — that is the choice between rootless and system-wide.
 	install := rows[byLabel[rowInstall]]
-	if !hasOption(install.Options, installPackaged) {
-		t.Errorf("install row = %v, want the distro package offered on an RPM host", install.Options)
+	if diff := cmp.Diff([]string{installTarball, installPackaged}, install.Options); diff != "" {
+		t.Errorf("install options mismatch (-want +got):\n%s", diff)
 	}
 	if hasOption(install.Options, installSkip) {
 		t.Error("nothing is installed, so there is nothing to keep")
+	}
+	if install.Off[indexOf(install.Options, installPackaged)] {
+		t.Error("an RPM host can run the distro package; it must not be gated")
+	}
+	if !strings.Contains(install.Help[installTarball], "CDN") {
+		t.Errorf("tarball help must say this is sbx, not a second proveo from the CDN, got %q", install.Help[installTarball])
+	}
+
+	signIn := rows[byLabel[rowSignIn]]
+	if !signIn.Divider || signIn.Heading != rowNext {
+		t.Errorf("sign-in must open the %q group (so its own label stays), got Divider=%v Heading=%q",
+			rowNext, signIn.Divider, signIn.Heading)
+	}
+	if rows[byLabel[rowWizard]].Divider {
+		t.Error("sbx setup is in the next-steps group, not a second heading")
 	}
 }
 
@@ -162,8 +179,58 @@ func TestPrefixOptionsCollapseToAnExplicitChoice(t *testing.T) {
 		t.Errorf("prefixOptions(--prefix) = %v, want only what was asked for", got)
 	}
 	def := sbx.DefaultPrefix(homeDir())
-	if got := prefixOptions(def); len(got) != 2 || got[0] != def {
-		t.Errorf("prefixOptions(default) = %v, want the default first", got)
+	want := []string{def, prefixSystem}
+	if diff := cmp.Diff(want, prefixOptions(def)); diff != "" {
+		t.Errorf("prefixOptions(default) mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestInitRowsGateAPackagedInstallThisHostCannotRun(t *testing.T) {
+	t.Parallel()
+	plan, err := sbx.PlanFor(sbx.Host{OS: "darwin", Arch: "arm64"}, sbx.DefaultPrefix(homeDir()), "/tmp/dl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}), initOptions{})
+	byLabel := map[string]int{}
+	for i, r := range rows {
+		byLabel[r.Label] = i
+	}
+	install := rows[byLabel[rowInstall]]
+	if !hasOption(install.Options, installPackaged) {
+		t.Fatalf("install options = %v, want distro package drawn so the alternative is visible", install.Options)
+	}
+	i := indexOf(install.Options, installPackaged)
+	if i >= len(install.Off) || !install.Off[i] {
+		t.Errorf("darwin has no .deb/.rpm; distro package must be gated, Off=%v", install.Off)
+	}
+	if install.Reason == "" {
+		t.Error("a gated package must explain itself — dropping the option hid that brew exists")
+	}
+	if !strings.Contains(install.Reason, "brew") && !strings.Contains(install.Help[installPackaged], "brew") {
+		t.Errorf("darwin's gated reason should name the brew path proveo cannot pin, got Reason=%q Help=%q",
+			install.Reason, install.Help[installPackaged])
+	}
+	if install.Selected != indexOf(install.Options, installTarball) {
+		t.Errorf("Selected = %d (%q), want the tarball", install.Selected, install.Options[install.Selected])
+	}
+
+	prefix := rows[byLabel[rowPrefix]]
+	home := sbx.DefaultPrefix(homeDir())
+	if diff := cmp.Diff([]string{home, prefixSystem}, prefix.Options); diff != "" {
+		t.Errorf("prefix options mismatch (-want +got):\n%s", diff)
+	}
+	if !strings.Contains(prefix.Help[home], "safer") {
+		t.Errorf("home prefix help must say it is the safer default, got %q", prefix.Help[home])
+	}
+}
+
+func TestInitHeaderSaysThisInstallsSbxNotProveo(t *testing.T) {
+	t.Parallel()
+	plan := linuxPlan(t, "/opt/sbx")
+	got := strings.Join(initHeader(plan, "", nil), "\n")
+	if !strings.Contains(got, "sbx") || !strings.Contains(got, "CDN") {
+		t.Errorf("header = %q, want it to say this installs sbx and that proveo came from the CDN", got)
 	}
 }
 
