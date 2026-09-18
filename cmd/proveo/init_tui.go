@@ -17,6 +17,8 @@ type initDecisions struct {
 	AddPath  bool
 	Login    bool
 	Wizard   bool
+	Gh       bool
+	Git      bool
 	Baseline string // "" leaves the host-wide network policy alone
 }
 
@@ -30,6 +32,8 @@ const (
 	rowPath     = "PATH"
 	rowSignIn   = "sign in"
 	rowWizard   = "sbx setup"
+	rowGh       = "gh"
+	rowGit      = "git identity"
 	rowBaseline = "network baseline"
 	rowNext     = "next steps"
 
@@ -62,6 +66,8 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		AddPath:  plan.Bin != "",
 		Login:    !o.skipLogin,
 		Wizard:   !o.skipSetup,
+		Gh:       !o.skipGh,
+		Git:      !o.skipGit,
 		Baseline: "",
 	}
 	// A one-time install: proveo puts sbx on a host that has none and then
@@ -109,6 +115,12 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	}
 	if v := form.Selection(rowWizard); v != "" {
 		out.Wizard = v == "now"
+	}
+	if v := form.Selection(rowGh); v != "" {
+		out.Gh = v == "now"
+	}
+	if v := form.Selection(rowGit); v != "" {
+		out.Git = v == "now"
 	}
 	if v := form.Selection(rowBaseline); v != "" && v != baselineLeave {
 		out.Baseline = v
@@ -180,6 +192,16 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	rows = append(rows, nowLaterRow(rowWizard, def.Wizard, o.skipSetup, "--skip-setup was passed", map[string]string{
 		"now":   "next: `sbx setup` — the first-run wizard (SSH, daemon). 0.42 stopped opening it on its own",
 		"later": "a host nobody sets up stays half-configured, with no prompt to say so",
+	}))
+
+	rows = append(rows, nowLaterRow(rowGh, def.Gh, o.skipGh, "--skip-gh was passed", map[string]string{
+		"now":   "verify `gh`, install it if missing, `gh auth login` if needed — then store the token as sbx's github service so git push to github.com works",
+		"later": "runs stay on anonymous GitHub API limits; `git push` to github.com needs `sbx secret set github`",
+	}))
+
+	rows = append(rows, nowLaterRow(rowGit, def.Git, o.skipGit, "--skip-git was passed", map[string]string{
+		"now":   "set `user.name` / `user.email` if this host has none — a commit inside a sandbox fails late without them",
+		"later": "the agent will hit 'Please tell me who you are' at the first commit",
 	}))
 
 	// The host-wide network baseline. Offered because proveo otherwise only
@@ -293,7 +315,9 @@ func describeDecisions(d initDecisions) string {
 	parts = append(parts,
 		"PATH: "+yesNo(d.AddPath),
 		"sign in: "+yesNo(d.Login),
-		"sbx setup: "+yesNo(d.Wizard))
+		"sbx setup: "+yesNo(d.Wizard),
+		"gh: "+yesNo(d.Gh),
+		"git identity: "+yesNo(d.Git))
 	if d.Baseline != "" {
 		parts = append(parts, "baseline: "+d.Baseline)
 	}

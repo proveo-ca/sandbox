@@ -86,6 +86,17 @@ func TestPromptEnv(t *testing.T) {
 	})
 }
 
+func TestPromptLine(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	if got := promptLine("git user.name:", strings.NewReader("Ada\n"), &out); got != "Ada" {
+		t.Errorf("promptLine = %q, want Ada", got)
+	}
+	if !strings.Contains(out.String(), "git user.name:") {
+		t.Errorf("prompt must echo the label, got %q", out.String())
+	}
+}
+
 func TestWizardEnabled(t *testing.T) {
 	tests := []struct {
 		val  string

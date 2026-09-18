@@ -4,9 +4,17 @@
 ' covers: internal/gitidentity/**
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: cmd/proveo/main.go
+' covers: cmd/proveo/init_git.go
 ' covers: e2e/git_access_test.go
 ' Ownership and worktree scoping: _spec/internal/workspace/git-mount-by-scope.puml.
 ' The launch shape the e2e cases share: _spec/tests/testing-strategy.puml.
+'
+' ── INIT VERIFIES; SEED BRIDGES ────────────────────────────────────────────
+' `proveo init` asks for user.name / user.email when this host has none,
+' because the failure is late and bad ("Please tell me who you are" after
+' the work). Seed still applies the bridge: a run whose host identity
+' changed since init must not wait for the next init. `gh` login is not
+' this object's — that is init_github.go / github-credentials.puml.
 '
 ' ── THE E2E CASE MEASURES THE RUN'S BRIDGING, NOT THE FUNCTION'S ───────────
 ' TestGitIsWritableInEveryHarness launches a real `proveo run <target> --shell`

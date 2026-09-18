@@ -4,6 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
 ' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, ensureSbxOnPath, finish, verify)
 ' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, initRows, baselineRow)
+' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
+' covers: cmd/proveo/init_git.go (applyGitIdentity)
+' covers: cmd/proveo/ghtoken.go (resolve — a run only lifts; login is init's)
 ' covers: internal/sbx/install.go (Release, Host, DetectHost, PlanFor, Packaged, Provenance, Prereqs, Stage, Probe, ServerState, VersionAt)
 ' covers: internal/shell/shell.go (SbxMarker, SbxBlock)
 ' covers: apps/cli/public/cli/install.sh (run_init)
@@ -147,9 +150,16 @@ skinparam noteTextAlignment left
 '   ── next steps ── a Heading, not a row. Sign-in used to declare Divider
 '                   with no Heading, so choiceui stole its label and it drew
 '                   as radios with no name — read as a missing "sbx init".
-'                   Both rows keep their labels under this heading:
+'                   Rows keep their labels under this heading:
 '   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
 '   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
+'   gh ............ now | later   (verify `gh`, install via the host package
+'                   manager if missing, `gh auth login` if needed, then
+'                   `sbx secret set --force github` from that token. A run
+'                   never opens the login; seed never installs gh.)
+'   git identity .. now | later   (`user.name` / `user.email`. A missing
+'                   identity fails at the first commit, after the work.
+'                   Seed still BRIDGES the resolved pair; it does not ask.)
 '   baseline ...... only when the host currently allows every host
 '
 ' A row a flag already settled is drawn LOCKED with the flag named, never
@@ -333,7 +343,7 @@ component "choiceui prompt\nlocked rows still drawn" as ASK <<app>>
 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
-OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · baseline
+OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag
 PROV ARROW_MAIN INIT : the digest, checked BEFORE unpacking

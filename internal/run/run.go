@@ -39,7 +39,7 @@ type Deps struct {
 	ManifestFor      func(target string) (manifest.Manifest, error)
 	PickProject      func(projs []workspace.Project) string
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
-	GitHubTokenEnv   func(interactive bool) string
+	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(plan egress.Plan, man manifest.Manifest, agentImage string) error
 	SquidConfig      fs.FS // the root package's embedded squid config
@@ -612,8 +612,8 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		rs.Creds.Env = append(rs.Creds.Env, rs.Workspace.WS.WorktreeEnv()...)
 	}
 
-	if !p.PrintOnly {
-		if k := d.GitHubTokenEnv(agentio.IsStdinTTY() && WizardEnabled()); k != "" {
+	if !p.PrintOnly && d.GitHubTokenEnv != nil {
+		if k := d.GitHubTokenEnv(); k != "" {
 			rs.Creds.Env = append(rs.Creds.Env, k)
 		}
 	}

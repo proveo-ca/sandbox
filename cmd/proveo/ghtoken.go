@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -48,53 +47,41 @@ func hostGhAuth() ghAuth {
 	}
 }
 
-func (g ghAuth) resolve(interactive bool, in io.Reader, out io.Writer) string {
+// resolve reads a GitHub token from env or the host gh session. It never
+// opens `gh auth login` — that is `proveo init`'s. A locked keychain is its
+// own error so a run does not tell an already-logged-in operator to log in.
+func (g ghAuth) resolve() (string, error) {
 	for _, k := range []string{"GITHUB_TOKEN", ghTokenEnvVar} {
 		if v := strings.TrimSpace(g.getenv(k)); v != "" {
-			return v
+			return v, nil
 		}
 	}
 	if _, err := g.lookPath("gh"); err != nil {
-		return ""
+		return "", err
 	}
 	tok, err := g.token()
 	switch {
 	case err == nil && tok != "":
-		return tok
+		return tok, nil
 	case errors.Is(err, errCredentialStoreTimeout):
 		ui.Warnf("gh did not return a token within %s — on macOS a locked login keychain "+
 			"blocks this. Unlock it or set %s; continuing with anonymous GitHub API limits.",
 			ghTokenTimeout, ghTokenEnvVar)
-		return ""
+		return "", errCredentialStoreTimeout
 	}
-	if !interactive {
-		ui.Warnf("no GitHub credentials found — container tooling that reads the GitHub API " +
-			"will use the anonymous 60-requests/hour limit. Run `gh auth login` to fix.")
-		return ""
-	}
-	if !promptYesNo("GitHub credentials missing. Run `gh auth login` now?", true, in, out) {
-		ui.Warnf("continuing without GitHub credentials (anonymous API limits apply)")
-		return ""
-	}
-	if err := g.login(); err != nil {
-		ui.Warnf("gh auth login did not complete: %v", err)
-		return ""
-	}
-	tok, err = g.token()
-	if err != nil || tok == "" {
-		ui.Warnf("gh auth login finished but no token could be read back")
-		return ""
-	}
-	ui.Okf("GitHub credentials stored by gh and forwarded to the container")
-	return tok
+	return "", err
 }
 
-func resolveGitHubTokenEnv(g ghAuth, interactive bool, in io.Reader, out io.Writer) string {
+func resolveGitHubTokenEnv(g ghAuth) string {
 	if _, ok := credentials.GhConfigMount(g.getenv); !ok {
 		return ""
 	}
-	tok := g.resolve(interactive, in, out)
+	tok, err := g.resolve()
 	if tok == "" {
+		if !errors.Is(err, errCredentialStoreTimeout) {
+			ui.Warnf("no GitHub credentials found — container tooling that reads the GitHub API " +
+				"will use the anonymous 60-requests/hour limit. Run `proveo init` (or `gh auth login`) to fix.")
+		}
 		return ""
 	}
 	if err := os.Setenv(ghTokenEnvVar, tok); err != nil {

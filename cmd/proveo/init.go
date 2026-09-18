@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/sbx/host-readiness.puml
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml, _spec/internal/sbx/host-readiness.puml, _spec/cmd/proveo/github-credentials.puml
 package main
 
 import (
@@ -27,6 +27,8 @@ type initOptions struct {
 	prefix    string
 	skipLogin bool
 	skipSetup bool
+	skipGh    bool
+	skipGit   bool
 	force     bool
 	yes       bool
 }
@@ -37,7 +39,7 @@ func initCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Install and sign in to the sbx backend proveo runs on (alias for --init)",
 		Long: "Detect this host, install the pinned Docker Sandboxes release (v" + sbx.Release +
-			"), check every prerequisite a run depends on, and sign in.",
+			"), check every prerequisite a run depends on, sign in, and ready git/gh.",
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error { return doInit(o) },
 	}
@@ -45,6 +47,8 @@ func initCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.prefix, "prefix", "", "where to install sbx (default ~/.docker/sbx)")
 	cmd.Flags().BoolVar(&o.skipLogin, "skip-login", false, "install and check, but do not run `sbx login`")
 	cmd.Flags().BoolVar(&o.skipSetup, "skip-setup", false, "do not run `sbx setup`, the first-run wizard")
+	cmd.Flags().BoolVar(&o.skipGh, "skip-gh", false, "do not verify, install, or log in via `gh`")
+	cmd.Flags().BoolVar(&o.skipGit, "skip-git", false, "do not check or set git user.name / user.email")
 	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal)")
 	return cmd
@@ -141,7 +145,7 @@ func doInit(o initOptions) error {
 	}
 
 	bin := resolveBin(plan)
-	if err := finish(bin, plan, d); err != nil {
+	if err := finish(bin, plan, d, host); err != nil {
 		return err
 	}
 
@@ -220,6 +224,11 @@ func printPlan(plan sbx.Plan, installed string) {
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.LoginArgs(), " "))
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.SetupArgs(), " "))
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.VersionJSONArgs(), " "))
+	ui.Appf("gh auth status")
+	ui.Appf("gh auth login")
+	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.SecretSetArgs("github"), " "))
+	ui.Appf("git config --get user.name")
+	ui.Appf("git config --get user.email")
 	if plan.Packaged != nil {
 		ui.Notef("or, at the prompt: %s (%s)", strings.Join(plan.Packaged.Argv, " "), plan.Packaged.Asset)
 	}
@@ -395,7 +404,7 @@ func resolveBin(plan sbx.Plan) string {
 	return sbx.Binary
 }
 
-func finish(bin string, plan sbx.Plan, d initDecisions) error {
+func finish(bin string, plan sbx.Plan, d initDecisions, host sbx.Host) error {
 	if plan.Bin != "" {
 		ensureSbxOnPath(filepath.Dir(plan.Bin), d.AddPath)
 	}
@@ -424,6 +433,19 @@ func finish(bin string, plan sbx.Plan, d initDecisions) error {
 			ui.Warnf("the baseline was not changed (%v) — `%s %s` by hand", err, sbx.Binary,
 				strings.Join(sbx.PolicyInitArgs(d.Baseline), " "))
 		}
+	}
+
+	if d.Git {
+		applyGitIdentity(hostGitStage())
+	}
+	if d.Gh {
+		applyGitHub(ghStage{
+			auth:      hostGhAuth(),
+			host:      host,
+			run:       runArgv,
+			secretSet: func(name, value string) error { return secretSetAt(bin, name, value) },
+			tty:       interactiveTerminal(),
+		})
 	}
 
 	return verify(bin)

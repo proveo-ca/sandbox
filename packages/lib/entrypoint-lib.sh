@@ -431,6 +431,8 @@ _proveo_bounded() {
 }
 
 _proveo_github_token() {
+  # Read-only. Login and install live in `proveo init`; seed never opens
+  # `gh auth login` (no browser) and never installs gh (baked into the image).
   if [ -n "${GITHUB_TOKEN:-}" ]; then printf '%s' "$GITHUB_TOKEN"; return 0; fi
   if [ -n "${GH_TOKEN:-}" ]; then printf '%s' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 || return 0

@@ -60,4 +60,10 @@ func TestEnvPairs(t *testing.T) {
 	if len((Identity{}).EnvPairs()) != 0 {
 		t.Fatal("empty identity should yield no env pairs")
 	}
+	if (Identity{Name: "N"}).Complete() || (Identity{}).Complete() {
+		t.Error("a half-set or empty identity is not complete")
+	}
+	if !(Identity{Name: "N", Email: "e@x"}).Complete() {
+		t.Error("both halves set is complete")
+	}
 }

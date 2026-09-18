@@ -37,6 +37,12 @@ func Resolve(getenv func(string) string, gitConfig func(key string) string) Iden
 	return Identity{Name: name, Email: email}
 }
 
+// Complete is whether both halves are set. Git refuses a commit on whichever
+// half is missing, so a half-set identity is as unusable as none.
+func (id Identity) Complete() bool {
+	return id.Name != "" && id.Email != ""
+}
+
 // EnvPairs returns docker-style KEY=VALUE strings for non-empty identity fields
 // (author + committer both set to the same resolved values).
 func (id Identity) EnvPairs() []string {

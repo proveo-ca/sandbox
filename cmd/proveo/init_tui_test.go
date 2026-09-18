@@ -28,8 +28,8 @@ func TestDefaultDecisionsOnAFreshHost(t *testing.T) {
 	if d.Prefix != "/opt/sbx" {
 		t.Errorf("Prefix = %q", d.Prefix)
 	}
-	if !d.AddPath || !d.Login || !d.Wizard {
-		t.Errorf("a fresh host should get PATH, login and the wizard: %+v", d)
+	if !d.AddPath || !d.Login || !d.Wizard || !d.Gh || !d.Git {
+		t.Errorf("a fresh host should get PATH, login, the wizard, gh and git identity: %+v", d)
 	}
 	if d.Baseline != "" {
 		t.Errorf("Baseline = %q, want the host's own policy left alone", d.Baseline)
@@ -56,12 +56,18 @@ func TestDefaultDecisionsKeepACurrentInstall(t *testing.T) {
 
 func TestFlagsSettleTheirDecisionsWithoutAsking(t *testing.T) {
 	t.Parallel()
-	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{skipLogin: true, skipSetup: true})
+	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{skipLogin: true, skipSetup: true, skipGh: true, skipGit: true})
 	if d.Login {
 		t.Error("--skip-login must not sign in")
 	}
 	if d.Wizard {
 		t.Error("--skip-setup must not run the wizard")
+	}
+	if d.Gh {
+		t.Error("--skip-gh must not ready GitHub CLI")
+	}
+	if d.Git {
+		t.Error("--skip-git must not set git identity")
 	}
 }
 
@@ -85,7 +91,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard} {
+	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit} {
 		if _, ok := byLabel[want]; !ok {
 			t.Errorf("no %q row; got %v", want, byLabel)
 		}
@@ -115,6 +121,9 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 	if rows[byLabel[rowWizard]].Divider {
 		t.Error("sbx setup is in the next-steps group, not a second heading")
 	}
+	if rows[byLabel[rowGh]].Divider || rows[byLabel[rowGit]].Divider {
+		t.Error("gh and git identity are in the next-steps group, not new headings")
+	}
 }
 
 func TestAFlagLockedRowIsDrawnWithItsReason(t *testing.T) {
@@ -136,6 +145,26 @@ func TestAFlagLockedRowIsDrawnWithItsReason(t *testing.T) {
 		return
 	}
 	t.Fatal("no sign-in row was drawn")
+}
+
+func TestSkipGhLocksTheGhRow(t *testing.T) {
+	t.Parallel()
+	plan := linuxPlan(t, "/opt/sbx")
+	o := initOptions{skipGh: true}
+	rows := initRows(plan, "", defaultDecisions(plan, "", o), o)
+	for _, r := range rows {
+		if r.Label != rowGh {
+			continue
+		}
+		if !r.Locked {
+			t.Error("--skip-gh must lock the gh row rather than remove it")
+		}
+		if !strings.Contains(r.Reason, "--skip-gh") {
+			t.Errorf("the lock must name the flag that caused it, got %q", r.Reason)
+		}
+		return
+	}
+	t.Fatal("no gh row was drawn")
 }
 
 // The MSI owns its own location and puts sbx on PATH itself, so a prefix and a
@@ -160,9 +189,9 @@ func TestDescribeDecisionsNamesEveryChoiceItMade(t *testing.T) {
 	t.Parallel()
 	got := describeDecisions(initDecisions{
 		Install: installTarball, Prefix: "/opt/sbx",
-		AddPath: true, Login: true, Wizard: false, Baseline: sbx.BaselineDenyAll,
+		AddPath: true, Login: true, Wizard: false, Gh: true, Git: false, Baseline: sbx.BaselineDenyAll,
 	})
-	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", sbx.BaselineDenyAll} {
+	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", "gh: yes", "git identity: no", sbx.BaselineDenyAll} {
 		if !strings.Contains(got, want) {
 			t.Errorf("describeDecisions() = %q, missing %q", got, want)
 		}
