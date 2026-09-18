@@ -57,8 +57,13 @@ func TestProveoHomePersistence(t *testing.T) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
 				}
 				if isSbxArgv(agentCmd) {
-					if !strings.Contains(agentCmd, " "+home) {
-						t.Errorf("sbx argv does not carry the proveo home as a workspace:\n%s", agentCmd)
+					harnessHome := filepath.Join(home, a.subdir)
+					if !strings.Contains(agentCmd, " "+harnessHome) {
+						t.Errorf("sbx argv does not carry the harness home dir %s:\n%s", harnessHome, agentCmd)
+					}
+					if hasSbxWorkspace(agentCmd, home) {
+						t.Errorf("sbx argv still mounts the whole proveo home %s; an IDE would read unrelated run logs:\n%s",
+							home, agentCmd)
 					}
 					// The positive claim: resume state has a host path to travel to.
 					if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
@@ -480,6 +485,16 @@ func hasVolumeHost(cmd, host string) bool {
 	prefix := host + ":"
 	for i := 0; i+1 < len(toks); i++ {
 		if toks[i] == "-v" && strings.HasPrefix(toks[i+1], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSbxWorkspace(argv, host string) bool {
+	for _, f := range strings.Fields(argv) {
+		path, _, _ := strings.Cut(f, ":")
+		if path == host {
 			return true
 		}
 	}

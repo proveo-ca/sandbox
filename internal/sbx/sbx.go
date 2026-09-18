@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml, _spec/minimum_requirements.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/docker-sandbox.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/minimum_requirements.puml
 package sbx
 
 import (

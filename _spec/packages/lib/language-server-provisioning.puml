@@ -100,6 +100,11 @@ note bottom of RECIPE
   A language in NEITHER table is never auto-installed. nil publishes no release
   assets, and ruby-lsp needs a source-compiled ruby these images have no
   toolchain for — both are recorded as unreachable rather than silently missing.
+
+  **A failed install is a warning, never a sandbox death.**
+  ""out=""$(_mise_install)""; rc=$?"" never assigns rc under
+  ""set -e"": the seed exits, the dispatcher tears the live
+  agent down. Take the status with ""|| rc=$?"".
 end note
 
 note right of LOCK

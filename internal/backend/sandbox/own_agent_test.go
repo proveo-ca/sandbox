@@ -102,7 +102,7 @@ func TestOwnAgentChangesIdentityAndNothingElse(t *testing.T) {
 	if own.Setup == nil || len(own.Setup.Startup) == 0 {
 		t.Fatal("no setup.startup — nothing would seed the run")
 	}
-	if got := own.Setup.Startup[0].Command; len(got) < 2 || !strings.Contains(got[0], "proveo-seed") {
+	if got := own.Setup.Startup[0].Command; !sbx.CommandNamesSeed(got) {
 		t.Errorf("startup command = %v, want the seed step", got)
 	}
 }

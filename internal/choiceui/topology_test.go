@@ -4,6 +4,7 @@ package choiceui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -289,36 +290,42 @@ func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
 	}
 }
 
-// moteAt reports the column of the traffic mote on each row, rune-indexed.
-func moteAt(rows []string) map[int]int {
-	out := map[int]int{}
+// pulses reports every traffic mote as (row, column), rune-indexed.
+func pulses(rows []string) [][2]int {
+	var out [][2]int
 	for y, r := range rows {
 		for x, c := range []rune(r) {
 			if c == '•' {
-				out[y] = x
+				out = append(out, [2]int{y, x})
 			}
 		}
 	}
 	return out
 }
 
-func TestTheMoteTravelsFromTheHopToTheClouds(t *testing.T) {
+func TestTheFirstMoteTravelsFromTheHopAlongTheSpine(t *testing.T) {
 	t.Parallel()
 	fr := base()
 	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
 
-	spineRow := 2
+	from := blockCols.hop + 1
+	spine := blockCols.lanes - from
+	if spine <= 1 {
+		t.Fatalf("spine is %d; the travel assertion needs a wire to ride", spine)
+	}
 	var seen []int
-	for tick := 1; tick <= 9; tick++ {
-		at := moteAt(paint(t, fr, GlyphsNerd, tick))
-		col, ok := at[spineRow]
-		if !ok {
-			t.Fatalf("tick %d: no mote on the wire, rows were %v", tick, at)
+	for tick := 1; tick <= spine; tick++ {
+		want := from + (tick - 1)
+		found := false
+		for _, p := range pulses(paint(t, fr, GlyphsNerd, tick)) {
+			if p[0] == 2 && p[1] == want {
+				found = true
+			}
 		}
-		if len(at) != 1 {
-			t.Errorf("tick %d: the mote is in %d places at once: %v", tick, len(at), at)
+		if !found {
+			t.Fatalf("tick %d: first mote missing at column %d", tick, want)
 		}
-		seen = append(seen, col)
+		seen = append(seen, want)
 	}
 	for i := 1; i < len(seen); i++ {
 		if seen[i] <= seen[i-1] {
@@ -328,53 +335,127 @@ func TestTheMoteTravelsFromTheHopToTheClouds(t *testing.T) {
 	}
 }
 
-// Past the junction it fans out — one mote per OPEN lane, and never onto a lane
-// the hop refuses.
-func TestTheMoteFansOutToTheOpenLanesOnly(t *testing.T) {
+// Past the junction a mote takes ONE lane. It never stacks on every row of the
+// same column — that was the old fan-out. On a limited hop it may ride a
+// refused lane to the ×; that is the dead-end, not a leak.
+func TestEachMoteTakesOneLane(t *testing.T) {
 	t.Parallel()
 	fr := base()
 	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
 
-	fanned := false
-	for tick := 1; tick <= 40; tick++ {
-		at := moteAt(paint(t, fr, GlyphsNerd, tick))
-		if len(at) < 2 {
-			continue
+	reachedLane := false
+	junction := blockCols.lanes
+	for tick := 1; tick <= 80; tick++ {
+		atCol := map[int]int{}
+		for _, p := range pulses(paint(t, fr, GlyphsNerd, tick)) {
+			if p[1] > junction {
+				reachedLane = true
+				atCol[p[1]]++
+			}
 		}
-		fanned = true
-		if _, onRefused := at[3]; onRefused {
-			t.Errorf("tick %d: a mote reached the refused lane: %v", tick, at)
-		}
-		if len(at) != fr.Open {
-			t.Errorf("tick %d: %d motes for %d open lanes: %v", tick, len(at), fr.Open, at)
+		for x, n := range atCol {
+			if n > 1 {
+				t.Errorf("tick %d: %d motes stacked at column %d; that is the old fan-out", tick, n, x)
+			}
 		}
 	}
-	if !fanned {
-		t.Error("the mote never reached the lanes; it stops at the junction")
+	if !reachedLane {
+		t.Error("no mote ever reached the lanes; they stop at the junction")
 	}
 }
 
-// Traffic is continuous, so the picture is periodic rather than settling: the
-// same tick modulo the path length paints the same frame, forever.
-func TestTheMoteLoopsForever(t *testing.T) {
+func TestLimitedHopSendsMotesIntoDeadEnds(t *testing.T) {
 	t.Parallel()
-	fr := base()
-	fr.Lane, fr.Open, fr.Refused = LaneScreened, 2, 1
+	for _, c := range []struct{ open, refused int }{{2, 1}, {1, 2}} {
+		fr := base()
+		fr.Lane, fr.Open, fr.Refused = LaneScreened, c.open, c.refused
+		from := blockCols.hop + 1
+		spine := blockCols.lanes - from
+		hit := 0
+		for tick := 1; tick <= 400 && hit == 0; tick++ {
+			for _, m := range trafficMotes(tick, spine, blockCols.runLen, c.open, c.refused) {
+				if m.lane >= c.open && m.pos >= spine {
+					hit = tick
+					break
+				}
+			}
+		}
+		if hit == 0 {
+			t.Errorf("open=%d refused=%d: schedule never sent a mote to a dead-end", c.open, c.refused)
+			continue
+		}
+		onDead := false
+		junction := blockCols.lanes
+		for _, p := range pulses(paint(t, fr, GlyphsNerd, hit)) {
+			lane := p[0] - 1
+			if lane >= c.open && p[1] > junction {
+				onDead = true
+			}
+		}
+		if !onDead {
+			t.Errorf("open=%d refused=%d tick %d: a dead-end mote was scheduled but not painted", c.open, c.refused, hit)
+		}
+	}
+}
 
-	first := paint(t, fr, GlyphsNerd, 3)
-	var period int
-	for p := 1; p <= 60; p++ {
-		if sameRows(first, paint(t, fr, GlyphsNerd, 3+p)) {
-			period = p
+func TestTrafficBurstSchedule(t *testing.T) {
+	t.Parallel()
+	if n := len(trafficMotes(1, 10, 3, 3, 0)); n != 1 {
+		t.Errorf("tick 1: %d motes, want the first one alone", n)
+	}
+	max := 0
+	for tick := 1; tick <= 40; tick++ {
+		if n := len(trafficMotes(tick, 10, 3, 3, 0)); n > max {
+			max = n
+		}
+	}
+	if max < 2 {
+		t.Error("a burst never put two motes on the wire at once")
+	}
+	var spawn time.Duration
+	seenLane := [3]bool{}
+	for n := 0; n < 40; n++ {
+		if n > 0 {
+			gap := trafficStep(n - 1)
+			if n%trafficBurst == 0 {
+				if gap != trafficCooldown {
+					t.Errorf("after mote %d: cooldown %s, want %s", n-1, gap, trafficCooldown)
+				}
+			} else if gap < trafficGapMin || gap > trafficGapMax {
+				t.Errorf("before mote %d: gap %s outside [%s, %s]", n, gap, trafficGapMin, trafficGapMax)
+			}
+			spawn += gap
+		}
+		lane := trafficLane(n, 3)
+		if lane < 0 || lane > 2 {
+			t.Errorf("mote %d: lane %d, want 0..2", n, lane)
+		}
+		seenLane[lane] = true
+	}
+	for i, ok := range seenLane {
+		if !ok {
+			t.Errorf("a 3-lane hop never chose lane %d (top/middle/bottom)", i)
+		}
+	}
+	if spawn == 0 {
+		t.Fatal("the schedule did not advance; bursts cannot start")
+	}
+}
+
+// Bursts continue for as long as the prompt is open: far in the future there
+// are still motes, rather than a still picture.
+func TestTrafficBurstsKeepComing(t *testing.T) {
+	t.Parallel()
+	late := int((30*time.Second)/animFrame) + 1
+	found := false
+	for tick := late; tick < late+int(4*time.Second/animFrame); tick++ {
+		if len(trafficMotes(tick, 10, 3, 3, 0)) > 0 {
+			found = true
 			break
 		}
 	}
-	if period == 0 {
-		t.Fatal("the animation never repeats; it cannot be looping")
-	}
-	// Far in the future it is still on the same cycle — nothing decays to rest.
-	if !sameRows(first, paint(t, fr, GlyphsNerd, 3+period*500)) {
-		t.Errorf("500 periods on, the frame differs; the motion is not infinite")
+	if !found {
+		t.Errorf("no motes in a 4s window starting at tick %d; the bursts have stopped", late)
 	}
 }
 
@@ -385,20 +466,8 @@ func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
 	fr := base()
 	fr.Lane, fr.Open, fr.Refused = LaneAsked, 0, 0
 	for tick := 1; tick <= 20; tick++ {
-		if at := moteAt(paint(t, fr, GlyphsNerd, tick)); len(at) != 0 {
+		if at := pulses(paint(t, fr, GlyphsNerd, tick)); len(at) != 0 {
 			t.Fatalf("tick %d: traffic on a figure with no open lane: %v", tick, at)
 		}
 	}
-}
-
-func sameRows(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

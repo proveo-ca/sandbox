@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/internal/sbx/ide-attach.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml
 // Package sandbox is the sbx backend:
 package sandbox
 
@@ -383,6 +383,28 @@ func KeptLines(name, runLog string) []string {
 	return lines
 }
 
+func IDEAttachLines(in Input, cfg sbx.RunConfig) []string {
+	name, workdir := strings.TrimSpace(cfg.Name), FirstHost(cfg.Mounts)
+	if name == "" || workdir == "" {
+		return nil
+	}
+	lines := []string{fmt.Sprintf(
+		"IDE attach (agent exited; one writer): run `sbx %s` once, then connect to `%s` and open %s",
+		strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir)}
+	if !in.Clone {
+		return append(lines,
+			"workspace: mounted checkout — IDE saves write the host tree directly")
+	}
+	refsKey := strings.TrimSpace(in.Sid)
+	if refsKey == "" {
+		refsKey = name
+	}
+	fetch := strings.Join(sbx.CloneFetchArgs(in.RepoRoot, name, refsKey), " ")
+	return append(lines,
+		"workspace: DISPOSABLE CLONE — commit IDE edits before removing the sandbox; they do not appear in the host checkout",
+		fmt.Sprintf("carry IDE commits home before `sbx rm`: `git %s`", fetch))
+}
+
 func WorkspaceBinds(mounts []sbx.Mount) []sbx.Mount {
 	var out []sbx.Mount
 	seen := map[string]bool{}
@@ -467,6 +489,7 @@ type Input struct {
 	CPUs             int
 	HomeRoot         string
 	RunLog           string
+	HomeAccess       HomeAccess
 }
 
 // imageEntrypoint reads the image's declared ENTRYPOINT, or nothing when the
@@ -607,8 +630,17 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		env = append(env, in.WorktreeEnv...)
 	}
 
-	var mounts []sbx.Mount
+	var mounts, homeSourceMounts []sbx.Mount
 	for _, m := range in.Mounts {
+		sbxMount := sbx.Mount{Host: m.Host, Container: m.Container, ReadOnly: m.ReadOnly}
+		homeSourceMounts = append(homeSourceMounts, sbxMount)
+		if m.Container == proveohome.ContainerHome && filepath.Clean(m.Host) == filepath.Clean(in.HomeRoot) &&
+			len(in.HomeAccess.Mounts) > 0 {
+			continue
+		}
+		mounts = append(mounts, sbxMount)
+	}
+	for _, m := range in.HomeAccess.Mounts {
 		mounts = append(mounts, sbx.Mount{Host: m.Host, Container: m.Container, ReadOnly: m.ReadOnly})
 	}
 	if in.DataDir != "" {
@@ -660,8 +692,11 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Publish: cdpPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), mounts)),
+		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), homeSourceMounts)),
 		Command: command,
+	}
+	if in.HomeAccess.FilesRoot != "" {
+		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
 	}
 	var creds []sbx.KitCredential
 	if ownAgent {
@@ -748,6 +783,21 @@ func KitEnvVars(env []string) map[string]string {
 }
 
 func Run(in Input) error {
+	homeAccess := in.HomeAccess
+	if homeAccess.Root == "" && in.HomeRoot != "" {
+		var err error
+		homeAccess, err = PrepareHomeAccess(in.HomeRoot, in.EgDir, in.Man.Home)
+		if err != nil {
+			return err
+		}
+	}
+	in.HomeAccess = homeAccess
+	keepHomeAccess := false
+	defer func() {
+		if !keepHomeAccess {
+			homeAccess.Cleanup()
+		}
+	}()
 	cfg, kit, secrets := Spec(in)
 	if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
 		return err
@@ -839,6 +889,9 @@ func Run(in Input) error {
 			restarted := !sbx.Running(cfg.Name)
 			PreserveClone(in, cfg)
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
+			if err := homeAccess.Commit(); err != nil {
+				ui.Warnf("home-root config not preserved: %v", err)
+			}
 			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
 				said = true
 				ui.Storef("what the agent actually said is in %s", t)
@@ -861,15 +914,30 @@ func Run(in Input) error {
 			for _, l := range kept[1:] {
 				ui.Notef("%s", l)
 			}
+			if sbx.Exists(cfg.Name) {
+				keepHomeAccess = true
+				for _, l := range IDEAttachLines(in, cfg) {
+					ui.Notef("%s", l)
+				}
+			}
 			return
 		}
 		PreserveClone(in, cfg)
 		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}
+		if err := homeAccess.Commit(); err != nil {
+			ui.Warnf("home-root config not preserved: %v", err)
+		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
+			keepHomeAccess = sbx.Exists(cfg.Name)
 			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
+			if keepHomeAccess {
+				for _, l := range IDEAttachLines(in, cfg) {
+					ui.Notef("%s", l)
+				}
+			}
 		}
 	}()
 	var ee *exec.ExitError

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/run/run-spec.puml, _spec/_plans/config-seeding-and-persistence.puml
+// SPEC: _spec/internal/run/run-spec.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/ide-attach.puml
 package main
 
 import (
@@ -333,9 +333,12 @@ func TestSandboxPlanGolden(t *testing.T) {
 					Evidence: run.EvidenceVerbose,
 					Forwards: false,
 					Man:      claudecode, Sid: "proveo-sid", Lookup: lookup, Detected: detected("anthropic"),
-					GitEnv:   []string{"GIT_AUTHOR_NAME=Executor"},
-					HomeEnv:  []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
-					Mounts:   []runner.Mount{{Host: work, Container: "/app"}},
+					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
+					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
+					Mounts: []runner.Mount{
+						{Host: work, Container: "/app"},
+						{Host: home, Container: "/proveo-home"},
+					},
 					DataDir:  data,
 					ScopeRel: "apps/web",
 					EgDir:    "/st", Memory: "4096m", HomeRoot: home,
@@ -348,12 +351,19 @@ func TestSandboxPlanGolden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 			t.Setenv("PROVEO_SBX_MCP", "")
-			work, data, home := t.TempDir(), t.TempDir(), t.TempDir()
+			work, data, home, runDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+			in := tc.in(work, data, home)
+			access, err := sandbox.PrepareHomeAccess(in.HomeRoot, runDir, in.Man.Home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(access.Cleanup)
+			in.HomeAccess = access
 
-			cfg, kit, secrets := sandbox.Spec(tc.in(work, data, home))
+			cfg, kit, secrets := sandbox.Spec(in)
 			got := renderSandboxPlan(t, cfg, kit, secrets)
 			assertNoSecretValues(t, got, oauthValue, keyValue, cursorValue)
-			got = scrub(got, map[string]string{work: "<WORK>", data: "<DATA>", home: "<HOME>"})
+			got = scrub(got, map[string]string{work: "<WORK>", data: "<DATA>", home: "<HOME>", runDir: "<RUN>"})
 			got = sandboxNameHash.ReplaceAllString(got, "proveo-$1-<WORKHASH>")
 			assertGolden(t, "sbx-"+tc.name, got)
 

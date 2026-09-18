@@ -222,16 +222,22 @@ depends = ["test-images-sbx"]
 run = "scripts/go-test-coverage.sh e2e"
 
 [tasks.test-e2e-full]
-description = "test-e2e plus tier 4: the Go agent suite with idle, signal and toolchain gates on (150m ceiling), then the sbx ladder for every def. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
+description = "test-e2e plus tier 4: idle/signal/toolchain gates, per-def silent-death idle-all, then the sbx ladder. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
 dir = "{{config_root}}"
 depends = ["test-images-sbx"]
+# Both host halves keep going after a failure: stopping at idle hides whether
+# the ladder shares the fault. A SKIP on either is not a pass.
+# SPEC: _spec/_devops/release-gate.puml
 run = """
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
+rc=0
 export PROVEO_IDLE_TEST=1 PROVEO_SIGNAL_TEST=1 PROVEO_TOOLCHAIN_TEST=1
 export PROVEO_TEST_GO_TIMEOUT="${PROVEO_TEST_GO_TIMEOUT:-150m}"
-scripts/go-test-coverage.sh e2e "$@"
-mise run ladder-all
+scripts/go-test-coverage.sh e2e "$@" || rc=1
+mise run idle-all || rc=1
+mise run ladder-all || rc=1
+exit "$rc"
 """
 
 [tasks.ladder-all]
@@ -305,6 +311,66 @@ if [ "$rc" -ne 0 ]; then
   printf '\n  NOT a release gate pass. A SKIP counts as not-passed: the ladder needs\n'
   printf '  sbx, which no proveo sandbox has, so this task must run on the HOST.\n'
   printf '  A red def names the rung, and the rung names the layer that owns it.\n'
+fi
+exit "$rc"
+"""
+
+[tasks.idle-all]
+description = "Idle-survival sweep for every def (host only: needs sbx; catches silent deaths)"
+dir = "{{config_root}}"
+# The shebang is load-bearing — see test-images. Guarded by
+# TestMiseTasksUsingBashSyntaxDeclareBash.
+#
+# Ladder holds raw `sbx run`. This holds `proveo run`, which is the ptyproxy hop
+# a leaked Device Attributes tail becomes a prompt on — `cERROR: sandbox was
+# stopped`. Default idle is claudecode at 5 minutes; this sweep is all four defs
+# at 45s (past sbx's 30s auto-stop and the ~14s cursor death).
+# SPEC: _spec/_devops/release-gate.puml, _spec/internal/sbx/sandbox-backend.puml
+run = """
+#!/usr/bin/env bash
+set -uo pipefail
+if ! command -v sbx >/dev/null 2>&1; then
+  printf 'idle-all needs sbx on PATH (host only; a proveo sandbox has docker and no sbx)\n' >&2
+  exit 1
+fi
+targets=(cecli claudecode cursor opencode)
+declare -a verdicts=()
+rc=0
+log="$(mktemp)"
+PROVEO_IDLE_TEST=1 \
+PROVEO_IDLE_TARGETS="cecli,claudecode,cursor,opencode" \
+PROVEO_IDLE_FOR="${PROVEO_IDLE_FOR:-45s}" \
+  go test -tags e2e -count=1 -timeout 30m ./e2e/ -run TestAgentSurvivesIdleAtPrompt -v 2>&1 | tee "$log"
+code="${PIPESTATUS[0]}"
+if grep -qE -- '^--- SKIP: TestAgentSurvivesIdleAtPrompt [(]' "$log"; then
+  verdicts+=("SKIP all — the idle suite did not run")
+  rc=1
+else
+  for t in "${targets[@]}"; do
+    if grep -qE -- "^    --- PASS: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
+      verdicts+=("PASS $t")
+    elif grep -qE -- "^    --- FAIL: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
+      verdicts+=("FAIL $t")
+      rc=1
+    elif grep -qE -- "^    --- SKIP: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
+      verdicts+=("SKIP $t")
+      rc=1
+    else
+      verdicts+=("MISS $t — no subtest result")
+      rc=1
+    fi
+  done
+  if [ "$code" -ne 0 ] && [ "$rc" -eq 0 ]; then
+    rc=1
+    verdicts+=("FAIL suite exit $code")
+  fi
+fi
+rm -f "$log"
+printf '\n-- idle verdict, all defs --\n'
+for v in "${verdicts[@]}"; do printf '  %s\n' "$v"; done
+if [ "$rc" -ne 0 ]; then
+  printf '\n  NOT a release gate pass. A SKIP counts as not-passed: idle needs\n'
+  printf '  sbx and a live session, which is how a leaked DA1 becomes was-stopped.\n'
 fi
 exit "$rc"
 """

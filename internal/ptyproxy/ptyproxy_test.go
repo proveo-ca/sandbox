@@ -311,13 +311,16 @@ func TestDropReportsReachesTheInputPump(t *testing.T) {
 func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 	t.Parallel()
 	type step struct {
-		in   string
-		want []string // chunks the child must receive before the next input
+		in    string
+		want  []string // chunks the child must receive before the next input
+		pause time.Duration
 	}
 	for _, tc := range []struct {
-		name    string
-		escIdle time.Duration
-		steps   []step
+		name        string
+		escIdle     time.Duration
+		truncIdle   time.Duration
+		dropReplies bool
+		steps       []step
 	}{
 		{
 			name:    "lone escape reaches the agent so a modal can close",
@@ -334,19 +337,53 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 		},
 		{
 			// A long idle proves the continuation wins the race, not the timer.
-			name:    "an escape split across reads is still assembled",
-			escIdle: 10 * time.Second,
+			name:      "an escape split across reads is still assembled",
+			escIdle:   10 * time.Second,
+			truncIdle: 10 * time.Second,
 			steps: []step{
 				{in: "\x1b["},
 				{in: "A", want: []string{"\x1b[A"}},
 			},
 		},
 		{
-			name:    "a focus report split across reads is still dropped",
-			escIdle: 10 * time.Second,
+			name:      "a focus report split across reads is still dropped",
+			escIdle:   10 * time.Second,
+			truncIdle: 10 * time.Second,
 			steps: []step{
 				{in: "\x1b["},
 				{in: "I"},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+		{
+			name:        "a split DA1 is not released as the letter c after esc idle",
+			escIdle:     20 * time.Millisecond,
+			truncIdle:   5 * time.Second,
+			dropReplies: true,
+			steps: []step{
+				{in: "\x1b[?62;", pause: 50 * time.Millisecond},
+				{in: "c", pause: 20 * time.Millisecond},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+		{
+			name:        "orphan DA1 body after a released ESC is not the letter c",
+			escIdle:     20 * time.Millisecond,
+			truncIdle:   5 * time.Second,
+			dropReplies: true,
+			steps: []step{
+				{in: "\x1b", want: []string{"\x1b"}, pause: 50 * time.Millisecond},
+				{in: "[?6c", pause: 20 * time.Millisecond},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+		{
+			name:        "8-bit CSI DA1 is dropped on a prompt stream",
+			escIdle:     20 * time.Millisecond,
+			truncIdle:   5 * time.Second,
+			dropReplies: true,
+			steps: []step{
+				{in: "\x9b?6c", pause: 20 * time.Millisecond},
 				{in: "x", want: []string{"x"}},
 			},
 		},
@@ -357,6 +394,12 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 			sink := make(chan []byte, 16)
 			p := New(os.Stdin, os.Stdout)
 			p.escIdle = tc.escIdle
+			if tc.truncIdle > 0 {
+				p.truncatedReportIdle = tc.truncIdle
+			}
+			if tc.dropReplies {
+				p.filter.dropReplies = true
+			}
 			p.overlayIn = sink // a PTY-free sink on the pump's normal write path
 			go p.pumpInFrom(&chanReader{ch: feed})
 			t.Cleanup(func() { close(feed) })
@@ -375,6 +418,14 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 						return
 					}
 				}
+				if s.pause > 0 {
+					select {
+					case b := <-sink:
+						t.Errorf("pumpInFrom(%q) leaked %q during a %s idle — a split DA1 became typing", typed, b, s.pause)
+						return
+					case <-time.After(s.pause):
+					}
+				}
 			}
 			// Nothing beyond what was typed may follow.
 			select {
@@ -386,6 +437,31 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 				t.Errorf("pumpInFrom(%q) delivered mismatch (-want +got):\n%s", typed, diff)
 			}
 		})
+	}
+}
+
+func TestTruncatedReportIsCSINotLoneEsc(t *testing.T) {
+	t.Parallel()
+	if truncatedReport([]byte{0x1b}) {
+		t.Fatal("lone ESC is a keypress, not a truncated report")
+	}
+	if !truncatedReport([]byte{0x1b, '['}) {
+		t.Fatal("ESC [ is an incomplete CSI and must not be released on Esc idle")
+	}
+	if !truncatedReport([]byte("\x1b[?62;")) {
+		t.Fatal("a split DA1 prefix must not be released as typing")
+	}
+	if truncatedReport([]byte("k")) {
+		t.Fatal("a letter is not a truncated report")
+	}
+	if !truncatedReport([]byte("[?62;")) {
+		t.Fatal("an orphan DA1 prefix must not be released as typing")
+	}
+	if !truncatedReport([]byte{0x9b, '?'}) {
+		t.Fatal("an incomplete 8-bit CSI must not be released as typing")
+	}
+	if truncatedReport([]byte{'['}) {
+		t.Fatal("a lone '[' is a keystroke, not a truncated report")
 	}
 }
 

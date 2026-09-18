@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: retire PLAINTEXT keys from every env surface — decided 2026-09-09, with one blocker left open
 ' PLANNED — nothing here is implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 '   where a key rests between runs  _spec/_plans/secret-custody.puml
-'   the file this would replace ..... _spec/_plans/workspace-env-key.puml
+'   presence of a workspace "".env"" _spec/_paradigms/workspace-boundary.puml
 '   who injects on sbx today ....... _spec/internal/sbx/credential-path.puml
 '   what the agent may hold ........ _spec/_paradigms/credential-boundary.puml
 '   the gate that decides a service  _spec/internal/sbx/kit-sandbox-credential-gap.puml
@@ -362,8 +362,8 @@ skinparam noteTextAlignment left
 ' rendered empty — and it changes the threat model completely. secret-custody
 ' .puml owns that question; this plan owns the custody WORKFLOW.
 '
-' WHETHER A COMMITTED .env SHOULD REFUSE A RUN. Named in workspace-env-key.puml
-' and still open there.
+' WHETHER A COMMITTED .env SHOULD REFUSE A RUN. Clone via proveo init keeps a
+' gitignored file out; a tracked one still clones. Still open here.
 '
 ' WHETHER `load_env` SHOULD SOURCE DOTENVS AT ALL now that a broker and a host
 ' store both exist. Removing it outright would break the docker firewall tier

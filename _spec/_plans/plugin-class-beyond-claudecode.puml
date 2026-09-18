@@ -1,0 +1,75 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the plugin class stays claudecode-only until a second harness ships a seedable plugin cache
+' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: packages/lib/entrypoint-lib.sh (_proveo_class_wire plugin:* arms)
+' would touch: internal/contract/lsp_config_parity_test.go (configWiring table)
+'   what already ships ............. _spec/defs/claudecode/lsp-plugins-seed.puml
+'   the chain this split out of .... _spec/packages/lib/config-seeding-and-persistence.puml
+'   the seed order .................. _spec/packages/lib/seed-and-launch.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' Split from config-seeding-and-persistence on 2026-09-17 so that plan could
+' leave _plans. The numbered chain landed. This file is the leftover that was
+' not a hole in it: plugin:claudecode is wired; every other harness has no arm.
+'
+' THE TRIGGER, NOT A SCHEDULE. Do not generalise from one vendor's cache.
+' anthropics/claude-plugins-official is baked at image build, chmod'd world-
+' writable so Claude Code can drop .in_use/<pid> markers, and paired with
+' home-side installed_plugins.json / known_marketplaces.json records. That
+' shape is Claude Code's. Cursor, opencode, cecli and codex have no equivalent
+' seed. Copying the class onto them would invent a marketplace they do not
+' speak.
+'
+' WHEN THIS OPENS. A second harness ships a seedable plugin cache of its own —
+' files the image can bake, records the seed step can merge, a binary-present
+' ⇔ plugin-on rule that is not an install prompt. Then add a plugin:<target>
+' arm, a probe, and a contract row. Until then the table's missing arms are
+' the decision, not an omission.
+title PLANNED — plugin class past claudecode waits on a second seed
+
+component "**plugin:claudecode**\n""configure_claude_plugins""\nships today" as HAVE <<app>>
+component "the seed\n""/opt/proveo/claude-plugins""\none vendor's marketplace" as SEED <<db>>
+component "cursor · opencode\ncecli · codex" as OTHER <<error>>
+component "**plugin:<target>**\nno arm, no seed, no probe" as MISS <<error>>
+component "a second seedable cache\nfiles + records + binary rule" as TRIGGER <<app>>
+
+HAVE ARROW_MAIN SEED
+SEED ARROW_ERROR OTHER : not their format
+OTHER ARROW_ERROR MISS
+TRIGGER ARROW_OPTIONAL MISS : the day this plan starts
+
+note bottom of SEED
+  **One vendor, on purpose.** The cache is
+  anthropics/claude-plugins-official, baked
+  at build. It is not a proveo plugin
+  format. Copying the class copies a
+  marketplace nobody else speaks.
+end note
+
+note bottom of MISS
+  **Missing arms are the decision.** The
+  table names plugin:claudecode and nothing
+  else. Do not add a no-op arm to look
+  complete — a probe with no seed is the
+  Serena shape this chain already refused.
+end note
+
+note right of TRIGGER
+  **Open when a second cache exists**, not
+  when a second harness is added. Files the
+  image can bake, records the seed can
+  merge, binary-present ⇔ plugin-on.
+end note
+
+legend bottom
+  **What this plan is waiting on**
+  ==
+  A second harness ships a seedable plugin cache. Then: a plugin:<target> arm
+  in _proveo_class_wire, a probe, and a row in internal/contract's configWiring.
+  --
+  Until then: do nothing. The claudecode seed and enable-per-binary rule live in
+  _spec/defs/claudecode/lsp-plugins-seed.puml and stay there.
+end legend
+@enduml

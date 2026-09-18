@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the mechanism of the topology strip — its inputs, its budget, its clock
-' covers: internal/choiceui/topology.go (drawLanes, drawTraffic)
+' covers: internal/choiceui/topology.go (drawLanes, drawTraffic, trafficMotes)
 ' covers: internal/choiceui/layout.go
 ' covers: internal/choiceui/anim.go (animFrame, ticker, frame)
 ' covers: internal/choiceui/choiceui.go (the EventKey case)
@@ -27,26 +27,25 @@ skinparam noteTextAlignment left
 '   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' ── THE MOTE TRAVELS THE WIRE, IT DOES NOT BLINK BETWEEN LANES ─────────────
+' ── THE MOTES TRAVEL THE WIRE, THEY DO NOT BLINK BETWEEN LANES ────────────
 ' drawLanes used to inject the pulse glyph into the middle of ONE lane's 3-char
 ' stub and cycle which lane by `(tick/2)%3 == i`. What that drew was three lanes
 ' taking turns lighting up — a rotating indicator, not anything flowing. The
 ' figure is a picture of traffic, and its animation was saying something else.
 '
-' drawTraffic rides ONE mote along the path the traffic actually takes: from the
+' drawTraffic rides motes along the path the traffic actually takes: from the
 ' column just right of the hop node (colHop+1, or boxR+1 on a tier with no hop)
 ' rightward along the shared spine on row y0+2 to the junction at colLanes, then
-' out along the OPEN lanes' runs to the clouds. Path length is `spine + runLen`
-' and the position is `tick % path`, so it repeats with no state machine and no
-' notion of a beginning or an end to get out of step with.
+' out along ONE randomly chosen lane — top, middle or bottom among every drawn
+' row, open or refused. A burst of five spawn 300–1000ms apart; then 1500ms of
+' cooldown before the next burst. The schedule is a hash of mote index off
+' tick, so it is still a pure function — no stored mote list to get out of step.
 '
-' Two properties are the point rather than side effects. PAST THE JUNCTION IT
-' FANS OUT to every open lane in the same frame, because that is what a junction
-' does — one stream in, several out. And it is NEVER DRAWN ON A REFUSED LANE:
-' the refusal is the tier's whole statement, and animating traffic down it would
-' contradict the figure it is painted on. No open lane — review, where
-' the lane kind is LaneAsked — means no traffic is drawn, which is the correct
-' picture of a tier that asks before anything moves.
+' A LIMITED HOP SENDS MOTES INTO THE DEAD-ENDS. The × is the hop refusing a
+' destination, and a packet that went that way has to be seen arriving there;
+' routing every mote onto the surviving clouds would say the hop only ever
+' forwards. Review still draws no traffic: LaneAsked has no lanes at all, which
+' is the correct picture of a tier that asks before anything moves.
 '
 ' ── THE CLOCK: THE FLOW DOES NOT STOP ──────────────────────────────────────
 ' Motion used to be bound to CHANGE. frame() returned 0 once animWindow (1200ms)
@@ -345,7 +344,7 @@ node "internal/choiceui" as PKG <<host>> {
   component "layout(w, h)\nfit budget · drop ladder · body height" as LAYOUT <<app>>
   component "Form.Topology(f, cursor)\nrun/topology.go builds one Frame" as MODEL <<app>>
   component "drawFigure(s, x0, y0, cols, ...)\none painter, block or pane" as PAINT <<app>>
-  component "drawTraffic\none mote: hop → spine → junction → open lanes" as TRAFFIC <<app>>
+  component "drawTraffic\n5-mote bursts: hop → spine → one lane, incl. ×" as TRAFFIC <<app>>
   component "glyphsFor(tier)\nnerd devicons · ascii" as GLYPH <<app>>
   component "topoCols\nblockCols · paneCols" as COLS <<app>>
 }
@@ -370,8 +369,8 @@ PAINT ARROW_MAIN TTY
 TICK ARROW_QUEUE RUN : EventInterrupt — the clock is an event
 RUN ARROW_MAIN DRAW
 RUN ARROW_MAIN TICK : started with the prompt, stopped before ""Fini""
-PAINT ARROW_MAIN TRAFFIC : ""tick"", the spine and the open lanes' rows
-TRAFFIC ARROW_MAIN TTY : ""tick % (spine + runLen)""
+PAINT ARROW_MAIN TRAFFIC : ""tick"", the spine and every drawn lane
+TRAFFIC ARROW_MAIN TTY : 5 motes, then 1500ms quiet
 PAINT ARROW_ERROR DECOR
 MODEL ARROW_ERROR LIE
 
@@ -480,11 +479,11 @@ note bottom of COLS
 end note
 
 note bottom of TRAFFIC
-  **One mote on the real path, not three lanes
-  taking turns.** It rides the spine to the
-  junction and fans out to EVERY open lane — and
-  onto no refused one. Review has no open lane,
-  so review draws no traffic.
+  **Five motes, one random lane each.**
+  They spawn 300-1000ms apart, ride the
+  spine, then pick top, middle or bottom.
+  A limited hop sends some into the ×
+  dead-ends. Review still draws none.
 end note
 
 note top of PAINT

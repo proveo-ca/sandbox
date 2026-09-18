@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/manifest/harness-manifest-schema.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/internal/manifest/harness-manifest-schema.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
 package manifest
 
 import (

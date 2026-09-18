@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml
 package sandbox
 
 import (
@@ -179,5 +179,44 @@ func TestCloneRescueUsesATransportThatWorksOnAStoppedSandbox(t *testing.T) {
 	}
 	if got := CloneRescueLines("sb", "sid", "", "/repo"); got != nil {
 		t.Errorf("no workspace means no recipe to give, got %v", got)
+	}
+}
+
+func TestIDEAttachIsAfterExitAndLoudAboutWhichTree(t *testing.T) {
+	t.Parallel()
+	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
+
+	clone := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
+	for _, want := range []string{
+		"agent exited; one writer",
+		"sbx setup ssh",
+		"proveo-1-2.sbx",
+		"DISPOSABLE CLONE",
+		"commit IDE edits",
+		"refs/proveo/proveo-1-2",
+	} {
+		if !strings.Contains(clone, want) {
+			t.Errorf("clone attach guidance lacks %q:\n%s", want, clone)
+		}
+	}
+
+	direct := strings.Join(IDEAttachLines(Input{}, cfg), "\n")
+	if !strings.Contains(direct, "mounted checkout") || !strings.Contains(direct, "write the host tree directly") {
+		t.Errorf("direct attach guidance hides its write boundary:\n%s", direct)
+	}
+	if strings.Contains(direct, "DISPOSABLE") {
+		t.Errorf("direct mode was described as a clone:\n%s", direct)
+	}
+}
+
+func TestIDEAttachNeedsAKeptNamedSandboxAndWorkspace(t *testing.T) {
+	t.Parallel()
+	for _, cfg := range []sbx.RunConfig{
+		{Mounts: []sbx.Mount{{Host: "/repo"}}},
+		{Name: "sb"},
+	} {
+		if got := IDEAttachLines(Input{}, cfg); got != nil {
+			t.Errorf("IDEAttachLines(%+v) = %q, want no unusable offer", cfg, got)
+		}
 	}
 }

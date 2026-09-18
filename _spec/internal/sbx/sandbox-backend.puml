@@ -150,8 +150,20 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' PROVEO_IDLE_TARGETS takes a comma-separated list (default: claudecode alone).
 ' Sweeping matters because this failure has only ever been reported on ONE
 ' harness at a time, and a per-harness answer is what separates "this agent
-' exits" from "sbx stops sessions". The open case is opencode — see
-' _spec/_paradigms/capability-ladder.puml.
+' exits" from "sbx stops sessions". The ladder holds a raw `sbx run`; idle
+' holds `proveo run`, which is the ptyproxy hop a leaked DA1 becomes a prompt
+' on. `mise run test-e2e-full` is the gate that sweeps all four defs at 45s
+' (past sbx's 30s auto-stop and the ~14s cursor death). A 5-minute wait is
+' still the thorough "operator stepped away" check. Cursor 2026.09.15 is the
+' open case that died at a healthy TUI — see
+' _spec/internal/ptyproxy/terminal-report-filter.puml.
+'
+' The idle PTY does not answer Device Attributes and an empty TempDir never
+' hits the go.mod+package.json seed path, so a "ZERO input on an empty dir"
+' wait used to PASS while `proveo run cursor` against this repo died at ~16s.
+' idle_test.go now writes that workspace shape and, once the prompt is up,
+' injects kitty-push, DA1 (complete, split, orphan, 8-bit CSI). The filter
+' must drop every burst; a leak is a prompt nobody typed.
 '
 ' ── Authoritative sbx references. The Kit spec is the source of truth for every
 ' field below. Deriving the shape from sbx's rejection messages instead produced a

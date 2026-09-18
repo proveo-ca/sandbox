@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/state-sync.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/state-sync.puml
 package contract_test
 
 import (

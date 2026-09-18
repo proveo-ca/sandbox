@@ -18,7 +18,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '
 ' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
 '   what each step does ....... _spec/packages/lib/steps.puml
-'   the class table ........... _spec/_plans/config-seeding-and-persistence.puml
+'   the class table ........... _spec/packages/lib/config-seeding-and-persistence.puml
+'   plugin beyond claudecode .. _spec/_plans/plugin-class-beyond-claudecode.puml
 '   the wiring functions ...... _spec/packages/lib/language-server-provisioning.puml
 '   the Kit's three work kinds  _spec/internal/sbx/sbx-kit-contract.puml
 '   what the syncs move ....... _spec/internal/sbx/state-sync.puml
@@ -269,6 +270,14 @@ note bottom of CMDWRAP
   both backends reach the same code.
 end note
 
+note as N_SEED_NEVER_ABORT
+  **A miss must not stop the sandbox.**
+  proveo-seed ""exit 0""s a failure.
+  SeedCommand wraps the same on the
+  host Kit so a stale image cannot
+  ""exit $rc"" the dispatcher.
+end note
+
 note bottom of ORDER
   **Order is a dependency, not a preference.**
   State restores first, so a resumed session's
@@ -291,6 +300,21 @@ note bottom of WIRE
   what did before — and it runs in the SEED,
   never in a def entrypoint, which would reach
   the docker backend alone.
+end note
+
+note left of WIRE
+  **Re-wire mix, decided.** Formatter and
+  MCP skip when the operator's key already
+  exists. LSP setdefault-merges every open.
+  That is the policy, not a gap.
+end note
+
+note top of WIRE
+  **Hook formatters stay unwired.** A
+  PostToolUse / afterFileEdit / lint-cmd
+  row would pick a command per project.
+  Guessing rewrites source; cecli treats
+  formatter non-zero as a lint failure.
 end note
 
 note bottom of TRUST

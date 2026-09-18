@@ -275,17 +275,17 @@ title The topology strip in every selectable state, on both backends
   claiming a number. One lane always survives, because the run has to work.
 }
 ..
-{^"Motion — ONE mote riding the wire, hop → spine → junction → every open lane"
+{^"Motion — FIVE motes per burst, hop → spine → one random lane, including ×"
 {
-{^"nothing filtered — allow-all, and open — three lanes open, so it fans to three"
+{^"nothing filtered — allow-all, and open — three lanes open, each mote picks one"
   f1 | () host | . | [ def ] | ───▸ | (•) egress | ───▸ <:cloud:>  (on the spine)
-  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> ALL THREE at once
-  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> ALL THREE at once
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:>  (this mote: top)
+  f3 | () host | . | [ def ] | ───▸ | () egress | ───▸ <:cloud:>  (next pops 300–1000ms later)
 }
-{^"screened — balanced, and allowlist — two lanes open, and the refused one stays dark"
+{^"screened — balanced, and allowlist — two open, and motes also ride the ×"
   f1 | () host | . | [ def ] | ──•▸ | () egress | ───▸ <:cloud:>  (on the spine)
-  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> x2, and ───× dark
-  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> x2, and ───× dark
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:>  (an open lane)
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•×           (a dead-end)
 }
 {^"asked — review — NO mote: zero open lanes, so nothing is drawn moving"
   f1 | () host | . | [ def ] | ───▸ | () egress | <:cloud:>  (still, by design)
@@ -293,17 +293,19 @@ title The topology strip in every selectable state, on both backends
   f3 | (?) host ◂─ ─ | ─ ─ | ─ ─ [ def ] | ─ ─ | (?) egress | <:cloud:>
   f4 | () host | . | [ def ] | ───▸ | () egress | ──▸ <:cloud:>  (you said yes)
 }
-{^"refused — deny-all — one open lane, so the fan-out is a single lane"
+{^"refused — deny-all — one open lane; motes still take the two dead-ends"
   f1 | () host | . | [ def ] | ─•─▸ | () egress | ───▸ <:cloud:> Kit  (spine)
-  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> Kit, ──× the rest
-  f3 | () host | . | [ def ] | ───▸ | () egress | ──•▸ <:cloud:> Kit, ──× the rest
+  f2 | () host | . | [ def ] | ───▸ | () egress | ─•─▸ <:cloud:> Kit
+  f3 | () host | . | [ def ] | ───▸ | () egress | ──•×           (a dead-end)
 }
 }
   .
-  **Motion is continuous, because it imitates flow.** One mote leaves the hop
-  column, rides the shared spine to the junction, and past it appears on EVERY
-  open lane in the same frame — never on a refused one. The path repeats as
-  tick % (spine + runLen), at 120ms a frame, for as long as the prompt is open.
+  **Motion is sequential bursts, because it imitates packets.** Five motes leave
+  the hop 300–1000ms apart, each riding the shared spine to the junction and
+  then ONE randomly chosen lane — including a refused one, which is the packet
+  hitting the dead-end. After five, 1500ms of cooldown, then the next burst.
+  The schedule is a pure function of tick, at 120ms a frame, while the prompt
+  is open.
   .
   It used to be bound to CHANGE instead: a keystroke ran the filmstrip for about
   1.2 seconds and the strip then rested on a still frame, so an idle prompt cost

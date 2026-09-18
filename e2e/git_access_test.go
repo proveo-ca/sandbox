@@ -69,6 +69,12 @@ func hostUIDGID(t *testing.T) string {
 	return strings.TrimSpace(string(out)) + ":" + strings.TrimSpace(string(gout))
 }
 
+// TestGitIsWritableInEveryHarness drives a real `proveo run <target> --shell`
+// per harness rather than a hand-built `docker run --entrypoint bash`, so the
+// git identity bridging under test is the run's own, not a manual replica of
+// it (the old script's `source /entrypoint-lib.sh; bridge_git_identity` call
+// is gone because the real entrypoint already did that before the shell
+// prompt ever appeared).
 func TestGitIsWritableInEveryHarness(t *testing.T) {
 	proveoBin := buildProveo(t)
 	for _, name := range toolchainHarnesses {
@@ -98,6 +104,12 @@ echo "GIT_WRITE_OK"`
 	}
 }
 
+// TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID deliberately stays on a raw
+// `docker run --entrypoint bash`: it mounts ONLY `.git` at /app/.git — no
+// working tree, no real workspace — specifically to reproduce git's "dubious
+// ownership" abort under a uid mismatch. A real `proveo run` always mounts a
+// full workspace and never constructs that partial shape, so there is no
+// equivalent real launch to convert this into.
 func TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID(t *testing.T) {
 	skipOutsideSbx(t, "a raw docker run")
 	img := harnessImage(t, "opencode")
@@ -174,6 +186,10 @@ func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []st
 	return args
 }
 
+// TestGitIsUsableInEveryScopeMode launches a real `proveo run opencode
+// --shell` per scope mode, pointing --input at the scoped subdirectory itself
+// — the subdir-scope detection and worktree overlay are the run's own
+// (subdir-scope-mounts.puml), not a manually invoked `scope_git_worktree`.
 func TestGitIsUsableInEveryScopeMode(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)

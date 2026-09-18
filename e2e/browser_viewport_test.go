@@ -22,6 +22,14 @@ import (
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
 // browser add-on publishes by driving a real `proveo run claudecode --shell`
+// with the "browser" add-on pre-selected, instead of hand-assembling the
+// three pieces (a `sbx create -p hostPort:9222`, a manually started CDP
+// relay, and a manual `sbx exec ... agent-browser open`) that `proveo run`
+// itself wires up when the add-on is on: the target stays "claudecode" — the
+// add-on, not a separate "claudecode-browser" target, is what swaps in the
+// browser image and starts the relay (internal/run/run.go's
+// `rs.Backend.BrowserImage` lookup keys on `target+"-browser"`, so passing
+// the browser image name directly as the target would bypass that wiring).
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -55,6 +63,8 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 			"start the relay:\n%s", w.Screen())
 	}
 
+	// The AGENT's browser, opened by the agent's own tool rather than by a
+	// hand-rolled Chromium — so what the host attaches to is what the agent uses.
 	shellExec(t, sess, "agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1", 20*time.Second)
 
 	listURL := url + "/json/list"
@@ -73,6 +83,8 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 }
 
 // viewportLineRE matches StartCDPViewport's own announcement
+// (internal/backend/sandbox/sandbox.go), so this test reads the exact string
+// an operator would, rather than reconstructing the port some other way.
 var viewportLineRE = regexp.MustCompile(`browser viewport: (http://\S+)`)
 
 func viewportURL(screen string) string {
@@ -83,6 +95,10 @@ func viewportURL(screen string) string {
 	return m[1]
 }
 
+// seedBrowserAddon pre-selects the "browser" add-on in an isolated
+// agent-settings cache, so the real choiceui form proveo run renders comes up
+// with the box already ticked — acceptChoicePrompt then confirms it with one
+// Enter, same as every other seeded-choice e2e test.
 func seedBrowserAddon(t *testing.T, proveoHome, target string) {
 	t.Helper()
 	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))

@@ -23,6 +23,9 @@ skinparam noteTextAlignment left
 '                   Attributes; `CSI ? … $ y` — DECRPM, the answer to a mode
 '                   query; `CSI <digits;> R` — the cursor position report;
 '                   `CSI ? <flags> u` — the kitty keyboard flag report;
+'                   `CSI > … u` / `CSI < … u` / `CSI = … u` — kitty push/pop/set
+'                   (Cursor 2026.09.15 emits `CSI > 1 u` at startup; a human
+'                   never types it);
 '                   `DCS … ST` — XTVERSION and friends; `APC … ST` — the kitty
 '                   GRAPHICS answer; `OSC … ST`-or-BEL — colour and palette.
 '   reportMouse ... `CSI M` plus exactly three more bytes (X10), `CSI < … M|m`
@@ -39,10 +42,16 @@ skinparam noteTextAlignment left
 ' would swallow the rest of the buffer, keystrokes included.
 '
 ' Incomplete is a third answer, not a rounding of the other two: the fragment is
-' neither forwarded nor dropped, it is HELD for the next read. A hold is not
-' unconditional: if no continuation arrives within `DefaultEscIdle` the held
-' bytes are released VERBATIM, because a fragment nobody continued was never a
-' fragment — it was the keypress it looks like.
+' neither forwarded nor dropped, it is HELD for the next read. TWO idles, not
+' one: a lone ESC is a keypress, so `DefaultEscIdle` (40ms) releases it verbatim
+' — that is how Esc still closes a modal. An incomplete CSI / DCS / OSC / APC is
+' never a keypress. Releasing `ESC[?6` on that 40ms timer forwarded the DA1 tail
+' as the letter `c`; sbx enqueued it as a prompt; the agent answered nobody and
+' the sandbox auto-stopped. `cERROR: sandbox … was stopped` was that tail sitting
+' on the screen. Incomplete CSI stays held until the final byte arrives, or
+' `DefaultTruncatedReportIdle` (2s) DROPS the stump. Cursor 2026.09.15 emits
+' `CSI > 1 u` (kitty push) then probes DA1; the push is a report on stdin too
+' (`>`, `<`, `=`, `?` before a final `u`), never a CSI-u keypress.
 '
 ' ── THE WINDOW IS A STATEMENT ABOUT WHO ASKED, NOT ABOUT WHEN ──────────────
 ' `DefaultReplyWindow` (2s) is how close together two IDENTICAL reports must
@@ -52,15 +61,18 @@ skinparam noteTextAlignment left
 ' authorship, and the 2s is only how long that claim stays plausible.
 '
 ' ── AND THE OTHER BOUND IS A STATEMENT ABOUT A HUMAN'S FINGERS ─────────────
-' `DefaultEscIdle` (40ms) is how long a held fragment waits for its continuation
-' before it is forwarded verbatim as the keypress it is. The two constants read
-' alike and claim opposite things: `DefaultReplyWindow` is a claim about
-' AUTHORSHIP — one terminal answering twice rather than an application asking
-' twice — while `DefaultEscIdle` is a claim about FINGERS, that no human types
-' the second byte of an Alt-chord 40ms after the first. 25-50ms is the
-' conventional terminal ESC timeout (vim's `ttimeoutlen`, kitty's `esc-timeout`)
-' and 40ms sits mid-band: long enough that a real Alt-chord, or a CSI split
-' across two reads, still assembles; short enough to feel instant.
+' `DefaultEscIdle` (40ms) is how long a LONE ESC waits before it is forwarded as
+' the keypress it is. The two constants read alike and claim opposite things:
+' `DefaultReplyWindow` is a claim about AUTHORSHIP — one terminal answering twice
+' rather than an application asking twice — while `DefaultEscIdle` is a claim
+' about FINGERS, that no human types the second byte of an Alt-chord 40ms after
+' the first. 25-50ms is the conventional terminal ESC timeout (vim's
+' `ttimeoutlen`, kitty's `esc-timeout`) and 40ms sits mid-band.
+'
+' It does NOT apply to an incomplete CSI. Arrow keys and DA1 replies both arrive
+' as `ESC [` plus a later final byte; treating that prefix as "the keypress it
+' looks like" is how a split `\x1b[?6` + `c` became typing. CSI waits; it is
+' not a finger.
 '
 ' Waiting costs a goroutine. `pumpIn` used to BLOCK in `Read`, so `held`
 ' was revisited only when more bytes arrived. Press Esc alone and it sat there
@@ -72,7 +84,8 @@ skinparam noteTextAlignment left
 ' `inRead`, `pumpIn` → `pumpInFrom`), so the pump can `select` against a timer
 ' armed only while `held` is non-empty, and the released bytes leave through the
 ' same shared `deliver()` path as everything else. `split()` and
-' `classifyTerminalReport` are behaviourally unchanged by this.
+' `classifyTerminalReport` are unchanged by the lone-ESC timer; the truncated-
+' CSI drop is a later, load-bearing exception to "release verbatim".
 '
 ' ── CPR IS THE SECOND SOLICITED CLASS, AND THE ARGUMENT IS THE SAME ───────
 ' Added 2026-09-09, and it is the mouse lesson applied a second time rather than
@@ -392,10 +405,42 @@ note as N_SPLIT_HOLD
 end note
 
 note as N_SPLIT_IDLE
-  ""DefaultEscIdle"" (40ms) is the other bound. On
-  idle the hold is forwarded VERBATIM, so Esc
-  closes a modal instead of waiting to be glued
-  to the next key as a phantom Alt-chord.
+  ""DefaultEscIdle"" (40ms) is for a
+  lone ESC only. Incomplete CSI stays
+  held until it completes, or
+  ""DefaultTruncatedReportIdle""
+  drops it rather than typing it.
+end note
+
+note as N_TRUNC_IDLE
+  **CSI is never a keypress.** A lone ESC
+  is. Releasing ""ESC[?6"" on the 40ms
+  Esc idle forwarded the DA1 tail as
+  the letter ""c"" — every ""cERROR:
+  sandbox was stopped"" in the log.
+end note
+
+note as N_KITTY_PUSH
+  **Cursor 2026.09.15 emits ""CSI > 1 u""
+  at startup.** That is a PUSH, not a
+  key. On stdin it is a report. The
+  DA1 that follows the kitty probe is
+  the ""c"" in ""cERROR"".
+end note
+
+note as N_ORPHAN_DA
+  **ESC released, body still a report.**
+  A lone ESC is a keypress (40ms). The
+  rest of DA1 then arrives as ""[?6c""
+  with no ESC. On a prompt stream that
+  orphan body is dropped, not typed.
+end note
+
+note as N_C1_CSI
+  **8-bit CSI (0x9b) is ESC [.** Some
+  emulators answer DA1 that way. The
+  trailing ""c"" is the same leak as
+  the 7-bit form.
 end note
 
 @enduml

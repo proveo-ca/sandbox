@@ -99,6 +99,15 @@ func (f *inputFilter) keep(b []byte) bool {
 }
 
 func classifyTerminalReport(b []byte) reportKind {
+	// 8-bit C1 CSI (0x9b) is the same sequence as ESC [. Some emulators
+	// answer Device Attributes that way; without this branch the trailing
+	// "c" reached the prompt stream as a keystroke.
+	if len(b) >= 2 && b[0] == 0x9b {
+		wrapped := make([]byte, 0, 2+len(b)-1)
+		wrapped = append(wrapped, 0x1b, '[')
+		wrapped = append(wrapped, b[1:]...)
+		return classifyTerminalReport(wrapped)
+	}
 	if len(b) < 3 || b[0] != 0x1b {
 		return reportNone
 	}
@@ -125,10 +134,12 @@ func classifyTerminalReport(b []byte) reportKind {
 			if isNumericParams(body[:len(body)-1]) {
 				return reportReply
 			}
-		case 'u': // CSI ? flags u — the kitty keyboard protocol's flag report
-			// opencode's TUI pushes its own flags with CSI > 5 u and then asks
-			// what stuck. Unclassified, the ANSWER arrived as keystrokes.
-			if body[0] == '?' && isNumericParams(body[1:len(body)-1]) {
+		case 'u': // kitty keyboard protocol
+			// CSI ? flags u — flag report (the terminal's answer to CSI ? u).
+			// CSI > flags u / CSI < n u / CSI = flags ; mode u — push / pop / set.
+			// Cursor 2026.09.15 emits CSI > 1 u at startup; on stdin that is a
+			// report, never a key. CSI 1;5 u (no private prefix) IS a keypress.
+			if kittyKeyboardControl(body) {
 				return reportReply
 			}
 		case 'M', 'm': // CSI < b;x;y M|m (SGR) · CSI b;x;y M (urxvt)
@@ -165,6 +176,20 @@ func isNumericParams(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// kittyKeyboardControl is a CSI u with a private prefix. Those are push / pop
+// / set / query-answer. A CSI-u KEYPRESS has no prefix (`CSI 1;5 u`).
+func kittyKeyboardControl(body []byte) bool {
+	if len(body) < 1 {
+		return false
+	}
+	switch body[0] {
+	case '?', '>', '<', '=':
+		rest := body[1 : len(body)-1]
+		return len(rest) == 0 || isNumericParams(rest)
+	}
+	return false
 }
 
 // mouseTracker follows the DEC private modes that make a terminal SEND mouse
@@ -348,33 +373,92 @@ const maxHeld = 128
 
 func (f *inputFilter) split(b []byte) (forward, held []byte) {
 	for i := 0; i < len(b); {
-		if b[i] != 0x1b {
-			j := i
-			for j < len(b) && b[j] != 0x1b {
+		switch {
+		case b[i] == 0x1b:
+			end, complete := escEnd(b[i:])
+			if !complete {
+				// Unfinished: hold it for the next read, unless it is implausibly
+				// long. The pump releases a held prefix after DefaultEscIdle, so a
+				// lone ESC keypress is not swallowed waiting for a continuation.
+				if len(b)-i <= maxHeld {
+					return forward, append(held, b[i:]...)
+				}
+				forward = append(forward, b[i:]...)
+				return forward, nil
+			}
+			seq := b[i : i+end]
+			if f.keep(seq) {
+				forward = append(forward, seq...)
+			}
+			i += end
+		case b[i] == 0x9b:
+			// 8-bit CSI. Same hold/drop rules as ESC [ … .
+			n, complete := csiParamsEnd(b[i+1:])
+			if !complete {
+				if len(b)-i <= maxHeld {
+					return forward, append(held, b[i:]...)
+				}
+				forward = append(forward, b[i:]...)
+				return forward, nil
+			}
+			seq := b[i : i+1+n]
+			fake := append([]byte{0x1b, '['}, seq[1:]...)
+			if f.keep(fake) {
+				forward = append(forward, seq...)
+			}
+			i += 1 + n
+		case f.dropReplies && isOrphanReportStart(b[i:]):
+			// A DA1 whose ESC was already released as a keypress arrives as
+			// `[?6c`. On a prompt stream that body is still a report.
+			n, complete := csiParamsEnd(b[i+1:])
+			if !complete {
+				if len(b)-i <= maxHeld {
+					return forward, append(held, b[i:]...)
+				}
+				forward = append(forward, b[i:]...)
+				return forward, nil
+			}
+			seq := b[i : i+1+n]
+			fake := append([]byte{0x1b}, seq...)
+			if f.keep(fake) {
+				forward = append(forward, seq...)
+			}
+			i += 1 + n
+		default:
+			j := i + 1
+			for j < len(b) && b[j] != 0x1b && b[j] != 0x9b && (!f.dropReplies || !isOrphanReportStart(b[j:])) {
 				j++
 			}
 			forward = append(forward, b[i:j]...)
 			i = j
-			continue
 		}
-		end, complete := escEnd(b[i:])
-		if !complete {
-			// Unfinished: hold it for the next read, unless it is implausibly
-			// long. The pump releases a held prefix after DefaultEscIdle, so a
-			// lone ESC keypress is not swallowed waiting for a continuation.
-			if len(b)-i <= maxHeld {
-				return forward, append(held, b[i:]...)
-			}
-			forward = append(forward, b[i:]...)
-			return forward, nil
-		}
-		seq := b[i : i+end]
-		if f.keep(seq) {
-			forward = append(forward, seq...)
-		}
-		i += end
 	}
 	return forward, nil
+}
+
+// isOrphanReportStart is a CSI report whose ESC never arrived (or was already
+// forwarded as a lone-Esc keypress). `[` alone is a keystroke; the private
+// markers `? > < =` are not something a human types as a burst.
+func isOrphanReportStart(b []byte) bool {
+	if len(b) < 2 || b[0] != '[' {
+		return false
+	}
+	switch b[1] {
+	case '?', '>', '<', '=':
+		return true
+	}
+	return false
+}
+
+// csiParamsEnd walks CSI parameters and intermediates to the final byte
+// (0x40..0x7e). b is the bytes AFTER the introducer (after ESC [ or 0x9b).
+func csiParamsEnd(b []byte) (int, bool) {
+	for i := 0; i < len(b); i++ {
+		if b[i] >= 0x40 && b[i] <= 0x7e {
+			return i + 1, true
+		}
+	}
+	return 0, false
 }
 
 func escEnd(b []byte) (int, bool) {

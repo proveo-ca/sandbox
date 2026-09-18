@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/sbx/kit-lifecycle.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/sbx/kit-lifecycle.puml, _spec/internal/sbx/ide-attach.puml
 package sbx
 
 import (
@@ -319,6 +319,16 @@ func SaveStateArgs(name string) []string {
 
 func RemoveArgs(name string) []string {
 	return []string{"rm", "--force", name}
+}
+
+func SetupSSHArgs() []string { return []string{"setup", "ssh"} }
+
+func SSHHost(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return name + ".sbx"
 }
 
 func NotFound(out string) bool {

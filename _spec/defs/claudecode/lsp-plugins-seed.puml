@@ -52,6 +52,8 @@ title Claude Code code intelligence — seeded plugins, enabled per binary, no i
 ' produces neither. proveo-lsp then declares only the languages no enabled
 ' official plugin already covers, so no extension has two servers racing.
 ' Pinned to the Dockerfile's install list by internal/contract.
+' Plugin class past this harness: _spec/_plans/plugin-class-beyond-claudecode.puml
+' — waits on a second seedable cache; do not copy this marketplace onto others.
 '
 ' Settings are MERGED into the agent's user file: it is the operator's, an
 ' explicit `false` there is respected, and the run is idempotent.

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/clean/clean-lifecycle.puml, _spec/_plans/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/internal/clean/clean-lifecycle.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/retire-dind.puml
 package main
 
 import (

@@ -103,6 +103,19 @@ func TestRemoveArgsForcesNonInteractively(t *testing.T) {
 	}
 }
 
+func TestSetupSSHArgsAndHostAreUpstreamOwned(t *testing.T) {
+	t.Parallel()
+	if got, want := SetupSSHArgs(), []string{"setup", "ssh"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("SetupSSHArgs() = %q, want %q", got, want)
+	}
+	if got, want := SSHHost("proveo-1-2"), "proveo-1-2.sbx"; got != want {
+		t.Errorf("SSHHost() = %q, want %q", got, want)
+	}
+	if got := SSHHost("  "); got != "" {
+		t.Errorf("SSHHost of an empty name = %q, want nothing to connect to", got)
+	}
+}
+
 // A run that failed before creating anything must not be reported as a failed
 // teardown — the real error is the one `sbx run` already printed.
 func TestNotFoundRecognisesAnAbsentSandbox(t *testing.T) {
@@ -195,6 +208,19 @@ func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
 	}
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("spec.yaml mode = %v, want 0600", fi.Mode().Perm())
+	}
+}
+
+func TestSeedCommandNeverFailsTheDispatcher(t *testing.T) {
+	cmd := SeedCommand("cursor").Command
+	if !CommandNamesSeed(cmd) {
+		t.Fatalf("SeedCommand = %v, does not name proveo-seed", cmd)
+	}
+	joined := strings.Join(cmd, "\n")
+	for _, needle := range []string{SeedBinary, "exit 0", "set +e"} {
+		if !strings.Contains(joined, needle) {
+			t.Errorf("SeedCommand missing %q — a non-zero seed would tear a live agent down:\n%s", needle, joined)
+		}
 	}
 }
 
