@@ -361,8 +361,8 @@ func runDeps() run.Deps {
 		PromptEnv: func(target string, missing []manifest.EnvVar) map[string]string {
 			return promptEnv(target, missing, os.Stdin, os.Stderr, termSecret)
 		},
-		GitHubTokenEnv: func(interactive bool) string {
-			return resolveGitHubTokenEnv(hostGhAuth(), interactive, os.Stdin, os.Stderr)
+		GitHubTokenEnv: func() string {
+			return resolveGitHubTokenEnv(hostGhAuth())
 		},
 		ProvisionConfirm: provisionConfirm,
 		PreflightImages:  preflightImages,

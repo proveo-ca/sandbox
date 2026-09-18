@@ -38,7 +38,7 @@ func TestInitPrintChangesNothingOnThisHost(t *testing.T) {
 	t.Logf("proveo init --print on %s/%s:\n%s", host.OS, host.Arch, got)
 
 	// It must name the pinned release, the asset it would fetch, and the host.
-	for _, want := range []string{sbx.Release, host.OS + "/" + host.Arch, "github.com/docker/sbx-releases"} {
+	for _, want := range []string{sbx.Release, host.OS + "/" + host.Arch, "github.com/docker/sbx-releases", "gh auth login", "git config"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("--print never mentions %q", want)
 		}

@@ -145,7 +145,10 @@ type Form struct {
 	OnChange func(*Form)
 	Glyphs   GlyphTier
 	Topology func(f *Form, cursor int) *Frame
-	scroll   int
+	// NoAxis hides "◀ riskier … safer ▶". The legend is a claim about policy
+	// radios (egress, credentials). Init's radios are not a safety axis.
+	NoAxis bool
+	scroll int
 }
 
 func Banner() []string {
@@ -297,6 +300,9 @@ func (f *Form) FieldValue(label string) string {
 }
 
 func (f *Form) axisLabel() bool {
+	if f.NoAxis {
+		return false
+	}
 	for _, r := range f.Rows {
 		if !r.Multi && len(r.Options) > 1 {
 			return true

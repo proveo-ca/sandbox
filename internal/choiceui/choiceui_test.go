@@ -239,6 +239,13 @@ func TestSafetyAxisLegend(t *testing.T) {
 	if o := joined(t, only); strings.Contains(o, "riskier") {
 		t.Errorf("checkbox-only prompt should have no axis legend:\n%s", o)
 	}
+	// Init's radios are not a safety axis; the legend would rank a prefix.
+	init := &Form{NoAxis: true, Rows: []Row{
+		{Label: "install", Options: []string{"rootless tarball", "distro package"}, Selected: 0},
+	}}
+	if o := joined(t, init); strings.Contains(o, "riskier") || strings.Contains(o, "safer") {
+		t.Errorf("NoAxis must suppress the legend:\n%s", o)
+	}
 }
 
 // The safety axis governs the POLICY rows only. A centred divider closes it so the

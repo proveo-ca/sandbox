@@ -48,6 +48,7 @@
 ' config sessions OVER THE NETWORK. Under a locked-down egress tier that call
 ' can hang, and this runs before the agent, so it is capped at `timeout 5s` —
 ' an unanswered probe reports "not authenticated" rather than stalling startup.
+' Seed never runs `gh auth login` and never installs gh: that is `proveo init`.
 '
 ' The same reasoning caps the version banners: command_version_cecli and
 ' command_version_opencode both bound the call at 5s and fall back to a caller-

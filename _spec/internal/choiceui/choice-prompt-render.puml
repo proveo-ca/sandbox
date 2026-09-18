@@ -226,6 +226,12 @@ note bottom of DRAW
   both and the divider ends its authority.
 end note
 
+note left of FORM
+  **The legend is a claim.** Init's radios are
+  not a safety axis, so ""NoAxis"" keeps
+  ""◀ riskier … safer ▶"" off that screen.
+end note
+
 note top of GATE
   **One gate per toggle row, run
   unconditionally.** ""gateAddons"" degrades to a

@@ -25,6 +25,12 @@ func termSecret() (string, error) {
 	return string(b), err
 }
 
+func promptLine(question string, in io.Reader, out io.Writer) string {
+	fmt.Fprintf(out, "%s ", question)
+	s, _ := bufio.NewReader(in).ReadString('\n')
+	return strings.TrimSpace(s)
+}
+
 func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	suffix := "[Y/n]"
 	if !def {

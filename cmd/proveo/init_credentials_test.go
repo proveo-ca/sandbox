@@ -142,6 +142,7 @@ func TestStateFollowsWhereTheCredentialRests(t *testing.T) {
 func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 	rows := credentialRows(surveyCredentials(defs(t), nil, envOf(nil)))
 	headings := 0
+	var keyHeading string
 	for _, r := range rows {
 		if !r.Field {
 			t.Fatalf("%q is not a field — every credential takes typing, not an option", r.Label)
@@ -157,10 +158,36 @@ func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 			if r.Heading == "" {
 				t.Errorf("%q opens a group with no heading", r.Label)
 			}
+			if strings.Contains(r.Heading, "cecli") && strings.Contains(r.Heading, "api") {
+				t.Errorf("usage keys headed %q — they are not cecli's; any agent can spend them", r.Heading)
+			}
+			if r.Heading == "usage api keys" {
+				keyHeading = r.Heading
+			}
 		}
 	}
 	if headings < 2 {
 		t.Errorf("%d group headings — subscription and api keys are different questions and say so", headings)
+	}
+	if keyHeading != "usage api keys" {
+		t.Errorf("key group heading = %q, want usage api keys", keyHeading)
+	}
+	// Keys come last, as one block: a key heading between two subscriptions
+	// would mean they were still attributed to whichever def listed them.
+	sawKey := false
+	nKey := 0
+	for _, r := range rows {
+		if r.Heading == "usage api keys" {
+			nKey++
+			sawKey = true
+			continue
+		}
+		if sawKey && r.Divider && strings.Contains(r.Heading, "subscription") {
+			t.Errorf("subscription %q follows usage keys — the keys must be one trailing block", r.Heading)
+		}
+	}
+	if nKey != 1 {
+		t.Errorf("%d usage-key headings, want one shared group", nKey)
 	}
 }
 

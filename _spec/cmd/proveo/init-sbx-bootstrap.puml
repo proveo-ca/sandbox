@@ -4,6 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
 ' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, ensureSbxOnPath, finish, verify)
 ' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, initRows, baselineRow)
+' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
+' covers: cmd/proveo/init_git.go (applyGitIdentity)
+' covers: cmd/proveo/ghtoken.go (resolve — a run only lifts; login is init's)
 ' covers: internal/sbx/install.go (Release, Host, DetectHost, PlanFor, Packaged, Provenance, Prereqs, Stage, Probe, ServerState, VersionAt)
 ' covers: internal/shell/shell.go (SbxMarker, SbxBlock)
 ' covers: apps/cli/public/cli/install.sh (run_init)
@@ -131,14 +134,33 @@ skinparam noteTextAlignment left
 ' answerable by a person at a screen and by defaults nobody was asked for, and
 ' only the second is testable without a terminal. Defaults are the contract.
 '
-' Asked, through the same choiceui the run picker uses:
-'   install ....... release tarball (rootless) | distro package (root, and no
-'                   published digest covers it) | keep what is installed
-'   prefix ........ ~/.docker/sbx | /usr/local — collapsed to one option when
-'                   --prefix already said
-'   PATH .......... write the shell rc | print the line
-'   sign in ....... now | later
-'   sbx setup ..... now | later
+' Asked, through the same choiceui the run picker uses — without that
+' picker's "◀ riskier … safer ▶" legend. Init's radios are not a safety
+' axis (NoAxis); ranking a prefix that way had no value.
+'   sbx install ... rootless tarball | distro package (root, no digest) |
+'                   keep what is installed. This is sbx from GitHub, not a
+'                   second copy of proveo — proveo is already on PATH from the
+'                   CDN installer. Packaged is GATED, never dropped, when this
+'                   host has no .deb/.rpm, so the alternative stays visible
+'                   (and names Alt — brew, winget — when that is the published
+'                   path proveo cannot pin).
+'   sbx location .. /usr/local | ~/.docker/sbx — /usr/local is leftmost;
+'                   home stays the default (Selected, no root). Collapsed to
+'                   one option when --prefix already said
+'   PATH .......... add to shell rc | print only
+'   ── next steps ── a Heading, not a row. Sign-in used to declare Divider
+'                   with no Heading, so choiceui stole its label and it drew
+'                   as radios with no name — read as a missing "sbx init".
+'                   Rows keep their labels under this heading:
+'   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
+'   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
+'   gh ............ now | later   (verify `gh`, install via the host package
+'                   manager if missing, `gh auth login` if needed, then
+'                   `sbx secret set --force github` from that token. A run
+'                   never opens the login; seed never installs gh.)
+'   git identity .. now | later   (`user.name` / `user.email`. A missing
+'                   identity fails at the first commit, after the work.
+'                   Seed still BRIDGES the resolved pair; it does not ask.)
 '   baseline ...... only when the host currently allows every host
 '
 ' A row a flag already settled is drawn LOCKED with the flag named, never
@@ -205,14 +227,17 @@ skinparam noteTextAlignment left
 ' loud as unverified. The release ships one .deb per Ubuntu generation and a
 ' single rockylinux8 .rpm for the whole RPM family; an unrecognised distro gets
 ' none, which is not an error — the tarball plan never needed to know the
-' distro. When the package wins, placement belongs to the package manager, so
-' the plan's Bin and Prefix are cleared exactly as they are for the MSI.
+' distro. The radio is still drawn, gated, so "distro package" does not vanish
+' and look like the tarball is the only way sbx arrives. When the package wins,
+' placement belongs to the package manager, so the plan's Bin and Prefix are
+' cleared exactly as they are for the MSI.
 '
-' Alt is only PRINTED, and only on apt hosts. It installs from a repository
-' instead of from this release, so proveo cannot pin what it lands — and the
-' documented Linux path (`get.docker.com` + `apt install docker-sbx`) has no
-' published dnf equivalent. Naming an apt command on a Rocky host would be
-' advice that cannot be followed, so nothing is named there.
+' Alt is never a selectable option. It installs from a repository, Homebrew or
+' WinGet instead of from this release, so proveo cannot pin what it lands. On a
+' host with no Packaged it is NAMED in the gated option's reason — that is how
+' brew and winget stay visible. The documented Linux path (`get.docker.com` +
+' `apt install docker-sbx`) has no published dnf equivalent, so Rocky names
+' none.
 '
 ' ── REFUSE THE PREFIX BEFORE DOWNLOADING INTO IT, AND STAY IDEMPOTENT ──────
 ' /usr/local is an offered choice and it is the one that lands on a prefix this
@@ -319,7 +344,7 @@ component "choiceui prompt\nlocked rows still drawn" as ASK <<app>>
 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
-OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · baseline
+OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag
 PROV ARROW_MAIN INIT : the digest, checked BEFORE unpacking
@@ -384,6 +409,13 @@ note bottom of ASK
   decision must also have an answer nobody was
   asked for. The baseline is the only default that
   does nothing — it is host-wide.
+end note
+
+note left of ASK
+  **Heading names the group.** A divider with no
+  Heading steals the row label, which is why "sign
+  in" drew as radios with no name beside "sbx
+  setup". "next steps" leaves both labels on.
 end note
 
 note left of PREFIX
