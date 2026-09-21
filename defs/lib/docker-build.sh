@@ -25,8 +25,18 @@ except Exception:
 }
 
 # SPEC: _spec/_devops/agent-version-pin.puml
+_proveo_pypi_version() {
+  local pkg="$1"
+  python3 -c '
+import json, sys, urllib.request
+url = "https://pypi.org/pypi/{}/json".format(sys.argv[1])
+with urllib.request.urlopen(url, timeout=20) as r:
+    print(json.load(r)["info"]["version"])
+' "$pkg"
+}
+
 proveo_agent_version() {
-  local override_var="$1" eco="$2" pkg="$3" v=""
+  local override_var="$1" eco="$2" pkg="$3" v="" fetch_err=""
   if [[ -n "${!override_var:-}" ]]; then
     echo "📌 ${pkg}@${!override_var} (from ${override_var})" >&2
     printf '%s' "${!override_var}"
@@ -38,14 +48,21 @@ proveo_agent_version() {
         v="$(npm view "$pkg" version 2>/dev/null || true)"
       fi
       if [[ -z "$v" ]]; then
-        v="$(curl -fsSL "https://registry.npmjs.org/${pkg}/latest" 2>/dev/null | _proveo_json_field version)"
+        v="$(curl -fsSL --max-time 20 "https://registry.npmjs.org/${pkg}/latest" 2>/dev/null | _proveo_json_field version)"
       fi
       ;;
     pypi)
-      v="$(curl -fsSL "https://pypi.org/pypi/${pkg}/json" 2>/dev/null | _proveo_json_field info.version)"
+      local pypi_url="https://pypi.org/pypi/${pkg}/json"
+      v="$(curl -fsSL --max-time 20 "$pypi_url" 2>/dev/null | _proveo_json_field info.version)"
+      if [[ -z "$v" ]] && command -v python3 >/dev/null 2>&1; then
+        v="$(_proveo_pypi_version "$pkg" 2>/dev/null || true)"
+      fi
+      if [[ -z "$v" ]]; then
+        fetch_err="$(curl -fsSL --max-time 8 -o /dev/null "$pypi_url" 2>&1 | tail -n 1 || true)"
+      fi
       ;;
     cursor)
-      v="$(curl -fsSL "$pkg" 2>/dev/null \
+      v="$(curl -fsSL --max-time 20 "$pkg" 2>/dev/null \
         | sed -n 's|.*/versions/\([0-9][0-9.]*-[0-9a-f]\{1,\}\)/.*|\1|p' | head -1)"
       ;;
     *)
@@ -60,6 +77,9 @@ proveo_agent_version() {
       echo "   The agent install is pinned by version, so a rebuild is reproducible and a"
       echo "   cached layer cannot hide an upstream release. Offline or behind a proxy, name"
       echo "   the version yourself:   ${override_var}=<x.y.z> proveo build <target>"
+      if [[ -n "$fetch_err" ]]; then
+        echo "   last curl: ${fetch_err}"
+      fi
     } >&2
     return 1
   fi
@@ -230,6 +250,65 @@ proveo_docker_arg_tag() {
   printf 'latest'
 }
 
+# SPEC: _spec/_devops/buildx-driver-selection.puml
+# PROVEO_DOCKER_PULL: auto (default) | 0/false/never/off | 1/true/always/on/yes
+proveo_docker_pull_flags() {
+  case "${PROVEO_DOCKER_PULL:-auto}" in
+    auto | "")
+      return 0
+      ;;
+    0 | false | no | never | off)
+      printf '%s\n' '--pull=false'
+      ;;
+    1 | true | yes | on | always)
+      printf '%s\n' '--pull=true'
+      ;;
+    *)
+      echo "❌ PROVEO_DOCKER_PULL=${PROVEO_DOCKER_PULL}: want auto|0|1 (or never/always)" >&2
+      return 1
+      ;;
+  esac
+}
+
+proveo_docker_argv_has_pull() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --pull | --pull=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+proveo_docker_is_registry_dns_error() {
+  grep -Eiq \
+    'temporary failure in name resolution|lookup registry-1\.docker\.io|no such host|server misbehaving'
+}
+
+proveo_docker_registry_dns_help() {
+  cat <<'EOF'
+❌ Docker Hub name lookup failed (registry-1.docker.io).
+   That is the daemon's DNS, not the Dockerfile FROM line.
+
+   If the FROM image is already local, skip the registry HEAD:
+     PROVEO_DOCKER_PULL=0 mise run build
+
+   If it is not local, Hub must resolve first:
+     docker pull docker/sandbox-templates:shell-docker-0.5.0
+     getent hosts registry-1.docker.io
+
+   Frozen container-builder resolv.conf (proveo-multiarch):
+     docker buildx rm proveo-multiarch
+EOF
+}
+
+proveo_docker_buildx_invoke() {
+  local builder="$1" platforms="$2"
+  shift 2
+  echo "🔨 buildx --builder ${builder} --platform ${platforms} $*"
+  docker buildx build --builder "$builder" --platform "$platforms" "$@"
+}
+
 proveo_docker_build() {
   local push=0
   local -a docker_args=()
@@ -278,6 +357,38 @@ proveo_docker_build() {
   local builder
   builder="$(proveo_docker_ensure_buildx "$mode" "$platforms")" || return 1
 
-  echo "🔨 buildx --builder ${builder} --platform ${platforms} ${out_flags[*]}"
-  docker buildx build --builder "$builder" --platform "$platforms" "${out_flags[@]}" "${docker_args[@]}"
+  local -a pull_flags=()
+  if ! proveo_docker_argv_has_pull "${docker_args[@]}"; then
+    local pull_line
+    pull_line="$(proveo_docker_pull_flags)" || return 1
+    if [[ -n "$pull_line" ]]; then
+      pull_flags=("$pull_line")
+    fi
+  fi
+
+  local log st
+  log="$(mktemp)"
+  set +e
+  proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+  st=${PIPESTATUS[0]}
+  set -e
+
+  if ((st != 0)) \
+    && [[ "$mode" == "load" ]] \
+    && [[ "${PROVEO_DOCKER_PULL:-auto}" == "auto" ]] \
+    && [[ ${#pull_flags[@]} -eq 0 ]] \
+    && ! proveo_docker_argv_has_pull "${docker_args[@]}" \
+    && proveo_docker_is_registry_dns_error <"$log"; then
+    echo "⚠️  registry DNS failed; retrying with --pull=false so a local FROM image can satisfy the build" >&2
+    pull_flags=(--pull=false)
+    set +e
+    proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+    st=${PIPESTATUS[0]}
+    set -e
+  fi
+  if ((st != 0)) && proveo_docker_is_registry_dns_error <"$log"; then
+    proveo_docker_registry_dns_help >&2
+  fi
+  rm -f "$log"
+  return "$st"
 }

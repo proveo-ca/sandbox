@@ -59,7 +59,8 @@
       "spec": "_spec/_devops/buildx-driver-selection.puml",
       "covers": [
         "defs/lib/docker-build.sh",
-        "defs/*/build.sh"
+        "defs/*/build.sh",
+        "internal/contract/buildx_pull_policy_test.go"
       ],
       "fingerprint": null
     },

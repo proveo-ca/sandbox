@@ -6,6 +6,7 @@ title Buildx driver selection — which driver, and where a FROM resolves
 '          matters — where a FROM resolves its parent from
 ' covers: defs/lib/docker-build.sh
 ' covers: defs/*/build.sh
+' covers: internal/contract/buildx_pull_policy_test.go
 '
 ' ── THE INPUTS proveo_docker_build READS ────────────────────────────────────
 '   --push (argv) or PROVEO_DOCKER_PUSH in {1,true,yes,on}  → push mode
@@ -13,6 +14,14 @@ title Buildx driver selection — which driver, and where a FROM resolves
 '   PROVEO_BUILDX_BUILDER        names the container-driver builder
 '                                (default "proveo-multiarch")
 '   PROVEO_BUILDX_LOCAL_BUILDER  overrides the docker-driver choice outright
+'   PROVEO_DOCKER_PULL           load-mode registry HEAD:
+'                                auto (default) — pull-if-missing; on a
+'                                registry DNS failure, retry once with
+'                                --pull=false
+'                                0|false|never|off — --pull=false
+'                                1|true|always|on|yes — --pull=true
+'                                argv --pull / --pull=* wins over the env
+'                                push mode never retries (needs the registry)
 '
 ' A LOCAL LOAD IS SINGLE-PLATFORM, always. `--load` cannot accept a multi-platform
 ' result, so when PROVEO_PLATFORMS still holds a comma the value is narrowed to
@@ -40,6 +49,7 @@ database "Local daemon image store" as LOCAL <<db>>
 cloud "Registry" as REG <<cloud>>
 component "Stale-parent build\n(silent: no error, no warning)" as STALE <<error>>
 component "Builder netns cannot resolve\nwhile the host resolves fine" as DNS <<error>>
+component "Daemon cannot resolve Docker Hub\nFROM tag still HEADs the registry" as HUBDNS <<error>>
 
 LIB ARROW_MAIN SEL : platforms resolved BEFORE the builder
 SEL ARROW_MAIN HEALTH : candidate alive?
@@ -47,6 +57,7 @@ SEL ARROW_MAIN DDOCKER : ""--load"" · platform == host arch
 SEL ARROW_CLOUD DCONT : ""--push"" · multi-arch publish
 SEL ARROW_OPTIONAL DCONT : ""--load"" · cross-arch — warns first
 DDOCKER ARROW_MAIN LOCAL : ""FROM"" resolves the image just built
+DDOCKER ARROW_ERROR HUBDNS : metadata lookup · tag not in the daemon store
 DCONT ARROW_CLOUD REG : ""FROM"" resolves the PUBLISHED image
 DCONT ARROW_ERROR STALE : cross-arch ""--load"" — a locally edited parent is invisible
 DCONT ARROW_ERROR DNS : own network namespace · own frozen ""/etc/resolv\.conf""
@@ -101,6 +112,25 @@ note bottom of DDOCKER
   Only the ""--load"" host-platform path reaches this decision. A ""--push""
   or cross-platform build returns earlier on the container driver, so
   multi-arch distributables never depend on which context is current.
+end note
+
+note bottom of HUBDNS
+  **A docker-driver ""--load"" still HEADs Docker Hub for a tag-based
+  FROM that is not in the daemon store.** ""--builder default"" does
+  not make the build offline. The failure
+  ""lookup registry-1.docker.io: Temporary failure in name resolution""
+  on ""FROM ${SANDBOX_TEMPLATE}"" is the daemon's resolver, not a
+  blank ARG (that one is ""base name should not be blank"").
+
+  BuildKit's ""--pull=false"" does not promise to skip that HEAD for
+  a tag; a digest-pinned FROM does. The docker driver will use a
+  local copy without a registry round-trip once the name is in
+  ""docker images"" (moby/buildkit#5340). If it is not, Hub must
+  resolve: ""docker pull docker/sandbox-templates:shell-docker-0.5.0"".
+
+  On a registry DNS failure in load+auto, proveo_docker_build retries
+  once with ""--pull=false"" and then prints the daemon-DNS help.
+  ""PROVEO_DOCKER_PULL=0"" skips the first attempt.
 end note
 
 note bottom of DNS
