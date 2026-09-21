@@ -16,10 +16,11 @@ import (
 
 	"github.com/creack/pty"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"gopkg.in/yaml.v3"
 )
 
 // rung is one step of the ladder: everything the rung below it had, plus exactly
