@@ -1,0 +1,76 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title GitHub SSH host keys — git@github.com in an sbx world
+' purpose: why git pull origin fails in proveo run cursor, and the host-key write that closes it
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/base/Dockerfile
+' covers: defs/base/ssh/github_known_hosts
+' covers: defs/cursor/entrypoint.sh
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/cecli/entrypoint.sh
+' covers: defs/codex/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
+' covers: internal/contract/github_ssh_hosts_test.go
+'   launch env (t=0) .............. _spec/internal/sbx/launch-env.puml
+'   HTTPS credential injection .... _spec/cmd/proveo/github-credentials.puml
+'   seed step order ............... _spec/packages/lib/seed-and-launch.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+
+node "proveo/base image" as IMG <<host>> {
+  database """/etc/ssh/ssh_known_hosts""\nbaked GitHub host keys" as SYS <<db>>
+}
+
+node "Agent at t≈0" as AG <<host>> {
+  component "ssh + forwarded agent" as SSH <<app>>
+  component "git pull origin" as PULL <<app>>
+}
+
+node "Startup (late / old images)" as SEED <<app>> {
+  component """proveo_seed""\nseed_github_known_hosts" as SEEDFN <<app>>
+  database "~/.ssh/known_hosts" as KH <<db>>
+}
+
+cloud "api.github.com/meta\nssh_keys over HTTPS" as META <<cloud>>
+component "empty known_hosts\nHost key verification failed" as FAIL <<error>>
+
+IMG ARROW_MAIN SYS
+SYS ARROW_MAIN SSH : t=0, no TTY needed
+SSH ARROW_MAIN PULL : origin stays git@github.com
+SEEDFN ARROW_CLOUD META
+META ARROW_OPTIONAL KH : images that predate the bake
+KH ARROW_OPTIONAL SSH
+FAIL ARROW_ERROR PULL : errorLabel(before the bake)
+
+note bottom of FAIL
+  **The abort this file closes.** origin is
+  copied as git@github.com, SSH reaches
+  GitHub, and the host agent is forwarded,
+  but known_hosts is empty and there is no
+  TTY, so git pull dies on host-key check.
+end note
+
+note right of SYS
+  **Bake the keys, keep the transport.**
+  OpenSSH already looks in
+  /etc/ssh/ssh_known_hosts. That file is
+  in the image so a mixin agent can git
+  pull before kit startup finishes.
+end note
+
+note right of KH
+  **Seed is the old-image path.**
+  proveo_seed fetches ssh_keys from
+  api.github.com/meta over HTTPS when the
+  image has no GitHub keys, the same
+  source Docker's github-ssh kit uses.
+end note
+
+note bottom of META
+  **Never ssh-keyscan.** The meta endpoint
+  is HTTPS, so it works through the proxy
+  when port 22 is policy-blocked, and it
+  tracks GitHub's rotations for images
+  that have not been rebuilt yet.
+end note
+@enduml

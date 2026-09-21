@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/internal/sbx/ide-attach.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/internal/sbx/ide-attach.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml, _spec/internal/sbx/launch-env.puml
 // Package sandbox is the sbx backend:
 package sandbox
 
@@ -383,14 +383,21 @@ func KeptLines(name, runLog string) []string {
 	return lines
 }
 
-func IDEAttachLines(in Input, cfg sbx.RunConfig) []string {
+func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
 	name, workdir := strings.TrimSpace(cfg.Name), FirstHost(cfg.Mounts)
 	if name == "" || workdir == "" {
 		return nil
 	}
+	when := ""
+	if live {
+		when = " (live)"
+	}
 	lines := []string{fmt.Sprintf(
-		"IDE attach (agent exited; one writer): run `sbx %s` once, then connect to `%s` and open %s",
-		strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir)}
+		"IDE attach%s: run `sbx %s` once, then connect to `%s` and open %s",
+		when, strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir)}
+	if live {
+		lines = append(lines, "the running agent and the editor both write this tree")
+	}
 	if !in.Clone {
 		return append(lines,
 			"workspace: mounted checkout — IDE saves write the host tree directly")
@@ -403,6 +410,23 @@ func IDEAttachLines(in Input, cfg sbx.RunConfig) []string {
 	return append(lines,
 		"workspace: DISPOSABLE CLONE — commit IDE edits before removing the sandbox; they do not appear in the host checkout",
 		fmt.Sprintf("carry IDE commits home before `sbx rm`: `git %s`", fetch))
+}
+
+func PrintIDEAttach(in Input, cfg sbx.RunConfig, live bool) {
+	lines := IDEAttachLines(in, cfg, live)
+	if len(lines) == 0 {
+		return
+	}
+	if live {
+		ui.Section(ui.SectionInterface)
+	}
+	for i, l := range lines {
+		if i == 0 {
+			ui.Hostf("%s", l)
+			continue
+		}
+		ui.Notef("%s", l)
+	}
 }
 
 func WorkspaceBinds(mounts []sbx.Mount) []sbx.Mount {
@@ -837,6 +861,7 @@ func Run(in Input) error {
 	if len(secrets) > 0 {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
+	PrintIDEAttach(in, cfg, true)
 	defer StartCDPViewport(in, launchCfg)()
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
@@ -916,9 +941,7 @@ func Run(in Input) error {
 			}
 			if sbx.Exists(cfg.Name) {
 				keepHomeAccess = true
-				for _, l := range IDEAttachLines(in, cfg) {
-					ui.Notef("%s", l)
-				}
+				PrintIDEAttach(in, cfg, false)
 			}
 			return
 		}
@@ -934,9 +957,7 @@ func Run(in Input) error {
 			keepHomeAccess = sbx.Exists(cfg.Name)
 			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
 			if keepHomeAccess {
-				for _, l := range IDEAttachLines(in, cfg) {
-					ui.Notef("%s", l)
-				}
+				PrintIDEAttach(in, cfg, false)
 			}
 		}
 	}()

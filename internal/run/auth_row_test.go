@@ -122,9 +122,7 @@ func TestAVendorPinnedHarnessSaysWhyYourOwnKeyIsNotThePoint(t *testing.T) {
 	}
 }
 
-// The hint has to name the FILE when the key lives in one: "host env" sends the
-// operator looking in the wrong place for the credential they are about to spend.
-func TestAuthHelpNamesTheEnvFileAKeyActuallyLivesIn(t *testing.T) {
+func TestAuthHelpDoesNotNameAProjectEnvFile(t *testing.T) {
 	t.Parallel()
 	envFile := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(envFile, []byte("ANTHROPIC_API_KEY=sk\n"), 0o600); err != nil {
@@ -136,8 +134,8 @@ func TestAuthHelpNamesTheEnvFileAKeyActuallyLivesIn(t *testing.T) {
 	if !ok {
 		t.Fatal("no auth row")
 	}
-	if !strings.Contains(r.Help[credentials.AuthUsage], envFile) {
-		t.Errorf("usage help = %q, want the .env the key lives in", r.Help[credentials.AuthUsage])
+	if strings.Contains(r.Help[credentials.AuthUsage], envFile) || strings.Contains(r.Help[credentials.AuthUsage], ".env") {
+		t.Errorf("usage help = %q, must not name a project .env", r.Help[credentials.AuthUsage])
 	}
 }
 

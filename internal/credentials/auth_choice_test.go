@@ -197,7 +197,7 @@ func TestAVariableNameFromAnOlderCacheStillResolves(t *testing.T) {
 	}
 }
 
-func TestBackingNamesTheVariablesAndTheFile(t *testing.T) {
+func TestBackingNamesTheVariablesNotAProjectEnvFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, ".env")
@@ -211,14 +211,11 @@ func TestBackingNamesTheVariablesAndTheFile(t *testing.T) {
 	if !strings.Contains(b[AuthUsage], "ANTHROPIC_API_KEY") {
 		t.Errorf("usage backing = %q, want the key named", b[AuthUsage])
 	}
-	if !strings.Contains(b[AuthUsage], envFile) {
-		t.Errorf("usage backing = %q, want the .env it actually lives in", b[AuthUsage])
+	if strings.Contains(b[AuthUsage], envFile) || strings.Contains(b[AuthUsage], ".env") {
+		t.Errorf("usage backing = %q, must not name a project .env", b[AuthUsage])
 	}
 	if !strings.Contains(b[AuthSubscription], "OPENCODE_API_KEY") {
 		t.Errorf("subscription backing = %q, want the plan key named", b[AuthSubscription])
-	}
-	if strings.Contains(b[AuthSubscription], envFile) {
-		t.Errorf("subscription backing = %q, but that key is not in the file", b[AuthSubscription])
 	}
 }
 
@@ -264,6 +261,13 @@ func TestEveryClassCanSayWhyItIsUnavailable(t *testing.T) {
 	}
 	if oc := AuthWhyUnavailable(cecliMan(), "cecli", "")[AuthSubscription]; !strings.Contains(oc, "provider keys only") {
 		t.Errorf("cecli's subscription reason = %q, want it to say there is no plan", oc)
+	}
+	usage := AuthWhyUnavailable(opencodeMan(), "opencode", "")[AuthUsage]
+	if strings.Contains(usage, ".env") {
+		t.Errorf("usage reason = %q, must not name a project .env", usage)
+	}
+	if !strings.Contains(usage, "proveo init") {
+		t.Errorf("usage reason = %q, want `proveo init` as the store, not a dotenv", usage)
 	}
 }
 

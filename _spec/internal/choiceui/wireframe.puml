@@ -76,11 +76,10 @@
 ' repeating Reason beside it would double the add-on rows up.
 '
 ' THE HINT IS THE HALF THAT MAKES THE NOUNS MEAN SOMETHING. Under each option:
-' what it is, then what it is made of on THIS host — the variable names, the
-' project .env path when a key actually lives in one, the login file path when a
-' login is what will be spent — then what choosing it withholds. Without that the
-' operator picks between two abstractions and still cannot tell which credential
-' they are about to spend. SPEC: _spec/internal/credentials/credential-decisions.puml
+' what it is, then what it is made of on THIS host — host env variable names and
+' the login file path when a login is what will be spent — then what choosing it
+' withholds. It does not name a project .env: that file is not a credential
+' surface. SPEC: _spec/internal/credentials/credential-decisions.puml
 '
 title Choice prompt wireframe — resolved layout, and how a gated element is drawn
 

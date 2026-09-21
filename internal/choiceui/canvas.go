@@ -18,8 +18,14 @@ func (c *canvas) put(x int, style tcell.Style, text string) {
 	if c.y < c.top || c.y >= c.bot {
 		return
 	}
-	for i, r := range []rune(text) {
-		c.s.SetContent(x+i, c.y, r, nil, style)
+	col := x
+	for _, r := range text {
+		c.s.SetContent(col, c.y, r, nil, style)
+		w := runeCols(r)
+		if w < 1 {
+			w = 1
+		}
+		col += w
 	}
 }
 

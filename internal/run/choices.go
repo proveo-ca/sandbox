@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
 package run
 
 import (
@@ -43,8 +43,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
-		Rows: applicableRows(
-			egressRow(man, p.Mode, sandboxOn),
+		Rows: append(
+			applicableRows(egressRow(man, p.Mode, sandboxOn)),
 			credentialsRow(man, p.credentialsOrDefault(), sandboxOn),
 		),
 	}
@@ -98,9 +98,8 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	}
 	available := credentials.AvailableAuthVarsIn(man, lookup, target, homeRoot)
 	if len(available) == 0 {
-		return choiceui.Row{}, false // nothing authenticates; run.go says so in full
+		return choiceui.Row{}, false
 	}
-	// Riskier first — see credentials.AuthUsage.
 	opts := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
 	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), available))
 	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
@@ -374,22 +373,35 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 
 var policyBaseline = sbx.PolicyBaseline
 
-// credentialsRow is the credentials axis.
 func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
-	r := axisRow("credentials", egress.CredentialModes(), man.Capabilities.Credentials, mode)
-	if !sandboxOn {
+	r := axisRow("credentials", egress.CredentialModes(), nil, mode)
+	if sandboxOn {
+		r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
+		r.OffWhy = map[string]string{"forward": r.Reason}
 		return r
 	}
-	// Brokering is PER HOST. Measured 2026-09-16: a cursor run reached
-	// api2.cursor.sh through the proxy 131 times and authenticated fine, while
-	// api3.cursor.sh and agentn.global.api5.cursor.sh went transparent and
-	// forward-bypass — no header attached — and the agent exited seconds after a
-	// model switch. Gating forward off made that unrecoverable, so it stays
-	// selectable and the cost of each route is stated instead.
-	r.Reason = "broker keeps the value in sbx's store and its proxy attaches the header outbound, " +
-		"so the agent never reads a credential — but only for the hosts that proxy covers, and an " +
-		"agent that talks to others loses auth there. forward puts the value in the agent's " +
-		"environment: weaker, and complete."
+	allowed := man.Capabilities.Credentials
+	if len(allowed) == 0 {
+		return r
+	}
+	r.Off = make([]bool, len(r.Options))
+	r.OffWhy = map[string]string{}
+	var reasons []string
+	for i, o := range r.Options {
+		if slices.Contains(allowed, o) {
+			continue
+		}
+		r.Off[i] = true
+		why := o + " is not in this harness's credentials capability"
+		r.OffWhy[o] = why
+		reasons = append(reasons, why)
+	}
+	if len(reasons) > 0 {
+		r.Reason = strings.Join(reasons, " · ")
+		if r.Selected < len(r.Off) && r.Off[r.Selected] {
+			r.Selected = firstEnabled(r)
+		}
+	}
 	return r
 }
 
@@ -563,7 +575,7 @@ func buildHeader(man manifest.Manifest, lookup func(string) string, roles provid
 		inputDir = repoRoot
 	}
 	h := gitHeader(repoRoot)
-	h = append(h, choiceui.EnvHeader(credentials.LoadedSecretNames(man, lookup), loadedSettings(man, lookup))...)
+	h = append(h, choiceui.EnvHeader(credentials.LoadedSecretNames(man, os.Getenv), loadedSettings(man, lookup))...)
 	h = append(h, posture.WorkspaceHeader(man, inputDir, repoRoot, homeRoot, posture.GlyphModeFrom(lookup))...)
 	if line := posture.RolesLine(roles); line != "" {
 		h = append(h, "llms:     "+line)

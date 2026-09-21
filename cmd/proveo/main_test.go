@@ -401,7 +401,7 @@ func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
 	}
 
 	attach := sandbox.IDEAttachLines(sandbox.Input{Clone: true, RepoRoot: "/host/repo"},
-		sbx.RunConfig{Name: name, Mounts: []sbx.Mount{{Host: "/host/repo"}}})
+		sbx.RunConfig{Name: name, Mounts: []sbx.Mount{{Host: "/host/repo"}}}, false)
 	joined := strings.Join(attach, "\n")
 	for _, want := range []string{"sbx setup ssh", name + ".sbx", "DISPOSABLE CLONE", "refs/proveo/" + name} {
 		if !strings.Contains(joined, want) {

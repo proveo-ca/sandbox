@@ -51,6 +51,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/sbx-dep-tree-isolation.puml",
 	"_spec/_plans/plugin-class-beyond-claudecode.puml",
 	"_spec/packages/lib/config-seeding-and-persistence.puml",
+	"_spec/packages/lib/github-ssh-hosts.puml",
 	"_spec/_plans/image-size-reduction.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
 	"_spec/packages/lib/seed-and-launch.puml",

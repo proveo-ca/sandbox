@@ -4,6 +4,7 @@
 3. Upgrade Complete: when done the loop: `_spec` as goals <-> persisted `tests + e2e` + static analysis as verification <-> src changes. Must output title: purpose, list: .puml filepath, table of test filepath | purpose
 
 Rules:
+- Source carries instructions. `_spec/` carries reasoning. Do not add why, history, or edge-case comments in source; migrate them per `defs/subagents/spec-keeper.md`. Keep `SPEC:` pointers, build directives, and one-line WHAT labels.
 - Use active voice.
 - Avoid filler words.
 - Semantics: use coding syntax, math symbols, JSON/SQL, ASCII diagrams highlighted/rendered in TUI if it compresses + enhances prose.

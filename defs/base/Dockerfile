@@ -1,5 +1,5 @@
 # SPEC: _spec/components.puml, _spec/_runtimes/toolchain-provisioning.puml
-# SPEC: _spec/_devops/sandbox-template-rebase.puml
+# SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/packages/lib/github-ssh-hosts.puml
 
 # DECLARED BEFORE THE FIRST FROM, and it must stay there. An ARG written after a
 # FROM belongs to THAT BUILD STAGE, so a copy sitting between the builder stage
@@ -119,6 +119,8 @@ RUN set -e; \
     getent group docker >/dev/null || { echo "no docker group" >&2; exit 1; }; \
     left="$(find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null)"; \
     [ -z "${left}" ] || { echo "harden pass left setuid/setgid files:" >&2; echo "${left}" >&2; exit 1; }
+
+COPY defs/base/ssh/github_known_hosts /etc/ssh/ssh_known_hosts
 
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \

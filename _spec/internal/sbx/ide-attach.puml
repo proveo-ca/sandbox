@@ -1,8 +1,8 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: how a kept sbx sandbox becomes a safe local IDE target after the agent exits
-' status: applied 2026-09-17; live and remote attach remain deliberately unsupported.
+' purpose: how an sbx sandbox becomes a local IDE target while the agent runs, and after a kept exit
+' status: applied 2026-09-21; live local attach is offered; remote attach remains unsupported.
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/sbx/sbx.go
@@ -19,10 +19,11 @@ skinparam noteTextAlignment left
 '   workspace boundary ....... _spec/_paradigms/workspace-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' LOCAL, AFTER EXIT, KEPT. The failed run is already retained for diagnosis.
-' proveo now names the upstream SSH setup and <sandbox>.sbx host only there,
-' after the agent has exited. A successful run still tears its sandbox down.
-' A live attach would create two writers; a remote attach is not established.
+' LIVE AND LOCAL. proveo names `sbx setup ssh` and <sandbox>.sbx under the
+' interface heading, before the agent takes the TTY. Each sandbox has its own
+' host. Two writers share the tree; that is named, not refused. A successful
+' run still tears its sandbox down. A failed run reprints the same host so the
+' editor can stay after the agent has gone. A remote attach is not established.
 '
 ' TRANSPORT STAYS UPSTREAM. proveo neither implements SSH nor branches on an
 ' SSH client's status, so MinVersion is not raised for this. `sbx setup ssh`
@@ -36,7 +37,7 @@ skinparam noteTextAlignment left
 ' WHICH TREE IS LOUD. Direct mode says that IDE saves write the host checkout.
 ' Clone mode says DISPOSABLE CLONE, requires commits, and prints the exact git
 ' fetch into refs/proveo/<sid> before the operator removes the sandbox.
-title IDE attach — upstream SSH, after exit,\nwith one writer and a narrow home view
+title IDE attach — upstream SSH, live and after exit,\nlocal only, with a narrow home view
 
 node "operator host" as HOST <<host>> {
   component """sbx setup ssh""\nupstream-owned config" as SETUP <<app>>
@@ -46,22 +47,20 @@ node "operator host" as HOST <<host>> {
   database "PROVEO_HOME\nother run logs stay hidden" as HOME <<db>>
 }
 
-node "kept sandbox" as BOX <<host>> {
-  component "agent\nalready exited" as EXIT <<app>>
+node "sandbox" as BOX <<host>> {
+  component "agent\nlive or already exited" as AGENT <<app>>
   component "mounted checkout\nor private clone" as WORK <<app>>
   database "narrow host view\nharness dirs · tools · files" as NARROW <<db>>
 }
 
-component "live attach\ntwo writers" as LIVE <<error>>
 component "remote attach\nnot established" as REMOTE <<error>>
 
-EXIT ARROW_MAIN IDE : post-close offer
 SETUP ARROW_MAIN IDE : <sid>.sbx
-IDE ARROW_MAIN WORK
+IDE ARROW_MAIN WORK : live or kept
+AGENT ARROW_MAIN WORK
 TREE ARROW_MAIN WORK : direct mode
 WORK ARROW_QUEUE REFS : clone mode: commit,\nthen fetch
 HOME ARROW_MAIN NARROW : selected paths only
-IDE ARROW_ERROR LIVE : not offered
 IDE ARROW_ERROR REMOTE : local target only
 
 note bottom of IDE
@@ -85,18 +84,25 @@ note bottom of NARROW
   files cross into the sandbox.
 end note
 
-note right of LIVE
-  **After exit is the feature boundary.** A
-  running agent plus an editor is two writers
-  with stale buffers and no mediation. proveo
-  offers no command for that state.
+note right of AGENT
+  **Two writers is a fact, not a veto.**
+  A live agent and an editor share the
+  tree with no mediation. proveo names
+  that in the interface section and
+  still prints the SSH host.
 end note
 
 legend bottom
   **Implemented contract**
   ==
-  A failed sbx run remains kept. If it still exists, results name `sbx setup
-  ssh`, `<sid>.sbx`, and the workspace only after the agent process returned.
+  A named sbx run prints `sbx setup ssh`, `<sid>.sbx`, and the workspace under
+  the interface heading so an editor can attach while the agent is live.
+  --
+  Two writers share the tree with no mediation. proveo names that; it does not
+  withhold the host.
+  --
+  A failed sbx run remains kept and reprints the same host. A successful run
+  still tears the sandbox down.
   --
   Direct mode names host writes. Clone mode names disposal, requires a commit,
   and prints the fetch destination under `refs/proveo/<sid>`.

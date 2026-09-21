@@ -18,6 +18,7 @@ else
 fi
 
 ensure_git_safe_directory "$(pwd)"
+ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
 : "${CECLI_HOME:=/app/.cecli}"

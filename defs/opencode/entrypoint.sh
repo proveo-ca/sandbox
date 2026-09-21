@@ -96,6 +96,7 @@ seed_defaults() {
 }
 seed_defaults
 ensure_git_safe_directory "$(pwd)"
+ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
 configure_opencode_local_model() {

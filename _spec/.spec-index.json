@@ -1019,7 +1019,10 @@
       "covers": [
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/sbx.go",
-        "internal/sbx/run.go"
+        "internal/sbx/run.go",
+        "internal/run/choices.go",
+        "internal/run/params.go",
+        "internal/run/choices_test.go"
       ],
       "fingerprint": null
     },
@@ -1380,6 +1383,21 @@
         "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/workspace/platform.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/github-ssh-hosts.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/base/Dockerfile",
+        "defs/base/ssh/github_known_hosts",
+        "defs/cursor/entrypoint.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/codex/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh",
+        "internal/contract/github_ssh_hosts_test.go"
       ],
       "fingerprint": null
     },

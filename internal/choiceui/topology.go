@@ -189,7 +189,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	inside := func(row int, dot, text, key string, dotStyle, textStyle tcell.Style) {
 		pn := newPen(s, boxL, y0+row).write(on(FocusSquare), g.wallL+" ")
 		pn.write(dotStyle, dot).write(textStyle, " ")
-		pn.write(keyStyle(fr, KeyInSquare, on), key)
+		pn.write(keyStyle(fr, KeyInSquare, on, p.accent), key)
 		pn.write(textStyle, fit(text, boxR-pn.col()-1))
 		pn.padTo(boxR).write(on(FocusSquare), g.wallR)
 	}
@@ -207,7 +207,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		g.cornerTL+strings.Repeat(g.rule, boxR-boxL-1)+g.cornerTR)
 
 	pn := newPen(s, colHost, y0+2)
-	pn.write(keyStyle(fr, KeyAtHost, on), keyIf(g, fr, KeyAtHost))
+	pn.write(keyStyle(fr, KeyAtHost, on, p.accent), keyIf(g, fr, KeyAtHost))
 	pn.write(on(FocusNone), g.node).write(dim, " ")
 	pn.padTo(boxL)
 	say := g.quiet
@@ -230,10 +230,19 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
 	at(3, colHost, x0, on(FocusNone), fit(fr.Host, boxL-x0-1))
 	if fr.Hop != "" {
+		key := keyIf(g, fr, KeyAtHop)
 		label := fit(fr.Hop, colLanes-boxR-3)
-		p3 := at(3, colHop, boxR+2, on(FocusHop), label)
-		if k := keyIf(g, fr, KeyAtHop); k != "" {
-			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on), k)
+		unitW := textWidth(label)
+		if key != "" {
+			unitW += textWidth(" " + key)
+		}
+		x := colHop - unitW/2
+		if x < boxR+2 {
+			x = boxR + 2
+		}
+		p3 := newPen(s, x, y0+3).write(on(FocusHop), label)
+		if key != "" {
+			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on, p.accent), key)
 		}
 	}
 
@@ -389,9 +398,12 @@ func keyIf(g glyphSet, fr Frame, at KeyHome) string {
 	return g.key + " "
 }
 
-func keyStyle(fr Frame, at KeyHome, on func(Focus) tcell.Style) tcell.Style {
-	if fr.Key == at {
+func keyStyle(fr Frame, at KeyHome, on func(Focus) tcell.Style, rest tcell.Style) tcell.Style {
+	if fr.Key != at {
+		return on(FocusNone)
+	}
+	if fr.Focus == FocusNone || fr.Focus == FocusKey {
 		return on(FocusKey)
 	}
-	return on(FocusNone)
+	return rest
 }

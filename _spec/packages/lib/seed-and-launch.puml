@@ -78,6 +78,12 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' still the ROOT-ONLY Python scan (_py_project_roots), not a skipped entrypoint.
 '
 ' ── THE STEP ORDER, AND WHY EACH EDGE IS A DEPENDENCY ──────────────────────
+'   0. seed_github_known_hosts     file-shaped, old images only: GitHub host
+'                                  keys from api.github.com/meta into
+'                                  ~/.ssh/known_hosts. New images bake the
+'                                  same keys at /etc/ssh/ssh_known_hosts so
+'                                  git@github.com works at t=0
+'                                  (_spec/packages/lib/github-ssh-hosts.puml).
 '   1. proveo_sync_state restore   a resumed session's transcripts must be in
 '                                  place before the agent starts looking.
 '   2. proveo_sync_config restore  BEFORE render_subagents and every configure_*

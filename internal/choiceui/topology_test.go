@@ -98,6 +98,26 @@ func TestKeyAppearsAtExactlyOneHome(t *testing.T) {
 	}
 }
 
+func TestTheHopKeyDoesNotEnterTheLanes(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsNerd)
+	fr := base()
+	fr.Key = KeyAtHop
+	rows := paint(t, fr, GlyphsNerd, 0)
+	line := rows[3]
+	ki := strings.Index(line, g.key)
+	ci := strings.Index(line, g.cloud)
+	if ki < 0 {
+		t.Fatalf("no key on the hop-label row: %q", line)
+	}
+	if ci >= 0 && ki >= ci {
+		t.Errorf("the key at the hop was drawn into the lanes: %q", line)
+	}
+	if !strings.Contains(line, "sbx proxy") {
+		t.Errorf("the hop label is missing, so the key has nothing to sit beside: %q", line)
+	}
+}
+
 // review is the only tier with somebody to ask, so it is the only one that
 // draws a question walking back to the host.
 func TestOnlyReviewRoutesTheQuestionBackToTheHost(t *testing.T) {
@@ -164,6 +184,9 @@ func TestNerdTierGlyphsAreSingleRuneSingleColumn(t *testing.T) {
 		}
 		if w := runewidth.StringWidth(s); w != 1 {
 			t.Errorf("%q measures %d columns, want 1", s, w)
+		}
+		if w := textWidth(s); w != 1 {
+			t.Errorf("%q textWidth %d, want 1 (the strip's own measure)", s, w)
 		}
 	}
 }

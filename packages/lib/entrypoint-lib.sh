@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
 
 ensure_runtime_user() {
  local uid gid
@@ -244,6 +244,69 @@ scope_git_worktree() {
     || { echo "⚠️  Could not scope the git index; status will list unmounted paths as deleted" >&2; return 0; }
 
   echo "🔭 git scoped to ${PROVEO_SCOPE_REL} (${missing} unmounted path(s) hidden; host .git untouched)"
+}
+
+# SPEC: _spec/packages/lib/github-ssh-hosts.puml
+github_ssh_host_known() {
+  local f="${1:-}"
+  [[ -n "$f" && -f "$f" ]] || return 1
+  grep -qE '^github\.com[[:space:]]|^\[github\.com\]' "$f"
+}
+
+_proveo_parse_github_ssh_keys() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.ssh_keys[]? // empty' 2>/dev/null || true
+    return 0
+  fi
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 -c 'import json,sys
+try:
+  for k in json.load(sys.stdin).get("ssh_keys") or []:
+    if k: print(k)
+except Exception:
+  pass' 2>/dev/null || true
+}
+
+seed_github_known_hosts() {
+  if github_ssh_host_known "${PROVEO_SSH_KNOWN_HOSTS:-/etc/ssh/ssh_known_hosts}"; then
+    return 0
+  fi
+  local dest="${1:-}"
+  [[ -n "$dest" ]] || dest="$(_proveo_agent_home)"
+  [[ -n "$dest" && -d "$dest" && -w "$dest" ]] || return 0
+  local ssh_dir="$dest/.ssh" hosts="$dest/.ssh/known_hosts"
+  mkdir -p "$ssh_dir" 2>/dev/null || return 0
+  chmod 700 "$ssh_dir" 2>/dev/null || true
+  if github_ssh_host_known "$hosts"; then
+    return 0
+  fi
+  local json="" url="${PROVEO_GITHUB_META_URL:-https://api.github.com/meta}"
+  json="$(_proveo_bounded 5 curl -fsS -A proveo "$url" 2>/dev/null)" || json=""
+  [[ -n "$json" ]] || return 0
+  local keys=""
+  keys="$(printf '%s' "$json" | _proveo_parse_github_ssh_keys)" || keys=""
+  [[ -n "$keys" ]] || return 0
+  local umask_old tmp
+  umask_old="$(umask)"
+  umask 077
+  tmp="$hosts.tmp.$$"
+  {
+    [[ -f "$hosts" ]] && cat "$hosts"
+    while IFS= read -r k; do
+      [[ -n "$k" ]] || continue
+      printf 'github.com %s\n' "$k"
+    done <<< "$keys"
+  } > "$tmp" && mv "$tmp" "$hosts"
+  umask "$umask_old"
+  rm -f "$tmp"
+  chmod 600 "$hosts" 2>/dev/null || true
+  echo "🔐 git: seeded GitHub SSH host keys into $hosts"
+  return 0
+}
+
+ensure_github_git_transport() {
+  seed_github_known_hosts "${1:-}" || true
+  return 0
 }
 
 attach_rtk() {
@@ -2357,6 +2420,8 @@ proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
+
+ seed_github_known_hosts "$home" || true
 
  proveo_sync_state restore || true
 
