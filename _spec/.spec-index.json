@@ -75,16 +75,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_devops/git-hooks.puml",
-      "covers": [
-        "scripts/githooks/post-commit",
-        "scripts/githooks/install",
-        "mise.toml",
-        "internal/contract/git_hooks_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_devops/image-lineage-and-publish.puml",
       "covers": [
         "defs/lib/docker-build.sh",
