@@ -64,6 +64,16 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_devops/git-hooks.puml",
+      "covers": [
+        "scripts/githooks/post-commit",
+        "scripts/githooks/install",
+        "mise.toml",
+        "internal/contract/git_hooks_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_devops/image-lineage-and-publish.puml",
       "covers": [
         "defs/lib/docker-build.sh",
@@ -1398,6 +1408,22 @@
         "defs/codex/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/contract/github_ssh_hosts_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/git-sync-turn.puml",
+      "covers": [
+        "packages/lib/hooks/git-sync-turn.sh",
+        "packages/lib/hooks/proveo-git-sync-turn.js",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/defaults/hooks.json",
+        "defs/base/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/codex/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "internal/contract/git_sync_turn_test.go"
       ],
       "fingerprint": null
     },

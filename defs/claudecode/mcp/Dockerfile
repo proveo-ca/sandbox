@@ -107,6 +107,8 @@ COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY AGENTS.md /etc/claude-code/CLAUDE.md
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
+COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
 
 USER ${USER_NAME}

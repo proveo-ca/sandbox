@@ -48,6 +48,11 @@ golangci-lint run
 printf '\\n✅ lint succeeded.\\n'
 """
 
+[tasks.install-git-hooks]
+description = "Copy scripts/githooks/post-commit into .git/hooks (no git config)"
+dir = "{{config_root}}"
+run = "scripts/githooks/install"
+
 [tasks.build-check]
 description = "Compile all Go packages (go build ./...)"
 dir = "{{config_root}}"

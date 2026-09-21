@@ -165,6 +165,7 @@ func TestSeedRestoresConfigBeforeAnythingWritesIt(t *testing.T) {
 	for _, writer := range []string{
 		"render_subagents", "proveo_wire_config",
 		"proveo_compose_house_rules", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",
+		"proveo_install_git_sync_hooks",
 	} {
 		at := strings.Index(seed, writer)
 		if at < 0 {

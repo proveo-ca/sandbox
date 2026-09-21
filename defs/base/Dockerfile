@@ -121,6 +121,8 @@ RUN set -e; \
     [ -z "${left}" ] || { echo "harden pass left setuid/setgid files:" >&2; echo "${left}" >&2; exit 1; }
 
 COPY defs/base/ssh/github_known_hosts /etc/ssh/ssh_known_hosts
+COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
+COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \

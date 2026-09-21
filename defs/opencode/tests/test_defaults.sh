@@ -6,6 +6,16 @@ assert_success \
   "$IMAGE" \
   "test -f /opt/opencode/defaults/opencode.json"
 
+assert_success \
+  "git-sync turn hook is executable" \
+  "$IMAGE" \
+  "test -x /opt/proveo/hooks/git-sync-turn.sh"
+
+assert_success \
+  "git-sync idle plugin is baked" \
+  "$IMAGE" \
+  "test -f /opt/proveo/hooks/proveo-git-sync-turn.js"
+
 # SPEC: _spec/defs/agent-definition-sharing.puml
 assert_success \
   "baked subagents: every agent in the opencode roster has a body in /opt" \

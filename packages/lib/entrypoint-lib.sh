@@ -1310,6 +1310,63 @@ proveo_install_claude_hooks() {
   return 0
 }
 
+# SPEC: _spec/packages/lib/git-sync-turn.puml
+_proveo_merge_stop_hook() {
+  local path="$1" cmd="$2"
+  [[ -n "$path" && -n "$cmd" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_HOOKS_FILE="$path" PROVEO_HOOK_CMD="$cmd" node -e '
+    const fs = require("fs");
+    const path = process.env.PROVEO_HOOKS_FILE;
+    const cmd = process.env.PROVEO_HOOK_CMD;
+    const event = "Stop";
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (typeof j.hooks !== "object" || j.hooks === null) j.hooks = {};
+    if (!Array.isArray(j.hooks[event])) j.hooks[event] = [];
+    const present = j.hooks[event].some(g => g && Array.isArray(g.hooks)
+      && g.hooks.some(h => h && h.command === cmd));
+    if (!present) j.hooks[event].push({ hooks: [{ type: "command", command: cmd, timeout: 90 }] });
+    fs.mkdirSync(require("path").dirname(path), { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null
+}
+
+proveo_install_git_sync_hooks() {
+  local target="${1:-}" home hook plugin cmd
+  case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  hook="${PROVEO_GIT_SYNC_HOOK:-/opt/proveo/hooks/git-sync-turn.sh}"
+  plugin="${PROVEO_GIT_SYNC_PLUGIN:-/opt/proveo/hooks/proveo-git-sync-turn.js}"
+  cmd="bash $hook"
+  home="$(_proveo_agent_home)"
+  case "$target" in
+    claudecode)
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      _proveo_merge_stop_hook "$home/.claude/settings.json" "$cmd" \
+        && echo "git-sync: Stop hook commits and pushes before the turn returns"
+      ;;
+    codex)
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      _proveo_merge_stop_hook "${CODEX_HOME:-$home/.codex}/hooks.json" "$cmd" \
+        && echo "git-sync: Stop hook commits and pushes before the turn returns"
+      ;;
+    opencode)
+      [[ -n "$home" && -s "$plugin" ]] || return 0
+      mkdir -p "$home/.config/opencode/plugins" 2>/dev/null || return 0
+      cp -f "$plugin" "$home/.config/opencode/plugins/proveo-git-sync-turn.js" \
+        && echo "git-sync: session.idle plugin commits and pushes after the turn idles"
+      ;;
+    cursor)
+      if [[ -f /etc/cursor/hooks.json ]] && grep -q git-sync-turn /etc/cursor/hooks.json 2>/dev/null; then
+        echo "git-sync: enterprise stop hook commits and pushes before the turn returns"
+      fi
+      ;;
+  esac
+  return 0
+}
+
 # SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
 _claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
 _claude_lsp_plugin_binary() { case "$1" in
@@ -2446,6 +2503,7 @@ proveo_seed() {
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
+ proveo_install_git_sync_hooks "$target"
  proveo_seed_browser_skills "$target"
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml

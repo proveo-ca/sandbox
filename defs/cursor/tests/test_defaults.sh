@@ -48,6 +48,17 @@ assert_output_contains \
   'cat /etc/cursor/hooks.json' \
   'beforeShellExecution'
 
+assert_output_contains \
+  "enterprise hooks.json wires the git-sync stop hook" \
+  "$IMAGE" \
+  'cat /etc/cursor/hooks.json' \
+  'git-sync-turn.sh'
+
+assert_success \
+  "git-sync turn hook is executable" \
+  "$IMAGE" \
+  "test -x /opt/proveo/hooks/git-sync-turn.sh"
+
 TESTS_RUN=$((TESTS_RUN + 1))
 CHECK=$(run_timeout 60 docker run --rm \
   --entrypoint bash \

@@ -12,6 +12,7 @@ import (
 
 var specNotesEnforced = []string{
 	"_spec/_devops/release-gate.puml",
+	"_spec/_devops/git-hooks.puml",
 	"_spec/_experiments/sbx-driving-a-session.puml",
 	"_spec/_experiments/nested-sbx-kvm.puml",
 	"_spec/_experiments/sbx-kit-capabilities.puml",
@@ -52,6 +53,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/plugin-class-beyond-claudecode.puml",
 	"_spec/packages/lib/config-seeding-and-persistence.puml",
 	"_spec/packages/lib/github-ssh-hosts.puml",
+	"_spec/packages/lib/git-sync-turn.puml",
 	"_spec/_plans/image-size-reduction.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
 	"_spec/packages/lib/seed-and-launch.puml",

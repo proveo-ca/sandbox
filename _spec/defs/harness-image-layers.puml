@@ -115,7 +115,9 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' /etc/cursor/hooks.json is copied root-owned at mode 644. Cursor's hook
 ' precedence is enterprise > team > project > user, so the sandboxed agent can
 ' neither edit the file nor out-rank it. That is the whole reason it lives in
-' /etc rather than in the agent home.
+' /etc rather than in the agent home. The same file wires `stop` to
+' /opt/proveo/hooks/git-sync-turn.sh so a finished turn is committed and pushed
+' before the UI returns; PROVEO_GIT_SYNC=off no-ops the script.
 '
 ' ── solidity: A VENV INSTEAD OF A PEP 668 OVERRIDE ──────────────────────────
 ' This layer was `pip3 install --no-cache-dir --break-system-packages semgrep

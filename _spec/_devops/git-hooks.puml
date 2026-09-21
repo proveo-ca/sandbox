@@ -1,0 +1,46 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title git post-commit — format, then lint
+' purpose: why a commit still runs fmt and lint after HEAD moves, and how the hook is installed without git config
+' covers: scripts/githooks/post-commit
+' covers: scripts/githooks/install
+' covers: mise.toml
+' covers: internal/contract/git_hooks_test.go
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+
+participant "git commit" as COMMIT <<app>>
+participant ".git/hooks/post-commit" as HOOK <<app>>
+participant "mise run fmt" as FMT <<app>>
+participant "mise run lint" as LINT <<app>>
+participant "scripts/githooks/install" as INST <<script>>
+
+COMMIT ARROW_MAIN HOOK : HEAD already advanced
+HOOK ARROW_MAIN FMT
+FMT ARROW_MAIN LINT : format first so lint sees it
+INST ARROW_OPTIONAL HOOK : cp, chmod 0755
+
+note right of HOOK
+  **HEAD is already written.** This hook
+  cannot change the commit. Format may
+  dirty the tree; lint failing prints
+  after the fact. SKIP_GIT_HOOKS=1
+  skips both tasks.
+end note
+
+note bottom of INST
+  **No git config.** core.hooksPath is
+  not set. The install copies the
+  versioned script into .git/hooks
+  so a clone still needs one command:
+  mise run install-git-hooks.
+end note
+
+note right of FMT
+  **Format before lint.** Lint's first
+  gate is gofmt -l. Running lint first
+  would fail the files fmt is about
+  to rewrite. The hook does not
+  git add or git commit.
+end note
+@enduml

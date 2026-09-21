@@ -81,7 +81,7 @@ deny_count="$(jq -r '(.permissions.deny // []) | length' "$CURSOR_HOME/cli-confi
 deny_count="${deny_count:-0}"
 echo "Deny rules (survive --force): ${deny_count} — $CURSOR_HOME/cli-config.json"
 if [[ -f /etc/cursor/hooks.json ]]; then
-  echo "Shell audit hook: /etc/cursor/hooks.json (enterprise layer, root-owned, fail-open)"
+  echo "Enterprise hooks: /etc/cursor/hooks.json (shell audit + git-sync stop, root-owned)"
 fi
 
 agent_files=()

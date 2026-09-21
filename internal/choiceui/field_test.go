@@ -24,7 +24,7 @@ func key(r rune) *tcell.EventKey { return tcell.NewEventKey(tcell.KeyRune, r, tc
 func TestTypingReachesTheFieldAndNotTheNavigation(t *testing.T) {
 	t.Parallel()
 	f := fieldForm()
-	for _, r := range []rune("sk-qjkl ") { // every one of these is also a command
+	for _, r := range "sk-qjkl " { // every one of these is also a command
 		if !f.typing(1, key(r)) {
 			t.Fatalf("%q was not taken by the field — it would have moved the cursor or cancelled the form", r)
 		}
@@ -37,7 +37,7 @@ func TestTypingReachesTheFieldAndNotTheNavigation(t *testing.T) {
 func TestBackspaceAndClear(t *testing.T) {
 	t.Parallel()
 	f := fieldForm()
-	for _, r := range []rune("abc") {
+	for _, r := range "abc" {
 		f.typing(1, key(r))
 	}
 	f.typing(1, tcell.NewEventKey(tcell.KeyBackspace2, 0, tcell.ModNone))
@@ -67,7 +67,7 @@ func TestEnterAndEscapeStayFormCommands(t *testing.T) {
 func TestATypedSecretIsNowhereOnTheScreen(t *testing.T) {
 	t.Parallel()
 	f := fieldForm()
-	for _, r := range []rune("sk-ant-secret") {
+	for _, r := range "sk-ant-secret" {
 		f.typing(1, key(r))
 	}
 	screen := joined(t, f)
