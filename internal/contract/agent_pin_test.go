@@ -105,6 +105,16 @@ printf '%s\n' "$NPM_VIEW_OUTPUT"
 	write("curl", `[[ -z "${FAKE_CURL_FAIL:-}" ]] || exit 22
 printf '%s' "${CURL_BODY:-}"
 `)
+	write("python3", `if [[ "$*" == *urllib.request* ]]; then
+  [[ -n "${PYPI_PY_VERSION:-}" ]] || exit 1
+  printf '%s\n' "$PYPI_PY_VERSION"
+  exit 0
+fi
+if [[ -x /usr/bin/python3 ]]; then
+  exec /usr/bin/python3 "$@"
+fi
+exit 1
+`)
 	lib := filepath.Join(repoRoot(t), "defs", "lib", "docker-build.sh")
 	return func(env map[string]string, args ...string) (string, string, error) {
 		script := "source '" + lib + "' && proveo_agent_version " + strings.Join(args, " ")
@@ -141,6 +151,10 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 		{name: "pypi current release", env: map[string]string{"CURL_BODY": `{"info":{"name":"cecli-dev","version":"1.4.0"},"releases":{"1.3.0":[]}}`},
 			args: []string{"CECLI_VERSION", "pypi", "cecli-dev"}, want: "1.4.0",
 			wantNote: "📌 cecli-dev@1.4.0 (resolved upstream; override with CECLI_VERSION=<version>)"},
+		{name: "pypi falls back to python urllib when curl is unusable",
+			env:  map[string]string{"FAKE_CURL_FAIL": "1", "PYPI_PY_VERSION": "1.6.0"},
+			args: []string{"CECLI_VERSION", "pypi", "cecli-dev"}, want: "1.6.0",
+			wantNote: "📌 cecli-dev@1.6.0 (resolved upstream"},
 		{name: "cursor reads the release out of the installer",
 			env:  map[string]string{"CURL_BODY": "FINAL_DIR=\"$HOME/.local/share/cursor-agent/versions/2026.08.31-4057e58\"\nln -s ~/.local/share/cursor-agent/versions/2026.08.31-4057e58/cursor-agent ~/.local/bin/agent\n"},
 			args: []string{"CURSOR_AGENT_VERSION", "cursor", "https://cursor.com/install"}, want: "2026.08.31-4057e58",
@@ -184,5 +198,18 @@ func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	}
 	if _, stderr, err := run(nil, "X_VERSION", "cargo", "x"); err == nil || !strings.Contains(stderr, "unknown ecosystem") {
 		t.Errorf("unknown ecosystem accepted (err=%v):\n%s", err, stderr)
+	}
+
+	got, stderr, err = run(map[string]string{"FAKE_CURL_FAIL": "1"}, "CECLI_VERSION", "pypi", "cecli-dev")
+	if err == nil {
+		t.Fatalf("pypi resolver succeeded with curl and python both down, printed %q", got)
+	}
+	if got != "" {
+		t.Errorf("pypi resolver printed %q on failure — a caller would bake it", got)
+	}
+	for _, want := range []string{"could not resolve", "CECLI_VERSION=<x.y.z>"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("pypi failure message lacks %q:\n%s", want, stderr)
+		}
 	}
 }

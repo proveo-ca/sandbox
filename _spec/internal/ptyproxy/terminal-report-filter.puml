@@ -7,6 +7,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/main.go
 '   the pty the filter sits on ..... _spec/internal/ptyproxy/pty-ownership.puml
 '   the tap that recorded all this . _spec/internal/agentio/agent-terminal-io.puml
+'   opencode keyboard stall ........ _spec/internal/ptyproxy/opencode-keyboard-stall.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── THE RECOGNISED SET IS CLOSED, AND EVERYTHING ELSE IS A KEYSTROKE ───────
@@ -110,8 +111,16 @@ skinparam noteTextAlignment left
 ' reads cannot build a standing licence to forward stray reports.
 '
 ' THE CREDIT IS PER CLASS. A cursor query licenses a cursor report and nothing
-' else: Device Attributes, DECRPM and the kitty flag report are still dropped
-' under `dropReplies`, because nothing asked for those.
+' else. OpenCode 1.18 / OpenTUI *does* ask for the others on its own output —
+' `CSI ? u` (kitty flags), `CSI >0q` (XTVERSION → DCS), `CSI c` (DA1),
+' `CSI ? Ps $ p` (DECRQM → DECRPM), APC graphics. Those replies are owed the
+' same way CPR is: observe the query, spend one matching answer, cap the rest.
+' Unsolicited copies still die under `dropReplies`. That is the whole point.
+'
+' A PRIVATE CSI held across a read must not eat a keystroke as its final byte.
+' `ESC[?62;` + `h` is not Device Attributes; it is the letter h swallowed for
+' up to DefaultTruncatedReportIdle (2s). Continue a held report only with
+' parameter bytes or a report final; a new ESC or a letter drops the stump.
 '
 ' The CSI walk both watches need is now `csiScanner`, lifted verbatim out of
 ' `mouseTracker.observe`. Each watcher holds its OWN scanner, so neither can

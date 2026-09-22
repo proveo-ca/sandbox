@@ -123,7 +123,7 @@ func copyNewerFile(src, dst string) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	ok := false
 	defer func() {
 		if !ok {

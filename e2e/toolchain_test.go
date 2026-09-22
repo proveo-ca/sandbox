@@ -527,6 +527,7 @@ func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 		"_proveo_write_block",              // marked-region rewrite that spares operator content
 		"proveo_apply_ui_defaults",         // §7g sandbox theme + syntax highlighting
 		"proveo_install_claude_hooks",      // §7h the cwd guard that names a vanished working directory
+		"proveo_install_git_sync_hooks",    // turn-end commit+push before idle/Stop
 		"proveo_enable_claude_lsp_plugins", // §7i seeded code-intelligence plugins, enabled per binary
 	}
 	for _, name := range toolchainHarnesses {

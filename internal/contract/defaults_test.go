@@ -63,6 +63,9 @@ func TestCursorHooksWireShellAudit(t *testing.T) {
 	if !strings.Contains(string(b), "beforeShellExecution") {
 		t.Error("hooks.json must wire beforeShellExecution")
 	}
+	if !strings.Contains(string(b), `"stop"`) {
+		t.Error("hooks.json must wire stop so a turn persists before idle")
+	}
 }
 
 func TestCursorLoopRule(t *testing.T) {

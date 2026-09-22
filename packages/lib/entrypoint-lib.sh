@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
 
 ensure_runtime_user() {
  local uid gid
@@ -244,6 +244,69 @@ scope_git_worktree() {
     || { echo "⚠️  Could not scope the git index; status will list unmounted paths as deleted" >&2; return 0; }
 
   echo "🔭 git scoped to ${PROVEO_SCOPE_REL} (${missing} unmounted path(s) hidden; host .git untouched)"
+}
+
+# SPEC: _spec/packages/lib/github-ssh-hosts.puml
+github_ssh_host_known() {
+  local f="${1:-}"
+  [[ -n "$f" && -f "$f" ]] || return 1
+  grep -qE '^github\.com[[:space:]]|^\[github\.com\]' "$f"
+}
+
+_proveo_parse_github_ssh_keys() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.ssh_keys[]? // empty' 2>/dev/null || true
+    return 0
+  fi
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 -c 'import json,sys
+try:
+  for k in json.load(sys.stdin).get("ssh_keys") or []:
+    if k: print(k)
+except Exception:
+  pass' 2>/dev/null || true
+}
+
+seed_github_known_hosts() {
+  if github_ssh_host_known "${PROVEO_SSH_KNOWN_HOSTS:-/etc/ssh/ssh_known_hosts}"; then
+    return 0
+  fi
+  local dest="${1:-}"
+  [[ -n "$dest" ]] || dest="$(_proveo_agent_home)"
+  [[ -n "$dest" && -d "$dest" && -w "$dest" ]] || return 0
+  local ssh_dir="$dest/.ssh" hosts="$dest/.ssh/known_hosts"
+  mkdir -p "$ssh_dir" 2>/dev/null || return 0
+  chmod 700 "$ssh_dir" 2>/dev/null || true
+  if github_ssh_host_known "$hosts"; then
+    return 0
+  fi
+  local json="" url="${PROVEO_GITHUB_META_URL:-https://api.github.com/meta}"
+  json="$(_proveo_bounded 5 curl -fsS -A proveo "$url" 2>/dev/null)" || json=""
+  [[ -n "$json" ]] || return 0
+  local keys=""
+  keys="$(printf '%s' "$json" | _proveo_parse_github_ssh_keys)" || keys=""
+  [[ -n "$keys" ]] || return 0
+  local umask_old tmp
+  umask_old="$(umask)"
+  umask 077
+  tmp="$hosts.tmp.$$"
+  {
+    [[ -f "$hosts" ]] && cat "$hosts"
+    while IFS= read -r k; do
+      [[ -n "$k" ]] || continue
+      printf 'github.com %s\n' "$k"
+    done <<< "$keys"
+  } > "$tmp" && mv "$tmp" "$hosts"
+  umask "$umask_old"
+  rm -f "$tmp"
+  chmod 600 "$hosts" 2>/dev/null || true
+  echo "🔐 git: seeded GitHub SSH host keys into $hosts"
+  return 0
+}
+
+ensure_github_git_transport() {
+  seed_github_known_hosts "${1:-}" || true
+  return 0
 }
 
 attach_rtk() {
@@ -1244,6 +1307,63 @@ proveo_install_claude_hooks() {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
   ' 2>/dev/null && echo "🛡️  cwd guard: PreToolUse(Bash) hook names a vanished working directory instead of a silent exit 1"
+  return 0
+}
+
+# SPEC: _spec/packages/lib/git-sync-turn.puml
+_proveo_merge_stop_hook() {
+  local path="$1" cmd="$2"
+  [[ -n "$path" && -n "$cmd" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_HOOKS_FILE="$path" PROVEO_HOOK_CMD="$cmd" node -e '
+    const fs = require("fs");
+    const path = process.env.PROVEO_HOOKS_FILE;
+    const cmd = process.env.PROVEO_HOOK_CMD;
+    const event = "Stop";
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (typeof j.hooks !== "object" || j.hooks === null) j.hooks = {};
+    if (!Array.isArray(j.hooks[event])) j.hooks[event] = [];
+    const present = j.hooks[event].some(g => g && Array.isArray(g.hooks)
+      && g.hooks.some(h => h && h.command === cmd));
+    if (!present) j.hooks[event].push({ hooks: [{ type: "command", command: cmd, timeout: 90 }] });
+    fs.mkdirSync(require("path").dirname(path), { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null
+}
+
+proveo_install_git_sync_hooks() {
+  local target="${1:-}" home hook plugin cmd
+  case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) return 0 ;;
+  esac
+  hook="${PROVEO_GIT_SYNC_HOOK:-/opt/proveo/hooks/git-sync-turn.sh}"
+  plugin="${PROVEO_GIT_SYNC_PLUGIN:-/opt/proveo/hooks/proveo-git-sync-turn.js}"
+  cmd="bash $hook"
+  home="$(_proveo_agent_home)"
+  case "$target" in
+    claudecode)
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      _proveo_merge_stop_hook "$home/.claude/settings.json" "$cmd" \
+        && echo "git-sync: Stop hook commits and pushes before the turn returns"
+      ;;
+    codex)
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      _proveo_merge_stop_hook "${CODEX_HOME:-$home/.codex}/hooks.json" "$cmd" \
+        && echo "git-sync: Stop hook commits and pushes before the turn returns"
+      ;;
+    opencode)
+      [[ -n "$home" && -s "$plugin" ]] || return 0
+      mkdir -p "$home/.config/opencode/plugins" 2>/dev/null || return 0
+      cp -f "$plugin" "$home/.config/opencode/plugins/proveo-git-sync-turn.js" \
+        && echo "git-sync: session.idle plugin commits and pushes after the turn idles"
+      ;;
+    cursor)
+      if [[ -f /etc/cursor/hooks.json ]] && grep -q git-sync-turn /etc/cursor/hooks.json 2>/dev/null; then
+        echo "git-sync: enterprise stop hook commits and pushes before the turn returns"
+      fi
+      ;;
+  esac
   return 0
 }
 
@@ -2358,6 +2478,8 @@ proveo_seed() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
 
+ seed_github_known_hosts "$home" || true
+
  proveo_sync_state restore || true
 
  proveo_sync_config restore || true
@@ -2381,6 +2503,7 @@ proveo_seed() {
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
+ proveo_install_git_sync_hooks "$target"
  proveo_seed_browser_skills "$target"
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml

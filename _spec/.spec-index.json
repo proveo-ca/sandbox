@@ -59,7 +59,18 @@
       "spec": "_spec/_devops/buildx-driver-selection.puml",
       "covers": [
         "defs/lib/docker-build.sh",
-        "defs/*/build.sh"
+        "defs/*/build.sh",
+        "internal/contract/buildx_pull_policy_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/git-hooks.puml",
+      "covers": [
+        "scripts/githooks/post-commit",
+        "scripts/githooks/install",
+        "mise.toml",
+        "internal/contract/git_hooks_test.go"
       ],
       "fingerprint": null
     },
@@ -946,6 +957,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/ptyproxy/opencode-keyboard-stall.puml",
+      "covers": [
+        "internal/ptyproxy/inputfilter.go",
+        "internal/ptyproxy/inputfilter_test.go",
+        "internal/ptyproxy/ptyproxy.go",
+        "internal/ptyproxy/ptyproxy_test.go",
+        "internal/backend/sandbox/sandbox.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/ptyproxy/terminal-report-filter.puml",
       "covers": [
         "internal/ptyproxy/inputfilter.go",
@@ -1019,7 +1041,10 @@
       "covers": [
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/sbx.go",
-        "internal/sbx/run.go"
+        "internal/sbx/run.go",
+        "internal/run/choices.go",
+        "internal/run/params.go",
+        "internal/run/choices_test.go"
       ],
       "fingerprint": null
     },
@@ -1380,6 +1405,37 @@
         "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/workspace/platform.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/github-ssh-hosts.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/base/Dockerfile",
+        "defs/base/ssh/github_known_hosts",
+        "defs/cursor/entrypoint.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/cecli/entrypoint.sh",
+        "defs/codex/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh",
+        "internal/contract/github_ssh_hosts_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/git-sync-turn.puml",
+      "covers": [
+        "packages/lib/hooks/git-sync-turn.sh",
+        "packages/lib/hooks/proveo-git-sync-turn.js",
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/defaults/hooks.json",
+        "defs/base/Dockerfile",
+        "defs/cursor/Dockerfile",
+        "defs/opencode/Dockerfile",
+        "defs/codex/Dockerfile",
+        "defs/claudecode/mcp/Dockerfile",
+        "internal/contract/git_sync_turn_test.go"
       ],
       "fingerprint": null
     },

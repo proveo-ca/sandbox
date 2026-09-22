@@ -23,7 +23,7 @@ package "Harness Layer" as Harness {
 
 package "Native Policy Layer" as Policy {
  component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
- component "/etc/cursor/hooks.json\nenterprise shell-audit hook\n(root-owned, immutable)" as Hooks <<security>>
+ component "/etc/cursor/hooks.json\nenterprise shell-audit + git-sync stop\n(root-owned, immutable)" as Hooks <<security>>
  component "readonly subagents\n@adversarial-reviewer\n@security-reviewer" as Subagents <<subagent>>
 }
 
@@ -54,7 +54,7 @@ Loop --> Verify : runs detected commands
 Verify -> Inspect : on failure
 Inspect -> Plan : next iteration
 Cursor --> Deny : every tool call checked
-Cursor --> Hooks : shell requests audited\n(NDJSON)
+Cursor --> Hooks : shell audited; stop\ncommits and pushes
 Cursor --> Subagents : in-loop review gates
 Cursor -[#00BAC6,dashed,bold]-> Backend : inference (vendor-pinned)
 Net ..> Backend : provider pin = "".cursor.sh""
@@ -69,6 +69,8 @@ beat project hooks. The harness owns
 the project owns "".cursor/*"".
 Audit hook is fail-open by design —
 enforcement lives in deny rules + egress.
+Stop commits and pushes the turn;
+""PROVEO_GIT_SYNC=off"" no-ops it.
 end note
 
 note right of Sandbox

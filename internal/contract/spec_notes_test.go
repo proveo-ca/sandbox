@@ -12,6 +12,7 @@ import (
 
 var specNotesEnforced = []string{
 	"_spec/_devops/release-gate.puml",
+	"_spec/_devops/git-hooks.puml",
 	"_spec/_experiments/sbx-driving-a-session.puml",
 	"_spec/_experiments/nested-sbx-kvm.puml",
 	"_spec/_experiments/sbx-kit-capabilities.puml",
@@ -24,6 +25,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/sbx/shell-agent-launch.puml",
 	"_spec/internal/backend/exit-code.puml",
 	"_spec/internal/ptyproxy/pty-ownership.puml",
+	"_spec/internal/ptyproxy/opencode-keyboard-stall.puml",
 	"_spec/internal/contract/what-a-contract-test-is.puml",
 	"_spec/internal/credentials/credential-decisions.puml",
 	"_spec/internal/gitidentity/authorship.puml",
@@ -51,6 +53,8 @@ var specNotesEnforced = []string{
 	"_spec/_plans/sbx-dep-tree-isolation.puml",
 	"_spec/_plans/plugin-class-beyond-claudecode.puml",
 	"_spec/packages/lib/config-seeding-and-persistence.puml",
+	"_spec/packages/lib/github-ssh-hosts.puml",
+	"_spec/packages/lib/git-sync-turn.puml",
 	"_spec/_plans/image-size-reduction.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
 	"_spec/packages/lib/seed-and-launch.puml",

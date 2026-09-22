@@ -131,15 +131,3 @@ func HarnessFamily(name string) string {
 	}
 	return name
 }
-
-func sbxService(man manifest.Manifest) string {
-	for _, e := range man.Env {
-		if !e.Secret {
-			continue
-		}
-		if s := strings.ToLower(strings.TrimSuffix(e.Name, "_API_KEY")); s != strings.ToLower(e.Name) {
-			return s
-		}
-	}
-	return man.Name
-}

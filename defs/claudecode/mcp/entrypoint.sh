@@ -24,6 +24,7 @@ fi
 set_working_directory "/app"
 load_env quiet
 ensure_git_safe_directory "$(pwd)"
+ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
 printf 'PROVEO_MODELS main=%s small=%s\n' \

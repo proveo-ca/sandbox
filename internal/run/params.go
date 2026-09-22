@@ -1,13 +1,13 @@
-// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/policy-baseline.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/policy-baseline.puml, _spec/internal/sbx/credential-path.puml
 package run
 
 import (
 	"fmt"
-	"github.com/proveo-ca/proveo/internal/egress"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
@@ -53,7 +53,12 @@ func (p Params) evidenceOrDefault() string {
 	return EvidenceVerbose
 }
 
-func (p *Params) applyCapabilities(c manifest.Capabilities) error {
+func (p *Params) applyCapabilities(man manifest.Manifest) error {
+	return p.applyCapabilitiesAt(man, sandbox.Selected(man))
+}
+
+func (p *Params) applyCapabilitiesAt(man manifest.Manifest, sandboxOn bool) error {
+	c := man.Capabilities
 	if !c.AllowsEgress(p.Mode) {
 		if p.ModeSet {
 			return fmt.Errorf("%s does not support --egress-mode %s (allowed: %s)",
@@ -61,10 +66,14 @@ func (p *Params) applyCapabilities(c manifest.Capabilities) error {
 		}
 		p.Mode = c.Egress[0]
 	}
-	if !c.AllowsCredentials(p.credentialsOrDefault()) {
+	mode := p.credentialsOrDefault()
+	if !c.AllowsCredentials(mode) {
+		if sandboxOn && p.Credentials == "broker" && !p.CredsSet {
+			return nil
+		}
 		if p.CredsSet {
 			return fmt.Errorf("%s does not support --credentials %s (allowed: %s)",
-				p.Target, p.credentialsOrDefault(), strings.Join(c.Credentials, "|"))
+				p.Target, mode, strings.Join(c.Credentials, "|"))
 		}
 		p.Credentials = c.Credentials[0]
 	}
@@ -85,9 +94,6 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
-	// _spec/_plans/retire-model-bridging.puml
-	// The remembered choice is now the ONLY source: the environment no longer
-	// carries a model, so there is nothing to merge it with.
 	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
 	p.Roles = provider.RolesFromCanonical(cached.Models)
 }

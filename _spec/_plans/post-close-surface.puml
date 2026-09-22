@@ -22,8 +22,9 @@ skinparam noteTextAlignment left
 '   where the transcript is, or that there is none because the sandbox had gone
 '   the policy log and the memory evidence, each as a path
 '   on failure, KeptLines, CloneRescueLines and IDEAttachLines — recipes the
-'     operator is expected to read and retype; attach is print-only
-'     (_spec/internal/sbx/ide-attach.puml), not this interactive surface
+'     operator is expected to read and retype; attach is print-only and is
+'     also offered live at start (_spec/internal/sbx/ide-attach.puml), not
+'     this interactive surface
 '
 ' It is a PRINT, not a surface. Nothing is navigable, nothing is actionable, and
 ' the ordering is whatever teardown happened to reach first.

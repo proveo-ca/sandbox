@@ -8,10 +8,15 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+func init() {
+	runewidth.DefaultCondition.EastAsianWidth = false
+	runewidth.CreateLUT()
+}
+
 type pen struct {
 	s     tcell.Screen
 	x, y  int
-	last  int // display width of the last rune written, so combining marks land on its BASE cell
+	last  int // display width of the last rune written
 	wrote bool
 }
 
@@ -30,7 +35,7 @@ func (p *pen) write(style tcell.Style, text string) *pen {
 			p.s.SetContent(base, p.y, mainc, append(append([]rune(nil), combc...), r), st)
 			continue
 		}
-		w := runewidth.RuneWidth(r)
+		w := runeCols(r)
 		if w < 1 {
 			w = 1
 		}
@@ -62,17 +67,24 @@ func zeroWidth(r rune) bool {
 	return false
 }
 
+func runeCols(r rune) int {
+	if zeroWidth(r) {
+		return 0
+	}
+	if r >= 0xE000 && r <= 0xF8FF {
+		return 1
+	}
+	w := runewidth.RuneWidth(r)
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
 func textWidth(text string) int {
 	w := 0
 	for _, r := range text {
-		if zeroWidth(r) {
-			continue
-		}
-		rw := runewidth.RuneWidth(r)
-		if rw < 1 {
-			rw = 1
-		}
-		w += rw
+		w += runeCols(r)
 	}
 	return w
 }

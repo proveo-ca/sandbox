@@ -78,6 +78,12 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' still the ROOT-ONLY Python scan (_py_project_roots), not a skipped entrypoint.
 '
 ' ── THE STEP ORDER, AND WHY EACH EDGE IS A DEPENDENCY ──────────────────────
+'   0. seed_github_known_hosts     file-shaped, old images only: GitHub host
+'                                  keys from api.github.com/meta into
+'                                  ~/.ssh/known_hosts. New images bake the
+'                                  same keys at /etc/ssh/ssh_known_hosts so
+'                                  git@github.com works at t=0
+'                                  (_spec/packages/lib/github-ssh-hosts.puml).
 '   1. proveo_sync_state restore   a resumed session's transcripts must be in
 '                                  place before the agent starts looking.
 '   2. proveo_sync_config restore  BEFORE render_subagents and every configure_*
@@ -111,7 +117,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                                  a wiring step left in a def is one the agent
 '                                  starts without. Pinned by
 '                                  internal/contract/lsp_config_parity_test.go.
-'   8. house rules · UI defaults · claude hooks · browser skills · chrome bridge
+'   8. house rules · UI defaults · claude hooks · git-sync · browser skills · chrome bridge
 '
 ' `|| true` on the three sync calls is load-bearing and is NOT the old silence.
 ' proveo-seed runs under `set -euo pipefail`, and the syncs now RETURN non-zero
@@ -214,7 +220,7 @@ node "The order — every edge a dependency" as ORDERBOX <<host>> {
   component "1 · ""proveo_sync_state restore""\n2 · ""proveo_sync_config restore""" as ORDER <<async>>
   component "3 · ""render_subagents""\n4 · ""accept_workspace_trust""" as TRUST <<app>>
   component "5 · ""proveo_sync_tools restore""\n6 · ""proveo_provision_toolchain""" as PROV <<app>>
-  component "7 · ""proveo_wire_config""\n8 · rules · UI · hooks · skills · chrome" as WIRE <<app>>
+  component "7 · ""proveo_wire_config""\n8 · rules · UI · hooks · git-sync · skills · chrome" as WIRE <<app>>
 }
 
 component """_proveo_agent_home"" · ""_proveo_scan_root""\nneither is ""$HOME"", neither is ""$PWD""" as HOMEFN <<app>>

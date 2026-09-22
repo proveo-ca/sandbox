@@ -3,6 +3,13 @@
   "hooks": {
     "beforeShellExecution": [
       { "command": "/opt/cursor/defaults/hooks/audit-shell.sh" }
+    ],
+    "stop": [
+      {
+        "command": "/opt/proveo/hooks/git-sync-turn.sh",
+        "timeout": 90,
+        "loop_limit": 1
+      }
     ]
   }
 }

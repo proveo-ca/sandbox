@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestSplitNestedKeepsTheRootAndItsSiblingsOnly(t *testing.T) {
@@ -182,25 +183,44 @@ func TestCloneRescueUsesATransportThatWorksOnAStoppedSandbox(t *testing.T) {
 	}
 }
 
-func TestIDEAttachIsAfterExitAndLoudAboutWhichTree(t *testing.T) {
+func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 	t.Parallel()
 	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
 
-	clone := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
+	live := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
 	for _, want := range []string{
-		"agent exited; one writer",
+		"IDE attach (live):",
 		"sbx setup ssh",
 		"proveo-1-2.sbx",
+		"the running agent and the editor both write this tree",
 		"DISPOSABLE CLONE",
 		"commit IDE edits",
 		"refs/proveo/proveo-1-2",
 	} {
-		if !strings.Contains(clone, want) {
-			t.Errorf("clone attach guidance lacks %q:\n%s", want, clone)
+		if !strings.Contains(live, want) {
+			t.Errorf("live clone attach guidance lacks %q:\n%s", want, live)
+		}
+	}
+	for _, refuse := range []string{"agent exited", "one writer"} {
+		if strings.Contains(live, refuse) {
+			t.Errorf("live attach still treats two writers as a veto (%q):\n%s", refuse, live)
 		}
 	}
 
-	direct := strings.Join(IDEAttachLines(Input{}, cfg), "\n")
+	kept := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, false), "\n")
+	for _, want := range []string{"sbx setup ssh", "proveo-1-2.sbx", "DISPOSABLE CLONE"} {
+		if !strings.Contains(kept, want) {
+			t.Errorf("kept clone attach guidance lacks %q:\n%s", want, kept)
+		}
+	}
+	if strings.Contains(kept, "(live)") {
+		t.Errorf("kept attach still claims the agent is live:\n%s", kept)
+	}
+	if strings.Contains(kept, "both write this tree") {
+		t.Errorf("kept attach still warns about a live agent:\n%s", kept)
+	}
+
+	direct := strings.Join(IDEAttachLines(Input{}, cfg, true), "\n")
 	if !strings.Contains(direct, "mounted checkout") || !strings.Contains(direct, "write the host tree directly") {
 		t.Errorf("direct attach guidance hides its write boundary:\n%s", direct)
 	}
@@ -209,14 +229,32 @@ func TestIDEAttachIsAfterExitAndLoudAboutWhichTree(t *testing.T) {
 	}
 }
 
-func TestIDEAttachNeedsAKeptNamedSandboxAndWorkspace(t *testing.T) {
+func TestIDEAttachNeedsANamedSandboxAndWorkspace(t *testing.T) {
 	t.Parallel()
 	for _, cfg := range []sbx.RunConfig{
 		{Mounts: []sbx.Mount{{Host: "/repo"}}},
 		{Name: "sb"},
 	} {
-		if got := IDEAttachLines(Input{}, cfg); got != nil {
+		if got := IDEAttachLines(Input{}, cfg, true); got != nil {
 			t.Errorf("IDEAttachLines(%+v) = %q, want no unusable offer", cfg, got)
 		}
+	}
+}
+
+func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
+	var buf strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&buf)
+	t.Cleanup(func() { ui.Default = prev })
+
+	PrintIDEAttach(Input{}, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, true)
+	got := buf.String()
+	for _, want := range []string{"------ interface ------", "IDE attach (live):", "proveo-1-2.sbx", "sbx setup ssh"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("live attach output lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "------ starting ------") {
+		t.Errorf("live attach drew the starting heading instead of interface:\n%s", got)
 	}
 }

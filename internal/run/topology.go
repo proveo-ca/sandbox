@@ -24,7 +24,7 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 			Square:    squareOf(man, target),
 			Hop:       hopOf(tier, creds, sbxBackend),
 			Interface: interfaceOf(f),
-			Key:       keyHomeOf(creds),
+			Key:       keyHomeOf(creds, sbxBackend),
 			Lane:      lane,
 			Open:      open,
 			Refused:   refused,
@@ -87,7 +87,10 @@ func hopOf(tier, creds string, sbx bool) string {
 	return "mitm + squid"
 }
 
-func keyHomeOf(creds string) choiceui.KeyHome {
+func keyHomeOf(creds string, sbx bool) choiceui.KeyHome {
+	if sbx {
+		return choiceui.KeyAtHop
+	}
 	switch creds {
 	case "forward":
 		return choiceui.KeyInSquare

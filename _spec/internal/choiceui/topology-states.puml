@@ -92,9 +92,9 @@ title The topology strip in every selectable state, on both backends
 }
 {^"allow-all · forward"
   . | . | . | . | . | - - ▸ <:cloud:>
-  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | - - ▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | - - ▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
-  allow-all · forward — a bare -e NAME: the agent process holds the real value
+  allow-all · forward — the row may still say forward; sbx holds the value at its proxy
 }
 }
 {
@@ -106,9 +106,9 @@ title The topology strip in every selectable state, on both backends
 }
 {^"balanced · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:>
-  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ───▸ <:cloud:>
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced · forward — the host's allows plus proveo's; the value is inside
+  balanced · forward — the host's allows plus proveo's; the key stays at the hop
 }
 }
 {
@@ -120,9 +120,9 @@ title The topology strip in every selectable state, on both backends
 }
 {^"deny-all · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
-  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ──×
+  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ──×
   ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
-  deny-all · forward — one lane out, and the real key rides inside the square
+  deny-all · forward — one lane out, and the key still sits on the proxy
 }
 }
   .
@@ -130,9 +130,9 @@ title The topology strip in every selectable state, on both backends
   proveo egress layer, so proveo steps aside and SBX brokers — the value
   never reaches the agent either way, but the hop in the picture is sbx's.
   .
-  cursor declares credentials [forward] alone, so its credentials row has one
-  option and applicableRows drops it. On cursor only the left column exists, and
-  the key is inside the square on every frame.
+  cursor declares credentials [forward] alone; the row is still drawn with
+  both modes, and forward is gated. The key sits at the sbx proxy — that is
+  where the secret rests.
 }
 ..
 {^"Variant D · the docker backend — proveo's tiers, and proveo's mitmproxy"

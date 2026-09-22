@@ -1,0 +1,76 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title git-sync-turn — commit and push before Stop / idle
+' purpose: why a turn may not return until the tree is committed and pushed
+' covers: packages/lib/hooks/git-sync-turn.sh
+' covers: packages/lib/hooks/proveo-git-sync-turn.js
+' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/defaults/hooks.json
+' covers: defs/base/Dockerfile
+' covers: defs/cursor/Dockerfile
+' covers: defs/opencode/Dockerfile
+' covers: defs/codex/Dockerfile
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: internal/contract/git_sync_turn_test.go
+'   seed step order ............... _spec/packages/lib/seed-and-launch.puml
+'   git identity .................. _spec/internal/gitidentity/authorship.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+
+participant "Claude / Codex\nStop" as STOP <<app>>
+participant "Cursor stop" as CU <<app>>
+participant "OpenCode\nsession.idle" as OC <<app>>
+participant "git-sync-turn.sh" as HOOK <<app>>
+participant "git commit / push" as GIT <<app>>
+participant "block / followup" as BLOCK <<error>>
+
+STOP ARROW_MAIN HOOK : stdin JSON
+CU ARROW_MAIN HOOK : stdin JSON
+OC ARROW_OPTIONAL HOOK : plugin event, not awaited
+HOOK ARROW_MAIN GIT
+GIT ARROW_MAIN HOOK : clean or pushed
+HOOK ARROW_MAIN STOP : decision allow / {}
+GIT ARROW_ERROR BLOCK : identity or push miss
+BLOCK ARROW_QUEUE STOP : reason as next prompt
+BLOCK ARROW_QUEUE CU : followup_message
+
+note right of HOOK
+  **Turn-end is the persist gate.** The
+  script commits and pushes; Claude,
+  Cursor and Codex can still block if
+  that fails. OpenCode only observes
+  idle after the turn already returned.
+end note
+
+note bottom of BLOCK
+  **One continuation, then rest.** A
+  failed persist blocks Stop once.
+  stop_hook_active or loop_count>0
+  allows stop so Claude's 8-cap and
+  Cursor's loop_limit cannot trap.
+end note
+
+note right of GIT
+  **Commit is mechanical.** Push is
+  not forced: no --force, --amend,
+  or --no-verify. .env, auth.json
+  and key files stay unstaged. No
+  remote means commit, then allow.
+end note
+
+note as N_OFF
+  **Off is a no-op.** Set
+  PROVEO_GIT_SYNC=off to skip seed
+  and the script. Cursor still bakes
+  the stop entry; the script allows.
+  An aborted Cursor turn never commits.
+end note
+
+note bottom of OC
+  **Idle must not inherit the TTY.**
+  The script opened with cat. On a
+  TTY that never EOFs, so every key
+  after session.idle went to cat.
+  Plugin: </dev/null. Script: skip TTY.
+end note
+@enduml

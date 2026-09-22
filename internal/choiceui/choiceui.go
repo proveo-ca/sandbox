@@ -4,6 +4,7 @@ package choiceui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"unicode"
 
@@ -182,6 +183,7 @@ func (f *Form) Selection(label string) string {
 }
 
 func (f *Form) Run() (confirmed bool, err error) {
+	preferUTF8Locale()
 	screen, err := tcell.NewScreen()
 	if err != nil {
 		return false, fmt.Errorf("choice prompt: %w", err)
@@ -189,6 +191,7 @@ func (f *Form) Run() (confirmed bool, err error) {
 	if err := screen.Init(); err != nil {
 		return false, fmt.Errorf("choice prompt: %w", err)
 	}
+	registerGlyphFallbacks(screen)
 	defer screen.Fini()
 	tick := newTicker(screen.PostEvent)
 	defer tick.stop()
@@ -448,7 +451,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
 		c.y = bodyTop + i
 		ln := lines[f.scroll+i]
-		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII); glyph != "" {
+		if glyph, thumb := g.glyph(i, f.Glyphs != GlyphsNerd); glyph != "" {
 			st := p.idle
 			if thumb {
 				st = p.brand
@@ -571,7 +574,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 			st = st.Underline(true)
 		}
 		c.put(x, st, glyph+opt)
-		x += len(glyph) + len(opt) + 3
+		x += textWidth(glyph+opt) + 3
 	}
 }
 
@@ -642,7 +645,7 @@ func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) 
 				st = p.aside
 			}
 			put(col, st, string(rs[i:j]))
-			col += j - i
+			col += textWidth(string(rs[i:j]))
 			i = j
 			continue
 		}
@@ -663,8 +666,9 @@ func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) 
 			put(col, p.accent, word)
 		case keyEnd(tok) > 0:
 			k := keyEnd(tok)
-			put(col, p.accent, string(tok[:k]))
-			put(col+k, p.body, string(tok[k:]))
+			head := string(tok[:k])
+			put(col, p.accent, head)
+			put(col+textWidth(head), p.body, string(tok[k:]))
 		default:
 			put(col, p.body, word)
 		}
@@ -672,7 +676,7 @@ func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) 
 			aside = false
 		}
 		afterOn = word == "on"
-		col += j - i
+		col += textWidth(word)
 		i = j
 	}
 }
@@ -757,4 +761,31 @@ func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 	c.put(x, p.idle, "[")
 	c.put(x+1, bodyStyle, body)
 	c.put(x+1+fieldWidth, p.idle, "]")
+}
+
+func preferUTF8Locale() {
+	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		v := os.Getenv(k)
+		if v == "" {
+			continue
+		}
+		if v == "C" || v == "POSIX" {
+			_ = os.Setenv("LC_ALL", "C.UTF-8")
+		}
+		return
+	}
+	_ = os.Setenv("LC_ALL", "C.UTF-8")
+}
+
+func registerGlyphFallbacks(s tcell.Screen) {
+	ascii, nerd := glyphsFor(GlyphsASCII), glyphsFor(GlyphsNerd)
+	pairs := [][2]string{
+		{nerd.cloud, ascii.cloud}, {nerd.key, ascii.key},
+		{nerd.quiet, ascii.quiet}, {nerd.speaking, ascii.speaking},
+	}
+	for _, p := range pairs {
+		for _, r := range p[0] {
+			s.RegisterRuneFallback(r, p[1])
+		}
+	}
 }

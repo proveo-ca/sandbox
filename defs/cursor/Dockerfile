@@ -86,6 +86,8 @@ COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
+COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 defs/cursor/entrypoint.sh /entrypoint.sh
 
 USER ${USER_NAME}

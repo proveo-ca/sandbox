@@ -22,6 +22,7 @@ type inputFilter struct {
 	// stdin is garbage UNLESS the child asked for it, and the asking is
 	// visible on the child's own output stream.
 	cpr cprTracker
+	cap capTracker
 
 	mu     sync.Mutex
 	recent []seenReply
@@ -62,12 +63,9 @@ func (f *inputFilter) keep(b []byte) bool {
 		}
 		return !f.dropReplies
 	case reportReply:
-		// SOLICITED, exactly like mouse. `dropReplies` rests on "on a prompt
-		// stream nothing was ever asked, so the first copy is already one too
-		// many" — true of the reports proveo's own overlay provokes, false of a
-		// child that sent `CSI 6n` and is blocked waiting. cecli's prompt_toolkit
-		// does exactly that and reports the withheld answer as
-		// "your terminal doesn't support cursor position requests (CPR)".
+		if f.cap.owed(b) {
+			return true
+		}
 		if isCursorPositionReport(b) && f.cpr.answered() {
 			return true
 		}
@@ -329,6 +327,177 @@ func isCursorPositionReport(b []byte) bool {
 	}
 	body := b[2:]
 	return body[len(body)-1] == 'R' && isNumericParams(body[:len(body)-1])
+}
+
+type credit struct{ n atomic.Int32 }
+
+func (c *credit) add() {
+	if c.n.Load() < maxOutstandingCPR {
+		c.n.Add(1)
+	}
+}
+
+func (c *credit) spend() bool {
+	for {
+		n := c.n.Load()
+		if n <= 0 {
+			return false
+		}
+		if c.n.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
+}
+
+// capTracker credits OpenTUI capability replies the child asked for on output.
+type capTracker struct {
+	kitty  credit
+	da     credit
+	decrpm credit
+	dcs    credit
+	apc    credit
+
+	mu   sync.Mutex
+	scan csiScanner
+	raw  []byte
+}
+
+func (t *capTracker) observe(b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.scan.scan(b, t.onCSI)
+	t.observeNeedles(b)
+}
+
+func (t *capTracker) onCSI(params []byte, final byte) {
+	switch final {
+	case 'u':
+		if len(params) == 1 && params[0] == '?' {
+			t.kitty.add()
+		}
+	case 'c':
+		if daQuery(params) {
+			t.da.add()
+		}
+	case 'p':
+		if decrqm(params) {
+			t.decrpm.add()
+		}
+	case 'q':
+		if xtversionQuery(params) {
+			t.dcs.add()
+		}
+	}
+}
+
+func daQuery(params []byte) bool {
+	if len(params) == 0 || bytes.Equal(params, []byte("0")) {
+		return true
+	}
+	if params[0] != '>' && params[0] != '=' {
+		return false
+	}
+	rest := params[1:]
+	return len(rest) == 0 || isNumericParams(rest)
+}
+
+func decrqm(params []byte) bool {
+	if len(params) < 2 || params[0] != '?' || params[len(params)-1] != '$' {
+		return false
+	}
+	return isNumericParams(params[1 : len(params)-1])
+}
+
+func xtversionQuery(params []byte) bool {
+	if len(params) == 0 || params[0] != '>' {
+		return false
+	}
+	rest := params[1:]
+	return len(rest) == 0 || isNumericParams(rest)
+}
+
+func (t *capTracker) observeNeedles(b []byte) {
+	buf := append(t.raw, b...)
+	t.raw = nil
+	for _, n := range [][]byte{[]byte("\x1bP+q"), []byte("\x1b_Gi=")} {
+		start := 0
+		for {
+			i := bytes.Index(buf[start:], n)
+			if i < 0 {
+				break
+			}
+			if n[1] == 'P' {
+				t.dcs.add()
+			} else {
+				t.apc.add()
+			}
+			start += i + len(n)
+		}
+	}
+	t.raw = needlePrefix(buf)
+}
+
+func needlePrefix(buf []byte) []byte {
+	needles := [][]byte{[]byte("\x1bP+q"), []byte("\x1b_Gi=")}
+	max := 0
+	for _, n := range needles {
+		for k := 1; k < len(n); k++ {
+			if bytes.HasSuffix(buf, n[:k]) && k > max {
+				max = k
+			}
+		}
+	}
+	if max == 0 {
+		return nil
+	}
+	return append([]byte(nil), buf[len(buf)-max:]...)
+}
+
+func (t *capTracker) owed(b []byte) bool {
+	switch {
+	case isKittyFlagReport(b):
+		return t.kitty.spend()
+	case isDeviceAttributesReply(b):
+		return t.da.spend()
+	case isDECRPMReply(b):
+		return t.decrpm.spend()
+	case isTerminatedDCS(b):
+		return t.dcs.spend()
+	case isTerminatedAPC(b):
+		return t.apc.spend()
+	}
+	return false
+}
+
+func isKittyFlagReport(b []byte) bool {
+	if len(b) < 4 || b[0] != 0x1b || b[1] != '[' || b[len(b)-1] != 'u' {
+		return false
+	}
+	body := b[2:]
+	return body[0] == '?' && kittyKeyboardControl(body)
+}
+
+func isDeviceAttributesReply(b []byte) bool {
+	if len(b) < 4 || b[0] != 0x1b || b[1] != '[' || b[len(b)-1] != 'c' {
+		return false
+	}
+	return b[2] == '?' || b[2] == '>'
+}
+
+func isDECRPMReply(b []byte) bool {
+	if len(b) < 6 || b[0] != 0x1b || b[1] != '[' || b[2] != '?' {
+		return false
+	}
+	body := b[2:]
+	return body[len(body)-1] == 'y' && len(body) >= 2 && body[len(body)-2] == '$'
+}
+
+func isTerminatedDCS(b []byte) bool {
+	return len(b) >= 3 && b[0] == 0x1b && b[1] == 'P' && bytes.HasSuffix(b, []byte{0x1b, '\\'})
+}
+
+func isTerminatedAPC(b []byte) bool {
+	return len(b) >= 3 && b[0] == 0x1b && b[1] == '_' && bytes.HasSuffix(b, []byte{0x1b, '\\'})
 }
 
 func (t *mouseTracker) apply(params []byte, set bool) {

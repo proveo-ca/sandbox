@@ -64,7 +64,7 @@ title The four fidelities of one figure, and how each was measured
   --
   . | ◀ riskier | . | safer ▶
   ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all
-  credentials | ( ) forward | (X) broker | .
+  credentials | ( ) <color:#9a9a9a>forward | (X) broker | .
   . | ———— execution ———— | . | .
   . | [ ] host | [X] docker (sandbox) — locked | .
   agent evidence | [ ] default | [X] verbose | .
@@ -82,7 +82,7 @@ title The four fidelities of one figure, and how each was measured
   git: | monorepo on rs-295
   --
   ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all
-  credentials | ( ) forward | (X) broker | .
+  credentials | ( ) <color:#9a9a9a>forward | (X) broker | .
   . | [ ] host | [X] docker (sandbox) — locked | .
   agent evidence | [ ] default | [X] verbose | .
   --
@@ -110,7 +110,7 @@ title The four fidelities of one figure, and how each was measured
   ==run claudecode — confirm or change this run
   --
   ▲ | ▸ egress | (X) allow-all | ( ) balanced
-  ░ | credentials | ( ) forward | (X) broker
+  ░ | credentials | ( ) <color:#9a9a9a>forward | (X) broker
   ░ | . | [ ] host | [X] docker (sandbox)
   ▼ | 2 more rows below | . | .
   --
@@ -122,7 +122,7 @@ title The four fidelities of one figure, and how each was measured
 }
 {^"80x12 — still usable, which is the whole point"
   ▲ | ▸ egress | (X) allow-all | ( ) balanced
-  ▼ | credentials | ( ) forward | (X) broker
+  ▼ | credentials | ( ) <color:#9a9a9a>forward | (X) broker
   --
   ↑↓ row · enter accept · esc cancel
   › allow-all — the host baseline, reported not chosen
@@ -146,7 +146,7 @@ title The four fidelities of one figure, and how each was measured
 {
 {^"w >= 112 · PANE — beside the rows, costing zero rows"
   ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | . | . | . | - - ▸ <:cloud:>
-  credentials | ( ) forward | (X) broker | . | () host | [ <:speech_balloon:> claudecode ] | () sbx proxy <:key:> | - - ▸ <:cloud:>
+  credentials | ( ) <color:#9a9a9a>forward | (X) broker | . | () host | [ <:speech_balloon:> claudecode ] | () sbx proxy <:key:> | - - ▸ <:cloud:>
   . | [ ] host | [X] docker (sandbox) — locked | . | ▴ ◂─ | ( ) interface | . | - - ▸ <:cloud:>
   agent evidence | [ ] default | [X] verbose | . | open · broker | . | . | .
 }

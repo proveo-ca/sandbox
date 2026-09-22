@@ -8,6 +8,11 @@ assert_success \
   "$IMAGE" \
   "test -f /home/claude/.claude.json"
 
+assert_success \
+  "[standalone] git-sync turn hook is executable" \
+  "$IMAGE" \
+  "test -x /opt/proveo/hooks/git-sync-turn.sh"
+
 assert_output_contains \
   "[standalone] ~/.claude.json owned by claude" \
   "$IMAGE" \

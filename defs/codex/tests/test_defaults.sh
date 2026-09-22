@@ -7,6 +7,11 @@ assert_success \
   "$IMAGE" \
   "test -f /opt/codex/defaults/config.toml"
 
+assert_success \
+  "git-sync turn hook is executable" \
+  "$IMAGE" \
+  "test -x /opt/proveo/hooks/git-sync-turn.sh"
+
 assert_output_contains \
   "default config.toml never pauses an unattended loop" \
   "$IMAGE" \

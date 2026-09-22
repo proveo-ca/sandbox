@@ -182,11 +182,15 @@ end note
 note over LIB
   **One resolver, three ecosystems, one shape.** ""npm"" asks the dist-tag
   (registry JSON as the fallback when ""npm"" is not on the host); ""pypi""
-  reads ""info.version""; ""cursor"" scrapes the release directory out of
+  reads ""info.version"" — curl first, then python3 urllib when curl cannot
+  (a conda ""(base)"" curl is a frequent miss while the interpreter still
+  reaches pypi.org); ""cursor"" scrapes the release directory out of
   ""cursor.com/install"", because that script hardcodes its build and takes no
   argument. The maintainer override is the same ""<ARG>"" the Dockerfile
   takes, so ""OPENCODE_VERSION=1.18.20 proveo build opencode"" pins an older
-  release and doubles as the offline path.
+  release and doubles as the offline path. Both transports failing is still
+  a refusal, never a guessed version; the stderr line names
+  ""<ARG>=<x\.y\.z>"" and, for pypi, the last curl error.
 
   **Unresolvable is a refusal, never a silent ""latest"".** Falling back to the
   dist-tag would reopen the hole in the one place — offline, behind a

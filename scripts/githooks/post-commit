@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# SPEC: _spec/_devops/git-hooks.puml
+set -euo pipefail
+case "${SKIP_GIT_HOOKS:-}" in 1|true|yes|on) exit 0 ;; esac
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+export PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
+command -v mise >/dev/null 2>&1 || {
+  printf 'post-commit: mise not on PATH; skip fmt/lint\n' >&2
+  exit 0
+}
+mise run fmt
+mise run lint

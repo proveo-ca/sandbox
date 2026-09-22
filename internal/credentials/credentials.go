@@ -221,18 +221,11 @@ func VendorPinnedWhy(man manifest.Manifest) string {
 // reads and the files it reads them from — three different credentials with
 // three different bills.
 func AuthBacking(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
-	inFile := ParseEnvFile(envFile)
 	from := func(names []string) string {
 		if len(names) == 0 {
 			return ""
 		}
-		out := strings.Join(names, ", ")
-		for _, n := range names {
-			if _, ok := inFile[n]; ok {
-				return out + " — host env, else " + envFile
-			}
-		}
-		return out + " — host env"
+		return strings.Join(names, ", ") + " — host env"
 	}
 
 	backing := map[string]string{}
@@ -299,7 +292,7 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 		why[AuthUsage] = pinned
 	} else {
 		why[AuthUsage] = "no provider key is set — export one (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) " +
-			"or put it in the project .env"
+			"or run `proveo init` to store it"
 	}
 	why[AuthLocal] = "coming soon — `--local-model` already runs the Ollama sidecar, " +
 		"but nothing routes this row to it yet"

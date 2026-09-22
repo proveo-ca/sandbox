@@ -127,6 +127,8 @@ COPY defs/lib/ /opt/proveo/lib/
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY --chown=${USER_ID}:${USER_ID} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chown=${USER_ID}:${USER_ID} packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
+COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chown=${USER_ID}:${USER_ID} defs/codex/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh /usr/local/bin/proveo-seed
 

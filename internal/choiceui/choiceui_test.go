@@ -2,6 +2,7 @@
 package choiceui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -565,5 +566,23 @@ func TestOverlongReasonWrapsInTheHelpBlock(t *testing.T) {
 	}
 	if got := clip("abc", 9); got != "abc" {
 		t.Errorf("clip must leave text that fits alone, got %q", got)
+	}
+}
+
+func TestPreferUTF8LocaleRewritesPOSIX(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "C")
+	preferUTF8Locale()
+	if got := os.Getenv("LC_ALL"); got != "C.UTF-8" {
+		t.Errorf("LC_ALL=%q, want C.UTF-8 so tcell does not encode nerd glyphs as US-ASCII", got)
+	}
+}
+
+func TestPreferUTF8LocaleLeavesAUTF8LocaleAlone(t *testing.T) {
+	t.Setenv("LC_ALL", "en_US.UTF-8")
+	preferUTF8Locale()
+	if got := os.Getenv("LC_ALL"); got != "en_US.UTF-8" {
+		t.Errorf("a UTF-8 locale must not be rewritten, got %q", got)
 	}
 }

@@ -202,7 +202,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		ui.Warnf("%v — continuing without cached settings", err)
 	}
 	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
-	if err := p.applyCapabilities(rs.Man.Capabilities); err != nil {
+	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
 	if rs.Choices.Promptable {
@@ -222,7 +222,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			return err
 		}
 	}
-	if err := p.applyCapabilities(rs.Man.Capabilities); err != nil {
+	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
 	if rs.Choices.Promptable {

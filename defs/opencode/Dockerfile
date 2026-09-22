@@ -75,6 +75,8 @@ COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 # it fails startup with exit 127 and seeds nothing.
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
+COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
+COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 defs/opencode/entrypoint.sh /entrypoint.sh
 
 USER ${USER_NAME}

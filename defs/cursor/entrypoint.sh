@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_experiments/docker-sandbox.puml
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_experiments/docker-sandbox.puml, _spec/packages/lib/github-ssh-hosts.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -44,6 +44,7 @@ seed_defaults() {
 }
 seed_defaults
 ensure_git_safe_directory "$(pwd)"
+ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
 configure_proxy_compat() {
@@ -80,7 +81,7 @@ deny_count="$(jq -r '(.permissions.deny // []) | length' "$CURSOR_HOME/cli-confi
 deny_count="${deny_count:-0}"
 echo "Deny rules (survive --force): ${deny_count} — $CURSOR_HOME/cli-config.json"
 if [[ -f /etc/cursor/hooks.json ]]; then
-  echo "Shell audit hook: /etc/cursor/hooks.json (enterprise layer, root-owned, fail-open)"
+  echo "Enterprise hooks: /etc/cursor/hooks.json (shell audit + git-sync stop, root-owned)"
 fi
 
 agent_files=()

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# SPEC: _spec/_devops/git-hooks.puml
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+src="$root/scripts/githooks/post-commit"
+dst="$root/.git/hooks/post-commit"
+[[ -s "$src" ]] || { printf 'missing %s\n' "$src" >&2; exit 1; }
+mkdir -p "$root/.git/hooks"
+cp "$src" "$dst"
+chmod 0755 "$dst"
+printf 'installed %s\n' "$dst"
