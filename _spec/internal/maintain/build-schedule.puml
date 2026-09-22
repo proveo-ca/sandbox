@@ -1,0 +1,60 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: execute order and cache reuse for proveo build and deploy
+' covers: internal/maintain/**
+' covers: cmd/proveo/maintain_cmd.go
+' covers: defs/lib/docker-build.sh
+' covers: defs/**/Dockerfile
+' covers: internal/contract/image_build_cache_test.go
+' covers: cmd/proveo/maintain_cmd_test.go
+' browser variants layer on the harness ... _spec/defs/browser-layer.puml
+' size of that layer ................ _spec/_plans/image-size-reduction.puml
+' standing pipeline .......... _spec/internal/maintain/image-build-deploy.puml
+' which driver, FROM where ... _spec/_devops/buildx-driver-selection.puml
+title Build schedule — bases serial, then a concurrent wave
+
+component "Schedule(ts)" as SCH <<app>>
+component "base waves\none target each" as BASES <<app>>
+component "harness + sidecar wave\nconcurrent when disjoint" as WAVE <<app>>
+component "dependents after parent\n-browser and solidity" as SOL <<app>>
+component "elapsed per name\nsummary requires a duration" as ELAP <<app>>
+component "type=local mode=max\n--load and --push" as CACHE <<app>>
+component "RUN --mount=type=cache\napt · npm · go · pip" as MOUNT <<app>>
+
+SCH ARROW_MAIN BASES
+BASES ARROW_MAIN WAVE
+WAVE ARROW_MAIN SOL
+SCH ARROW_MAIN ELAP
+CACHE ARROW_MAIN SCH
+MOUNT ARROW_MAIN SCH
+
+note bottom of BASES
+  **Bases stay one at a time.** Each
+  image is FROM the previous base,
+  so a parallel wave would build the
+  child before that parent exists.
+end note
+
+note bottom of WAVE
+  **Registry order is dependency
+  order, not execute order.** Harnesses
+  with disjoint parents, plus both
+  sidecars, share one concurrent wave.
+end note
+
+note bottom of CACHE
+  **Deploy still rebuilds on push.**
+  That build uses the other driver,
+  and both modes share one local cache
+  so the host architecture can hit.
+end note
+
+note bottom of MOUNT
+  **A cache mount is not a layer.**
+  Apt, npm, Go, and pip keep their
+  downloads across a version bump, and
+  each image owns its mount id.
+end note
+
+@enduml

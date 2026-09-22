@@ -72,8 +72,9 @@ title Agent version pin — the image carries the release build.sh resolved, and
 '    with nothing in the build saying so.
 '
 ' Still unpinned, and known to be (see _spec/_plans/image-size-reduction.puml
-' item (c) for the full list): the six LSP servers in base-node-lsp, cursor's
-' two `go install …@latest`, `plantuml-lsp@latest` in defs/base, and `mise.run`.
+' item (c) for the full list): the six LSP servers in base-node-lsp.
+' The lsp-builder go installs and plantuml-lsp are pinned
+' (_spec/internal/maintain/build-schedule.puml).
 '
 ' ── TWO PINS IN ONE IMAGE: cecli ───────────────────────────────────────────
 ' cecli resolves BOTH cecli-dev and serena-agent through the same resolver, into

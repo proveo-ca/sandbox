@@ -9,13 +9,19 @@
 ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
 
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
+ARG PLANTUML_LSP_VERSION=v0.5.3
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-RUN CGO_ENABLED=0 GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
+RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
+    go mod download
+RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=proveo-base-gocache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=0 GOBIN=/out go install "github.com/ptdewey/plantuml-lsp@${PLANTUML_LSP_VERSION}"
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=proveo-base-gocache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 
 # ── THE SUPPORTED BASE ──────────────────────────────────────────────────────
 # "Custom templates are reusable sandbox images that EXTEND ONE OF THE BUILT-IN
@@ -58,11 +64,13 @@ COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/p
 # toolchains, so the GitHub CLI keyring dance this file used to perform is
 # gone with the package it installed.
 # SPEC: _spec/_plans/image-size-reduction.puml
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-base-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-base-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
        dumb-init passwd tmux graphviz iptables \
        fontconfig fonts-dejavu-core libharfbuzz0b \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
 # The jlink'd JRE is gone: the template ships a full JDK 25. /opt/jre stays as

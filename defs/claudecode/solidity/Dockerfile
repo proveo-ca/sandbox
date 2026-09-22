@@ -13,23 +13,25 @@ ENV PYTHONPYCACHEPREFIX=/tmp/proveo-pycache
 
 ARG SEMGREP_VERSION=1.176.1
 ARG SOLC_SELECT_VERSION=1.2.0
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-solidity-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-solidity-apt-lists,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,id=proveo-solidity-pip,target=/root/.cache/pip,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends python3-venv \
-    && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/security \
-    && /opt/security/bin/pip install --no-cache-dir --no-compile \
+    && env -u PIP_NO_CACHE_DIR /opt/security/bin/pip install --no-compile \
          "semgrep==${SEMGREP_VERSION}" "solc-select==${SOLC_SELECT_VERSION}" \
     && /opt/security/bin/pip show semgrep | grep -qx "Version: ${SEMGREP_VERSION}" \
     && /opt/security/bin/pip show solc-select | grep -qx "Version: ${SOLC_SELECT_VERSION}" \
     && ln -sf /opt/security/bin/semgrep /usr/local/bin/semgrep \
     && ln -sf /opt/security/bin/solc-select /usr/local/bin/solc-select \
     && ln -sf /opt/security/bin/solc /usr/local/bin/solc \
-    && rm -rf /root/.cache /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
 ARG SOLHINT_VERSION=6.2.4
-RUN npm install -g --no-optional "solhint@${SOLHINT_VERSION}" \
-    && npm cache clean --force \
+RUN --mount=type=cache,id=proveo-solidity-npm,target=/root/.npm,sharing=locked \
+    npm install -g --no-optional "solhint@${SOLHINT_VERSION}" \
     && solhint --version | grep -qF "${SOLHINT_VERSION}" \
     && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt

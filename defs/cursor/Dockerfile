@@ -2,9 +2,13 @@
 ARG BASE_IMAGE=proveo/base:latest
 
 FROM golang:1.26-trixie AS lsp-builder
+ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1
+ARG GOPLS_VERSION=v0.23.0
 ENV CGO_ENABLED=0
-RUN go install github.com/isaacphi/mcp-language-server@latest \
-    && go install golang.org/x/tools/gopls@latest
+RUN --mount=type=cache,id=proveo-cursor-gomod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=proveo-cursor-gocache,target=/root/.cache/go-build,sharing=locked \
+    go install "github.com/isaacphi/mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}" \
+    && go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
 FROM ${BASE_IMAGE}
 
@@ -44,10 +48,12 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
     fi \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-cursor-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-cursor-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     unzip \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
 # SPEC: _spec/_plans/image-size-reduction.puml

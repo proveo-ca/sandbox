@@ -15,9 +15,8 @@ usage() {
 Usage:
   ./build.sh [--tag <tag>] [--browser] [--no-cache] [--push]
 
-Builds the cursor harness image. --browser builds the cursor-browser variant
-FROM proveo/base-node-browser (Playwright + Chromium) so cursor-agent can drive a
-browser (e.g. via a Playwright MCP) instead of the lean base.
+Builds the cursor harness image. --browser layers Playwright and Chromium
+onto proveo/cursor, tagged proveo/cursor-browser.
 EOF
 }
 
@@ -54,13 +53,21 @@ done
 
 if [[ "$BROWSER" == 1 ]]; then
   IMAGE_NAME="${PROVEO_CURSOR_BROWSER_IMAGE:-proveo/cursor-browser:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
-else
-  IMAGE_NAME="${PROVEO_CURSOR_IMAGE:-proveo/cursor:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$TAG")"
-  "$SCRIPT_DIR/../base/ensure.sh" --tag "$TAG" ${PUSH:+--push}
+  PARENT="$(proveo_image_ref PROVEO_CURSOR_IMAGE proveo/cursor "$TAG")"
+  if [[ -n "$PUSH" ]]; then
+    proveo_require_published "$PARENT" "$TAG" || exit 1
+  elif ! docker image inspect "$PARENT" >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build.sh" --tag "$TAG" ${NO_CACHE:+--no-cache}
+  fi
+  LAYER_DIR="$(cd "$SCRIPT_DIR/../base-node-browser" && pwd)"
+  echo "Building $IMAGE_NAME on $PARENT..."
+  proveo_build_browser_variant "$PARENT" "$IMAGE_NAME" cursor "$LAYER_DIR" ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE}
+  exit 0
 fi
+
+IMAGE_NAME="${PROVEO_CURSOR_IMAGE:-proveo/cursor:$TAG}"
+BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_IMAGE proveo/base "$TAG")"
+"$SCRIPT_DIR/../base/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 
 CURSOR_INSTALL_URL="${CURSOR_INSTALL_URL:-https://cursor.com/install}"
 CURSOR_AGENT_VERSION="$(proveo_agent_version CURSOR_AGENT_VERSION cursor "$CURSOR_INSTALL_URL")"

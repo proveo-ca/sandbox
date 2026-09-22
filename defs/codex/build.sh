@@ -22,10 +22,8 @@ Builds the codex harness image (proveo/codex) FROM proveo/base-node-lsp — the
 shared base that carries node plus the workspace language servers the entrypoint
 wires into Codex as MCP servers.
 
---browser builds the same Dockerfile FROM proveo/base-node-browser (Playwright +
-Chromium), tagged proveo/codex-browser, so codex can drive a browser (e.g. via a
-Playwright MCP). That base is itself FROM base-node-lsp, so the browser variant
-keeps the language servers rather than trading them away.
+--browser layers Playwright and Chromium onto proveo/codex, tagged
+proveo/codex-browser. The parent already carries the language servers.
 
 --codex-version pins @openai/codex (default: latest). Also settable as
 CODEX_VERSION in the environment.
@@ -70,13 +68,21 @@ done
 
 if [[ "$BROWSER" == 1 ]]; then
   IMAGE_NAME="${PROVEO_CODEX_BROWSER_IMAGE:-proveo/codex-browser:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
-else
-  IMAGE_NAME="${PROVEO_CODEX_IMAGE:-proveo/codex:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")"
-  "$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
+  PARENT="$(proveo_image_ref PROVEO_CODEX_IMAGE proveo/codex "$TAG")"
+  if [[ -n "$PUSH" ]]; then
+    proveo_require_published "$PARENT" "$TAG" || exit 1
+  elif ! docker image inspect "$PARENT" >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build.sh" --tag "$TAG" --codex-version "$CODEX_VERSION" ${NO_CACHE:+--no-cache}
+  fi
+  LAYER_DIR="$(cd "$SCRIPT_DIR/../base-node-browser" && pwd)"
+  echo "Building $IMAGE_NAME on $PARENT..."
+  proveo_build_browser_variant "$PARENT" "$IMAGE_NAME" codex "$LAYER_DIR" ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE}
+  exit 0
 fi
+
+IMAGE_NAME="${PROVEO_CODEX_IMAGE:-proveo/codex:$TAG}"
+BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")"
+"$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 
 echo "Building $IMAGE_NAME from base $BASE_IMAGE (@openai/codex@$CODEX_VERSION)..."
 proveo_docker_build ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE} \

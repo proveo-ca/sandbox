@@ -31,7 +31,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG NODE_VERSION=22.23.2
 ARG NODE_SHA256_X64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
 ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8
-RUN set -e; \
+RUN --mount=type=cache,id=proveo-base-node-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-base-node-apt-lists,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,id=proveo-base-node-npm,target=/root/.npm,sharing=locked \
+    set -e; \
     case "$(uname -m)" in \
       x86_64|amd64)  node_arch=x64;   node_sha="${NODE_SHA256_X64}" ;; \
       aarch64|arm64) node_arch=arm64; node_sha="${NODE_SHA256_ARM64}" ;; \
@@ -52,9 +55,8 @@ RUN set -e; \
     test "$(command -v node)" = "/usr/local/bin/node"; \
     test "$(node --version)" = "v${NODE_VERSION}"; \
     npm install -g pnpm@10.33.0; \
-    npm cache clean --force; \
     rm -rf /usr/include/node /usr/local/include/node; \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
+    rm -rf /tmp/* /var/tmp/*; \
     /usr/local/sbin/proveo-harden /usr /opt
 
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml

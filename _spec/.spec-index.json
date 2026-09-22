@@ -305,17 +305,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/image-build-wall-clock.puml",
-      "covers": [
-        "cmd/proveo/maintain_cmd.go",
-        "internal/maintain/**",
-        "defs/lib/docker-build.sh",
-        "defs/**/Dockerfile",
-        "mise.toml"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/image-size-reduction.puml",
       "covers": [
         "defs/**/Dockerfile",
@@ -876,6 +865,18 @@
       "covers": [
         "internal/gitidentity/gitidentity.go",
         "internal/gitidentity/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/maintain/build-schedule.puml",
+      "covers": [
+        "internal/maintain/**",
+        "cmd/proveo/maintain_cmd.go",
+        "cmd/proveo/maintain_cmd_test.go",
+        "defs/lib/docker-build.sh",
+        "defs/**/Dockerfile",
+        "internal/contract/image_build_cache_test.go"
       ],
       "fingerprint": null
     },

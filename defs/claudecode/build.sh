@@ -18,8 +18,8 @@ Usage:
 
 Builds the claudecode harness images. Defaults to all variants.
 solidity = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
---browser = the mcp image FROM proveo/base-node-browser (Playwright + Chromium),
-tagged proveo/claudecode-browser.
+--browser layers Playwright and Chromium onto proveo/claudecode, tagged
+proveo/claudecode-browser.
 EOF
 }
 
@@ -72,9 +72,15 @@ build_variant() {
 }
 
 if [[ "$BROWSER" == 1 ]]; then
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
-  build_variant mcp proveo/claudecode-browser \
-    "$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
+  PARENT="proveo/claudecode:$TAG"
+  if [[ -n "$PUSH" ]]; then
+    proveo_require_published "$PARENT" "$TAG" || exit 1
+  elif ! docker image inspect "$PARENT" >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build.sh" --variant mcp --tag "$TAG" ${NO_CACHE:+--no-cache}
+  fi
+  LAYER_DIR="$(cd "$SCRIPT_DIR/../base-node-browser" && pwd)"
+  echo "Building proveo/claudecode-browser:$TAG on $PARENT..."
+  proveo_build_browser_variant "$PARENT" "proveo/claudecode-browser:$TAG" claude "$LAYER_DIR" ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE}
   exit 0
 fi
 

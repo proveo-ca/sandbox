@@ -7,8 +7,11 @@ ARG BASE_IMAGE=proveo/base-node-lsp:latest
 # mcp-language-server — without this binary configure_codex_lsp finds nothing on
 # PATH and returns 0, and the wiring is silently absent rather than broken.
 FROM golang:1.26-trixie AS lsp-builder
+ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1
 ENV CGO_ENABLED=0
-RUN go install github.com/isaacphi/mcp-language-server@latest
+RUN --mount=type=cache,id=proveo-codex-gomod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=proveo-codex-gocache,target=/root/.cache/go-build,sharing=locked \
+    go install "github.com/isaacphi/mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}"
 
 # proveo-entrypoint is inherited from proveo/base-node (built once in defs/base).
 FROM ${BASE_IMAGE}
@@ -53,9 +56,11 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-codex-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-codex-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
 # Static docker CLI only. sbx gives each sandbox its own Docker daemon, but it runs
@@ -92,7 +97,8 @@ COPY --from=lsp-builder /go/bin/mcp-language-server /usr/local/bin/
 # install script and is the pinnable one — a bare `curl | sh` resolves whatever
 # release is current, which is not a thing an image can reproduce.
 ARG CODEX_VERSION=latest
-RUN npm install -g "@openai/codex@${CODEX_VERSION}" && npm cache clean --force \
+RUN --mount=type=cache,id=proveo-codex-npm,target=/root/.npm,sharing=locked \
+    npm install -g "@openai/codex@${CODEX_VERSION}" \
     && codex --version
 
 # Secure workspace. The workspace root is /app, the same as every other def;

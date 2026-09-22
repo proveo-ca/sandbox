@@ -302,6 +302,48 @@ proveo_docker_registry_dns_help() {
 EOF
 }
 
+proveo_docker_arg_image() {
+  local prev=""
+  for a in "$@"; do
+    if [[ "$prev" == "--tag" || "$prev" == "-t" ]]; then
+      printf '%s' "${a%%:*}"
+      return 0
+    fi
+    prev="$a"
+  done
+  return 1
+}
+
+# SPEC: _spec/internal/maintain/build-schedule.puml
+# local cache exporter, mode=max, shared by --load and --push
+proveo_docker_cache_flags() {
+  case "${PROVEO_BUILDKIT_CACHE:-1}" in
+    0 | false | no | off) return 0 ;;
+  esac
+  local image
+  image="$(proveo_docker_arg_image "$@")" || return 0
+  local root="${PROVEO_BUILDKIT_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/proveo/buildkit}"
+  local dest="${root}/${image}"
+  if ! mkdir -p "$dest"; then
+    echo "⚠️  buildkit cache dir ${dest} is not writable; building without a named cache" >&2
+    return 0
+  fi
+  printf '%s\n' \
+    "--cache-from=type=local,src=${dest}" \
+    "--cache-to=type=local,dest=${dest},mode=max"
+}
+
+proveo_build_browser_variant() {
+  local parent="$1" dest="$2" user_name="$3" layer_dir="$4"
+  shift 4
+  proveo_docker_build "$@" \
+    --build-arg "BASE_IMAGE=${parent}" \
+    --build-arg "USER_NAME=${user_name}" \
+    -f "${layer_dir}/Dockerfile" \
+    -t "${dest}" \
+    "${layer_dir}"
+}
+
 proveo_docker_buildx_invoke() {
   local builder="$1" platforms="$2"
   shift 2
@@ -366,10 +408,17 @@ proveo_docker_build() {
     fi
   fi
 
+  local -a cache_flags=()
+  local cache_text
+  cache_text="$(proveo_docker_cache_flags "${docker_args[@]}")" || return 1
+  if [[ -n "$cache_text" ]]; then
+    mapfile -t cache_flags <<<"$cache_text"
+  fi
+
   local log st
   log="$(mktemp)"
   set +e
-  proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+  proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${cache_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
   st=${PIPESTATUS[0]}
   set -e
 
@@ -382,7 +431,7 @@ proveo_docker_build() {
     echo "⚠️  registry DNS failed; retrying with --pull=false so a local FROM image can satisfy the build" >&2
     pull_flags=(--pull=false)
     set +e
-    proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+    proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${cache_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
     st=${PIPESTATUS[0]}
     set -e
   fi

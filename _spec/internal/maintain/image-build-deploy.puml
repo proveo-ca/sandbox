@@ -5,6 +5,7 @@
 ' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/targets.go
 ' covers: lib/helpers.sh
+' execute order .............. _spec/internal/maintain/build-schedule.puml
 title Maintainer image pipeline — proveo build / test / deploy
 
 actor "Maintainer" as MT
@@ -82,10 +83,10 @@ note bottom of TEST
   (see _spec/tests/20-contract.puml).
 end note
 note bottom of REG
-  **Registry order is build order, and it is hand-made rather than sorted.**
-  The base image first, then harness targets by name, then the egress
-  sidecars — so a caller iterating the registry never builds a child before
-  its parent.
+  **Registry order is dependency order, hand-made rather than sorted.**
+  Bases, then harnesses by name, then the sidecars. Execute order is
+  Schedule: bases one at a time, then one concurrent wave, then
+  claudecode-solidity after claudecode.
 
   **Build and deploy answer different questions, so they are different
   plans.** ""BuildPlan"" leaves the image tagged locally through
