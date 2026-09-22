@@ -9,6 +9,8 @@
 ' covers: e2e/sbx_test.go
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
 ' PARTLY APPLIED — cuts 1-12 landed 2026-09-05. 13 and the inversion are open.
+' Wall-clock of `mise run build all` is a different instrument — see
+' _spec/_plans/image-build-wall-clock.puml. This file is bytes, not minutes.
 ' _spec/_plans/ is exempt from the SPEC-reference rule.
 '
 ' ── WHAT LANDED, AND WHAT THE REBUILD MEASURED ─────────────────────────────

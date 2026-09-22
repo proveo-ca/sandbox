@@ -305,6 +305,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/image-build-wall-clock.puml",
+      "covers": [
+        "cmd/proveo/maintain_cmd.go",
+        "internal/maintain/**",
+        "defs/lib/docker-build.sh",
+        "defs/**/Dockerfile",
+        "mise.toml"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/image-size-reduction.puml",
       "covers": [
         "defs/**/Dockerfile",

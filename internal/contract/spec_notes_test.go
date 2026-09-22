@@ -55,6 +55,7 @@ var specNotesEnforced = []string{
 	"_spec/packages/lib/config-seeding-and-persistence.puml",
 	"_spec/packages/lib/github-ssh-hosts.puml",
 	"_spec/packages/lib/git-sync-turn.puml",
+	"_spec/_plans/image-build-wall-clock.puml",
 	"_spec/_plans/image-size-reduction.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
 	"_spec/packages/lib/seed-and-launch.puml",
