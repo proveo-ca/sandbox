@@ -109,20 +109,21 @@ These surfaces should stay aligned on credential forwarding:
 
 ## Enforcement
 
-The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/ …`, via
-`defs/tests/test_harness_contracts.sh`) and exercised live in each definition's `tests/` suite.
+The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/ …`, part of
+`mise run ci`) and exercised live in each definition's image suite, `internal/imagetest/<name>_test.go`
+(`mise run test-defs <name>` or `proveo test <name>`).
 When you add a definition:
 
 1. Add its entrypoint to the `ensure_runtime_user` / no-gosu loop and add wrapper
  (`--user`, git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
 2. Prefer `proveo-entrypoint` for shared prelude; keep harness-specific launch in `entrypoint.sh`.
-3. Cover the runtime posture in the definition's own `tests/test_security.sh` (runs as the
- baked user, no setuid binaries, no `nc`).
-4. Run `bash defs/tests/test_harness_contracts.sh` — it must pass (delegates to `go test`).
+3. Cover the runtime posture in the definition's image suite, `internal/imagetest/<name>_test.go`
+ (build tag `image`, func `TestImage<Name>`): runs as the baked user, no setuid binaries, no `nc`.
+4. Run `mise run ci` (or `go test ./internal/contract/`) — it must pass.
 
 ## Definition checklist
 
-- `Dockerfile`, `entrypoint.sh`, `run.sh`, `test.sh`, `README.md`, `tests/` (the build recipe is a row in `internal/imagebuild/targets.go`)
+- `Dockerfile`, `entrypoint.sh`, `run.sh`, `README.md` (the build recipe is a row in `internal/imagebuild/targets.go`; the image suite is `internal/imagetest/<name>_test.go`)
  per the [coding harness contract](CODING_HARNESSES.md).
 - A paradigm doc + topology diagram under `_spec/defs/<name>/`, referenced from source via
  `# SPEC:` comments (see `_spec/_conventions/spec-conventions.puml` for the lifecycle rules).

@@ -23,12 +23,12 @@ const (
 
 // Target is one buildable/deployable image in the maintainer registry.
 type Target struct {
-	Name       string // e.g. "claudecode-solidity"
-	Kind       string // KindBase | KindHarness | KindSidecar
-	Image      string // org/name without a tag, e.g. "proveo/claudecode-solidity"
-	DefDir     string // def directory holding the Dockerfile / test.sh
-	RepoRoot   string // build context root
-	TestScript string // DefDir/test.sh (may not exist; TestPlan checks at run time)
+	Name     string // e.g. "claudecode-solidity"
+	Kind     string // KindBase | KindHarness | KindSidecar
+	Image    string // org/name without a tag, e.g. "proveo/claudecode-solidity"
+	DefDir   string // def directory holding the Dockerfile
+	RepoRoot string // build context root
+	Suite    string // image test suite: internal/imagetest/<Suite>_test.go (may not exist)
 }
 
 var sidecars = []string{"egress-proxy", "mitmproxy"}
@@ -66,7 +66,7 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 
 	for i := range out {
 		out[i].RepoRoot = filepath.Dir(defsDir)
-		out[i].TestScript = filepath.Join(out[i].DefDir, "test.sh")
+		out[i].Suite = filepath.Base(out[i].DefDir)
 	}
 	return out
 }
@@ -227,12 +227,13 @@ func overlayEnv(env []string) func(string) string {
 	}
 }
 
-// TestPlan runs the def's test.sh.
+// TestPlan runs the def's image suite.
 func (t Target) TestPlan(exists func(string) bool) []Command {
-	if t.TestScript == "" || !exists(t.TestScript) {
+	if t.Suite == "" || !exists(filepath.Join(t.RepoRoot, "internal", "imagetest", t.Suite+"_test.go")) {
 		return nil
 	}
-	return []Command{{Dir: t.DefDir, Argv: []string{"bash", t.TestScript}}}
+	name := "TestImage" + strings.ToUpper(t.Suite[:1]) + t.Suite[1:]
+	return []Command{{Dir: t.RepoRoot, Argv: []string{"go", "test", "-tags=image", "-count=1", "-v", "-run", "^" + name + "$", "./internal/imagetest/"}}}
 }
 
 func stripTag(image string) string {

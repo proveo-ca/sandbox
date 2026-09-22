@@ -12,6 +12,7 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/*_test.go
 ' covers: internal/runner/*_test.go
 ' covers: internal/egress/plan_test.go
+' covers: internal/imagetest/**
 
 title Layer 2 · Contract — Go builders + goldens (no Docker)
 
@@ -26,8 +27,8 @@ package "Contract suites (Go)" as Suites {
   component "shim / Dockerfile\nstructural asserts (Go)" as Struct <<app>>
 }
 
-package "Residual bash (optional)" as Bash {
-  component "defs/*/tests/test_build.sh\ntest_llm.sh (live keys)" as Residual <<app>>
+package "Image suites (opt-in, -tags=image)" as Bash {
+  component "internal/imagetest\nTestImage<Def> · live-LLM checks skip without keys" as Residual <<app>>
 }
 
 package "Assertion targets" as Targets {
@@ -48,7 +49,9 @@ Deterministic; no Docker.
 end note
 
 note right of Bash
-Image smoke and live LLM stay bash/gated until Stage 3.
-run_contract_tests.sh becomes a thin go test wrapper.
+Image and live-LLM checks are Go since 2026-09-22
+(host-shell-to-go P3). They need a built image, so
+default go test never compiles them; the shell
+contract wrapper is deleted.
 end note
 @enduml

@@ -10,9 +10,18 @@ skinparam noteTextAlignment left
 ' covers: defs/*/Dockerfile
 ' covers: internal/contract/base_template_test.go
 ' covers: internal/contract/bun_toolchain_test.go
+' covers: internal/imagetest/cursor_test.go
 ' Lineage and tagging: image-lineage-and-publish.puml (same directory).
 ' Why the rebase happened: _spec/_plans/image-size-reduction.puml (Cut 4).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' TestImageCursor (internal/imagetest/cursor_test.go) pins two consequences.
+' "harden pass leaves no setuid binary, sudo included": the template ships a
+' setuid sudo and the harden pass must still take it — dockerd runs as root
+' from the VM's init and the socket is reached through the docker group, so
+' nothing in the daemon path needs sudo (measured; see the correction below).
+' "docker client comes from the sandbox template" / "docker Engine comes from
+' the -docker template variant": presence, not absence, is the contract.
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   templates   : https://docs.docker.com/ai/sandboxes/customize/templates/
@@ -91,8 +100,10 @@ skinparam noteTextAlignment left
 '             uid through the DOCKER GROUP with no sudo anywhere
 '
 ' So the exemption protected a privilege nothing uses, and it cost the "no
-' setuid binaries" contract asserted by test_security.sh in claudecode, cursor
-' and opencode — which is how it was caught: `mise run test-images` against the
+' setuid binaries" contract asserted by the security phase in claudecode, cursor
+' and opencode (then test_security.sh; now the "no setuid binaries" checks in
+' internal/imagetest/{claudecode,cursor,opencode}_test.go) — which is how it
+' was caught: `mise run test-images` against the
 ' LOCAL build, red on exactly that line. The blanket strip is restored.
 '
 ' The section below is kept because the trap it describes is real — a blanket
@@ -118,7 +129,8 @@ skinparam noteTextAlignment left
 '
 ' ── WHAT THE REBASE DOES NOT CHANGE ─────────────────────────────────────────
 ' The per-def rename (agent -> claude/cursor/opencode/cecli, home symlinked back
-' to /home/agent) STAYS. defs/claudecode/tests/test_workspace.sh asserts both
+' to /home/agent) STAYS. TestImageClaudecode's workspace phase (ccWorkspace in
+' internal/imagetest/claudecode_test.go) asserts both
 ' halves — "HOME is /home/agent" and "/home/claude resolves to /home/agent" — so
 ' collapsing it to the template's bare `agent` would be a one-line change that
 ' reddens the suite. It is redundant on this base, not harmful.

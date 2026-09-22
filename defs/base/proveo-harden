@@ -20,7 +20,7 @@
 #     `docker ps` answers for the runtime uid with no sudo anywhere
 #
 # So the exemption bought nothing that is used, and cost the "no setuid
-# binaries" contract that defs/{claudecode,cursor,opencode}/tests/test_security.sh
+# binaries" contract that internal/imagetest/{claudecode,cursor,opencode}_test.go
 # assert. The blanket strip is back.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/defs/harden-pass.puml
 

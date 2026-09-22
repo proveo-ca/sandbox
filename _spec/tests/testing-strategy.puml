@@ -2,22 +2,54 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Testing strategy — four layers, speed traded for fidelity
 
-' purpose: the four test layers, and the failure modes the def-level bash suites
+' purpose: the four test layers, and the failure modes the def-level image suites
 '          have actually exhibited — every one of them a test that passed
 ' covers: internal/contract/**
 ' covers: e2e/**
 ' covers: internal/tmux/**
 ' covers: defs/tests/**
-' covers: defs/*/test.sh
-' covers: defs/*/tests/*.sh
-' covers: defs/sidecars/mitmproxy/test.sh
+' covers: internal/imagetest/**
 ' covers: e2e/preconditions_test.go (skipOutsideSbx)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
-' Image resolution for these suites (proveo_test_image in defs/lib/test-image.sh,
-' and why :latest could only
+' Image resolution for these suites (imagetest.Resolve in
+' internal/imagetest/imagetest.go, and why :latest could only
 ' ever mean "whatever the registry last published") is
 ' _spec/_devops/image-lineage-and-publish.puml.
+'
+' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
+' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
+' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke
+' and the mitmproxy sidecar is TestImageMitmproxy. `proveo test <target>` and
+' `mise run test-defs <target>` run
+'   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
+' The five failure modes below were found in the BASH suites that preceded
+' them (defs/*/test.sh, defs/*/tests/*.sh, deleted in P3). They are kept
+' because each is a shape a Go suite can reproduce, not a bash quirk alone.
+'
+' ONE CHECK, ONE SUBTEST. imagetest.Suite.Check runs every assertion as its own
+' t.Run named by its description, so a check that errors fails ITSELF and the
+' next check still runs. The shell suites sourced every phase into one
+' `set -euo pipefail` process, and that turned an unguarded non-zero into a
+' silent abort of everything after it. Two measured instances, beyond #4 below:
+'   * cursor aborted at check 21 (exit 127): "[browser] bun (from
+'     proveo/base-node) runs TypeScript" ran `bun` in cursor-browser, which has
+'     none — it layers onto the bun-free cursor image, and check 14 asserts
+'     that absence. assert_output_contains called docker_exec unguarded, so
+'     phases 3–6 (security, config, defaults, llm) never ran. The check was
+'     DROPPED from cursor's suite; opencode's twin stays, because base-node
+'     really provides bun there.
+'   * claudecode's chrome-bridge phase read a script with `read -d ''`, which
+'     returns 1 at EOF because no NUL delimiter arrives. Without `|| true` that
+'     line killed the sourced script before a single Phase 10 assertion ran,
+'     and it stayed invisible while an earlier phase always failed first.
+'     ccChromeBridge (claudecode_test.go) holds the script as a Go string.
+'
+' A FAKE HARNESS BINARY KEEPS AN ENTRYPOINT TEST ON THE ENTRYPOINT. codex's and
+' cursor's config checks put a stub `codex` / `agent` first on PATH that prints
+' the argv it received. The test then reads what the ENTRYPOINT built — posture
+' flags, --model, --json placement — with no network, no credential, and no
+' vendor CLI interpreting the flags.
 '
 ' ── FOUR WAYS A def SUITE REPORTED PASS WHILE TESTING NOTHING ───────────────
 ' Recorded because each cost real time, and because all four are shapes rather
@@ -96,19 +128,26 @@ title Testing strategy — four layers, speed traded for fidelity
 ' image rather than a stale test.
 '
 ' So the roster is READ FROM THE IMAGE. A list copied into a test drifts silently
-' the moment the roster changes; cecli's test.sh already took this approach
-' ("read from the image, never restated here") and did not go stale.
+' the moment the roster changes; cecli's suite already took this approach
+' ("read from the image, never restated here") and did not go stale. It is
+' TestImageCecli in internal/imagetest/cecli_test.go now.
 ' `tools:` and `readonly: true` moved with them, into the per-harness FRONTMATTER
 ' (_frontmatter/<harness>/<agent>.yaml) that render_subagents applies to the
 ' shared body — the bodies never carried either, so they are asserted there.
 ' See _spec/defs/agent-definition-sharing.puml.
 '
 ' ── WHAT A def SUITE IS ALLOWED TO ASSERT ───────────────────────────────────
-' These suites assert what the IMAGE carries. When cursor's test_tools.sh was
+' These suites assert what the IMAGE carries. When cursor's tool checks were
 ' INVERTED on 2026-09-05 to expect NO docker binaries, that was correct for
-' exactly this reason: the image now deliberately carries none. Whether a sandbox
+' exactly this reason: the image then deliberately carried none. Whether a sandbox
 ' can still REACH a daemon is a different question, owned by e2e/sbx_test.go's
 ' assertSandboxSuppliesDocker, which was deliberately not inverted.
+' The rebase onto docker/sandbox-templates RE-INVERTED them. The absence checks
+' assumed the image would get docker from sbx at runtime, and a live sandbox
+' measured that false: no client, no daemon, no socket. The -docker template
+' carries both, so presence is the contract again, and `docker: sbx` in the
+' manifest is a promise the image can keep (_spec/_devops/sandbox-template-
+' rebase.puml). TestImageCursor's tool phase (cursor_test.go) asserts presence.
 '
 ' ── WHEN A def SUITE MAY SKIP RATHER THAN ASSERT ────────────────────────────
 ' Only when the property is IMPOSSIBLE on the host running the suite, never when
@@ -489,8 +528,8 @@ title Testing strategy — four layers, speed traded for fidelity
 ' e2e/go-testing-standards.md, is where the rule is stated for the people
 ' writing these tests; this block is why it holds.
 '
-' The sweep narrows with it: `mise run test-e2e` drops
-' e2e/docker-detached-smoke.sh and defs/sidecars/mitmproxy/test.sh, and the
+' The sweep narrows with it: `mise run test-e2e` (via test-images-sbx) drops
+' TestImageDetachedSmoke and TestImageMitmproxy (internal/imagetest), and the
 ' Layer-3 egress integration task (`test-go-integration`) stays outside it —
 ' Layer 3 is where the egress topology is still exercised, deliberately, by a
 ' task nobody runs on the PR path.
@@ -610,7 +649,7 @@ note right of L2
   the argv/plan, rather than grepping source for literal
   strings. A grep contract survives the deletion of the
   thing it claimed to test — it passes while testing
-  nothing. Bash remains only for image smoke suites.
+  nothing. Image suites are Go too (-tags=image).
 end note
 
 note right of L4
@@ -819,11 +858,11 @@ note as ROSTER
 end note
 
 note as DEFTESTS
-  **Each def ships its own container test suite**, and they share a shape:
-  a helper that runs a command inside the built image and captures output
-  for assertions, plus a portable timeout — GNU ships ""timeout"", macOS
-  ships it as ""gtimeout"" via coreutils, and where neither exists the suite
-  degrades rather than failing on the tooling.
+  **Each def has its own image suite** in ""internal/imagetest"", and they
+  share one framework: ""imagetest.Suite"" runs a command inside the built
+  image and asserts on its output, one subtest per check. A context
+  deadline bounds every docker call, so no host ""timeout""/""gtimeout""
+  binary is needed — macOS ships neither by default.
 
   Two habits worth keeping when editing them. The entrypoint is exercised
   by mounting a fixture project and **short-circuiting the final exec**

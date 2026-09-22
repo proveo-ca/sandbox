@@ -91,8 +91,8 @@ func TestNoEnvVarsPresentedAsControlsThatNothingReads(t *testing.T) {
 				t.Errorf("%s declares %s, which nothing in the tree reads", rel, v)
 			}
 		}
-		if strings.Contains(readRepoFile(t, "defs/claudecode/tests/test_security.sh"), v) {
-			t.Errorf("test_security.sh asserts %s — that certifies a non-control as a working one", v)
+		if strings.Contains(readRepoFile(t, "internal/imagetest/claudecode_test.go"), v) {
+			t.Errorf("the claudecode image suite asserts %s — that certifies a non-control as a working one", v)
 		}
 	}
 }

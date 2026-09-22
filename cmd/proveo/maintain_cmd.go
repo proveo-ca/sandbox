@@ -412,7 +412,7 @@ func testCmd() *cobra.Command {
 			for _, t := range ts {
 				plan := t.TestPlan(fileExists)
 				if len(plan) == 0 {
-					ui.Notef("no test.sh for %s — skipping", t.Name)
+					ui.Notef("no image suite for %s — skipping", t.Name)
 					continue
 				}
 				ui.Appf("testing %s", t.Name)

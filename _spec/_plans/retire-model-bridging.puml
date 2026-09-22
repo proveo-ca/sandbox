@@ -46,18 +46,31 @@ skinparam noteTextAlignment left
 '    preamble reports. e2e/hello_world_test.go's ""assertModels"" would have caught
 '    this — eight minutes into a docker run, on a lane that needs a live Ollama.
 '
-' 3. TWO DEF IMAGE SUITES STILL ASSERTED THE BRIDGE, and this is the structural
+' 3. THE DEF IMAGE SUITES STILL ASSERTED THE BRIDGE, and this is the structural
 '    lesson: they need a BUILT IMAGE, so they are invisible to ""go test ./...""
-'    and the deletion looked green.
-'      defs/cursor/tests/test_config.sh   3 tests — ARCHITECT_MODEL becomes
-'                                         CURSOR_MODEL, an explicit CURSOR_MODEL
-'                                         outranks it, EDITOR_MODEL fills in
-'      defs/opencode/tests/test_config.sh 2 tests — role names become the three
-'                                         OPENCODE_* vars, and the reverse bridge
-'    All five now assert the RETIREMENT: that a role name reaches the harness as
-'    nothing, and that the harness's OWN var still does. One of them was passing
-'    by accident either way — it grepped ""SMALL_MODEL=xai/grok-4.3"" and
-'    ""OPENCODE_SMALL_MODEL"" matched it as a SUBSTRING.
+'    and the deletion looked green. (They were bash then; since 2026-09-22 they
+'    are Go under ""-tags=image"", internal/imagetest, and the lesson holds.)
+'      cursor's test_config.sh   3 tests — ARCHITECT_MODEL becomes
+'                                CURSOR_MODEL, an explicit CURSOR_MODEL
+'                                outranks it, EDITOR_MODEL fills in
+'      opencode's test_config.sh 2 tests — role names become the three
+'                                OPENCODE_* vars, and the reverse bridge
+'      codex's test_config.sh    2 tests — ARCHITECT_MODEL becomes CODEX_MODEL
+'                                (bare), EDITOR_MODEL fills in when it is unset
+'    All now assert the RETIREMENT: that a role name reaches the harness as
+'    nothing, and that the harness's OWN var still does — an operator who
+'    exports CURSOR_MODEL or CODEX_MODEL is configuring the harness, not asking
+'    proveo to choose, and a retirement that dropped that flag would have taken
+'    a working control with it. codex and cursor read it through a fake harness
+'    binary that prints the --model the entrypoint passed. One opencode test
+'    was passing by accident either way — it grepped ""SMALL_MODEL=xai/grok-4.3""
+'    and ""OPENCODE_SMALL_MODEL"" matched it as a SUBSTRING — so its successor
+'    matches the exact value. Now: TestImageCursor, TestImageOpencode (ocConfig)
+'    and TestImageCodex, in internal/imagetest/{cursor,opencode,codex}_test.go.
+'    opencode's defaults phase (ocDefaults) checks BOTH seed files name no
+'    model, because ""sample_opencode.json"" is the one seed_opencode_config
+'    copies. The detached smoke's .env (TestImageDetachedSmoke) carries only
+'    each harness's OWN model vars: a role name there would set nothing.
 '
 ' 4. THE DOCS STILL ASKED FOR IT. CODING_HARNESSES.md instructed entrypoints to
 '    bridge the three names and to normalise bare ids — a standing instruction to

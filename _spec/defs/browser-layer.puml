@@ -7,9 +7,9 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' covers: defs/base-node-browser/skills/agent-browser/SKILL.md
 ' covers: internal/imagebuild/targets.go
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: defs/cursor/tests/test_tools.sh
-' covers: defs/opencode/tests/test_tools.sh
-' covers: defs/claudecode/tests/test_tools.sh
+' covers: internal/imagetest/cursor_test.go
+' covers: internal/imagetest/opencode_test.go
+' covers: internal/imagetest/claudecode_test.go
 ' covers: internal/contract/browser_layer_test.go
 '
 ' ── ONE CHROMIUM, ENFORCED BY A GUARD RATHER THAN BY A COMMENT ──────────────
@@ -44,8 +44,14 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' deliberately NOT asserted here — a buildkit RUN is not the container the image
 ' will run in. It is covered by the base-node-browser row's floor probe
 ' (browserFloor in internal/imagebuild/targets.go; moved from
-' defs/base-node-browser/ensure.sh 2026-09-22) and by each def's
-' tests/test_tools.sh.
+' defs/base-node-browser/ensure.sh 2026-09-22) and by each harness suite's
+' "[browser]" checks in internal/imagetest.
+'
+' The browser layer installs no bun. cursor-browser applies it onto the bun-free
+' cursor image (browserOf in targets.go), so it has none; opencode-browser has
+' bun because opencode's lineage runs through proveo/base-node. cursor's "[browser] bun … runs
+' TypeScript" check was therefore dropped in host-shell-to-go P3, and
+' opencode's twin stays.
 '
 ' The floor probe is the layer's contract restated as a runnable check: node,
 ' playwright and typescript-language-server on PATH, a `chromium-*` directory

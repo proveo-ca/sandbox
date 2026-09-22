@@ -27,12 +27,12 @@ package "Installer" as Install {
 
 package "Definition shims\ndefs/<target>/" as Shims {
  component "run.sh → proveo run <target>" as RunShim <<script>>
- component "test.sh" as BuildTest <<script>>
 }
 
 package "Maintainer\nmise + lib/" as Maint {
  component "mise build|test|deploy" as Mise <<internal>>
  component "proveo build · deploy\ninternal/maintain → internal/imagebuild" as MaintLib <<internal>>
+ component "proveo test <target>\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
 }
 
 package "Registration" as Reg {

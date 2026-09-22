@@ -16,6 +16,7 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: e2e/chrome_bridge_test.go
 ' covers: e2e/claude_in_chrome_test.go
+' covers: internal/imagetest/claudecode_test.go (ccChromeBridge)
 '
 ' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
 ' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,

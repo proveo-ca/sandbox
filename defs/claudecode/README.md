@@ -8,13 +8,13 @@ Candidate coding harness definition. This definition exposes:
 
 - variant `Dockerfile`s under `mcp/` and `solo/`
 - root `run.sh`
-- root `test.sh`
 - variant `entrypoint.sh` scripts under `mcp/` and `solo/`
 - `README.md`
 - sample Claude settings/config files under each variant
-- `tests/`
 
-Each variant owns its image-local `entrypoint.sh`. The root command surface is `run.sh` and `test.sh` (builds are `mise run build claudecode[-solidity|-browser]`); root `run.sh` delegates to the variant runners.
+Its image suite is `internal/imagetest/claudecode_test.go` (`TestImageClaudecode`).
+
+Each variant owns its image-local `entrypoint.sh`. The root command surface is `run.sh` (builds are `mise run build claudecode[-solidity|-browser]`, tests are `mise run test-defs claudecode`); root `run.sh` delegates to the variant runners.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
@@ -101,7 +101,7 @@ Variant runners mount:
 Run tests:
 
 ```bash
-./test.sh
+mise run test-defs claudecode      # or: proveo test claudecode
 ```
 
 Open a variant debug shell through the parent run wrapper:

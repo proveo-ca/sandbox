@@ -199,7 +199,7 @@ func TestTheHarnessDocDoesNotAskForRoleBridging(t *testing.T) {
 
 // THE DEF SUITES ASSERT THE RETIREMENT, NOT THE BRIDGE. Two of them asserted the
 // bridge — that ARCHITECT_MODEL became OPENCODE_MODEL, that it became CURSOR_MODEL
-// — and because a shell suite needs a built image, neither failed in
+// — and because an image suite needs a built image, neither failed in
 // `go test ./...`. They would have failed on the next image run instead, with the
 // deletion long since merged.
 //
@@ -209,13 +209,13 @@ func TestTheHarnessDocDoesNotAskForRoleBridging(t *testing.T) {
 // cannot draw it flags the correct test and gets deleted.
 func TestTheDefSuitesAssertTheRetirementRatherThanTheBridge(t *testing.T) {
 	for _, c := range []struct{ rel, want, why string }{
-		{"defs/opencode/tests/test_config.sh", `SAW OPENCODE_MODEL=\[\]`,
+		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_MODEL=[]`,
 			"that a role name in .env reaches opencode as nothing"},
-		{"defs/opencode/tests/test_config.sh", `SAW OPENCODE_SMALL_MODEL=\[xai/grok-4.3\]`,
+		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_SMALL_MODEL=[xai/grok-4.3]`,
 			"that opencode's OWN variable still survives load_env"},
-		{"defs/cursor/tests/test_config.sh", `PASSED_MODEL=explicit-model`,
+		{"internal/imagetest/cursor_test.go", `PASSED_MODEL=explicit-model`,
 			"that cursor's OWN CURSOR_MODEL still reaches --model"},
-		{"defs/cursor/tests/test_config.sh", `no role name in .env reaches cursor's --model`,
+		{"internal/imagetest/cursor_test.go", `no role name in .env reaches cursor's --model`,
 			"that a role name never becomes cursor's --model"},
 	} {
 		if !strings.Contains(repoFile(t, c.rel), c.want) {

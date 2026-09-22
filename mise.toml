@@ -44,6 +44,7 @@ if [[ -n "${unformatted}${unformatted_root}" ]]; then
   exit 1
 fi
 go vet ./...
+go vet -tags=image ./internal/imagetest/
 golangci-lint run
 printf '\\n✅ lint succeeded.\\n'
 """
@@ -166,31 +167,18 @@ run = "scripts/go-test-coverage.sh merge"
 [tasks.test-images]
 description = "Docker/image + consumer CLI suites (needs Docker; slow)"
 dir = "{{config_root}}"
-# The shebang is load-bearing: without it mise runs the block under `sh`, and the
-# `tests=(...)` array below is a bash construct dash cannot parse. It failed as
-# `sh: 4: Syntax error: "(" unexpected` AFTER staging had already succeeded, which
-# reads like a broken test script rather than a wrong interpreter.
-# Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
+# The image suites are Go (internal/imagetest, build tag `image`); the CDN stage
+# and the installer's own tests stay shell until P4 of host-shell-to-go.puml.
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 bash scripts/stage-cli-cdn.sh
 
-tests=(
-  "apps/cli/public/cli/tests/run_tests.sh"
-  "e2e/docker-detached-smoke.sh"
-  "defs/cecli/test.sh"
-  "defs/sidecars/mitmproxy/test.sh"
-  "defs/claudecode/test.sh"
-  "defs/codex/test.sh"
-  "defs/opencode/test.sh"
-  "defs/cursor/test.sh"
-)
+printf '\\n==> %s\\n' "apps/cli/public/cli/tests/run_tests.sh"
+apps/cli/public/cli/tests/run_tests.sh
 
-for test_script in "${tests[@]}"; do
-  printf '\\n==> %s\\n' "$test_script"
-  "$test_script"
-done
+printf '\\n==> %s\\n' "internal/imagetest (every def's image suite + detached smoke)"
+go test -tags=image -count=1 -timeout 60m ./internal/imagetest/
 """
 
 [tasks.test-all]
@@ -206,18 +194,10 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 bash scripts/stage-cli-cdn.sh
-tests=(
-  "apps/cli/public/cli/tests/run_tests.sh"
-  "defs/cecli/test.sh"
-  "defs/claudecode/test.sh"
-  "defs/codex/test.sh"
-  "defs/opencode/test.sh"
-  "defs/cursor/test.sh"
-)
-for test_script in "${tests[@]}"; do
-  printf '\\n==> %s\\n' "$test_script"
-  "$test_script"
-done
+printf '\\n==> %s\\n' "apps/cli/public/cli/tests/run_tests.sh"
+apps/cli/public/cli/tests/run_tests.sh
+printf '\\n==> %s\\n' "internal/imagetest (harness image suites)"
+go test -tags=image -count=1 -timeout 60m -run '^TestImage(Cecli|Claudecode|Codex|Opencode|Cursor)$' ./internal/imagetest/
 """
 
 [tasks.test-e2e]

@@ -55,15 +55,17 @@
 ' sidecars belong to the docker backend that retire-dind has now shrunk to a
 ' PROVEO_SBX=0 fallback.
 '
-' Host-side, build time: defs/lib/egress.sh and defs/tests/run_contract_tests.sh.
-' defs/lib/docker-build.sh and every defs/*/build.sh and ensure.sh left this list
-' on 2026-09-22: host-shell-to-go P2 deleted them, and internal/imagebuild prints
-' through internal/ui (Notef/Warnf/Failf). What remains
-' an operator reads during `proveo build`, so they are squarely in scope by
-' locality — and still deferred, because shell cannot import internal/ui. Doing
-' them properly means a sourced defs/lib/ui.sh carrying the same six roles, the
-' same three tiers and the same marks, which is a vocabulary to design rather
-' than a set of strings to swap.
+' Host-side, build time: nothing left. defs/lib/docker-build.sh and every
+' defs/*/build.sh and ensure.sh left this list on 2026-09-22 (host-shell-to-go
+' P2 deleted them, and internal/imagebuild prints through internal/ui:
+' Notef/Warnf/Failf); defs/lib/egress.sh and defs/tests/run_contract_tests.sh
+' followed the same day in P3. Until then those scripts printed where an
+' operator reads during `proveo build`, so they were squarely in scope by
+' locality — and deferred, because shell cannot import internal/ui. Doing them
+' properly would have meant a sourced defs/lib/ui.sh carrying the same six
+' roles, the same three tiers and the same marks, which is a vocabulary to
+' design rather than a set of strings to swap. Porting them to Go made that
+' vocabulary unnecessary for the host side.
 '
 ' WHAT WAS TRIED AND BACKED OUT. docker-build.sh's pin note was converted to a
 ' plain "pin: " tag in the first pass and reverted. (Moot since P2: the pin note
@@ -110,7 +112,7 @@ package "deferred — surface B" as B <<cloud>> {
 
 package "deferred — surface C" as C <<cloud>> {
   component "4 harness entrypoint.sh\n+ 2 sidecar scripts\n~69 lines, in-container" as SHIN <<error>>
-  component "egress.sh · run_contract_tests.sh\nhost build time\n(build scripts → Go, P2)" as SHOUT <<error>>
+  component "egress.sh · run_contract_tests.sh\nhost build time\n(deleted: host-shell-to-go P2, P3)" as SHOUT <<error>>
   component "defs/lib/ui.sh\nsix roles · three tiers\nDOES NOT EXIST" as SHUI <<async>>
 }
 
