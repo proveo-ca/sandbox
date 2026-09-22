@@ -42,6 +42,7 @@ func (ExecDocker) Stream(w io.Writer, args ...string) error {
 
 // Builder holds everything a build reads from its surroundings.
 type Builder struct {
+	RepoRoot string
 	Docker   Docker
 	Getenv   func(string) string
 	Out      io.Writer
@@ -52,9 +53,9 @@ type Builder struct {
 }
 
 // New is a Builder wired to the real host.
-func New() *Builder {
+func New(repoRoot string) *Builder {
 	return &Builder{
-		Docker: ExecDocker{}, Getenv: os.Getenv, Out: os.Stdout, UI: ui.Default,
+		RepoRoot: repoRoot, Docker: ExecDocker{}, Getenv: os.Getenv, Out: os.Stdout, UI: ui.Default,
 		Arch: runtime.GOARCH, Fetch: httpFetch, MkdirAll: os.MkdirAll,
 	}
 }
