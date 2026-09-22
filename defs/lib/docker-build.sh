@@ -412,13 +412,16 @@ proveo_docker_build() {
   local cache_text
   cache_text="$(proveo_docker_cache_flags "${docker_args[@]}")" || return 1
   if [[ -n "$cache_text" ]]; then
-    mapfile -t cache_flags <<<"$cache_text"
+    local cache_line
+    while IFS= read -r cache_line; do
+      cache_flags+=("$cache_line")
+    done <<<"$cache_text"
   fi
 
   local log st
   log="$(mktemp)"
   set +e
-  proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${cache_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+  proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" ${pull_flags[@]+"${pull_flags[@]}"} ${cache_flags[@]+"${cache_flags[@]}"} "${docker_args[@]}" 2>&1 | tee "$log"
   st=${PIPESTATUS[0]}
   set -e
 
@@ -431,7 +434,7 @@ proveo_docker_build() {
     echo "⚠️  registry DNS failed; retrying with --pull=false so a local FROM image can satisfy the build" >&2
     pull_flags=(--pull=false)
     set +e
-    proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" "${pull_flags[@]}" "${cache_flags[@]}" "${docker_args[@]}" 2>&1 | tee "$log"
+    proveo_docker_buildx_invoke "$builder" "$platforms" "${out_flags[@]}" ${pull_flags[@]+"${pull_flags[@]}"} ${cache_flags[@]+"${cache_flags[@]}"} "${docker_args[@]}" 2>&1 | tee "$log"
     st=${PIPESTATUS[0]}
     set -e
   fi

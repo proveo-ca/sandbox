@@ -706,6 +706,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}
+	command = withChromeFlag(agent, in.BridgeEnv, command)
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
@@ -789,6 +790,19 @@ func MCPGatewayAllowed() bool {
 		return true
 	}
 	return false
+}
+
+// SPEC: _spec/defs/claudecode/chrome-bridge.puml
+func withChromeFlag(agent string, bridge, command []string) []string {
+	if len(bridge) == 0 || agent != sbx.BuiltinAgent("claudecode") {
+		return command
+	}
+	for _, a := range command {
+		if a == "--chrome" {
+			return command
+		}
+	}
+	return append([]string{"--chrome"}, command...)
 }
 
 func KitEnvVars(env []string) map[string]string {

@@ -7,6 +7,8 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' covers: defs/claudecode/mcp/proveo-lib/chrome-bridge.js
 ' covers: packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok)
 ' covers: internal/run/choices.go
+' covers: internal/run/run.go (startChromeBridge, sbx BridgeEnv)
+' covers: internal/backend/sandbox/sandbox_test.go (TestKitEnvVarsCarriesTheChromeBridgeToken)
 ' covers: internal/egress/plan.go (HostBridge)
 ' covers: internal/chromebridge/chromebridge_test.go
 ' covers: internal/entrypoint/parity_test.go
@@ -36,6 +38,29 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' credential that a run reporting nothing sends the reader looking in proveo
 ' for anyway. e2e/claude_in_chrome_test.go measures (1)+(2)+(3) together by
 ' actually driving a live navigation rather than asserting each in isolation.
+'
+' ── DISABLED ON sbx 2026-09-22. THE TRANSPORT MOVED ────────────────────────
+' Supersedes "ENABLED ON sbx 2026-09-03" below. Claude Code 2.1.246+ inside a
+' VM logs `Extension not found in any browser`, then `Bridge URL:
+' wss://bridge.claudeusercontent.com`: it uses the ACCOUNT bridge, and the
+' socket relay this file describes comes up and is never dialled
+' (anthropics/claude-code#95004 shows the same preference on a bare Mac).
+' The bridge authenticates with the session's OAuth token, and sbx's stock
+' claude agent gives the VM only the sentinel `sk-ant-oat01-proxy-managed`,
+' swapped for the real token solely in the Authorization header to
+' api.anthropic.com. So the bridge answers
+'   {"error":"OAuth token rejected (401)","reason":"upstream_401"}
+' Measured twice: through `proveo run claudecode`, and with a plain
+' `sbx run claude -- --chrome` in the stock template — no proveo at all.
+' The only escape upstream (docker/sbx-releases#8, the Remote Control twin)
+' is a kit without serviceAuth plus an in-VM /login, which puts the real
+' token in the sandbox and gives up what the broker exists for.
+' So the picker greys the add-on on sbx with chromebridge.SbxWhy, and the run
+' passes the same reason to startChromeBridge so a remembered choice cannot
+' start a relay. The `host` execution stays greyed for every run, so on an
+' sbx harness Claude in Chrome is off until proveo supports host launches.
+' ResolvedEnv and withChromeFlag stay: they are the two hops the sbx chain
+' was missing, and re-enabling is the one SbxWhy branch in gateAddons.
 '
 ' ── HOW THAT CASE MEASURES IT: A REAL RUN, AND A HOME OF ITS OWN ───────────
 ' It drives a real `proveo run claudecode` end to end under tmux, the way an
@@ -150,7 +175,16 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 '                   tier is inert there, so it passes "".
 '   the Kit env     ""sandbox.Input.BridgeEnv"" carries PROVEO_CHROME_BRIDGE and
 '                   the token into the Kit's env, which is the only way they
-'                   reach a sandbox.
+'                   reach a sandbox. It carries ""Relay.ResolvedEnv"", NOT
+'                   ""Relay.Env"": Env's token is a bare name for docker's
+'                   `-e NAME` inherit, and a Kit has no inherit — KitEnvVars
+'                   drops a pair without a value. Shipping Env there wrote
+'                   the address without the token, the seed refused the
+'                   relay, --chrome was never appended, and /claude-in-chrome
+'                   vanished on every sbx run (found 2026-09-22).
+'                   e2e/chrome_bridge_sbx_test.go hand-writes the token into
+'                   its script, so only the real-run case below and
+'                   TestKitEnvVarsCarriesTheChromeBridgeToken see this hop.
 '   the container   ""proveo_seed"" starts the relay. sbx never runs the image
 '                   entrypoint, so the seed — its startup command — is the only
 '                   place it can come up. The entrypoint's own call was REMOVED:

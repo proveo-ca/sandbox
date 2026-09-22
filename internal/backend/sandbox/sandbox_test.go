@@ -1,13 +1,15 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml, _spec/defs/claudecode/chrome-bridge.puml
 package sandbox
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -256,5 +258,22 @@ func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
 	}
 	if strings.Contains(got, "------ starting ------") {
 		t.Errorf("live attach drew the starting heading instead of interface:\n%s", got)
+	}
+}
+
+func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	r, err := chromebridge.Start("127.0.0.1:0", dir, func(string, ...any) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	vars := KitEnvVars(r.ResolvedEnv())
+	if vars[chromebridge.EnvAddr] != r.ContainerAddr() || vars[chromebridge.EnvToken] != r.Token() {
+		t.Fatalf("Kit variables = %v: the seed refuses %s without %s", vars, chromebridge.EnvAddr, chromebridge.EnvToken)
 	}
 }

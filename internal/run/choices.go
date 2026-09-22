@@ -236,7 +236,8 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 				why := chromeWhy
 				switch {
 				case why != "":
-				case sandboxTicked: // sbx: no tier gate, the tier is inert there
+				case sandboxTicked:
+					why = chromebridge.SbxWhy
 				case !chromebridge.TierSupported(tier, creds):
 					why = chromebridge.TierWhy
 				}

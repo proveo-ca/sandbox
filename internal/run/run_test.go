@@ -507,8 +507,8 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
 	f = row(true)
 	gateAddons(f, "open", "forward", "", "")
-	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
-		t.Errorf("a ticked sandbox must leave the bridge available: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	if c := chrome(f); !c.Off[0] || c.On[0] || c.Reason != addonChrome+": "+chromebridge.SbxWhy {
+		t.Errorf("a ticked sandbox must grey+untick the bridge with the sentinel reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 	// The escape the reason names is the env var, not the checkbox: an available
 	// sandbox is greyed AND ticked, so there is no box left to untick.
@@ -523,11 +523,11 @@ func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 	if c := chrome(f); !c.Off[0] || !strings.Contains(c.Reason, "egress open + credentials forward") {
 		t.Errorf("an intercepting tier must grey the host browser on docker: off=%v reason=%q", c.Off, c.Reason)
 	}
-	// ...and NOT on sbx, where the tier is inert.
+	// ...and on sbx the sentinel, not the tier, is the reason.
 	f = row(true)
 	gateAddons(f, "allowlist", "forward", "", "")
-	if c := chrome(f); c.Off[0] || !c.On[0] {
-		t.Errorf("an intercepting tier must not gate the bridge on sbx: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, chromebridge.SbxWhy) {
+		t.Errorf("sbx must grey the bridge for the sentinel whatever the tier: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
 
 	f = row(false)
@@ -633,9 +633,9 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
 			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
 		}
-		if c := tc.f.Rows[1]; c.Off[0] || !c.On[0] {
-			t.Errorf("%s: a sandboxed run must leave the bridge available, got off=%v on=%v",
-				tc.name, c.Off, c.On)
+		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] || c.OffWhy[addonChrome] != chromebridge.SbxWhy {
+			t.Errorf("%s: a sandboxed run must grey the bridge for the sentinel, got off=%v on=%v why=%q",
+				tc.name, c.Off, c.On, c.OffWhy[addonChrome])
 		}
 	}
 }

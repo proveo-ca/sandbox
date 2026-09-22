@@ -46,6 +46,9 @@ func TierSupported(mode, credentials string) bool {
 // TierSupported says no.
 const TierWhy = "needs egress open + credentials forward"
 
+// SbxWhy is the reason the picker and the run print on the sbx backend.
+const SbxWhy = "needs a real Claude token — sbx keeps it proxy-managed and the Chrome bridge rejects the sentinel (401)"
+
 func Username(getenv func(string) string) string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return u.Username
@@ -207,6 +210,11 @@ func (r *Relay) ContainerAddr() string { return ContainerHost + ":" + strconv.It
 // form: the address as KEY=VALUE, the token as a bare name (the caller sets
 // it in its own environment, see SetTokenEnv).
 func (r *Relay) Env() []string { return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken} }
+
+// ResolvedEnv is Env with the token's value filled in, for an sbx Kit.
+func (r *Relay) ResolvedEnv() []string {
+	return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken + "=" + r.token}
+}
 
 // SetTokenEnv exports the token into this process so a bare `-e
 // PROVEO_CHROME_BRIDGE_TOKEN` forwards it without the value appearing on the
