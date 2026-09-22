@@ -38,9 +38,11 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-opencode-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-opencode-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
 # SPEC: _spec/_plans/image-size-reduction.puml
@@ -52,9 +54,10 @@ LABEL com.docker.sandboxes.start-docker="true"
 
 # SPEC: _spec/_devops/agent-version-pin.puml
 ARG OPENCODE_VERSION
-RUN test -n "${OPENCODE_VERSION}" \
+RUN --mount=type=cache,id=proveo-opencode-npm,target=/root/.npm,sharing=locked \
+    test -n "${OPENCODE_VERSION}" \
       || { echo "OPENCODE_VERSION build-arg is required — defs/opencode/build.sh resolves it" >&2; exit 1; } \
-    && npm install -g "opencode-ai@${OPENCODE_VERSION}" && npm cache clean --force \
+    && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
     && test "$(opencode --version)" = "${OPENCODE_VERSION}"
 
 RUN mkdir -p /workspace \

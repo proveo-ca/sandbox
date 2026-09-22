@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
@@ -114,26 +117,201 @@ func pickTargetsNumbered(reg []maintain.Target, verb string, in io.Reader, out i
 	return []maintain.Target{reg[n-1]}, nil
 }
 
-func runPlan(cmds []maintain.Command, printOnly bool) error {
+type planIO struct {
+	printOnly bool
+	out       io.Writer
+	stdin     io.Reader
+	stdout    io.Writer
+	stderr    io.Writer
+	env       []string
+}
+
+func runPlan(cmds []maintain.Command, pio planIO) error {
+	if pio.out == nil {
+		pio.out = os.Stdout
+	}
+	if pio.stdout == nil {
+		pio.stdout = os.Stdout
+	}
+	if pio.stderr == nil {
+		pio.stderr = os.Stderr
+	}
+	if pio.stdin == nil && !pio.printOnly {
+		pio.stdin = os.Stdin
+	}
 	for _, c := range cmds {
-		if printOnly {
+		if pio.printOnly {
 			prefix := ""
 			if c.Dir != "" {
 				prefix = "(cd " + c.Dir + ") "
 			}
-			fmt.Printf("%s%s\n", prefix, strings.Join(c.Argv, " "))
+			fmt.Fprintf(pio.out, "%s%s\n", prefix, strings.Join(c.Argv, " "))
 			continue
 		}
 		ex := exec.Command(c.Argv[0], c.Argv[1:]...)
 		ex.Dir = c.Dir
-		ex.Stdin, ex.Stdout, ex.Stderr = os.Stdin, os.Stdout, os.Stderr
+		ex.Stdin, ex.Stdout, ex.Stderr = pio.stdin, pio.stdout, pio.stderr
 		if c.Quiet {
 			ex.Stdout = io.Discard
+		}
+		if len(pio.env) > 0 {
+			ex.Env = append(os.Environ(), pio.env...)
 		}
 		if err := ex.Run(); err != nil {
 			return fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), err)
 		}
 	}
+	return nil
+}
+
+type targetTiming struct {
+	name     string
+	duration time.Duration
+	recorded bool
+	err      error
+}
+
+type prefixWriter struct {
+	mu     *sync.Mutex
+	w      io.Writer
+	prefix string
+	rest   []byte
+}
+
+func (p *prefixWriter) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := len(b)
+	p.rest = append(p.rest, b...)
+	for {
+		i := bytes.IndexByte(p.rest, '\n')
+		if i < 0 {
+			break
+		}
+		line := p.rest[:i+1]
+		p.rest = p.rest[i+1:]
+		if _, err := io.WriteString(p.w, p.prefix); err != nil {
+			return n, err
+		}
+		if _, err := p.w.Write(line); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
+func (p *prefixWriter) flush() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.rest) == 0 {
+		return
+	}
+	_, _ = io.WriteString(p.w, p.prefix)
+	_, _ = p.w.Write(p.rest)
+	p.rest = nil
+}
+
+func runTimed(t maintain.Target, mu sync.Locker, run func(maintain.Target) error) targetTiming {
+	start := time.Now()
+	err := run(t)
+	d := time.Since(start)
+	line, ferr := maintain.FormatTargetElapsed(t.Name, &d)
+	if ferr != nil {
+		return targetTiming{name: t.Name, err: ferr}
+	}
+	if mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	if err != nil {
+		ui.Failf("%s failed after %s", t.Name, d.Round(time.Millisecond))
+		return targetTiming{name: t.Name, duration: d, recorded: true, err: err}
+	}
+	ui.Okf("%s", line)
+	return targetTiming{name: t.Name, duration: d, recorded: true}
+}
+
+func executeFleet(verb string, ts []maintain.Target, printOnly bool, out io.Writer, start func(maintain.Target), run func(maintain.Target, planIO) error) error {
+	if out == nil {
+		out = os.Stdout
+	}
+	waves := maintain.Schedule(ts)
+	wall0 := time.Now()
+	var results []targetTiming
+	for _, w := range waves {
+		if printOnly {
+			fmt.Fprintln(out, maintain.FormatWaveHeader(w))
+			for _, t := range w.Targets {
+				start(t)
+				if err := run(t, planIO{printOnly: true, out: out}); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if w.Concurrent && len(w.Targets) > 1 {
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			waveOut := make([]targetTiming, len(w.Targets))
+			for i, t := range w.Targets {
+				wg.Add(1)
+				go func(i int, t maintain.Target) {
+					defer wg.Done()
+					mu.Lock()
+					start(t)
+					mu.Unlock()
+					pw := &prefixWriter{mu: &mu, w: os.Stdout, prefix: "[" + t.Name + "] "}
+					pe := &prefixWriter{mu: &mu, w: os.Stderr, prefix: "[" + t.Name + "] "}
+					waveOut[i] = runTimed(t, &mu, func(tgt maintain.Target) error {
+						err := run(tgt, planIO{
+							stdout: pw,
+							stderr: pe,
+							env:    []string{"BUILDKIT_PROGRESS=plain"},
+						})
+						pw.flush()
+						pe.flush()
+						return err
+					})
+				}(i, t)
+			}
+			wg.Wait()
+			results = append(results, waveOut...)
+			var errs []error
+			for _, r := range waveOut {
+				if r.err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", r.name, r.err))
+				}
+			}
+			if len(errs) > 0 {
+				return errors.Join(errs...)
+			}
+			continue
+		}
+		for _, t := range w.Targets {
+			start(t)
+			r := runTimed(t, nil, func(tgt maintain.Target) error {
+				return run(tgt, planIO{})
+			})
+			results = append(results, r)
+			if r.err != nil {
+				return fmt.Errorf("%s %s: %w", verb, t.Name, r.err)
+			}
+		}
+	}
+	if printOnly {
+		return nil
+	}
+	for _, r := range results {
+		if !r.recorded {
+			return fmt.Errorf("%s summary missing duration for %s", verb, r.name)
+		}
+	}
+	wall := time.Since(wall0)
+	summary, err := maintain.FormatRunSummary(verb, len(results), &wall)
+	if err != nil {
+		return err
+	}
+	ui.Appf("%s", summary)
 	return nil
 }
 
@@ -161,13 +339,13 @@ func buildCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, t := range ts {
-				ui.Appf("building %s (%s:%s)", t.Name, t.Image, tag)
-				if err := runPlan(t.BuildPlan(tag, noCache), printOnly); err != nil {
-					return fmt.Errorf("build %s: %w", t.Name, err)
-				}
-			}
-			return nil
+			return executeFleet("build", ts, printOnly, os.Stdout,
+				func(t maintain.Target) {
+					ui.Appf("building %s (%s:%s)", t.Name, t.Image, tag)
+				},
+				func(t maintain.Target, pio planIO) error {
+					return runPlan(t.BuildPlan(tag, noCache), pio)
+				})
 		},
 	}
 	cmd.Flags().StringVar(&tag, "tag", maintain.LocalTag,
@@ -194,13 +372,13 @@ func deployCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, t := range ts {
-				ui.Cloudf("deploying %s:%s", t.Image, tag)
-				if err := runPlan(t.DeployPlan(tag), printOnly); err != nil {
-					return fmt.Errorf("deploy %s: %w", t.Name, err)
-				}
-			}
-			return nil
+			return executeFleet("deploy", ts, printOnly, os.Stdout,
+				func(t maintain.Target) {
+					ui.Cloudf("deploying %s:%s", t.Image, tag)
+				},
+				func(t maintain.Target, pio planIO) error {
+					return runPlan(t.DeployPlan(tag), pio)
+				})
 		},
 	}
 	cmd.Flags().StringVar(&tag, "tag", maintain.PublishTag,
@@ -232,8 +410,17 @@ func testCmd() *cobra.Command {
 					continue
 				}
 				ui.Appf("testing %s", t.Name)
-				if err := runPlan(plan, printOnly); err != nil {
-					return fmt.Errorf("test %s: %w", t.Name, err)
+				if printOnly {
+					if err := runPlan(plan, planIO{printOnly: true, out: os.Stdout}); err != nil {
+						return fmt.Errorf("test %s: %w", t.Name, err)
+					}
+					continue
+				}
+				r := runTimed(t, nil, func(maintain.Target) error {
+					return runPlan(plan, planIO{})
+				})
+				if r.err != nil {
+					return fmt.Errorf("test %s: %w", t.Name, r.err)
 				}
 			}
 			return nil

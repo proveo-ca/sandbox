@@ -19,10 +19,10 @@ var seedImageSources = map[string]struct{ file, base string }{
 	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-lsp:latest"},
 	"claudecode-solidity": {"defs/claudecode/solidity/Dockerfile", "proveo/claudecode:latest"},
 
-	"claudecode-browser": {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-browser:latest"},
-	"codex-browser":      {"defs/codex/Dockerfile", "proveo/base-node-browser:latest"},
-	"opencode-browser":   {"defs/opencode/Dockerfile", "proveo/base-node-browser:latest"},
-	"cursor-browser":     {"defs/cursor/Dockerfile", ""},
+	"claudecode-browser": {"defs/base-node-browser/Dockerfile", "proveo/claudecode:latest"},
+	"codex-browser":      {"defs/base-node-browser/Dockerfile", "proveo/codex:latest"},
+	"opencode-browser":   {"defs/base-node-browser/Dockerfile", "proveo/opencode:latest"},
+	"cursor-browser":     {"defs/base-node-browser/Dockerfile", "proveo/cursor:latest"},
 }
 
 // baseDockerfiles resolves a proveo base image tag back to the file that builds
@@ -33,6 +33,9 @@ var baseDockerfiles = map[string]string{
 	"proveo/base-node-lsp:latest":     "defs/base-node-lsp/Dockerfile",
 	"proveo/base-node-browser:latest": "defs/base-node-browser/Dockerfile",
 	"proveo/claudecode:latest":        "defs/claudecode/mcp/Dockerfile",
+	"proveo/codex:latest":             "defs/codex/Dockerfile",
+	"proveo/opencode:latest":          "defs/opencode/Dockerfile",
+	"proveo/cursor:latest":            "defs/cursor/Dockerfile",
 }
 
 func TestEverySbxImageShipsTheKitsStartupCommand(t *testing.T) {

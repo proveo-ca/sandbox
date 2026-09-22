@@ -2,6 +2,7 @@
 package maintain
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,6 +76,100 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 		out[i].BuildArgs = variantArgs[out[i].Name]
 	}
 	return out
+}
+
+// Wave is one Schedule execute unit.
+type Wave struct {
+	Concurrent bool
+	Targets    []Target
+}
+
+func (w Wave) Names() []string {
+	out := make([]string, len(w.Targets))
+	for i, t := range w.Targets {
+		out[i] = t.Name
+	}
+	return out
+}
+
+func parentOf(name string) string {
+	switch name {
+	case "base-node":
+		return "base"
+	case "base-node-lsp":
+		return "base-node"
+	case "base-node-browser":
+		return "base-node-lsp"
+	case "claudecode-solidity", "claudecode-browser":
+		return "claudecode"
+	case "codex-browser":
+		return "codex"
+	case "opencode-browser":
+		return "opencode"
+	case "cursor-browser":
+		return "cursor"
+	default:
+		return ""
+	}
+}
+
+func Schedule(ts []Target) []Wave {
+	var bases, rest []Target
+	for _, t := range ts {
+		if t.Kind == KindBase {
+			bases = append(bases, t)
+		} else {
+			rest = append(rest, t)
+		}
+	}
+	var waves []Wave
+	for _, b := range bases {
+		waves = append(waves, Wave{Targets: []Target{b}})
+	}
+	remaining := rest
+	for len(remaining) > 0 {
+		pending := map[string]bool{}
+		for _, t := range remaining {
+			pending[t.Name] = true
+		}
+		var ready, blocked []Target
+		for _, t := range remaining {
+			if p := parentOf(t.Name); p != "" && pending[p] {
+				blocked = append(blocked, t)
+				continue
+			}
+			ready = append(ready, t)
+		}
+		if len(ready) == 0 {
+			ready = remaining
+			blocked = nil
+		}
+		waves = append(waves, Wave{Concurrent: len(ready) > 1, Targets: ready})
+		remaining = blocked
+	}
+	return waves
+}
+
+func FormatWaveHeader(w Wave) string {
+	names := strings.Join(w.Names(), " ")
+	if w.Concurrent {
+		return "# concurrent " + names
+	}
+	return "# serial " + names
+}
+
+func FormatTargetElapsed(name string, d *time.Duration) (string, error) {
+	if d == nil {
+		return "", fmt.Errorf("missing duration for %s", name)
+	}
+	return fmt.Sprintf("%s in %s", name, d.Round(time.Millisecond)), nil
+}
+
+func FormatRunSummary(verb string, n int, wall *time.Duration) (string, error) {
+	if wall == nil {
+		return "", fmt.Errorf("%s summary missing duration", verb)
+	}
+	return fmt.Sprintf("%s %d target(s) in %s", verb, n, wall.Round(time.Millisecond)), nil
 }
 
 type Command struct {

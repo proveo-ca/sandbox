@@ -76,8 +76,10 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' from both files rather than `cmp`, because diffutils is not on the slim floor —
 ' and copying unconditionally would rewrite an unchanged file on every start.
 '
-' The `-browser` image variants (FROM proveo/base-node-browser) carry
-' Playwright's Chromium and vercel-labs/agent-browser pointed at it. The binary
+' The `-browser` variants apply this Dockerfile onto `proveo/<harness>`,
+' then restore that harness user. The shared `proveo/base-node-browser`
+' image is the same file with its default parent, `base-node-lsp`.
+' Both carry Playwright's Chromium and agent-browser pointed at it. The binary
 ' alone is not discoverable by an agent, so the seed drops agent-browser's
 ' discovery STUB into the harness's USER-level skills directory — the one place
 ' every harness reads without a project edit. The stub only tells the agent to
@@ -97,7 +99,7 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 cloud "registry.npmjs.org\n""agent-browser-<v>.tgz""" as NPM <<cloud>>
 
 node "Image build — defs/base-node-browser/Dockerfile" as BUILD <<host>> {
-  component "Playwright ""<v>""\n""playwright install --with-deps --no-shell chromium""" as PW <<app>>
+  component "Playwright ""<v>""\n""playwright install --no-shell chromium""" as PW <<app>>
   database "browser store\n""/opt/ms-playwright/chromium-<rev>/chrome-linux/chrome""" as STORE <<db>>
   component "agent-browser (native Rust)\n""/usr/local/bin/agent-browser""" as AB <<app>>
   database "skill-data\n""AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data""" as SKD <<db>>

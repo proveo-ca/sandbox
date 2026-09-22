@@ -45,7 +45,9 @@ ENV PYTHONPYCACHEPREFIX=/tmp/proveo-pycache \
     CECLI_HOME=/app/.cecli
 
 # SPEC: _spec/_plans/image-size-reduction.puml
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-cecli-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-cecli-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -53,31 +55,33 @@ RUN apt-get update -o APT::Update::Error-Mode=any \
     less \
     fzf \
     xclip \
-  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+  && rm -rf /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
 # SPEC: _spec/_devops/agent-version-pin.puml
 ARG CECLI_VERSION
-RUN test -n "${CECLI_VERSION}" \
+RUN --mount=type=cache,id=proveo-cecli-pip,target=/root/.cache/pip,sharing=locked \
+    test -n "${CECLI_VERSION}" \
       || { echo "CECLI_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/cecli \
-  && /opt/cecli/bin/pip install --no-compile --upgrade pip setuptools wheel \
-  && /opt/cecli/bin/pip install --no-compile "cecli-dev==${CECLI_VERSION}" boto3 botocore \
+  && env -u PIP_NO_CACHE_DIR /opt/cecli/bin/pip install --no-compile --upgrade pip setuptools wheel \
+  && env -u PIP_NO_CACHE_DIR /opt/cecli/bin/pip install --no-compile "cecli-dev==${CECLI_VERSION}" boto3 botocore \
   && /opt/cecli/bin/pip show cecli-dev | grep -qx "Version: ${CECLI_VERSION}" \
-  && rm -rf /root/.cache /tmp/* /var/tmp/* \
+  && rm -rf /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
 ENV PATH="/opt/cecli/bin:${PATH}"
 
 # SPEC: _spec/_devops/agent-version-pin.puml, _spec/defs/cecli/cecli-paradigm.puml
 ARG SERENA_VERSION
-RUN test -n "${SERENA_VERSION}" \
+RUN --mount=type=cache,id=proveo-serena-pip,target=/root/.cache/pip,sharing=locked \
+    test -n "${SERENA_VERSION}" \
       || { echo "SERENA_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/serena \
-  && /opt/serena/bin/pip install --no-cache-dir --no-compile "serena-agent==${SERENA_VERSION}" \
+  && env -u PIP_NO_CACHE_DIR /opt/serena/bin/pip install --no-compile "serena-agent==${SERENA_VERSION}" \
   && /opt/serena/bin/pip show serena-agent | grep -qx "Version: ${SERENA_VERSION}" \
   && ln -sf /opt/serena/bin/serena /usr/local/bin/serena \
-  && rm -rf /root/.cache /tmp/* /var/tmp/* \
+  && rm -rf /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
 # SPEC: _spec/_plans/image-size-reduction.puml

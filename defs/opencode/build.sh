@@ -15,8 +15,8 @@ usage() {
 Usage:
   ./build.sh [--tag <tag>] [--browser] [--no-cache] [--push]
 
-Builds the opencode harness image. --browser builds the opencode-browser variant
-FROM proveo/base-node-browser (Playwright + Chromium) instead of base-node-lsp.
+Builds the opencode harness image. --browser layers Playwright and Chromium
+onto proveo/opencode, tagged proveo/opencode-browser.
 EOF
 }
 
@@ -53,13 +53,21 @@ done
 
 if [[ "$BROWSER" == 1 ]]; then
   IMAGE_NAME="${PROVEO_OPENCODE_BROWSER_IMAGE:-proveo/opencode-browser:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_BROWSER_IMAGE proveo/base-node-browser "$TAG")"
-  "$SCRIPT_DIR/../base-node-browser/ensure.sh" --tag "$TAG" ${PUSH:+--push}
-else
-  IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:$TAG}"
-  BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")"
-  "$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
+  PARENT="$(proveo_image_ref PROVEO_OPENCODE_IMAGE proveo/opencode "$TAG")"
+  if [[ -n "$PUSH" ]]; then
+    proveo_require_published "$PARENT" "$TAG" || exit 1
+  elif ! docker image inspect "$PARENT" >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build.sh" --tag "$TAG" ${NO_CACHE:+--no-cache}
+  fi
+  LAYER_DIR="$(cd "$SCRIPT_DIR/../base-node-browser" && pwd)"
+  echo "Building $IMAGE_NAME on $PARENT..."
+  proveo_build_browser_variant "$PARENT" "$IMAGE_NAME" opencode "$LAYER_DIR" ${PUSH:+--push} ${NO_CACHE:+$NO_CACHE}
+  exit 0
 fi
+
+IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:$TAG}"
+BASE_IMAGE="$(proveo_image_ref PROVEO_BASE_NODE_LSP_IMAGE proveo/base-node-lsp "$TAG")"
+"$SCRIPT_DIR/../base-node-lsp/ensure.sh" --tag "$TAG" ${PUSH:+--push}
 
 OPENCODE_VERSION="$(proveo_agent_version OPENCODE_VERSION npm opencode-ai)"
 

@@ -38,10 +38,12 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-RUN apt-get update -o APT::Update::Error-Mode=any \
+RUN --mount=type=cache,id=proveo-claudecode-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-claudecode-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
     wget python3 python3-pip \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden /usr /opt
 
 # SPEC: _spec/_plans/image-size-reduction.puml
@@ -51,7 +53,8 @@ RUN groupadd -f docker \
  && usermod -aG docker agent
 LABEL com.docker.sandboxes.start-docker="true"
 
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN --mount=type=cache,id=proveo-claudecode-pip,target=/root/.cache/pip,sharing=locked \
+    env -u PIP_NO_CACHE_DIR pip3 install --break-system-packages \
     requests \
     python-dotenv
 
@@ -59,9 +62,10 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 
 # SPEC: _spec/_devops/agent-version-pin.puml
 ARG CLAUDE_CODE_VERSION
-RUN test -n "${CLAUDE_CODE_VERSION}" \
+RUN --mount=type=cache,id=proveo-claudecode-npm,target=/root/.npm,sharing=locked \
+    test -n "${CLAUDE_CODE_VERSION}" \
       || { echo "CLAUDE_CODE_VERSION build-arg is required — defs/claudecode/build.sh resolves it" >&2; exit 1; } \
-    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
 
 # SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml

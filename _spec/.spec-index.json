@@ -869,6 +869,18 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/maintain/build-schedule.puml",
+      "covers": [
+        "internal/maintain/**",
+        "cmd/proveo/maintain_cmd.go",
+        "cmd/proveo/maintain_cmd_test.go",
+        "defs/lib/docker-build.sh",
+        "defs/**/Dockerfile",
+        "internal/contract/image_build_cache_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/maintain/image-build-deploy.puml",
       "covers": [
         "internal/maintain/**",

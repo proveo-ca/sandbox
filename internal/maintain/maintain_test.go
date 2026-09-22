@@ -1,6 +1,7 @@
 package maintain
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +166,46 @@ func TestDeployAndTestPlan(t *testing.T) {
 	}
 }
 
+func TestScheduleBrowserVariantsFollowTheirHarness(t *testing.T) {
+	t.Parallel()
+	ts := []Target{
+		{Name: "opencode", Kind: KindHarness},
+		{Name: "opencode-browser", Kind: KindHarness},
+		{Name: "cursor", Kind: KindHarness},
+		{Name: "cursor-browser", Kind: KindHarness},
+		{Name: "claudecode", Kind: KindHarness},
+		{Name: "claudecode-browser", Kind: KindHarness},
+		{Name: "codex", Kind: KindHarness},
+		{Name: "codex-browser", Kind: KindHarness},
+	}
+	lines := make([]string, 0)
+	for _, w := range Schedule(ts) {
+		lines = append(lines, strings.Join(w.Names(), " "))
+	}
+	lineOf := func(name string) int {
+		for i, line := range lines {
+			for _, field := range strings.Fields(line) {
+				if field == name {
+					return i
+				}
+			}
+		}
+		return -1
+	}
+	for _, pair := range [][2]string{
+		{"opencode", "opencode-browser"},
+		{"cursor", "cursor-browser"},
+		{"claudecode", "claudecode-browser"},
+		{"codex", "codex-browser"},
+	} {
+		parent, child := lineOf(pair[0]), lineOf(pair[1])
+		if parent < 0 || child < 0 || child <= parent {
+			t.Errorf("%s wave %d, %s wave %d; the variant layers onto the harness\n%v",
+				pair[0], parent, pair[1], child, lines)
+		}
+	}
+}
+
 func TestResolveImagePrefersTheNewerBuild(t *testing.T) {
 	t.Parallel()
 	old := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
@@ -214,5 +255,118 @@ func TestResolveImagePrefersTheNewerBuild(t *testing.T) {
 				t.Errorf("ResolveImage(%q) = (%q,%v), want (%q,%v)", c.ref, got, isLocal, c.want, c.wantLocal)
 			}
 		})
+	}
+}
+
+func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
+	t.Parallel()
+	ts := []Target{
+		{Name: "base", Kind: KindBase},
+		{Name: "base-node", Kind: KindBase},
+		{Name: "base-node-lsp", Kind: KindBase},
+		{Name: "base-node-browser", Kind: KindBase},
+		{Name: "cecli", Kind: KindHarness},
+		{Name: "claudecode", Kind: KindHarness},
+		{Name: "claudecode-browser", Kind: KindHarness},
+		{Name: "claudecode-solidity", Kind: KindHarness},
+		{Name: "codex", Kind: KindHarness},
+		{Name: "egress-proxy", Kind: KindSidecar},
+		{Name: "mitmproxy", Kind: KindSidecar},
+	}
+	waves := Schedule(ts)
+	if len(waves) < 5 {
+		t.Fatalf("waves = %d, want at least 4 serial bases then a concurrent group", len(waves))
+	}
+	for i, name := range []string{"base", "base-node", "base-node-lsp", "base-node-browser"} {
+		if waves[i].Concurrent || len(waves[i].Targets) != 1 || waves[i].Targets[0].Name != name {
+			t.Fatalf("wave[%d] = %+v, want serial %s", i, waves[i], name)
+		}
+	}
+	sawConcurrent := false
+	for i, w := range waves {
+		if w.Concurrent {
+			sawConcurrent = true
+		}
+		if sawConcurrent {
+			for _, tgt := range w.Targets {
+				if tgt.Kind == KindBase {
+					t.Errorf("wave[%d] concurrent group contains base %q", i, tgt.Name)
+				}
+			}
+		}
+	}
+	if !sawConcurrent {
+		t.Fatal("expected a concurrent group after the bases")
+	}
+	var printed strings.Builder
+	for _, w := range waves {
+		printed.WriteString(FormatWaveHeader(w) + "\n")
+	}
+	got := printed.String()
+	idxConc := strings.Index(got, "# concurrent ")
+	idxSol := strings.Index(got, "claudecode-solidity")
+	if idxConc < 0 {
+		t.Fatalf("print lacks concurrent group:\n%s", got)
+	}
+	for _, base := range []string{"# serial base\n", "# serial base-node\n", "# serial base-node-lsp\n", "# serial base-node-browser\n"} {
+		idx := strings.Index(got, base)
+		if idx < 0 {
+			t.Errorf("print lacks %q", strings.TrimSpace(base))
+			continue
+		}
+		if idx > idxConc {
+			t.Errorf("%q appears after the concurrent group", strings.TrimSpace(base))
+		}
+	}
+	if idxSol >= 0 && idxSol < idxConc {
+		t.Errorf("claudecode-solidity is in a wave before claudecode finished:\n%s", got)
+	}
+}
+
+func TestScheduleFleetPrintPutsConcurrentAfterBases(t *testing.T) {
+	t.Parallel()
+	defs := filepath.Join("..", "..", "defs")
+	ms, err := manifest.Load(defs)
+	if err != nil {
+		t.Fatalf("manifest.Load(%s): %v", defs, err)
+	}
+	ts := Registry(ms, defs)
+	waves := Schedule(ts)
+	var printed strings.Builder
+	for _, w := range waves {
+		printed.WriteString(FormatWaveHeader(w) + "\n")
+	}
+	got := printed.String()
+	idxConc := strings.Index(got, "# concurrent ")
+	if idxConc < 0 {
+		t.Fatalf("build-all print lacks concurrent groups:\n%s", got)
+	}
+	for _, line := range strings.Split(got[:idxConc], "\n") {
+		if strings.HasPrefix(line, "# concurrent ") {
+			t.Fatalf("concurrent group before bases:\n%s", got)
+		}
+	}
+	after := got[idxConc:]
+	if strings.Contains(after, "# serial base\n") || strings.Contains(after, "# serial base-node") {
+		t.Fatalf("a base serial wave follows a concurrent group:\n%s", got)
+	}
+}
+
+func TestFormatElapsedRefusesASummaryWithoutDuration(t *testing.T) {
+	t.Parallel()
+	if _, err := FormatTargetElapsed("opencode", nil); err == nil {
+		t.Fatal("FormatTargetElapsed(nil) succeeded")
+	}
+	if _, err := FormatRunSummary("build", 16, nil); err == nil {
+		t.Fatal("FormatRunSummary(nil wall) succeeded")
+	}
+	d := time.Second
+	got, err := FormatTargetElapsed("opencode", &d)
+	if err != nil || got != "opencode in 1s" {
+		t.Errorf("FormatTargetElapsed = %q, %v", got, err)
+	}
+	sum, err := FormatRunSummary("build", 16, &d)
+	if err != nil || sum != "build 16 target(s) in 1s" {
+		t.Errorf("FormatRunSummary = %q, %v", sum, err)
 	}
 }

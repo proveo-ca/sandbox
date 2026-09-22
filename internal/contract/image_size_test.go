@@ -11,9 +11,21 @@ func TestBrowserLayerInstallsOneChromiumNotTwo(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base-node-browser/Dockerfile")
 
-	if !strings.Contains(df, "playwright install --with-deps --no-shell chromium") {
+	if !strings.Contains(df, "playwright install --no-shell chromium") {
 		t.Error("the browser layer must install chromium with --no-shell; " +
 			"without it Playwright also downloads chromium_headless_shell, which nothing here launches")
+	}
+	if strings.Contains(df, "--with-deps") {
+		t.Error("playwright install --with-deps pulls the install-deps tool set (xvfb and the font pile); " +
+			"name the ubuntu26.04 chromium libraries instead")
+	}
+	for _, pkg := range []string{"libnss3", "libgbm1", "libnspr4"} {
+		if !strings.Contains(df, pkg) {
+			t.Errorf("browser layer must apt-install %s so the chromium library set is visible", pkg)
+		}
+	}
+	if !strings.Contains(df, "ldd") || !strings.Contains(df, "not found") {
+		t.Error("the install RUN must fail when ldd reports a missing library")
 	}
 	if !strings.Contains(df, `! ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-*`) {
 		t.Error("the install must assert the headless shell is absent in the SAME RUN — " +
@@ -22,7 +34,7 @@ func TestBrowserLayerInstallsOneChromiumNotTwo(t *testing.T) {
 	// A `rm` in a LATER RUN removes the path and keeps the bytes; overlay layers are
 	// additive. If someone swaps the flag for a delete, it has to be in this RUN.
 	if m := regexp.MustCompile(`(?m)^RUN.*rm -rf.*chromium_headless_shell`).FindString(df); m != "" {
-		if !strings.Contains(df, "playwright install --with-deps --no-shell") {
+		if !strings.Contains(df, "playwright install --no-shell") {
 			t.Error("deleting the headless shell in its own RUN saves nothing — use --no-shell")
 		}
 	}

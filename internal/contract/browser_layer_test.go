@@ -66,6 +66,27 @@ func TestBrowserSkillStubIsHarnessNeutralAndInstallFree(t *testing.T) {
 	}
 }
 
+func TestBrowserVariantsLayerOntoTheHarness(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ script, image, user string }{
+		{"defs/opencode/build.sh", "proveo/opencode", "opencode"},
+		{"defs/codex/build.sh", "proveo/codex", "codex"},
+		{"defs/cursor/build.sh", "proveo/cursor", "cursor"},
+		{"defs/claudecode/build.sh", "proveo/claudecode", "claude"},
+	} {
+		sh := readRepoFile(t, tc.script)
+		if !strings.Contains(sh, "proveo_build_browser_variant") {
+			t.Errorf("%s does not apply the browser layer onto the harness", tc.script)
+		}
+		if !strings.Contains(sh, tc.image) || !strings.Contains(sh, tc.user) {
+			t.Errorf("%s must name parent %s and user %s", tc.script, tc.image, tc.user)
+		}
+		if strings.Contains(sh, "base-node-browser/ensure.sh") {
+			t.Errorf("%s still builds the variant FROM the shared browser base", tc.script)
+		}
+	}
+}
+
 func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	t.Parallel()
 	lib := readRepoFile(t, "packages/lib/entrypoint-lib.sh")

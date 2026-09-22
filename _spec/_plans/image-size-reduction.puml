@@ -8,7 +8,9 @@
 ' covers: internal/contract/dockerfile_correctness_test.go
 ' covers: e2e/sbx_test.go
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
-' PARTLY APPLIED — cuts 1-12 landed 2026-09-05. 13 and the inversion are open.
+' BACKLOG LANDED. Cuts 1-12 on 2026-09-05. Inversion and cut 13 landed after.
+' This file remains the measurement record. Wall-clock lives in
+' _spec/internal/maintain/build-schedule.puml.
 ' _spec/_plans/ is exempt from the SPEC-reference rule.
 '
 ' ── WHAT LANDED, AND WHAT THE REBUILD MEASURED ─────────────────────────────
@@ -536,11 +538,11 @@
 '     dist-packages. Both unpinned, in the image the fleet's own doctrine says must
 '     be. defs/claudecode/solidity/Dockerfile:10,19 · ~100-200 MB
 '
-' 13. [DEFERRED 2026-09-05] `--with-deps` APT-INSTALLS ~100 GTK/X11/ALSA PACKAGES for a headless,
-'     `--no-sandbox`, CDP-only consumer. It is also invisible to
-'     `toolchain_test.go`'s `installedPackages` scanner, so the "no image reinstalls
-'     what its base carries" contract has a blind spot exactly where the biggest apt
-'     payload is. defs/base-node-browser/Dockerfile:10 · ~120-180 MB x 3
+' 13. [APPLIED] `--with-deps` dropped. The Dockerfile apt-installs Playwright
+'     1.61's ubuntu26.04 chromium library list and fails the build when `ldd`
+'     on that chrome reports a missing library. The install-deps tool set
+'     (xvfb and the extra font packages) is not installed.
+'     defs/base-node-browser/Dockerfile
 '
 ' WHAT A HARNESS PULL LOOKS LIKE WITH 1-9 APPLIED:
 '   opencode          2.19 GB -> -394 MB  (-18%)
@@ -592,7 +594,7 @@
 '   what the browser layer is .... _spec/defs/browser-layer.puml
 '   why pins exist ............... _spec/_devops/agent-version-pin.puml
 '   what mise now owns ........... _spec/_runtimes/toolchain-provisioning.puml
-title PARTLY APPLIED — image size: cuts 1-12 landed (-7.85 GB), and why the variant inversion is still not next
+title Image size — cuts 1-13 and the variant inversion landed
 
 folder "the floor, measured" as FLOOR <<host>> {
   component "proveo/base 938 MB\nJRE **194 MB** · mise 97 MB · jar 29 MB" as B <<app>>
@@ -645,27 +647,25 @@ note bottom of DUP
 end note
 
 note right of INVERT
-  **Proven to build, and it still loses.**
-  A spike layered the browser onto
-  proveo/opencode: exit 0, Chromium runs at
-  uid 4242. It saves 12-20% for one operator
-  and costs the fleet 1.17 GB.
+  **Landed: layer on the harness.**
+  The browser Dockerfile is applied to
+  the built harness, then that user is
+  restored. Chromium is stored once
+  per browser variant.
 end note
 
 note bottom of COST
-  **Sharing is the thing being traded.**
-  The browser payload is stored once today.
-  Inverted it is stored per harness, and it
-  is 1.79 GB — larger than every harness
-  delta it would deduplicate.
+  **The size cost is accepted.** The
+  browser payload used to be stored
+  once, on the shared base. Each
+  variant now carries its own copy.
 end note
 
 note bottom of CURSOR
-  **Three ways out, all with a price.**
-  Move cursor onto base-node-lsp (+700 MB on
-  the lean image, a second node), install node
-  in the layer (re-implements base-node), or
-  invert two harnesses and not the third.
+  **Cursor layers on proveo/cursor.**
+  That image is FROM proveo/base, and
+  the template there still provides
+  node for the Playwright install.
 end note
 
 note right of C1

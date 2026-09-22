@@ -29,7 +29,7 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '
 '   COPY go.mod go.sum ./ ; RUN go mod download
 '       module downloads cached separately from source.
-'   RUN CGO_ENABLED=0 GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
+'   RUN CGO_ENABLED=0 GOBIN=/out go install "github.com/ptdewey/plantuml-lsp@${PLANTUML_LSP_VERSION}"
 '       ABOVE the source copy on purpose: plantuml-lsp is fetched from upstream
 '       and owes nothing to this repo's source. Below the copy, every edit in the
 '       tree re-ran the install.
