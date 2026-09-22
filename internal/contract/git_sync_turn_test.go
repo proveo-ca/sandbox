@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/creack/pty"
 )
 
 func gitSyncScript(t *testing.T) string {
@@ -349,15 +352,57 @@ func TestGitSyncScriptNeverForcePushesOrSkipsHooks(t *testing.T) {
 			t.Errorf("git-sync-turn.sh contains %q", banned)
 		}
 	}
+	for _, want := range []string{"[ ! -t 0 ]", "GIT_TERMINAL_PROMPT=0"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("git-sync-turn.sh lacks %q — a TTY stdin is the opencode idle freeze", want)
+		}
+	}
 }
 
 func TestGitSyncPluginListensForSessionIdle(t *testing.T) {
 	t.Parallel()
 	src := readRepoFile(t, "packages/lib/hooks/proveo-git-sync-turn.js")
-	for _, want := range []string{"session.idle", "git-sync-turn.sh", "PROVEO_GIT_SYNC_DIALECT=idle"} {
+	for _, want := range []string{
+		"session.idle", "git-sync-turn.sh", "PROVEO_GIT_SYNC_DIALECT=idle",
+		"</dev/null", "GIT_TERMINAL_PROMPT=0", ".quiet()",
+	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("plugin lacks %q", want)
 		}
+	}
+	if strings.Contains(src, "await $") {
+		t.Error("awaiting the idle spawn blocks the TUI if OpenCode starts awaiting event handlers")
+	}
+}
+
+func TestGitSyncIdleOnATTYDoesNotBlock(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "idle.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bash := bashOrSkip(t)
+	cmd := exec.Command(bash, gitSyncScript(t))
+	cmd.Dir = dir
+	cmd.Env = hookEnv(t, "PROVEO_GIT_SYNC_DIALECT=idle")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatalf("pty: %v", err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("idle on a TTY exited %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("git-sync-turn blocked reading the TTY — that is proveo run opencode going deaf at session.idle")
+	}
+	if !strings.Contains(gitCmd(t, dir, nil, "ls-files"), "idle.txt") {
+		t.Error("idle dialect must still commit when stdin is a TTY")
 	}
 }
 

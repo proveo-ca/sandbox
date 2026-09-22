@@ -378,6 +378,27 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 			},
 		},
 		{
+			name:        "a held private CSI does not swallow the next letter",
+			escIdle:     20 * time.Millisecond,
+			truncIdle:   5 * time.Second,
+			dropReplies: true,
+			steps: []step{
+				{in: "\x1b[?62;"},
+				{in: "h", want: []string{"h"}},
+			},
+		},
+		{
+			name:        "a held private CSI still assembles its DA final",
+			escIdle:     20 * time.Millisecond,
+			truncIdle:   5 * time.Second,
+			dropReplies: true,
+			steps: []step{
+				{in: "\x1b[?62;"},
+				{in: "c"},
+				{in: "x", want: []string{"x"}},
+			},
+		},
+		{
 			name:        "8-bit CSI DA1 is dropped on a prompt stream",
 			escIdle:     20 * time.Millisecond,
 			truncIdle:   5 * time.Second,
@@ -437,6 +458,25 @@ func TestPumpInReleasesHeldEscapeAfterIdle(t *testing.T) {
 				t.Errorf("pumpInFrom(%q) delivered mismatch (-want +got):\n%s", typed, diff)
 			}
 		})
+	}
+}
+
+func TestContinuesHeldDoesNotGlueALetterOntoAPrivateCSI(t *testing.T) {
+	t.Parallel()
+	if continuesHeld([]byte("\x1b[?62;"), []byte("h")) {
+		t.Fatal("a letter is not a DA tail")
+	}
+	if !continuesHeld([]byte("\x1b[?62;"), []byte("c")) {
+		t.Fatal("c completes Device Attributes")
+	}
+	if !continuesHeld([]byte("\x1b["), []byte("A")) {
+		t.Fatal("ESC [ + A is an arrow key")
+	}
+	if continuesHeld([]byte("\x1b[?62;"), []byte("\x1b")) {
+		t.Fatal("a new ESC abandons the stump")
+	}
+	if !continuesHeld([]byte("\x1b["), []byte("1;5A")) {
+		t.Fatal("modified arrows still assemble")
 	}
 }
 

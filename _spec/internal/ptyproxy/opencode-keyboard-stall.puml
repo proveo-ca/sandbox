@@ -1,0 +1,93 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why `proveo run opencode` can stop taking keys, and which hop ate them
+' covers: internal/ptyproxy/inputfilter.go
+' covers: internal/ptyproxy/inputfilter_test.go
+' covers: internal/ptyproxy/ptyproxy.go
+' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: internal/backend/sandbox/sandbox.go
+'   the filter this sits on ........ _spec/internal/ptyproxy/terminal-report-filter.puml
+'   who owns the PTY ............... _spec/internal/ptyproxy/pty-ownership.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+
+title OpenCode keyboard stall — two proveo hops, then the rest
+
+actor "Operator" as OP
+
+node "proveo ptyproxy" as PX <<host>> {
+  component "held private CSI\n""ESC[?62;"" + letter" as HOLD <<error>>
+  component "DropReports\ncredits per query class" as CRED <<app>>
+  component "stdin pump\nreal tty → master" as IN <<app>>
+}
+
+node "sbx run opencode" as SBX <<cloud>> {
+  component "OpenTUI native\nqueryTerminalSend" as QT <<app>>
+}
+
+component "OpenCode TUI" as OC <<app>>
+component "kitty CSI-u keys\nwith parser still off" as KITTY <<error>>
+component "upstream Enter swallow\n#31217 · #8229 · 1.18.x" as UP <<error>>
+
+OP ARROW_MAIN IN : keystrokes · DA · CSI ? Nu
+IN ARROW_ERROR HOLD : letter becomes CSI final
+IN ARROW_MAIN CRED
+CRED ARROW_MAIN SBX : keystrokes + owed replies
+SBX ARROW_MAIN QT : ""CSI ? u"" · ""CSI >0q"" · DECRQM · DA1
+QT ARROW_MAIN OC
+CRED ARROW_ERROR KITTY : query answer dropped
+OC ARROW_OPTIONAL UP : after first reply
+
+note bottom of HOLD
+  **A split DA is not an arrow key.** Held
+  ""ESC[?62;"" plus the next letter made
+  ""ESC[?62;h"" — complete CSI, final h,
+  ""reportNone"", and the letter never
+  reached the prompt. Window: 2s.
+end note
+
+note top of CRED
+  **CPR was the first class, not the
+  only one.** OpenTUI asks on output
+  for kitty flags, XTVERSION, DA1 and
+  DECRPM. DropReports ate those too,
+  so detection ran deaf.
+end note
+
+note bottom of QT
+  **Negotiation is native, not JS.**
+  ""CSI ? u"" then, if answered,
+  ""CSI >5u"" (push). No answer: the
+  parser never sets kitty mode.
+end note
+
+note right of KITTY
+  **Kitty sends CSI-u by default.**
+  OpenTUI only defers split CSI-u
+  when ""kittyKeyboardEnabled"".
+  Query silence + Kitty term =
+  keys that vanish.
+end note
+
+note as N_TRACE
+  **Measure, do not guess.**
+  ""PROVEO_TRACE_STDIN"" is the
+  verdict log: sent vs DROPPED,
+  including the held stump.
+end note
+
+note as N_UPSTREAM
+  **Idle freeze was this hook.**
+  git-sync cat'd the TTY at
+  session.idle (a1e4a36). Enter
+  swallow after a turn (#31217)
+  is a separate OpenCode bug.
+end note
+
+note as N_FILTER_OFF
+  **A/B.** ""PROVEO_STDIN_FILTER=off""
+  restores passthrough. If keys
+  return, the filter is the hop.
+  If they do not, look upstream.
+end note
+@enduml

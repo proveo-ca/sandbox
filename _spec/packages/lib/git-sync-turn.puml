@@ -58,11 +58,19 @@ note right of GIT
   remote means commit, then allow.
 end note
 
-note bottom of OC
+note as N_OFF
   **Off is a no-op.** Set
   PROVEO_GIT_SYNC=off to skip seed
   and the script. Cursor still bakes
   the stop entry; the script allows.
   An aborted Cursor turn never commits.
+end note
+
+note bottom of OC
+  **Idle must not inherit the TTY.**
+  The script opened with cat. On a
+  TTY that never EOFs, so every key
+  after session.idle went to cat.
+  Plugin: </dev/null. Script: skip TTY.
 end note
 @enduml

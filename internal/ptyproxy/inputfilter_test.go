@@ -651,6 +651,82 @@ func TestSplitDropsOrphanDA1OnAPromptStream(t *testing.T) {
 	}
 }
 
+func TestSolicitedKittyFlagsSurviveTheBlanketDrop(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	reply := []byte("\x1b[?5u")
+	if f.keep(reply) {
+		t.Fatal("unsolicited kitty flags reached a prompt stream")
+	}
+	f.cap.observe([]byte("\x1b[?u"))
+	if !f.keep(reply) {
+		t.Fatal("the child sent CSI ? u; withholding the answer leaves OpenTUI's kitty parser off")
+	}
+	if f.keep(reply) {
+		t.Fatal("a single query licensed two flag reports")
+	}
+}
+
+func TestKittyPushOnStdinIsNotAFlagReport(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	f.cap.observe([]byte("\x1b[?u"))
+	if f.keep([]byte("\x1b[>5u")) {
+		t.Fatal("CSI > 5 u is a push, not the query answer; it must stay dropped")
+	}
+}
+
+func TestSolicitedXTVERSIONSurvivesTheBlanketDrop(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	reply := []byte("\x1bP>|kitty(0.40.1)\x1b\\")
+	if f.keep(reply) {
+		t.Fatal("unsolicited XTVERSION reached a prompt stream")
+	}
+	f.cap.observe([]byte("\x1b[>0q"))
+	if !f.keep(reply) {
+		t.Fatal("the child sent CSI >0q; kitty identity is how OpenTUI turns kitty keyboard on")
+	}
+}
+
+func TestOpenCodeStartupQueriesLicenceTheirReplies(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	startup := "" +
+		"\x1b[>0q" +
+		"\x1bP+q4d73\x1b\\" +
+		"\x1b[?1016$p\x1b[?2027$p\x1b[?2031$p\x1b[?1004$p\x1b[?2004$p\x1b[?2026$p" +
+		"\x1b[?u" +
+		"\x1b_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+	f.cap.observe([]byte(startup))
+	f.cpr.observe([]byte("\x1b[6n"))
+	for _, reply := range [][]byte{
+		[]byte("\x1bP>|kitty(0.40.1)\x1b\\"),
+		[]byte("\x1bP+r4d73=1\x1b\\"),
+		[]byte("\x1b[?2026;2$y"),
+		[]byte("\x1b[?5u"),
+		[]byte("\x1b_Gi=31337;OK\x1b\\"),
+		[]byte("\x1b[?62;4c"),
+		[]byte("\x1b[24;80R"),
+	} {
+		if !f.keep(reply) {
+			t.Errorf("OpenTUI asked for %q and DropReports ate it", reply)
+		}
+	}
+	if f.keep([]byte("\x1b[?6c")) {
+		t.Error("a leftover DA credit forwarded an unsolicited copy")
+	}
+}
+
+func TestACursorQueryStillDoesNotLicenceKittyFlags(t *testing.T) {
+	f := newInputFilter()
+	f.dropReplies = true
+	f.cpr.observe([]byte("\x1b[6n"))
+	if f.keep([]byte("\x1b[?5u")) {
+		t.Error("a cursor query licensed a kitty flag report")
+	}
+}
+
 func TestSplitDropsEightBitDA1OnAPromptStream(t *testing.T) {
 	t.Parallel()
 	f := newInputFilter()

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # SPEC: _spec/packages/lib/git-sync-turn.puml
 set -u
-payload="$(cat 2>/dev/null || true)"
+export GIT_TERMINAL_PROMPT=0
+payload=""
+if [ ! -t 0 ]; then
+  payload="$(cat 2>/dev/null || true)"
+fi
 
 _json_str() {
   local s="$1"

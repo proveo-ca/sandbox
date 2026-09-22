@@ -198,7 +198,7 @@ type inRead struct {
 // readChunks moves the blocking read off the pump so it can also wait on a
 // timer.
 func readChunks(r io.Reader) <-chan inRead {
-	ch := make(chan inRead, 1)
+	ch := make(chan inRead, 32)
 	go func() {
 		defer close(ch)
 		buf := make([]byte, 4096)
@@ -248,8 +248,15 @@ func (p *Proxy) pumpInFrom(r io.Reader) {
 			if len(c.b) > 0 {
 				chunk := c.b
 				if len(held) > 0 {
-					chunk = append(held, chunk...)
-					held = nil
+					if truncatedReport(held) && !continuesHeld(held, chunk) {
+						if p.Tap != nil {
+							p.Tap(held, false)
+						}
+						held = nil
+					} else {
+						chunk = append(held, chunk...)
+						held = nil
+					}
 				}
 				out := chunk
 				if !p.DisableFilter && p.filter != nil {
@@ -307,6 +314,64 @@ func truncatedReport(held []byte) bool {
 	return false
 }
 
+func continuesHeld(held, next []byte) bool {
+	if len(held) == 0 || len(next) == 0 {
+		return false
+	}
+	if held[0] == 0x9b {
+		return continuesCSI(held[1:], next)
+	}
+	if isOrphanReportStart(held) {
+		return continuesCSI(held[1:], next)
+	}
+	if len(held) < 2 || held[0] != 0x1b {
+		return true
+	}
+	switch held[1] {
+	case '[':
+		return continuesCSI(held[2:], next)
+	case 'P', ']', '_', '^':
+		if next[0] == 0x1b {
+			return len(next) > 1 && next[1] == '\\'
+		}
+		return next[0] != 0x1b
+	}
+	return true
+}
+
+func continuesCSI(body, next []byte) bool {
+	if len(next) == 0 {
+		return false
+	}
+	if next[0] == 0x1b || next[0] == 0x9b {
+		return false
+	}
+	private := false
+	for _, c := range body {
+		switch {
+		case c == '?' || c == '>' || c == '<' || c == '=':
+			private = true
+		case c >= 0x40 && c <= 0x7e:
+			return true
+		}
+	}
+	if !private {
+		return next[0] >= 0x20 && next[0] <= 0x7e
+	}
+	if next[0] >= 0x20 && next[0] < 0x40 {
+		return true
+	}
+	return isReportFinal(next[0])
+}
+
+func isReportFinal(b byte) bool {
+	switch b {
+	case 'c', 'y', 'R', 'u', 'I', 'O', 'M', 'm', 'q':
+		return true
+	}
+	return false
+}
+
 // deliver hands input to the overlay if one is up, else to the child's PTY.
 func (p *Proxy) deliver(out []byte) bool {
 	p.mu.Lock()
@@ -358,6 +423,7 @@ func (p *Proxy) onChildOutput(b []byte) {
 	if !p.DisableFilter && p.filter != nil {
 		p.filter.mouse.observe(b)
 		p.filter.cpr.observe(b)
+		p.filter.cap.observe(b)
 	}
 }
 

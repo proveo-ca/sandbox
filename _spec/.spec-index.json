@@ -957,6 +957,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/ptyproxy/opencode-keyboard-stall.puml",
+      "covers": [
+        "internal/ptyproxy/inputfilter.go",
+        "internal/ptyproxy/inputfilter_test.go",
+        "internal/ptyproxy/ptyproxy.go",
+        "internal/ptyproxy/ptyproxy_test.go",
+        "internal/backend/sandbox/sandbox.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/ptyproxy/terminal-report-filter.puml",
       "covers": [
         "internal/ptyproxy/inputfilter.go",
