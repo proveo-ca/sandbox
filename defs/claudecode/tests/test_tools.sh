@@ -87,5 +87,5 @@ if docker image inspect "$BROWSER_IMAGE" >/dev/null 2>&1; then
     'export HOME=/tmp AGENT_BROWSER_SOCKET_DIR=/tmp/ab; mkdir -p /tmp/ab; agent-browser open about:blank >/dev/null && agent-browser get url; agent-browser close >/dev/null' \
     "about:blank"
 else
-  skip_test "[browser] claudecode-browser variant" "image $BROWSER_IMAGE not built (./build.sh --browser)"
+  skip_test "[browser] claudecode-browser variant" "image $BROWSER_IMAGE not built (mise run build claudecode-browser)"
 fi

@@ -61,8 +61,8 @@ debian:bookworm-slim
   `/usr/local/sbin/proveo-harden <paths>` — new packages can reintroduce setuid
   bits. Pass the prefixes you touched (e.g. `proveo-harden /usr /opt`) so the
   scan doesn't re-walk the whole filesystem.
-- Harness `build.sh` scripts call `defs/base/ensure.sh` (or
-  `defs/base-node/ensure.sh` for Node harnesses) first, so a lone
+- Every harness build ensures its parent (`proveo/base`, or
+  `proveo/base-node-lsp` for Node harnesses) first, so a lone
   `mise build <harness>` works on a clean machine and won't reuse a stale local
   tag from a different lineage.
 - Per-harness users, runtimes, configs, and entrypoints do NOT belong here. If

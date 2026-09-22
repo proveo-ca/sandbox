@@ -8,8 +8,9 @@ contribution must satisfy.
 
 ## Image builds (buildx multi-arch)
 
-`mise run build` / `proveo build` run each def's `build.sh`, which goes through
-[`defs/lib/docker-build.sh`](defs/lib/docker-build.sh) (`docker buildx`). Defaults:
+`mise run build` / `proveo build` drive `docker buildx` from Go
+([`internal/imagebuild`](internal/imagebuild)); each target's recipe is one row of
+`imagebuild.Specs`. No host shell runs, so macOS's frozen `/bin/bash` 3.2 is out of the build path. Defaults:
 
 - **Platforms:** `linux/amd64,linux/arm64` (`PROVEO_PLATFORMS` to override)
 - **Local build:** `--load` of the **host** platform only (buildx cannot load a multi-arch image into the engine)
@@ -121,7 +122,7 @@ When you add a definition:
 
 ## Definition checklist
 
-- `Dockerfile`, `entrypoint.sh`, `build.sh`, `run.sh`, `test.sh`, `README.md`, `tests/`
+- `Dockerfile`, `entrypoint.sh`, `run.sh`, `test.sh`, `README.md`, `tests/` (the build recipe is a row in `internal/imagebuild/targets.go`)
  per the [coding harness contract](CODING_HARNESSES.md).
 - A paradigm doc + topology diagram under `_spec/defs/<name>/`, referenced from source via
  `# SPEC:` comments (see `_spec/_conventions/spec-conventions.puml` for the lifecycle rules).

@@ -7,25 +7,27 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 ' would touch: defs/*/test.sh, defs/*/tests/*.sh (harness deleted; in-image command strings kept)
 ' would touch: lib/*.sh, scripts/*.sh, mise.toml
 ' would touch: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
-' would touch: defs/*/harness.manifest (a declarative build block)
-' would touch: internal/contract/{agent_pin,buildx_pull_policy,image_resolution,host_bash}_test.go
+' would touch: internal/imagebuild/targets.go (the build table; P2 put it here, not in harness.manifest)
+' would touch: internal/contract/{agent_pin,image_resolution,host_bash}_test.go (buildx_pull_policy deleted in P2)
 ' session: 92196ee8-2438-4fda-ac25-7311bf16c563
-' PLANNED 2026-09-22. Decided by the operator over fish (no errexit, non-POSIX at
-' every Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5
-' (provision.go still runs `bash build.sh` for END USERS, who get 3.2).
+' PLANNED 2026-09-22. P1 and P2 LANDED 2026-09-22; P3 and P4 open.
+' Decided by the operator over fish (no errexit, non-POSIX at every
+' Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5
+' (provision.go ran `bash build.sh` for END USERS, who get 3.2, until P2).
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' ── MEASURED 2026-09-22: WHERE THE SHELL RUNS ─────────────────────────────
+' ── MEASURED 2026-09-22, BEFORE P2: WHERE THE SHELL RAN ───────────────────
 '   host build   defs/lib + build.sh + ensure.sh   ~1.2k lines   macOS 3.2
 '   host libs    lib/*.sh + scripts/*.sh           ~0.6k lines   macOS 3.2
 '   def tests    defs/*/tests/*.sh HARNESS         ~3.3k lines   macOS 3.2
 '   in-image     packages/lib + entrypoints        ~3.8k lines   Debian bash 5
 '   installer    apps/cli/public/cli/install.sh                  any POSIX sh
 ' The def tests were first filed as in-container; they are not. helpers.sh
-' sources docker-build.sh, falls back when `timeout` is missing, and drives
-' `docker run … bash -c "<cmd>"` FROM the host. Only <cmd> runs inside.
-' End users reach host bash too: cmd/proveo/provision.go:118 runs
-' `bash <def>/build.sh` when an image is missing.
+' sourced docker-build.sh (now the slim defs/lib/test-image.sh), falls back
+' when `timeout` is missing, and drives `docker run … bash -c "<cmd>"` FROM the
+' host. Only <cmd> runs inside.
+' End users reached host bash too: cmd/proveo/provision.go ran
+' `bash <def>/build.sh` when an image was missing. P2 removed that path.
 '
 ' ── WHAT STAYS SHELL, AND WHY ──────────────────────────────────────────────
 ' In-image bash: it only ever meets bash 5, and sbx Kit startup commands, `sbx
@@ -53,6 +55,37 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 '     PARITY GATE before deletion: for every target and variant, the buildx
 '     argv Go renders equals the argv the old script ran (golden, --print).
 '     Then build.sh, ensure.sh and docker-build.sh are deleted.
+'     LANDED 2026-09-22. Every defs/*/build.sh, defs/*/ensure.sh and
+'     defs/lib/docker-build.sh is deleted.
+'       * DEVIATION: the recipes live in a Go table, internal/imagebuild/
+'         targets.go `Specs` (Repo, Override, Dockerfile, Context, Parent,
+'         Needs, Layer, Pins, EnvArgs, Floor), not in a harness.manifest
+'         `build:` block. 6 of the 16 registry targets (the four bases, the
+'         two sidecars) have no manifest to hold one, and
+'         TestEverySpecIsARegistryTarget pins the table to maintain.Registry.
+'       * ensure = push → RequirePublished; present + Floor ok → done;
+'         present without Floor → rebuild; absent → pull, else build. Each
+'         Floor is the in-image `sh -c` probe its ensure.sh used to run.
+'       * PARITY: internal/imagebuild/parity_test.go + testdata/
+'         build_argv.golden, 48 cases (16 targets x --load, --push, cold
+'         host; 83 buildx invocations), written
+'         while build.sh and BuildTarget rendered identical buildx argv.
+'       * maintain: Target.BuildScript/BuildArgs gone, Target.RepoRoot added;
+'         BuildPlan/DeployPlan emit `imagebuild <target> --tag T [--push]
+'         [--no-cache]` as an in-process Command.Run step.
+'       * BUG FIXED (provision.go): the end-user fallback ran `bash build.sh`
+'         with no args, which defaulted to :latest and was refused for --load.
+'         It now builds the image's target at :local when asked for :latest
+'         (buildTag) and hands the run that ref; PreflightImages returns the
+'         image it settled on.
+'       * PROVEO_<X>_IMAGE names the target's repo; --tag sets the tag.
+'       * FINDING: codex is NOT pinned. CODEX_VERSION is an EnvArg defaulting
+'         to `latest`, exactly as its build.sh did; parity kept it, and
+'         agent_pin_test does not cover codex. Recorded in
+'         _spec/_devops/agent-version-pin.puml.
+'       * The def tests keep a slim defs/lib/test-image.sh (proveo_ref_tag,
+'         proveo_image_created, proveo_resolve_image, proveo_test_image)
+'         until P3.
 ' P3  def tests → Go — the TOOLS/CONFIG arrays are already tables; they become
 '     `-tags=image` table tests. A context deadline replaces `timeout`/
 '     `gtimeout`. test.sh and tests/*.sh are deleted; TestPlan runs go test.
@@ -65,8 +98,8 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 ' (in-image) and apps/cli/public/cli (installer).
 
 rectangle "operator's Mac" as MAC <<host>> {
-  component "proveo build / provision\nexec bash build.sh — TODAY" as NOW <<error>>
-  component "internal/imagebuild\nGo — AFTER P2" as GO <<app>>
+  component "proveo build / provision\nexec bash build.sh — BEFORE P2" as NOW <<error>>
+  component "internal/imagebuild\nGo — LANDED P2" as GO <<app>>
   component "go test -tags=image\ndef tests — AFTER P3" as GT <<app>>
 }
 rectangle "image (Debian)" as IMG <<host>> {
@@ -81,18 +114,16 @@ INST ARROW_MAIN MAC : bootstraps proveo
 
 note right of NOW
   **End users hit this path.**
-  provision.go runs `bash build.sh`
-  when an image is missing, so a
-  contributor-only fix leaves them
-  on /bin/bash 3.2.
+  provision.go ran `bash build.sh`
+  on a missing image, so a fix for
+  contributors alone left them on 3.2.
 end note
 
 note bottom of GO
   **Parity before deletion.**
-  The argv Go renders must equal
-  the argv each old build.sh ran,
-  per target and variant, as a
-  golden, before the script goes.
+  48 golden cases matched each old
+  build.sh argv, per target and
+  mode, before the scripts went.
 end note
 
 note bottom of GT

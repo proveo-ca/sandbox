@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,37 +18,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const presentDocker = `#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
-case "$1 $2" in
-  "context show") printf 'default\n' ;;
-  "buildx inspect") printf 'Driver: docker\nStatus: running\n' ;;
-esac
-exit 0
-`
-
 var pinned = map[string]string{
 	"CLAUDE_CODE_VERSION": "9.9.1", "OPENCODE_VERSION": "9.9.2", "CECLI_VERSION": "9.9.3",
 	"SERENA_VERSION": "9.9.4", "CURSOR_AGENT_VERSION": "9.9.5",
 }
-
-const coldDocker = `#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
-case "$1 $2" in
-  "context show") printf 'default\n' ;;
-  "buildx inspect") printf 'Driver: docker\nStatus: running\n' ;;
-  "image inspect") [[ -e "$FAKE_STATE/${3//\//_}" ]] || exit 1 ;;
-  "pull "*) exit 1 ;;
-  "buildx build")
-    prev=""
-    for a in "$@"; do
-      [[ "$prev" == "-t" ]] && touch "$FAKE_STATE/${a//\//_}"
-      prev="$a"
-    done
-    ;;
-esac
-exit 0
-`
 
 type recorder struct {
 	calls []string
@@ -131,42 +103,6 @@ func registry(t *testing.T, root string) []maintain.Target {
 	return maintain.Registry(ms, filepath.Join(root, "defs"))
 }
 
-func shellBuilds(t *testing.T, root string, tg maintain.Target, argv []string, cacheDir string, cold bool) []string {
-	t.Helper()
-	bin := t.TempDir()
-	log := filepath.Join(bin, "docker.log")
-	fake := presentDocker
-	if cold {
-		fake = coldDocker
-	}
-	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("bash", argv...)
-	cmd.Dir = tg.DefDir
-	var env []string
-	for _, kv := range os.Environ() {
-		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "PROVEO_") || pinned[k] != "" || k == "CODEX_VERSION" || k == "CURSOR_INSTALL_URL" {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"FAKE_DOCKER_LOG="+log, "FAKE_STATE="+t.TempDir(), "PROVEO_BUILDKIT_CACHE_DIR="+cacheDir)
-	for k, v := range pinned {
-		env = append(env, k+"="+v)
-	}
-	cmd.Env = env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%v: %v\n%s", argv, err, out)
-	}
-	b, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return normBuilds(strings.Split(strings.TrimSpace(string(b)), "\n"))
-}
-
 func goBuilds(t *testing.T, root, name, tag string, push bool, cacheDir string, cold bool) []string {
 	t.Helper()
 	env := map[string]string{"PROVEO_BUILDKIT_CACHE_DIR": cacheDir}
@@ -186,36 +122,16 @@ func goBuilds(t *testing.T, root, name, tag string, push bool, cacheDir string, 
 	return normBuilds(r.calls)
 }
 
-// TestGoBuildMatchesTheShellItReplaces is the P2 gate: for every registry
-// target, in --load and --push form, Go renders the same buildx builds the
-// def's build.sh ran.
-func TestGoBuildMatchesTheShellItReplaces(t *testing.T) {
-	root := repoRoot(t)
-	if _, err := os.Stat(filepath.Join(root, "defs", "lib", "docker-build.sh")); err != nil {
-		t.Skip("the shell has been retired; build_argv.golden carries the gate")
+// TestEverySpecIsARegistryTarget keeps the spec table and maintain's registry
+// one list: a target with no spec cannot build, a spec with no target is dead.
+func TestEverySpecIsARegistryTarget(t *testing.T) {
+	var names []string
+	for _, tg := range registry(t, repoRoot(t)) {
+		names = append(names, tg.Name)
 	}
-	if os.Getenv("GOARCH") != "" && os.Getenv("GOARCH") != "arm64" {
-		t.Skip("the shell fixes the platform from uname -m")
-	}
-	for _, tg := range registry(t, root) {
-		for _, mode := range modes {
-			t.Run(tg.Name+"/"+mode.name, func(t *testing.T) {
-				cache := t.TempDir()
-				argv := append(append([]string{tg.BuildScript}, tg.BuildArgs...), "--tag", mode.tag)
-				if mode.push {
-					argv = append(argv, "--push")
-				}
-				sh := shellBuilds(t, root, tg, argv, cache, mode.cold)
-				got := goBuilds(t, root, tg.Name, mode.tag, mode.push, cache, mode.cold)
-				if len(sh) == 0 {
-					t.Fatal("the shell ran no buildx build — the gate would compare nothing")
-				}
-				t.Logf("%d build(s): %s", len(sh), sh[len(sh)-1])
-				if !slices.Equal(sh, got) {
-					t.Errorf("builds differ\nshell:\n  %s\ngo:\n  %s", strings.Join(sh, "\n  "), strings.Join(got, "\n  "))
-				}
-			})
-		}
+	slices.Sort(names)
+	if !slices.Equal(names, imagebuild.SpecNames()) {
+		t.Errorf("registry targets %v\n!= build specs %v", names, imagebuild.SpecNames())
 	}
 }
 
@@ -247,8 +163,8 @@ func renderGolden(t *testing.T, root string) string {
 	return sb.String()
 }
 
-// TestGoBuildMatchesGolden carries the parity gate once the shell is gone:
-// the golden was written while TestGoBuildMatchesTheShellItReplaces passed.
+// TestGoBuildMatchesGolden is the parity gate: the golden was written while
+// every def's build.sh and BuildTarget rendered the same builds (P2, 2026-09-22).
 func TestGoBuildMatchesGolden(t *testing.T) {
 	root := repoRoot(t)
 	got := renderGolden(t, root)
@@ -263,7 +179,7 @@ func TestGoBuildMatchesGolden(t *testing.T) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("%v — run with -update while the shell parity test passes", err)
+		t.Fatalf("%v — regenerate with -update and review the diff", err)
 	}
 	if got != string(want) {
 		t.Errorf("builds drifted from %s:\n%s", path, lineDiff(string(want), got))

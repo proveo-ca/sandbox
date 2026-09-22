@@ -7,8 +7,8 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 FAILURES=()
 
-# shellcheck source=../../lib/docker-build.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/docker-build.sh"
+# shellcheck source=../../lib/test-image.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/test-image.sh"
 STANDALONE_IMAGE="$(proveo_test_image "${STANDALONE_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE="$(proveo_test_image "${MCP_IMAGE:-proveo/claudecode:latest}")"
 MCP_IMAGE_AVAILABLE=false

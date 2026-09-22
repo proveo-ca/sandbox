@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/chromebridge"
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
 func readRepoFile(t *testing.T, rel string) string {
@@ -42,10 +43,10 @@ func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) 
 		t.Error("agent-browser comes from the pinned tarball, not `npm install -g` (engines.node >= 24 on a Node 22 floor)")
 	}
 
-	ensure := readRepoFile(t, "defs/base-node-browser/ensure.sh")
+	floor := imagebuild.Specs["base-node-browser"].Floor
 	for _, want := range []string{"command -v agent-browser", "AGENT_BROWSER_EXECUTABLE_PATH", "skill-data}/core/SKILL.md", "/opt/proveo/skills/agent-browser/SKILL.md"} {
-		if !strings.Contains(ensure, want) {
-			t.Errorf("ensure.sh's floor probe must check %q — a stale :local image without it looks present", want)
+		if !strings.Contains(floor, want) {
+			t.Errorf("the base-node-browser floor probe must check %q — a stale :local image without it looks present", want)
 		}
 	}
 }
@@ -68,21 +69,21 @@ func TestBrowserSkillStubIsHarnessNeutralAndInstallFree(t *testing.T) {
 
 func TestBrowserVariantsLayerOntoTheHarness(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ script, image, user string }{
-		{"defs/opencode/build.sh", "proveo/opencode", "opencode"},
-		{"defs/codex/build.sh", "proveo/codex", "codex"},
-		{"defs/cursor/build.sh", "proveo/cursor", "cursor"},
-		{"defs/claudecode/build.sh", "proveo/claudecode", "claude"},
+	for _, tc := range []struct{ target, parent, user string }{
+		{"opencode-browser", "opencode", "opencode"},
+		{"codex-browser", "codex", "codex"},
+		{"cursor-browser", "cursor", "cursor"},
+		{"claudecode-browser", "claudecode", "claude"},
 	} {
-		sh := readRepoFile(t, tc.script)
-		if !strings.Contains(sh, "proveo_build_browser_variant") {
-			t.Errorf("%s does not apply the browser layer onto the harness", tc.script)
+		s := imagebuild.Specs[tc.target]
+		if s.Needs != tc.parent || s.Layer != tc.user {
+			t.Errorf("%s must layer onto %s as user %s, got needs=%q user=%q", tc.target, tc.parent, tc.user, s.Needs, s.Layer)
 		}
-		if !strings.Contains(sh, tc.image) || !strings.Contains(sh, tc.user) {
-			t.Errorf("%s must name parent %s and user %s", tc.script, tc.image, tc.user)
+		if s.Parent != "" {
+			t.Errorf("%s still builds the variant FROM a shared base (%s)", tc.target, s.Parent)
 		}
-		if strings.Contains(sh, "base-node-browser/ensure.sh") {
-			t.Errorf("%s still builds the variant FROM the shared browser base", tc.script)
+		if s.Context != "defs/base-node-browser" {
+			t.Errorf("%s must apply the base-node-browser layer, got context %q", tc.target, s.Context)
 		}
 	}
 }

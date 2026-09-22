@@ -4,6 +4,7 @@
 ' covers: internal/maintain/**
 ' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/targets.go
+' covers: internal/imagebuild/**
 ' covers: lib/helpers.sh
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
 title Maintainer image pipeline — proveo build / test / deploy
@@ -14,8 +15,8 @@ node "Maintainer host" as HOST <<host>> {
   component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
   component "cmd/proveo build|test|deploy\n(internal/maintain)" as CMD <<app>>
   component "internal/manifest\nharness.manifest set" as MAN <<app>>
-  component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nbuildScript · buildArgs · testScript" as REG <<app>>
-  component "defs/<name>/build.sh\n→ defs/lib/docker-build.sh (buildx)" as BUILD <<app>>
+  component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · testScript" as REG <<app>>
+  component "imagebuild.BuildTarget (in-process)\ntargets.go Specs[<name>] → buildx" as BUILD <<app>>
   component "defs/<name>/test.sh\nimage contract suites" as TEST <<app>>
 }
 
@@ -40,9 +41,9 @@ note right of REG
   **Derived, never hardcoded.** The buildable set comes
   from the manifest ""images"" map plus a fixed sidecar
   list (sidecars have no harness manifest). A variant is
-  a Target whose ""buildArgs"" carry the selector, e.g.
-  ""--variant mcp"" — so ""claudecode"" and
-  ""claudecode-solidity"" share one def dir and one build.sh.
+  its own ""Specs"" row in internal/imagebuild/targets.go —
+  ""claudecode"" and ""claudecode-solidity"" share one def
+  dir and differ by ""Dockerfile"" (mcp/ vs solidity/).
 end note
 
 note bottom of BUILD
@@ -51,17 +52,19 @@ note bottom of BUILD
   local docker image store. Multi-arch exists only on
   the ""--push"" path.
 
-  Bases are ensured before dependents: a harness build
-  invokes its base's ""ensure.sh"" first, so
+  Bases are ensured before dependents: ""BuildTarget""
+  ensures the row's ""Parent"" first, so
   ""base-node-lsp"" exists before claudecode/opencode
   build ""FROM"" it.
 
-  **The agent inside is pinned, not ""@latest"".** Each build.sh
-  resolves the current release (""proveo_agent_version"") and
-  passes it as a build-arg the Dockerfile installs and
+  **The agent inside is pinned, not ""@latest"".** Each
+  row's ""Pins"" resolve the current release
+  (""Builder.AgentVersion"") and
+  pass it as a build-arg the Dockerfile installs and
   verifies, so a warm cache cannot keep a stale agent and
   the image labels what it carries
-  (_spec/_devops/agent-version-pin.puml).
+  (_spec/_devops/agent-version-pin.puml). codex is the
+  exception: ""CODEX_VERSION"" defaults to ""latest"".
 
   **A newer "":local"" beats "":latest"" for the egress-proxy
   sidecar too** (""egressProxyImage"" in cmd/proveo, same
@@ -89,9 +92,11 @@ note bottom of REG
   claudecode-solidity after claudecode.
 
   **Build and deploy answer different questions, so they are different
-  plans.** ""BuildPlan"" leaves the image tagged locally through
-  ""defs/lib/docker-build\.sh"", which ""--load""s a single platform; ""DeployPlan""
-  rebuilds with ""buildx --push"" for ""linux/amd64,linux/arm64"". A plain
+  plans.** Both emit one in-process ""imagebuild <target> --tag T
+  [--push] [--no-cache]"" step (""Command.Run""; ""Argv"" is only its label).
+  ""BuildPlan"" leaves the image tagged locally through ""Builder.Build"",
+  which ""--load""s a single platform; ""DeployPlan"" rebuilds with
+  ""buildx --push"" for ""linux/amd64,linux/arm64"". A plain
   ""docker push"" of a locally built image cannot substitute — it would
   publish one architecture under a manifest the fleet expects to be
   multi-arch. The verify step's ""docker image inspect"" is run quiet because

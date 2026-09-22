@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
 // fakeServer writes a stdio "MCP server" onto a temp PATH dir.
@@ -210,15 +213,7 @@ func TestCecliImagePinsSerena(t *testing.T) {
 		t.Error("an unpinned serena-agent install is in the Dockerfile")
 	}
 
-	bs, err := os.ReadFile(filepath.Join(root, "defs", "cecli", "build.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	build := string(bs)
-	if !strings.Contains(build, "proveo_agent_version SERENA_VERSION pypi serena-agent") {
-		t.Error("defs/cecli/build.sh must resolve SERENA_VERSION through proveo_agent_version")
-	}
-	if !strings.Contains(build, `--build-arg SERENA_VERSION="$SERENA_VERSION"`) {
-		t.Error("defs/cecli/build.sh must pass SERENA_VERSION to the build")
+	if !slices.Contains(imagebuild.Specs["cecli"].Pins, imagebuild.Pin{Arg: "SERENA_VERSION", Eco: "pypi", Pkg: "serena-agent"}) {
+		t.Error("the cecli build must pin SERENA_VERSION to serena-agent's pypi release")
 	}
 }

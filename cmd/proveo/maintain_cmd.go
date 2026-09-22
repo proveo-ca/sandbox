@@ -148,6 +148,12 @@ func runPlan(cmds []maintain.Command, pio planIO) error {
 			fmt.Fprintf(pio.out, "%s%s\n", prefix, strings.Join(c.Argv, " "))
 			continue
 		}
+		if c.Run != nil {
+			if err := c.Run(pio.stdout, pio.stderr, pio.env); err != nil {
+				return fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), err)
+			}
+			continue
+		}
 		ex := exec.Command(c.Argv[0], c.Argv[1:]...)
 		ex.Dir = c.Dir
 		ex.Stdin, ex.Stdout, ex.Stderr = pio.stdin, pio.stdout, pio.stderr

@@ -41,7 +41,7 @@ type Deps struct {
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
 	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
-	PreflightImages  func(plan egress.Plan, man manifest.Manifest, agentImage string) error
+	PreflightImages  func(plan egress.Plan, man manifest.Manifest, agentImage string) (string, error)
 	SquidConfig      fs.FS // the root package's embedded squid config
 }
 
@@ -768,9 +768,11 @@ func recordOutcome(launched bool, err error) {
 
 func execute(rs *Spec, p *Params, d Deps) error {
 	if !p.PrintOnly {
-		if err := d.PreflightImages(egress.Plan{}, rs.Man, p.Image); err != nil {
+		image, err := d.PreflightImages(egress.Plan{}, rs.Man, p.Image)
+		if err != nil {
 			return err
 		}
+		p.Image = image
 	}
 	rs.Docker.Host = runner.DetectHost(p.Image)
 	rs.Docker.Browser = runner.IsBrowserImage(p.Image)
@@ -827,9 +829,11 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		fmt.Printf("# agent\ndocker %s\n", strings.Join(runner.DockerRunArgs(agent), " "))
 		return nil
 	}
-	if err := d.PreflightImages(plan, rs.Man, p.Image); err != nil {
+	image, err := d.PreflightImages(plan, rs.Man, p.Image)
+	if err != nil {
 		return err
 	}
+	p.Image, agent.Image = image, image
 	runErr := func() error {
 		if !dockeregress.NeedsLifecycle(plan) {
 			rs.AgentLaunched = true

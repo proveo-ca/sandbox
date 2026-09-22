@@ -186,7 +186,7 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' Plan calls in one process agree.
 '
 ' ── WHY THE POLICY ASKS ABOUT PLATFORM, AND WHERE IT READS IT ──────────────
-' The defs build linux images only — defs/lib/docker-build.sh publishes
+' The defs build linux images only — internal/imagebuild (Builder.Build) publishes
 ' linux/amd64 and linux/arm64, and a local load builds linux/<host arch> — and
 ' the runner passes no --platform, so docker picks the daemon default: the host
 ' architecture unless DOCKER_DEFAULT_PLATFORM says otherwise. ImagePlatform

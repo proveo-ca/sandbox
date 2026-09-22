@@ -1,12 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Image lineage — parent tags, ensure.sh modes, and the publish contract
+title Image lineage — parent tags, ensure modes, and the publish contract
 
-' purpose: which parent a child builds on, at which tag, and what ensure.sh
-'          actually checks in each of its two modes
-' covers: defs/lib/docker-build.sh
-' covers: defs/*/build.sh
-' covers: defs/*/ensure.sh
+' purpose: which parent a child builds on, at which tag, and what the parent
+'          ensure step actually checks in each of its two modes
+' covers: internal/imagebuild/**
+' covers: defs/lib/test-image.sh
 ' covers: defs/*/test.sh
 ' covers: defs/*/tests/helpers.sh
 ' covers: defs/sidecars/*/Dockerfile
@@ -18,24 +17,32 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' covers: e2e/docker-detached-smoke.sh
 ' covers: lib/registry.sh
 '
-' ── EVERY build.sh HAS THE SAME SHAPE ───────────────────────────────────────
-'   IMAGE="${PROVEO_<X>_IMAGE:-proveo/<x>:latest}"   env override wins outright
-'   --tag <t>   rewrites only the tag: IMAGE="${IMAGE%%:*}:$TAG"
-'   --image     replaces the whole reference
-'   --no-cache  passed straight through
-'   --push      switches every ensure.sh below into publication mode
-'   PARENT_TAG="$(proveo_ref_tag "$IMAGE")"   the child's tag decides the parent's
-'   "<parent>/ensure.sh" --tag "$PARENT_TAG" ${PUSH:+--push}
+' ── EVERY TARGET HAS THE SAME SHAPE ─────────────────────────────────────────
+' One row per registry target in internal/imagebuild/targets.go `Specs`; one
+' entry point, Builder.BuildTarget(name, tag, Options{Push, NoCache}). The
+' per-def build.sh/ensure.sh pairs and defs/lib/docker-build.sh held this shape
+' until 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P2).
+'   ref = TargetRef(name, tag)   Spec.Repo, or RefRepo($PROVEO_<X>_IMAGE)
+'                                the override names the REPO; --tag sets the tag
+'   tag ""                       -> latest (and Build refuses latest for --load)
+'   Options.NoCache              passed straight through as --no-cache
+'   Options.Push                 switches every parent ensure into publication mode
+'   RefTag(ref)                  the child's tag decides the parent's
+'   ensure(Spec.Parent, ImageRef(Spec.ParentOverride, parent repo, tag), push)
+'   Spec.Needs                   sibling built if missing; RequirePublished on push
 '
 ' ── THE FLOOR PROBES, PER LAYER ─────────────────────────────────────────────
 ' A tag alone is not evidence: a stale image from a different lineage looks
-' present and has the wrong contents. So each ensure.sh runs the layer's own
-' probe inside the image, and the probe states the CONTRACT rather than restating
-' the package list:
+' present and has the wrong contents. So ensure (targets.go) runs the parent
+' row's Spec.Floor inside the image (`docker run --rm --entrypoint sh <ref> -c`),
+' and the probe states the CONTRACT rather than restating the package list:
 '
 '   proveo/base            git · gh · jq · an executable
 '                          /usr/local/bin/proveo-entrypoint. Explicitly no
 '                          browser, no Node, no Python — those moved out.
+'   proveo/base-node       git · jq · node · pnpm · bun · bunx · the entrypoint
+'   proveo/base-node-lsp   node · jq · typescript-language-server ·
+'                          pyright-langserver
 '   proveo/base-node-browser  node · playwright · typescript-language-server ·
 '                          a chromium-* dir under PLAYWRIGHT_BROWSERS_PATH ·
 '                          agent-browser · an executable
@@ -46,15 +53,15 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' Probe fails on a PRESENT image -> rebuild from source. Image absent -> pull,
 ' then probe; pull failed or probe failed -> build from source. The messages name
 ' which of those three happened, because "missing the floor" and "not present"
-' send a reader to different places.
+' send a reader to different places. Spec.FloorWhat names the floor in each.
 '
 ' ── BUILD CONTEXT IS NOT UNIFORM, AND THAT IS DELIBERATE ────────────────────
 ' Two groups, for one reason: does the Dockerfile COPY anything out of the repo?
 '
-'   REPO_ROOT   base (the Go builder copies cmd/ and internal/), cecli, cursor,
-'               opencode, claudecode (both variants) — they COPY packages/lib,
-'               defs/subagents, defs/bridges, AGENTS.md.
-'   SCRIPT_DIR  base-node, base-node-lsp, base-node-browser — these COPY nothing
+'   Context "."      base (the Go builder copies cmd/ and internal/), cecli,
+'                    cursor, opencode, codex, claudecode (both variants) — they
+'                    COPY packages/lib, defs/subagents, defs/bridges, AGENTS.md.
+'   Context <def>    base-node, base-node-lsp, base-node-browser — these COPY nothing
 '               from the module (base-node-browser copies only its own skills/),
 '               so the narrower context is free.
 '
@@ -72,8 +79,8 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' must not reach it either, because enumerating deps is cheap and a full docker
 ' build is not. Neither existed when the bridge tables were first embedded.
 '
-' ── TWO SHELL HELPERS WITH NON-OBVIOUS BODIES ───────────────────────────────
-' proveo_image_created prints an image's build time as epoch seconds and is the
+' ── HELPERS WITH NON-OBVIOUS BODIES ─────────────────────────────────────────
+' proveo_image_created (defs/lib/test-image.sh) prints an image's build time as epoch seconds and is the
 ' shell twin of posture's dockerImageCreated. The fraction is trimmed BEFORE
 ' parsing: docker reports RFC3339Nano ("2026-08-31T00:37:15.008872627Z") and
 ' neither GNU nor BSD `date` accepts nanoseconds. Both spellings are attempted in
@@ -82,15 +89,15 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' when the host has no such image, which is what lets proveo_resolve_image treat
 ' "absent" as "not a candidate" rather than as time zero.
 '
-' _proveo_json_field prints one jq-path field out of JSON on stdin, with python3
-' as the fallback so a host without jq still resolves an agent version. When
-' neither is present it drains stdin (`cat >/dev/null`, so a caller's pipeline
-' never blocks) and prints nothing — the caller then reports the unresolved
-' version by name rather than baking `@latest`.
+' Builder.jsonField (imagebuild.go) reads one field path out of fetched JSON
+' with encoding/json, so the host needs neither jq nor python3 (moved from
+' _proveo_json_field in defs/lib/docker-build.sh 2026-09-22). A missing field
+' yields "" — AgentVersion then reports the unresolved version by name rather
+' than baking `@latest`.
 '
-' proveo_docker_host_platform maps uname -m to linux/amd64 or linux/arm64 and
-' falls back to linux/amd64 on anything else — QEMU and unusual hosts get the
-' published default rather than an error.
+' HostPlatform (imagebuild.go) maps runtime.GOARCH arm64 to linux/arm64 and
+' everything else to linux/amd64 — QEMU and unusual hosts get the published
+' default rather than an error.
 '
 ' Only :latest is ever resolved by proveo_resolve_image. An explicit :v2 or a
 ' digest is a deliberate choice by the caller and is returned untouched.
@@ -107,11 +114,11 @@ title Image lineage — parent tags, ensure.sh modes, and the publish contract
 ' fails if they disagree. Two implementations of "prefer the newer build" that
 ' disagree is a suite vouching for an image the run never uses.
 
-node "defs/ build scripts" as HOST <<host>> {
-  component "proveo_image_ref\n<env-var> <repo> <tag>" as REF <<app>>
-  component "proveo_ref_tag\n<ref> → tag (default latest)" as RTAG <<app>>
-  component "<parent>/ensure.sh\n--tag <t> [--push]" as ENSURE <<app>>
-  component "proveo_require_published\nregistry probe + advisory" as REQ <<app>>
+node "internal/imagebuild" as HOST <<host>> {
+  component "ImageRef · TargetRef\n<override> <repo> <tag>" as REF <<app>>
+  component "RefTag\n<ref> → tag (default latest)" as RTAG <<app>>
+  component "ensure(Parent, ref, push)\ntargets.go" as ENSURE <<app>>
+  component "RequirePublished\nregistry probe + advisory" as REQ <<app>>
 }
 
 folder "Lineage" as CHAIN <<host>> {
@@ -128,7 +135,7 @@ node "Tag policy" as TAGS <<host>> {
   component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
   component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
-  component "proveo_resolve_image\nthe same rule, in shell" as SHRESOLVE <<app>>
+  component "proveo_resolve_image\ndefs/lib/test-image.sh" as SHRESOLVE <<app>>
 }
 
 node "defs/**/test.sh · tests/helpers.sh" as DEFTESTS <<host>>
@@ -160,13 +167,15 @@ SHRESOLVE ARROW_MAIN RESOLVE : one rule, pinned by\n""TestShellImageResolverMatc
 
 note right of REF
   **A child never hardcodes ""latest"".** Every parent reference is
-  resolved through one helper, so ""proveo deploy all --tag v2""
+  resolved through ""ImageRef"", so ""proveo deploy all --tag v2""
   publishes ""proveo/<harness>:v2"" built ""FROM proveo/base:v2"". Left
   hardcoded, the published lineage silently mixes two releases and
   nothing in the image records it.
 
-  A ""PROVEO_*_IMAGE"" override wins outright — it is a complete ref
-  chosen by the caller, so the tag is not reapplied to it.
+  A PARENT's ""PROVEO_*_IMAGE"" override wins outright — it is a
+  complete ref chosen by the caller, so the tag is not reapplied to it.
+  The TARGET's own override names only its repo: ""TargetRef"" applies
+  ""--tag"" to it, so ""proveo build"" still writes ""<repo>:local"".
 end note
 
 note bottom of ENSURE
@@ -175,8 +184,8 @@ note bottom of ENSURE
   ""--tag"" (local ""--load""): is the parent present at this tag with a
   usable floor? Present + floor → done; else pull; else build from
   source. A tag alone is not enough — a stale image from a different
-  lineage looks present but has the wrong contents, so each ensure.sh
-  runs a floor probe (the tools that layer must provide).
+  lineage looks present but has the wrong contents, so ensure runs
+  the row's ""Spec.Floor"" probe (the tools that layer must provide).
 
   ""--push"": the child resolves the parent from the REGISTRY, so the
   local pull/floor dance answers the wrong question entirely and is
@@ -185,7 +194,7 @@ end note
 
 note bottom of REQ
   **Deploying one target whose parents are unpublished is not
-  supported.** The scripts refuse to publish a parent as a side effect
+  supported.** ""RequirePublished"" refuses to publish a parent as a side effect
   of a child's deploy — that would push an image the caller never
   asked for, and (for claudecode-solidity) a local ""docker image
   inspect"" would be interrogating the wrong store while the build
@@ -240,14 +249,14 @@ note bottom of CHAIN
   partially published set.
 end note
 note bottom of ENSURE
-  **Every def carries the same two-script pair, and the chain is what makes
-  a single build work from cold.** A ""build\.sh"" builds exactly its own
-  image and calls its parent's ""ensure\.sh"" first; that parent's build in
-  turn chains its own parent's. So building any harness from a clean machine
-  walks the lineage upward once, and no script needs to know the whole
-  chain — only its immediate parent.
+  **Every target is one ""Specs"" row, and the chain is what makes a single
+  build work from cold.** ""BuildTarget"" builds exactly its own image and
+  ensures its ""Parent"" first; that parent's build in turn ensures its own.
+  So building any harness from a clean machine walks the lineage upward
+  once, and no row needs to know the whole chain — only its immediate
+  parent. ""TestEverySpecIsARegistryTarget"" pins the table to the registry.
 
-  Build context follows what the Dockerfile COPIES, not a single rule. The
+  Build context (""Spec.Context"") follows what the Dockerfile COPIES. The
   harnesses and ""base"" use the REPO ROOT, because they resolve
   ""packages/lib"", ""defs/subagents"", ""defs/bridges"", ""AGENTS\.md"" and (for
   ""base"") ""cmd""/""internal"" from there. ""base-node"", ""base-node-lsp"" and
@@ -292,7 +301,7 @@ end note
 note bottom of SHRESOLVE
   **The def suites had the shadow the runtime was spared.** Every
   ""test\.sh"" and ""tests/helpers\.sh"" defaulted to ""<image>:latest"" —
-  a tag ""proveo_docker_build"" REFUSES to write locally — so the only
+  a tag ""Builder.Build"" REFUSES to write locally — so the only
   image they could ever reach was whatever the registry last
   published. ""mise run test-images"" read as a verdict on the working
   tree and was a verdict on the last deploy.
@@ -305,11 +314,11 @@ note bottom of SHRESOLVE
 
   Ten sites carried it (four harnesses, their browser and solidity
   variants, the mitmproxy sidecar). They now share
-  ""proveo_resolve_image"", and ""proveo_test_image"" NAMES the winner the
-  way the runner does — because an image silently resolving to a
+  ""proveo_resolve_image"" (""defs/lib/test-image.sh""), and
+  ""proveo_test_image"" NAMES the winner the way the runner does — because an image silently resolving to a
   published artifact is invisible until something behaves like code
-  nobody wrote. ""build\.sh"" keeps its ""latest"" default: publishing is
-  what that tag is for.
+  nobody wrote. ""TargetRef"" keeps its ""latest"" default for an empty
+  tag: publishing (""--push"") is what that tag is for.
 end note
 
 @enduml

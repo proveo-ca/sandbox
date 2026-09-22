@@ -53,5 +53,5 @@ if docker image inspect "$CURSOR_BROWSER_IMAGE" >/dev/null 2>&1; then
     "about:blank"
   assert_failure "[browser] Claude in Chrome relay is claudecode's alone" "$CURSOR_BROWSER_IMAGE" "test -f /opt/proveo/lib/chrome-bridge.js"
 else
-  skip_test "[browser] cursor-browser variant" "image $CURSOR_BROWSER_IMAGE not built (./build.sh --browser)"
+  skip_test "[browser] cursor-browser variant" "image $CURSOR_BROWSER_IMAGE not built (mise run build cursor-browser)"
 fi

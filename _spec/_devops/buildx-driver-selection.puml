@@ -4,17 +4,20 @@ title Buildx driver selection — which driver, and where a FROM resolves
 
 ' purpose: which buildx driver each build mode selects, and the consequence that
 '          matters — where a FROM resolves its parent from
-' covers: defs/lib/docker-build.sh
-' covers: defs/*/build.sh
-' covers: internal/contract/buildx_pull_policy_test.go
+' covers: internal/imagebuild/imagebuild.go
+' covers: internal/imagebuild/imagebuild_test.go
 '
-' ── THE INPUTS proveo_docker_build READS ────────────────────────────────────
-'   --push (argv) or PROVEO_DOCKER_PUSH in {1,true,yes,on}  → push mode
+' ── THE INPUTS Builder.Build READS ──────────────────────────────────────────
+' (internal/imagebuild/imagebuild.go; moved from proveo_docker_build in
+' defs/lib/docker-build.sh 2026-09-22. The pull policy the deleted
+' buildx_pull_policy_test.go held is now TestPullFlagsFromEnv and the
+' TestLoad*Pull* cases in imagebuild_test.go.)
+'   push (Options.Push) or PROVEO_DOCKER_PUSH in {1,true,yes,on}  → push mode
 '   PROVEO_PLATFORMS   default "linux/amd64,linux/arm64"
 '   PROVEO_BUILDX_BUILDER        names the container-driver builder
 '                                (default "proveo-multiarch")
 '   PROVEO_BUILDX_LOCAL_BUILDER  overrides the docker-driver choice outright
-'   PROVEO_DOCKER_PULL           load-mode registry HEAD:
+'   PROVEO_DOCKER_PULL           load-mode registry HEAD (PullFlags):
 '                                auto (default) — pull-if-missing; on a
 '                                registry DNS failure, retry once with
 '                                --pull=false
@@ -25,22 +28,22 @@ title Buildx driver selection — which driver, and where a FROM resolves
 '
 ' A LOCAL LOAD IS SINGLE-PLATFORM, always. `--load` cannot accept a multi-platform
 ' result, so when PROVEO_PLATFORMS still holds a comma the value is narrowed to
-' proveo_docker_host_platform and the build says so:
+' HostPlatform(runtime.GOARCH) and the build says so:
 '   "local image load is single-platform; building <p>
 '    (PROVEO_DOCKER_PUSH=1 / --push publishes amd64+arm64)"
 ' Silently building one arch while the variable asks for two is the kind of thing
 ' that is only discovered at publish time, so it is announced.
 '
-' proveo_docker_arg_tag reads the --tag/-t value back out of the build argv,
-' defaulting to `latest` exactly the way the docker CLI does when none is given.
-' It exists so the :latest refusal (see
-' _spec/_devops/image-lineage-and-publish.puml) can be enforced before buildx is
-' invoked, rather than after a full build.
+' ArgRef reads the -t/--tag value back out of the build argv, and RefTag defaults
+' it to `latest` exactly the way the docker CLI does when none is given — so an
+' untagged `-t repo` is :latest and refused for --load. The pair exists so the
+' :latest refusal (see _spec/_devops/image-lineage-and-publish.puml) can be
+' enforced before buildx is invoked, rather than after a full build.
 
 node "Maintainer host — Fedora or macOS" as HOST <<host>> {
-  component "defs/lib/docker-build.sh\nproveo_docker_build" as LIB <<app>>
-  component "proveo_docker_ensure_buildx\n<push|load> <platforms>" as SEL <<app>>
-  component "proveo_docker_builder_running\nStatus-line health probe" as HEALTH <<app>>
+  component "internal/imagebuild\nBuilder.Build" as LIB <<app>>
+  component "Builder.EnsureBuildx\n(push, platforms)" as SEL <<app>>
+  component "inspectField(<b>, status, running)\nStatus-line health probe" as HEALTH <<app>>
   component "docker driver\nshares the daemon image store\ncannot cross-build" as DDOCKER <<app>>
   component "docker-container driver\nproveo-multiarch — own image store\ncross-builds any platform" as DCONT <<app>>
 }
@@ -86,12 +89,12 @@ note bottom of HEALTH
   context on a machine running another engine still 'inspects' fine.
   Only the ""Status:"" line is the health signal.
 
-  //Never pipe it into ""grep -q"".// Every ""defs/*/build.sh"" runs under
+  //Never pipe it into ""grep -q"".// The shell builds ran under
   ""set -o pipefail""; ""grep -q"" exits at the first match, docker dies of
   SIGPIPE, and the pipeline reports 141 — **a match reads as a
   failure**. Every healthy builder is then rejected and the whole fleet
-  falls back to the container driver. Capture the output first, then
-  test it with ""awk"" off a here-string, outside any pipeline.
+  falls back to the container driver. ""inspectField"" captures the whole
+  output first and matches the field in Go, so no pipeline exists.
 end note
 
 note bottom of DDOCKER
@@ -128,8 +131,9 @@ note bottom of HUBDNS
   ""docker images"" (moby/buildkit#5340). If it is not, Hub must
   resolve: ""docker pull docker/sandbox-templates:shell-docker-0.5.0"".
 
-  On a registry DNS failure in load+auto, proveo_docker_build retries
-  once with ""--pull=false"" and then prints the daemon-DNS help.
+  On a registry DNS failure in load+auto (""IsRegistryDNSError""),
+  ""Builder.Build"" retries once with ""--pull=false"" and then prints
+  ""RegistryDNSHelp"".
   ""PROVEO_DOCKER_PULL=0"" skips the first attempt.
 end note
 

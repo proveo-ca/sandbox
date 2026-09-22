@@ -8,7 +8,6 @@ This definition exposes the required candidate harness commands:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `build.sh`
 - `run.sh`
 - `test.sh`
 - `sample.cecli.conf.yml`
@@ -18,14 +17,14 @@ This definition exposes the required candidate harness commands:
 
 ## Image Name and Tag
 
-`build.sh` builds a single image — the aider fork (`cecli-dev`) in a Python venv
+`mise run build cecli` builds a single image — the aider fork (`cecli-dev`) in a Python venv
 on `proveo/base` — defaulting to `proveo/cecli:latest`. Override with `--tag`,
 `--image`, or `PROVEO_CECLI_IMAGE`:
 
 ```bash
-./build.sh
-./build.sh --tag v2 --no-cache
-PROVEO_CECLI_IMAGE=example/cecli:latest ./build.sh
+mise run build cecli
+mise run build cecli --tag v2 --no-cache
+PROVEO_CECLI_IMAGE=example/cecli mise run build cecli
 ```
 
 `run.sh` runs `proveo/cecli:latest`. Override it with `--image` or `CECLI_IMAGE`.
@@ -52,7 +51,7 @@ agents stay under `CECLI_HOME=/app/.cecli` in the workspace.
 
 ## Environment Variables
 
-- `PROVEO_CECLI_IMAGE`: image name used by `build.sh`; defaults to `proveo/cecli:latest`
+- `PROVEO_CECLI_IMAGE`: image repo used by `mise run build cecli`; defaults to `proveo/cecli`
 - `CECLI_IMAGE`: image used by `run.sh`; defaults to `proveo/cecli:latest`
 - `CECLI_INPUT_DIR`: input workspace override
 - `CECLI_OUTPUT_DIR`: output directory override
@@ -82,7 +81,7 @@ Included defaults mirror the opencode reviewer set: `adversarial-reviewer`, `sec
 Build images:
 
 ```bash
-./build.sh
+mise run build cecli
 ```
 
 Run against the current directory:

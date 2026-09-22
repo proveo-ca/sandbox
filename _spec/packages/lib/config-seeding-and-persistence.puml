@@ -35,7 +35,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '                                   _proveo_class_wire, _proveo_class_probe,
 '                                   _proveo_mcp_probe, proveo_wire_config)
 '   step 5 · the MCP row .......... packages/lib/entrypoint-lib.sh (configure_cecli_mcp) ·
-'                                   defs/cecli/Dockerfile · defs/cecli/build.sh
+'                                   defs/cecli/Dockerfile · internal/imagebuild/targets.go (cecli Pins)
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
@@ -188,8 +188,9 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' PROVEO_CONFIG_FILES · PROVEO_INSTALL_LOCK_WAIT.
 '
 ' 1. THE PLATFORM FOLD RUNS THE OPPOSITE WAY FROM THE BUILD'S. Both fold
-'    `uname -m` onto docker's spelling (amd64/arm64) —
-'    proveo_docker_host_platform in defs/lib/docker-build.sh, normalizeArch in
+'    the host machine (`uname -m`, or runtime.GOARCH in Go) onto docker's
+'    spelling (amd64/arm64) — imagebuild.HostPlatform in
+'    internal/imagebuild/imagebuild.go, normalizeArch in
 '    internal/workspace/platform.go, _proveo_container_platform here — but an
 '    UNRECOGNISED machine is handled differently on purpose. The build side
 '    defaults to amd64, because there the value picks a published image and a
@@ -468,7 +469,7 @@ legend bottom
   **5. Serena, on that chain, as the MCP row's first entry.** — LANDED.
   ""/opt/serena"" in its own venv (serena-agent and cecli-dev disagree about
   dependency versions), PINNED by ""SERENA_VERSION"" through the same
-  ""proveo_agent_version"" resolver the agents use — because an unpinned install is
+  ""imagebuild.AgentVersion"" resolver the agents use — because an unpinned install is
   precisely what shipped the skew that killed it. ""configure_cecli_mcp"" declares
   it in ""~/\.cecli\.conf\.yml"" only when the handshake ANSWERS, points
   ""--project"" at the scan root rather than ""/app"" (which does not exist on sbx),

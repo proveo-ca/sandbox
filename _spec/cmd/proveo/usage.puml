@@ -27,12 +27,12 @@ package "Installer" as Install {
 
 package "Definition shims\ndefs/<target>/" as Shims {
  component "run.sh → proveo run <target>" as RunShim <<script>>
- component "build.sh · test.sh" as BuildTest <<script>>
+ component "test.sh" as BuildTest <<script>>
 }
 
 package "Maintainer\nmise + lib/" as Maint {
  component "mise build|test|deploy" as Mise <<internal>>
- component "lib/build.sh · deploy.sh" as MaintLib <<script>>
+ component "proveo build · deploy\ninternal/maintain → internal/imagebuild" as MaintLib <<internal>>
 }
 
 package "Registration" as Reg {
@@ -74,7 +74,8 @@ RunShim ..> Proveo : exec
 Mise ..> BuildTest
 Mise ..> MaintLib
 Mise ..> Proveo : run/list when needed
-BuildTest --> Images
+MaintLib --> Images : buildx --load / --push
+BuildTest ..> Images : image contract suites
 
 note right of Proveo
 **Product CLI is Go only.**

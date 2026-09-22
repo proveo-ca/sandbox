@@ -1,10 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Agent version pin — the image carries the release build.sh resolved, and says so
+title Agent version pin — the image carries the release imagebuild resolved, and says so
 
 ' purpose: why `@latest` in a Dockerfile is not a pin, and the one shape every harness uses instead
-' covers: defs/lib/docker-build.sh
-' covers: defs/*/build.sh
+' covers: internal/imagebuild/imagebuild.go (AgentVersion)
+' covers: internal/imagebuild/targets.go (Spec.Pins)
+' covers: internal/imagebuild/imagebuild_test.go
 ' covers: defs/*/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
@@ -18,12 +19,12 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' Every harness now switches its CLI's own auto-updater OFF — claudecode by
 ' DISABLE_AUTOUPDATER, opencode by OPENCODE_AUTO_UPDATE, cecli by
 ' `check-update: false`, cursor by the same class. That is correct: a
-' SUCCESSFUL update replaces the release build.sh resolved and unpins the image.
+' SUCCESSFUL update replaces the release imagebuild resolved and unpins the image.
 '
 ' But it moved the update layer UP, and the rung it moved to has no motor and
 ' had no dial. Measured rather than assumed:
 '
-'   upstream → image    `proveo_agent_version` resolves the newest release AT
+'   upstream → image    `Builder.AgentVersion` resolves the newest release AT
 '                       BUILD TIME and passes it as a build-arg. A real update
 '                       mechanism — but it turns only when a human runs
 '                       `proveo build <target>`. There is no CI in this repo and
@@ -55,9 +56,16 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' A. RESOLVED AT BUILD TIME, bare ARG, no default — the AGENT itself, whose
 '    release moves constantly and whose version the image LABELs:
 '    CECLI_VERSION, SERENA_VERSION, OPENCODE_VERSION, CLAUDE_CODE_VERSION,
-'    CURSOR_AGENT_VERSION. build.sh calls proveo_agent_version and passes the
-'    result in; the Dockerfile guards with `test -n` and verifies with the
-'    tool's own --version.
+'    CURSOR_AGENT_VERSION. Each is a `Pin` on its target's Specs row
+'    (internal/imagebuild/targets.go); BuildTarget calls Builder.AgentVersion
+'    and passes the result in; the Dockerfile guards with `test -n` and
+'    verifies with the tool's own --version.
+'    (proveo_agent_version in defs/lib/docker-build.sh until 2026-09-22.)
+'
+'    FINDING: codex is NOT pinned. Its row carries CODEX_VERSION as an EnvArg
+'    defaulting to `latest`, not a Pin — the shell build.sh did the same, and
+'    the P2 port kept parity. agent_pin_test does not cover codex, so nothing
+'    fails when the codex image bakes whatever is newest.
 ' B. PINNED IN THE DOCKERFILE as an ARG WITH a default — supporting toolchains
 '    that move on their own cadence and are not the image's headline agent:
 '      PLANTUML_VERSION=1.2026.6      NODE_MAJOR=22       pnpm@10.33.0
@@ -72,7 +80,8 @@ title Agent version pin — the image carries the release build.sh resolved, and
 '    with nothing in the build saying so.
 '
 ' Still unpinned, and known to be (see _spec/_plans/image-size-reduction.puml
-' item (c) for the full list): the six LSP servers in base-node-lsp.
+' item (c) for the full list): the six LSP servers in base-node-lsp, and the
+' codex agent (CODEX_VERSION=latest, above).
 ' The lsp-builder go installs and plantuml-lsp are pinned
 ' (_spec/internal/maintain/build-schedule.puml).
 '
@@ -91,7 +100,7 @@ title Agent version pin — the image carries the release build.sh resolved, and
 ' `cast --version` make the pin a fact about the image.
 '
 ' ── WHY A PIN AT ALL: BuildKit's CACHE KEY ─────────────────────────────────
-' The 📌 note states the version AND how it was chosen. The first version of
+' The `pin:` note states the version AND how it was chosen. The first version of
 ' it said "from CECLI_VERSION" on every build, because it was printed by the
 ' caller — which assigns the result to a variable named like the override, after
 ' which "override or resolved" is unknowable from outside.
@@ -118,39 +127,41 @@ title Agent version pin — the image carries the release build.sh resolved, and
 '
 ' An exported override wins outright (OPENCODE_VERSION=1.18.20 proveo build
 ' opencode): that is how a maintainer rebuilds an older agent, or builds
-' offline. The bare version goes to stdout; the 📌 note saying which release is
-' about to be baked, and how it was chosen, goes to STDERR beside the buildx
-' line — printed inside the resolver rather than by the caller, because the
-' caller assigns the result to a variable of the same name as the override, and
-' after that nothing outside can tell an override from a resolution.
+' offline. AgentVersion returns the bare version; the `pin:` note (ui.Notef)
+' saying which release is about to be baked, and how it was chosen, prints
+' beside the buildx line — inside the resolver rather than by the caller,
+' because only the resolver knows whether the value came from the override or
+' from upstream. The shell learned that the hard way: its caller assigned the
+' result to a variable named like the override, after which nothing outside
+' could tell an override from a resolution.
 
 actor "Maintainer" as MT
 participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
-participant "defs/<harness>/build.sh" as BUILD <<app>>
-participant "defs/lib/docker-build.sh\nproveo_agent_version" as LIB <<app>>
+participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
+participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
 participant "upstream release source\nnpm dist-tag · PyPI · cursor.com/install" as UP <<cloud>>
 participant "BuildKit\ndefs/<harness>/Dockerfile" as BK <<host>>
 database "image labels\nproveo.agent · proveo.agent.version" as LBL <<db>>
 participant "internal/contract\nagent_pin_test.go" as CT <<app>>
 
 MT ARROW_MAIN CMD : " ""proveo build <target>"" "
-CMD ARROW_MAIN BUILD : " ""bash build.sh --tag local"" "
-BUILD ARROW_MAIN LIB : " ""proveo_agent_version <ARG> <eco> <pkg>"" "
+CMD ARROW_MAIN BUILD : " ""imagebuild <target> --tag local"" (in-process) "
+BUILD ARROW_MAIN LIB : " ""AgentVersion(<ARG>, <eco>, <pkg>)"" "
 alt <ARG> exported by the maintainer
   LIB ARROW_OPTIONAL BUILD : that version, upstream not asked
 else resolve
-  LIB ARROW_CLOUD UP : npm view · PyPI JSON · read the installer
+  LIB ARROW_CLOUD UP : npm registry JSON · PyPI JSON · read the installer
   UP ARROW_CLOUD LIB : current release
   LIB ARROW_MAIN BUILD : version
 else unreachable
   LIB ARROW_ERROR BUILD : errorLabel(refuse — names ""<ARG>=<x.y.z>"" as the way out)
 end
-BUILD ARROW_MAIN MT : " ""📌 <pkg>@<version> (resolved upstream; override with <ARG>=…)"" "
+BUILD ARROW_MAIN MT : " ""pin: <pkg>@<version> (resolved upstream; override with <ARG>=…)"" "
 BUILD ARROW_MAIN BK : " ""--build-arg <ARG>=<version>"" "
 BK ARROW_MAIN BK : " ""ARG <ARG>"" (bare) → ""test -n"" guard\n→ install ""<pkg>@${<ARG>}"" → ""<agent> --version"" = ""${<ARG>}"" "
 BK ARROW_MAIN LBL : " ""LABEL proveo.agent=<pkg> proveo.agent.version=${<ARG>}"" "
 CT ARROW_OPTIONAL BK : every harness row: bare ARG · guard · pinned install\n· label · no ""@latest"" spelling
-CT ARROW_OPTIONAL LIB : fake npm/curl on PATH: npm · registry fallback\n· PyPI · installer scrape · override · refusal
+CT ARROW_OPTIONAL LIB : imagebuild_test.go, fake Fetch: npm · PyPI\n· installer scrape · override · refusal
 
 note over BK
   **""@latest"" is a request to the registry, not a property of the image.**
@@ -171,33 +182,34 @@ note over BK
 
   **Bare ""ARG"", by design.** A default would be ""@latest"" one step removed:
   a bare ""docker build"" would bake whatever is newest and label it
-  truthfully, so the guard fails that build instead and points at build.sh.
+  truthfully, so the guard fails that build instead and points at
+  ""proveo build <target>"".
 
   **The version check makes the pin a fact about the image.**
   ""opencode --version"" must print the arg exactly;
   ""claude --version"" must contain it; ""pip show"" must report it;
   cursor's installer, which takes no version, must have unpacked the
-  release build.sh read out of the script.
+  release ""AgentVersion"" read out of the script.
 end note
 
 note over LIB
-  **One resolver, three ecosystems, one shape.** ""npm"" asks the dist-tag
-  (registry JSON as the fallback when ""npm"" is not on the host); ""pypi""
-  reads ""info.version"" — curl first, then python3 urllib when curl cannot
-  (a conda ""(base)"" curl is a frequent miss while the interpreter still
-  reaches pypi.org); ""cursor"" scrapes the release directory out of
+  **One resolver, three ecosystems, one shape.** ""npm"" reads
+  ""<registry>/<pkg>/latest"" from the registry JSON (""NPM_CONFIG_REGISTRY""
+  honoured; the shell's ""npm view"" is gone, so the host needs no npm);
+  ""pypi"" reads ""info.version"" over Go's HTTP client, so no curl or
+  python3 on the host is involved; ""cursor"" scrapes the release directory out of
   ""cursor.com/install"", because that script hardcodes its build and takes no
   argument. The maintainer override is the same ""<ARG>"" the Dockerfile
   takes, so ""OPENCODE_VERSION=1.18.20 proveo build opencode"" pins an older
-  release and doubles as the offline path. Both transports failing is still
-  a refusal, never a guessed version; the stderr line names
-  ""<ARG>=<x\.y\.z>"" and, for pypi, the last curl error.
+  release and doubles as the offline path. A failed fetch is still a
+  refusal, never a guessed version; the ""Failf"" line names
+  ""<ARG>=<x\.y\.z>"" and the last fetch error.
 
   **Unresolvable is a refusal, never a silent ""latest"".** Falling back to the
   dist-tag would reopen the hole in the one place — offline, behind a
-  proxy — where nobody is watching the build log. It prints NOTHING on
-  stdout when it fails, because a caller would bake whatever it printed,
-  and the stderr line names ""<ARG>=<x\.y\.z>"" as the way out. An ecosystem
+  proxy — where nobody is watching the build log. It returns an error and
+  no version when it fails, because a caller would bake whatever it got,
+  and the ""Failf"" line names ""<ARG>=<x\.y\.z>"" as the way out. An ecosystem
   it does not know is refused the same way ("unknown ecosystem"), rather
   than being treated as one of the three it does.
 end note
@@ -206,7 +218,7 @@ note over LBL
   **How to know what a harness carries:**
   ""docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local""
   and what upstream ships: ""npm view opencode-ai version"". The build log's
-  ""📌"" line states the same version at build time. Each def's runtime suite
+  ""pin:"" line states the same version at build time. Each def's runtime suite
   (""test_build.sh"") checks the label against the agent's own ""--version"".
 end note
 

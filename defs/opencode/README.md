@@ -9,7 +9,7 @@ Custom Docker image for [`opencode-ai`](https://github.com/anomalyco/opencode) w
 
 ## Browser variant
 
-`./build.sh --browser` builds `proveo/opencode-browser` FROM `proveo/base-node-browser`: a
+`mise run build opencode-browser` builds `proveo/opencode-browser` FROM `proveo/base-node-browser`: a
 headless Chromium shared by the `playwright` CLI and
 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` ·
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
@@ -25,7 +25,6 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `build.sh`
 - `run.sh`
 - `test.sh`
 - `README.md`
@@ -38,20 +37,20 @@ This definition follows the shared [coding harness container contract](../../COD
 ## Image Names and Mounts
 
 - Default image: `proveo/opencode:latest`
-- Build override: `PROVEO_OPENCODE_IMAGE=example/opencode:tag ./build.sh`
+- Build override: `PROVEO_OPENCODE_IMAGE=example/opencode mise run build opencode --tag tag`
 - Run override: `./run.sh --image example/opencode:tag`
 - Workspace mount: input directory mounted at `/app`
 
 ## Build
 
 ```bash
-./build.sh
+mise run build opencode
 ```
 
 To build a specific tag:
 
 ```bash
-./build.sh --tag local
+mise run build opencode --tag local
 ```
 
 ## Run

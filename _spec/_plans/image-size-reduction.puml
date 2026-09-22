@@ -60,7 +60,8 @@
 ' `java -version` reports 21.0.12.1 off a 72 MB runtime. In all three browser
 ' variants /opt/ms-playwright holds `chromium-1228` and `ffmpeg-1011` and nothing
 ' else, and `chrome --version --no-sandbox` answers Chromium 149.0.7827.0.
-' `defs/base-node-browser/ensure.sh`'s floor probe passes.
+' The base-node-browser floor probe passes (then defs/base-node-browser/ensure.sh,
+' now browserFloor in internal/imagebuild/targets.go).
 '
 ' TWO THINGS THE PLAN DID NOT KNOW, both found by building it:
 ' 1. `jlink --strip-debug` needs `objcopy` on Debian's OpenJDK and fails with
@@ -581,7 +582,7 @@
 '     `bash -c "curl ... | bash"`; a build-arg can inject shell, and the version
 '     check at :106 runs after the untrusted code already ran as root.
 ' (e) defs/sidecars/squid-proxy is `FROM ubuntu/squid:latest` — bare latest, in a
-'     security-enforcement sidecar that has no build.sh and is not in
+'     security-enforcement sidecar that has no imagebuild Specs row and is not in
 '     internal/maintain's registry, while internal/egress/stage.go reads its config.
 '     Dead code or live infrastructure outside the build contract; either is a bug.
 ' (f) proveo-harden STRIPS chrome-sandbox's setuid bit as a side effect of the

@@ -60,19 +60,8 @@ func TestRegistry(t *testing.T) {
 		}
 	}
 
-	// Build recipe: script path off DefDir, and the variant selector only on the
-	// three claudecode images.
-	if got := byName["claudecode"]; strings.Join(got.BuildArgs, " ") != "--variant mcp" || got.BuildScript != "/d/claudecode/build.sh" {
-		t.Errorf("claudecode recipe = args:%v script:%s", got.BuildArgs, got.BuildScript)
-	}
-	if got := byName["claudecode-solidity"]; strings.Join(got.BuildArgs, " ") != "--variant solidity" {
-		t.Errorf("claudecode-solidity args = %v, want --variant solidity", got.BuildArgs)
-	}
-	if got := byName["cursor"]; len(got.BuildArgs) != 0 {
-		t.Errorf("cursor should have no variant args, got %v", got.BuildArgs)
-	}
-	if got := byName["cecli-node"]; got.BuildScript != "/d/cecli/build.sh" {
-		t.Errorf("cecli-node build script = %s, want /d/cecli/build.sh (shared)", got.BuildScript)
+	if got := byName["cecli"]; got.RepoRoot != "/" {
+		t.Errorf("cecli RepoRoot = %q, want the defs dir's parent", got.RepoRoot)
 	}
 }
 
@@ -86,42 +75,44 @@ func argvs(cmds []Command) []string {
 
 func TestBuildPlan(t *testing.T) {
 	t.Parallel()
-	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
-		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
+	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode", RepoRoot: "/"}
 
-	// Default (latest): build via the variant script, then verify.
+	// Default (latest): build in-process, then verify.
 	got := argvs(cc.BuildPlan("latest", false))
 	want := []string{
-		"bash /d/claudecode/build.sh --variant mcp",
+		"imagebuild claudecode --tag latest",
 		"docker image inspect proveo/claudecode:latest",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("BuildPlan(latest) = %v, want %v", got, want)
 	}
 
-	// Tagged + no-cache: --tag on build.sh (buildx --load) and verify.
+	// Tagged + no-cache.
 	got = argvs(cc.BuildPlan("v2", true))
 	want = []string{
-		"bash /d/claudecode/build.sh --variant mcp --tag v2 --no-cache",
+		"imagebuild claudecode --tag v2 --no-cache",
 		"docker image inspect proveo/claudecode:v2",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("BuildPlan(v2,no-cache) = %v, want %v", got, want)
 	}
 
-	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", BuildScript: "/d/cursor/build.sh"}
+	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", RepoRoot: "/"}
 	got = argvs(cur.BuildPlan("", false))
 	want = []string{
-		"bash /d/cursor/build.sh --tag local",
+		"imagebuild cursor --tag local",
 		"docker image inspect proveo/cursor:local",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("BuildPlan(default) = %v, want %v", got, want)
 	}
 
-	// The verify step discards stdout.
-	last := cc.BuildPlan("latest", false)[1]
-	if !last.Quiet {
+	// The build step runs in-process; the verify step discards stdout.
+	plan := cc.BuildPlan("latest", false)
+	if plan[0].Run == nil {
+		t.Error("the build step must run in-process, not shell out")
+	}
+	if !plan[1].Quiet {
 		t.Error("verify (docker image inspect) should be Quiet")
 	}
 }
@@ -129,24 +120,24 @@ func TestBuildPlan(t *testing.T) {
 func TestDeployAndTestPlan(t *testing.T) {
 	t.Parallel()
 	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor",
-		BuildScript: "/d/cursor/build.sh", TestScript: "/d/cursor/test.sh"}
+		RepoRoot: "/", TestScript: "/d/cursor/test.sh"}
 
 	// Deploy promotes the tested build: it REQUIRES :local, retags it, then pushes.
 	// Publishing without that inspect would ship an image nothing ran against.
 	if got, want := argvs(cur.DeployPlan("v3")), []string{
 		"docker image inspect proveo/cursor:local",
 		"docker tag proveo/cursor:local proveo/cursor:v3",
-		"bash /d/cursor/build.sh --tag v3 --push",
+		"imagebuild cursor --tag v3 --push",
 	}; strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("DeployPlan = %v, want %v", got, want)
 	}
 
 	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
-		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
+		RepoRoot: "/"}
 	if got, want := argvs(cc.DeployPlan("")), []string{
 		"docker image inspect proveo/claudecode:local",
 		"docker tag proveo/claudecode:local proveo/claudecode:latest",
-		"bash /d/claudecode/build.sh --variant mcp --tag latest --push",
+		"imagebuild claudecode --tag latest --push",
 	}; strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("DeployPlan(claudecode) = %v, want %v", got, want)
 	}

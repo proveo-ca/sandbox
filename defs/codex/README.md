@@ -8,7 +8,6 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `build.sh`
 - `run.sh`
 - `test.sh`
 - `README.md`
@@ -36,9 +35,9 @@ $CODEX_HOME (~/.codex)  # USER-scoped, durable under ~/.proveo/.codex
 
 ```bash
 # Build
-./build.sh --tag local
-./build.sh --tag local --browser                 # + Playwright/Chromium
-./build.sh --tag local --codex-version 0.101.0   # pin the CLI
+mise run build codex --tag local
+mise run build codex-browser                    # + Playwright/Chromium
+CODEX_VERSION=0.101.0 mise run build codex # pin the CLI
 
 # Run
 OPENAI_API_KEY=sk-... ./run.sh

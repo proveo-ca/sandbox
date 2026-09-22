@@ -2,37 +2,37 @@
 package contract_test
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
 var agentPins = []struct {
-	image       string // key into imageDockerfiles
-	buildScript string
-	arg         string         // build-arg name; also the maintainer override env var
-	pkg         string         // proveo.agent label value
-	ecosystem   string         // proveo_agent_version ecosystem
-	install     *regexp.Regexp // the pinned install, using the arg
-	banned      []string       // spellings that would reintroduce @latest
+	image     string         // key into imageDockerfiles
+	target    string         // imagebuild target that pins it
+	arg       string         // build-arg name; also the maintainer override env var
+	pkg       string         // proveo.agent label value
+	ecosystem string         // proveo_agent_version ecosystem
+	install   *regexp.Regexp // the pinned install, using the arg
+	banned    []string       // spellings that would reintroduce @latest
 }{
 	{
-		image: "proveo/opencode", buildScript: "defs/opencode/build.sh",
+		image: "proveo/opencode", target: "opencode",
 		arg: "OPENCODE_VERSION", pkg: "opencode-ai", ecosystem: "npm",
 		install: regexp.MustCompile(`npm install -g "opencode-ai@\$\{OPENCODE_VERSION\}"`),
 		banned:  []string{"opencode-ai@latest", "npm install -g opencode-ai "},
 	},
 	{
-		image: "proveo/claudecode", buildScript: "defs/claudecode/build.sh",
+		image: "proveo/claudecode", target: "claudecode",
 		arg: "CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", ecosystem: "npm",
 		install: regexp.MustCompile(`npm install -g "@anthropic-ai/claude-code@\$\{CLAUDE_CODE_VERSION\}"`),
 		banned:  []string{"claude-code@latest", "npm install -g @anthropic-ai/claude-code "},
 	},
 	{
-		image: "proveo/cecli", buildScript: "defs/cecli/build.sh",
+		image: "proveo/cecli", target: "cecli",
 		arg: "CECLI_VERSION", pkg: "cecli-dev", ecosystem: "pypi",
 		// Flags may sit between `install` and the spec (--no-compile keeps 153 MB of
 		// bytecode out of the venv); the contract is that the SPEC names the arg.
@@ -40,7 +40,7 @@ var agentPins = []struct {
 		banned:  []string{"pip install cecli-dev "},
 	},
 	{
-		image: "proveo/cursor", buildScript: "defs/cursor/build.sh",
+		image: "proveo/cursor", target: "cursor",
 		arg: "CURSOR_AGENT_VERSION", pkg: "cursor-agent", ecosystem: "cursor",
 		install: regexp.MustCompile(`test -d "/opt/cursor-dist/\.local/share/cursor-agent/versions/\$\{CURSOR_AGENT_VERSION\}"`),
 	},
@@ -75,141 +75,10 @@ func TestEveryHarnessPinsItsAgentByABuildArgItUses(t *testing.T) {
 				}
 			}
 
-			sh, err := os.ReadFile(filepath.Join(repoRoot(t), p.buildScript))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range []string{
-				"proveo_agent_version " + p.arg + " " + p.ecosystem + " ",
-				`--build-arg ` + p.arg + `="$` + p.arg + `"`,
-			} {
-				if !strings.Contains(string(sh), want) {
-					t.Errorf("%s lacks %q — the Dockerfile requires the arg, so a build without it fails", p.buildScript, want)
-				}
+			spec := imagebuild.Specs[p.target]
+			if !slices.ContainsFunc(spec.Pins, func(pin imagebuild.Pin) bool { return pin.Arg == p.arg && pin.Eco == p.ecosystem }) {
+				t.Errorf("imagebuild target %s does not pin %s via %s — the Dockerfile requires the arg, so a build without it fails", p.target, p.arg, p.ecosystem)
 			}
 		})
-	}
-}
-
-func pinHarness(t *testing.T) (run func(env map[string]string, args ...string) (string, string, error)) {
-	t.Helper()
-	bin := t.TempDir()
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/usr/bin/env bash\n"+body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("npm", `[[ -n "${NPM_VIEW_OUTPUT:-}" ]] || exit 1
-printf '%s\n' "$NPM_VIEW_OUTPUT"
-`)
-	write("curl", `[[ -z "${FAKE_CURL_FAIL:-}" ]] || exit 22
-printf '%s' "${CURL_BODY:-}"
-`)
-	write("python3", `if [[ "$*" == *urllib.request* ]]; then
-  [[ -n "${PYPI_PY_VERSION:-}" ]] || exit 1
-  printf '%s\n' "$PYPI_PY_VERSION"
-  exit 0
-fi
-if [[ -x /usr/bin/python3 ]]; then
-  exec /usr/bin/python3 "$@"
-fi
-exit 1
-`)
-	lib := filepath.Join(repoRoot(t), "defs", "lib", "docker-build.sh")
-	return func(env map[string]string, args ...string) (string, string, error) {
-		script := "source '" + lib + "' && proveo_agent_version " + strings.Join(args, " ")
-		cmd := exec.Command("bash", "-c", script)
-		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
-		var out, errb strings.Builder
-		cmd.Stdout, cmd.Stderr = &out, &errb
-		err := cmd.Run()
-		return out.String(), errb.String(), err
-	}
-}
-
-func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
-	t.Parallel()
-	run := pinHarness(t)
-	// wantNote is the 📌 line on stderr: the version AND how it was chosen.
-	cases := []struct {
-		name     string
-		env      map[string]string
-		args     []string
-		want     string
-		wantNote string
-	}{
-		{name: "npm dist-tag", env: map[string]string{"NPM_VIEW_OUTPUT": "1.18.26"},
-			args: []string{"OPENCODE_VERSION", "npm", "opencode-ai"}, want: "1.18.26",
-			wantNote: "📌 opencode-ai@1.18.26 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
-		{name: "npm falls back to the registry when npm is unusable",
-			env:  map[string]string{"CURL_BODY": `{"name":"opencode-ai","version":"1.18.27"}`},
-			args: []string{"OPENCODE_VERSION", "npm", "opencode-ai"}, want: "1.18.27",
-			wantNote: "📌 opencode-ai@1.18.27 (resolved upstream"},
-		{name: "pypi current release", env: map[string]string{"CURL_BODY": `{"info":{"name":"cecli-dev","version":"1.4.0"},"releases":{"1.3.0":[]}}`},
-			args: []string{"CECLI_VERSION", "pypi", "cecli-dev"}, want: "1.4.0",
-			wantNote: "📌 cecli-dev@1.4.0 (resolved upstream; override with CECLI_VERSION=<version>)"},
-		{name: "pypi falls back to python urllib when curl is unusable",
-			env:  map[string]string{"FAKE_CURL_FAIL": "1", "PYPI_PY_VERSION": "1.6.0"},
-			args: []string{"CECLI_VERSION", "pypi", "cecli-dev"}, want: "1.6.0",
-			wantNote: "📌 cecli-dev@1.6.0 (resolved upstream"},
-		{name: "cursor reads the release out of the installer",
-			env:  map[string]string{"CURL_BODY": "FINAL_DIR=\"$HOME/.local/share/cursor-agent/versions/2026.08.31-4057e58\"\nln -s ~/.local/share/cursor-agent/versions/2026.08.31-4057e58/cursor-agent ~/.local/bin/agent\n"},
-			args: []string{"CURSOR_AGENT_VERSION", "cursor", "https://cursor.com/install"}, want: "2026.08.31-4057e58",
-			wantNote: "@2026.08.31-4057e58 (resolved upstream; override with CURSOR_AGENT_VERSION=<version>)"},
-		{name: "an exported override wins without asking upstream",
-			env:  map[string]string{"OPENCODE_VERSION": "1.18.20", "FAKE_CURL_FAIL": "1"},
-			args: []string{"OPENCODE_VERSION", "npm", "opencode-ai"}, want: "1.18.20",
-			wantNote: "📌 opencode-ai@1.18.20 (from OPENCODE_VERSION)"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, stderr, err := run(tc.env, tc.args...)
-			if err != nil {
-				t.Fatalf("proveo_agent_version %v: %v\n%s", tc.args, err, stderr)
-			}
-			if got != tc.want {
-				t.Errorf("proveo_agent_version %v = %q, want %q", tc.args, got, tc.want)
-			}
-			if !strings.Contains(stderr, tc.wantNote) {
-				t.Errorf("proveo_agent_version %v stderr lacks %q:\n%s", tc.args, tc.wantNote, stderr)
-			}
-		})
-	}
-}
-
-func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
-	t.Parallel()
-	run := pinHarness(t)
-	got, stderr, err := run(map[string]string{"FAKE_CURL_FAIL": "1"}, "OPENCODE_VERSION", "npm", "opencode-ai")
-	if err == nil {
-		t.Fatalf("resolver succeeded with nothing reachable, printed %q", got)
-	}
-	if got != "" {
-		t.Errorf("resolver printed %q on failure — a caller would bake it", got)
-	}
-	for _, want := range []string{"could not resolve", "OPENCODE_VERSION=<x.y.z>"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("failure message lacks %q:\n%s", want, stderr)
-		}
-	}
-	if _, stderr, err := run(nil, "X_VERSION", "cargo", "x"); err == nil || !strings.Contains(stderr, "unknown ecosystem") {
-		t.Errorf("unknown ecosystem accepted (err=%v):\n%s", err, stderr)
-	}
-
-	got, stderr, err = run(map[string]string{"FAKE_CURL_FAIL": "1"}, "CECLI_VERSION", "pypi", "cecli-dev")
-	if err == nil {
-		t.Fatalf("pypi resolver succeeded with curl and python both down, printed %q", got)
-	}
-	if got != "" {
-		t.Errorf("pypi resolver printed %q on failure — a caller would bake it", got)
-	}
-	for _, want := range []string{"could not resolve", "CECLI_VERSION=<x.y.z>"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("pypi failure message lacks %q:\n%s", want, stderr)
-		}
 	}
 }

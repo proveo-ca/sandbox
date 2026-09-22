@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../lib/docker-build.sh
-source "$SCRIPT_DIR/../lib/docker-build.sh"
+# shellcheck source=../lib/test-image.sh
+source "$SCRIPT_DIR/../lib/test-image.sh"
 
 IMAGE_NAME="$(proveo_test_image "${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}")"
 

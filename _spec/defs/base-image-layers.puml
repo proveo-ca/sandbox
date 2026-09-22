@@ -7,14 +7,11 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '          stage ordering, pinning by digest, and the same-RUN rule that makes a
 '          deletion save bytes rather than only hide a path
 ' covers: defs/base/Dockerfile
-' covers: defs/base/build.sh
-' covers: defs/base/ensure.sh
 ' covers: defs/base-node/Dockerfile
-' covers: defs/base-node/build.sh
 ' covers: defs/base-node-lsp/Dockerfile
-' covers: defs/base-node-lsp/build.sh
+' covers: internal/imagebuild/targets.go
 '
-' Lineage rules (which parent, which tag, ensure.sh's two modes) are
+' Lineage rules (which parent, which tag, the ensure step's two modes) are
 ' _spec/_devops/image-lineage-and-publish.puml. The size ARGUMENT and the
 ' fleet-wide measurements are _spec/_plans/image-size-reduction.puml. This file
 ' is the current-state record of how the three shared layers are built.
@@ -142,15 +139,16 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 ' from them at runtime, and 29 MB is not worth finding out which.
 '
 ' ── proveo/base's FLOOR PROBE ───────────────────────────────────────────────
-' defs/base/ensure.sh checks git + gh + jq + an executable
+' The `base` row's Floor (baseFloor in internal/imagebuild/targets.go; moved
+' from defs/base/ensure.sh 2026-09-22) checks git + gh + jq + an executable
 ' /usr/local/bin/proveo-entrypoint. No browser, no Node, no Python: those moved
 ' out of the base, and the probe states the contract rather than restating the
 ' package list.
 '
 ' ── BUILD CONTEXT DIFFERS BY LAYER, AND IT IS NOT AN OVERSIGHT ──────────────
-' defs/base/build.sh passes REPO_ROOT, because the entrypoint builder copies
-' cmd/ and internal/ from the module. defs/base-node/build.sh and
-' defs/base-node-lsp/build.sh pass SCRIPT_DIR: those Dockerfiles COPY nothing
+' The `base` row's Context is "." (the repo root), because the entrypoint
+' builder copies cmd/ and internal/ from the module. The `base-node` and
+' `base-node-lsp` rows name their own def dir: those Dockerfiles COPY nothing
 ' from the repo, so the narrower context is free.
 
 node "Builder stages — discarded after the copy" as B <<host>> {

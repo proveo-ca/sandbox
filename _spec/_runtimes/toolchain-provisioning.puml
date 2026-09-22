@@ -8,7 +8,7 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: defs/base/Dockerfile
 ' covers: defs/base-node/Dockerfile
 ' covers: defs/base-node-lsp/Dockerfile
-' covers: defs/base-node/ensure.sh
+' covers: internal/imagebuild/targets.go (base-node floor probe)
 ' covers: mise.toml
 ' covers: internal/contract/go_provisioning_test.go
 ' covers: internal/contract/bun_toolchain_test.go
