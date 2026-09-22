@@ -5,9 +5,15 @@
 ' covers: cmd/proveo/targets.go
 ' covers: cmd/proveo/wizard.go
 ' covers: internal/imagebuild/targets.go (BuildTarget, TargetRef, Specs)
-' covers: lib/*.sh
-' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and lib/registry.sh
-' lands here (batches 2 and 6). Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
+' covers: cmd/proveo-dev/debug.go
+' `proveo-dev debug` (P4) reads the registry in-process via manifest.Load +
+' maintain.Registry (PROVEO_DEFS_DIR, else <repo>/defs) instead of sourcing
+' the retired lib/registry.sh. It runs the first executable proveo on $(go env GOPATH)/bin
+' ahead of PATH — where the build-cli dependency just installed it — else
+' `go run ./cmd/proveo` from the checkout; the child gets that PATH and PROVEO_BIN.
+' No target on a non-TTY stdin is "Missing target." plus the list, never a pick.
+' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and
+' cmd/proveo-dev/debug.go lands here. Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
 title Preflight provisioning, the maintainer registry, and the missing-env wizard
 
 node "Consumer path — before any container exists" as PRE <<host>> {
@@ -21,7 +27,7 @@ node "Consumer path — before any container exists" as PRE <<host>> {
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
   component "proveo targets\nname<TAB>image<TAB>defDir (TSV)" as TGT <<app>>
-  component "lib/registry.sh\nmise tasks read the TSV" as REG <<app>>
+  component "proveo-dev debug\nmanifest.Load + maintain.Registry" as REG <<app>>
 }
 
 node "Missing declared env" as WIZ <<host>> {
@@ -42,25 +48,24 @@ CONF ARROW_MAIN SRC
 SRC ARROW_MAIN BSH
 BSH ARROW_MAIN IB : in-process, no host bash
 IB ARROW_MAIN PF : agent image → the :local ref
-TGT ARROW_MAIN REG
+TGT ARROW_OPTIONAL REG : same registry, in-process
 ENS ARROW_MAIN READY
 PF ARROW_ERROR LATE : what running the preflight first prevents
 WEN ARROW_MAIN PENV
 PENV ARROW_MAIN SEC
 WEN ARROW_ERROR HEADLESS
 note bottom of REG
-  **The Bash side owns no knowledge of what targets exist.**
-  ""lib/registry\.sh"" sources ""proveo targets"" and fills parallel
-  ""REG_NAMES"" / ""REG_IMAGES"" / ""REG_DIRS"" arrays (bash-3.2-safe, no
-  associative arrays), replacing a Bash manifest parser and three
-  hand-maintained target/image/dir maps that drifted from the manifests.
+  **Maintainer tooling owns no copy of what targets exist.**
+  ""proveo-dev debug"" calls ""manifest.Load"" + ""maintain.Registry"" on
+  ""PROVEO_DEFS_DIR"" (else ""<repo>/defs""), the same code ""proveo targets""
+  prints. It replaced ""lib/registry.sh"", which parsed that TSV into
+  parallel bash arrays (host-shell-to-go P4).
 
-  **Which binary answers matters more than it looks.** ""PROVEO_BIN"" wins
-  when set — the debug task points it at a freshly built binary — then an
-  installed ""proveo"" on PATH **only if it is current**, else ""go run"" from
-  the checkout. A maintainer task that silently used a stale binary off
-  PATH would report a registry that no longer matches the source it is
-  building.
+  **Which binary answers matters more than it looks.** debug runs the
+  first executable ""proveo"" in ""$(go env GOPATH)/bin"" — where the
+  build-cli dependency just installed it — ahead of PATH, else ""go run""
+  from the checkout. A stale binary off PATH would report a registry that
+  no longer matches the source it is building.
 end note
 
 

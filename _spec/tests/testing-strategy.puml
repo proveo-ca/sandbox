@@ -17,6 +17,25 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ever mean "whatever the registry last published") is
 ' _spec/_devops/image-lineage-and-publish.puml.
 '
+' ── COVERAGE RUNNER: cmd/proveo-dev/coverage.go (`proveo-dev coverage <mode>`) ─
+' covers: cmd/proveo-dev/coverage.go
+' Replaced scripts/go-test-coverage.sh (host-shell-to-go P4).
+' * unit runs default tags only; //go:build excludes Layers 3–4.
+' * -race needs cgo. A throwaway `go test -race -c ./internal/runner` probes
+'   for it; a toolchain without cgo warns and runs coverage-only, never fails.
+' * merge takes cov/unit (which already carries the in-process egressproxy and
+'   broker) plus cov/integration when that dir is non-empty. Stage 0b (a
+'   containerized proveo-egress GOCOVERDIR) is documented, not required for v1.
+' * e2e has no env gate: -tags=e2e IS the opt-in, and each test skips on its own
+'   missing prerequisite (tmux, docker, harness image, credential).
+' * The e2e binary timeout must clear the SUM of the suite's per-test budgets,
+'   not one of them. Every agent-driving subtest polls up to
+'   PROVEO_TEST_TIMEOUT (default 8m), and hello-world alone runs three
+'   harnesses. Under a shorter cap the go runtime panics mid-suite and loses
+'   every result, the passes and the failure diagnostics included — strictly
+'   worse than a slow lane. Hence 45m by default; PROVEO_TEST_GO_TIMEOUT lowers
+'   it for a single -run selection (test-e2e-full raises it to 150m).
+'
 ' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke

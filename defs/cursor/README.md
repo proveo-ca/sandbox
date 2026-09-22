@@ -33,13 +33,12 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `run.sh`
 - `README.md`
 - `defaults/` (baked policy + steering)
 
 Its image suite is `internal/imagetest/cursor_test.go` (`TestImageCursor`).
 
-`debug.sh` is not present; `./run.sh --shell` covers the troubleshooting workflow.
+`proveo run cursor --shell` opens a debug shell with the same mounts and env.
 
 This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md).
 
@@ -47,7 +46,7 @@ This definition follows the shared [coding harness container contract](../../COD
 
 - Default image: `proveo/cursor:latest`
 - Build override: `PROVEO_CURSOR_IMAGE=example/cursor mise run build cursor --tag tag`
-- Run override: `./run.sh --image example/cursor:tag`
+- Run override: `proveo run cursor --image example/cursor:tag`
 - Workspace mount: input directory mounted at `/app` (monorepo scope preserved under
  `/app/<relative-scope>` with root `.git` mounted alongside)
 
@@ -64,15 +63,15 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 ## Run
 
 ```bash
-./run.sh # interactive TUI in the current repo
-./run.sh --egress-mode allowlist # fully audited egress (cursor needs --credentials forward)
-./run.sh --shell # debug shell with the same mounts/env
+proveo run cursor # interactive TUI in the current repo
+proveo run cursor --egress-mode allowlist # fully audited egress (cursor needs --credentials forward)
+proveo run cursor --shell # debug shell with the same mounts/env
 ```
 
 ### Headless (CI shape)
 
 ```bash
-CURSOR_API_KEY=... ./run.sh -- -p "Fix the failing tests" --output-format stream-json
+CURSOR_API_KEY=... proveo run cursor -- -p "Fix the failing tests" --output-format stream-json
 ```
 
 Any args after `--` are forwarded to `agent`. The entrypoint launches
@@ -90,7 +89,7 @@ alternative (`--local-model` is rejected by the wrapper).
 | Method | How |
 | ------ | --- |
 | API key (recommended) | Create at cursor.com/dashboard → API Keys; export `CURSOR_API_KEY` (the wrapper forwards it) |
-| Interactive login | `./run.sh -- login` — `NO_OPEN_BROWSER=1` is baked, so the URL is printed |
+| Interactive login | `proveo run cursor -- login` — `NO_OPEN_BROWSER=1` is baked, so the URL is printed |
 
 Login tokens from `agent login` write under `$HOME/.cursor` inside the container. Proveo
 mounts a durable **proveo home** at `~/.proveo/.cursor` (override root with `PROVEO_HOME`)
@@ -131,7 +130,7 @@ writes into your workspace on its own. To seed the baked verification-loop rule
 (`proveo-loop.mdc`, `alwaysApply: true`) into `.cursor/rules/`, opt in:
 
 ```bash
-./run.sh ... -e CURSOR_SEED_RULES=1 # via docker args, or export in .env
+proveo run cursor ... -e CURSOR_SEED_RULES=1 # via docker args, or export in .env
 ```
 
 ### Overriding the defaults

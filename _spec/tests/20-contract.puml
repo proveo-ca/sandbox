@@ -32,7 +32,7 @@ package "Image suites (opt-in, -tags=image)" as Bash {
 }
 
 package "Assertion targets" as Targets {
-  component "defs/*/run.sh\ndefs/*/harness.manifest" as Defs <<app>>
+  component "defs/*/harness.manifest · Dockerfiles\nmise.toml · tracked shell files" as Defs <<app>>
   component "internal/* (executed, not grepped)" as GoSrc <<app>>
 }
 

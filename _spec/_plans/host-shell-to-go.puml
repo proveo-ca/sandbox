@@ -6,12 +6,18 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 ' would touch: defs/lib/docker-build.sh, defs/*/build.sh, defs/*/ensure.sh (deleted)
 ' would touch: defs/*/test.sh, defs/*/tests/*.sh, defs/lib/{test-image,egress}.sh (deleted P3; in-image command strings kept in internal/imagetest)
 ' would touch: internal/imagetest/** (P3's Go suites)
-' would touch: lib/*.sh, scripts/*.sh, mise.toml
+' would touch: lib/*.sh, scripts/*.sh, mise.toml (lib/*.sh and scripts/*.sh deleted P4)
 ' would touch: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
 ' would touch: internal/imagebuild/targets.go (the build table; P2 put it here, not in harness.manifest)
-' would touch: internal/contract/{agent_pin,image_resolution,host_bash}_test.go (buildx_pull_policy deleted in P2)
+' would touch: internal/contract/{agent_pin,image_resolution,host_bash,installer_bash,git_hooks}_test.go
+' covers: cmd/proveo-dev/**
+' covers: internal/installtest/**
+' covers: internal/contract/host_bash_test.go
+' covers: internal/contract/installer_bash_test.go
+' covers: scripts/githooks/post-commit
+' covers: mise.toml
 ' session: 92196ee8-2438-4fda-ac25-7311bf16c563
-' PLANNED 2026-09-22. P1, P2 and P3 LANDED 2026-09-22; P4 open.
+' PLANNED 2026-09-22. P1–P4 LANDED 2026-09-22 — plan complete.
 ' Decided by the operator over fish (no errexit, non-POSIX at every
 ' Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5
 ' (provision.go ran `bash build.sh` for END USERS, who get 3.2, until P2).
@@ -22,7 +28,7 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 '   host libs    lib/*.sh + scripts/*.sh           ~0.6k lines   macOS 3.2
 '   def tests    defs/*/tests/*.sh HARNESS         ~3.3k lines   macOS 3.2
 '   in-image     packages/lib + entrypoints        ~3.8k lines   Debian bash 5
-'   installer    apps/cli/public/cli/install.sh                  any POSIX sh
+'   installer    apps/cli/public/cli/install.sh                  `curl | bash`, stock 3.2
 ' The def tests were first filed as in-container; they are not. helpers.sh
 ' sourced docker-build.sh (later the slim defs/lib/test-image.sh; both are
 ' deleted), fell back when `timeout` was missing, and drove `docker run … bash -c "<cmd>"` FROM the
@@ -30,11 +36,17 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 ' End users reached host bash too: cmd/proveo/provision.go ran
 ' `bash <def>/build.sh` when an image was missing. P2 removed that path.
 '
-' ── WHAT STAYS SHELL, AND WHY ──────────────────────────────────────────────
+' ── WHAT STAYS SHELL, AND WHY (final, after P4) ────────────────────────────
 ' In-image bash: it only ever meets bash 5, and sbx Kit startup commands, `sbx
 ' exec … bash -c` (internal/sbx/run.go) and Dockerfile RUN lines speak it.
-' The installer: `curl | sh` on a machine that has no proveo yet, so POSIX sh.
-' The <cmd> strings inside def tests: they execute in the image, not the host.
+' Lives under defs/ and packages/lib/.
+' The installer: apps/cli/public/cli/{install,uninstall}.sh run on a machine
+' that has no proveo yet (`curl | bash`), so they stay bash, GUARDED (P4).
+' scripts/githooks/post-commit: git executes a hook FILE, so a 6-line POSIX
+' `#!/bin/sh` shim cds to the repo root and execs
+' `mise exec -- go run ./cmd/proveo-dev hooks post-commit`.
+' The <cmd> strings inside internal/imagetest: they execute in the image.
+' Fixture workspaces (e2e/testdata/, e2e/samples/): an agent operates on them.
 '
 ' ── PHASES (each one ships green and deletes what it replaces) ─────────────
 ' P1  internal/imagebuild — the docker-build.sh primitives in Go: agent version
@@ -127,33 +139,95 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 '         still run in the image under Debian bash 5.
 ' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /
 '     stage-cli-cdn.sh become Go (subcommands or `go run` mise tasks).
-'     LEFT FOR P4 after P3:
-'       * lib/*.sh and scripts/*.sh (go-test-coverage.sh, stage-cli-cdn.sh);
-'       * the bash bodies of mise.toml tasks (`#!/usr/bin/env bash` runs);
-'       * defs/lib/render-subagents.sh, the host-side subagent preview tool
-'         (the in-image renderer is packages/lib's render_subagents);
-'       * the installer's own test runner, apps/cli/public/cli/tests/
-'         run_tests.sh (install.sh itself stays POSIX sh by necessity).
+'     LANDED 2026-09-22. Operator decisions:
+'       1 delete defs/*/run.sh and mitmproxy's run.sh / debug.sh;
+'         `proveo run <target>` is the interface.
+'       2 maintainer tooling lives in cmd/proveo-dev, a SEPARATE binary that
+'         never ships: goreleaser lists its binaries explicitly and
+'         proveo-dev is absent.
+'       3 the installer stays bash but guarded; its test runner becomes Go.
+'       * COMMAND MAP (cobra; each tool self-registers from its own file):
+'           coverage {unit|merge|coverage|integration|e2e|all}  scripts/go-test-coverage.sh
+'           stage-cdn                    scripts/stage-cli-cdn.sh
+'           build-cli [--release]        mise build-cli body
+'           deploy-cli · dev-cli         mise deploy-cli / dev-cli bodies
+'           ladder · idle                mise ladder-all / idle-all bodies
+'           e2e-full                     mise test-e2e-full body; runs e2e,
+'                                        then idle, then ladder in-process
+'           debug [target] [--tag T] [--print]
+'                                        mise debug body + lib/{ui,helpers,
+'                                        registry}.sh; registry in-process via
+'                                        manifest.Load + maintain.Registry
+'           lint                         mise lint body
+'           hooks install|post-commit    scripts/githooks/install + the
+'                                        post-commit body
+'           firehol-ipsets               defs/sidecars/squid-proxy/
+'                                        update-firehol-ipsets.sh (ported, not
+'                                        dropped: docker-egress still runs squid)
+'           render-subagents <harness> [dest]
+'                                        defs/lib/render-subagents.sh; runs the
+'                                        in-image render_subagents in the
+'                                        harness image, working-tree
+'                                        entrypoint-lib.sh mounted, --network none
+'       * BEHAVIOUR CHANGE: `debug` with no target on a non-TTY stdin fails
+'         with "Missing target." plus the list; the bash silently picked base.
+'       * mise.toml: every task body is one command (`go run ./cmd/proveo-dev
+'         lint`, `go run ./cmd/proveo build`, …). test-images and
+'         test-images-sbx are arrays: stage-cdn, the installer suite, the image
+'         suites. `ci` is a single printf.
+'       * INSTALLER: internal/installtest/install_test.go (TestInstallScripts,
+'         23 checks, no build tag, runs in ci) replaces apps/cli/public/cli/
+'         tests/run_tests.sh. It stages its own CDN unless
+'         PROVEO_INSTALLTEST_CDN names one.
+'       * FINDING: the old runner went through `env bash` and met Homebrew
+'         bash 5 on a maintainer Mac, so it never proved 3.2. The Go suite
+'         runs install.sh / uninstall.sh under /bin/bash (3.2.57) on darwin.
+'         internal/contract/installer_bash_test.go adds `/bin/bash -n` and a
+'         bash-4-feature scan on both scripts; it found no violations.
+'       * DELETED: defs/{cecli,claudecode,codex,cursor,opencode}/run.sh,
+'         defs/sidecars/mitmproxy/{run,debug}.sh, lib/{ui,helpers,registry}.sh,
+'         scripts/go-test-coverage.sh, scripts/stage-cli-cdn.sh,
+'         scripts/githooks/install, defs/lib/render-subagents.sh,
+'         defs/sidecars/squid-proxy/update-firehol-ipsets.sh,
+'         apps/cli/public/cli/tests/run_tests.sh. The contract tests
+'         TestRunShimsExecProveo and TestMiseTasksUsingBashSyntaxDeclareBash
+'         went with them.
+'       * RE-POINTED contract tests: git_hooks_test.go reads
+'         cmd/proveo-dev/hooks.go + the POSIX shim, builds proveo-dev and
+'         installs into a temp git repo; TestLadderAllDetectsOnlyATopLevelSkip
+'         reads cmd/proveo-dev/ladder.go; TestE2EFullIsTheSilentDeathGate reads
+'         mise.toml + cmd/proveo-dev/{idle,e2efull}.go.
+'       * CECLI_IMAGE was documented but read by nothing; the docs dropped it.
 '
-' ── THE GATE THAT FINISHES IT ──────────────────────────────────────────────
-' TestHostScriptsAvoidBash4Builtins shrinks with each phase. After P4 it is
-' replaced by: no tracked *.sh outside packages/lib, defs/*/entrypoint.sh
-' (in-image) and apps/cli/public/cli (installer).
+' ── THE GATE THAT FINISHES IT (LANDED P4) ──────────────────────────────────
+' internal/contract/host_bash_test.go replaces TestHostScriptsAvoidBash4Builtins.
+' TestNoHostShellOutsideTheAllowlist: every tracked `*.sh` or shell-shebang
+' file sits under an in-image / fixture tree (defs/, packages/lib/,
+' e2e/testdata/, e2e/samples/) or in hostShellAllowed, each entry with its
+' reason: install.sh, uninstall.sh, scripts/githooks/post-commit. A stale
+' allowlist entry fails too. Mutation-checked: a staged scripts/stray.sh fails.
+' TestMiseTasksRunNoShellScripts: mise.toml holds no bash shebang, no
+' `bash scripts/`, no `run = """` block. A mise body is one command, so the
+' old dash-vs-bash shebang rule has nothing left to check.
 
 rectangle "operator's Mac" as MAC <<host>> {
   component "proveo build / provision\nexec bash build.sh — BEFORE P2" as NOW <<error>>
   component "internal/imagebuild\nGo — LANDED P2" as GO <<app>>
   component "go test -tags=image\ninternal/imagetest — LANDED P3" as GT <<app>>
+  component "cmd/proveo-dev\nmaintainer tools, not shipped — LANDED P4" as DEV <<app>>
+  component "host_bash_test.go\nallowlist gate — LANDED P4" as GATE <<app>>
 }
 rectangle "image (Debian)" as IMG <<host>> {
   component "packages/lib + entrypoints\nbash 5 — stays" as INIMG <<app>>
 }
-component "install.sh\nPOSIX sh — stays" as INST <<app>>
+component "install.sh / uninstall.sh\nguarded bash — stays" as INST <<app>>
 
 NOW ARROW_ERROR GO : replaced, parity-gated
 GO ARROW_MAIN IMG : docker buildx
 GT ARROW_MAIN IMG : docker run <cmd>
+DEV ARROW_MAIN GO : proveo build / test
 INST ARROW_MAIN MAC : bootstraps proveo
+GATE ARROW_OPTIONAL INST : allowlisted
 
 note right of NOW
   **End users hit this path.**
@@ -177,6 +251,20 @@ note bottom of GT
   `timeout` binary.
 end note
 
+note right of DEV
+  **Separate binary, never shipped.**
+  goreleaser lists binaries by name;
+  proveo-dev is absent, so maintainer
+  tools stay off the CDN.
+end note
+
+note bottom of GATE
+  **The allowlist is the finish line.**
+  A new host *.sh outside defs/,
+  packages/lib/ or e2e fixtures fails
+  unless it names its reason.
+end note
+
 note right of INIMG
   **Never meets 3.2.**
   Kit startup, `sbx exec bash -c`
@@ -187,9 +275,8 @@ end note
 
 note right of INST
   **Runs before proveo exists.**
-  `curl | sh` on a stranger's box:
-  POSIX sh is the only interpreter
-  guaranteed to be there, so it
-  stays shell by necessity.
+  `curl | bash` on a stranger's box;
+  its Go suite runs /bin/bash 3.2 on
+  darwin, not Homebrew's bash 5.
 end note
 @enduml

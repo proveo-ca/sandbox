@@ -19,10 +19,9 @@ Each harness definition should expose, where applicable:
 - `Dockerfile` — image build definition.
 - `entrypoint.sh` — runtime setup, config discovery, env bridging, and final CLI launch.
 - A row in `internal/imagebuild/targets.go` — the build recipe (parent, pins, variants); `mise run build <target>` runs it.
-- `run.sh` — definition-local docker run wrapper.
+- A `harness.manifest` — mounts, env and posture that `proveo run <target>` applies.
 - An image suite at `internal/imagetest/<name>_test.go` (build tag `image`, func `TestImage<Name>`) — smoke and contract checks against the built image; `mise run test-defs <name>` or `proveo test <name>` runs it.
 - `README.md` — usage, image names, mounts, config behavior, and harness-specific notes.
-- `debug.sh` — optional troubleshooting shell when the harness needs it.
 - Sample config files such as `sample_opencode.json` or `.env.sample`.
 
 The README should explicitly mark whether the definition is experimental, candidate, or stable.
@@ -238,7 +237,7 @@ Entrypoints should print a concise preamble before launching the tool:
 - whether provider keys or project config are missing;
 - mounted working directory and monorepo scope when available.
 
-A `debug.sh` wrapper is recommended when troubleshooting requires shell access with the same mounts/env behavior as `run.sh`.
+`proveo run <target> --shell` gives troubleshooting shell access with the same mounts and env as a run.
 
 ### Agent Evidence
 

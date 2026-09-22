@@ -8,11 +8,10 @@ This definition exposes the required candidate harness commands:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `run.sh`
 - `sample.cecli.conf.yml`
 - `defaults/agents/` baked-in subagent prompts
 
-`debug.sh` is not present yet; it is optional unless this definition graduates to require deeper troubleshooting. Its image suite is `internal/imagetest/cecli_test.go` (`TestImageCecli`).
+`proveo run cecli --shell` opens a debug shell. Its image suite is `internal/imagetest/cecli_test.go` (`TestImageCecli`).
 
 ## Image Name and Tag
 
@@ -26,13 +25,13 @@ mise run build cecli --tag v2 --no-cache
 PROVEO_CECLI_IMAGE=example/cecli mise run build cecli
 ```
 
-`run.sh` runs `proveo/cecli:latest`. Override it with `--image` or `CECLI_IMAGE`.
+`proveo run cecli` runs `proveo/cecli:latest` (or a newer `:local` build). Override it with `--image`.
 (The old `cecli-node` / `cecli:python` dual-image split and its MCR/Playwright
 lineage were deduped into this one browserless image.)
 
 ## Mounts
 
-`run.sh` mounts:
+`proveo run cecli` mounts:
 
 - input workspace at `/app`
 - output directory at `/app/output`
@@ -51,7 +50,6 @@ agents stay under `CECLI_HOME=/app/.cecli` in the workspace.
 ## Environment Variables
 
 - `PROVEO_CECLI_IMAGE`: image repo used by `mise run build cecli`; defaults to `proveo/cecli`
-- `CECLI_IMAGE`: image used by `run.sh`; defaults to `proveo/cecli:latest`
 - `CECLI_INPUT_DIR`: input workspace override
 - `CECLI_OUTPUT_DIR`: output directory override
 - `CECLI_INSTALL_NODE_DEPS=1`: install Node dependencies when `package.json` is present
@@ -86,13 +84,13 @@ mise run build cecli
 Run against the current directory:
 
 ```bash
-./run.sh
+proveo run cecli
 ```
 
 Run with explicit mounts:
 
 ```bash
-./run.sh --input-dir /path/to/repo --output-dir /path/to/reports
+proveo run cecli --input /path/to/repo --output /path/to/reports
 ```
 
 Run smoke tests against the latest image:

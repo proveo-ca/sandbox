@@ -85,29 +85,6 @@ func TestRunnerHardeningBaseline(t *testing.T) {
 	}
 }
 
-func TestRunShimsExecProveo(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	for _, shim := range []string{"opencode", "cursor", "cecli", "claudecode", "codex"} {
-		path := filepath.Join(root, "defs", shim, "run.sh")
-		b, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("read %s: %v", path, err)
-			continue
-		}
-		body := string(b)
-		if !strings.Contains(body, `exec "$PROVEO_BIN" run`) {
-			t.Errorf("%s must exec proveo run", path)
-		}
-		if strings.Contains(body, "bin/proveo") {
-			t.Errorf("%s must not fall back to repo-local bin/proveo (use PATH / PROVEO_BIN)", path)
-		}
-		if strings.Contains(body, "--cap-drop=ALL") {
-			t.Errorf("%s must not redeclare hardening (lives in internal/runner)", path)
-		}
-	}
-}
-
 func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)

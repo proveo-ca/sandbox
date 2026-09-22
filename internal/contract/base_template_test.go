@@ -164,9 +164,9 @@ func readFileOrFail(t *testing.T, path string) string {
 
 func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
 	t.Parallel()
-	src := readFileOrFail(t, filepath.Join(repoRoot(t), "mise.toml"))
-	if !strings.Contains(src, `'^--- SKIP: TestSandboxLadder [(]'`) {
-		t.Fatal("ladder-all's skip grep is not anchored at column 0 with a bracketed '(' — " +
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "cmd", "proveo-dev", "ladder.go"))
+	if !strings.Contains(src, "`(?m)^--- SKIP: TestSandboxLadder [(]`") {
+		t.Fatal("proveo-dev ladder's skip match is not anchored at column 0 with a bracketed '(' — " +
 			"an unanchored pattern matches the indented SUBTEST line and reports a def that " +
 			"climbed every rung as not-run")
 	}
@@ -188,19 +188,26 @@ func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
 
 func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 	t.Parallel()
-	src := readFileOrFail(t, filepath.Join(repoRoot(t), "mise.toml"))
-	if !strings.Contains(src, "[tasks.test-e2e-full]") {
-		t.Fatal("mise run test-e2e-full is missing — that is the host gate that must catch sandbox was stopped")
+	root := repoRoot(t)
+	mise := readFileOrFail(t, filepath.Join(root, "mise.toml"))
+	for _, needle := range []string{
+		"[tasks.test-e2e-full]",
+		"go run ./cmd/proveo-dev e2e-full",
+		"[tasks.idle-all]",
+		"go run ./cmd/proveo-dev idle",
+	} {
+		if !strings.Contains(mise, needle) {
+			t.Errorf("mise.toml is missing %q — test-e2e-full is the host gate that must catch sandbox was stopped", needle)
+		}
 	}
-	if !strings.Contains(src, "[tasks.idle-all]") {
-		t.Fatal("idle-all is missing — test-e2e-full cannot sweep proveo run idle without it")
-	}
+	src := readFileOrFail(t, filepath.Join(root, "cmd", "proveo-dev", "idle.go")) +
+		readFileOrFail(t, filepath.Join(root, "cmd", "proveo-dev", "e2efull.go"))
 	for _, needle := range []string{
 		"PROVEO_IDLE_TEST=1",
 		"TestAgentSurvivesIdleAtPrompt",
 		"PROVEO_IDLE_FOR",
-		"mise run idle-all",
-		"mise run ladder-all",
+		"runIdle(root)",
+		"runLadder(root)",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Errorf("the silent-death gate is missing %q", needle)
@@ -219,8 +226,8 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 		}
 	}
 	for _, def := range []string{"cecli", "claudecode", "cursor", "opencode"} {
-		if !strings.Contains(src, def) {
-			t.Errorf("idle-all/test-e2e-full does not name %s — a per-def death would not run", def)
+		if !strings.Contains(src, `"`+def+`"`) {
+			t.Errorf("proveo-dev idle/e2e-full does not name %s — a per-def death would not run", def)
 		}
 	}
 }

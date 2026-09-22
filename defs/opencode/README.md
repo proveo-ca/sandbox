@@ -25,12 +25,11 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `run.sh`
 - `README.md`
 
 Its image suite is `internal/imagetest/opencode_test.go` (`TestImageOpencode`).
 
-`debug.sh` is not present yet; it is optional unless this definition needs a dedicated troubleshooting workflow.
+`proveo run opencode --shell` opens a debug shell with the same mounts and env.
 
 This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md), including runtime config discovery, `.env` bridging, and monorepo mount expectations.
 
@@ -38,7 +37,7 @@ This definition follows the shared [coding harness container contract](../../COD
 
 - Default image: `proveo/opencode:latest`
 - Build override: `PROVEO_OPENCODE_IMAGE=example/opencode mise run build opencode --tag tag`
-- Run override: `./run.sh --image example/opencode:tag`
+- Run override: `proveo run opencode --image example/opencode:tag`
 - Workspace mount: input directory mounted at `/app`
 
 ## Build
@@ -54,29 +53,29 @@ mise run build opencode --tag local
 ```
 
 ## Run
-Use `run.sh` for the definition-local command surface:
+Run it with `proveo run`:
 
 ```bash
-./run.sh --input-dir "$PWD"
+proveo run opencode --input "$PWD"
 ```
 
 ### From a repo root
 
 ```bash
-./run.sh --input-dir "$PWD"
+proveo run opencode --input "$PWD"
 ```
 
 ### With a specific image
 
 ```bash
-./run.sh --image proveo/opencode:local --input-dir "$PWD"
+proveo run opencode --image proveo/opencode:local --input "$PWD"
 ```
 
 ### Non-interactive (single prompt)
 
 ```bash
 ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-  ./run.sh -- run -m anthropic/claude-sonnet-4-5 "List the files in /app"
+  proveo run opencode -- run -m anthropic/claude-sonnet-4-5 "List the files in /app"
 ```
 
 Any args passed after `--` are forwarded to `opencode`.

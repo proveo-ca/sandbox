@@ -58,7 +58,6 @@
     {
       "spec": "_spec/_devops/buildx-driver-selection.puml",
       "covers": [
-        "defs/lib/docker-build.sh",
         "defs/*/build.sh",
         "internal/contract/buildx_pull_policy_test.go"
       ],
@@ -68,7 +67,7 @@
       "spec": "_spec/_devops/git-hooks.puml",
       "covers": [
         "scripts/githooks/post-commit",
-        "scripts/githooks/install",
+        "cmd/proveo-dev/hooks.go",
         "mise.toml",
         "internal/contract/git_hooks_test.go"
       ],
@@ -86,7 +85,7 @@
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
         "internal/contract/import_boundary_test.go",
-        "lib/registry.sh"
+        "cmd/proveo-dev/debug.go"
       ],
       "fingerprint": null
     },
@@ -96,7 +95,11 @@
         "mise.toml",
         "e2e/ladder_test.go",
         "e2e/idle_test.go",
-        "internal/contract/base_template_test.go"
+        "internal/contract/base_template_test.go",
+        "cmd/proveo-dev/ladder.go",
+        "cmd/proveo-dev/idle.go",
+        "cmd/proveo-dev/e2efull.go",
+        "cmd/proveo-dev/gate.go"
       ],
       "fingerprint": null
     },
@@ -467,7 +470,7 @@
         "cmd/proveo/init_tui_test.go",
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
-        "apps/cli/public/cli/tests/run_tests.sh"
+        "internal/installtest/install_test.go"
       ],
       "fingerprint": null
     },
@@ -477,7 +480,7 @@
         "cmd/proveo/provision.go",
         "cmd/proveo/targets.go",
         "cmd/proveo/wizard.go",
-        "lib/*.sh"
+        "cmd/proveo-dev/debug.go"
       ],
       "fingerprint": null
     },
@@ -485,7 +488,7 @@
       "spec": "_spec/cmd/proveo/usage.puml",
       "covers": [
         "cmd/proveo/main.go",
-        "defs/*/run.sh"
+        "cmd/proveo-dev/main.go"
       ],
       "fingerprint": null
     },
@@ -504,7 +507,7 @@
       "spec": "_spec/defs/agent-definition-sharing.puml",
       "covers": [
         "defs/subagents/**",
-        "defs/lib/render-subagents.sh",
+        "cmd/proveo-dev/render_subagents.go",
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/agents_shared_test.go",
         "internal/contract/subagent_roster_test.go",
@@ -588,7 +591,8 @@
         "internal/imagetest/claudecode_test.go",
         "internal/egress/**",
         "internal/egressproxy/**",
-        "cmd/proveo-egress/**"
+        "cmd/proveo-egress/**",
+        "cmd/proveo-dev/firehol.go"
       ],
       "fingerprint": null
     },
@@ -626,7 +630,6 @@
         "defs/codex/defaults/config.toml",
         "defs/codex/Dockerfile",
         "internal/imagebuild/targets.go",
-        "defs/codex/run.sh",
         "internal/contract/agents_shared_test.go",
         "internal/imagetest/codex_test.go"
       ],
@@ -729,7 +732,12 @@
         "internal/cdn/**",
         "cmd/proveo/update.go",
         "apps/cli/public/cli/**",
-        "scripts/stage-cli-cdn.sh"
+        "internal/installtest/**",
+        "internal/contract/installer_bash_test.go",
+        "cmd/proveo-dev/stagecdn.go",
+        "cmd/proveo-dev/buildcli.go",
+        "cmd/proveo-dev/deploycli.go",
+        "cmd/proveo-dev/devcli.go"
       ],
       "fingerprint": null
     },
@@ -876,7 +884,6 @@
         "internal/maintain/**",
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/maintain_cmd_test.go",
-        "defs/lib/docker-build.sh",
         "defs/**/Dockerfile",
         "internal/contract/image_build_cache_test.go"
       ],
@@ -890,7 +897,7 @@
         "cmd/proveo/targets.go",
         "internal/imagebuild/**",
         "internal/imagetest/**",
-        "lib/helpers.sh"
+        "cmd/proveo-dev/debug.go"
       ],
       "fingerprint": null
     },
@@ -1520,8 +1527,8 @@
         "e2e/**",
         "internal/*/*_test.go",
         "cmd/proveo/*_test.go",
-        "scripts/go-test-coverage.sh",
-        "internal/imagetest/**"
+        "internal/imagetest/**",
+        "cmd/proveo-dev/coverage.go"
       ],
       "fingerprint": null
     },
@@ -1597,7 +1604,20 @@
         "internal/tmux/**",
         "defs/tests/**",
         "internal/imagetest/**",
-        "e2e/preconditions_test.go"
+        "e2e/preconditions_test.go",
+        "cmd/proveo-dev/coverage.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/host-shell-to-go.puml",
+      "covers": [
+        "cmd/proveo-dev/**",
+        "internal/installtest/**",
+        "internal/contract/host_bash_test.go",
+        "internal/contract/installer_bash_test.go",
+        "scripts/githooks/post-commit",
+        "mise.toml"
       ],
       "fingerprint": null
     }

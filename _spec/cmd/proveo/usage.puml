@@ -3,9 +3,9 @@
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
-' purpose: the CLI surface proveo presents, and the per-def run.sh that mirrors it
+' purpose: the CLI surface proveo presents, and the maintainer tooling beside it
 ' covers: cmd/proveo/main.go
-' covers: defs/*/run.sh
+' covers: cmd/proveo-dev/main.go
 
 left to right direction
 
@@ -25,11 +25,11 @@ package "Installer" as Install {
  component "goreleaser artifacts\nlinux/darwin × amd64/arm64" as Artifacts <<image>>
 }
 
-package "Definition shims\ndefs/<target>/" as Shims {
- component "run.sh → proveo run <target>" as RunShim <<script>>
+package "Maintainer binary (not shipped)\ncmd/proveo-dev" as Shims {
+ component "proveo-dev debug · coverage · stage-cdn\nbuild-cli · lint · hooks · ladder · idle" as RunShim <<internal>>
 }
 
-package "Maintainer\nmise + lib/" as Maint {
+package "Maintainer\nmise" as Maint {
  component "mise build|test|deploy" as Mise <<internal>>
  component "proveo build · deploy\ninternal/maintain → internal/imagebuild" as MaintLib <<internal>>
  component "proveo test <target>\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
@@ -59,7 +59,7 @@ Install --> Proveo : places binary on PATH
 Consumer --> Proveo : day-to-day
 Maintainer --> Proveo : run / --print / list
 Maintainer --> Mise : image lifecycle
-Maintainer --> Shims : optional direct scripts
+Mise ..> Shims : one command per task
 
 Proveo --> Commands
 Commands --> RunFlags
@@ -70,7 +70,7 @@ Orch --> Images
 Orch --> Sidecars
 Orch --> Storage
 
-RunShim ..> Proveo : exec
+RunShim ..> Proveo : debug → proveo run <target> --shell
 Mise ..> BuildTest
 Mise ..> MaintLib
 Mise ..> Proveo : run/list when needed
@@ -88,7 +88,8 @@ hardened docker-run argv, ""internal/egress"" orchestrates
 the topology, ""internal/provider"" detects which vendor a
 run is talking to. That logic was previously triplicated
 across the consumer CLI, ""lib/runners\.sh"" and every
-""defs/*/run\.sh"" — three copies that drifted.
+per-def ""run\.sh"" — three copies that drifted. The last
+""run\.sh"" shims went in host-shell-to-go P4.
 
 Shipped as a single checksummed static binary
 (""\.goreleaser\.yaml"", ""dist/install\.sh""), which is what
