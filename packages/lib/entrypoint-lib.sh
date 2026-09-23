@@ -488,9 +488,19 @@ _proveo_bounded() {
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then
     timeout "$secs" "$@"
-  else
-    "$@"
+    return
   fi
+  (
+    set -m
+    "$@" <&0 2>&3 &
+    pid=$!
+    (sleep "$secs"; kill -TERM -- "-$pid") >/dev/null 2>&1 </dev/null &
+    watcher=$!
+    wait "$pid"
+    rc=$?
+    kill -TERM -- "-$watcher" 2>/dev/null
+    exit "$rc"
+  ) 3>&2 2>/dev/null
 }
 
 _proveo_github_token() {
@@ -2388,7 +2398,10 @@ _proveo_sync_tree() {
  local src="$1" dst="$2" rel tmp failed=0
  [[ -d "$src" ]] || return 0
  mkdir -p "$dst" 2>/dev/null || return 1
- cp -an "$src/." "$dst/" 2>/dev/null || failed=1
+ cp -an "$src/." "$dst/" 2>/dev/null
+ while IFS= read -r rel; do
+  [[ -e "$dst/$rel" || -L "$dst/$rel" ]] || failed=1
+ done < <(cd "$src" 2>/dev/null && find . ! -type d)
  while IFS= read -r rel; do
   [[ -n "$rel" ]] || continue
   tmp="$dst/$rel.proveo-sync.$$"

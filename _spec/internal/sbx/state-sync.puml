@@ -90,6 +90,9 @@ note bottom of TREE
 
   * **phase 1** — one ""cp -an"" places every file the destination does NOT have.
     No existing file is opened for writing, so this phase cannot truncate.
+    Its exit status is NOT the verdict: BSD ""cp -n"" (and GNU coreutils 9.2)
+    exit 1 for every file it skips, which is every file a delta save finds in
+    place. A copy error is instead a source path still absent afterwards.
   * **phase 2** — files present on BOTH sides and differing are copied to a temp
     name in the destination directory and //renamed// over the target.
     ""rename(2)"" is atomic: a reader sees the old file or the new one, never a

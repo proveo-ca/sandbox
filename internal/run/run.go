@@ -671,9 +671,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if browserOn && !p.PrintOnly {
 			cdpPort = sandbox.FreeLoopbackPort()
 		}
-		sbxBridge, sbxBridgeEnv := startChromeBridge(rs, p, "")
+		sbxBridge, _ := startChromeBridge(rs, p, chromebridge.SbxWhy)
+		var sbxBridgeEnv []string
 		if sbxBridge != nil {
 			defer func() { _ = sbxBridge.Close() }()
+			sbxBridgeEnv = sbxBridge.ResolvedEnv()
 		}
 		agentMode := p.Mode
 		if !egress.ValidMode(agentMode) {

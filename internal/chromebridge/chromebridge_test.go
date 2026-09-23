@@ -183,6 +183,10 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 	if len(env) != 2 || env[0] != EnvAddr+"="+r.ContainerAddr() || env[1] != EnvToken {
 		t.Fatalf("Env = %v: the address is KEY=VALUE, the token a bare name", env)
 	}
+	kit := r.ResolvedEnv()
+	if len(kit) != 2 || kit[0] != env[0] || kit[1] != EnvToken+"="+r.Token() {
+		t.Fatalf("ResolvedEnv = %v: both pairs carry their value, the form an sbx Kit needs", kit)
+	}
 	if !strings.HasPrefix(r.ContainerAddr(), ContainerHost+":") {
 		t.Fatalf("ContainerAddr = %q", r.ContainerAddr())
 	}

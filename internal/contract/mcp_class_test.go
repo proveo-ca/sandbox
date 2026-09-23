@@ -139,7 +139,7 @@ configure_cecli_mcp "$3"`
 			t.Errorf("no serena declaration written:\n%s\n%s", conf, out)
 		}
 		// The project must be the scan root: /app does not exist on the sbx backend.
-		if strings.Contains(conf, "--project, /app") || !strings.Contains(conf, "/tmp/") {
+		if strings.Contains(conf, "--project, /app") || !strings.Contains(conf, "--project, "+filepath.Clean(os.TempDir())) {
 			t.Errorf("--project is not the scan root:\n%s", conf)
 		}
 	})

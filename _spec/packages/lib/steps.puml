@@ -55,6 +55,15 @@
 ' supplied string. There are two spellings only because the harnesses pass their
 ' arguments in opposite orders (fallback-first vs command-first).
 '
+' _proveo_bounded is the one cap every such call goes through. Where `timeout`
+' is missing (macOS, which the contract suite sources this lib on) it runs a
+' bash 3.2 watchdog instead of running unbounded: `set -m` gives the command
+' its own process group, and the watchdog signals the GROUP, as GNU timeout
+' does — a server's grandchild `sleep` otherwise holds the pipe open and the
+' caller's $(…) waits for it anyway. `<&0` is explicit because a background
+' job's stdin is otherwise /dev/null; fd 3 keeps the command's stderr while
+' the job-control notices go to /dev/null.
+'
 ' ── §3/§4 · TWO STEPS THAT DEGRADE RATHER THAN FAIL ───────────────────────
 ' attach_rtk is opt-in (ATTACH_RTK=1|true|yes|on) and skips with a warning when
 ' the working directory is not writable, since a read-only workspace is a

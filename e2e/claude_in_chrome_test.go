@@ -55,6 +55,7 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx unavailable: %s", why)
 	}
+	t.Skipf("claude-in-chrome is greyed on sbx: %s", chromebridge.SbxWhy)
 	// Precondition (1): a live extension. chromebridge.Available is the exact
 	// probe production code runs in chromeUnavailable — reused rather than
 	// reimplemented, so this test and the real picker agree on what "live" means.
@@ -108,7 +109,7 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	cmd := []string{"env",
 		"-u", "CLAUDE_CODE_OAUTH_TOKEN", // must not shadow the cloned /login
 		"TERM=xterm-256color",
-		"HOME=" + home,
+		"XDG_STATE_HOME=" + filepath.Join(home, "state"),
 		"PROVEO_HOME=" + proveoHome,
 		proveoBin, "run", "claudecode", "--input", work, "--", "-p", prompt,
 	}
