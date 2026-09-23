@@ -13,7 +13,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' covers: cmd/proveo/provision.go
 ' covers: internal/contract/image_resolution_test.go
 ' covers: internal/contract/import_boundary_test.go
-' covers: lib/registry.sh
+' covers: cmd/proveo-dev/debug.go
 '
 ' ── EVERY TARGET HAS THE SAME SHAPE ─────────────────────────────────────────
 ' One row per registry target in internal/imagebuild/targets.go `Specs`; one

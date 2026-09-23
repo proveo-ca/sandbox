@@ -88,7 +88,7 @@ go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 | Merge / report | `go tool covdata merge -i=cov/unit -o=cov/merged` then `percent` / `textfmt` |
 | Binary (Stage 0b) | `go build -cover -o proveo-egress ./cmd/proveo-egress` + `GOCOVERDIR=…` in the proxy container |
 
-Use `mise run test-go` and `mise run coverage` (see `scripts/go-test-coverage.sh`). Publish
+Use `mise run test-go` and `mise run coverage` (see `cmd/proveo-dev/coverage.go`). Publish
 percent/HTML as CI artifacts; **no hard % gate** until a baseline exists.
 
 In-process `internal/egressproxy` / `internal/broker` tests count toward coverage in the unit

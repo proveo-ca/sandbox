@@ -68,7 +68,6 @@ func TestImageClaudecode(t *testing.T) {
 	ccConfig(s, img)
 	ccWorkspace(s, img)
 	ccVolumes(s, img)
-	ccWrappers(s, filepath.Join(defs, "claudecode"))
 	ccFunctional(s, img)
 	ccEgress(s, defs)
 	ccChromeBridge(s, img)
@@ -362,20 +361,6 @@ func ccVolumes(s *imagetest.Suite, img ccImages) {
 	s.Success("/workspace/temp is writable by claude", image, "touch /workspace/temp/test-write && rm /workspace/temp/test-write")
 }
 
-func ccWrappers(s *imagetest.Suite, defDir string) {
-	runSh := filepath.Join(defDir, "run.sh")
-	s.Check("[run.sh] shims to proveo run with --variant", func(t *testing.T) {
-		if !ccFileHas(runSh, `exec "$PROVEO_BIN" run`) || !ccFileHas(runSh, "--variant") {
-			t.Error("[run.sh] missing proveo run shim contract")
-		}
-	})
-	s.Check("parent run.sh owns variant run and debug shell flows", func(t *testing.T) {
-		if !ccFileHas(runSh, "--shell") || !ccFileHas(runSh, `case "$VARIANT" in`) {
-			t.Error("parent run.sh missing consolidated run/debug contract")
-		}
-	})
-}
-
 func ccFunctional(s *imagetest.Suite, img ccImages) {
 	token := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")
 	tokenEnv := []string{"-e", "CLAUDE_CODE_OAUTH_TOKEN=" + token}
@@ -517,7 +502,7 @@ func ccEgress(s *imagetest.Suite, defs string) {
 	squidDir := filepath.Join(defs, "sidecars", "squid-proxy")
 	squid := filepath.Join(squidDir, "squid.conf")
 	firehol := filepath.Join(squidDir, "firehol-blocked-nets.conf")
-	updater := filepath.Join(squidDir, "update-firehol-ipsets.sh")
+	updater := filepath.Join(squidDir, "..", "..", "..", "cmd", "proveo-dev", "firehol.go")
 	fileHas("[policy] Squid documents HTTP/HTTPS-only protocol allowlist", squid, "Protocol allowlist: HTTP and HTTPS only")
 	fileHas("[policy] Squid allows HTTP port 80", squid, "acl Safe_ports port 80")
 	fileHas("[policy] Squid allows HTTPS port 443", squid, "acl Safe_ports port 443")

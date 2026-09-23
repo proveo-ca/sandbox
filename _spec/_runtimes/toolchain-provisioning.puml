@@ -182,8 +182,10 @@ note right of MISE
   under dash until the first bashism, so it fails PART WAY THROUGH:
   ""test-images"" staged eight cross-compiled binaries and then died on
   ""tests=("" with ""sh: 4: Syntax error"", which reads as a broken test
-  script rather than a wrong interpreter. Guarded by
-  ""internal/contract"" ""TestMiseTasksUsingBashSyntaxDeclareBash"".
+  script rather than a wrong interpreter. Since host-shell-to-go P4 every
+  task body is one command into ""cmd/proveo-dev"", so no shell body is
+  left to misparse; ""internal/contract"" ""TestMiseTasksRunNoShellScripts""
+  keeps shebangs and multi-line run blocks out of ""mise.toml"".
 end note
 
 note bottom of T4

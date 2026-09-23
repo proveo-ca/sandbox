@@ -4,19 +4,21 @@ skinparam noteTextAlignment left
 title git post-commit — format, then lint
 ' purpose: why a commit still runs fmt and lint after HEAD moves, and how the hook is installed without git config
 ' covers: scripts/githooks/post-commit
-' covers: scripts/githooks/install
+' covers: cmd/proveo-dev/hooks.go
 ' covers: mise.toml
 ' covers: internal/contract/git_hooks_test.go
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 
 participant "git commit" as COMMIT <<app>>
 participant ".git/hooks/post-commit" as HOOK <<app>>
+participant "proveo-dev hooks post-commit" as BODY <<app>>
 participant "mise run fmt" as FMT <<app>>
 participant "mise run lint" as LINT <<app>>
-participant "scripts/githooks/install" as INST <<script>>
+participant "proveo-dev hooks install" as INST <<app>>
 
 COMMIT ARROW_MAIN HOOK : HEAD already advanced
-HOOK ARROW_MAIN FMT
+HOOK ARROW_MAIN BODY : exec mise exec -- go run
+BODY ARROW_MAIN FMT
 FMT ARROW_MAIN LINT : format first so lint sees it
 INST ARROW_OPTIONAL HOOK : cp, chmod 0755
 
@@ -28,11 +30,11 @@ note right of HOOK
   skips both tasks.
 end note
 
-note bottom of INST
+note over INST
   **No git config.** core.hooksPath is
-  not set. The install copies the
-  versioned script into .git/hooks
-  so a clone still needs one command:
+  not set. Go copies the versioned
+  shim into .git/hooks, so a clone
+  still needs one command:
   mise run install-git-hooks.
 end note
 
@@ -42,5 +44,12 @@ note right of FMT
   would fail the files fmt is about
   to rewrite. The hook does not
   git add or git commit.
+end note
+
+note right of BODY
+  **A POSIX shim, a Go body.** git runs
+  a hook FILE, so post-commit stays a
+  6-line #!/bin/sh that execs Go; no
+  host bash (host-shell-to-go P4).
 end note
 @enduml

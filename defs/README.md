@@ -9,8 +9,6 @@ A mature coding harness definition under `defs/<name>/` should expose, where app
 ```txt
 Dockerfile or Dockerfile.*
 entrypoint.sh
-run.sh
-debug.sh, optional
 help.sh, optional
 README.md
 sample config files
@@ -21,9 +19,9 @@ Its image suite lives outside the definition, at `internal/imagetest/<name>_test
 Definition-local scripts are the preferred deterministic command surface:
 
 - The build recipe (parent, pins, variants) is the def's row in `internal/imagebuild/targets.go`; `mise run build <target>` runs it.
-- `run.sh` runs the harness with documented mounts and environment variables.
+- `proveo run <target>` runs the harness with the manifest's mounts and environment.
 - `mise run test-defs <target>` (or `proveo test <target>`) runs the image suite, `go test -tags=image -run '^TestImage<Name>$' ./internal/imagetest/`.
-- `debug.sh`, when present, opens a troubleshooting shell or equivalent debug workflow.
+- `proveo run <target> --shell` opens a troubleshooting shell with the same mounts and env.
 
 ## Current Classification
 

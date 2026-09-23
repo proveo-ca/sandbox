@@ -58,11 +58,13 @@ sandboxed agent cannot read the mitmproxy CA key or tamper with its own flow log
 ## Standalone Use
 
 ```bash
-# Chained to an enforcement upstream
-defs/mitmproxy/run.sh --upstream http://squid:3128
-
-# Direct proxy for local inspection
-defs/mitmproxy/run.sh
+mkdir -p flows confdir
+# Direct proxy for local inspection (set PROVEO_MITM_UPSTREAM to chain, e.g. http://squid:3128)
+docker run -it --rm -p 8888:8888 \
+  -e PROVEO_MITM_PORT=8888 -e PROVEO_MITM_UPSTREAM= \
+  -v "$PWD/flows:/flows" -v "$PWD/confdir:/mitmproxy-confdir" \
+  proveo/mitmproxy:local
+# Debug shell: the same with --entrypoint /bin/bash
 ```
 
 ## Network Invariant

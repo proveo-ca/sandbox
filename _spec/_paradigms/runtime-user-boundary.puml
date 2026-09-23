@@ -77,7 +77,6 @@ actor "Developer\nuid:gid" as DEV
 
 node "Host" as HOST <<host>> {
   component "cmd/proveo run\ninternal/runner" as RUN <<app>>
-  component "defs/*/run.sh\nthin shim → exec proveo" as SHIM <<app>>
   database "bind-mounted repo" as REPO <<db>>
 }
 
@@ -89,8 +88,7 @@ node "Agent container" as CTR <<host>> {
   component "root / gosu / privilege drop" as ROOT <<error>>
 }
 
-DEV ARROW_MAIN SHIM
-SHIM ARROW_MAIN RUN
+DEV ARROW_MAIN RUN : proveo run <target>
 RUN ARROW_MAIN CTR : " ""docker run --user $(id -u):$(id -g)"" \n""--cap-drop=ALL --security-opt=no-new-privileges""\n""--pids-limit"" "
 IMGUSER ARROW_OPTIONAL AGENT : bare ""docker run"" (no wrapper)\nstill lands non-root
 RUN ARROW_MAIN ENSURE

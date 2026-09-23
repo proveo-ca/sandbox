@@ -1,5 +1,5 @@
 @startuml TestingOverview
-' SPEC source: internal/contract/**, internal/imagetest/**, scripts/go-test-coverage.sh
+' SPEC source: internal/contract/**, internal/imagetest/**, cmd/proveo-dev/coverage.go
 ' The four testing layers: fast + keyless at the base, gated + high-fidelity above.
 ' Coverage: unit GOCOVERDIR + in-process profiles merge via go tool covdata.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
@@ -12,7 +12,7 @@ skinparam packageStyle rectangle
 ' covers: e2e/**
 ' covers: internal/*/*_test.go
 ' covers: cmd/proveo/*_test.go
-' covers: scripts/go-test-coverage.sh
+' covers: cmd/proveo-dev/coverage.go
 ' covers: internal/imagetest/**
 '
 ' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the

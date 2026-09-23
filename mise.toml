@@ -31,28 +31,12 @@ run = "golangci-lint fmt"
 [tasks.lint]
 description = "Go format check + go vet + golangci-lint (standard linters)"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-# Hard gates: gofmt -l · go vet · golangci-lint run
-unformatted="$(gofmt -l internal cmd tests 2>/dev/null || true)"
-# Also cover any other module packages (embed.go at root, etc.)
-unformatted_root="$(gofmt -l *.go 2>/dev/null || true)"
-if [[ -n "${unformatted}${unformatted_root}" ]]; then
-  printf 'gofmt needed on:\\n%s\\n%s\\n' "$unformatted" "$unformatted_root" >&2
-  printf 'Run: mise run fmt\\n' >&2
-  exit 1
-fi
-go vet ./...
-go vet -tags=image ./internal/imagetest/
-golangci-lint run
-printf '\\n✅ lint succeeded.\\n'
-"""
+run = "go run ./cmd/proveo-dev lint"
 
 [tasks.install-git-hooks]
 description = "Copy scripts/githooks/post-commit into .git/hooks (no git config)"
 dir = "{{config_root}}"
-run = "scripts/githooks/install"
+run = "go run ./cmd/proveo-dev hooks install"
 
 [tasks.build-check]
 description = "Compile all Go packages (go build ./...)"
@@ -62,88 +46,21 @@ run = "go build ./..."
 [tasks.ci]
 description = "Local CI gate: lint + go build + unit/contract tests (no Docker)"
 depends = ["lint", "build-check", "test-go"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-printf '\\n✅ ci succeeded.\\n'
-"""
+run = "printf '\\n✅ ci succeeded.\\n'"
 
 # ── Go CLI ──────────────────────────────────────────────────
 
 [tasks.build-cli]
 description = "Install Go proveo CLIs onto GOPATH/bin; pass -- --release for goreleaser → dist/ + CDN stage"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-release=0
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --release) release=1; shift ;;
-    -h|--help)
-      printf 'Usage: mise run build-cli [-- --release]\\n'
-      printf '  (default) go install → $(go env GOPATH)/bin (version=dev@sha)\\n'
-      printf '  --release runs goreleaser into dist/, then stages apps/cli CDN assets:\\n'
-      printf '    • HEAD is an exact git tag (vX.Y.Z) → goreleaser release --skip=publish\\n'
-      printf '      (version from the tag; no GitHub Release — CDN is Wrangler)\\n'
-      printf '    • otherwise → goreleaser release --snapshot (dev/CI dry-run)\\n'
-      exit 0
-      ;;
-    *)
-      echo "Unknown build-cli option: $1 (want --release)" >&2
-      exit 1
-      ;;
-  esac
-done
-
-export CGO_ENABLED=0
-# Prefer GOPATH/bin over a toolchain-local GOBIN (mise may set the latter).
-export GOBIN="$(go env GOPATH)/bin"
-mkdir -p "$GOBIN"
-# Stamp the build commit so `proveo --version` can tell a stale binary from a fresh one.
-commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
-if [[ -z "$commit" ]]; then
-  commit="unknown"
-fi
-proveo_version="dev@${commit}"
-go install -trimpath -ldflags="-s -w -X main.version=${proveo_version}" ./cmd/proveo
-go install -trimpath -ldflags='-s -w' ./cmd/proveo-egress
-go install -trimpath -ldflags='-s -w' ./cmd/proveo-entrypoint
-printf 'Installed %s/{proveo,proveo-egress,proveo-entrypoint} (%s)\\n' "$GOBIN" "$proveo_version"
-printf 'Ensure %s is on PATH (or set PROVEO_BIN).\\n' "$GOBIN"
-
-if [[ "$release" -eq 1 ]]; then
-  if ! command -v goreleaser >/dev/null 2>&1; then
-    # Pinned (not @latest) so release builds are reproducible; bump deliberately.
-    goreleaser_version="v2.17.0"
-    echo "goreleaser not on PATH — installing $goreleaser_version via go install..." >&2
-    go install "github.com/goreleaser/goreleaser/v2@$goreleaser_version"
-    export PATH="$(go env GOPATH)/bin:$PATH"
-  fi
-  # Tag-exact HEAD → real semver artifacts for the Wrangler CDN (skip GitHub publish).
-  # Untagged / dirty release builds stay --snapshot for local dry-runs.
-  tag="$(git describe --tags --exact-match 2>/dev/null || true)"
-  if [[ -n "$tag" ]]; then
-    printf 'Tagged HEAD %s — goreleaser release --skip=publish (CDN-only)\\n' "$tag"
-    goreleaser release --clean --skip=publish
-  else
-    printf 'No exact git tag on HEAD — goreleaser release --snapshot\\n'
-    goreleaser release --snapshot --clean
-  fi
-  printf 'Artifacts under dist/ (gitignored).\\n'
-  PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
-fi
-
-# set -euo pipefail guarantees we only reach here on success.
-printf '\\n✅ build-cli succeeded.\\n'
-"""
+run = "go run ./cmd/proveo-dev build-cli"
 
 # ── Tests ───────────────────────────────────────────────────
 
 [tasks.test-go]
 description = "Go unit + contract tests with coverage data dir (no Docker / no integration tags)"
 dir = "{{config_root}}"
-run = "scripts/go-test-coverage.sh unit"
+run = "go run ./cmd/proveo-dev coverage unit"
 
 [tasks.test]
 description = "Fast gate: Go unit + contract tests (same as test-go)"
@@ -152,34 +69,28 @@ depends = ["test-go"]
 [tasks.test-go-integration]
 description = "Layer 3 egress Docker integration (-tags=integration; needs PROVEO_EGRESS_INTEGRATION=1)"
 dir = "{{config_root}}"
-run = "scripts/go-test-coverage.sh integration"
+run = "go run ./cmd/proveo-dev coverage integration"
 
 [tasks.test-go-e2e]
 description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential)"
 dir = "{{config_root}}"
-run = "scripts/go-test-coverage.sh e2e"
+run = "go run ./cmd/proveo-dev coverage e2e"
 
 [tasks.coverage]
 description = "Merge GOCOVERDIR profiles and print percent (run test-go first)"
 dir = "{{config_root}}"
-run = "scripts/go-test-coverage.sh merge"
+run = "go run ./cmd/proveo-dev coverage merge"
 
 [tasks.test-images]
 description = "Docker/image + consumer CLI suites (needs Docker; slow)"
 dir = "{{config_root}}"
-# The image suites are Go (internal/imagetest, build tag `image`); the CDN stage
-# and the installer's own tests stay shell until P4 of host-shell-to-go.puml.
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-bash scripts/stage-cli-cdn.sh
-
-printf '\\n==> %s\\n' "apps/cli/public/cli/tests/run_tests.sh"
-apps/cli/public/cli/tests/run_tests.sh
-
-printf '\\n==> %s\\n' "internal/imagetest (every def's image suite + detached smoke)"
-go test -tags=image -count=1 -timeout 60m ./internal/imagetest/
-"""
+# The installer suite runs install.sh under /bin/bash against the staged CDN;
+# the image suites are Go (internal/imagetest, build tag `image`).
+run = [
+  "go run ./cmd/proveo-dev stage-cdn",
+  "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli go test -count=1 ./internal/installtest/",
+  "go test -tags=image -count=1 -timeout 60m ./internal/imagetest/",
+]
 
 [tasks.test-all]
 description = "Fast Go gate then Docker/image megasuite"
@@ -188,23 +99,17 @@ depends = ["test-go", "test-images"]
 [tasks.test-images-sbx]
 description = "Image + consumer CLI suites that test the sbx runtime (no mitmproxy sidecar, no docker-detached smoke)"
 dir = "{{config_root}}"
-# The shebang is load-bearing — see test-images. Guarded by
-# internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-bash scripts/stage-cli-cdn.sh
-printf '\\n==> %s\\n' "apps/cli/public/cli/tests/run_tests.sh"
-apps/cli/public/cli/tests/run_tests.sh
-printf '\\n==> %s\\n' "internal/imagetest (harness image suites)"
-go test -tags=image -count=1 -timeout 60m -run '^TestImage(Cecli|Claudecode|Codex|Opencode|Cursor)$' ./internal/imagetest/
-"""
+run = [
+  "go run ./cmd/proveo-dev stage-cdn",
+  "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli go test -count=1 ./internal/installtest/",
+  "go test -tags=image -count=1 -timeout 60m -run '^TestImage(Cecli|Claudecode|Codex|Opencode|Cursor)$' ./internal/imagetest/",
+]
 
 [tasks.test-e2e]
 description = "Everything e2e up to tier 3, on the sbx runtime: image + consumer suites, then the Go agent suite (opt-in gates off; ~45m)"
 dir = "{{config_root}}"
 depends = ["test-images-sbx"]
-run = "scripts/go-test-coverage.sh e2e"
+run = "go run ./cmd/proveo-dev coverage e2e"
 
 [tasks.test-e2e-full]
 description = "test-e2e plus tier 4: idle/signal/toolchain gates, per-def silent-death idle-all, then the sbx ladder. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
@@ -213,152 +118,17 @@ depends = ["test-images-sbx"]
 # Both host halves keep going after a failure: stopping at idle hides whether
 # the ladder shares the fault. A SKIP on either is not a pass.
 # SPEC: _spec/_devops/release-gate.puml
-run = """
-#!/usr/bin/env bash
-set -uo pipefail
-rc=0
-export PROVEO_IDLE_TEST=1 PROVEO_SIGNAL_TEST=1 PROVEO_TOOLCHAIN_TEST=1
-export PROVEO_TEST_GO_TIMEOUT="${PROVEO_TEST_GO_TIMEOUT:-150m}"
-scripts/go-test-coverage.sh e2e "$@" || rc=1
-mise run idle-all || rc=1
-mise run ladder-all || rc=1
-exit "$rc"
-"""
+run = "go run ./cmd/proveo-dev e2e-full"
 
 [tasks.ladder-all]
 description = "Climb the sbx ladder for every def (host only: needs sbx)"
 dir = "{{config_root}}"
-# The shebang is load-bearing — see test-images above for what dash does to a
-# bash array. Guarded by internal/contract TestMiseTasksUsingBashSyntaxDeclareBash.
-#
-# ONE CLIMB PER DEF, not one climb. PROVEO_LADDER_TARGET defaults to claudecode,
-# so a bare `-run Ladder` measures a fifth of the fleet — and ladder_test.go
-# says the sbx fixes proved for claudecode were applied to cursor BY SYMMETRY,
-# not by measurement. A release gate that climbs once has one data point.
-#
-# It keeps going after a failure and prints a table at the end: stopping at the
-# first red hides whether the other three share the fault, which is the question
-# a release actually needs answered.
-#
-# NO ANSI ESCAPES HERE. `run` is a basic TOML string, so a backslash starts a
-# TOML escape and \033 is a parse ERROR, not dim text — the config fails to load
-# and every task in the file goes with it. The contract test only checks the
-# shebang, so it passed while the file would not parse.
-# SPEC: _spec/_devops/release-gate.puml
-run = """
-#!/usr/bin/env bash
-set -uo pipefail
-targets=(cecli claudecode codex cursor opencode)
-declare -a verdicts=()
-rc=0
-for t in "${targets[@]}"; do
-  printf '\n== ladder: %s ==\n' "$t"
-  # tee, NOT command substitution. `out="$(go test ...)"` buffers every line
-  # until the command exits, and a climb is minutes per def -- the first version
-  # of this task looked FROZEN for a quarter of an hour while it worked
-  # correctly. Streaming matters here more than most places: the rung logs are
-  # how an operator sees which layer is being exercised while it happens.
-  log="$(mktemp)"
-  PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET="$t" \
-    go test -tags e2e -count=1 -timeout 30m ./e2e/ -run Ladder -v 2>&1 | tee "$log"
-  code="${PIPESTATUS[0]}"
-  # A SKIP EXITS 0. Reading that as PASS is how a release gate certifies a
-  # climb that never happened -- an earlier version of this task did exactly
-  # that and reported PASS for all four defs on a host with no sbx.
-  #
-  # ANCHORED AT COLUMN 0, and that is the whole correctness of this line. Go
-  # indents SUBTEST results by four spaces and prints the top-level result flush
-  # left, so an unanchored '--- SKIP: TestSandboxLadder' also matches
-  # '    --- SKIP: TestSandboxLadder/2-proveo-browser-image'. It did: cecli
-  # climbed all four rungs and PASSED, its browser rung skipped because no
-  # cecli-browser image exists, and this task reported the def as not-run. The
-  # other three have browser images, so nothing skipped and they read correctly
-  # -- which is how one bug produced three right answers and one wrong one.
-  #
-  # [(] not \\(: `run` is a TOML basic string, so a backslash starts a TOML
-  # escape and the config fails to LOAD -- the same trap as \\033 above. A
-  # bracket expression needs no escape and cannot be eaten.
-  if grep -qE -- '^--- SKIP: TestSandboxLadder [(]' "$log"; then
-    why="$(sed -n 's/.*sbx not available: //p' "$log" | head -1)"
-    verdicts+=("SKIP $t ${why:-the ladder did not run}")
-    rc=1
-  elif [ "$code" -eq 0 ]; then
-    verdicts+=("PASS $t")
-  else
-    verdicts+=("FAIL $t")
-    rc=1
-  fi
-  rm -f "$log"
-done
-printf '\n-- ladder verdict, all defs --\n'
-for v in "${verdicts[@]}"; do printf '  %s\n' "$v"; done
-if [ "$rc" -ne 0 ]; then
-  printf '\n  NOT a release gate pass. A SKIP counts as not-passed: the ladder needs\n'
-  printf '  sbx, which no proveo sandbox has, so this task must run on the HOST.\n'
-  printf '  A red def names the rung, and the rung names the layer that owns it.\n'
-fi
-exit "$rc"
-"""
+run = "go run ./cmd/proveo-dev ladder"
 
 [tasks.idle-all]
 description = "Idle-survival sweep for every def (host only: needs sbx; catches silent deaths)"
 dir = "{{config_root}}"
-# The shebang is load-bearing — see test-images. Guarded by
-# TestMiseTasksUsingBashSyntaxDeclareBash.
-#
-# Ladder holds raw `sbx run`. This holds `proveo run`, which is the ptyproxy hop
-# a leaked Device Attributes tail becomes a prompt on — `cERROR: sandbox was
-# stopped`. Default idle is claudecode at 5 minutes; this sweep is all four defs
-# at 45s (past sbx's 30s auto-stop and the ~14s cursor death).
-# SPEC: _spec/_devops/release-gate.puml, _spec/internal/sbx/sandbox-backend.puml
-run = """
-#!/usr/bin/env bash
-set -uo pipefail
-if ! command -v sbx >/dev/null 2>&1; then
-  printf 'idle-all needs sbx on PATH (host only; a proveo sandbox has docker and no sbx)\n' >&2
-  exit 1
-fi
-targets=(cecli claudecode cursor opencode)
-declare -a verdicts=()
-rc=0
-log="$(mktemp)"
-PROVEO_IDLE_TEST=1 \
-PROVEO_IDLE_TARGETS="cecli,claudecode,cursor,opencode" \
-PROVEO_IDLE_FOR="${PROVEO_IDLE_FOR:-45s}" \
-  go test -tags e2e -count=1 -timeout 30m ./e2e/ -run TestAgentSurvivesIdleAtPrompt -v 2>&1 | tee "$log"
-code="${PIPESTATUS[0]}"
-if grep -qE -- '^--- SKIP: TestAgentSurvivesIdleAtPrompt [(]' "$log"; then
-  verdicts+=("SKIP all — the idle suite did not run")
-  rc=1
-else
-  for t in "${targets[@]}"; do
-    if grep -qE -- "^    --- PASS: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
-      verdicts+=("PASS $t")
-    elif grep -qE -- "^    --- FAIL: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
-      verdicts+=("FAIL $t")
-      rc=1
-    elif grep -qE -- "^    --- SKIP: TestAgentSurvivesIdleAtPrompt/${t}" "$log"; then
-      verdicts+=("SKIP $t")
-      rc=1
-    else
-      verdicts+=("MISS $t — no subtest result")
-      rc=1
-    fi
-  done
-  if [ "$code" -ne 0 ] && [ "$rc" -eq 0 ]; then
-    rc=1
-    verdicts+=("FAIL suite exit $code")
-  fi
-fi
-rm -f "$log"
-printf '\n-- idle verdict, all defs --\n'
-for v in "${verdicts[@]}"; do printf '  %s\n' "$v"; done
-if [ "$rc" -ne 0 ]; then
-  printf '\n  NOT a release gate pass. A SKIP counts as not-passed: idle needs\n'
-  printf '  sbx and a live session, which is how a leaked DA1 becomes was-stopped.\n'
-fi
-exit "$rc"
-"""
+run = "go run ./cmd/proveo-dev idle"
 
 # ── Consumer CDN (apps/cli) ─────────────────────────────────
 
@@ -369,132 +139,32 @@ run = "pnpm exec wrangler --version"
 [tasks.deploy-cli]
 description = "Goreleaser (tag→semver, else snapshot) → stage CDN → Wrangler deploy apps/cli"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-# build-cli --release: on an exact git tag uses goreleaser --skip=publish (version from
-# the tag, no GitHub Release); otherwise --snapshot. Then stages latest.json + binaries
-# into apps/cli/public/cli for Cloudflare. Wrangler only uploads that static tree.
-mise run build-cli -- --release
-pnpm exec wrangler deploy --cwd apps/cli
-"""
+run = "go run ./cmd/proveo-dev deploy-cli"
 
 [tasks.dev-cli]
 description = "Stage Go CDN binaries then run apps/cli Cloudflare assets locally with Wrangler"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-bash scripts/stage-cli-cdn.sh
-pnpm exec wrangler dev --cwd apps/cli
-"""
+run = "go run ./cmd/proveo-dev dev-cli"
 
 # ── Harness images (maintainer) ─────────────────────────────
 
 [tasks.build]
 description = "Build a container harness def (buildx; host arch --load)"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-# Maintainer image build orchestration is Go now (proveo build -> internal/maintain).
-# `go run` keeps it on the current repo source, never a possibly-stale installed
-# proveo; the ~1-2s compile is noise next to a docker build.
-# Forwards: [target|all] [--tag T] [--no-cache] [--print]
-# Images build through internal/imagebuild (buildx). Local builds --load the host
-# platform; PROVEO_PLATFORMS defaults to linux/amd64,linux/arm64 for deploy --push.
-exec go run ./cmd/proveo build "$@"
-"""
+run = "go run ./cmd/proveo build"
 
 [tasks.test-defs]
 description = "Test a container harness def's image (Go: proveo test)"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-exec go run ./cmd/proveo test "$@"
-"""
+run = "go run ./cmd/proveo test"
 
 [tasks.deploy]
 description = "Buildx --push multi-arch (amd64+arm64) container image def"
 dir = "{{config_root}}"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-exec go run ./cmd/proveo deploy "$@"
-"""
+run = "go run ./cmd/proveo deploy"
 
 [tasks.debug]
 description = "Debug a container harness def (shell via proveo run --shell)"
+dir = "{{config_root}}"
 depends = ["build-cli"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-REPO_ROOT="$(pwd)"
-DEFAULT_TAG="latest"
-
-# Prefer the binary just installed by build-cli over a random PATH proveo.
-export PATH="$(go env GOPATH)/bin:$PATH"
-export PROVEO_BIN="$(command -v proveo)"
-
-source "$REPO_ROOT/lib/ui.sh"
-source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/registry.sh"
-
-target=""
-tag="$DEFAULT_TAG"
-
-# Parse arguments cleanly, supporting optional target parameter
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --tag)
-      if [[ $# -lt 2 ]]; then
-        print_error "--tag requires a value"
-        exit 1
-      fi
-      tag="$2"
-      shift 2
-      ;;
-    --)
-      shift
-      break
-      ;;
-    -*)
-      print_error "Unknown debug option: $1"
-      exit 1
-      ;;
-    *)
-      if [[ -z "$target" ]]; then
-        target="$1"
-      else
-        print_error "Multiple debug targets specified: $target and $1"
-        exit 1
-      fi
-      shift
-      ;;
-  esac
-done
-
-# If no target specified, show interactive TUI selector
-if [[ -z "$target" ]]; then
-  debug_options=()
-  for t in "${TARGETS[@]}"; do
-    debug_options+=("$t")
-  done
-
-  printf '\\nSelect debug target:\\n' >&2
-  choice=0
-  tui_select "${debug_options[@]}" || choice=$?
-
-  if [[ $choice -eq 255 ]]; then
-    echo "Debug cancelled." >&2
-    exit 0
-  fi
-
-  target="${TARGETS[$choice]}"
-fi
-
-require_tag "$tag" "debug"
-require_target "$target"
-debug_target "$target" "$tag" "$@"
-"""
+run = "go run ./cmd/proveo-dev debug"

@@ -8,7 +8,6 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `run.sh`
 - `README.md`
 - baked defaults under `defaults/`
 
@@ -40,13 +39,13 @@ mise run build codex-browser                    # + Playwright/Chromium
 CODEX_VERSION=0.101.0 mise run build codex # pin the CLI
 
 # Run
-OPENAI_API_KEY=sk-... ./run.sh
+OPENAI_API_KEY=sk-... proveo run codex
 
 # Or authenticate once with a ChatGPT plan; the login persists under proveo home
-./run.sh -- login
+proveo run codex -- login
 
 # Pass options through to codex
-./run.sh -- exec "summarise the failing tests"
+proveo run codex -- exec "summarise the failing tests"
 
 # Resume
 proveo run codex --continue          # → codex resume --last

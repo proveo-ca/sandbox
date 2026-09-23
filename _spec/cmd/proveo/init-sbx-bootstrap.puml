@@ -16,7 +16,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/init_tui_test.go
 ' covers: internal/sbx/install_test.go
 ' covers: e2e/init_test.go
-' covers: apps/cli/public/cli/tests/run_tests.sh
+' covers: internal/installtest/install_test.go
 '   the backend this readies ....... _spec/internal/sbx/sandbox-backend.puml
 '   how the binary arrives ......... _spec/internal/cdn/distribution-update.puml
 '   the prompt it borrows .......... _spec/internal/choiceui/wireframe.puml

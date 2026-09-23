@@ -13,6 +13,7 @@ left to right direction
 ' covers: defs/sidecars/squid-proxy/*.conf
 ' covers: internal/imagetest/mitmproxy_test.go
 ' covers: internal/imagetest/claudecode_test.go (ccEgress)
+' covers: cmd/proveo-dev/firehol.go
 ' covers: internal/egress/**
 ' covers: internal/egressproxy/**
 ' covers: cmd/proveo-egress/**
@@ -54,7 +55,9 @@ left to right direction
 '   squid.conf and the two firehol configs are embedded by embed.go and staged
 '   into every session by egress.StageSquidConfig; provider-allow.conf is
 '   GENERATED at run time by egress.ProviderAllowConf (which is why the shell
-'   updater beside it was dead); update-firehol-ipsets.sh is asserted by
+'   updater beside it was dead); the FireHOL ipset updater, now
+'   cmd/proveo-dev/firehol.go (`proveo-dev firehol-ipsets`, ported from
+'   update-firehol-ipsets.sh in host-shell-to-go P4), is asserted by
 '   ccEgress in internal/imagetest/claudecode_test.go. ccEgress also renders
 '   provider-allow.conf through provider.Detect + egress.ProviderAllowConf in
 '   process; it does not read PROVEO_EGRESS_ENV_FILE the way cmd/proveo-egress

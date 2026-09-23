@@ -72,7 +72,6 @@ package "Definitions\ndefs/" as Defs {
  component "cursor" as DefCursor <<definition>>
  }
  component "harness.manifest\nper def (registration)" as HarnessManifest <<config>>
- component "thin run.sh shims\n→ proveo run" as RunShims <<script>>
  component "Dockerfiles · entrypoints\n(builds: internal/imagebuild\ntests: internal/imagetest)" as DefBuild <<script>>
  package "Sidecars" as Sidecars {
  component "squid-proxy config" as DefSquid <<definition>>
@@ -84,7 +83,7 @@ package "Definitions\ndefs/" as Defs {
 
 package "Maintainer tools" as Maint {
  component "mise tasks\nbuild · test · deploy" as Mise <<internal>>
- component "lib/*.sh\nbuild/deploy helpers" as MaintLib <<script>>
+ component "cmd/proveo-dev (not shipped)\ncoverage · stage-cdn · debug · lint · hooks" as MaintLib <<app>>
 }
 
 package "Distribution" as Dist {
@@ -130,7 +129,7 @@ GoSurface --> Runtime : docker · workspace · state dir
 GoSurface ..> RepoRoot : embedded manifests + squid
 Launch --> Runtime : renders the run for one backend
 Defs --> Artifacts : build · deploy
-Defs ..> GoSurface : shims exec proveo run · entrypoint baked in
+Defs ..> GoSurface : entrypoint baked in
 Maint ..> Defs : build / test targets
 Maint ..> GoSurface : run · list
 Dist ..> RepoRoot : release config
@@ -155,7 +154,6 @@ KitEmit ..> Seed : setup.startup
 DockEmit ..> Seed : before exec
 
 CodingDefs *-- HarnessManifest
-CodingDefs *-- RunShims
 CodingDefs *-- DefBuild
 CodingDefs *-- DefAssets
 DefBuild ..> Sidecars : sidecar images
@@ -179,12 +177,6 @@ Consumer install is the static binary only
 — not a curl|bash of live shell libs.
 end note
 
-note right of RunShims
-defs/*/run.sh are thin shims to
-""proveo run <target>"". Fat bash
-runners and lib/egress.sh orchestration
-are retired (Round 2).
-end note
 
 note bottom of EgressPkg
 firewall (default): agent → proveo-egress

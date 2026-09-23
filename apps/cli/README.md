@@ -63,5 +63,5 @@ pnpm exec wrangler deploy --cwd apps/cli
 Run the CDN install test suite:
 
 ```bash
-apps/cli/public/cli/tests/run_tests.sh
+go test -count=1 ./internal/installtest/   # runs install.sh/uninstall.sh under /bin/bash
 ```

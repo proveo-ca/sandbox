@@ -17,7 +17,7 @@ import (
 const Filename = "harness.manifest"
 
 // Workspace declares how a harness mounts the working tree — the model the
-// run.sh files encode today, lifted into data so `proveo run` can reproduce it.
+// shims once encoded, lifted into data so `proveo run` reproduces it.
 type Workspace struct {
 	Layout    string `yaml:"layout"`
 	ConfigDir string `yaml:"configDir"`

@@ -6,6 +6,10 @@ skinparam noteTextAlignment left
 ' covers: e2e/ladder_test.go
 ' covers: e2e/idle_test.go
 ' covers: internal/contract/base_template_test.go
+' covers: cmd/proveo-dev/ladder.go
+' covers: cmd/proveo-dev/idle.go
+' covers: cmd/proveo-dev/e2efull.go
+' covers: cmd/proveo-dev/gate.go
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -66,6 +70,19 @@ skinparam noteTextAlignment left
 '                               --- SKIP: TestSandboxLadder/2-proveo-browser-image (0.14s)
 '   never ran                   ladder_test.go:314: sbx not available: sbx not on PATH
 '                           --- SKIP: TestSandboxLadder (0.00s)
+'
+' ── THE GATE IS GO NOW (cmd/proveo-dev ladder | idle | e2e-full) ────────────
+' The mise bash moved to cmd/proveo-dev (P4, _spec/_plans/host-shell-to-go.puml);
+' the column-0 anchor lives in ladder.go as a Go regexp, idle.go reads each
+' `    --- PASS|FAIL|SKIP: TestAgentSurvivesIdleAtPrompt/<def>` subtest line and
+' calls a def with none of the three MISS. A green subtest set under a red suite
+' exit is still FAIL ("suite exit N"). gate.go tees go test output to the
+' terminal while keeping the copy it reads: buffering until exit made a
+' minutes-long climb look frozen for a quarter hour, and the rung logs are how
+' an operator sees which layer is being exercised while it happens.
+' e2e-full sets PROVEO_{IDLE,SIGNAL,TOOLCHAIN}_TEST=1 and
+' PROVEO_TEST_GO_TIMEOUT (default 150m) for the whole process, then runs the
+' e2e suite, idle and the ladder in-process; every half runs, any red fails.
 '
 ' ── WHAT A GREEN GATE DOES NOT COVER ────────────────────────────────────────
 ' Stated because a checklist read as complete is worse than one read as partial:

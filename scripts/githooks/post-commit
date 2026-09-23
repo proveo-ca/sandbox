@@ -1,13 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPEC: _spec/_devops/git-hooks.puml
-set -euo pipefail
-case "${SKIP_GIT_HOOKS:-}" in 1|true|yes|on) exit 0 ;; esac
-root="$(git rev-parse --show-toplevel)"
-cd "$root"
-export PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
-command -v mise >/dev/null 2>&1 || {
-  printf 'post-commit: mise not on PATH; skip fmt/lint\n' >&2
-  exit 0
-}
-mise run fmt
-mise run lint
+PATH="/usr/local/bin:$HOME/.local/bin:$PATH"; export PATH
+cd "$(git rev-parse --show-toplevel)" || exit 1
+command -v mise >/dev/null 2>&1 || { echo 'post-commit: mise not on PATH; skip fmt/lint' >&2; exit 0; }
+exec mise exec -- go run ./cmd/proveo-dev hooks post-commit "$@"

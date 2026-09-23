@@ -4,14 +4,61 @@
 ' covers: internal/cdn/**
 ' covers: cmd/proveo/update.go
 ' covers: apps/cli/public/cli/**
-' covers: scripts/stage-cli-cdn.sh
+' covers: cmd/proveo-dev/stagecdn.go
+' covers: cmd/proveo-dev/buildcli.go
+' covers: cmd/proveo-dev/deploycli.go
+' covers: cmd/proveo-dev/devcli.go
+'
+' ── MAINTAINER RELEASE PATH: cmd/proveo-dev (not shipped) ──────────────────
+' `proveo-dev stage-cdn` replaced scripts/stage-cli-cdn.sh, and
+' `proveo-dev build-cli|deploy-cli|dev-cli` replaced the mise task bodies
+' (host-shell-to-go P4). goreleaser lists its binaries explicitly and
+' proveo-dev is not among them, so it never reaches the CDN.
+' * stage-cdn sources each proveo-<goos>-<goarch>[.exe] from dist/ in order:
+'   proveo_*_<os>_<arch>.{tar.gz,tgz,zip}, the flat cdn-proveo archive, then
+'   raw goreleaser build dirs. It cross-compiles only when none exists, and
+'   PROVEO_CDN_REQUIRE_DIST=1 (set by build-cli --release) turns that fallback
+'   into a failure, so a release never ships a dev cross-build.
+' * Version precedence: PROVEO_VERSION, dist/artifacts.json, dist/VERSION,
+'   git describe (exact tag, then --always), "dev".
+' * It first deletes the legacy bash consumer assets (bin/proveo, help.sh,
+'   init.sh, lib/) and every stale proveo-* asset, so the tree carries exactly
+'   what latest.json lists.
+' * build-cli installs into $(go env GOPATH)/bin, not a toolchain-local GOBIN
+'   that mise may set. It stamps dev@<short-sha> so a stale binary is visible
+'   in `proveo --version`.
+' * goreleaser is pinned (v2.17.0) when build-cli installs it, so release
+'   builds are reproducible; bump it deliberately.
+' covers: internal/installtest/**
+' covers: internal/contract/installer_bash_test.go
+'
+' ── THE INSTALL SUITE RUNS THE INTERPRETER USERS GET ───────────────────────
+' internal/installtest executes the real install.sh / uninstall.sh. On darwin
+' it invokes /bin/bash explicitly: the scripts' `#!/usr/bin/env bash` resolves
+' to a Homebrew bash 5 on a maintainer Mac, which hides every 3.2 breaker that
+' `curl … | bash` meets on a stock Mac. Elsewhere it takes bash from PATH.
+'
+' It stages its own CDN (go build ./cmd/proveo + checksums.txt + latest.json)
+' so it stays hermetic and runs in the default test lane. PROVEO_INSTALLTEST_CDN
+' points it at an already staged tree instead, to verify the release stage.
+'
+' The bootstrap cases serve a STUB proveo that records its argv. install.sh
+' runs `proveo init` after placing the binary, and the real one reaches GitHub
+' and installs sbx: a hundred-megabyte download inside a unit suite, on
+' whatever host runs it.
+'
+' Inherited PROVEO_* variables are dropped from every child: a PROVEO_VERSION
+' or PROVEO_SKIP_INIT in the operator's shell would otherwise steer the cases.
+' internal/contract/installer_bash_test.go guards the same scripts statically
+' (`/bin/bash -n`, bash-4-only syntax, unguarded "${arr[@]}" under set -u).
+
 title Distribution + self-update — install.sh and `proveo update`
 
 actor "Consumer" as USER
 
 node "Maintainer host" as MH <<host>> {
   component "goreleaser\nmulti-arch static binaries" as GR <<app>>
-  component "scripts/stage-cli-cdn.sh\nstages apps/cli/public/cli" as STAGE <<app>>
+  component "proveo-dev stage-cdn\nstages apps/cli/public/cli" as STAGE <<app>>
 }
 
 cloud "Cloudflare — proveo.ca/cli" as CDN <<cloud>> {

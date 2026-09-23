@@ -230,18 +230,6 @@ fi
 		}
 	})
 
-	s.Check("run.sh shims to proveo run with monorepo flag parity", func(t *testing.T) {
-		body, err := os.ReadFile(filepath.Join("..", "..", "defs", "opencode", "run.sh"))
-		if err != nil {
-			t.Fatalf("opencode run.sh shim contract: %v", err)
-		}
-		for _, want := range []string{`TARGET="opencode"`, `exec "$PROVEO_BIN" run`, "--repo-root"} {
-			if !strings.Contains(string(body), want) {
-				t.Errorf("opencode run.sh shim contract: missing %q", want)
-			}
-		}
-	})
-
 	s.Check("entrypoint forwards args to opencode (--version)", func(t *testing.T) {
 		r := ocRun(t, 30*time.Second, nil, img, "--version")
 		if !regexp.MustCompile(`[0-9]+\.[0-9]+`).MatchString(r.Out) {

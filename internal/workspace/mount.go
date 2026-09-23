@@ -53,7 +53,7 @@ func (w MountSpec) ScopeRel() string {
 
 // Plan returns the bind mounts, the container workdir, and the escaping
 // symlinks it resolved (see Link) for the spec, reproducing the per-harness
-// run.sh mount models.
+// wrapper mount models.
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"

@@ -7,18 +7,17 @@ A Docker container for running Claude Code in "dangerously skip permissions" mod
 Candidate coding harness definition. This definition exposes:
 
 - variant `Dockerfile`s under `mcp/` and `solo/`
-- root `run.sh`
 - variant `entrypoint.sh` scripts under `mcp/` and `solo/`
 - `README.md`
 - sample Claude settings/config files under each variant
 
 Its image suite is `internal/imagetest/claudecode_test.go` (`TestImageClaudecode`).
 
-Each variant owns its image-local `entrypoint.sh`. The root command surface is `run.sh` (builds are `mise run build claudecode[-solidity|-browser]`, tests are `mise run test-defs claudecode`); root `run.sh` delegates to the variant runners.
+Each variant owns its image-local `entrypoint.sh`. Run a variant with `proveo run claudecode` or `proveo run claudecode-solidity`; builds are `mise run build claudecode[-solidity|-browser]`, tests are `mise run test-defs claudecode`.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
-Build the Docker images and execute `./run.sh` to run an isolated Claude Code variant with access to the current working directory mounted at `/app` (read-write by default).
+Build the Docker images and execute `proveo run claudecode` to run an isolated Claude Code variant with access to the current working directory mounted at `/app` (read-write by default).
 
 ```
 /workspace/
@@ -61,16 +60,16 @@ mise run build claudecode-solidity
 mise run build claudecode --tag local
 
 # Run the default MCP variant
-CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh
+CLAUDE_CODE_OAUTH_TOKEN=sk-... proveo run claudecode
 
 # Run the solo variant
-CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh --variant solidity
+CLAUDE_CODE_OAUTH_TOKEN=sk-... proveo run claudecode-solidity
 
 # Pass additional Claude options through to the variant runner
-CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --debug --mcp-debug
+CLAUDE_CODE_OAUTH_TOKEN=sk-... proveo run claudecode -- --debug --mcp-debug
 
 # Resume a prior session (transcripts under ~/.proveo/.claude)
-CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --resume
+CLAUDE_CODE_OAUTH_TOKEN=sk-... proveo run claudecode -- --resume
 proveo run claudecode --continue
 proveo run claudecode --resume <session-id>
 ```
@@ -85,8 +84,8 @@ Default images:
 Image overrides:
 
 ```bash
-./run.sh --variant mcp --image example/claudecode:tag
-./run.sh --variant solidity --image example/claudecode-solidity:tag
+proveo run claudecode --image example/claudecode:tag
+proveo run claudecode-solidity --image example/claudecode-solidity:tag
 ```
 
 Variant runners mount:
@@ -107,8 +106,8 @@ mise run test-defs claudecode      # or: proveo test claudecode
 Open a variant debug shell through the parent run wrapper:
 
 ```bash
-./run.sh --variant mcp --shell
-./run.sh --variant solidity --shell
+proveo run claudecode --shell
+proveo run claudecode-solidity --shell
 ```
 
 ## Environment Variables
@@ -147,7 +146,7 @@ prompt scopes it to `_spec/`, `PLAN.md`, `CLAUDE.md`, and `AGENTS.md`.
 ## Security Features
 
 ### Container Security
-- **Root-free execution**: baked non-root user `claude` (uid 1000); `run.sh` launches as the invoking host uid via `--user $(id -u):$(id -g)`
+- **Root-free execution**: baked non-root user `claude` (uid 1000); `proveo run` launches as the invoking host uid via `--user $(id -u):$(id -g)`
 - **Capability dropping**: Minimal Linux capabilities
 - **Process limits**: Host-scaled `--pids-limit` (base floor 512; browser variants higher; override via `PROVEO_PIDS_LIMIT`). Runs fail fast if the host ceiling is below the tier minimum.
 - **Tmpfs mounts**: Isolated temporary storage for /tmp and /workspace/temp
@@ -189,12 +188,12 @@ Example MCP configuration:
 ### Basic Claude Session
 ```bash
 export CLAUDE_CODE_OAUTH_TOKEN="sk-your-token"
-./run.sh
+proveo run claudecode
 ```
 
 ### With Debug Options
 ```bash
-./run.sh -- --debug --mcp-debug
+proveo run claudecode -- --debug --mcp-debug
 ```
 
 ## Browser: agent-browser in the sandbox, Claude in Chrome on the host
@@ -271,13 +270,13 @@ gets two servers. Opt out with `PROVEO_CLAUDE_LSP_PLUGINS=off`, or disable one p
 Verify your OAuth token is set correctly:
 ```bash
 export CLAUDE_CODE_OAUTH_TOKEN="sk-your-token-here"
-./run.sh
+proveo run claudecode
 ```
 
 ### Debug Container Access
 ```bash
-./run.sh --variant mcp --shell   # Access the MCP variant debug shell
-./run.sh --variant solidity --shell  # Access the solo variant debug shell
+proveo run claudecode --shell   # Access the MCP variant debug shell
+proveo run claudecode-solidity --shell  # Access the solo variant debug shell
 ```
 
 ## License

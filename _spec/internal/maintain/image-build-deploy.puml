@@ -6,7 +6,7 @@
 ' covers: cmd/proveo/targets.go
 ' covers: internal/imagebuild/**
 ' covers: internal/imagetest/**
-' covers: lib/helpers.sh
+' covers: cmd/proveo-dev/debug.go
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
 title Maintainer image pipeline — proveo build / test / deploy
 

@@ -23,7 +23,7 @@ Requires Docker Buildx. A `proveo-multiarch` builder (`docker-container` driver)
 Every harness container runs as the invoking host user, never root
 (introduced repo-wide by `c2ad88f` — "[FIX] Ensure running with local user (#7)"):
 
-- **Wrappers** (`defs/*/run.sh`, the distributable CLI runners) launch with
+- **The runner** (`proveo run`, `internal/runner`) launches with
  `docker run --user $(id -u):$(id -g)`, so files written to bind mounts come back owned by
  the developer — for any host uid, not just the image's baked default. Pair it with the
  hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true` plus a
@@ -73,7 +73,7 @@ Contributors should treat `.env` handling as follows:
  broker-mode egress DLP still mitigates **egress** exfiltration if a secret leaks
  into the agent another way.
 
-When adding or changing `run.sh` / `runners.sh` mount logic, prefer host-env forwarding
+When adding or changing mount logic (`internal/workspace`, `internal/runner`), prefer host-env forwarding
 plus broker injection over new `.env` bind mounts unless the change is explicitly scoped
 to symlink resolution or smoke-test fixtures.
 
@@ -102,9 +102,7 @@ These surfaces should stay aligned on credential forwarding:
 
 | Surface | `firewall` / `proxy` intent | Current behavior |
 | --- | --- | --- |
-| `defs/cursor/run.sh` | No `CURSOR_API_KEY` in agent | Passes key only in `broker` |
-| `defs/claudecode/run.sh` | No `CLAUDE_CODE_OAUTH_TOKEN` in agent | Passes token only in `broker` |
-| `cmd/proveo run` | Match bash wrappers | Secret manifest env forwarded only in `broker` |
+| `cmd/proveo run` | No `CURSOR_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` in agent | Secret manifest env forwarded only in `broker` |
 | `apps/cli` `run_cursor` | broker egress only | Always `-e CURSOR_API_KEY` (no broker/proxy topology) |
 
 ## Enforcement
@@ -123,7 +121,7 @@ When you add a definition:
 
 ## Definition checklist
 
-- `Dockerfile`, `entrypoint.sh`, `run.sh`, `README.md` (the build recipe is a row in `internal/imagebuild/targets.go`; the image suite is `internal/imagetest/<name>_test.go`)
+- `Dockerfile`, `entrypoint.sh`, `harness.manifest`, `README.md` (the build recipe is a row in `internal/imagebuild/targets.go`; the image suite is `internal/imagetest/<name>_test.go`)
  per the [coding harness contract](CODING_HARNESSES.md).
 - A paradigm doc + topology diagram under `_spec/defs/<name>/`, referenced from source via
  `# SPEC:` comments (see `_spec/_conventions/spec-conventions.puml` for the lifecycle rules).
