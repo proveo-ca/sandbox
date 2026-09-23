@@ -4,13 +4,14 @@ skinparam noteTextAlignment left
 title Host shell → Go: retire every bash script the operator's Mac executes
 ' purpose: remove macOS /bin/bash 3.2 from every host code path
 ' would touch: defs/lib/docker-build.sh, defs/*/build.sh, defs/*/ensure.sh (deleted)
-' would touch: defs/*/test.sh, defs/*/tests/*.sh (harness deleted; in-image command strings kept)
+' would touch: defs/*/test.sh, defs/*/tests/*.sh, defs/lib/{test-image,egress}.sh (deleted P3; in-image command strings kept in internal/imagetest)
+' would touch: internal/imagetest/** (P3's Go suites)
 ' would touch: lib/*.sh, scripts/*.sh, mise.toml
 ' would touch: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
 ' would touch: internal/imagebuild/targets.go (the build table; P2 put it here, not in harness.manifest)
 ' would touch: internal/contract/{agent_pin,image_resolution,host_bash}_test.go (buildx_pull_policy deleted in P2)
 ' session: 92196ee8-2438-4fda-ac25-7311bf16c563
-' PLANNED 2026-09-22. P1 and P2 LANDED 2026-09-22; P3 and P4 open.
+' PLANNED 2026-09-22. P1, P2 and P3 LANDED 2026-09-22; P4 open.
 ' Decided by the operator over fish (no errexit, non-POSIX at every
 ' Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5
 ' (provision.go ran `bash build.sh` for END USERS, who get 3.2, until P2).
@@ -23,8 +24,8 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 '   in-image     packages/lib + entrypoints        ~3.8k lines   Debian bash 5
 '   installer    apps/cli/public/cli/install.sh                  any POSIX sh
 ' The def tests were first filed as in-container; they are not. helpers.sh
-' sourced docker-build.sh (now the slim defs/lib/test-image.sh), falls back
-' when `timeout` is missing, and drives `docker run … bash -c "<cmd>"` FROM the
+' sourced docker-build.sh (later the slim defs/lib/test-image.sh; both are
+' deleted), fell back when `timeout` was missing, and drove `docker run … bash -c "<cmd>"` FROM the
 ' host. Only <cmd> runs inside.
 ' End users reached host bash too: cmd/proveo/provision.go ran
 ' `bash <def>/build.sh` when an image was missing. P2 removed that path.
@@ -89,8 +90,50 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 ' P3  def tests → Go — the TOOLS/CONFIG arrays are already tables; they become
 '     `-tags=image` table tests. A context deadline replaces `timeout`/
 '     `gtimeout`. test.sh and tests/*.sh are deleted; TestPlan runs go test.
+'     LANDED 2026-09-22 as internal/imagetest.
+'       * FRAMEWORK: internal/imagetest/imagetest.go — Resolve (env override,
+'         then maintain.ResolveImage), New (skips an absent image), Suite
+'         with Success/Failure/Contains/Matches/Inspect/Skip/Check, and Docker
+'         bounded by a context timeout in place of run_timeout / timeout /
+'         gtimeout. Each check is its own subtest named by its description.
+'       * SUITES: internal/imagetest/{claudecode,codex,cursor,opencode,cecli,
+'         mitmproxy,detached_smoke}_test.go, build tag `image`, one
+'         TestImage<Def> each. defs/lib/test-image.sh, defs/lib/egress.sh,
+'         e2e/docker-detached-smoke.sh, defs/tests/run_contract_tests.sh and
+'         defs/tests/test_harness_contracts.sh are deleted with them.
+'       * maintain.TestPlan: Target.Suite = base name of DefDir; the step is
+'           go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
+'         so `proveo test <target>` and `mise run test-defs` run Go.
+'       * PARITY GATE, per check description, against :local images with no
+'         provider keys set (pass/fail/skip):
+'           claudecode 220/0/6 · codex 47/0/1 · opencode 60/0/8
+'           cursor 55/1/1, then 54/0/1 after the one dropped check
+'         cecli, mitmproxy and the detached smoke print few or no per-check
+'         lines, so their parity is exit status: all pass.
+'       * FINDING: cursor's shell suite aborted at check 21 (exit 127) and
+'         never ran phases 3–6 (security, config, defaults, llm). "[browser]
+'         bun (from proveo/base-node) runs TypeScript" ran `bun` in
+'         cursor-browser, which layers onto the bun-free cursor image (check
+'         14 asserts that absence). assert_output_contains called docker_exec
+'         unguarded under `set -e`. The operator DROPPED that check from
+'         cursor's suite; opencode's twin stays. In Go one failing check
+'         cannot hide the rest (_spec/tests/testing-strategy.puml).
+'       * GAP: claudecode's provider checks sourced defs/lib/egress.sh, which
+'         ran the proveo-egress binary. ccEgress (claudecode_test.go) calls
+'         provider.Detect and egress.ProviderAllowConf directly instead. The
+'         binary also reads PROVEO_EGRESS_ENV_FILE; the port ignores it, so
+'         that input has no image-suite coverage.
+'       * Only the <cmd> strings survive, verbatim, inside the Go files; they
+'         still run in the image under Debian bash 5.
 ' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /
 '     stage-cli-cdn.sh become Go (subcommands or `go run` mise tasks).
+'     LEFT FOR P4 after P3:
+'       * lib/*.sh and scripts/*.sh (go-test-coverage.sh, stage-cli-cdn.sh);
+'       * the bash bodies of mise.toml tasks (`#!/usr/bin/env bash` runs);
+'       * defs/lib/render-subagents.sh, the host-side subagent preview tool
+'         (the in-image renderer is packages/lib's render_subagents);
+'       * the installer's own test runner, apps/cli/public/cli/tests/
+'         run_tests.sh (install.sh itself stays POSIX sh by necessity).
 '
 ' ── THE GATE THAT FINISHES IT ──────────────────────────────────────────────
 ' TestHostScriptsAvoidBash4Builtins shrinks with each phase. After P4 it is
@@ -100,7 +143,7 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 rectangle "operator's Mac" as MAC <<host>> {
   component "proveo build / provision\nexec bash build.sh — BEFORE P2" as NOW <<error>>
   component "internal/imagebuild\nGo — LANDED P2" as GO <<app>>
-  component "go test -tags=image\ndef tests — AFTER P3" as GT <<app>>
+  component "go test -tags=image\ninternal/imagetest — LANDED P3" as GT <<app>>
 }
 rectangle "image (Debian)" as IMG <<host>> {
   component "packages/lib + entrypoints\nbash 5 — stays" as INIMG <<app>>
@@ -127,11 +170,11 @@ note bottom of GO
 end note
 
 note bottom of GT
-  **The arrays are already tables.**
-  TOOLS / CONFIG entries map 1:1
-  to Go table rows; a context
-  deadline replaces the missing
-  macOS `timeout` binary.
+  **One check, one subtest.** A failure
+  stays local, where `set -e` once hid
+  four of cursor's phases; a context
+  deadline replaces macOS's missing
+  `timeout` binary.
 end note
 
 note right of INIMG

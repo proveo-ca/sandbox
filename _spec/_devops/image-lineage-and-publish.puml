@@ -5,16 +5,14 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' purpose: which parent a child builds on, at which tag, and what the parent
 '          ensure step actually checks in each of its two modes
 ' covers: internal/imagebuild/**
-' covers: defs/lib/test-image.sh
-' covers: defs/*/test.sh
-' covers: defs/*/tests/helpers.sh
+' covers: internal/imagetest/imagetest.go
+' covers: internal/imagetest/detached_smoke_test.go
 ' covers: defs/sidecars/*/Dockerfile
 ' covers: internal/maintain/**
 ' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/provision.go
 ' covers: internal/contract/image_resolution_test.go
 ' covers: internal/contract/import_boundary_test.go
-' covers: e2e/docker-detached-smoke.sh
 ' covers: lib/registry.sh
 '
 ' ── EVERY TARGET HAS THE SAME SHAPE ─────────────────────────────────────────
@@ -80,14 +78,15 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' build is not. Neither existed when the bridge tables were first embedded.
 '
 ' ── HELPERS WITH NON-OBVIOUS BODIES ─────────────────────────────────────────
-' proveo_image_created (defs/lib/test-image.sh) prints an image's build time as epoch seconds and is the
-' shell twin of posture's dockerImageCreated. The fraction is trimmed BEFORE
-' parsing: docker reports RFC3339Nano ("2026-08-31T00:37:15.008872627Z") and
-' neither GNU nor BSD `date` accepts nanoseconds. Both spellings are attempted in
-' turn (`date -u -d` then `date -u -j -f`) because build hosts are Linux and
-' developer hosts are macOS, and this helper runs on both. It returns non-zero
-' when the host has no such image, which is what lets proveo_resolve_image treat
-' "absent" as "not a candidate" rather than as time zero.
+' imagetest's `created` (internal/imagetest/imagetest.go) reads an image's build
+' time for maintain.ResolveImage, the way posture's dockerImageCreated does for
+' the runtime. docker reports RFC3339Nano ("2026-08-31T00:37:15.008872627Z"),
+' which time.Parse accepts whole. Its shell predecessor, proveo_image_created in
+' defs/lib/test-image.sh (deleted 2026-09-22, host-shell-to-go P3), had to trim
+' the fraction and try GNU `date -u -d` then BSD `date -u -j -f`, because
+' neither `date` accepts nanoseconds and the suites ran on Linux and macOS.
+' `created` reports false when the host has no such image, which is what lets
+' ResolveImage treat "absent" as "not a candidate" rather than as time zero.
 '
 ' Builder.jsonField (imagebuild.go) reads one field path out of fetched JSON
 ' with encoding/json, so the host needs neither jq nor python3 (moved from
@@ -99,20 +98,29 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' everything else to linux/amd64 — QEMU and unusual hosts get the published
 ' default rather than an error.
 '
-' Only :latest is ever resolved by proveo_resolve_image. An explicit :v2 or a
-' digest is a deliberate choice by the caller and is returned untouched.
+' Only :latest is ever resolved by maintain.ResolveImage (and so by
+' imagetest.Resolve). An explicit :v2 or a digest is a deliberate choice by the
+' caller and is returned untouched.
 '
 ' ── ONE RULE, IN ONE PLACE — AND THE SECOND OPINION IS BANNED ───────────────
-' The smoke suite grew its own `for tag in local latest`, which prefers :local
-' by EXISTENCE rather than by recency. That is the shadow running the other way:
-' a stale local build shadowed an image pulled a minute ago while the run read
-' as coverage of the newer one. A second opinion about which image is current is
-' worse than none, so a contract test refuses that loop anywhere under defs/,
-' e2e/ and scripts/, and a second one runs the shell resolver and
-' maintain.ResolveImage over the same table — local newer, local older, no local
-' build, local only, neither present, an explicit tag, an explicit :local — and
-' fails if they disagree. Two implementations of "prefer the newer build" that
-' disagree is a suite vouching for an image the run never uses.
+' The detached smoke first named each image with a HARDCODED tag. `proveo build`
+' tags a local build :local and only a publish moves :latest, so it smoke-tested
+' a published artifact while reading as though it covered the build in the tree.
+' Its fix then grew its own `for tag in local latest`, which prefers :local by
+' EXISTENCE rather than by recency — a third answer to a question the codebase
+' had settled twice. That is the shadow running the other way: a stale local
+' build shadowed an image pulled a minute ago while the run read as coverage of
+' the newer one. A second opinion about which image is current is worse than
+' none, so TestNoAdHocLocalOverLatestResolvers refuses that loop in any .sh
+' under defs/, e2e/ and scripts/.
+' Since host-shell-to-go P3 the image suites hold ONE implementation: each names
+' a repository and imagetest.Resolve calls maintain.ResolveImage per run
+' (TestImageDetachedSmoke's smokeTargets carry no tag). The shell resolver and
+' TestShellImageResolverMatchesResolveImage, the parity test that ran it and
+' ResolveImage over one table, are deleted with it: one implementation cannot
+' disagree with itself. TestImageSuitesResolveRatherThanPinThePublishTag now
+' fails any line in internal/imagetest/*_test.go that names :latest outside
+' imagetest.Resolve.
 
 node "internal/imagebuild" as HOST <<host>> {
   component "ImageRef · TargetRef\n<override> <repo> <tag>" as REF <<app>>
@@ -135,10 +143,10 @@ node "Tag policy" as TAGS <<host>> {
   component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
   component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
-  component "proveo_resolve_image\ndefs/lib/test-image.sh" as SHRESOLVE <<app>>
+  component "imagetest.Resolve\ninternal/imagetest/imagetest.go" as SHRESOLVE <<app>>
 }
 
-node "defs/**/test.sh · tests/helpers.sh" as DEFTESTS <<host>>
+node "internal/imagetest\n-tags=image suites" as DEFTESTS <<host>>
 
 cloud "Registry" as REG <<cloud>>
 component "A published image shadowing\nthe build under test" as SHADOW <<error>>
@@ -163,7 +171,7 @@ DEPLOY ARROW_CLOUD REG : promoted, multi-arch
 RESOLVE ARROW_ERROR SHADOW : prevented by tag, not by luck
 REG ARROW_ERROR SHADOW : sbx re-pulls at sandbox creation
 DEFTESTS ARROW_MAIN SHRESOLVE : resolve before the first ""docker run""
-SHRESOLVE ARROW_MAIN RESOLVE : one rule, pinned by\n""TestShellImageResolverMatchesResolveImage""
+SHRESOLVE ARROW_MAIN RESOLVE : calls it — one implementation
 
 note right of REF
   **A child never hardcodes ""latest"".** Every parent reference is
@@ -313,11 +321,11 @@ note bottom of SHRESOLVE
   was old, and nothing on the path could have produced a newer one.
 
   Ten sites carried it (four harnesses, their browser and solidity
-  variants, the mitmproxy sidecar). They now share
-  ""proveo_resolve_image"" (""defs/lib/test-image.sh""), and
-  ""proveo_test_image"" NAMES the winner the way the runner does — because an image silently resolving to a
-  published artifact is invisible until something behaves like code
-  nobody wrote. ""TargetRef"" keeps its ""latest"" default for an empty
+  variants, the mitmproxy sidecar). They shared a shell resolver until
+  2026-09-22; the Go suites now call ""imagetest\.Resolve"", and
+  ""imagetest\.New"" logs the image it chose — because an image silently
+  resolving to a published artifact is invisible until something
+  behaves like code nobody wrote. ""TargetRef"" keeps its ""latest"" default for an empty
   tag: publishing (""--push"") is what that tag is for.
 end note
 

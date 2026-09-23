@@ -9,11 +9,10 @@ This definition exposes the required candidate harness commands:
 - `Dockerfile`
 - `entrypoint.sh`
 - `run.sh`
-- `test.sh`
 - `sample.cecli.conf.yml`
 - `defaults/agents/` baked-in subagent prompts
 
-`debug.sh` and `tests/` are not present yet. They are optional unless this definition graduates to require deeper troubleshooting or regression coverage.
+`debug.sh` is not present yet; it is optional unless this definition graduates to require deeper troubleshooting. Its image suite is `internal/imagetest/cecli_test.go` (`TestImageCecli`).
 
 ## Image Name and Tag
 
@@ -99,11 +98,11 @@ Run with explicit mounts:
 Run smoke tests against the latest image:
 
 ```bash
-./test.sh
+mise run test-defs cecli      # or: proveo test cecli
 ```
 
 Override the image under test:
 
 ```bash
-PROVEO_CECLI_IMAGE=proveo/cecli:latest ./test.sh
+PROVEO_CECLI_IMAGE=proveo/cecli:latest mise run test-defs cecli
 ```

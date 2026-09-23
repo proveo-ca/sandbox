@@ -183,8 +183,11 @@
 ' assertSandboxSuppliesDocker. That test was deliberately NOT inverted to expect
 ' absence: `docker: sbx` is a promise four manifests still make, and a test that
 ' expects the promise to be broken would hide it. Its message now names the new
-' repair path instead. defs/cursor/tests/test_tools.sh WAS inverted, because it
+' repair path instead. cursor's test_tools.sh WAS inverted, because it
 ' asserts what the IMAGE carries, and the image now deliberately carries nothing.
+' (The template rebase re-inverted it to expect presence; that check is now
+' TestImageCursor in internal/imagetest/cursor_test.go —
+' _spec/_devops/sandbox-template-rebase.puml.)
 '
 ' ── MEASURED 2026-09-06: THE ASSUMPTION IS FALSE ─────────────────────────
 ' Taken from INSIDE a live proveo claudecode sandbox (proveo-1788712286-63525),

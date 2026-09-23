@@ -363,7 +363,7 @@ func ollamaRun(o Options, net string) Command {
 	c = append(c, "--network", net, "--network-alias", "ollama",
 		"-e", "OLLAMA_HOST=0.0.0.0:11434", "-e", "OLLAMA_MODELS=/models",
 		"-e", "OLLAMA_CONTEXT_LENGTH=32768")
-	if o.ModelsDir != "" { // serve the host's pulled models read-only (cf. defs/lib/egress.sh)
+	if o.ModelsDir != "" { // serve the host's pulled models read-only
 		c = append(c, "-v", o.ModelsDir+":/models:ro")
 	}
 	return append(c, o.ollamaImage())

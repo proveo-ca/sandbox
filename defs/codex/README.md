@@ -9,10 +9,10 @@ Candidate coding harness definition. This definition exposes:
 - `Dockerfile`
 - `entrypoint.sh`
 - `run.sh`
-- `test.sh`
 - `README.md`
 - baked defaults under `defaults/`
-- `tests/`
+
+Its image suite is `internal/imagetest/codex_test.go` (`TestImageCodex`).
 
 Same paradigm as `claudecode`: the ML blackbox loop (spec → plan → verify), full
 autonomy inside the container, and the container as the boundary. What differs is
@@ -54,8 +54,8 @@ proveo run codex --resume <uuid>     # → codex resume <uuid>
 proveo run codex --ls                # → codex resume (the picker)
 ```
 
-Run the definition-local suite with `./test.sh` (`IMAGE=proveo/codex:local ./test.sh`
-to point it at a local build).
+Run the image suite with `mise run test-defs codex` or `proveo test codex`
+(`IMAGE=proveo/codex:local mise run test-defs codex` pins the image under test).
 
 ### Variants
 

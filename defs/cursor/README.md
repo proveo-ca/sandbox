@@ -34,10 +34,10 @@ Candidate coding harness definition. This definition exposes:
 - `Dockerfile`
 - `entrypoint.sh`
 - `run.sh`
-- `test.sh`
 - `README.md`
 - `defaults/` (baked policy + steering)
-- `tests/`
+
+Its image suite is `internal/imagetest/cursor_test.go` (`TestImageCursor`).
 
 `debug.sh` is not present; `./run.sh --shell` covers the troubleshooting workflow.
 
@@ -145,7 +145,7 @@ Project deny rules extend (and can only tighten alongside) the seeded baseline; 
 ## Egress modes
 
 `--egress-mode allowlist|review` reuses the shared sidecar lifecycle
-(`defs/lib/egress.sh`). Cursor specifics:
+(`internal/egress`, `cmd/proveo-egress`). Cursor specifics:
 
 - Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to
  `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth: `api2.cursor.sh`).
@@ -176,10 +176,11 @@ Gate them with `Mcp(server:tool)` permission rules. See <https://cursor.com/docs
 ## Tests
 
 ```bash
-./test.sh
+mise run test-defs cursor      # or: proveo test cursor
+IMAGE=proveo/cursor:local mise run test-defs cursor   # pin the image under test
 ```
 
-The suite covers image availability/labels, tool presence, security hardening (no setuid, no
+The suite (`internal/imagetest/cursor_test.go`) covers image availability/labels, tool presence, security hardening (no setuid, no
 `nc`, immutable enterprise hook + dist prefix), entrypoint behavior (smoke mode, proxy
 compat, preamble), default seeding (`CURSOR_RESEED`, workspace non-mutation,
 `CURSOR_SEED_RULES` opt-in, audit hook round-trip), and — when `CURSOR_API_KEY` is set — a

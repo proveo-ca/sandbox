@@ -12,7 +12,7 @@ title Runtime user boundary — never root, any host uid
 ' covers: defs/cursor/Dockerfile
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
-' covers: defs/claudecode/tests/test_workspace.sh
+' covers: internal/imagetest/claudecode_test.go (ccWorkspace)
 '
 ' ── WHAT ensure_runtime_user ACTUALLY DOES, IN TWO STEPS ────────────────────
 ' 1. SYNTHESIZE A PASSWD ENTRY, so getpwuid-based tooling does not choke on

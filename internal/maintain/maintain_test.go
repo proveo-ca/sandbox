@@ -120,7 +120,7 @@ func TestBuildPlan(t *testing.T) {
 func TestDeployAndTestPlan(t *testing.T) {
 	t.Parallel()
 	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor",
-		RepoRoot: "/", TestScript: "/d/cursor/test.sh"}
+		RepoRoot: "/r", Suite: "cursor"}
 
 	// Deploy promotes the tested build: it REQUIRES :local, retags it, then pushes.
 	// Publishing without that inspect would ship an image nothing ran against.
@@ -148,9 +148,15 @@ func TestDeployAndTestPlan(t *testing.T) {
 		}
 	}
 
-	// TestPlan runs test.sh when it exists, else skips (nil).
-	if got := cur.TestPlan(func(string) bool { return true }); len(got) != 1 || strings.Join(got[0].Argv, " ") != "bash /d/cursor/test.sh" {
-		t.Errorf("TestPlan(exists) = %v", got)
+	// TestPlan runs the def's Go image suite when its file exists, else skips (nil).
+	var asked string
+	got := cur.TestPlan(func(p string) bool { asked = p; return true })
+	if len(got) != 1 || got[0].Dir != "/r" ||
+		strings.Join(got[0].Argv, " ") != "go test -tags=image -count=1 -v -run ^TestImageCursor$ ./internal/imagetest/" {
+		t.Errorf("TestPlan(exists) = %+v", got)
+	}
+	if asked != "/r/internal/imagetest/cursor_test.go" {
+		t.Errorf("TestPlan looked for %q", asked)
 	}
 	if got := cur.TestPlan(func(string) bool { return false }); got != nil {
 		t.Errorf("TestPlan(missing) = %v, want nil (skip)", got)

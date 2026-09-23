@@ -26,9 +26,9 @@ Candidate coding harness definition. This definition exposes:
 - `Dockerfile`
 - `entrypoint.sh`
 - `run.sh`
-- `test.sh`
 - `README.md`
-- `tests/`
+
+Its image suite is `internal/imagetest/opencode_test.go` (`TestImageOpencode`).
 
 `debug.sh` is not present yet; it is optional unless this definition needs a dedicated troubleshooting workflow.
 
@@ -216,10 +216,10 @@ and trust settings.
 ## Tests
 
 ```bash
-./test.sh
+mise run test-defs opencode      # or: proveo test opencode
 ```
 
-The suite covers build, tool presence, security hardening, baked-in default seeding
+The suite (`internal/imagetest/opencode_test.go`) covers build, tool presence, security hardening, baked-in default seeding
 (including `OPENCODE_RESEED=1` behaviour), MCP config loading, and — when
 `ANTHROPIC_API_KEY` (or another provider key) is set — a live LLM round-trip via
 `opencode run`.

@@ -1,5 +1,5 @@
 @startuml TestingOverview
-' SPEC source: defs/tests/run_contract_tests.sh, scripts/go-test-coverage.sh
+' SPEC source: internal/contract/**, internal/imagetest/**, scripts/go-test-coverage.sh
 ' The four testing layers: fast + keyless at the base, gated + high-fidelity above.
 ' Coverage: unit GOCOVERDIR + in-process profiles merge via go tool covdata.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
@@ -13,7 +13,7 @@ skinparam packageStyle rectangle
 ' covers: internal/*/*_test.go
 ' covers: cmd/proveo/*_test.go
 ' covers: scripts/go-test-coverage.sh
-' covers: defs/tests/run_contract_tests.sh
+' covers: internal/imagetest/**
 '
 ' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the
 ' `//go:build e2e` tag IS the opt-in, so the only reason to skip is a missing
@@ -22,6 +22,11 @@ skinparam packageStyle rectangle
 ' statement about the host, and `go test -v` prints the reason for each. The
 ' individual guards, and the failures that shaped them, are in
 ' _spec/tests/testing-strategy.puml.
+'
+' The contract lane runs as `go test ./internal/contract/` (inside `mise run
+' test-go` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
+' was deleted 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P3). Image suites
+' are Go under `-tags=image` (internal/imagetest), opted into like Layers 3–4.
 
 title Testing Approach — Four Layers (speed vs fidelity) + coverage
 
@@ -31,7 +36,7 @@ package "Layer 1 · Unit — always (go test -race)" as L1 {
   component "internal/*/*_test.go\ntable-driven · go-cmp\nno Docker · no keys\n-test.gocoverdir=cov/unit" as Unit <<app>>
 }
 package "Layer 2 · Contract — always (no Docker)" as L2 {
-  component "Go builders + goldens\n(cmd/proveo · runner · provider)\nbash residual: image smoke only" as Contract <<app>>
+  component "Go builders + goldens\n(cmd/proveo · runner · provider)\nimage suites: Go, -tags=image" as Contract <<app>>
 }
 package "Layer 3 · Infra — -tags=integration + PROVEO_EGRESS_INTEGRATION=1" as L3 {
   component "internal/egress BuildPlan\nreal containers · NO model\nwait strategies · t.Cleanup" as Infra <<container>>

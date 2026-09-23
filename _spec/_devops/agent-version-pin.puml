@@ -9,8 +9,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' covers: defs/*/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
-' covers: defs/*/test.sh
-' covers: defs/*/tests/test_build.sh
+' covers: internal/imagetest/*_test.go
 ' covers: internal/contract/agent_pin_test.go
 ' covers: internal/posture/posture.go (AgentVersion)
 ' covers: internal/run/run.go
@@ -219,7 +218,7 @@ note over LBL
   ""docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local""
   and what upstream ships: ""npm view opencode-ai version"". The build log's
   ""pin:"" line states the same version at build time. Each def's runtime suite
-  (""test_build.sh"") checks the label against the agent's own ""--version"".
+  (""internal/imagetest"") checks the label against the agent's own release.
 end note
 
 @enduml

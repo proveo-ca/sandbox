@@ -5,6 +5,7 @@
 ' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/targets.go
 ' covers: internal/imagebuild/**
+' covers: internal/imagetest/**
 ' covers: lib/helpers.sh
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
 title Maintainer image pipeline — proveo build / test / deploy
@@ -15,9 +16,9 @@ node "Maintainer host" as HOST <<host>> {
   component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
   component "cmd/proveo build|test|deploy\n(internal/maintain)" as CMD <<app>>
   component "internal/manifest\nharness.manifest set" as MAN <<app>>
-  component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · testScript" as REG <<app>>
+  component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · suite" as REG <<app>>
   component "imagebuild.BuildTarget (in-process)\ntargets.go Specs[<name>] → buildx" as BUILD <<app>>
-  component "defs/<name>/test.sh\nimage contract suites" as TEST <<app>>
+  component "internal/imagetest\nTestImage<Suite> · -tags=image" as TEST <<app>>
 }
 
 folder "Target kinds" as KINDS <<host>> {
@@ -79,6 +80,11 @@ note bottom of BUILD
 end note
 
 note bottom of TEST
+  ""TestPlan"" runs ""go test -tags=image -run
+  '^TestImage<Suite>$' ./internal/imagetest/"", where
+  Suite is the def dir's base name; a target with no
+  ""<Suite>_test.go"" has no test step.
+
   Image contract suites assert the *runtime* contract —
   non-root default user, baked tooling, seeded defaults,
   entrypoint bridging — against the built image, not the

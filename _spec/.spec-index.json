@@ -33,13 +33,13 @@
     {
       "spec": "_spec/_devops/agent-version-pin.puml",
       "covers": [
-        "defs/lib/docker-build.sh",
-        "defs/*/build.sh",
+        "internal/imagebuild/imagebuild.go",
+        "internal/imagebuild/targets.go",
+        "internal/imagebuild/imagebuild_test.go",
         "defs/*/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
         "defs/claudecode/solidity/Dockerfile",
-        "defs/*/test.sh",
-        "defs/*/tests/test_build.sh",
+        "internal/imagetest/*_test.go",
         "internal/contract/agent_pin_test.go",
         "internal/posture/posture.go",
         "internal/run/run.go"
@@ -77,18 +77,15 @@
     {
       "spec": "_spec/_devops/image-lineage-and-publish.puml",
       "covers": [
-        "defs/lib/docker-build.sh",
-        "defs/*/build.sh",
-        "defs/*/ensure.sh",
-        "defs/*/test.sh",
-        "defs/*/tests/helpers.sh",
+        "internal/imagebuild/**",
+        "internal/imagetest/imagetest.go",
+        "internal/imagetest/detached_smoke_test.go",
         "defs/sidecars/*/Dockerfile",
         "internal/maintain/**",
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
         "internal/contract/import_boundary_test.go",
-        "e2e/docker-detached-smoke.sh",
         "lib/registry.sh"
       ],
       "fingerprint": null
@@ -113,7 +110,8 @@
         "defs/base-node-browser/Dockerfile",
         "defs/*/Dockerfile",
         "internal/contract/base_template_test.go",
-        "internal/contract/bun_toolchain_test.go"
+        "internal/contract/bun_toolchain_test.go",
+        "internal/imagetest/cursor_test.go"
       ],
       "fingerprint": null
     },
@@ -261,7 +259,7 @@
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
-        "defs/claudecode/tests/test_workspace.sh"
+        "internal/imagetest/claudecode_test.go"
       ],
       "fingerprint": null
     },
@@ -510,7 +508,7 @@
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/agents_shared_test.go",
         "internal/contract/subagent_roster_test.go",
-        "defs/*/tests/**"
+        "internal/imagetest/*_test.go"
       ],
       "fingerprint": null
     },
@@ -532,12 +530,11 @@
       "covers": [
         "defs/base-node-browser/**",
         "defs/base-node-browser/skills/agent-browser/SKILL.md",
-        "defs/base-node-browser/build.sh",
-        "defs/base-node-browser/ensure.sh",
+        "internal/imagebuild/targets.go",
         "packages/lib/entrypoint-lib.sh",
-        "defs/cursor/tests/test_tools.sh",
-        "defs/opencode/tests/test_tools.sh",
-        "defs/claudecode/tests/test_tools.sh",
+        "internal/imagetest/cursor_test.go",
+        "internal/imagetest/opencode_test.go",
+        "internal/imagetest/claudecode_test.go",
         "internal/contract/browser_layer_test.go"
       ],
       "fingerprint": null
@@ -568,13 +565,16 @@
         "defs/claudecode/mcp/proveo-lib/chrome-bridge.js",
         "packages/lib/entrypoint-lib.sh",
         "internal/run/choices.go",
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox_test.go",
         "internal/egress/plan.go",
         "internal/chromebridge/chromebridge_test.go",
         "internal/entrypoint/parity_test.go",
         "internal/contract/browser_layer_test.go",
         "e2e/chrome_bridge_sbx_test.go",
         "e2e/chrome_bridge_test.go",
-        "e2e/claude_in_chrome_test.go"
+        "e2e/claude_in_chrome_test.go",
+        "internal/imagetest/claudecode_test.go"
       ],
       "fingerprint": null
     },
@@ -584,7 +584,8 @@
         "defs/sidecars/egress-proxy/Dockerfile",
         "defs/sidecars/mitmproxy/Dockerfile",
         "defs/sidecars/squid-proxy/*.conf",
-        "defs/sidecars/mitmproxy/test.sh",
+        "internal/imagetest/mitmproxy_test.go",
+        "internal/imagetest/claudecode_test.go",
         "internal/egress/**",
         "internal/egressproxy/**",
         "cmd/proveo-egress/**"
@@ -624,9 +625,10 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/codex/defaults/config.toml",
         "defs/codex/Dockerfile",
-        "defs/codex/build.sh",
+        "internal/imagebuild/targets.go",
         "defs/codex/run.sh",
-        "internal/contract/agents_shared_test.go"
+        "internal/contract/agents_shared_test.go",
+        "internal/imagetest/codex_test.go"
       ],
       "fingerprint": null
     },
@@ -886,6 +888,8 @@
         "internal/maintain/**",
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/targets.go",
+        "internal/imagebuild/**",
+        "internal/imagetest/**",
         "lib/helpers.sh"
       ],
       "fingerprint": null
@@ -1494,7 +1498,8 @@
         "internal/sbx/kit.go",
         "internal/contract/seed_command_shipped_test.go",
         "internal/contract/agent_launch_guard_test.go",
-        "internal/contract/spec_notes_test.go"
+        "internal/contract/spec_notes_test.go",
+        "internal/imagetest/*_test.go"
       ],
       "fingerprint": null
     },
@@ -1516,7 +1521,7 @@
         "internal/*/*_test.go",
         "cmd/proveo/*_test.go",
         "scripts/go-test-coverage.sh",
-        "defs/tests/run_contract_tests.sh"
+        "internal/imagetest/**"
       ],
       "fingerprint": null
     },
@@ -1533,7 +1538,8 @@
         "internal/contract/**",
         "cmd/proveo/*_test.go",
         "internal/runner/*_test.go",
-        "internal/egress/plan_test.go"
+        "internal/egress/plan_test.go",
+        "internal/imagetest/**"
       ],
       "fingerprint": null
     },
@@ -1590,9 +1596,7 @@
         "e2e/**",
         "internal/tmux/**",
         "defs/tests/**",
-        "defs/*/test.sh",
-        "defs/*/tests/*.sh",
-        "defs/sidecars/mitmproxy/test.sh",
+        "internal/imagetest/**",
         "e2e/preconditions_test.go"
       ],
       "fingerprint": null

@@ -73,7 +73,7 @@ package "Definitions\ndefs/" as Defs {
  }
  component "harness.manifest\nper def (registration)" as HarnessManifest <<config>>
  component "thin run.sh shims\n→ proveo run" as RunShims <<script>>
- component "test.sh · Dockerfiles\nentrypoints (builds: internal/imagebuild)" as DefBuild <<script>>
+ component "Dockerfiles · entrypoints\n(builds: internal/imagebuild\ntests: internal/imagetest)" as DefBuild <<script>>
  package "Sidecars" as Sidecars {
  component "squid-proxy config" as DefSquid <<definition>>
  component "egress-proxy image\n(proveo-egress)" as DefEgressImg <<definition>>

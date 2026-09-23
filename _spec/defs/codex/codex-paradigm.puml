@@ -8,7 +8,32 @@
 ' covers: internal/imagebuild/targets.go
 ' covers: defs/codex/run.sh
 ' covers: internal/contract/agents_shared_test.go
+' covers: internal/imagetest/codex_test.go
 '   the def's resolved topology ... _spec/defs/codex/codex-topology.puml
+'
+' ── WHAT TestImageCodex HOLDS THE ENTRYPOINT TO (internal/imagetest/codex_test.go)
+' Each rule below is one or more checks there; the launch rules run through a
+' fake `codex` on PATH that prints the argv the entrypoint built.
+'   * The preamble names the paradigm, so a transcript says which loop ran.
+'   * No credential of either kind (no login, no OPENAI_API_KEY): the
+'     entrypoint says so rather than launching into a login prompt nobody is
+'     there to answer.
+'   * Utility subcommands (login, logout, …) do agent-free work, so they get no
+'     sandbox posture.
+'   * --json is an `exec` flag, not a global one. It must follow the subcommand,
+'     or clap rejects it and the run never starts. A caller's own --json is a
+'     parse contract and is not doubled.
+'   * PROVEO_AGENT_EVIDENCE=default buys no extra narration.
+'   * The WORKSPACE is never written. codex reads AGENTS.md natively, so unlike
+'     claudecode there is no bridge file to seed into the operator's checkout,
+'     and nothing else may appear there either. A repo steered through
+'     CLAUDE.md is still read (the fallback in codex-topology.puml).
+'   * The baked defaults are the harness's, not the agent's. The agent may seed
+'     FROM them and edit its own $CODEX_HOME copy, but it must not rewrite the
+'     source under /opt.
+'   * The LSP bridge binary, mcp-language-server, must be on PATH: the language servers arrive from
+'     proveo/base-node-lsp and reach codex only as MCP servers, so without it
+'     the entrypoint wires nothing.
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV

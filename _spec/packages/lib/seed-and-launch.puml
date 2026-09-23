@@ -14,7 +14,17 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_command_shipped_test.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: internal/contract/spec_notes_test.go
+' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE STARTUP COMMAND IS CHECKED TWICE, AND ONLY ONE HALF WAS MISSING ────
+' internal/contract asserts each sbx Dockerfile COPIES proveo-seed. Every image
+' suite asserts the built IMAGE has it executable: the check "ships the Kit's
+' startup command (/usr/local/bin/proveo-seed)" in TestImageCecli,
+' TestImageClaudecode (ccBuild, both variants), TestImageCursor and
+' TestImageOpencode (ocBuild). The image half is the one that was missing:
+' opencode and cecli shipped without the binary, and the Dockerfile check alone
+' could not have said so for an image built before it existed.
 '
 ' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
 '   what each step does ....... _spec/packages/lib/steps.puml

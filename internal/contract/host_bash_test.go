@@ -16,7 +16,7 @@ func TestHostScriptsAvoidBash4Builtins(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	var files []string
-	for _, pat := range []string{"defs/lib/*.sh", "defs/*/test.sh", "defs/*/tests/*.sh", "defs/sidecars/*/test.sh", "lib/*.sh", "scripts/*.sh"} {
+	for _, pat := range []string{"defs/lib/*.sh", "lib/*.sh", "scripts/*.sh"} {
 		m, err := filepath.Glob(filepath.Join(root, pat))
 		if err != nil {
 			t.Fatal(err)
