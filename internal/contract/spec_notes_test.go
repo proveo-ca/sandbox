@@ -48,6 +48,7 @@ var specNotesEnforced = []string{
 	"_spec/_paradigms/workspace-boundary.puml",
 	"_spec/_plans/host-held-provider-keys.puml",
 	"_spec/_plans/post-close-surface.puml",
+	"_spec/_plans/host-shell-to-go.puml",
 	"_spec/_plans/tools-and-localhost-tunnels.puml",
 	"_spec/internal/sbx/ide-attach.puml",
 	"_spec/_plans/sbx-dep-tree-isolation.puml",

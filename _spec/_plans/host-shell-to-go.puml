@@ -1,0 +1,121 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Host shell → Go: retire every bash script the operator's Mac executes
+' purpose: remove macOS /bin/bash 3.2 from every host code path
+' would touch: defs/lib/docker-build.sh, defs/*/build.sh, defs/*/ensure.sh (deleted)
+' would touch: defs/*/test.sh, defs/*/tests/*.sh (harness deleted; in-image command strings kept)
+' would touch: lib/*.sh, scripts/*.sh, mise.toml
+' would touch: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
+' would touch: defs/*/harness.manifest (a declarative build block)
+' would touch: internal/contract/{agent_pin,buildx_pull_policy,image_resolution,host_bash}_test.go
+' session: 92196ee8-2438-4fda-ac25-7311bf16c563
+' PLANNED 2026-09-22. Decided by the operator over fish (no errexit, non-POSIX at
+' every Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5
+' (provision.go still runs `bash build.sh` for END USERS, who get 3.2).
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── MEASURED 2026-09-22: WHERE THE SHELL RUNS ─────────────────────────────
+'   host build   defs/lib + build.sh + ensure.sh   ~1.2k lines   macOS 3.2
+'   host libs    lib/*.sh + scripts/*.sh           ~0.6k lines   macOS 3.2
+'   def tests    defs/*/tests/*.sh HARNESS         ~3.3k lines   macOS 3.2
+'   in-image     packages/lib + entrypoints        ~3.8k lines   Debian bash 5
+'   installer    apps/cli/public/cli/install.sh                  any POSIX sh
+' The def tests were first filed as in-container; they are not. helpers.sh
+' sources docker-build.sh, falls back when `timeout` is missing, and drives
+' `docker run … bash -c "<cmd>"` FROM the host. Only <cmd> runs inside.
+' End users reach host bash too: cmd/proveo/provision.go:118 runs
+' `bash <def>/build.sh` when an image is missing.
+'
+' ── WHAT STAYS SHELL, AND WHY ──────────────────────────────────────────────
+' In-image bash: it only ever meets bash 5, and sbx Kit startup commands, `sbx
+' exec … bash -c` (internal/sbx/run.go) and Dockerfile RUN lines speak it.
+' The installer: `curl | sh` on a machine that has no proveo yet, so POSIX sh.
+' The <cmd> strings inside def tests: they execute in the image, not the host.
+'
+' ── PHASES (each one ships green and deletes what it replaces) ─────────────
+' P1  internal/imagebuild — the docker-build.sh primitives in Go: agent version
+'     pin (npm / pypi / github), image ref + resolve + require-published, buildx
+'     builder ensure + driver choice, pull policy, cache flags, registry-DNS
+'     help, browser variant. The contract tables that exec those shell
+'     functions are ported as Go unit tests; the shell tests STAY until P2
+'     deletes the shell, because build.sh still runs it. Image resolution
+'     already lives in Go (internal/maintain.ResolveImage).
+'     LANDED 2026-09-22 as internal/imagebuild. Deliberate differences:
+'       * `-t repo` with no tag is `:latest` and refused for --load; the
+'         shell's `${a##*:}` returned the whole ref and let it through.
+'       * npm reads the registry JSON (NPM_CONFIG_REGISTRY honoured) rather
+'         than `npm view`; pypi needs no python3 fallback.
+'       * output goes through internal/ui (Notef/Warnf/Failf), not emoji.
+' P2  declarative build — each def's variants, Dockerfile, base, build-args and
+'     parent chain move into a `build:` block in harness.manifest.
+'     maintain.BuildPlan / DeployPlan and provision.go call imagebuild directly.
+'     PARITY GATE before deletion: for every target and variant, the buildx
+'     argv Go renders equals the argv the old script ran (golden, --print).
+'     Then build.sh, ensure.sh and docker-build.sh are deleted.
+' P3  def tests → Go — the TOOLS/CONFIG arrays are already tables; they become
+'     `-tags=image` table tests. A context deadline replaces `timeout`/
+'     `gtimeout`. test.sh and tests/*.sh are deleted; TestPlan runs go test.
+' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /
+'     stage-cli-cdn.sh become Go (subcommands or `go run` mise tasks).
+'
+' ── THE GATE THAT FINISHES IT ──────────────────────────────────────────────
+' TestHostScriptsAvoidBash4Builtins shrinks with each phase. After P4 it is
+' replaced by: no tracked *.sh outside packages/lib, defs/*/entrypoint.sh
+' (in-image) and apps/cli/public/cli (installer).
+
+rectangle "operator's Mac" as MAC <<host>> {
+  component "proveo build / provision\nexec bash build.sh — TODAY" as NOW <<error>>
+  component "internal/imagebuild\nGo — AFTER P2" as GO <<app>>
+  component "go test -tags=image\ndef tests — AFTER P3" as GT <<app>>
+}
+rectangle "image (Debian)" as IMG <<host>> {
+  component "packages/lib + entrypoints\nbash 5 — stays" as INIMG <<app>>
+}
+component "install.sh\nPOSIX sh — stays" as INST <<app>>
+
+NOW ARROW_ERROR GO : replaced, parity-gated
+GO ARROW_MAIN IMG : docker buildx
+GT ARROW_MAIN IMG : docker run <cmd>
+INST ARROW_MAIN MAC : bootstraps proveo
+
+note right of NOW
+  **End users hit this path.**
+  provision.go runs `bash build.sh`
+  when an image is missing, so a
+  contributor-only fix leaves them
+  on /bin/bash 3.2.
+end note
+
+note bottom of GO
+  **Parity before deletion.**
+  The argv Go renders must equal
+  the argv each old build.sh ran,
+  per target and variant, as a
+  golden, before the script goes.
+end note
+
+note bottom of GT
+  **The arrays are already tables.**
+  TOOLS / CONFIG entries map 1:1
+  to Go table rows; a context
+  deadline replaces the missing
+  macOS `timeout` binary.
+end note
+
+note right of INIMG
+  **Never meets 3.2.**
+  Kit startup, `sbx exec bash -c`
+  and Dockerfile RUN speak it, so
+  moving it would add a boundary
+  instead of removing one.
+end note
+
+note right of INST
+  **Runs before proveo exists.**
+  `curl | sh` on a stranger's box:
+  POSIX sh is the only interpreter
+  guaranteed to be there, so it
+  stays shell by necessity.
+end note
+@enduml
