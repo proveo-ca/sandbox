@@ -2489,7 +2489,7 @@ _proveo_persist_tool_env() {
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 # sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
 proveo_sbx_passthrough() {
- [[ -d "${PROVEO_SBX_STARTUP_DIR:-/etc/durable-startup.d}" && "${1:-}" == sh && "${2:-}" == -c ]] || return 0
+ [[ -n "${SANDBOX_VM_ID:-}" && "${1:-}" == sh && "${2:-}" == -c ]] || return 0
  case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
 }
 

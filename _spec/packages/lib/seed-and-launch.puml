@@ -31,10 +31,13 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
 ' ran three chrome-bridge relays.
 ' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
-' sourcing the lib: when sbx's durable-startup dir exists AND the argv is
+' sourcing the lib: when SANDBOX_VM_ID is set AND the argv is
 ' `sh -c …sleep infinity…`, it execs the keepalive and does nothing else, as
-' tini would. The docker backend never matches (no durable-startup dir; its
-' argv is the agent), and neither does an agent launch. The dispatcher's seed is
+' tini would. The marker is sbx's env, present when PID 1 starts; the first
+' guard used /etc/durable-startup.d, which sbx writes ~2s AFTER PID 1 starts
+' (measured: dir born 03:55:37.2, PID 1 03:55:35), so it never fired at boot.
+' The docker backend never matches (proveo sets no SANDBOX_*; its argv is the
+' agent), and neither does an agent launch. The dispatcher's seed is
 ' then the only seeder, and its log is the evidence.
 ' Upstream documents none of this (Docker's custom-template page is silent on
 ' ENTRYPOINT/CMD); docker/sbx-releases#357 names PID 1 as "a minimal tini".

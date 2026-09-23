@@ -15,25 +15,26 @@ func TestEntrypointPassesThroughSbxKeepalive(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	lib := filepath.Join(repoRoot(t), "packages", "lib", "entrypoint-lib.sh")
-	startup := t.TempDir()
-	run := func(dir string, args ...string) string {
+	// sbx sets SANDBOX_VM_ID before PID 1 starts; /etc/durable-startup.d is
+	// written about two seconds later, so it cannot be the marker.
+	run := func(vmID string, args ...string) string {
 		t.Helper()
 		script := `source "$1"; shift; proveo_sbx_passthrough "$@"; echo SEEDED`
 		cmd := exec.Command(bash, append([]string{"-c", script, "bash", lib}, args...)...)
-		cmd.Env = append(cmd.Environ(), "PROVEO_SBX_STARTUP_DIR="+dir)
+		cmd.Env = append(cmd.Environ(), "SANDBOX_VM_ID="+vmID)
 		out, _ := cmd.CombinedOutput()
 		return string(out)
 	}
 	keepalive := []string{"sh", "-c", "echo KEEPALIVE # trap 'kill -TERM -- -1; wait' TERM; sleep infinity & wait"}
 
-	if out := run(startup, keepalive...); !strings.Contains(out, "KEEPALIVE") || strings.Contains(out, "SEEDED") {
+	if out := run("proveo-opencode-0cae7b86", keepalive...); !strings.Contains(out, "KEEPALIVE") || strings.Contains(out, "SEEDED") {
 		t.Errorf("under sbx the keepalive must be exec'd, not seeded:\n%s", out)
 	}
-	if out := run(filepath.Join(startup, "absent"), keepalive...); !strings.Contains(out, "SEEDED") {
-		t.Errorf("without sbx's durable-startup dir the entrypoint must run normally:\n%s", out)
+	if out := run("", keepalive...); !strings.Contains(out, "SEEDED") {
+		t.Errorf("without sbx's SANDBOX_VM_ID the entrypoint must run normally:\n%s", out)
 	}
 	for _, argv := range [][]string{{"opencode", "--version"}, {"sh", "-c", "echo agent"}, {}} {
-		if out := run(startup, argv...); !strings.Contains(out, "SEEDED") {
+		if out := run("proveo-opencode-0cae7b86", argv...); !strings.Contains(out, "SEEDED") {
 			t.Errorf("argv %q is not sbx's keepalive and must run the entrypoint:\n%s", argv, out)
 		}
 	}
