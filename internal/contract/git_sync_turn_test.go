@@ -231,6 +231,8 @@ func TestGitSyncBlocksWhenCommitHasNoIdentity(t *testing.T) {
 		"HOME=" + home,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + filepath.Join(home, "empty"),
+		// A hostname with a domain (macOS's *.local) lets git invent an identity.
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=stop",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {
@@ -261,6 +263,8 @@ func TestGitSyncAllowsAfterAStopContinuation(t *testing.T) {
 		"HOME=" + home,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + filepath.Join(home, "empty"),
+		// A hostname with a domain (macOS's *.local) lets git invent an identity.
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=stop",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {
@@ -287,6 +291,8 @@ func TestGitSyncCursorFollowupOnFailure(t *testing.T) {
 		"HOME=" + home,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + filepath.Join(home, "empty"),
+		// A hostname with a domain (macOS's *.local) lets git invent an identity.
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=cursor",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {

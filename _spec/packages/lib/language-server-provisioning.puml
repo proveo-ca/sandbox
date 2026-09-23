@@ -44,7 +44,7 @@ node "One shared lib, four harnesses" as LIB <<host>> {
 }
 
 component """proveo_seed""\nthe ONE step both backends run" as SEED <<app>>
-component "docker: image ENTRYPOINT\nsbx: no entrypoint" as BACKENDS <<host>>
+component "docker: image ENTRYPOINT\nsbx: dispatcher seed (PID 1 passes through)" as BACKENDS <<host>>
 
 component """_proveo_lock_installs""\nflock fd 9" as LOCK <<async>>
 database "PROVEO_HOME\n""~/.local/share/mise"" · shims" as HOME <<db>>

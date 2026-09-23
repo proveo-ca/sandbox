@@ -6,6 +6,7 @@ if [[ -f /entrypoint-lib.sh ]]; then
   # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
+proveo_sbx_passthrough "$@"
 
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=cursor

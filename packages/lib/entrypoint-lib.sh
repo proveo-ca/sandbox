@@ -2486,6 +2486,13 @@ _proveo_persist_tool_env() {
  } | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+# sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
+proveo_sbx_passthrough() {
+ [[ -d "${PROVEO_SBX_STARTUP_DIR:-/etc/durable-startup.d}" && "${1:-}" == sh && "${2:-}" == -c ]] || return 0
+ case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  local home; home="$(_proveo_agent_home)"

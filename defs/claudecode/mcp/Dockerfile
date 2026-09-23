@@ -64,7 +64,7 @@ RUN --mount=type=cache,id=proveo-claudecode-pip,target=/root/.cache/pip,sharing=
 ARG CLAUDE_CODE_VERSION
 RUN --mount=type=cache,id=proveo-claudecode-npm,target=/root/.npm,sharing=locked \
     test -n "${CLAUDE_CODE_VERSION}" \
-      || { echo "CLAUDE_CODE_VERSION build-arg is required — `mise run build claudecode` resolves it" >&2; exit 1; } \
+      || { echo "CLAUDE_CODE_VERSION build-arg is required — 'mise run build claudecode' resolves it" >&2; exit 1; } \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
 

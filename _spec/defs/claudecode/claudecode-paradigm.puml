@@ -5,7 +5,8 @@
 ' transcript's tee, and an empty pane for a probe.
 '
 ' The MANIFEST is the declaration both backends read — sbx launches the agent
-' through its own kit and never runs the image entrypoint, which is how an
+' through its own kit, and on sbx the image entrypoint is only PID 1's
+' pass-through (proveo_sbx_passthrough, seed-and-launch.puml), which is how an
 ' entrypoint-only default left sandboxed sessions in whatever renderer the
 ' saved `tui` setting named. Two names carry one intent:
 ' CLAUDE_CODE_NO_FLICKER=0 is the older off switch, and

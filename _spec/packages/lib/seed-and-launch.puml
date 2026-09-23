@@ -14,6 +14,30 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_command_shipped_test.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: internal/contract/spec_notes_test.go
+' covers: internal/contract/sbx_passthrough_test.go
+'
+' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
+' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
+' it its keepalive as the command. The stock template's ENTRYPOINT is
+' `tini --` (CMD `bash`), a pass-through; proveo's images declare
+' `dumb-init -- /entrypoint.sh`, so PID 1 was
+'   dumb-init -- /entrypoint.sh sh -c 'trap …; sleep infinity & wait'
+' and ran a full proveo_seed beside the durable-startup dispatcher. Every boot
+' seeded two to three times: PID 1, the dispatcher's proveo-seed, and the
+' PROVEO_SEED_ONLY entrypoint pass. PID 1 took the install lock first, so the
+' LSP installs happened there and printed to container stdout, never to
+' /var/log/sbx-kit-startup.log; the dispatcher's seed waited on the lock, found
+' everything present and skipped in silence. That is why
+' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
+' ran three chrome-bridge relays.
+' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
+' sourcing the lib: when sbx's durable-startup dir exists AND the argv is
+' `sh -c …sleep infinity…`, it execs the keepalive and does nothing else, as
+' tini would. The docker backend never matches (no durable-startup dir; its
+' argv is the agent), and neither does an agent launch. The dispatcher's seed is
+' then the only seeder, and its log is the evidence.
+' Upstream documents none of this (Docker's custom-template page is silent on
+' ENTRYPOINT/CMD); docker/sbx-releases#357 names PID 1 as "a minimal tini".
 ' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
