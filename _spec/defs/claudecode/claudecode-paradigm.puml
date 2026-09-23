@@ -5,7 +5,8 @@
 ' transcript's tee, and an empty pane for a probe.
 '
 ' The MANIFEST is the declaration both backends read — sbx launches the agent
-' through its own kit and never runs the image entrypoint, which is how an
+' through its own kit, and on sbx the image entrypoint is only PID 1's
+' pass-through (proveo_sbx_passthrough, seed-and-launch.puml), which is how an
 ' entrypoint-only default left sandboxed sessions in whatever renderer the
 ' saved `tui` setting named. Two names carry one intent:
 ' CLAUDE_CODE_NO_FLICKER=0 is the older off switch, and
@@ -34,13 +35,14 @@
 ' class is "a CLI auto-updater cannot write where the harness puts it"; the
 ' answer is always to stop it trying.
 '
-' ── AGENTS.md IS BRIDGED, NOT COPIED ───────────────────────────────────────
-' Claude Code does not read AGENTS.md natively, so when a repo ships one and no
-' CLAUDE.md, the entrypoint writes a one-line CLAUDE.md containing "@AGENTS.md"
-' — an include, so the repo keeps ONE instruction file and edits to it are live.
-' Only when neither exists is the baked default CLAUDE.md copied in.
+' ── AGENTS.md IS READ NATIVELY; THE DEFAULT SHIPS AS AGENTS.md ────────────
+' Claude Code 2.1.277 reads AGENTS.md when a project has no CLAUDE.md, so the
+' old one-line "@AGENTS.md" CLAUDE.md bridge is retired: a repo's own AGENTS.md
+' or CLAUDE.md is left as it is. Only when neither exists is the baked default
+' copied in, as AGENTS.md, by proveo_seed_instructions — the first seed step,
+' which the sbx launch waits on (_spec/packages/lib/seed-and-launch.puml).
 '
-' Both writes are best-effort: the workspace may be a read-only mount, and a
+' The write is best-effort: the workspace may be a read-only mount, and a
 ' failure warns and continues rather than killing the run. This is a PROJECT
 ' file and therefore distinct from the house rules, which are never written to
 ' the workspace (_spec/packages/lib/house-rules.puml).
@@ -69,7 +71,7 @@ actor "Developer\ngoal + stopping condition" as DEV
 node "claudecode container" as CTR <<host>> {
   component "defs/claudecode/mcp/entrypoint.sh" as EP <<app>>
   component "claude --dangerously-skip-permissions" as CLI <<error>>
-  artifact "CLAUDE.md\nloop pattern + acceptance criteria" as MD <<db>>
+  artifact "AGENTS.md\nloop pattern + acceptance criteria" as MD <<db>>
   component "verification commands\n(internal/verify preamble)" as VER <<app>>
   database "/app (repo)\n/app/output (artifacts)" as WS <<db>>
   component "~/.claude/agents\narchitect · monorepo-coordinator\nadversarial-reviewer · security-reviewer\nspec-keeper" as SUB <<app>>
@@ -113,7 +115,7 @@ note left of SUB
   ""spec-keeper"" is the single writer, scoped by its prompt
   to ""_spec/"", ""PLAN.md"", ""CLAUDE.md"", ""AGENTS.md"".
 
-  The definitions alone are inert — ""CLAUDE.md"" steps 3, 6
+  The definitions alone are inert — ""AGENTS.md"" steps 3, 6
   and 7 are what make a subagent run.
 end note
 

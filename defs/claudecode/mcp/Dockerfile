@@ -64,7 +64,7 @@ RUN --mount=type=cache,id=proveo-claudecode-pip,target=/root/.cache/pip,sharing=
 ARG CLAUDE_CODE_VERSION
 RUN --mount=type=cache,id=proveo-claudecode-npm,target=/root/.npm,sharing=locked \
     test -n "${CLAUDE_CODE_VERSION}" \
-      || { echo "CLAUDE_CODE_VERSION build-arg is required — `mise run build claudecode` resolves it" >&2; exit 1; } \
+      || { echo "CLAUDE_CODE_VERSION build-arg is required — 'mise run build claudecode' resolves it" >&2; exit 1; } \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
 
@@ -111,6 +111,13 @@ COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY AGENTS.md /etc/claude-code/CLAUDE.md
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed
+RUN install -d /opt/proveo/shims \
+    && printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed %s "$@"\n' "$(command -v claude)" > /opt/proveo/shims/claude \
+    && chmod 0755 /opt/proveo/shims/claude \
+    && printf '\n/usr/local/bin/proveo-await-seed\n' >> /etc/bash.bashrc
+ENV PATH=/opt/proveo/shims:${PATH}
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh

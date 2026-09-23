@@ -3,6 +3,7 @@ package contract_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -109,6 +110,26 @@ func TestSquidShipsConfigNotAnImage(t *testing.T) {
 		}
 		if !strings.Contains(readRepoFile(t, "embed.go"), conf) {
 			t.Errorf("embed.go must embed %s", conf)
+		}
+	}
+}
+
+var backtickInDoubleQuotes = regexp.MustCompile("\"[^\"\n]*`[^\"\n]*`[^\"\n]*\"")
+
+// RUN is /bin/sh: a backtick pair inside double quotes is command substitution,
+// so a message quoting a command would try to run it.
+func TestDockerfileStringsQuoteNoBackticks(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	out, err := exec.Command("git", "-C", root, "ls-files", "*Dockerfile*").Output()
+	if err != nil {
+		t.Skipf("git ls-files: %v", err)
+	}
+	for _, rel := range strings.Fields(string(out)) {
+		for i, line := range strings.Split(instructionsOnly(readRepoFile(t, rel)), "\n") {
+			if m := backtickInDoubleQuotes.FindString(line); m != "" {
+				t.Errorf("%s:%d double-quoted string runs a command substitution: %s", rel, i+1, m)
+			}
 		}
 	}
 }

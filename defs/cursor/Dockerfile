@@ -68,7 +68,7 @@ COPY --from=lsp-builder /go/bin/mcp-language-server /go/bin/gopls /usr/local/bin
 # SPEC: _spec/_devops/agent-version-pin.puml
 ARG CURSOR_AGENT_VERSION
 RUN test -n "${CURSOR_AGENT_VERSION}" \
-      || { echo "CURSOR_AGENT_VERSION build-arg is required — `mise run build cursor` resolves it" >&2; exit 1; } \
+      || { echo "CURSOR_AGENT_VERSION build-arg is required — 'mise run build cursor' resolves it" >&2; exit 1; } \
     && HOME=/opt/cursor-dist bash -c 'curl -fsS "$1" | bash' cursor-install "$CURSOR_INSTALL_URL" \
     && test -d "/opt/cursor-dist/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}" \
     && ln -s /opt/cursor-dist/.local/bin/agent /usr/local/bin/agent \

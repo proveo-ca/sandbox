@@ -132,7 +132,7 @@ edits; `CLAUDECODE_RESEED=1` refreshes them). Claude Code also reads project-lev
 | `security-reviewer` | read-only | Auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched |
 | `spec-keeper` | `Edit`/`Write` | `_spec/`, `PLAN.md`, `CLAUDE.md`/`AGENTS.md`, architecture boundaries, or harness contracts changed |
 
-The trigger table lives in the seeded `CLAUDE.md` loop rule (steps 3, 6, 7) — the
+The trigger table lives in the seeded `AGENTS.md` loop rule (steps 3, 6, 7) — the
 definitions alone are inert; the loop rule is what makes them run. `[BLOCKER]` and `[HIGH]`
 findings from either reviewer are completion blockers.
 

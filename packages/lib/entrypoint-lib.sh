@@ -482,6 +482,11 @@ _proveo_tool_path() {
     *) export PATH="${MISE_DATA_DIR}/shims:${PATH}" ;;
   esac
   export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
+  # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+  case " ${GOFLAGS:-} " in
+    *" -modcacherw "*) ;;
+    *) export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" ;;
+  esac
 }
 
 _proveo_bounded() {
@@ -2480,14 +2485,44 @@ _proveo_persist_tool_env() {
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
+   [[ -n "${GOFLAGS:-}" ]] && printf 'export GOFLAGS="%s"\n' "$GOFLAGS"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
      printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
    fi
  } | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+# sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
+proveo_sbx_passthrough() {
+ [[ -n "${SANDBOX_VM_ID:-}" && "${1:-}" == sh && "${2:-}" == -c ]] || return 0
+ case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
+}
+
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
+
+# Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
+proveo_seed_instructions() {
+ local target="${1:-}" dir defaults
+ dir="$(_proveo_scan_root)"
+ case "$target" in
+  claudecode) defaults="${PROVEO_INSTRUCTIONS_DEFAULTS:-/opt/claudecode/defaults/AGENTS.md}" ;;
+  *) return 0 ;;
+ esac
+ if [[ -f "$defaults" && -d "$dir" && ! -f "$dir/AGENTS.md" && ! -f "$dir/CLAUDE.md" ]]; then
+  if cp "$defaults" "$dir/AGENTS.md" 2>/dev/null; then
+   echo "🌱 Seeded AGENTS.md into workspace"
+  else
+   echo "⚠️  Could not seed AGENTS.md (workspace may be read-only); continuing" >&2
+  fi
+ fi
+ : > "$PROVEO_INSTRUCTIONS_MARKER" 2>/dev/null || true
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ proveo_seed_instructions "$target"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
 

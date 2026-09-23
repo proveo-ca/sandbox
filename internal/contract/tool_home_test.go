@@ -172,3 +172,26 @@ func TestNoToolPathStillTargetsTheAgentHome(t *testing.T) {
 		}
 	}
 }
+
+// Go writes its module cache read-only; the toolchain store is saved to the
+// host, so without -modcacherw nothing can delete ~/.proveo/toolchains.
+func TestToolPathKeepsTheGoModuleCacheWritable(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	lib := filepath.Join(repoRoot(t), "packages", "lib", "entrypoint-lib.sh")
+	for _, c := range []struct{ in, want string }{
+		{"", "-modcacherw"},
+		{"-mod=mod", "-mod=mod -modcacherw"},
+		{"-modcacherw", "-modcacherw"},
+	} {
+		cmd := exec.Command(bash, "-c", `source "$1"; _proveo_tool_path; _proveo_tool_path; printf '%s' "$GOFLAGS"`, "bash", lib)
+		cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "GOFLAGS="+c.in)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("GOFLAGS=%q: %v", c.in, err)
+		}
+		if got := string(out); got != c.want {
+			t.Errorf("GOFLAGS=%q → %q, want %q (kept, appended once)", c.in, got, c.want)
+		}
+	}
+}

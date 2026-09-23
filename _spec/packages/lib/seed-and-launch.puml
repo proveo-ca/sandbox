@@ -14,6 +14,57 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_command_shipped_test.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: internal/contract/spec_notes_test.go
+' covers: internal/contract/sbx_passthrough_test.go
+' covers: packages/lib/proveo-await-seed
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: internal/contract/instructions_seed_test.go
+'
+' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
+' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
+' it its keepalive as the command. The stock template's ENTRYPOINT is
+' `tini --` (CMD `bash`), a pass-through; proveo's images declare
+' `dumb-init -- /entrypoint.sh`, so PID 1 was
+'   dumb-init -- /entrypoint.sh sh -c 'trap …; sleep infinity & wait'
+' and ran a full proveo_seed beside the durable-startup dispatcher. Every boot
+' seeded two to three times: PID 1, the dispatcher's proveo-seed, and the
+' PROVEO_SEED_ONLY entrypoint pass. PID 1 took the install lock first, so the
+' LSP installs happened there and printed to container stdout, never to
+' /var/log/sbx-kit-startup.log; the dispatcher's seed waited on the lock, found
+' everything present and skipped in silence. That is why
+' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
+' ran three chrome-bridge relays.
+' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
+' sourcing the lib: when SANDBOX_VM_ID is set AND the argv is
+' `sh -c …sleep infinity…`, it execs the keepalive and does nothing else, as
+' tini would. The marker is sbx's env, present when PID 1 starts; the first
+' guard used /etc/durable-startup.d, which sbx writes ~2s AFTER PID 1 starts
+' (measured: dir born 03:55:37.2, PID 1 03:55:35), so it never fired at boot.
+' The docker backend never matches (proveo sets no SANDBOX_*; its argv is the
+' agent), and neither does an agent launch. The dispatcher's seed is
+' then the only seeder, and its log is the evidence.
+' Upstream documents none of this (Docker's custom-template page is silent on
+' ENTRYPOINT/CMD); docker/sbx-releases#357 names PID 1 as "a minimal tini".
+'
+' ── INSTRUCTIONS SEED FIRST; THE sbx LAUNCH WAITS FOR THEM ────────────────
+' Once PID 1 passed through, the claudecode workspace instruction file came
+' from the PROVEO_SEED_ONLY pass alone, the SECOND startup command, queued
+' behind proveo-seed's toolchain/LSP installs. sbx's kit reference says the
+' agent "launches once startup commands have been dispatched, regardless of
+' `background`", so the shell and the first claude session started before
+' the file existed: TestWorktreeWorkspaceIsFullyUsable failed on every run
+' and passed after a 60s sleep (measured 2026-09-23).
+' Claude Code 2.1.277 reads AGENTS.md when a project has no CLAUDE.md, so the
+' "@AGENTS.md" CLAUDE.md bridge is gone and the default ships as AGENTS.md.
+' proveo_seed_instructions runs as proveo_seed's first step: it copies the
+' default only into a workspace carrying neither file, then touches
+' /dev/shm/proveo-instructions-seeded (tmpfs, so every boot starts unmarked).
+' The wait lives in the image because sbx offers no launch gate: a
+' /opt/proveo/shims/claude shim ahead on PATH, and /etc/bash.bashrc for the
+' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND
+' PROVEO_WORKDIR are set: a bare `sbx run -t` of the image (ladder rungs 1-2)
+' has no proveo kit, so no seed will ever mark the boot. It gives up after
+' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
+' so it never waits.
 ' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
