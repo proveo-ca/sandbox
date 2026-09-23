@@ -482,6 +482,11 @@ _proveo_tool_path() {
     *) export PATH="${MISE_DATA_DIR}/shims:${PATH}" ;;
   esac
   export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
+  # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+  case " ${GOFLAGS:-} " in
+    *" -modcacherw "*) ;;
+    *) export GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" ;;
+  esac
 }
 
 _proveo_bounded() {
@@ -2480,6 +2485,7 @@ _proveo_persist_tool_env() {
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
+   [[ -n "${GOFLAGS:-}" ]] && printf 'export GOFLAGS="%s"\n' "$GOFLAGS"
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
      printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
    fi
