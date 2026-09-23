@@ -49,22 +49,6 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   echo "─────────────────────────────────────────────────────"
 fi
 
-if [[ -f AGENTS.md && ! -f CLAUDE.md ]]; then
-  if printf '@AGENTS.md\n' > CLAUDE.md 2>/dev/null; then
-    echo "🔗 CLAUDE.md → @AGENTS.md (Claude Code does not read AGENTS.md natively)"
-  else
-    echo "⚠️  Could not bridge AGENTS.md → CLAUDE.md (workspace may be read-only); continuing" >&2
-  fi
-fi
-
-if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
-  if cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md 2>/dev/null; then
-    echo "🌱 Seeded CLAUDE.md into workspace"
-  else
-    echo "⚠️  Could not seed CLAUDE.md (workspace may be read-only); continuing" >&2
-  fi
-fi
-
 seed_claude_proveo_home() {
   mkdir -p "${HOME}/.claude"
   if [[ -f /home/claude/.claude.json && ! -f "${HOME}/.claude.json" ]]; then

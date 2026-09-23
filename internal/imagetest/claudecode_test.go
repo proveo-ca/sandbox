@@ -272,7 +272,7 @@ func ccConfig(s *imagetest.Suite, img ccImages) {
 	s.Contains("[standalone] render_subagents seeds the roster into $HOME/.claude/agents", image,
 		`export HOME=/tmp/seedhome && mkdir -p $HOME && source /entrypoint-lib.sh && render_subagents claudecode "$HOME/.claude/agents" >/dev/null && ls $HOME/.claude/agents | tr '\n' ' '`,
 		"adversarial-reviewer.md architect.md monorepo-coordinator.md security-reviewer.md spec-keeper.md")
-	s.Contains("[standalone] CLAUDE.md wires the review gates", image, "cat /opt/claudecode/defaults/CLAUDE.md", "Review Gates")
+	s.Contains("[standalone] AGENTS.md wires the review gates", image, "cat /opt/claudecode/defaults/AGENTS.md", "Review Gates")
 
 	if !img.mcpAvailable {
 		return

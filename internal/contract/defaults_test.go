@@ -96,7 +96,7 @@ func TestOpenCodeDefaultsExist(t *testing.T) {
 // definitions alone are inert.
 func TestClaudeCodeLoopDelegates(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/claudecode/mcp/defaults/CLAUDE.md"))
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/claudecode/mcp/defaults/AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestClaudeCodeLoopDelegates(t *testing.T) {
 		"spec-keeper",
 	} {
 		if !strings.Contains(src, need) {
-			t.Errorf("CLAUDE.md must reference %q", need)
+			t.Errorf("AGENTS.md must reference %q", need)
 		}
 	}
 }

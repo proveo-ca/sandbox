@@ -114,11 +114,11 @@ func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
-unexpected=$(git status --porcelain | grep -v '^?? CLAUDE\.md$' || true)
+unexpected=$(git status --porcelain | grep -v '^?? AGENTS\.md$' || true)
 [ -z "$unexpected" ] || { echo "DIRTY: $(printf '%s' "$unexpected" | head -2)"; exit 1; }
 proveo-entrypoint verify "$PWD" 2>/dev/null | grep -q . || { echo "NO_VERIFY_COMMANDS"; exit 1; }
-touch CLAUDE.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
-rm -f CLAUDE.md.probe
+touch AGENTS.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
+rm -f AGENTS.md.probe
 echo "WORKTREE_OK"`
 
 	out, status := shellExec(t, sess, script, 60*time.Second)
@@ -127,8 +127,8 @@ echo "WORKTREE_OK"`
 	}
 
 	seeded, _ := shellExec(t, sess, `git status --porcelain | head -5`, 30*time.Second)
-	if !strings.Contains(seeded, "?? CLAUDE.md") {
-		t.Errorf("claudecode left the worktree untouched, but its entrypoint seeds CLAUDE.md "+
+	if !strings.Contains(seeded, "?? AGENTS.md") {
+		t.Errorf("claudecode left the worktree untouched, but its seed writes AGENTS.md "+
 			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)
 	}
 }
@@ -186,7 +186,7 @@ func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
 	if !strings.Contains(s, "PROVEO_SMOKE_READY") {
 		t.Fatalf("entrypoint did not reach smoke readiness:\n%s", s)
 	}
-	if strings.Contains(s, "Could not seed CLAUDE.md") {
+	if strings.Contains(s, "Could not seed AGENTS.md") {
 		t.Errorf("entrypoint seeded into a directory it cannot write — it is not working "+
 			"in the mounted input dir:\n%s", s)
 	}

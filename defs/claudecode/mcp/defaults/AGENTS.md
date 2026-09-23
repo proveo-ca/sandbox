@@ -1,4 +1,4 @@
-# CLAUDE.md — Claude Code Working Rules (ML Blackbox Loop)
+# AGENTS.md — Claude Code Working Rules (ML Blackbox Loop)
 
 You are operating as a machine-learning execution loop inside a container sandbox.
 

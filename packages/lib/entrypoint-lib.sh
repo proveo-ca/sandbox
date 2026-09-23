@@ -2499,8 +2499,30 @@ proveo_sbx_passthrough() {
  case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
+
+# Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
+proveo_seed_instructions() {
+ local target="${1:-}" dir defaults
+ dir="$(_proveo_scan_root)"
+ case "$target" in
+  claudecode) defaults="${PROVEO_INSTRUCTIONS_DEFAULTS:-/opt/claudecode/defaults/AGENTS.md}" ;;
+  *) return 0 ;;
+ esac
+ if [[ -f "$defaults" && -d "$dir" && ! -f "$dir/AGENTS.md" && ! -f "$dir/CLAUDE.md" ]]; then
+  if cp "$defaults" "$dir/AGENTS.md" 2>/dev/null; then
+   echo "🌱 Seeded AGENTS.md into workspace"
+  else
+   echo "⚠️  Could not seed AGENTS.md (workspace may be read-only); continuing" >&2
+  fi
+ fi
+ : > "$PROVEO_INSTRUCTIONS_MARKER" 2>/dev/null || true
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ proveo_seed_instructions "$target"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
 

@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+# In a proveo-launched sbx session, waits for this boot's instruction seed, then execs "$@" when given.
+marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
+limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
+if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
+  n=$((limit * 5))
+  while [ ! -e "$marker" ] && [ "$n" -gt 0 ]; do
+    sleep 0.2
+    n=$((n - 1))
+  done
+  [ -e "$marker" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
+fi
+[ "$#" -gt 0 ] && exec "$@"
+exit 0
