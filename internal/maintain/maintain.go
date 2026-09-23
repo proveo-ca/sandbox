@@ -3,12 +3,16 @@ package maintain
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const (
@@ -19,25 +23,15 @@ const (
 
 // Target is one buildable/deployable image in the maintainer registry.
 type Target struct {
-	Name        string   // e.g. "claudecode-solidity"
-	Kind        string   // KindBase | KindHarness | KindSidecar
-	Image       string   // org/name without a tag, e.g. "proveo/claudecode-solidity"
-	DefDir      string   // def directory holding build.sh / test.sh
-	BuildScript string   // DefDir/build.sh
-	BuildArgs   []string // extra build.sh flags — the variant selector (e.g. --variant mcp)
-	TestScript  string   // DefDir/test.sh (may not exist; TestPlan checks at run time)
+	Name       string // e.g. "claudecode-solidity"
+	Kind       string // KindBase | KindHarness | KindSidecar
+	Image      string // org/name without a tag, e.g. "proveo/claudecode-solidity"
+	DefDir     string // def directory holding the Dockerfile / test.sh
+	RepoRoot   string // build context root
+	TestScript string // DefDir/test.sh (may not exist; TestPlan checks at run time)
 }
 
 var sidecars = []string{"egress-proxy", "mitmproxy"}
-
-var variantArgs = map[string][]string{
-	"claudecode":          {"--variant", "mcp"},
-	"claudecode-solidity": {"--variant", "solidity"},
-	"claudecode-browser":  {"--browser"},
-	"codex-browser":       {"--browser"},
-	"opencode-browser":    {"--browser"},
-	"cursor-browser":      {"--browser"},
-}
 
 func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	out := []Target{
@@ -71,9 +65,8 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	}
 
 	for i := range out {
-		out[i].BuildScript = filepath.Join(out[i].DefDir, "build.sh")
+		out[i].RepoRoot = filepath.Dir(defsDir)
 		out[i].TestScript = filepath.Join(out[i].DefDir, "test.sh")
-		out[i].BuildArgs = variantArgs[out[i].Name]
 	}
 	return out
 }
@@ -176,6 +169,7 @@ type Command struct {
 	Dir   string
 	Argv  []string
 	Quiet bool
+	Run   func(stdout, stderr io.Writer, env []string) error // in-process step; Argv is its label
 }
 
 // LocalTag is the only tag a --load build ever writes, and it is never pushed.
@@ -186,15 +180,8 @@ const (
 
 func (t Target) BuildPlan(tag string, noCache bool) []Command {
 	tag = normTag(tag, LocalTag)
-	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
-	if tag != "latest" {
-		build = append(build, "--tag", tag)
-	}
-	if noCache {
-		build = append(build, "--no-cache")
-	}
 	return []Command{
-		{Dir: t.DefDir, Argv: build},
+		t.imageBuild(tag, imagebuild.Options{NoCache: noCache}),
 		{Argv: []string{"docker", "image", "inspect", t.Image + ":" + tag}, Quiet: true},
 	}
 }
@@ -202,13 +189,41 @@ func (t Target) BuildPlan(tag string, noCache bool) []Command {
 // DeployPlan promotes the tested local build and publishes it.
 func (t Target) DeployPlan(tag string) []Command {
 	tag = normTag(tag, PublishTag)
-	build := append([]string{"bash", t.BuildScript}, t.BuildArgs...)
-	build = append(build, "--tag", tag, "--push")
 	local := t.Image + ":" + LocalTag
 	return []Command{
 		{Argv: []string{"docker", "image", "inspect", local}, Quiet: true},
 		{Argv: []string{"docker", "tag", local, t.Image + ":" + tag}, Quiet: true},
-		{Dir: t.DefDir, Argv: build},
+		t.imageBuild(tag, imagebuild.Options{Push: true}),
+	}
+}
+
+func (t Target) imageBuild(tag string, o imagebuild.Options) Command {
+	argv := []string{"imagebuild", t.Name, "--tag", tag}
+	if o.Push {
+		argv = append(argv, "--push")
+	}
+	if o.NoCache {
+		argv = append(argv, "--no-cache")
+	}
+	return Command{Argv: argv, Run: func(stdout, stderr io.Writer, env []string) error {
+		b := imagebuild.New(t.RepoRoot)
+		b.Out, b.UI, b.Getenv = stdout, ui.New(stderr), overlayEnv(env)
+		return b.BuildTarget(t.Name, tag, o)
+	}}
+}
+
+func overlayEnv(env []string) func(string) string {
+	over := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			over[k] = v
+		}
+	}
+	return func(k string) string {
+		if v, ok := over[k]; ok {
+			return v
+		}
+		return os.Getenv(k)
 	}
 }
 

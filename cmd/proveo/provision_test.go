@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,6 +23,7 @@ func TestProvisionerEnsure(t *testing.T) {
 		confirm    bool
 		wantPulls  []string
 		wantBuilds []string
+		wantBuilt  map[string]string
 		wantErr    string // substring; "" => nil error
 	}{
 		{
@@ -33,7 +33,7 @@ func TestProvisionerEnsure(t *testing.T) {
 		},
 		{
 			name:      "missing images are pulled first — including published proveo/* ones",
-			deps:      []imageDep{{Name: "ubuntu/squid:latest"}, {Name: "proveo/egress-proxy:latest", BuildScript: "/src/build.sh"}},
+			deps:      []imageDep{{Name: "ubuntu/squid:latest"}, {Name: "proveo/egress-proxy:latest", Target: "egress-proxy"}},
 			wantPulls: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"},
 		},
 		{
@@ -44,20 +44,30 @@ func TestProvisionerEnsure(t *testing.T) {
 			wantErr:   "pull failed",
 		},
 		{
-			name:       "pull failure falls back to a confirmed local build",
-			deps:       []imageDep{{Name: "proveo/egress-proxy:latest", BuildScript: "/src/defs/sidecars/egress-proxy/build.sh"}},
+			name:       "an unpullable :latest is built as :local and handed back",
+			deps:       []imageDep{{Name: "proveo/claudecode-browser:latest", Target: "claudecode-browser"}},
 			pullErr:    true,
 			confirm:    true,
-			wantPulls:  []string{"proveo/egress-proxy:latest"},
-			wantBuilds: []string{"/src/defs/sidecars/egress-proxy/build.sh"},
+			wantPulls:  []string{"proveo/claudecode-browser:latest"},
+			wantBuilds: []string{"claudecode-browser:local"},
+			wantBuilt:  map[string]string{"proveo/claudecode-browser:latest": "proveo/claudecode-browser:local"},
+		},
+		{
+			name:       "an explicit tag is built as itself",
+			deps:       []imageDep{{Name: "proveo/cursor:rc1", Target: "cursor"}},
+			pullErr:    true,
+			confirm:    true,
+			wantPulls:  []string{"proveo/cursor:rc1"},
+			wantBuilds: []string{"cursor:rc1"},
+			wantBuilt:  map[string]string{"proveo/cursor:rc1": "proveo/cursor:rc1"},
 		},
 		{
 			name:      "declined build keeps the actionable failure",
-			deps:      []imageDep{{Name: "proveo/egress-proxy:latest", BuildScript: "/src/build.sh"}},
+			deps:      []imageDep{{Name: "proveo/egress-proxy:latest", Target: "egress-proxy"}},
 			pullErr:   true,
 			confirm:   false,
 			wantPulls: []string{"proveo/egress-proxy:latest"},
-			wantErr:   "PROVEO_AUTO_PROVISION=1",
+			wantErr:   "proveo build egress-proxy --tag local",
 		},
 		{
 			name:      "duplicates are checked once",
@@ -78,11 +88,14 @@ func TestProvisionerEnsure(t *testing.T) {
 					}
 					return nil
 				},
-				Build:   func(s string) error { builds = append(builds, s); return nil },
+				Build: func(target, tag string) (string, error) {
+					builds = append(builds, target+":"+tag)
+					return "proveo/" + target + ":" + tag, nil
+				},
 				Confirm: func(string) bool { return tc.confirm },
 				UI:      &ui.Printer{W: &strings.Builder{}, Plain: true},
 			}
-			err := pv.Ensure(tc.deps)
+			built, err := pv.Ensure(tc.deps)
 			if tc.wantErr == "" && err != nil {
 				t.Fatalf("Ensure(%v) = %v, want nil", tc.deps, err)
 			}
@@ -95,56 +108,33 @@ func TestProvisionerEnsure(t *testing.T) {
 			if diff := cmp.Diff(tc.wantBuilds, builds); diff != "" {
 				t.Errorf("builds mismatch (-want +got):\n%s", diff)
 			}
+			if tc.wantBuilt == nil {
+				tc.wantBuilt = map[string]string{}
+			}
+			if diff := cmp.Diff(tc.wantBuilt, built); diff != "" {
+				t.Errorf("built mismatch (-want +got):\n%s", diff)
+			}
 		})
 	}
 }
 
-func TestBuildScriptResolution(t *testing.T) {
+func TestBuildTargetResolution(t *testing.T) {
 	t.Parallel()
-	defs := t.TempDir()
-	mk := func(rel string) string {
-		t.Helper()
-		p := filepath.Join(defs, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
+	for _, c := range []struct {
+		name, defs, image, want string
+		man                     manifest.Manifest
+	}{
+		{"sidecar image names its target", "/d", "proveo/egress-proxy:latest", "egress-proxy", manifest.Manifest{}},
+		{"a browser variant is its own target", "/d", "proveo/claudecode-browser:latest", "claudecode-browser", manifest.Manifest{Name: "claudecode"}},
+		{"an unknown proveo image falls back to the manifest", "/d", "proveo/cecli-node:latest", "cecli", manifest.Manifest{Name: "cecli"}},
+		{"public image never builds", "/d", "ubuntu/squid:latest", "", manifest.Manifest{}},
+		{"no source tree builds nothing", "", "proveo/egress-proxy:latest", "", manifest.Manifest{}},
+		{"overridden non-proveo agent image builds nothing", "/d", "ghcr.io/acme/custom:1", "", manifest.Manifest{Name: "cecli"}},
+	} {
+		if got := buildTarget(c.defs, c.man, c.image); got != c.want {
+			t.Errorf("%s: buildTarget(%q) = %q, want %q", c.name, c.image, got, c.want)
 		}
-		if err := os.WriteFile(p, []byte("#!/bin/bash\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		return p
 	}
-	proxyScript := mk("sidecars/egress-proxy/build.sh")
-	cecliScript := mk("cecli/build.sh")
-
-	t.Run("sidecar image resolves under defs/sidecars", func(t *testing.T) {
-		if got := sidecarBuildScript(defs, "proveo/egress-proxy:latest"); got != proxyScript {
-			t.Errorf("sidecarBuildScript = %q, want %q", got, proxyScript)
-		}
-	})
-	t.Run("public image never resolves a build script", func(t *testing.T) {
-		if got := sidecarBuildScript(defs, "ubuntu/squid:latest"); got != "" {
-			t.Errorf("sidecarBuildScript(public image) = %q, want empty", got)
-		}
-	})
-	t.Run("no source tree resolves nothing", func(t *testing.T) {
-		if got := sidecarBuildScript("", "proveo/egress-proxy:latest"); got != "" {
-			t.Errorf("sidecarBuildScript(no defs) = %q, want empty", got)
-		}
-	})
-	t.Run("harness image resolves via the manifest name, not the image name", func(t *testing.T) {
-		man := manifest.Manifest{Name: "cecli", Images: map[string]string{
-			"cecli": "proveo/cecli:latest", "cecli-node": "proveo/cecli-node:latest",
-		}}
-		if got := harnessBuildScript(defs, man, "proveo/cecli-node:latest"); got != cecliScript {
-			t.Errorf("harnessBuildScript = %q, want %q", got, cecliScript)
-		}
-	})
-	t.Run("overridden non-proveo agent image resolves nothing", func(t *testing.T) {
-		man := manifest.Manifest{Name: "cecli"}
-		if got := harnessBuildScript(defs, man, "ghcr.io/acme/custom:1"); got != "" {
-			t.Errorf("harnessBuildScript(custom image) = %q, want empty", got)
-		}
-	})
 }
 
 func TestEnsureDockerUsable(t *testing.T) {

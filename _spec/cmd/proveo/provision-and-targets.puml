@@ -4,22 +4,24 @@
 ' covers: cmd/proveo/provision.go
 ' covers: cmd/proveo/targets.go
 ' covers: cmd/proveo/wizard.go
+' covers: internal/imagebuild/targets.go (BuildTarget, TargetRef, Specs)
 ' covers: lib/*.sh
 ' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and lib/registry.sh
 ' lands here (batches 2 and 6). Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
 title Preflight provisioning, the maintainer registry, and the missing-env wizard
 
 node "Consumer path — before any container exists" as PRE <<host>> {
-  component "preflightImages(plan, manifest, agentImage)\nevery image the run needs" as PF <<app>>
-  component "provisioner.Ensure([]imageDep)\npull, then a confirmed local build" as ENS <<app>>
+  component "preflightImages(plan, manifest, agentImage)\nevery image the run needs\n→ the agent image it settled on" as PF <<app>>
+  component "provisioner.Ensure([]imageDep)\npull, then a confirmed local build\n→ built: image → ref" as ENS <<app>>
   component "provisionConfirm\nPROVEO_AUTO_PROVISION · else ask on a TTY" as CONF <<app>>
   component "sourceDefsDir\nPROVEO_DEFS_DIR · else the checkout" as SRC <<app>>
+  component "buildTarget(defs, manifest, image)\nimagebuild.Specs by image name, else manifest name" as BSH <<app>>
+  component "imagebuild.BuildTarget(target, buildTag(image))\nasked :latest → builds :local" as IB <<app>>
 }
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
   component "proveo targets\nname<TAB>image<TAB>defDir (TSV)" as TGT <<app>>
   component "lib/registry.sh\nmise tasks read the TSV" as REG <<app>>
-  component "harnessBuildScript · sidecarBuildScript\ndef dir named after the manifest" as BSH <<app>>
 }
 
 node "Missing declared env" as WIZ <<host>> {
@@ -38,8 +40,9 @@ ENS ARROW_CLOUD HUB : pull first — the consumer path
 ENS ARROW_OPTIONAL CONF : pull failed and a source tree exists
 CONF ARROW_MAIN SRC
 SRC ARROW_MAIN BSH
+BSH ARROW_MAIN IB : in-process, no host bash
+IB ARROW_MAIN PF : agent image → the :local ref
 TGT ARROW_MAIN REG
-BSH ARROW_MAIN REG
 ENS ARROW_MAIN READY
 PF ARROW_ERROR LATE : what running the preflight first prevents
 WEN ARROW_MAIN PENV
@@ -73,11 +76,25 @@ note bottom of ENS
   it asks, defaulting to yes — declining just reproduces the failure the
   prompt exists to avoid. The source tree is ""PROVEO_DEFS_DIR"" for dev
   iteration, else the enclosing checkout when it actually carries the build
-  scripts; no tree means pull-only.
+  sources (""defs/sidecars/egress-proxy/Dockerfile"" is the probe); no tree
+  means pull-only.
 
-  Mapping an image to its ""build\.sh"" goes through the manifest rather than
-  the image name, which is what covers images whose name differs from their
-  def directory (""proveo/cecli-node"" → ""defs/cecli"").
+  Mapping an image to its imagebuild target (""buildTarget"") tries the
+  image's own name in ""imagebuild.Specs"" first, then the manifest name —
+  which covers images whose name differs from their def directory
+  (""proveo/cecli-node"" → target ""cecli"").
+end note
+
+note bottom of IB
+  **A fallback build never writes "":latest"".** Until 2026-09-22 this path
+  ran ""bash <def>/build.sh"" with no arguments: host bash (macOS 3.2), and a
+  default ref of "":latest"", which the build refuses for ""--load"" — so the
+  end-user fallback could not succeed. ""buildTag"" now maps an asked-for
+  "":latest"" to "":local"" (any other tag passes through), and
+  ""preflightImages"" hands the run the ref it actually built, which
+  ""ResolveImage"" also prefers. A SIDECAR built this way fails the run with
+  "re-run so the egress plan picks it up", because the plan already named
+  the image it could not pull (_spec/_plans/host-shell-to-go.puml, P2).
 end note
 
 note bottom of WEN

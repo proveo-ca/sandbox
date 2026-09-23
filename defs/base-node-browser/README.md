@@ -14,9 +14,9 @@ browser (Chrome for Testing). agent-browser's bundled skills live at
 serves the guide matching the installed binary.
 
 - FROM `proveo/base-node-lsp`. Consumers: `opencode-browser`, `claudecode-browser`,
-  `cursor-browser` (each harness's `build.sh --browser`).
+  `cursor-browser` (`mise run build <harness>-browser`).
 - Not a runnable harness — a `proveo build` / `proveo deploy` target like `base`.
-- `ensure.sh`'s floor probe checks Playwright, the Chromium store, `agent-browser`, its
+- The floor probe (`imagebuild.Specs["base-node-browser"].Floor`) checks Playwright, the Chromium store, `agent-browser`, its
   executable path, its skills tree and the seeded skill stub; a `:local` image missing any of
   them is rebuilt.
 

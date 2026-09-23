@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
 func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
@@ -40,13 +42,10 @@ func TestBaseNodeShipsAPinnedBunBesideNodeAndPnpm(t *testing.T) {
 			t.Errorf("bun comes from the pinned release zip, not %q", banned)
 		}
 	}
-	ensure, err := os.ReadFile(filepath.Join(repoRoot(t), "defs/base-node/ensure.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	floor := imagebuild.Specs["base-node"].Floor
 	for _, want := range []string{"command -v bun", "command -v bunx"} {
-		if !strings.Contains(string(ensure), want) {
-			t.Errorf("base-node ensure.sh floor probe must check %q — a stale :local without bun looks present", want)
+		if !strings.Contains(floor, want) {
+			t.Errorf("the base-node floor probe must check %q — a stale :local without bun looks present", want)
 		}
 	}
 }

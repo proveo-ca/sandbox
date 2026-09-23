@@ -17,7 +17,7 @@ Paradigm: **policy-gated autonomous loop** — see
 
 ## Browser variant
 
-`./build.sh --browser` builds `proveo/cursor-browser` FROM `proveo/base-node-browser`: the
+`mise run build cursor-browser` builds `proveo/cursor-browser` FROM `proveo/base-node-browser`: the
 same `cursor-agent` binary atop a headless Chromium shared by the `playwright` CLI and
 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` ·
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
@@ -33,7 +33,6 @@ Candidate coding harness definition. This definition exposes:
 
 - `Dockerfile`
 - `entrypoint.sh`
-- `build.sh`
 - `run.sh`
 - `test.sh`
 - `README.md`
@@ -47,7 +46,7 @@ This definition follows the shared [coding harness container contract](../../COD
 ## Image Names and Mounts
 
 - Default image: `proveo/cursor:latest`
-- Build override: `PROVEO_CURSOR_IMAGE=example/cursor:tag ./build.sh`
+- Build override: `PROVEO_CURSOR_IMAGE=example/cursor mise run build cursor --tag tag`
 - Run override: `./run.sh --image example/cursor:tag`
 - Workspace mount: input directory mounted at `/app` (monorepo scope preserved under
  `/app/<relative-scope>` with root `.git` mounted alongside)
@@ -55,7 +54,7 @@ This definition follows the shared [coding harness container contract](../../COD
 ## Build
 
 ```bash
-./build.sh # or: ./build.sh --tag local
+mise run build cursor   # writes proveo/cursor:local
 ```
 
 The build runs the official installer (`https://cursor.com/install`), which resolves the

@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: execute order and cache reuse for proveo build and deploy
 ' covers: internal/maintain/**
 ' covers: cmd/proveo/maintain_cmd.go
-' covers: defs/lib/docker-build.sh
+' covers: internal/imagebuild/imagebuild.go
 ' covers: defs/**/Dockerfile
 ' covers: internal/contract/image_build_cache_test.go
 ' covers: cmd/proveo/maintain_cmd_test.go

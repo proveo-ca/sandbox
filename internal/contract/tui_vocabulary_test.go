@@ -17,8 +17,6 @@ var exemptFromTheGlyphBan = map[string]string{
 	"cmd/proveo-entrypoint/main.go":     "surface A — the in-container preamble; sbx's kit may absorb it entirely",
 	"internal/entrypoint/entrypoint.go": "surface A — PROVEO_SMOKE_READY, printed inside the image",
 
-	"internal/contract/agent_pin_test.go": "surface C — mirrors defs/lib/docker-build.sh's pin note",
-
 	// Fixtures, not print sites. Both are load-bearing exactly BECAUSE they
 	// hold what the vocabulary excludes.
 	"internal/choiceui/pen_test.go":    "fixture — proves the pen combines the zero-width runes this ban exists for",

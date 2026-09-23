@@ -56,6 +56,7 @@ package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "proveohome\n~/.proveo mounts + deny scrub" as HomePkg <<app>>
  component "cdn\nlatest.json · checksum update" as CdnPkg <<app>>
  component "maintain\nbuild · test · deploy registry" as MaintainPkg <<app>>
+ component "imagebuild\nSpecs table · buildx · agent pin" as ImageBuildPkg <<app>>
  component "verify\nverification-command discovery" as VerifyPkg <<app>>
  component "clean\nreclaim plan (liveness-safe)" as CleanPkg <<app>>
  component "shell\ncross-shell PATH setup" as ShellPkg <<app>>
@@ -72,7 +73,7 @@ package "Definitions\ndefs/" as Defs {
  }
  component "harness.manifest\nper def (registration)" as HarnessManifest <<config>>
  component "thin run.sh shims\n→ proveo run" as RunShims <<script>>
- component "build.sh / test.sh\nDockerfiles · entrypoints" as DefBuild <<script>>
+ component "test.sh · Dockerfiles\nentrypoints (builds: internal/imagebuild)" as DefBuild <<script>>
  package "Sidecars" as Sidecars {
  component "squid-proxy config" as DefSquid <<definition>>
  component "egress-proxy image\n(proveo-egress)" as DefEgressImg <<definition>>
@@ -158,6 +159,8 @@ CodingDefs *-- RunShims
 CodingDefs *-- DefBuild
 CodingDefs *-- DefAssets
 DefBuild ..> Sidecars : sidecar images
+MaintainPkg ..> ImageBuildPkg : build · deploy steps
+ImageBuildPkg ..> DefBuild : buildx over each Dockerfile
 
 Mise ..> MaintLib
 

@@ -62,7 +62,7 @@ RUN --mount=type=cache,id=proveo-cecli-apt-cache,target=/var/cache/apt,sharing=l
 ARG CECLI_VERSION
 RUN --mount=type=cache,id=proveo-cecli-pip,target=/root/.cache/pip,sharing=locked \
     test -n "${CECLI_VERSION}" \
-      || { echo "CECLI_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
+      || { echo "CECLI_VERSION build-arg is required — `mise run build cecli` resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/cecli \
   && env -u PIP_NO_CACHE_DIR /opt/cecli/bin/pip install --no-compile --upgrade pip setuptools wheel \
   && env -u PIP_NO_CACHE_DIR /opt/cecli/bin/pip install --no-compile "cecli-dev==${CECLI_VERSION}" boto3 botocore \
@@ -76,7 +76,7 @@ ENV PATH="/opt/cecli/bin:${PATH}"
 ARG SERENA_VERSION
 RUN --mount=type=cache,id=proveo-serena-pip,target=/root/.cache/pip,sharing=locked \
     test -n "${SERENA_VERSION}" \
-      || { echo "SERENA_VERSION build-arg is required — defs/cecli/build.sh resolves it" >&2; exit 1; } \
+      || { echo "SERENA_VERSION build-arg is required — `mise run build cecli` resolves it" >&2; exit 1; } \
   && python3 -m venv /opt/serena \
   && env -u PIP_NO_CACHE_DIR /opt/serena/bin/pip install --no-compile "serena-agent==${SERENA_VERSION}" \
   && /opt/serena/bin/pip show serena-agent | grep -qx "Version: ${SERENA_VERSION}" \

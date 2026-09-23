@@ -7,7 +7,6 @@ A Docker container for running Claude Code in "dangerously skip permissions" mod
 Candidate coding harness definition. This definition exposes:
 
 - variant `Dockerfile`s under `mcp/` and `solo/`
-- root `build.sh`
 - root `run.sh`
 - root `test.sh`
 - variant `entrypoint.sh` scripts under `mcp/` and `solo/`
@@ -15,7 +14,7 @@ Candidate coding harness definition. This definition exposes:
 - sample Claude settings/config files under each variant
 - `tests/`
 
-Each variant owns its image-local `entrypoint.sh`. The root command surface remains `build.sh`, `run.sh`, and `test.sh`; root `run.sh` delegates to the variant runners.
+Each variant owns its image-local `entrypoint.sh`. The root command surface is `run.sh` and `test.sh` (builds are `mise run build claudecode[-solidity|-browser]`); root `run.sh` delegates to the variant runners.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
@@ -55,11 +54,11 @@ Use the root scripts for the definition-local command surface:
 
 ```bash
 # Build both variants
-./build.sh
+mise run build claudecode && mise run build claudecode-solidity
 
 # Build one variant
-./build.sh --variant solidity
-./build.sh --variant mcp --tag local
+mise run build claudecode-solidity
+mise run build claudecode --tag local
 
 # Run the default MCP variant
 CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh

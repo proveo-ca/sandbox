@@ -26,5 +26,5 @@ when the running node fails the range. A Bun project's dependencies are installe
   the release's `SHASUMS256.txt`. Bump the three together; `internal/contract` checks the
   shape. `unzip` (Bun's Linux prerequisite) is installed here and inherited.
 
-`build.sh` ensures `proveo/base` first; harness `build.sh` scripts call this def's `ensure.sh`,
-whose floor probe requires node, pnpm and bun.
+Its build ensures `proveo/base` first; a child's build ensures this image,
+whose floor probe (`imagebuild.Specs["base-node"].Floor`) requires node, pnpm and bun.

@@ -18,7 +18,7 @@ Each harness definition should expose, where applicable:
 
 - `Dockerfile` — image build definition.
 - `entrypoint.sh` — runtime setup, config discovery, env bridging, and final CLI launch.
-- `build.sh` — definition-local image build wrapper.
+- A row in `internal/imagebuild/targets.go` — the build recipe (parent, pins, variants); `mise run build <target>` runs it.
 - `run.sh` — definition-local docker run wrapper.
 - `test.sh` and/or `tests/` — smoke and contract checks.
 - `README.md` — usage, image names, mounts, config behavior, and harness-specific notes.
@@ -35,9 +35,9 @@ install line never changes when upstream publishes: a warm cache reuses last mon
 layer and nothing in the build says so. Every def follows one shape
 (`_spec/_devops/agent-version-pin.puml`, enforced by `internal/contract/agent_pin_test.go`):
 
-- `build.sh` resolves the current release with `proveo_agent_version <ARG> <npm|pypi|cursor> <pkg>`
-  from `defs/lib/docker-build.sh`, prints a `📌 <pkg>@<version>` line, and passes it as
-  `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
+- The target's `Pins` in `internal/imagebuild/targets.go` resolve the current release
+  (`Builder.AgentVersion`, npm / pypi / cursor), print a `pin: <pkg>@<version>` line, and
+  pass it as `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
   silent fallback to `latest`.
 - The `Dockerfile` declares the ARG **bare** (no default), guards it with `test -n`, installs
   exactly that version, verifies the installed CLI reports it, and labels the image with

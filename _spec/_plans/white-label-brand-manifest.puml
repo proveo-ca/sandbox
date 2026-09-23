@@ -13,7 +13,7 @@ component "BRAND_ASSET_BASE_URL\ninstaller + CDN asset root" as N4 <<app>>
 component "BRAND_IDENTITY_PUML\ndiagram theme include URL" as N5 <<app>>
 
 frame "Consumption — two layers" as CONSUME <<host>> {
-  component "**Build-time templating**\nDockerfiles + baked paths resolve at build.sh;\nthe image ships already-branded" as BUILDTIME <<app>>
+  component "**Build-time templating**\nDockerfiles + baked paths resolve at imagebuild;\nthe image ships already-branded" as BUILDTIME <<app>>
   component "**Runtime indirection**\nimage org · asset/install URLs · dashboard title\nlogo · puml include read from brand.env" as RUNTIME <<app>>
 }
 

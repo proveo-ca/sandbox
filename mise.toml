@@ -421,7 +421,7 @@ set -euo pipefail
 # `go run` keeps it on the current repo source, never a possibly-stale installed
 # proveo; the ~1-2s compile is noise next to a docker build.
 # Forwards: [target|all] [--tag T] [--no-cache] [--print]
-# Images use defs/lib/docker-build.sh (buildx). Local builds --load the host
+# Images build through internal/imagebuild (buildx). Local builds --load the host
 # platform; PROVEO_PLATFORMS defaults to linux/amd64,linux/arm64 for deploy --push.
 exec go run ./cmd/proveo build "$@"
 """

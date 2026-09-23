@@ -16,8 +16,8 @@ TARGETS=(
   "cursor|proveo/cursor"
 )
 
-# shellcheck source=../defs/lib/docker-build.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../defs/lib" && pwd)/docker-build.sh"
+# shellcheck source=../defs/lib/test-image.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../defs/lib" && pwd)/test-image.sh"
 
 # resolve_image echoes the reference this smoke run should use, or nothing when
 # the repository has neither tag (the caller skips it).

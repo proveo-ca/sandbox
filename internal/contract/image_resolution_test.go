@@ -30,7 +30,7 @@ func TestShellImageResolverMatchesResolveImage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(fakeDocker), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	lib := filepath.Join(repoRoot(t), "defs", "lib", "docker-build.sh")
+	lib := filepath.Join(repoRoot(t), "defs", "lib", "test-image.sh")
 
 	const (
 		older = "2026-08-31T00:04:06.000000000Z"
@@ -130,7 +130,7 @@ func TestDefTestScriptsResolveRatherThanPinThePublishTag(t *testing.T) {
 					continue
 				}
 				t.Errorf("%s:%d pins the publish tag without resolving a newer local build:\n\t%s\n"+
-					"wrap it in proveo_test_image (or proveo_resolve_image) from defs/lib/docker-build.sh",
+					"wrap it in proveo_test_image (or proveo_resolve_image) from defs/lib/test-image.sh",
 					rel, i+1, strings.TrimSpace(line))
 			}
 			return nil
@@ -158,7 +158,7 @@ func TestNoAdHocLocalOverLatestResolvers(t *testing.T) {
 			if adHoc.Match(b) {
 				rel, _ := filepath.Rel(root, path)
 				t.Errorf("%s picks between :local and :latest by existence; use "+
-					"proveo_resolve_image from defs/lib/docker-build.sh, which decides by "+
+					"proveo_resolve_image from defs/lib/test-image.sh, which decides by "+
 					"recency the way maintain.ResolveImage does", rel)
 			}
 			return nil

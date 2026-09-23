@@ -5,8 +5,7 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 
 ' covers: defs/base-node-browser/**
 ' covers: defs/base-node-browser/skills/agent-browser/SKILL.md
-' covers: defs/base-node-browser/build.sh
-' covers: defs/base-node-browser/ensure.sh
+' covers: internal/imagebuild/targets.go
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/tests/test_tools.sh
 ' covers: defs/opencode/tests/test_tools.sh
@@ -43,8 +42,10 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 '
 ' The Linux run-as-uid path (containers auto-enable --no-sandbox since 0.16.1) is
 ' deliberately NOT asserted here — a buildkit RUN is not the container the image
-' will run in. It is covered by defs/base-node-browser/ensure.sh's floor probe
-' and by each def's tests/test_tools.sh.
+' will run in. It is covered by the base-node-browser row's floor probe
+' (browserFloor in internal/imagebuild/targets.go; moved from
+' defs/base-node-browser/ensure.sh 2026-09-22) and by each def's
+' tests/test_tools.sh.
 '
 ' The floor probe is the layer's contract restated as a runnable check: node,
 ' playwright and typescript-language-server on PATH, a `chromium-*` directory
@@ -169,7 +170,7 @@ note bottom of AB
   run in.** So the layer verifies what it can —
   ""--version"", the executable path, the skills
   file — and the run-as-uid launch is left to
-  ensure.sh's floor probe and defs/*/tests.
+  targets.go's floor probe and defs/*/tests.
 end note
 
 note bottom of STORE

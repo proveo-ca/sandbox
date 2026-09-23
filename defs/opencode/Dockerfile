@@ -56,7 +56,7 @@ LABEL com.docker.sandboxes.start-docker="true"
 ARG OPENCODE_VERSION
 RUN --mount=type=cache,id=proveo-opencode-npm,target=/root/.npm,sharing=locked \
     test -n "${OPENCODE_VERSION}" \
-      || { echo "OPENCODE_VERSION build-arg is required — defs/opencode/build.sh resolves it" >&2; exit 1; } \
+      || { echo "OPENCODE_VERSION build-arg is required — `mise run build opencode` resolves it" >&2; exit 1; } \
     && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
     && test "$(opencode --version)" = "${OPENCODE_VERSION}"
 

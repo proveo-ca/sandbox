@@ -9,7 +9,6 @@ A mature coding harness definition under `defs/<name>/` should expose, where app
 ```txt
 Dockerfile or Dockerfile.*
 entrypoint.sh
-build.sh
 run.sh
 test.sh
 debug.sh, optional
@@ -21,7 +20,7 @@ tests/, if applicable
 
 Definition-local scripts are the preferred deterministic command surface:
 
-- `build.sh` builds the image or image variants.
+- The build recipe (parent, pins, variants) is the def's row in `internal/imagebuild/targets.go`; `mise run build <target>` runs it.
 - `run.sh` runs the harness with documented mounts and environment variables.
 - `test.sh` runs smoke tests or the definition-local test suite.
 - `debug.sh`, when present, opens a troubleshooting shell or equivalent debug workflow.

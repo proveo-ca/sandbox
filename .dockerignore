@@ -1,5 +1,5 @@
-# The build context for every def is the REPO ROOT (defs/*/build.sh pass
-# "$SCRIPT_DIR/../.."), because variant Dockerfiles resolve their COPY paths from
+# The build context for most defs is the REPO ROOT (internal/imagebuild/targets.go
+# Context: "."), because variant Dockerfiles resolve their COPY paths from
 # there. Without this file the daemon received the whole tree — 303 MB, of which
 # 201 MB is node_modules and 83 MB is apps/ — on every single image build, and
 # defs/base/Dockerfile's builder stage baked it into a layer with `COPY . .`.
