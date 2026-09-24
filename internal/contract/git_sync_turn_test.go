@@ -118,8 +118,8 @@ func TestGitSyncAllowsACleanTree(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, want 0: %s", code, out)
 	}
-	if !strings.Contains(out, `"decision":"allow"`) {
-		t.Errorf("stdout %q, want decision allow", out)
+	if out != "" {
+		t.Errorf("stdout %q, want empty: Stop accepts only \"block\" or no decision", out)
 	}
 	if got := strings.TrimSpace(gitCmd(t, dir, nil, "rev-parse", "HEAD")); got != head {
 		t.Errorf("HEAD moved on a clean tree: %s -> %s", head, got)
@@ -136,8 +136,8 @@ func TestGitSyncCommitsADirtyTree(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
 	}
-	if !strings.Contains(out, `"decision":"allow"`) {
-		t.Errorf("stdout %q, want decision allow", out)
+	if out != "" {
+		t.Errorf("stdout %q, want empty: Stop accepts only \"block\" or no decision", out)
 	}
 	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
 	if !strings.Contains(sub, "[proveo] persist turn") {
@@ -194,8 +194,8 @@ func TestGitSyncAllowsANonRepo(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	out, _, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, hookEnv(t))
-	if code != 0 || !strings.Contains(out, `"decision":"allow"`) {
-		t.Errorf("non-repo: exit %d stdout %q", code, out)
+	if code != 0 || out != "" {
+		t.Errorf("non-repo: exit %d stdout %q, want exit 0 and no decision", code, out)
 	}
 }
 
@@ -274,8 +274,8 @@ func TestGitSyncAllowsAfterAStopContinuation(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d stdout %q", code, out)
 	}
-	if !strings.Contains(out, `"decision":"allow"`) {
-		t.Errorf("stdout %q, want allow on a continuation so the 8-cap / loop_limit can rest", out)
+	if out != "" {
+		t.Errorf("stdout %q, want no decision on a continuation so the 8-cap / loop_limit can rest", out)
 	}
 }
 
@@ -376,8 +376,8 @@ func TestGitSyncPluginListensForSessionIdle(t *testing.T) {
 			t.Errorf("plugin lacks %q", want)
 		}
 	}
-	if strings.Contains(src, "await $") {
-		t.Error("awaiting the idle spawn blocks the TUI if OpenCode starts awaiting event handlers")
+	if !strings.Contains(src, "await $") {
+		t.Error("an unawaited Bun ShellPromise never spawns, so session.idle runs no hook")
 	}
 }
 
@@ -507,7 +507,7 @@ echo DONE`
 	}
 }
 
-func TestSeedWritesCodexStopAndOpenCodePlugin(t *testing.T) {
+func TestSeedWritesOpenCodePluginAndNoCodexUserHook(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	if _, err := exec.LookPath("node"); err != nil {
@@ -525,17 +525,52 @@ echo DONE`
 	if err != nil || !strings.Contains(string(out), "DONE") {
 		t.Fatalf("seed step failed: %v\n%s", err, out)
 	}
-	hooks := filepath.Join(home, ".codex", "hooks.json")
-	b, err := os.ReadFile(hooks)
-	if err != nil {
-		t.Fatalf("codex hooks.json missing: %v", err)
-	}
-	if !strings.Contains(string(b), "git-sync-turn.sh") || !strings.Contains(string(b), `"Stop"`) {
-		t.Errorf("codex hooks.json missing Stop git-sync:\n%s", b)
+	if _, err := os.Stat(filepath.Join(home, ".codex", "hooks.json")); err == nil {
+		t.Error("seed wrote ~/.codex/hooks.json; codex holds user hooks for /hooks review, so the Stop hook must stay managed")
 	}
 	plugin := filepath.Join(home, ".config", "opencode", "plugins", "proveo-git-sync-turn.js")
 	if _, err := os.Stat(plugin); err != nil {
 		t.Errorf("opencode plugin was not seeded: %v", err)
+	}
+}
+
+func TestCodexManagedRequirementsWireGitSyncStop(t *testing.T) {
+	t.Parallel()
+	src := readRepoFile(t, "defs/codex/managed/requirements.toml")
+	for _, want := range []string{"[[hooks.Stop]]", "[[hooks.Stop.hooks]]", "git-sync-turn.sh", "timeout = 90"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("codex requirements.toml lacks %q", want)
+		}
+	}
+	if df := readRepoFile(t, "defs/codex/Dockerfile"); !strings.Contains(df, "/etc/codex/requirements.toml") {
+		t.Error("defs/codex/Dockerfile must install the managed requirements at /etc/codex/requirements.toml")
+	}
+}
+
+func TestGitSyncCommitsOnlyToAReadOnlyOrigin(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	bare := t.TempDir()
+	gitCmd(t, bare, nil, "init", "--bare", "-b", "main")
+	gitCmd(t, dir, nil, "remote", "add", "origin", bare)
+	gitCmd(t, dir, nil, "push", "-u", "origin", "HEAD")
+	if err := os.Chmod(bare, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bare, 0o755) })
+	if err := os.WriteFile(filepath.Join(dir, "clone.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, hookEnv(t))
+	if code != 0 || out != "" {
+		t.Fatalf("read-only origin: exit %d stdout %q stderr %q, want exit 0 and no decision", code, out, errb)
+	}
+	if sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"); !strings.Contains(sub, "[proveo] persist turn") {
+		t.Errorf("subject %q, want the persist commit", sub)
+	}
+	got := readGitSyncTrace(t, filepath.Join(dir, ".git", "proveo-git-sync.ndjson"))
+	if len(got) != 1 || got[0].Result != "allow" || got[0].Error != "" {
+		t.Errorf("read-only origin trace = %+v, want one allow with no error", got)
 	}
 }
 
@@ -549,5 +584,133 @@ func TestSeedCallsGitSyncHookInstall(t *testing.T) {
 	at := strings.Index(seed, "proveo_install_git_sync_hooks")
 	if restore < 0 || at < restore {
 		t.Error("git-sync install must run after config restore, or the restore overwrites the Stop merge")
+	}
+}
+
+type gitSyncTraceLine struct {
+	Dialect string `json:"dialect"`
+	Result  string `json:"result"`
+	Error   string `json:"error"`
+}
+
+func readGitSyncTrace(t *testing.T, path string) []gitSyncTraceLine {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read trace %s: %v", path, err)
+	}
+	var out []gitSyncTraceLine
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var r gitSyncTraceLine
+		if err := json.Unmarshal([]byte(l), &r); err != nil {
+			t.Fatalf("trace line %q is not JSON: %v", l, err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func TestGitSyncTraceRecordsEachOutcome(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		dialect   string
+		readOnly  bool
+		want      gitSyncTraceLine
+		wantError string
+	}{
+		{name: "pushed stop", dialect: "stop", want: gitSyncTraceLine{Dialect: "stop", Result: "allow"}},
+		{name: "pushed idle", dialect: "idle", want: gitSyncTraceLine{Dialect: "idle", Result: "allow"}},
+		{name: "push refused stop", dialect: "stop", readOnly: true,
+			want: gitSyncTraceLine{Dialect: "stop", Result: "block"}, wantError: "git push failed"},
+		{name: "push refused idle", dialect: "idle", readOnly: true,
+			want: gitSyncTraceLine{Dialect: "idle", Result: "allow"}, wantError: "git push failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := initRepo(t)
+			bare := t.TempDir()
+			gitCmd(t, bare, nil, "init", "--bare", "-b", "main")
+			gitCmd(t, dir, nil, "remote", "add", "origin", bare)
+			gitCmd(t, dir, nil, "push", "-u", "origin", "HEAD")
+			if tc.readOnly {
+				objects := filepath.Join(bare, "objects")
+				if err := os.Chmod(objects, 0o555); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(objects, 0o755) })
+			}
+			if err := os.WriteFile(filepath.Join(dir, "turn.txt"), []byte("x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`,
+				hookEnv(t, "PROVEO_GIT_SYNC_DIALECT="+tc.dialect))
+			if code != 0 {
+				t.Fatalf("git-sync-turn exit %d, want 0; stderr %q", code, errb)
+			}
+			got := readGitSyncTrace(t, filepath.Join(dir, ".git", "proveo-git-sync.ndjson"))
+			if len(got) != 1 {
+				t.Fatalf("git-sync-turn(%s) wrote %d trace lines, want 1: %+v", tc.name, len(got), got)
+			}
+			if got[0].Dialect != tc.want.Dialect || got[0].Result != tc.want.Result {
+				t.Errorf("git-sync-turn(%s) trace = %+v, want dialect=%s result=%s",
+					tc.name, got[0], tc.want.Dialect, tc.want.Result)
+			}
+			if tc.wantError == "" && got[0].Error != "" {
+				t.Errorf("git-sync-turn(%s) trace error = %q, want none", tc.name, got[0].Error)
+			}
+			if tc.wantError != "" && !strings.Contains(got[0].Error, tc.wantError) {
+				t.Errorf("git-sync-turn(%s) trace error = %q, want it to name %q", tc.name, got[0].Error, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestGitSyncTraceHonoursItsOverride(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	alt := filepath.Join(t.TempDir(), "trace.ndjson")
+	if _, _, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, hookEnv(t, "PROVEO_GIT_SYNC_TRACE="+alt)); code != 0 {
+		t.Fatalf("git-sync-turn exit %d, want 0", code)
+	}
+	if got := readGitSyncTrace(t, alt); len(got) != 1 || got[0].Result != "allow" {
+		t.Errorf("PROVEO_GIT_SYNC_TRACE=%s trace = %+v, want one allow line", alt, got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git", "proveo-git-sync.ndjson")); err == nil {
+		t.Error("an overridden trace also wrote the git-dir default")
+	}
+
+	off := initRepo(t)
+	if _, _, code := runGitSync(t, off, `{"hook_event_name":"Stop"}`, hookEnv(t, "PROVEO_GIT_SYNC_TRACE=off")); code != 0 {
+		t.Fatalf("git-sync-turn exit %d, want 0", code)
+	}
+	if _, err := os.Stat(filepath.Join(off, ".git", "proveo-git-sync.ndjson")); err == nil {
+		t.Error("PROVEO_GIT_SYNC_TRACE=off still wrote a trace")
+	}
+}
+
+func TestOpenCodeLaunchWaitsForTheGitSyncPlugin(t *testing.T) {
+	t.Parallel()
+	df := readRepoFile(t, "defs/opencode/Dockerfile")
+	for _, need := range []string{
+		"packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed",
+		"PROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded",
+		"> /opt/proveo/shims/opencode",
+		"/opt/proveo/shims:",
+	} {
+		if !strings.Contains(df, need) {
+			t.Errorf("defs/opencode/Dockerfile lacks %q; the TUI loads plugins once at start and misses a later seed", need)
+		}
+	}
+	seed := seedBody(t, readRepoFile(t, "packages/lib/entrypoint-lib.sh"))
+	install := strings.Index(seed, `proveo_install_git_sync_hooks "$target"`)
+	marker := strings.Index(seed, `: > "$PROVEO_HOOKS_MARKER"`)
+	provision := strings.Index(seed, "proveo_provision_toolchain")
+	if install < 0 || marker < install {
+		t.Error("proveo_seed must mark the hooks seeded after installing them")
+	}
+	if provision >= 0 && marker > provision {
+		t.Error("the hooks marker must land before toolchain provisioning, or the launch waits out its limit")
 	}
 }

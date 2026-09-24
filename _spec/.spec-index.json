@@ -1458,7 +1458,9 @@
         "defs/opencode/Dockerfile",
         "defs/codex/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
-        "internal/contract/git_sync_turn_test.go"
+        "internal/contract/git_sync_turn_test.go",
+        "e2e/git_sync_turn_test.go",
+        "defs/codex/managed/requirements.toml"
       ],
       "fingerprint": null
     },
@@ -1618,6 +1620,16 @@
         "internal/contract/installer_bash_test.go",
         "scripts/githooks/post-commit",
         "mise.toml"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/44-git-sync-turn-e2e.puml",
+      "covers": [
+        "e2e/git_sync_turn_test.go",
+        "e2e/testdata/git-sync-turn/**",
+        "packages/lib/hooks/git-sync-turn.sh",
+        "internal/contract/git_sync_turn_test.go"
       ],
       "fingerprint": null
     }

@@ -135,8 +135,10 @@ COPY --chown=${USER_ID}:${USER_ID} packages/lib/entrypoint-lib.sh /entrypoint-li
 COPY --chown=${USER_ID}:${USER_ID} packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
+COPY defs/codex/managed/requirements.toml /etc/codex/requirements.toml
 COPY --chown=${USER_ID}:${USER_ID} defs/codex/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh /usr/local/bin/proveo-seed
+RUN chmod +x /entrypoint.sh /usr/local/bin/proveo-seed \
+    && chmod 0755 /etc/codex && chmod 0644 /etc/codex/requirements.toml
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).

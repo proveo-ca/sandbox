@@ -81,12 +81,16 @@ COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 defs/opencode/entrypoint.sh /entrypoint.sh
+COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed
+RUN install -d /opt/proveo/shims \
+    && printf '#!/bin/sh\nPROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded exec /usr/local/bin/proveo-await-seed %s "$@"\n' "$(command -v opencode)" > /opt/proveo/shims/opencode \
+    && chmod 0755 /opt/proveo/shims/opencode
 
 USER ${USER_NAME}
 WORKDIR /workspace
 
 ENV OPENCODE_AUTO_UPDATE=false \
-    PATH="/usr/local/bin:${PATH}"
+    PATH="/opt/proveo/shims:/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \
       security.hardened=true \

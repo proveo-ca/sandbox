@@ -50,11 +50,24 @@ else:
   fi
 }
 
+_git_sync_trace() {
+  local kind="$1" error="${2:-}" path="${PROVEO_GIT_SYNC_TRACE:-}"
+  [[ "$path" == off ]] && return 0
+  if [[ -z "$path" ]]; then
+    [[ -n "${git_dir:-}" ]] || return 0
+    path="$git_dir/proveo-git-sync.ndjson"
+  fi
+  printf '{"ts":%s,"dialect":%s,"event":%s,"result":%s,"error":%s}\n' \
+    "$(date +%s)" "$(_json_str "$dialect")" "$(_json_str "${event:-}")" \
+    "$(_json_str "$kind")" "$(_json_str "$error")" >>"$path" 2>/dev/null || true
+}
+
 _git_sync_emit() {
   local kind="$1" reason="${2:-}"
   if (( ${#reason} > 2000 )); then
     reason="${reason:0:2000}…"
   fi
+  _git_sync_trace "$kind" "${reason:-$err_msg}"
   case "$dialect" in
     cursor)
       if [[ "$kind" == block && -n "$reason" ]]; then
@@ -66,8 +79,6 @@ _git_sync_emit() {
     stop)
       if [[ "$kind" == block && -n "$reason" ]]; then
         printf '{"decision":"block","reason":%s}\n' "$(_json_str "$reason")"
-      else
-        printf '{"decision":"allow"}\n'
       fi
       ;;
     *)
@@ -76,12 +87,14 @@ _git_sync_emit() {
   esac
 }
 
+err_msg=""
+git_dir=""
+event="$(_json_get hook_event_name)"
 dialect="${PROVEO_GIT_SYNC_DIALECT:-}"
 case "$dialect" in
   claude|codex) dialect=stop ;;
 esac
 if [[ -z "$dialect" ]]; then
-  event="$(_json_get hook_event_name)"
   if [[ -n "$(_json_get loop_count)" ]]; then
     dialect=cursor
   elif [[ "$event" == Stop ]]; then
@@ -113,6 +126,7 @@ loop="$(_json_get loop_count)"
 
 fail() {
   local msg="$1"
+  err_msg="$msg"
   if (( continued )) || [[ "$dialect" == idle ]]; then
     printf '%s\n' "$msg" >&2
     _git_sync_emit allow ""
@@ -168,6 +182,8 @@ else
   remote="$(git remote 2>/dev/null | head -n 1 || true)"
 fi
 [[ -n "$remote" ]] || { _git_sync_emit allow ""; exit 0; }
+url="$(git remote get-url "$remote" 2>/dev/null || true)"
+[[ -d "$url" && ! -w "$url" ]] && { _git_sync_emit allow ""; exit 0; }
 
 if git rev-parse '@{u}' >/dev/null 2>&1; then
   ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || printf '0')"
