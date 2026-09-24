@@ -160,7 +160,7 @@ node "proveo/base — the universal floor" as BASE <<host>> {
   component """/usr/local/bin/proveo-entrypoint""\n""/usr/local/bin/plantuml-lsp""" as BIN <<app>>
   database "``/opt/jre`` — jlink, 72 MB\n20 modules, zip-6, stripped" as JLINK <<db>>
   component "``/opt/plantuml.jar`` + shim\nrendered once, at build" as PUML <<app>>
-  component "git · gh · jq · tmux · ripgrep\ngraphviz · fontconfig · harfbuzz" as APT <<app>>
+  component "git · gh · jq · tmux · ripgrep\ngraphviz · ffmpeg · fontconfig · harfbuzz" as APT <<app>>
 }
 
 node "proveo/base-node" as BN <<host>> {

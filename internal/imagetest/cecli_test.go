@@ -28,8 +28,8 @@ func TestImageCecli(t *testing.T) {
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `test -x /usr/local/bin/proveo-seed`},
 	)
 
-	cecliAll(s, "git + gh baked in, env git identity resolves via git config",
-		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `git --version && gh --version`},
+	cecliAll(s, "git + gh + ffmpeg baked in, env git identity resolves via git config",
+		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `git --version && gh --version && ffmpeg -hide_banner -version`},
 		[]string{"run", "--rm", "--user", "4242:4242", "--entrypoint", "bash",
 			"-e", "GIT_AUTHOR_NAME=Proveo Dev", "-e", "GIT_AUTHOR_EMAIL=dev@proveo.test", image, "-c", `
     source /entrypoint-lib.sh && ensure_runtime_user && bridge_git_identity \

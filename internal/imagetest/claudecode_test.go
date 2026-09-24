@@ -118,6 +118,7 @@ var (
 		{"bun", "bun --version"},
 		{"bunx", "bunx --version"},
 		{"git", "git --version"},
+		{"ffmpeg", "ffmpeg -hide_banner -version"},
 		{"gh", "gh --version"},
 		{"python3", "python3 --version"},
 		{"pip3", "pip3 --version"},

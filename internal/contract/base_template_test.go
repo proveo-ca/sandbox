@@ -231,3 +231,12 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseInstallsFfmpegForEveryHarness(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
+	apt := regexp.MustCompile(`(?s)apt-get install -y --no-install-recommends \\(.*?)&&`).FindStringSubmatch(src)
+	if apt == nil || !regexp.MustCompile(`\bffmpeg\b`).MatchString(apt[1]) {
+		t.Error("defs/base/Dockerfile apt layer lacks ffmpeg; every harness inherits its media tools from base")
+	}
+}
