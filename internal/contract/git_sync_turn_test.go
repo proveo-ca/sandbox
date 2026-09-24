@@ -3,6 +3,7 @@ package contract_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,9 +74,14 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
+// hookEnv defaults PROVEO_GIT_SYNC_MSG=off: the test machine's own PATH
+// carries a real `claude` binary (this suite runs inside a claudecode
+// sandbox), so leaving message generation on would fire a live model call
+// per dirty-tree test. Tests exercising generation pass their own
+// PROVEO_GIT_SYNC_MSG=auto as extra, which overrides the default by key.
 func hookEnv(t *testing.T, extra ...string) []string {
 	t.Helper()
-	env := []string{
+	base := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + gitConfigHome(t),
 		"GIT_CONFIG_NOSYSTEM=1",
@@ -84,8 +90,41 @@ func hookEnv(t *testing.T, extra ...string) []string {
 		"GIT_COMMITTER_NAME=proveo-test",
 		"GIT_COMMITTER_EMAIL=proveo@test",
 		"PROVEO_GIT_SYNC_DIALECT=stop",
+		"PROVEO_GIT_SYNC_MSG=off",
 	}
-	return append(env, extra...)
+	vals := map[string]string{}
+	var order []string
+	set := func(kv string) {
+		k, v, _ := strings.Cut(kv, "=")
+		if _, ok := vals[k]; !ok {
+			order = append(order, k)
+		}
+		vals[k] = v
+	}
+	for _, kv := range base {
+		set(kv)
+	}
+	for _, kv := range extra {
+		set(kv)
+	}
+	out := make([]string, 0, len(order))
+	for _, k := range order {
+		out = append(out, k+"="+vals[k])
+	}
+	return out
+}
+
+// stubModelCLI writes an executable named `name` (e.g. "claude") into a
+// fresh dir and returns that dir, for callers to prepend onto PATH so
+// git-sync-turn.sh's `command -v` finds the stub before any real CLI.
+func stubModelCLI(t *testing.T, name, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func runGitSync(t *testing.T, dir, stdin string, env []string) (string, string, int) {
@@ -149,6 +188,103 @@ func TestGitSyncCommitsADirtyTree(t *testing.T) {
 	tracked := gitCmd(t, dir, nil, "ls-files", "work.txt")
 	if !strings.Contains(tracked, "work.txt") {
 		t.Errorf("work.txt was not committed: %s", tracked)
+	}
+}
+
+func TestGitSyncGeneratesCommitSubjectFromTheModel(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "inflight-seen")
+	stub := stubModelCLI(t, "claude", fmt.Sprintf(`
+[[ "$PROVEO_GIT_SYNC_MSG_INFLIGHT" == 1 ]] && touch '%s'
+echo "add the missing feature flag"
+`, marker))
+	env := hookEnv(t,
+		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PROVEO_GIT_SYNC_MSG=auto",
+	)
+	out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, env)
+	if code != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
+	}
+	sub := strings.TrimSpace(gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"))
+	if sub != "[proveo] add the missing feature flag" {
+		t.Errorf("subject %q, want the stubbed model's line under the [proveo] tag", sub)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("the stubbed model never saw PROVEO_GIT_SYNC_MSG_INFLIGHT=1 — a Stop hook fired from inside it would recurse")
+	}
+}
+
+func TestGitSyncFallsBackWhenTheModelFails(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "flaky.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stub := stubModelCLI(t, "claude", `exit 1`)
+	env := hookEnv(t,
+		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PROVEO_GIT_SYNC_MSG=auto",
+	)
+	out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, env)
+	if code != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
+	}
+	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
+	if !strings.Contains(sub, "[proveo] persist turn") {
+		t.Errorf("subject %q, want the static fallback when the model errors", sub)
+	}
+}
+
+func TestGitSyncMsgOffSkipsTheModelEvenWhenOneIsAvailable(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "quiet.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stub := stubModelCLI(t, "claude", `echo "should never be used"`)
+	env := hookEnv(t,
+		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PROVEO_GIT_SYNC_MSG=off",
+	)
+	_, _, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, env)
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
+	if !strings.Contains(sub, "[proveo] persist turn") {
+		t.Errorf("subject %q, PROVEO_GIT_SYNC_MSG=off must keep the static subject", sub)
+	}
+}
+
+func TestGitSyncMsgInflightGuardIsANoOp(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "recursive.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, hookEnv(t, "PROVEO_GIT_SYNC_MSG_INFLIGHT=1"))
+	if code != 0 || out != "" || errb != "" {
+		t.Fatalf("inflight guard: exit %d stdout %q stderr %q, want a silent exit 0", code, out, errb)
+	}
+	st := gitCmd(t, dir, nil, "status", "--porcelain")
+	if !strings.Contains(st, "recursive.txt") {
+		t.Error("a nested invocation must not commit — that is the guard against a Stop hook triggering itself")
+	}
+}
+
+func TestGitSyncGuardsAgainstRecursiveModelInvocation(t *testing.T) {
+	t.Parallel()
+	src := readRepoFile(t, "packages/lib/hooks/git-sync-turn.sh")
+	if !strings.Contains(src, "PROVEO_GIT_SYNC_MSG_INFLIGHT") {
+		t.Fatal("git-sync-turn.sh lacks a PROVEO_GIT_SYNC_MSG_INFLIGHT guard — a nested claude/codex/cursor-agent/opencode call can itself fire this same Stop hook")
+	}
+	if strings.Index(src, "PROVEO_GIT_SYNC_MSG_INFLIGHT") > strings.Index(src, "_json_get()") {
+		t.Error("the inflight guard must short-circuit before any hook logic runs, not just inside the subject generator")
 	}
 }
 
@@ -234,6 +370,7 @@ func TestGitSyncBlocksWhenCommitHasNoIdentity(t *testing.T) {
 		// A hostname with a domain (macOS's *.local) lets git invent an identity.
 		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=stop",
+		"PROVEO_GIT_SYNC_MSG=off",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {
 		t.Fatal(err)
@@ -266,6 +403,7 @@ func TestGitSyncAllowsAfterAStopContinuation(t *testing.T) {
 		// A hostname with a domain (macOS's *.local) lets git invent an identity.
 		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=stop",
+		"PROVEO_GIT_SYNC_MSG=off",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {
 		t.Fatal(err)
@@ -294,6 +432,7 @@ func TestGitSyncCursorFollowupOnFailure(t *testing.T) {
 		// A hostname with a domain (macOS's *.local) lets git invent an identity.
 		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true",
 		"PROVEO_GIT_SYNC_DIALECT=cursor",
+		"PROVEO_GIT_SYNC_MSG=off",
 	}
 	if err := os.WriteFile(filepath.Join(home, "empty"), []byte(""), 0o600); err != nil {
 		t.Fatal(err)
@@ -353,9 +492,18 @@ func TestGitSyncIdleCommitsWithoutJSON(t *testing.T) {
 func TestGitSyncScriptNeverForcePushesOrSkipsHooks(t *testing.T) {
 	t.Parallel()
 	src := readRepoFile(t, "packages/lib/hooks/git-sync-turn.sh")
-	for _, banned := range []string{"--force", "--no-verify", "--amend", "git config "} {
-		if strings.Contains(src, banned) {
-			t.Errorf("git-sync-turn.sh contains %q", banned)
+	// Scoped to lines that actually invoke `git`: cursor-agent's own --force
+	// (a headless-trust flag, unrelated to git) legitimately appears on the
+	// commit-subject generator's cursor-agent invocation line.
+	banned := []string{"--force", "--no-verify", "--amend", "git config "}
+	for _, line := range strings.Split(src, "\n") {
+		if !strings.Contains(line, "git ") {
+			continue
+		}
+		for _, b := range banned {
+			if strings.Contains(line, b) {
+				t.Errorf("git-sync-turn.sh git invocation contains %q: %q", b, line)
+			}
 		}
 	}
 	for _, want := range []string{"[ ! -t 0 ]", "GIT_TERMINAL_PROMPT=0"} {

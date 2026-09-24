@@ -2,6 +2,7 @@
 # SPEC: _spec/packages/lib/git-sync-turn.puml
 set -u
 export GIT_TERMINAL_PROMPT=0
+[[ "${PROVEO_GIT_SYNC_MSG_INFLIGHT:-}" == 1 ]] && exit 0
 payload=""
 if [ ! -t 0 ]; then
   payload="$(cat 2>/dev/null || true)"
@@ -87,6 +88,40 @@ _git_sync_emit() {
   esac
 }
 
+_gen_commit_subject() {
+  local diff prompt subj model timeout_s="${PROVEO_GIT_SYNC_MSG_TIMEOUT:-20}"
+  command -v timeout >/dev/null 2>&1 || return 1
+  diff="$(git diff --cached -- . 2>/dev/null | head -c 4000)"
+  [[ -n "$diff" ]] || return 1
+  prompt="Write ONE git commit subject line (max 72 chars, imperative mood, no prefix, no quotes, no surrounding punctuation) summarizing this staged diff. Reply with only that line, nothing else.
+
+$diff"
+  if command -v claude >/dev/null 2>&1; then
+    model="${PROVEO_GIT_SYNC_MODEL_CLAUDE:-claude-haiku-4-5-20251001}"
+    subj="$(PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" claude -p --model "$model" --max-turns 1 "$prompt" 2>/dev/null)"
+  elif command -v codex >/dev/null 2>&1; then
+    model="${PROVEO_GIT_SYNC_MODEL_CODEX:-gpt-5-nano}"
+    subj="$(PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" codex exec --model "$model" --sandbox read-only --ask-for-approval never "$prompt" 2>/dev/null)"
+  elif command -v cursor-agent >/dev/null 2>&1; then
+    model="${PROVEO_GIT_SYNC_MODEL_CURSOR:-}"
+    [[ -n "$model" ]] || return 1
+    subj="$(PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" cursor-agent -p --force --sandbox disabled --trust --model "$model" "$prompt" 2>/dev/null)"
+  elif command -v opencode >/dev/null 2>&1; then
+    model="${PROVEO_GIT_SYNC_MODEL_OPENCODE:-anthropic/claude-haiku-4-5}"
+    subj="$(PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" opencode run -m "$model" "$prompt" 2>/dev/null)"
+  else
+    return 1
+  fi
+  subj="$(printf '%s' "$subj" | tr -d '\r' | sed -n '1p')"
+  subj="${subj#"${subj%%[![:space:]]*}"}"
+  subj="${subj%"${subj##*[![:space:]]}"}"
+  subj="${subj#\"}"; subj="${subj%\"}"
+  subj="${subj#\'}"; subj="${subj%\'}"
+  [[ -n "$subj" ]] || return 1
+  (( ${#subj} > 72 )) && subj="${subj:0:72}"
+  printf '%s' "$subj"
+}
+
 err_msg=""
 git_dir=""
 event="$(_json_get hook_event_name)"
@@ -165,7 +200,12 @@ fi
 
 if ! git diff --cached --quiet 2>/dev/null; then
   body="$(git status --short | head -n 20 | tr -d '\r')"
-  msg="$(printf '%s\n\n%s\n' '[proveo] persist turn' "$body")"
+  subject="persist turn"
+  case "$(printf '%s' "${PROVEO_GIT_SYNC_MSG:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    off|false|0|no|disable|disabled) ;;
+    *) gen="$(_gen_commit_subject)" && [[ -n "$gen" ]] && subject="$gen" ;;
+  esac
+  msg="$(printf '[proveo] %s\n\n%s\n' "$subject" "$body")"
   if ! err="$(git commit -m "$msg" 2>&1)"; then
     fail "git commit failed: $err"
   fi

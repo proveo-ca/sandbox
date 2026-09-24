@@ -84,7 +84,11 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 		removeLeakedSandboxes(t, before, canList)
 	})
 	cmd := append([]string{"env"}, envArgs...)
-	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_AUTO_INSTALL_TOOLS=false",
+	// PROVEO_GIT_SYNC_MSG=off: this test asserts the exact static subject; the
+	// model-generated subject is unit-tested (internal/contract) with a
+	// stubbed CLI, where the model call and its recursion guard can be
+	// verified deterministically without live credentials.
+	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_AUTO_INSTALL_TOOLS=false", "PROVEO_GIT_SYNC_MSG=off",
 		proveoBin, "run", h.target, "--egress-mode", "open", "--credentials", "forward", "--input", work)
 	if err := sess.Start(220, 50, append(cmd, runArgs...)...); err != nil {
 		t.Fatalf("start %s: %v", h.target, err)

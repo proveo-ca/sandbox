@@ -69,6 +69,28 @@ note as N_OFF
   An aborted Cursor turn never commits.
 end note
 
+note as N_MSG
+  **Subject asks the smallest model.** Static
+  "persist turn" repeated every commit. Now
+  the diff goes to claude/codex/cursor-agent/
+  opencode's cheapest model (env override per
+  PROVEO_GIT_SYNC_MODEL_*); any failure keeps
+  "persist turn". PROVEO_GIT_SYNC_MSG=off
+  skips the call, commit still happens.
+  Cursor has no verified small-model id —
+  unset PROVEO_GIT_SYNC_MODEL_CURSOR = skip.
+end note
+
+note as N_RECURSE
+  **The CLI it calls can re-fire this hook.**
+  claude -p / codex exec / cursor-agent -p /
+  opencode run share the same home config as
+  the live session, Stop hooks included — a
+  naive call would recurse. PROVEO_GIT_SYNC_
+  MSG_INFLIGHT=1 is set on the child and
+  checked first thing on script entry.
+end note
+
 note bottom of OC
   **Idle must not inherit the TTY.**
   The script opened with cat. On a

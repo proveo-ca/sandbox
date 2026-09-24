@@ -54,4 +54,13 @@ note as N_SCOPE
   row. cursor has no local model; it skips
   without a funded CURSOR_API_KEY.
 end note
+
+note as N_MSG_OFF
+  **This suite forces PROVEO_GIT_SYNC_MSG=off.**
+  It asserts the exact static subject; a live
+  model call (real or --local-model) is not
+  deterministic here. Generation itself is
+  unit-tested in internal/contract with a
+  stubbed CLI on PATH — see git-sync-turn.puml.
+end note
 @enduml
