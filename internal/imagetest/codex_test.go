@@ -93,6 +93,7 @@ func TestImageCodex(t *testing.T) {
 	// Phase 2: Tool Verification
 	s.Success("codex cli is installed and reports a version", image, "codex --version")
 	s.Success("git is installed", image, "git --version")
+	s.Success("ffmpeg is installed", image, "ffmpeg -hide_banner -version")
 	s.Success("gh is installed", image, "gh --version")
 	s.Success("node is installed", image, "node --version")
 	s.Success("docker client is installed (docker via the sbx sandbox backend)", image, "docker --version")
@@ -209,6 +210,8 @@ func TestImageCodex(t *testing.T) {
 	// Phase 5: Baked-in Defaults
 	s.Success("baked defaults: config.toml present in /opt", image, "test -f /opt/codex/defaults/config.toml")
 	s.Success("git-sync turn hook is executable", image, "test -x /opt/proveo/hooks/git-sync-turn.sh")
+	s.Contains("managed requirements wire the git-sync Stop hook", image,
+		"cat /etc/codex/requirements.toml", "git-sync-turn.sh")
 	s.Contains("default config.toml never pauses an unattended loop", image,
 		"cat /opt/codex/defaults/config.toml", `approval_policy = "never"`)
 	s.Contains("default config.toml leaves confinement to the container", image,

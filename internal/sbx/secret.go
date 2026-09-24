@@ -23,6 +23,19 @@ var BuiltinServices = []string{
 	"groq", "mistral", "nebius", "openai", "openrouter", "xai",
 }
 
+// OAuthServices are the built-in services whose one entry also holds a
+// subscription login; an API key stored there outranks it for every sandbox.
+var OAuthServices = []string{"anthropic", "openai"}
+
+func HasOAuthSlot(service string) bool {
+	for _, s := range OAuthServices {
+		if s == service {
+			return true
+		}
+	}
+	return false
+}
+
 func IsBuiltinService(name string) bool {
 	for _, s := range BuiltinServices {
 		if s == name {

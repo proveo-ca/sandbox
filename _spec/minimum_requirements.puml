@@ -85,7 +85,7 @@ skinparam noteTextAlignment left
 ' ── AND THE KILL IS NOW READABLE, WHICH IT WAS NOT ─────────────────────────
 ' This file complained that a memory death is "invisible in exactly the place an
 ' operator would look". Teardown now looks. CaptureMemoryEvidence runs beside
-' CapturePolicyLog and writes memory-evidence.txt: /proc/meminfo, the dmesg
+' CapturePolicyLog and writes memory-logs.txt: /proc/meminfo, the dmesg
 ' lines naming an OOM kill, and the nested containers sharing the budget.
 '
 ' WHERE THE EVIDENCE HAD TO COME FROM, measured rather than assumed:

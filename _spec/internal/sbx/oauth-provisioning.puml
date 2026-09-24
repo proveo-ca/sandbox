@@ -5,6 +5,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/run.go (AuthLoginArgs)
 ' covers: internal/credentials/keychain.go (NeedsSandboxLogin, SandboxLoginHint)
 ' covers: internal/run/run.go (reportSandboxLogin, selectBackend)
+' covers: internal/backend/sandbox/sandbox.go (Spec addSecret)
+' covers: internal/sbx/secret.go (OAuthServices, HasOAuthSlot)
 '   what proveo can read ........ _spec/internal/secretref/secret-references.puml
 '   the credential path it joins . _spec/internal/sbx/credential-path.puml
 '   the exposure it does NOT close _spec/_plans/secret-custody.puml
@@ -98,6 +100,17 @@ skinparam noteTextAlignment left
 ' subscription login and bill per token. That is the exact failure
 ' credential-path.puml already records. The fix belongs behind the auth row,
 ' not in a rename.
+' ── RESOLVED 2026-09-24: A RUN NEVER STORES AN API KEY BESIDE AN OAUTH SLOT ─
+' Measured on this host: `sbx secret ls` listed the global anthropic entry as
+' "(oauth configured)" while a claudecode sandbox reported
+' SBX_CRED_ANTHROPIC_MODE=apikey. StoreName maps ANTHROPIC_API_KEY to the
+' service name, so every forwarded run had written the key INTO that entry,
+' and the listing hides it. The key then billed every later sandbox.
+'
+' Spec's addSecret now skips a StoreAPIKey credential whose service has an
+' OAuth slot (sbx.OAuthServices: anthropic, openai) and says so. Per-token
+' billing on those services is the operator's own `sbx secret set <svc>`.
+' `proveo init` still writes what the operator types into a slot.
 title sbx OAuth provisioning — one writer, and it is not proveo
 
 actor "operator" as OP

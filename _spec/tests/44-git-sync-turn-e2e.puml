@@ -1,0 +1,66 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title git-sync-turn e2e — the turn-end hook runs clean in every hooked def
+' purpose: why the hook e2e drives a live TUI and reads a trace, not the host refs
+' covers: e2e/git_sync_turn_test.go
+' covers: e2e/testdata/git-sync-turn/**
+' covers: packages/lib/hooks/git-sync-turn.sh
+' covers: internal/contract/git_sync_turn_test.go
+'   the hook's own contract ....... _spec/packages/lib/git-sync-turn.puml
+'   where a clone's work lands .... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+
+participant "e2e" as T <<app>>
+participant "proveo run <def>\n(pty, TUI)" as R <<app>>
+participant "sbx exec\n(live sandbox)" as X <<app>>
+participant "git-sync-turn.sh" as H <<app>>
+participant "<git-dir>/\nproveo-git-sync.ndjson" as TR <<app>>
+
+T ARROW_MAIN R : fixture base, --input
+R ARROW_MAIN T : TUI ready
+T ARROW_MAIN X : drop HOOK_PROBE.txt
+T ARROW_MAIN R : "Reply OK" + CR
+R ARROW_MAIN H : Stop / stop / session.idle
+H ARROW_MAIN TR : {dialect, result, error}
+T ARROW_MAIN X : read trace + git state
+X ARROW_MAIN T : assert allow, committed, pushed
+
+note right of T
+  **The file is the test's, not the model's.**
+  The probe lands through sbx exec before the
+  prompt, so only "a turn ended" rests on the
+  model. A missing commit is then the hook's.
+end note
+
+note right of X
+  **Read while the TUI still holds the prompt.**
+  The sandbox is running, so exec needs no VM
+  restart. After exit, refs/proveo shows the
+  commit but never whether push or Stop failed.
+end note
+
+note right of TR
+  **Only the trace sees a swallowed error.**
+  opencode's plugin runs .quiet(); a Stop block
+  reason goes to the model, not the pane. Each
+  run appends one line inside .git: never
+  committed. PROVEO_GIT_SYNC_TRACE path | off.
+end note
+
+note as N_SCOPE
+  **Rows: claudecode, codex, cursor, opencode.**
+  cecli wires no turn-end hook, so it has no
+  row. cursor has no local model; it skips
+  without a funded CURSOR_API_KEY.
+end note
+
+note as N_MSG_OFF
+  **This suite forces PROVEO_GIT_SYNC_MSG=off.**
+  It asserts the exact static subject; a live
+  model call (real or --local-model) is not
+  deterministic here. Generation itself is
+  unit-tested in internal/contract with a
+  stubbed CLI on PATH — see git-sync-turn.puml.
+end note
+@enduml

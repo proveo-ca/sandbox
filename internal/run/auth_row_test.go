@@ -187,3 +187,39 @@ func TestARememberedVariableNameDoesNotSelectTheWrongSide(t *testing.T) {
 		t.Errorf("a stale variable name = %q, want availability to decide instead", got)
 	}
 }
+
+func TestAuthRowOpensOnTheSubscriptionWhenBothSidesAreLive(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		chosen string
+		want   string
+	}{
+		{name: "no remembered answer", want: credentials.AuthSubscription},
+		{name: "remembered usage stays usage", chosen: credentials.AuthUsage, want: credentials.AuthUsage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r, ok := authRow(opencodeMan(), env(map[string]string{
+				"OPENCODE_API_KEY": "zen", "ANTHROPIC_API_KEY": "sk",
+			}), "opencode", "", "", tc.chosen)
+			if !ok {
+				t.Fatal("no auth row")
+			}
+			if got := r.Options[r.Selected]; got != tc.want {
+				t.Errorf("authRow(chosen=%q) opened on %q, want %q", tc.chosen, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAuthRowOpensOnUsageWhenNoPlanIsAvailable(t *testing.T) {
+	t.Parallel()
+	r, ok := authRow(opencodeMan(), env(map[string]string{"ANTHROPIC_API_KEY": "sk"}), "opencode", "", "", "")
+	if !ok {
+		t.Fatal("no auth row")
+	}
+	if got := r.Options[r.Selected]; got != credentials.AuthUsage {
+		t.Errorf("authRow opened on %q, want %q — the only live side", got, credentials.AuthUsage)
+	}
+}

@@ -218,9 +218,10 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 
 	cfg, kit, secrets := sandbox.Spec(in)
 
-	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false, "ANTHROPIC_API_KEY": false}
+	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false}
 	if len(secrets) != len(wantSecrets) {
-		t.Fatalf("secrets = %v, want exactly the declared+provider keys %v", secrets, wantSecrets)
+		t.Fatalf("secrets = %v, want exactly the declared plan credential %v — an API key "+
+			"in sbx's anthropic entry outranks the subscription", secrets, wantSecrets)
 	}
 	for _, kv := range secrets {
 		if _, tracked := wantSecrets[kv[0]]; !tracked {

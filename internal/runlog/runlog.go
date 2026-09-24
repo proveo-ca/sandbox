@@ -99,7 +99,7 @@ const PolicyLogFile = "policy-log.json"
 // MemoryEvidenceFile is the guest's own account of its memory at teardown. A
 // sandbox that died of memory pressure leaves no OOMKilled flag and no exit
 // message, so without this the operator has nothing to read.
-const MemoryEvidenceFile = "memory-evidence.txt"
+const MemoryEvidenceFile = "memory-logs.txt"
 
 // Artifacts records where the evidence for this run lives.
 func (l *Log) Artifacts(egDir string, sandboxed bool) {

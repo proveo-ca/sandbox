@@ -1363,9 +1363,9 @@ proveo_install_git_sync_hooks() {
         && echo "git-sync: Stop hook commits and pushes before the turn returns"
       ;;
     codex)
-      [[ -n "$home" && -s "$hook" ]] || return 0
-      _proveo_merge_stop_hook "${CODEX_HOME:-$home/.codex}/hooks.json" "$cmd" \
-        && echo "git-sync: Stop hook commits and pushes before the turn returns"
+      if [[ -f /etc/codex/requirements.toml ]] && grep -q git-sync-turn /etc/codex/requirements.toml 2>/dev/null; then
+        echo "git-sync: managed Stop hook commits and pushes before the turn returns"
+      fi
       ;;
     opencode)
       [[ -n "$home" && -s "$plugin" ]] || return 0
@@ -2501,6 +2501,7 @@ proveo_sbx_passthrough() {
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
+PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 
 # Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
 proveo_seed_instructions() {
@@ -2532,6 +2533,9 @@ proveo_seed() {
 
  proveo_sync_config restore || true
 
+ proveo_install_git_sync_hooks "$target"
+ : > "$PROVEO_HOOKS_MARKER" 2>/dev/null || true
+
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
@@ -2551,7 +2555,6 @@ proveo_seed() {
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
- proveo_install_git_sync_hooks "$target"
  proveo_seed_browser_skills "$target"
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml

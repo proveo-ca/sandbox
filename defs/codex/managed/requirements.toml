@@ -1,0 +1,10 @@
+# SPEC: _spec/packages/lib/git-sync-turn.puml
+[features]
+hooks = true
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "bash /opt/proveo/hooks/git-sync-turn.sh"
+timeout = 90

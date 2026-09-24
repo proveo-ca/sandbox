@@ -110,6 +110,7 @@ func ocTools(s *imagetest.Suite) {
 		{"bun", "bun --version"},
 		{"bunx", "bunx --version"},
 		{"git", "git --version"},
+		{"ffmpeg", "ffmpeg -hide_banner -version"},
 		{"gh", "gh --version"},
 		{"curl", "curl --version"},
 		{"dumb-init", "dumb-init --version"},

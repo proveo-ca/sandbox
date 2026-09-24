@@ -11,9 +11,12 @@ title git-sync-turn — commit and push before Stop / idle
 ' covers: defs/cursor/Dockerfile
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/codex/Dockerfile
+' covers: defs/codex/managed/requirements.toml
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/git_sync_turn_test.go
+' covers: e2e/git_sync_turn_test.go
 '   seed step order ............... _spec/packages/lib/seed-and-launch.puml
+'   live e2e per def .............. _spec/tests/44-git-sync-turn-e2e.puml
 '   git identity .................. _spec/internal/gitidentity/authorship.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 
@@ -26,10 +29,10 @@ participant "block / followup" as BLOCK <<error>>
 
 STOP ARROW_MAIN HOOK : stdin JSON
 CU ARROW_MAIN HOOK : stdin JSON
-OC ARROW_OPTIONAL HOOK : plugin event, not awaited
+OC ARROW_OPTIONAL HOOK : plugin event, awaited
 HOOK ARROW_MAIN GIT
 GIT ARROW_MAIN HOOK : clean or pushed
-HOOK ARROW_MAIN STOP : decision allow / {}
+HOOK ARROW_MAIN STOP : no decision / {}
 GIT ARROW_ERROR BLOCK : identity or push miss
 BLOCK ARROW_QUEUE STOP : reason as next prompt
 BLOCK ARROW_QUEUE CU : followup_message
@@ -66,11 +69,68 @@ note as N_OFF
   An aborted Cursor turn never commits.
 end note
 
+note as N_MSG
+  **Subject asks the smallest model.** Static
+  "persist turn" repeated every commit. Now
+  the diff goes to claude/codex/cursor-agent/
+  opencode's cheapest model (env override per
+  PROVEO_GIT_SYNC_MODEL_*); any failure keeps
+  "persist turn". PROVEO_GIT_SYNC_MSG=off
+  skips the call, commit still happens.
+  Cursor has no verified small-model id —
+  unset PROVEO_GIT_SYNC_MODEL_CURSOR = skip.
+end note
+
+note as N_RECURSE
+  **The CLI it calls can re-fire this hook.**
+  claude -p / codex exec / cursor-agent -p /
+  opencode run share the same home config as
+  the live session, Stop hooks included — a
+  naive call would recurse. PROVEO_GIT_SYNC_
+  MSG_INFLIGHT=1 is set on the child and
+  checked first thing on script entry.
+end note
+
 note bottom of OC
   **Idle must not inherit the TTY.**
   The script opened with cat. On a
   TTY that never EOFs, so every key
   after session.idle went to cat.
   Plugin: </dev/null. Script: skip TTY.
+end note
+note as N_DIALECT
+  **Allow is silence.** Claude and Codex Stop
+  accept "block" or no decision; "allow" is a
+  schema error shown as "Stop hook error".
+  Cursor still takes {}.
+end note
+
+note as N_CODEX
+  **Codex hooks are managed, not user.** User
+  hooks.json waits for /hooks review, so an
+  unattended turn never ran it. The image
+  bakes /etc/codex/requirements.toml instead.
+end note
+
+note as N_LAZY
+  **Bun's $ is lazy.** An unawaited
+  ShellPromise never spawns; the idle plugin
+  ran nothing. Measured 2026-09-24 in
+  proveo-opencode-c1c4da74 with a probe plugin.
+end note
+
+note as N_RACE
+  **The TUI loads plugins once, at start.** sbx
+  launched opencode 6s before the seed copied
+  the plugin. The seed now installs hooks first
+  and marks /dev/shm/proveo-hooks-seeded; the
+  opencode shim awaits it.
+end note
+
+note as N_CLONE
+  **A read-only origin is commit-only.** In an
+  sbx clone origin is /run/sandbox/source (ro).
+  Push there always failed; teardown already
+  fetches the commit into refs/proveo/<sid>/.
 end note
 @enduml

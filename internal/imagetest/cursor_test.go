@@ -80,6 +80,7 @@ func TestImageCursor(t *testing.T) {
 	s.Success("legacy cursor-agent alias resolves", image, "command -v cursor-agent")
 	s.Matches("agent binary lives under the root-owned dist prefix", image, "readlink -f /usr/local/bin/agent", "^/opt/cursor-dist/")
 	s.Success("git is installed", image, "git --version")
+	s.Success("ffmpeg is installed", image, "ffmpeg -hide_banner -version")
 	s.Success("gh is installed", image, "gh --version")
 	s.Failure("bun stays out of the runtime-free cursor image (it lives in proveo/base-node)", image, "command -v bun")
 	s.Success("docker client comes from the sandbox template", image, "command -v docker")

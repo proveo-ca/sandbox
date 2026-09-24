@@ -68,7 +68,7 @@ RUN --mount=type=cache,id=proveo-base-apt-cache,target=/var/cache/apt,sharing=lo
     --mount=type=cache,id=proveo-base-apt-lists,target=/var/lib/apt,sharing=locked \
     apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
-       dumb-init passwd tmux graphviz iptables \
+       dumb-init passwd tmux graphviz iptables ffmpeg \
        fontconfig fonts-dejavu-core libharfbuzz0b \
     && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden

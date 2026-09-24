@@ -1,0 +1,2 @@
+PROVEO-GIT-SYNC-TURN-PROBE
+written into the live workspace before the turn; the Stop/idle hook commits it.

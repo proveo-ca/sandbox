@@ -2,7 +2,6 @@
 sbx run --name proveo-claudecode-<WORKHASH> --kit /st/sbx/kit -t proveo/claudecode:latest -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e PROVEO_SCOPE_REL=apps/web -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= -e PROVEO_CONFIG_FILES_ROOT=<RUN>/sbx/home-files shell <WORK> <HOME>/.claude <HOME>/toolchains <RUN>/sbx/home-files <DATA>:ro
 == secret names ==
 CLAUDE_CODE_OAUTH_TOKEN
-ANTHROPIC_API_KEY
 == kit spec.yaml ==
 schemaVersion: "2"
 kind: mixin
