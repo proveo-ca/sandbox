@@ -1067,11 +1067,11 @@ func CaptureMemoryEvidence(egDir, name string) {
 		// `sbx exec` starts a stopped sandbox, so this reading is a FRESH boot:
 		// its dmesg is empty and its meminfo is idle. Silence here is not
 		// evidence of no kill — it is evidence the kill's boot is gone.
-		ui.Notef("memory evidence: %s — the sandbox had already stopped, so this is a fresh boot; "+
+		ui.Notef("memory logs: %s — the sandbox had already stopped, so this is a fresh boot; "+
 			"a kill in the boot that died left no trace to read", path)
 		return
 	}
-	ui.Storef("memory evidence: %s", path)
+	ui.Storef("memory logs: %s", path)
 }
 
 func Selected(man manifest.Manifest) bool {
