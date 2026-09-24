@@ -492,10 +492,11 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 		return out
 	}
 
-	// No home, so no login can be found: both credentials are stored, as before.
+	// No home, so no login can be found: the plan token is stored; the API key
+	// never is, since sbx's anthropic entry would bill it over the subscription.
 	noHome := names(base)
-	if !noHome["ANTHROPIC_API_KEY"] {
-		t.Errorf("without a host login the API key must still be stored, got %v", noHome)
+	if !noHome["CLAUDE_CODE_OAUTH_TOKEN"] || noHome["ANTHROPIC_API_KEY"] {
+		t.Errorf("without a host login want only the plan token stored, got %v", noHome)
 	}
 
 	home := t.TempDir()

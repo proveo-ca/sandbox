@@ -468,6 +468,9 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	if r := o.RefreshTokenExpiresAt; r != nil && !tokenCleared(o.RefreshToken) && now.Before(time.UnixMilli(*r)) {
 		return true, true
 	}
+	if o.RefreshTokenExpiresAt == nil && o.RefreshToken != nil && *o.RefreshToken != "" {
+		return true, true
+	}
 	return false, false
 }
 

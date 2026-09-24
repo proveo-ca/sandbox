@@ -1157,7 +1157,9 @@
       "covers": [
         "internal/sbx/run.go",
         "internal/credentials/keychain.go",
-        "internal/run/run.go"
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox.go (Spec addSecret)",
+        "internal/sbx/secret.go (OAuthServices, HasOAuthSlot)"
       ],
       "fingerprint": null
     },

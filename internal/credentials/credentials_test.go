@@ -765,6 +765,18 @@ func TestLoginUsableSeparatesLiveFromDeadCredentials(t *testing.T) {
 			usable: true,
 		},
 		{
+			// Claude Code's file carries no refresh stamp on some logins; the
+			// refresh token alone still renews, so this is a login that needs one.
+			name:     "stale access token, unstamped refresh token",
+			body:     fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r","expiresAt":%d}}`, ms(-14*time.Hour)),
+			usable:   true,
+			needsRef: true,
+		},
+		{
+			name: "stale access token, blanked unstamped refresh token",
+			body: fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"","expiresAt":%d}}`, ms(-14*time.Hour)),
+		},
+		{
 			name:   "no expiry recorded",
 			body:   `{"claudeAiOauth":{"accessToken":"x"}}`,
 			usable: true,

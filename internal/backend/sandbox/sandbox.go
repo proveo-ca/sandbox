@@ -592,6 +592,11 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			addForward(name) // the operator chose the complete route over the safer one
 			return
 		}
+		if service, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
+			ui.Notef("sandbox secret: %s not stored — sbx's global %q entry also holds the subscription, and an API key "+
+				"there outranks it in every sandbox; to bill per token, `sbx secret set %s` yourself", name, service, service)
+			return
+		}
 		secrets = append(secrets, [2]string{name, v})
 	}
 	suppressedAuth := credentials.AuthSuppressor(in.Man, in.Target, in.AuthVar, in.HomeRoot, in.Lookup)

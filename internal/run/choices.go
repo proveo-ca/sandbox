@@ -101,7 +101,7 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 		return choiceui.Row{}, false
 	}
 	opts := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
-	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), available))
+	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), preferSubscription(available)))
 	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
 	r.Off = make([]bool, len(r.Options))
 	r.OffWhy = map[string]string{}
@@ -120,6 +120,15 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 		r.Selected = firstSelectableIn(&r)
 	}
 	return r, true
+}
+
+// preferSubscription puts the plan side first, so a run bills against it whenever it can.
+func preferSubscription(available []string) []string {
+	if !slices.Contains(available, credentials.AuthSubscription) {
+		return available
+	}
+	return append([]string{credentials.AuthSubscription}, slices.DeleteFunc(slices.Clone(available),
+		func(s string) bool { return s == credentials.AuthSubscription })...)
 }
 
 func authAnswer(chosen string, available []string) string {

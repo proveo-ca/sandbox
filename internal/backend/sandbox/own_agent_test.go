@@ -214,10 +214,10 @@ func TestOwnAgentDeclaresItsOwnCredentials(t *testing.T) {
 		}
 	}
 
-	if len(secrets) == 0 {
-		t.Error("no secrets at all — the env-var entries the gate-off path relies on are gone")
-	}
 	for _, kv := range secrets {
+		if kv[0] == "ANTHROPIC_API_KEY" {
+			t.Error("Spec stored ANTHROPIC_API_KEY; in sbx's anthropic entry it outranks the subscription for every sandbox")
+		}
 		if kv[0] == "anthropic" {
 			t.Fatal("Spec stored a secret under the SERVICE name, which overwrites the " +
 				"operator's own entry in a host-wide store")
@@ -481,4 +481,35 @@ func withoutSeedEntrypoint(setup *sbx.KitSetup) *sbx.KitSetup {
 		out.Startup = append(out.Startup, c)
 	}
 	return &out
+}
+
+func TestSpecNeverStoresAnAPIKeyBesideASubscriptionSlot(t *testing.T) {
+	tests := []struct {
+		name, target, key string
+		stored            bool
+	}{
+		{name: "anthropic key under claudecode", target: "claudecode", key: "ANTHROPIC_API_KEY"},
+		{name: "openai key under codex", target: "codex", key: "OPENAI_API_KEY"},
+		{name: "xai key has no oauth slot", target: "opencode", key: "XAI_API_KEY", stored: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput(tc.target)
+			in.Man.Env = append(in.Man.Env, manifest.EnvVar{Name: tc.key, Secret: true})
+			in.Lookup = func(k string) string {
+				if k == tc.key {
+					return "sk-real"
+				}
+				return ""
+			}
+			_, _, secrets := Spec(in)
+			got := false
+			for _, kv := range secrets {
+				got = got || kv[0] == tc.key
+			}
+			if got != tc.stored {
+				t.Errorf("Spec(%s with %s) stored it = %v, want %v", tc.target, tc.key, got, tc.stored)
+			}
+		})
+	}
 }
