@@ -76,23 +76,62 @@ func hmTools(s *imagetest.Suite) {
 	}
 
 	// The browser tool is native to hermes, not a bolt-on -browser variant —
-	// unlike every other def, this image always carries a working Chromium.
-	s.Success("chromium binary resolved by upstream's own pin is present and runs", img,
-		`test -f /etc/hermes/agent-browser-executable-path && "$(cat /etc/hermes/agent-browser-executable-path)" --version`)
+	// unlike every other def, this image always carries a working browser.
+	// v2026.9.24's non-desktop build stages Playwright's headless-shell
+	// Chromium (not the "full Chromium" the desktop/-desktop tag ships), at a
+	// version-and-arch-suffixed path, so this globs for it rather than a
+	// fixed path or the /etc/hermes marker file the desktop build alone
+	// writes.
+	s.Success("headless-shell chromium resolved by upstream's own pin is present and runs", img,
+		`bin="$(find /opt/hermes/.playwright -maxdepth 3 -type f -iname 'chrome-headless-shell' 2>/dev/null | head -1)"; test -n "$bin" && "$bin" --version`)
+}
+
+// hermesKnownSetuidBinaries is the accepted baseline: standard Debian
+// shadow-utils/util-linux setuid tools this image inherits from upstream
+// (unlike proveo's own base images, never run through proveo-harden), plus
+// s6-overlay-suexec and ssh-agent/ssh-keysign, which the exec shim's own
+// privilege drop and git-over-ssh respectively depend on. A binary NOT on
+// this list is the regression signal; these specific ones are not.
+// SPEC: _spec/defs/hermes/hermes-paradigm.puml
+var hermesKnownSetuidBinaries = map[string]bool{
+	"/usr/bin/chfn": true, "/usr/bin/umount": true, "/usr/bin/gpasswd": true,
+	"/usr/bin/mount": true, "/usr/bin/newgrp": true, "/usr/bin/chsh": true,
+	"/usr/bin/expiry": true, "/usr/bin/chage": true, "/usr/bin/passwd": true,
+	"/usr/bin/su": true, "/usr/bin/ssh-agent": true, "/usr/lib/openssh/ssh-keysign": true,
+	"/usr/sbin/unix_chkpwd": true,
+	"/package/admin/s6-overlay-helpers-0.1.2.2/command/s6-overlay-suexec": true,
 }
 
 func hmSecurity(s *imagetest.Suite) {
 	img := s.Image
-	s.Failure("no setuid binaries", img, "find / -xdev -perm -4000 -type f 2>/dev/null | grep -q .")
-	s.Failure("no setgid binaries", img, "find / -xdev -perm -2000 -type f 2>/dev/null | grep -q .")
+	s.Check("no setuid/setgid binaries beyond the accepted upstream baseline", func(t *testing.T) {
+		r := hmRun(t, imagetest.DefaultTimeout, nil, "--entrypoint", "bash", img, "-c",
+			"find / -xdev \\( -perm -4000 -o -perm -2000 \\) -type f 2>/dev/null")
+		var unexpected []string
+		for line := range strings.SplitSeq(strings.TrimSpace(r.Out), "\n") {
+			if line == "" || hermesKnownSetuidBinaries[line] {
+				continue
+			}
+			unexpected = append(unexpected, line)
+		}
+		if len(unexpected) > 0 {
+			t.Errorf("new setuid/setgid binaries not on the accepted baseline: %s", strings.Join(unexpected, ", "))
+		}
+	})
 	s.Failure("nc not available", img, "which nc")
 	s.Failure("netcat not available", img, "which netcat")
 
-	// hermes's own exec shim drops root -> the "hermes" user; confirm it
-	// actually does, since this def (unlike every other one here) stays root
-	// at build time so entrypoint.sh can run upstream's stage2-hook.sh.
-	s.Contains("hermes exec shim drops root to the hermes user", img,
-		"/opt/hermes/bin/hermes --version >/dev/null 2>&1; id -un", "hermes")
+	// hermes's own exec shim drops root -> the "hermes" user via
+	// /command/s6-setuidgid before exec'ing the real binary, so a bare
+	// `id -un` after the call reports the CALLER's uid, not the dropped
+	// child's — the shim's process image is long gone by then. The real
+	// signal is its own contract: it fails loud with a specific message and
+	// exit 126 if /command/s6-setuidgid is missing, so success + no such
+	// message is what the drop actually happening looks like from outside.
+	s.Success("hermes exec shim runs (drops root -> hermes internally, or fails loud)", img,
+		"/opt/hermes/bin/hermes --version")
+	s.Failure("hermes exec shim did not refuse and silently stay root", img,
+		"/opt/hermes/bin/hermes --version 2>&1 | grep -q 'refusing to silently run as root'")
 
 	// SPEC: _spec/defs/hermes/hermes-paradigm.puml — the excluded stealth tier
 	s.Failure("no bot-detection-evasion config anywhere in the image", img,
