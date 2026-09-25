@@ -1,5 +1,5 @@
 # SPEC: _spec/defs/hermes/hermes-topology.puml, _spec/defs/hermes/hermes-paradigm.puml
-ARG HERMES_AGENT_VERSION=latest
+ARG HERMES_AGENT_VERSION=v2026.9.24
 FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}
 
 USER root

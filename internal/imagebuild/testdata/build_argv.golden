@@ -105,11 +105,11 @@
 ## egress-proxy cold
 --builder default | --cache-from=type=local,src=<cache>/proveo/egress-proxy | --cache-to=type=local,dest=<cache>/proveo/egress-proxy,mode=max | --load | --platform linux/arm64 | -f <root>/defs/sidecars/egress-proxy/Dockerfile | -t proveo/egress-proxy:local | ctx <root>
 ## hermes local
---build-arg HERMES_AGENT_VERSION=latest | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
+--build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
 ## hermes latest
---build-arg HERMES_AGENT_VERSION=latest | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:latest | ctx <root>
+--build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:latest | ctx <root>
 ## hermes cold
---build-arg HERMES_AGENT_VERSION=latest | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
+--build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
 ## mitmproxy local
 --builder default | --cache-from=type=local,src=<cache>/proveo/mitmproxy | --cache-to=type=local,dest=<cache>/proveo/mitmproxy,mode=max | --load | --platform linux/arm64 | -t proveo/mitmproxy:local | ctx <root>/defs/sidecars/mitmproxy
 ## mitmproxy latest
