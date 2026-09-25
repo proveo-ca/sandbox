@@ -93,4 +93,13 @@ note bottom of SHIM
   session Hermes was chosen, not an oversight.
 end note
 
+note bottom of OLLAMA
+  **e2e/hermes_local_model_test.go never pulls a
+  model.** Muse Glimmer and Qwen 3.8 both ship at
+  17-18GB minimum, no small distilled variant — it
+  assumes an operator-populated host Ollama and
+  skips otherwise, same convention as opencode's
+  TestPromptfulE2E.
+end note
+
 @enduml

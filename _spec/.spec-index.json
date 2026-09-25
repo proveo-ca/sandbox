@@ -689,7 +689,8 @@
       "spec": "_spec/defs/hermes/hermes-paradigm.puml",
       "covers": [
         "defs/hermes/Dockerfile",
-        "defs/hermes/entrypoint.sh"
+        "defs/hermes/entrypoint.sh",
+        "e2e/hermes_local_model_test.go"
       ],
       "fingerprint": null
     },
