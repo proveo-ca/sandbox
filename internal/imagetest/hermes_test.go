@@ -184,7 +184,7 @@ func hmLLM(s *imagetest.Suite) {
 // TestImageHermes, nothing more to precondition.
 func TestImageHermesBakedModel(t *testing.T) {
 	variants := []struct{ envVar, name, tag string }{
-		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-nvfp4"},
+		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"},
 		{"QWEN_IMAGE", "hermes-qwen3.8", "qwen3.8:27b-q4_K_M"},
 	}
 	for _, v := range variants {

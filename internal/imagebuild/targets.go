@@ -150,7 +150,7 @@ var Specs = map[string]Spec{
 	"hermes": {Repo: "proveo/hermes", Override: "PROVEO_HERMES_IMAGE",
 		Dockerfile: "defs/hermes/Dockerfile", Context: ".",
 		EnvArgs: []EnvArg{{Arg: "HERMES_AGENT_VERSION", Default: "v2026.9.24"}}},
-	"hermes-muse-glimmer": hermesBakedModelOf("hermes-muse-glimmer", "muse-glimmer:30b-nvfp4"),
+	"hermes-muse-glimmer": hermesBakedModelOf("hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"),
 	"hermes-qwen3.8":      hermesBakedModelOf("hermes-qwen3.8", "qwen3.8:27b-q4_K_M"),
 
 	"claudecode-browser": func() Spec { s := browserOf("claudecode", "claude"); s.Override, s.NeedsOverride = "", ""; return s }(),
