@@ -31,10 +31,38 @@ fi
 
 proveo_seed hermes || true
 
+# A baked-model variant (hermes-muse-glimmer, hermes-qwen3.8) carries its own
+# weights and needs the daemon started locally, once, before the agent runs —
+# there is no sidecar to reach. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+start_baked_ollama() {
+  [[ -n "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo "⚠️  OLLAMA_BAKED_MODEL_TAG is set but ollama is not installed in this image" >&2
+    return 0
+  fi
+  ollama serve >/tmp/ollama-serve.log 2>&1 &
+  local waited=0
+  until curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; do
+    sleep 1
+    waited=$((waited + 1))
+    if (( waited >= 30 )); then
+      echo "⚠️  baked ollama did not become ready within 30s — see /tmp/ollama-serve.log" >&2
+      return 0
+    fi
+  done
+  export OPENAI_BASE_URL="http://localhost:11434/v1"
+  export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
+  export HERMES_MODEL="ollama/${OLLAMA_BAKED_MODEL_TAG}"
+  echo "🧩 Baked model ready: ollama/${OLLAMA_BAKED_MODEL_TAG} (no sidecar, no PROVEO_LOCAL_MODEL needed)"
+}
+start_baked_ollama
+
 # The local model is an OpenAI-compatible endpoint, not a config block: hermes
 # takes any such endpoint directly via env, so wiring it needs no config-file
-# surgery the way opencode's provider map does.
+# surgery the way opencode's provider map does. Skipped on a baked variant —
+# it already wired its own model above, and has no sidecar to reach.
 configure_hermes_local_model() {
+  [[ -z "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   local base="${OLLAMA_API_BASE:-http://ollama:11434}"
   export OPENAI_BASE_URL="${base%/}/v1"

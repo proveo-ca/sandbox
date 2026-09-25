@@ -136,3 +136,31 @@ func hmLLM(s *imagetest.Suite) {
 		})
 	}
 }
+
+// TestImageHermesBakedModel is the "easier to ensure" local-model check: a
+// baked variant needs no host-side pre-pulled Ollama, no --local-model flag,
+// and no network dependency for inference, so unlike
+// e2e/hermes_local_model_test.go this round-trips for real on every run where
+// the image is built -- the same imagetest.New skip-if-absent gate as
+// TestImageHermes, nothing more to precondition.
+func TestImageHermesBakedModel(t *testing.T) {
+	variants := []struct{ envVar, name, tag string }{
+		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-nvfp4"},
+		{"QWEN_IMAGE", "hermes-qwen3.8", "qwen3.8:27b-q4_K_M"},
+	}
+	for _, v := range variants {
+		t.Run(v.name, func(t *testing.T) {
+			img := imagetest.Resolve(v.envVar, "proveo/"+v.name+":latest")
+			s := imagetest.New(t, img)
+			s.Inspect("proveo.baked-model label names the pulled tag", img,
+				`{{index .Config.Labels "proveo.baked-model"}}`, v.tag)
+			s.Check("hermes chat completes via the baked model, no env vars needed", func(t *testing.T) {
+				r := hmRun(t, 180*time.Second, nil, "--entrypoint", "bash", img, "-c",
+					`timeout 150 /opt/hermes/bin/hermes chat -q "Respond with only the word PONG." 2>&1`)
+				if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
+					t.Errorf("[%s] hermes chat via baked model (output: %s)", v.name, hmClip(r.Out, 400))
+				}
+			})
+		})
+	}
+}

@@ -55,6 +55,19 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' (/opt/hermes/bin/hermes, which s6-setuidgid's into "hermes" when invoked as
 ' root), not a proveo-authored privilege drop.
 '
+' ── BAKED-MODEL VARIANTS ────────────────────────────────────────────────────
+' hermes-muse-glimmer and hermes-qwen3.8 (defs/hermes/baked-model/Dockerfile,
+' Needs: "hermes") pull the model's weights at BUILD time — the standard
+' "start the daemon just long enough to pull, then stop it" pattern — so the
+' running container never depends on a sidecar or a runtime pull. Both models
+' ship at 17-18GB minimum with no small distilled variant, so this trades
+' image size for a self-contained, offline-capable sandbox; the default
+' `hermes` target stays lean and network-based for anyone who does not want
+' that trade. entrypoint.sh tells the two apart by OLLAMA_BAKED_MODEL_TAG
+' (baked into the image, absent on the default target): when set, it starts
+' `ollama serve` itself, locally, before the agent launches — there is no
+' sidecar to wait on instead.
+'
 actor "Operator" as OP
 
 node "hermes container" as CTR <<host>> {

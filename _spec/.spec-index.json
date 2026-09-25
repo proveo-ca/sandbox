@@ -690,7 +690,9 @@
       "covers": [
         "defs/hermes/Dockerfile",
         "defs/hermes/entrypoint.sh",
-        "e2e/hermes_local_model_test.go"
+        "defs/hermes/baked-model/Dockerfile",
+        "e2e/hermes_local_model_test.go",
+        "internal/imagetest/hermes_test.go"
       ],
       "fingerprint": null
     },

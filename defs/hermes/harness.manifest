@@ -6,6 +6,8 @@ docker: sbx
 stability: candidate
 images:
   hermes: proveo/hermes:latest
+  hermes-muse-glimmer: proveo/hermes-muse-glimmer:latest
+  hermes-qwen3.8: proveo/hermes-qwen3.8:latest
 workspace:
   layout: app
   configDir: .hermes

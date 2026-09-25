@@ -25,6 +25,18 @@ OpenAI-compatible endpoint natively, so no bespoke config file is needed. Muse G
 it runs inference at the host-Docker-Desktop level, bypassing containerization, which doesn't
 compose with this repo's per-sandbox isolated-microVM model.
 
+## Baked-model variants
+
+`hermes-muse-glimmer` and `hermes-qwen3.8` (`defs/hermes/baked-model/Dockerfile`, `Needs: "hermes"`)
+bake the model's weights into the image at build time — `ollama serve & ... ollama pull <tag> &&
+pkill` during `docker build`, same pattern `base-node-browser` uses for Chromium. No sidecar
+container, no `PROVEO_LOCAL_MODEL`, no runtime network dependency for inference: `entrypoint.sh`
+starts a local `ollama serve` itself when it detects `OLLAMA_BAKED_MODEL_TAG` baked into the image,
+waits for it to become ready, and wires `OPENAI_BASE_URL` at `localhost:11434` before launching
+hermes. Trade-off: both models ship at 17-18GB minimum on Ollama (no small distilled variant), so
+these images run ~18-20GB — the default `hermes` target stays lean and network-based for anyone who
+doesn't want that.
+
 ## Explicitly out of scope
 
 Hermes's cloud "Browser Use Cloud" tier ships bot-detection-evasion infrastructure (residential

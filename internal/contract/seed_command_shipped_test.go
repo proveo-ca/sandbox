@@ -19,6 +19,8 @@ var seedImageSources = map[string]struct{ file, base string }{
 	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-lsp:latest"},
 	"claudecode-solidity": {"defs/claudecode/solidity/Dockerfile", "proveo/claudecode:latest"},
 	"hermes":              {"defs/hermes/Dockerfile", ""},
+	"hermes-muse-glimmer": {"defs/hermes/baked-model/Dockerfile", "proveo/hermes:latest"},
+	"hermes-qwen3.8":      {"defs/hermes/baked-model/Dockerfile", "proveo/hermes:latest"},
 
 	"claudecode-browser": {"defs/base-node-browser/Dockerfile", "proveo/claudecode:latest"},
 	"codex-browser":      {"defs/base-node-browser/Dockerfile", "proveo/codex:latest"},
@@ -37,6 +39,7 @@ var baseDockerfiles = map[string]string{
 	"proveo/codex:latest":             "defs/codex/Dockerfile",
 	"proveo/opencode:latest":          "defs/opencode/Dockerfile",
 	"proveo/cursor:latest":            "defs/cursor/Dockerfile",
+	"proveo/hermes:latest":            "defs/hermes/Dockerfile",
 }
 
 func TestEverySbxImageShipsTheKitsStartupCommand(t *testing.T) {

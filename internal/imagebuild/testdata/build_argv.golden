@@ -110,6 +110,20 @@
 --build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:latest | ctx <root>
 ## hermes cold
 --build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
+## hermes-muse-glimmer local
+--build-arg BASE_IMAGE=proveo/hermes:local | --build-arg OLLAMA_MODEL_TAG=muse-glimmer:30b-nvfp4 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes-muse-glimmer | --cache-to=type=local,dest=<cache>/proveo/hermes-muse-glimmer,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-muse-glimmer:local | ctx <root>/defs/hermes/baked-model
+## hermes-muse-glimmer latest
+--build-arg BASE_IMAGE=proveo/hermes:latest | --build-arg OLLAMA_MODEL_TAG=muse-glimmer:30b-nvfp4 | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes-muse-glimmer | --cache-to=type=local,dest=<cache>/proveo/hermes-muse-glimmer,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-muse-glimmer:latest | ctx <root>/defs/hermes/baked-model
+## hermes-muse-glimmer cold
+--build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
+--build-arg BASE_IMAGE=proveo/hermes:local | --build-arg OLLAMA_MODEL_TAG=muse-glimmer:30b-nvfp4 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes-muse-glimmer | --cache-to=type=local,dest=<cache>/proveo/hermes-muse-glimmer,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-muse-glimmer:local | ctx <root>/defs/hermes/baked-model
+## hermes-qwen3.8 local
+--build-arg BASE_IMAGE=proveo/hermes:local | --build-arg OLLAMA_MODEL_TAG=qwen3.8:27b-q4_K_M | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes-qwen3.8 | --cache-to=type=local,dest=<cache>/proveo/hermes-qwen3.8,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-qwen3.8:local | ctx <root>/defs/hermes/baked-model
+## hermes-qwen3.8 latest
+--build-arg BASE_IMAGE=proveo/hermes:latest | --build-arg OLLAMA_MODEL_TAG=qwen3.8:27b-q4_K_M | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes-qwen3.8 | --cache-to=type=local,dest=<cache>/proveo/hermes-qwen3.8,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-qwen3.8:latest | ctx <root>/defs/hermes/baked-model
+## hermes-qwen3.8 cold
+--build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
+--build-arg BASE_IMAGE=proveo/hermes:local | --build-arg OLLAMA_MODEL_TAG=qwen3.8:27b-q4_K_M | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes-qwen3.8 | --cache-to=type=local,dest=<cache>/proveo/hermes-qwen3.8,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/baked-model/Dockerfile | -t proveo/hermes-qwen3.8:local | ctx <root>/defs/hermes/baked-model
 ## mitmproxy local
 --builder default | --cache-from=type=local,src=<cache>/proveo/mitmproxy | --cache-to=type=local,dest=<cache>/proveo/mitmproxy,mode=max | --load | --platform linux/arm64 | -t proveo/mitmproxy:local | ctx <root>/defs/sidecars/mitmproxy
 ## mitmproxy latest
