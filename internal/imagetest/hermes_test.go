@@ -197,8 +197,9 @@ func hmLLM(s *imagetest.Suite) {
 
 // TestImageHermesBakedModel checks a baked variant through its real
 // entrypoint: the weights are served, hermes is wired to them, and the model
-// answers. On CPU a turn is ~2,050 prompt tokens at ~2 tokens/s, so run it
-// with a long budget: go test -tags=image -timeout 90m -run TestImageHermesBakedModel ./internal/imagetest/
+// answers. On a CPU-only host a turn is ~2,050 prompt tokens at ~5 tokens/s
+// plus ~26s per generated token, so give it a long budget:
+// go test -tags=image -timeout 150m -run TestImageHermesBakedModel ./internal/imagetest/
 func TestImageHermesBakedModel(t *testing.T) {
 	variants := []struct{ envVar, name, tag string }{
 		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"},
@@ -222,7 +223,7 @@ func TestImageHermesBakedModel(t *testing.T) {
 				}
 			})
 			s.Check("hermes answers y to an alive check via the baked model", func(t *testing.T) {
-				r := hmRun(t, 40*time.Minute, nil, img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
+				r := hmRun(t, 60*time.Minute, nil, img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
 				if !hmAliveYes.MatchString(r.Out) {
 					t.Errorf("[%s] no y answer (output tail: %s)", v.name, hmTail(r.Out, 400))
 				}

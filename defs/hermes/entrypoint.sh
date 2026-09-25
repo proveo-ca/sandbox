@@ -44,6 +44,8 @@ wire_hermes_local_endpoint() {
     && "$h" config set model.default "$model" >/dev/null \
     || { echo "⚠️  could not write hermes config for ${model} at ${base_v1}" >&2; return 0; }
   HERMES_LOCAL_WIRED=1
+  # CPU-only local inference can outlast hermes's 900s local stall ceiling.
+  export HERMES_LOCAL_STREAM_STALE_TIMEOUT="${HERMES_LOCAL_STREAM_STALE_TIMEOUT:-3600}"
   echo "🧩 Wired hermes to ${model} at ${base_v1} (provider custom)"
 }
 
