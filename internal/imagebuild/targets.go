@@ -73,6 +73,19 @@ func browserOf(parent, user string) Spec {
 	}
 }
 
+const hermesBakedModelLayer = "defs/hermes/baked-model"
+
+// hermesBakedModelOf bakes model into the hermes image at build time — no
+// runtime pull, no Ollama sidecar. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+func hermesBakedModelOf(name, model string) Spec {
+	return Spec{
+		Repo: "proveo/" + name, Override: envName(name),
+		Dockerfile: hermesBakedModelLayer + "/Dockerfile", Context: hermesBakedModelLayer,
+		Needs: "hermes", NeedsOverride: envName("hermes"),
+		EnvArgs: []EnvArg{{Arg: "OLLAMA_MODEL_TAG", Default: model}},
+	}
+}
+
 func envName(target string) string {
 	out := []byte("PROVEO_")
 	for _, c := range []byte(target) {
@@ -131,6 +144,14 @@ var Specs = map[string]Spec{
 		Dockerfile: "defs/opencode/Dockerfile", Context: ".",
 		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
 		Pins: []Pin{{Arg: "OPENCODE_VERSION", Eco: "npm", Pkg: "opencode-ai"}}},
+	// hermes has no Parent, deliberately: it builds FROM nousresearch/hermes-agent
+	// directly rather than proveo's own base chain, which would duplicate what
+	// upstream's image already bakes. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+	"hermes": {Repo: "proveo/hermes", Override: "PROVEO_HERMES_IMAGE",
+		Dockerfile: "defs/hermes/Dockerfile", Context: ".",
+		EnvArgs: []EnvArg{{Arg: "HERMES_AGENT_VERSION", Default: "v2026.9.24"}}},
+	"hermes-muse-glimmer": hermesBakedModelOf("hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"),
+	"hermes-qwen3.8":      hermesBakedModelOf("hermes-qwen3.8", "qwen3.8:27b-q4_K_M"),
 
 	"claudecode-browser": func() Spec { s := browserOf("claudecode", "claude"); s.Override, s.NeedsOverride = "", ""; return s }(),
 	"codex-browser":      browserOf("codex", "codex"),

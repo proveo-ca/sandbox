@@ -686,6 +686,27 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/defs/hermes/hermes-paradigm.puml",
+      "covers": [
+        "defs/hermes/Dockerfile",
+        "defs/hermes/entrypoint.sh",
+        "defs/hermes/baked-model/Dockerfile",
+        "e2e/hermes_local_model_test.go",
+        "internal/imagetest/hermes_test.go",
+        "defs/hermes/harness.manifest",
+        "internal/contract/hermes_providers_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/hermes/hermes-topology.puml",
+      "covers": [
+        "defs/hermes/**",
+        "internal/imagebuild/targets.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/defs/opencode/opencode-paradigm.puml",
       "covers": [
         "defs/opencode/entrypoint.sh",
@@ -811,7 +832,8 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
-        "internal/run/choices.go"
+        "internal/run/choices.go",
+        "internal/run/model_row.go"
       ],
       "fingerprint": null
     },

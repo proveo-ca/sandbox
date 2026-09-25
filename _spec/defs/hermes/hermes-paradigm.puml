@@ -1,0 +1,175 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title hermes paradigm — general-purpose assistant, not a coding harness
+
+' purpose: why hermes exists as a def, and why its Dockerfile/entrypoint break
+'   from every other harness's shape
+' covers: defs/hermes/Dockerfile
+' covers: defs/hermes/entrypoint.sh
+' covers: defs/hermes/harness.manifest
+' covers: internal/contract/hermes_providers_test.go
+'
+' ── WHY HERMES AND NOT xAI's "grok-bot" ─────────────────────────────────────
+' This def was cut on a branch originally scoped for an xAI "grok-bot"
+' integration. Research found neither xAI product fit: Grok Bot (the cloud
+' teammate app) has no local binary at all — it runs on a shared cloud
+' computer per account, isolation only between accounts, never between bots —
+' so there is nothing for docker-sbx to sandbox. Grok Build (the CLI) has no
+' documented sandbox or browser story. Hermes Agent (NousResearch, MIT)
+' ships native browser automation (navigate/click/type/screenshot), takes any
+' OpenAI-compatible endpoint, and already has a Docker backend — the actual
+' shape a Cowork-style general assistant needs, which neither xAI product nor
+' this repo's other candidate (Docker Agent, a bring-your-own-tools framework
+' with no browser tool at all) provided out of the box.
+'
+' ── WHY NO Parent, UNLIKE EVERY OTHER DEF ───────────────────────────────────
+' Every other harness here builds FROM proveo's own base chain
+' (base/base-node/base-node-lsp/base-node-browser) and installs its CLI via
+' npm/pypi on top. Hermes's own upstream image is a mature, actively
+' maintained multi-stage build that already bakes Python, Node, a pinned
+' Chromium, ffmpeg and ripgrep, supervised by s6-overlay. Re-deriving that on
+' proveo's base — or worse, layering base-node-browser's OWN Chromium install
+' on top of one already baked in — duplicates a large, fast-moving build this
+' repo does not own, for no benefit over pinning the upstream tag directly.
+' So `hermes`'s Spec in targets.go has no Parent/ParentOverride at all: it is
+' `FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}`, pinned by a plain
+' EnvArg the same way codex pins `CODEX_VERSION`.
+'
+' ── WHY THE ENTRYPOINT OVERRIDES s6-overlay ─────────────────────────────────
+' Upstream's own ENTRYPOINT runs s6-overlay's /init as PID 1, supervising a
+' persistent stack: the main hermes process, a web dashboard, and per-profile
+' gateway services that survive across sessions. That is the shape of a
+' standing multi-tenant server, not this repo's model — every def here is one
+' foreground agent process per ephemeral sandbox, launched by dumb-init +
+' entrypoint.sh, torn down with the container. Keeping s6-overlay would mean
+' this repo supervising services (the dashboard, gateways) nothing here ever
+' needs, and reconciling "docker: sbx"'s ONE startup command against a
+' multi-service supervision tree it was never designed for.
+'
+' So defs/hermes/Dockerfile overrides ENTRYPOINT to the usual
+' `dumb-init -- /entrypoint.sh`. Because upstream's stage2-hook.sh (UID/GID
+' remap, /opt/data volume ownership, config seeding, skills sync) normally
+' runs as an s6 cont-init.d step before /init hands off, entrypoint.sh calls
+' it directly, once, still as root — reusing upstream's own setup logic
+' rather than reimplementing it, and the one reason this def stays root at
+' build time when every other one here sets USER at build time. Root then
+' drops to the "hermes" user through upstream's OWN exec shim
+' (/opt/hermes/bin/hermes, which s6-setuidgid's into "hermes" when invoked as
+' root), not a proveo-authored privilege drop.
+'
+' Skipping /init has one more cost: s6's /init is what puts /command (s6's
+' tools) on PATH, and stage2-hook.sh calls s6-setuidgid by bare name. Run
+' without it, the hook exits 127 and `set -e` aborts the whole startup — every
+' check that used `--entrypoint bash` missed this. entrypoint.sh supplies
+' /command on PATH for that one call.
+'
+' ── HOW A LOCAL MODEL IS WIRED ──────────────────────────────────────────────
+' hermes does not read OPENAI_BASE_URL or HERMES_MODEL for its endpoint
+' (HERMES_MODEL is set by its own TUI launcher for a child process). A local
+' endpoint is the `custom` provider in hermes's own config.yaml:
+' model.provider custom, model.base_url <endpoint>/v1, model.default <tag>.
+' wire_hermes_local_endpoint writes those three through `hermes config set`,
+' for both the sidecar (PROVEO_LOCAL_MODEL) and the baked variants.
+'
+' ── BAKED-MODEL VARIANTS ────────────────────────────────────────────────────
+' hermes-muse-glimmer and hermes-qwen3.8 (defs/hermes/baked-model/Dockerfile,
+' Needs: "hermes") pull the model's weights at BUILD time — the standard
+' "start the daemon just long enough to pull, then stop it" pattern — so the
+' running container never depends on a sidecar or a runtime pull. Both models
+' ship at 17-18GB minimum with no small distilled variant, so this trades
+' image size for a self-contained, offline-capable sandbox; the default
+' `hermes` target stays lean and network-based for anyone who does not want
+' that trade. entrypoint.sh tells the two apart by OLLAMA_BAKED_MODEL_TAG
+' (baked into the image, absent on the default target): when set, it starts
+' `ollama serve` itself, locally, before the agent launches — there is no
+' sidecar to wait on instead.
+'
+' ── HERMES RUNS AS UID 1000, THE UID PROVEO LAUNCHES ────────────────────────
+' proveo starts the agent as uid 1000 (--user 1000:1000 on docker, the kit user
+' on sbx). stage2-hook.sh refuses any non-root uid other than the hermes user's
+' own — upstream's answer is "start as root", which proveo never does. So the
+' image remaps the hermes user to uid/gid 1000 at build time: proveo's launch IS
+' the hermes user, the hook's guard passes, its root-only steps degrade to
+' warnings, and the exec shim takes its non-root path straight to the binary.
+' Every imagetest used to run as root, which is how a launch-breaking refusal
+' shipped; the suite now boots the entrypoint as uid 1000.
+'
+' The hook would publish AGENT_BROWSER_EXECUTABLE_PATH through s6's container
+' environment, which a launch without /init never reads — the browser tool
+' would find no Chrome. entrypoint.sh finds the headless-shell binary and
+' exports it, which also makes the hook skip its /run/s6 write (root-only).
+' HERMES_HOME follows the manifest's durable /proveo-home/data mount when one
+' is present, so config and sessions outlive --rm. The Dockerfile no longer
+' wipes /tmp: upstream ships XDG_RUNTIME_DIR (/tmp/hermes-runtime) there.
+'
+' ── PROVIDER KEYS ARE USAGE KEYS, AS FOR CECLI ──────────────────────────────
+' The CLI reads any `env: secret: true` entry as the harness's OWN plan
+' credential: it draws an auth row for it and can withhold it. Hermes has no
+' plan — OPENAI/ANTHROPIC/XAI keys are ordinary usage keys — so the manifest
+' declares no secrets, every detected key is brokered, and no auth row is drawn.
+' capabilities.providers pins proveo's registry where hermes reads the SAME key
+' env var; internal/contract/hermes_providers_test.go names every exclusion
+' (plan keys, different env var names, no hermes provider) so the list cannot
+' drift silently when the registry grows.
+'
+' ── ONE MODEL SOURCE PER RUN: THE MODEL ROW ─────────────────────────────────
+' `proveo run hermes` draws a single-select model row: API keys (default),
+' Muse Glimmer 30B, Qwen 3.8 27B. A baked choice swaps the image to
+' hermes-muse-glimmer / hermes-qwen3.8 and keeps the target `hermes`, so the
+' settings cache and sbx agent kit key on one name. Layout:
+' _spec/internal/choiceui/wireframe.puml (box 9).
+'
+' The Ollama sidecar option is deferred. On sbx, egress.AgentEnv keeps only the
+' plan's env pairs and never starts the sidecar container; macOS only works by
+' falling back to the host's Ollama, which the sandbox network policy must also
+' allow. Neither could be verified, so the first iteration ships the two baked
+' models. `--local-model` still works where the sidecar runs.
+'
+actor "Operator" as OP
+
+node "hermes container" as CTR <<host>> {
+  component "defs/hermes/entrypoint.sh\n(dumb-init PID 1)" as EP <<app>>
+  component "stage2-hook.sh\n(upstream setup, run once)" as HOOK <<app>>
+  component "/opt/hermes/bin/hermes\n(exec shim: root -> hermes user)" as SHIM <<app>>
+  component "hermes chat / native browser tool" as CLI <<app>>
+  database "/proveo-home/data (HERMES_HOME)" as HOME <<db>>
+  database "/app — repo (rw, .git rw)" as WS <<db>>
+}
+
+cloud "Provider API\n(OpenAI-compatible endpoint)" as BACKEND
+cloud "Ollama sidecar\n(PROVEO_LOCAL_MODEL)" as OLLAMA
+
+OP ARROW_MAIN EP : starts container
+EP ARROW_MAIN HOOK : run once, as root
+HOOK ARROW_MAIN HOME : remap uid, chown, seed config
+EP ARROW_MAIN SHIM : exec
+SHIM ARROW_MAIN CLI : drop to "hermes" user
+CLI ARROW_MAIN WS : read/edit repo
+CLI ARROW_OPTIONAL BACKEND : hosted key (OPENAI_API_KEY, etc.)
+CLI ARROW_OPTIONAL OLLAMA : PROVEO_LOCAL_MODEL set
+
+note bottom of CLI
+  **Real browser-profile reuse ships OFF by default.**
+  Upstream can copy the operator's default browser
+  profile — cookies, saved logins — into the sandbox.
+  This def never turns that on for them.
+end note
+
+note bottom of SHIM
+  **Bot-detection evasion is excluded on purpose.**
+  Upstream's cloud tier offers residential proxies,
+  CAPTCHA solving, and fingerprint randomization. None
+  of it is wired into this def, ever — decided the same
+  session Hermes was chosen, not an oversight.
+end note
+
+note bottom of OLLAMA
+  **e2e/hermes_local_model_test.go never pulls a
+  model.** Muse Glimmer and Qwen 3.8 both ship at
+  17-18GB minimum, no small distilled variant — it
+  assumes an operator-populated host Ollama and
+  skips otherwise, same convention as opencode's
+  TestPromptfulE2E.
+end note
+
+@enduml

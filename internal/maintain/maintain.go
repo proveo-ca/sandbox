@@ -101,6 +101,8 @@ func parentOf(name string) string {
 		return "opencode"
 	case "cursor-browser":
 		return "cursor"
+	case "hermes-muse-glimmer", "hermes-qwen3.8":
+		return "hermes"
 	default:
 		return ""
 	}

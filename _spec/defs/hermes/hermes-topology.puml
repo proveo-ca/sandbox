@@ -1,0 +1,85 @@
+@startuml HermesTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+' purpose: the hermes def's resolved topology — upstream image, harness layer, execution loop, container boundary
+' covers: defs/hermes/**
+' covers: internal/imagebuild/targets.go
+'   why the harness is shaped this way _spec/defs/hermes/hermes-paradigm.puml
+skinparam linetype ortho
+skinparam ranksep 120
+skinparam nodesep 80
+
+left to right direction
+
+title Hermes Agent Topology — General-Purpose Assistant, Native Browser Tool
+
+actor "Operator" as Operator
+
+package "Upstream Image — nousresearch/hermes-agent" as Upstream {
+  component "Python venv + Node + pinned Chromium\n+ ffmpeg + ripgrep (baked)" as Toolchain <<runtime>>
+  component "stage2-hook.sh\nUID/GID remap, volume chown, config seed" as Stage2 <<script>>
+  component "/opt/hermes/bin/hermes\nexec shim: root -> hermes user" as Shim <<script>>
+}
+
+package "Harness Layer — proveo" as Harness {
+  component "entrypoint.sh\n(dumb-init PID 1, not s6-overlay)" as Entrypoint <<script>>
+  component ".env loader / provider-key check" as EnvLoader <<logic>>
+  component "wire_hermes_local_endpoint\nconfig.yaml: provider custom + base_url" as LocalModel <<logic>>
+}
+
+package "User Layer — HERMES_HOME=/proveo-home/data" as Home {
+  component "config + auth state" as Config <<config>>
+  database "sessions / transcripts" as Sessions <<db>>
+}
+
+package "Execution Loop" as Loop {
+  component "Prompt / task" as Task <<step>>
+  component "Native browser tool\nnavigate · click · type · screenshot" as Browser <<step>>
+  component "File / shell tools" as FileShell <<step>>
+}
+
+package "Container Sandbox" as Sandbox {
+  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
+  component "network egress layer\nopen | allowlist | review" as Net <<security>>
+}
+
+cloud "OpenAI-compatible backend\n(hosted key OR Ollama sidecar)" as Backend
+
+Operator --> Entrypoint : starts container
+Entrypoint --> Stage2 : run once, as root
+Stage2 --> Home : remap + seed (missing-only)
+Entrypoint --> EnvLoader
+Entrypoint --> LocalModel : if PROVEO_LOCAL_MODEL set
+Entrypoint --> Shim : exec
+Shim --> Toolchain : drop to "hermes" user
+Toolchain --> Task : hermes chat -q "..."
+Task --> Browser : when the task needs the web
+Task --> FileShell : when the task needs the repo
+Browser --> Mounts : within container boundary
+FileShell --> Mounts
+Task --> Sessions : writes transcript
+Toolchain -[#00BAC6,dashed,bold]-> Backend : inference
+Net ..> Backend : egress policy scopes it
+
+note right of Upstream
+  **This def does not rebuild what upstream
+  already maintains.** No Parent in targets.go —
+  FROM pins nousresearch/hermes-agent directly,
+  since it already bakes Chromium/Node/Python.
+end note
+
+note bottom of Entrypoint
+  **s6-overlay is replaced, not kept.** Upstream's
+  own ENTRYPOINT supervises a persistent stack
+  (dashboard + per-profile gateways) built for a
+  standing server. This repo runs one foreground
+  process per ephemeral sandbox instead.
+end note
+
+note bottom of Browser
+  **No stealth tier.** Upstream's cloud plan offers
+  residential proxies, CAPTCHA solving, and
+  fingerprint randomization. None of it reaches
+  this def, by design, not by omission.
+end note
+
+@enduml
