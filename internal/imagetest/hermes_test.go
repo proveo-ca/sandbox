@@ -6,6 +6,7 @@ package imagetest_test
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,9 @@ import (
 )
 
 var hmSeq atomic.Int64
+
+// hmAliveYes matches a line that is just y or yes, ignoring case and trailing punctuation.
+var hmAliveYes = regexp.MustCompile(`(?mi)^\s*\**y(es)?\**\W*$`)
 
 // hmRun runs `docker run --name <unique> args...` bounded by timeout and
 // force-removes the container afterwards, so a timed-out client leaves nothing behind.
@@ -192,9 +196,9 @@ func hmLLM(s *imagetest.Suite) {
 }
 
 // TestImageHermesBakedModel checks a baked variant through its real
-// entrypoint: the weights are served and hermes is wired to them. The reply
-// round-trip is opt-in (PROVEO_TEST_BAKED_INFERENCE=1) because CPU inference
-// in a VM with no GPU runs a 30B model at ~2 prompt tokens/s.
+// entrypoint: the weights are served, hermes is wired to them, and the model
+// answers. On CPU a turn is ~2,050 prompt tokens at ~2 tokens/s, so run it
+// with a long budget: go test -tags=image -timeout 90m -run TestImageHermesBakedModel ./internal/imagetest/
 func TestImageHermesBakedModel(t *testing.T) {
 	variants := []struct{ envVar, name, tag string }{
 		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"},
@@ -217,14 +221,10 @@ func TestImageHermesBakedModel(t *testing.T) {
 					t.Error("baked ollama never became ready")
 				}
 			})
-			if os.Getenv("PROVEO_TEST_BAKED_INFERENCE") != "1" {
-				s.Skip("hermes chat answers via the baked model", "set PROVEO_TEST_BAKED_INFERENCE=1 on a host fast enough to run the model")
-				return
-			}
-			s.Check("hermes chat answers via the baked model", func(t *testing.T) {
-				r := hmRun(t, 30*time.Minute, nil, img, "chat", "-Q", "-q", "Respond with only the word PONG.")
-				if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
-					t.Errorf("[%s] hermes chat via baked model (output tail: %s)", v.name, hmTail(r.Out, 400))
+			s.Check("hermes answers y to an alive check via the baked model", func(t *testing.T) {
+				r := hmRun(t, 40*time.Minute, nil, img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
+				if !hmAliveYes.MatchString(r.Out) {
+					t.Errorf("[%s] no y answer (output tail: %s)", v.name, hmTail(r.Out, 400))
 				}
 			})
 		})
