@@ -7,11 +7,15 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG OLLAMA_MODEL_TAG
 
 RUN test -n "${OLLAMA_MODEL_TAG}" \
-      || { echo "OLLAMA_MODEL_TAG build-arg is required — 'mise run build hermes-muse-glimmer' resolves it" >&2; exit 1; } \
-    && apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends zstd \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://ollama.com/install.sh | sh \
+      || { echo "OLLAMA_MODEL_TAG build-arg is required — 'mise run build hermes-muse-glimmer' resolves it" >&2; exit 1; }
+
+# The ollama installer extracts a zstd archive.
+RUN --mount=type=cache,id=proveo-hermes-baked-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-hermes-baked-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends zstd
+
+RUN curl -fsSL https://ollama.com/install.sh | sh \
     && ollama --version
 
 # Weights live outside /opt/data (the mutable HERMES_HOME volume, sometimes

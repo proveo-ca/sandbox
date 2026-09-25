@@ -23,7 +23,7 @@ package "Upstream Image — nousresearch/hermes-agent" as Upstream {
 package "Harness Layer — proveo" as Harness {
   component "entrypoint.sh\n(dumb-init PID 1, not s6-overlay)" as Entrypoint <<script>>
   component ".env loader / provider-key check" as EnvLoader <<logic>>
-  component "configure_hermes_local_model\nOLLAMA_API_BASE -> OPENAI_BASE_URL" as LocalModel <<logic>>
+  component "wire_hermes_local_endpoint\nconfig.yaml: provider custom + base_url" as LocalModel <<logic>>
 }
 
 package "User Layer — HERMES_HOME=/proveo-home/data" as Home {

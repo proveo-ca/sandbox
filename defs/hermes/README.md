@@ -19,8 +19,9 @@ single-process launch every other def here uses.
 ## Local models
 
 `PROVEO_LOCAL_MODEL` wires Hermes at an Ollama sidecar the same way `opencode`'s `--local-model`
-does (`internal/egress/plan.go`), via `OPENAI_BASE_URL`/`OPENAI_API_KEY=ollama` — Hermes takes any
-OpenAI-compatible endpoint natively, so no bespoke config file is needed. Muse Glimmer and Qwen
+does (`internal/egress/plan.go`). `entrypoint.sh` writes hermes's own `config.yaml`
+(`model.provider custom`, `model.base_url <OLLAMA_API_BASE>/v1`, `model.default <tag>`) — hermes
+ignores `OPENAI_BASE_URL`/`HERMES_MODEL` for this. Muse Glimmer and Qwen
 3.8 are both published on the Ollama library. Docker Model Runner is intentionally not wired in —
 it runs inference at the host-Docker-Desktop level, bypassing containerization, which doesn't
 compose with this repo's per-sandbox isolated-microVM model.
@@ -32,10 +33,18 @@ bake the model's weights into the image at build time — `ollama serve & ... ol
 pkill` during `docker build`, same pattern `base-node-browser` uses for Chromium. No sidecar
 container, no `PROVEO_LOCAL_MODEL`, no runtime network dependency for inference: `entrypoint.sh`
 starts a local `ollama serve` itself when it detects `OLLAMA_BAKED_MODEL_TAG` baked into the image,
-waits for it to become ready, and wires `OPENAI_BASE_URL` at `localhost:11434` before launching
-hermes. Trade-off: both models ship at 17-18GB minimum on Ollama (no small distilled variant), so
-these images run ~18-20GB — the default `hermes` target stays lean and network-based for anyone who
-doesn't want that.
+waits for it to become ready, and writes the same `config.yaml` wiring at `localhost:11434` before
+launching hermes. Trade-offs, measured building and running `hermes-muse-glimmer` in a sandbox:
+
+- **Image size:** ~20GB (the `q4_K_M` weights are 17GB; `nvfp4`/`mlx` tags need Apple's MLX runtime
+  and fail to pull on Linux).
+- **Build disk:** peaks at ~3x the model size on the Docker volume — ~52GB for muse-glimmer — because
+  BuildKit holds the build snapshot, the exported layer, and the unpacked image at once. Build one
+  variant at a time, and set `PROVEO_BUILDKIT_CACHE=off` so the layer is not also exported to
+  `~/.cache/proveo/buildkit`.
+- **Inference speed:** in a CPU-only VM (no GPU; a Mac host exposes no Metal to the sandbox), a 30B
+  model processes ~2 prompt tokens/s — too slow for hermes's agent prompt. These variants need a GPU
+  host to be usable; the default `hermes` target stays lean and network-based.
 
 ## Explicitly out of scope
 

@@ -25,6 +25,13 @@ func hmRun(t *testing.T, timeout time.Duration, env []string, args ...string) im
 	return imagetest.Docker(timeout, env, append([]string{"run", "--rm", "--name", name}, args...)...)
 }
 
+func hmTail(s string, n int) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
+}
+
 func hmClip(s string, n int) string {
 	if len(s) > n {
 		return s[:n]
@@ -58,6 +65,15 @@ func hmBuild(s *imagetest.Suite) {
 
 	// SPEC: _spec/packages/lib/seed-and-launch.puml
 	s.Success("ships the Kit's startup command (/usr/local/bin/proveo-seed)", img, "test -x /usr/local/bin/proveo-seed")
+
+	// Every other check here uses --entrypoint bash, which skips entrypoint.sh;
+	// this one runs the image the way sbx does.
+	s.Check("the real entrypoint boots and launches hermes", func(t *testing.T) {
+		r := hmRun(t, 3*time.Minute, nil, img, "--version")
+		if !r.OK() || !strings.Contains(r.Out, "Hermes Agent") {
+			t.Errorf("entrypoint did not reach hermes (rc=%d, output tail: %s)", r.Code, hmTail(r.Out, 400))
+		}
+	})
 }
 
 func hmTools(s *imagetest.Suite) {
@@ -140,14 +156,13 @@ func hmSecurity(s *imagetest.Suite) {
 
 func hmLocalModel(s *imagetest.Suite) {
 	img := s.Image
-	s.Check("PROVEO_LOCAL_MODEL wires an OpenAI-compatible endpoint, not a config file", func(t *testing.T) {
-		r := hmRun(t, 30*time.Second, nil,
-			"-e", "PROVEO_LOCAL_MODEL=qwen3.8", "-e", "OLLAMA_API_BASE=http://ollama:11434",
-			"--entrypoint", "bash", img, "-c",
-			`source /entrypoint-lib.sh 2>/dev/null; source <(sed -n '/^configure_hermes_local_model/,/^}/p' /entrypoint.sh); configure_hermes_local_model; echo "BASE=$OPENAI_BASE_URL MODEL=$HERMES_MODEL"`)
-		want := "BASE=http://ollama:11434/v1 MODEL=ollama/qwen3.8"
-		if !strings.Contains(r.Out, want) {
-			t.Errorf("expected %q, output: %s", want, hmClip(r.Out, 300))
+	s.Check("PROVEO_LOCAL_MODEL writes a custom provider into hermes config.yaml", func(t *testing.T) {
+		r := hmRun(t, 3*time.Minute, nil, "-e", "PROVEO_LOCAL_MODEL=qwen3.8", "-e", "OLLAMA_API_BASE=http://ollama:11434",
+			img, "config", "show")
+		for _, want := range []string{"'provider': 'custom'", "'base_url': 'http://ollama:11434/v1'", "'default': 'qwen3.8'"} {
+			if !strings.Contains(r.Out, want) {
+				t.Errorf("config missing %s (output tail: %s)", want, hmTail(r.Out, 400))
+			}
 		}
 	})
 }
@@ -176,12 +191,10 @@ func hmLLM(s *imagetest.Suite) {
 	}
 }
 
-// TestImageHermesBakedModel is the "easier to ensure" local-model check: a
-// baked variant needs no host-side pre-pulled Ollama, no --local-model flag,
-// and no network dependency for inference, so unlike
-// e2e/hermes_local_model_test.go this round-trips for real on every run where
-// the image is built -- the same imagetest.New skip-if-absent gate as
-// TestImageHermes, nothing more to precondition.
+// TestImageHermesBakedModel checks a baked variant through its real
+// entrypoint: the weights are served and hermes is wired to them. The reply
+// round-trip is opt-in (PROVEO_TEST_BAKED_INFERENCE=1) because CPU inference
+// in a VM with no GPU runs a 30B model at ~2 prompt tokens/s.
 func TestImageHermesBakedModel(t *testing.T) {
 	variants := []struct{ envVar, name, tag string }{
 		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"},
@@ -193,11 +206,25 @@ func TestImageHermesBakedModel(t *testing.T) {
 			s := imagetest.New(t, img)
 			s.Inspect("proveo.baked-model label names the pulled tag", img,
 				`{{index .Config.Labels "proveo.baked-model"}}`, v.tag)
-			s.Check("hermes chat completes via the baked model, no env vars needed", func(t *testing.T) {
-				r := hmRun(t, 180*time.Second, nil, "--entrypoint", "bash", img, "-c",
-					`timeout 150 /opt/hermes/bin/hermes chat -q "Respond with only the word PONG." 2>&1`)
+			s.Check("real entrypoint serves the baked weights and wires hermes to them", func(t *testing.T) {
+				r := hmRun(t, 4*time.Minute, nil, img, "config", "show")
+				for _, want := range []string{"'default': '" + v.tag + "'", "'base_url': 'http://localhost:11434/v1'", "'provider': 'custom'"} {
+					if !strings.Contains(r.Out, want) {
+						t.Errorf("config missing %s (output tail: %s)", want, hmTail(r.Out, 400))
+					}
+				}
+				if strings.Contains(r.Out, "did not become ready") {
+					t.Error("baked ollama never became ready")
+				}
+			})
+			if os.Getenv("PROVEO_TEST_BAKED_INFERENCE") != "1" {
+				s.Skip("hermes chat answers via the baked model", "set PROVEO_TEST_BAKED_INFERENCE=1 on a host fast enough to run the model")
+				return
+			}
+			s.Check("hermes chat answers via the baked model", func(t *testing.T) {
+				r := hmRun(t, 30*time.Minute, nil, img, "chat", "-Q", "-q", "Respond with only the word PONG.")
 				if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
-					t.Errorf("[%s] hermes chat via baked model (output: %s)", v.name, hmClip(r.Out, 400))
+					t.Errorf("[%s] hermes chat via baked model (output tail: %s)", v.name, hmTail(r.Out, 400))
 				}
 			})
 		})

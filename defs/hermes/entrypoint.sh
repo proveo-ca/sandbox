@@ -25,15 +25,30 @@ scope_git_worktree "$(pwd)"
 # process means that step never fires on its own — run it explicitly, once,
 # still as root, so the SAME logic upstream maintains does the remap instead
 # of a proveo-side reimplementation that drifts from it on the next release.
+# /command holds s6's tools (s6-setuidgid); s6's own /init puts it on PATH, and
+# this entrypoint replaces /init, so the hook needs it supplied here.
 if [[ -x /opt/hermes/docker/stage2-hook.sh ]]; then
-  /opt/hermes/docker/stage2-hook.sh
+  PATH="/command:${PATH}" /opt/hermes/docker/stage2-hook.sh
 fi
 
 proveo_seed hermes || true
 
+# hermes reads a local endpoint from its own config.yaml (model.provider custom
+# + model.base_url + model.default), not from OPENAI_BASE_URL or HERMES_MODEL.
+# SPEC: _spec/defs/hermes/hermes-paradigm.puml
+HERMES_LOCAL_WIRED=0
+wire_hermes_local_endpoint() {
+  local base_v1="$1" model="$2" h=/opt/hermes/bin/hermes
+  "$h" config set model.provider custom >/dev/null \
+    && "$h" config set model.base_url "$base_v1" >/dev/null \
+    && "$h" config set model.default "$model" >/dev/null \
+    || { echo "⚠️  could not write hermes config for ${model} at ${base_v1}" >&2; return 0; }
+  HERMES_LOCAL_WIRED=1
+  echo "🧩 Wired hermes to ${model} at ${base_v1} (provider custom)"
+}
+
 # A baked-model variant (hermes-muse-glimmer, hermes-qwen3.8) carries its own
-# weights and needs the daemon started locally, once, before the agent runs —
-# there is no sidecar to reach. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+# weights and starts the daemon locally before the agent runs.
 start_baked_ollama() {
   [[ -n "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
   if ! command -v ollama >/dev/null 2>&1; then
@@ -50,25 +65,16 @@ start_baked_ollama() {
       return 0
     fi
   done
-  export OPENAI_BASE_URL="http://localhost:11434/v1"
-  export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
-  export HERMES_MODEL="ollama/${OLLAMA_BAKED_MODEL_TAG}"
-  echo "🧩 Baked model ready: ollama/${OLLAMA_BAKED_MODEL_TAG} (no sidecar, no PROVEO_LOCAL_MODEL needed)"
+  wire_hermes_local_endpoint "http://localhost:11434/v1" "${OLLAMA_BAKED_MODEL_TAG}"
 }
 start_baked_ollama
 
-# The local model is an OpenAI-compatible endpoint, not a config block: hermes
-# takes any such endpoint directly via env, so wiring it needs no config-file
-# surgery the way opencode's provider map does. Skipped on a baked variant —
-# it already wired its own model above, and has no sidecar to reach.
+# Skipped on a baked variant — it wired its own model above.
 configure_hermes_local_model() {
   [[ -z "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   local base="${OLLAMA_API_BASE:-http://ollama:11434}"
-  export OPENAI_BASE_URL="${base%/}/v1"
-  export OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
-  export HERMES_MODEL="ollama/${PROVEO_LOCAL_MODEL}"
-  echo "🧩 Wired Ollama provider (ollama/${PROVEO_LOCAL_MODEL} -> ${base}) via OPENAI_BASE_URL"
+  wire_hermes_local_endpoint "${base%/}/v1" "${PROVEO_LOCAL_MODEL}"
 }
 configure_hermes_local_model
 
@@ -84,7 +90,7 @@ has_api_key() {
   [[ -n "$MISTRAL_API_KEY" ]]
 }
 
-if ! has_api_key; then
+if [[ "$HERMES_LOCAL_WIRED" != 1 ]] && ! has_api_key; then
   echo "⚠️  No provider API key env vars detected."
   echo "   Set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, XAI_API_KEY, GEMINI_API_KEY,"
   echo "   DEEPSEEK_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY — or PROVEO_LOCAL_MODEL for the"

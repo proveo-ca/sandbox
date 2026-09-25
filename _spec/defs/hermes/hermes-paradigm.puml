@@ -55,6 +55,20 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' (/opt/hermes/bin/hermes, which s6-setuidgid's into "hermes" when invoked as
 ' root), not a proveo-authored privilege drop.
 '
+' Skipping /init has one more cost: s6's /init is what puts /command (s6's
+' tools) on PATH, and stage2-hook.sh calls s6-setuidgid by bare name. Run
+' without it, the hook exits 127 and `set -e` aborts the whole startup — every
+' check that used `--entrypoint bash` missed this. entrypoint.sh supplies
+' /command on PATH for that one call.
+'
+' ── HOW A LOCAL MODEL IS WIRED ──────────────────────────────────────────────
+' hermes does not read OPENAI_BASE_URL or HERMES_MODEL for its endpoint
+' (HERMES_MODEL is set by its own TUI launcher for a child process). A local
+' endpoint is the `custom` provider in hermes's own config.yaml:
+' model.provider custom, model.base_url <endpoint>/v1, model.default <tag>.
+' wire_hermes_local_endpoint writes those three through `hermes config set`,
+' for both the sidecar (PROVEO_LOCAL_MODEL) and the baked variants.
+'
 ' ── BAKED-MODEL VARIANTS ────────────────────────────────────────────────────
 ' hermes-muse-glimmer and hermes-qwen3.8 (defs/hermes/baked-model/Dockerfile,
 ' Needs: "hermes") pull the model's weights at BUILD time — the standard
