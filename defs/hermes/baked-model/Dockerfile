@@ -8,6 +8,9 @@ ARG OLLAMA_MODEL_TAG
 
 RUN test -n "${OLLAMA_MODEL_TAG}" \
       || { echo "OLLAMA_MODEL_TAG build-arg is required — 'mise run build hermes-muse-glimmer' resolves it" >&2; exit 1; } \
+    && apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends zstd \
+    && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://ollama.com/install.sh | sh \
     && ollama --version
 
