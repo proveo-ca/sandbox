@@ -4,6 +4,10 @@ FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}
 
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
+# An ARG used before FROM is scoped to the FROM line alone; re-declaring it
+# here is what makes it visible to the LABEL below (docker warns
+# UndefinedVar and silently empties the label without this).
+ARG HERMES_AGENT_VERSION
 
 # Upstream's stage2-hook.sh already remaps its runtime UID via HERMES_UID; this
 # aligns it with sbx's uid-1000 sandbox convention instead of proveo's usual
