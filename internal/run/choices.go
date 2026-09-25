@@ -51,6 +51,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
 		form.Rows = append(form.Rows, r)
 	}
+	if r, ok := modelRow(man, p.ModelVariant); ok {
+		form.Rows = append(form.Rows, r)
+	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
 		if len(opts) == 0 {
@@ -85,6 +88,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
 	if v := form.Selection("auth"); v != "" {
 		p.AuthVar = v
+	}
+	if v := form.Selection(rowModel); v != "" {
+		p.ModelVariant = modelVariantFor(v)
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
 		p.Evidence = v

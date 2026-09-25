@@ -3,6 +3,7 @@
 ' purpose: the resolved layout of one screenful, and how a gated element is drawn in it
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/run/choices.go
+' covers: internal/run/model_row.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
@@ -228,6 +229,21 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   ASCII markers are category-level (""<>"" code, ""$"" shell, ""#"" container,
   ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
   avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
+}
+{^"9 · model — only for a def that lists a baked-model image (hermes)"
+  model | (X) API keys | ( ) Muse Glimmer 30B | ( ) Qwen 3.8 27B
+  <color:#00BAC6>› API keys — the model comes from your provider keys, brokered like any usage key</color> | . | . | .
+  .
+  One of these, never none and never two: a run has exactly one source of
+  model. ""API keys"" leads and is the default because it is what every other
+  harness does; the baked options swap the IMAGE (""hermes-muse-glimmer"",
+  ""hermes-qwen3.8"") while the target stays ""hermes"", as the browser variant
+  does. Options come from the def's own ""images:"" map, so a def shipping one
+  baked image draws two options, and a def shipping none draws no row.
+
+  An Ollama sidecar option is NOT drawn yet: on sbx the plan keeps only env and
+  never starts a sidecar, so the option would name something that does not run.
+  SPEC: _spec/defs/hermes/hermes-paradigm.puml
 }
 }
 }

@@ -25,6 +25,21 @@ scope_git_worktree "$(pwd)"
 # process means that step never fires on its own — run it explicitly, once,
 # still as root, so the SAME logic upstream maintains does the remap instead
 # of a proveo-side reimplementation that drifts from it on the next release.
+# The manifest's durable home mount; otherwise a writable fallback for a non-root start.
+if [[ -d /proveo-home/data && -w /proveo-home/data ]]; then
+  export HERMES_HOME=/proveo-home/data
+elif [[ "$(id -u)" != 0 && ! -w "${HERMES_HOME:-/opt/data}" ]]; then
+  export HERMES_HOME="${HOME}/.hermes"
+fi
+
+# The hook would hand the browser path to s6's environment, which this launch
+# never reads; exporting it here also makes the hook skip its /run/s6 write.
+if [[ -z "${AGENT_BROWSER_EXECUTABLE_PATH:-}" && -d "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
+  AGENT_BROWSER_EXECUTABLE_PATH="$(find "$PLAYWRIGHT_BROWSERS_PATH" -type f -executable \
+    \( -name chrome-headless-shell -o -name headless_shell \) 2>/dev/null | head -1)"
+  [[ -n "$AGENT_BROWSER_EXECUTABLE_PATH" ]] && export AGENT_BROWSER_EXECUTABLE_PATH
+fi
+
 # /command holds s6's tools (s6-setuidgid); s6's own /init puts it on PATH, and
 # this entrypoint replaces /init, so the hook needs it supplied here.
 if [[ -x /opt/hermes/docker/stage2-hook.sh ]]; then
@@ -80,23 +95,23 @@ configure_hermes_local_model() {
 }
 configure_hermes_local_model
 
+# One key per provider in harness.manifest `capabilities.providers`.
+HERMES_KEY_VARS=(ANTHROPIC_API_KEY AWS_BEARER_TOKEN_BEDROCK AWS_ACCESS_KEY_ID DEEPINFRA_API_KEY
+  DEEPSEEK_API_KEY FIREWORKS_API_KEY GMI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY HF_TOKEN
+  HUGGINGFACE_API_KEY MINIMAX_API_KEY NEBIUS_API_KEY NOVITA_API_KEY OPENAI_API_KEY
+  OPENROUTER_API_KEY XAI_API_KEY ZAI_API_KEY)
 has_api_key() {
-  [[ -n "$OPENAI_API_KEY" ]] || \
-  [[ -n "$ANTHROPIC_API_KEY" ]] || \
-  [[ -n "$XAI_API_KEY" ]] || \
-  [[ -n "$GEMINI_API_KEY" ]] || \
-  [[ -n "$GOOGLE_API_KEY" ]] || \
-  [[ -n "$GOOGLE_GENERATIVE_AI_API_KEY" ]] || \
-  [[ -n "$DEEPSEEK_API_KEY" ]] || \
-  [[ -n "$GROQ_API_KEY" ]] || \
-  [[ -n "$MISTRAL_API_KEY" ]]
+  local v
+  for v in "${HERMES_KEY_VARS[@]}"; do
+    [[ -n "${!v:-}" ]] && return 0
+  done
+  return 1
 }
 
 if [[ "$HERMES_LOCAL_WIRED" != 1 ]] && ! has_api_key; then
-  echo "⚠️  No provider API key env vars detected."
-  echo "   Set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, XAI_API_KEY, GEMINI_API_KEY,"
-  echo "   DEEPSEEK_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY — or PROVEO_LOCAL_MODEL for the"
-  echo "   Ollama sidecar."
+  echo "⚠️  No provider API key detected, and no baked model in this image."
+  echo "   Export a provider key (e.g. OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY),"
+  echo "   or pick Muse Glimmer / Qwen 3.8 in the model row."
 fi
 
 echo "hermes version: $(command_version_opencode hermes unknown --version)"

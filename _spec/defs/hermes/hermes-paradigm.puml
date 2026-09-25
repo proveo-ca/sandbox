@@ -6,6 +6,8 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 '   from every other harness's shape
 ' covers: defs/hermes/Dockerfile
 ' covers: defs/hermes/entrypoint.sh
+' covers: defs/hermes/harness.manifest
+' covers: internal/contract/hermes_providers_test.go
 '
 ' ── WHY HERMES AND NOT xAI's "grok-bot" ─────────────────────────────────────
 ' This def was cut on a branch originally scoped for an xAI "grok-bot"
@@ -81,6 +83,47 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' (baked into the image, absent on the default target): when set, it starts
 ' `ollama serve` itself, locally, before the agent launches — there is no
 ' sidecar to wait on instead.
+'
+' ── HERMES RUNS AS UID 1000, THE UID PROVEO LAUNCHES ────────────────────────
+' proveo starts the agent as uid 1000 (--user 1000:1000 on docker, the kit user
+' on sbx). stage2-hook.sh refuses any non-root uid other than the hermes user's
+' own — upstream's answer is "start as root", which proveo never does. So the
+' image remaps the hermes user to uid/gid 1000 at build time: proveo's launch IS
+' the hermes user, the hook's guard passes, its root-only steps degrade to
+' warnings, and the exec shim takes its non-root path straight to the binary.
+' Every imagetest used to run as root, which is how a launch-breaking refusal
+' shipped; the suite now boots the entrypoint as uid 1000.
+'
+' The hook would publish AGENT_BROWSER_EXECUTABLE_PATH through s6's container
+' environment, which a launch without /init never reads — the browser tool
+' would find no Chrome. entrypoint.sh finds the headless-shell binary and
+' exports it, which also makes the hook skip its /run/s6 write (root-only).
+' HERMES_HOME follows the manifest's durable /proveo-home/data mount when one
+' is present, so config and sessions outlive --rm. The Dockerfile no longer
+' wipes /tmp: upstream ships XDG_RUNTIME_DIR (/tmp/hermes-runtime) there.
+'
+' ── PROVIDER KEYS ARE USAGE KEYS, AS FOR CECLI ──────────────────────────────
+' The CLI reads any `env: secret: true` entry as the harness's OWN plan
+' credential: it draws an auth row for it and can withhold it. Hermes has no
+' plan — OPENAI/ANTHROPIC/XAI keys are ordinary usage keys — so the manifest
+' declares no secrets, every detected key is brokered, and no auth row is drawn.
+' capabilities.providers pins proveo's registry where hermes reads the SAME key
+' env var; internal/contract/hermes_providers_test.go names every exclusion
+' (plan keys, different env var names, no hermes provider) so the list cannot
+' drift silently when the registry grows.
+'
+' ── ONE MODEL SOURCE PER RUN: THE MODEL ROW ─────────────────────────────────
+' `proveo run hermes` draws a single-select model row: API keys (default),
+' Muse Glimmer 30B, Qwen 3.8 27B. A baked choice swaps the image to
+' hermes-muse-glimmer / hermes-qwen3.8 and keeps the target `hermes`, so the
+' settings cache and sbx agent kit key on one name. Layout:
+' _spec/internal/choiceui/wireframe.puml (box 9).
+'
+' The Ollama sidecar option is deferred. On sbx, egress.AgentEnv keeps only the
+' plan's env pairs and never starts the sidecar container; macOS only works by
+' falling back to the host's Ollama, which the sandbox network policy must also
+' allow. Neither could be verified, so the first iteration ships the two baked
+' models. `--local-model` still works where the sidecar runs.
 '
 actor "Operator" as OP
 

@@ -692,7 +692,9 @@
         "defs/hermes/entrypoint.sh",
         "defs/hermes/baked-model/Dockerfile",
         "e2e/hermes_local_model_test.go",
-        "internal/imagetest/hermes_test.go"
+        "internal/imagetest/hermes_test.go",
+        "defs/hermes/harness.manifest",
+        "internal/contract/hermes_providers_test.go"
       ],
       "fingerprint": null
     },
@@ -830,7 +832,8 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
-        "internal/run/choices.go"
+        "internal/run/choices.go",
+        "internal/run/model_row.go"
       ],
       "fingerprint": null
     },

@@ -72,6 +72,27 @@ func hmBuild(s *imagetest.Suite) {
 
 	// Every other check here uses --entrypoint bash, which skips entrypoint.sh;
 	// this one runs the image the way sbx does.
+	s.Check("the real entrypoint boots as uid 1000, the way proveo launches it", func(t *testing.T) {
+		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", img, "--version")
+		if !r.OK() || !strings.Contains(r.Out, "Hermes Agent") {
+			t.Errorf("entrypoint did not reach hermes as uid 1000 (rc=%d, output tail: %s)", r.Code, hmTail(r.Out, 400))
+		}
+	})
+	s.Check("the entrypoint hands the browser path and the durable home to the agent", func(t *testing.T) {
+		home := t.TempDir()
+		if err := os.MkdirAll(home+"/data", 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(home+"/data", 0o777); err != nil {
+			t.Fatal(err)
+		}
+		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", "-v", home+":/proveo-home", img, "env")
+		for _, want := range []string{"HERMES_HOME=/proveo-home/data", "AGENT_BROWSER_EXECUTABLE_PATH=/opt/hermes/.playwright/"} {
+			if !strings.Contains(r.Out, want) {
+				t.Errorf("agent env missing %s (output tail: %s)", want, hmTail(r.Out, 400))
+			}
+		}
+	})
 	s.Check("the real entrypoint boots and launches hermes", func(t *testing.T) {
 		r := hmRun(t, 3*time.Minute, nil, img, "--version")
 		if !r.OK() || !strings.Contains(r.Out, "Hermes Agent") {
@@ -212,7 +233,7 @@ func TestImageHermesBakedModel(t *testing.T) {
 			s.Inspect("proveo.baked-model label names the pulled tag", img,
 				`{{index .Config.Labels "proveo.baked-model"}}`, v.tag)
 			s.Check("real entrypoint serves the baked weights and wires hermes to them", func(t *testing.T) {
-				r := hmRun(t, 4*time.Minute, nil, img, "config", "show")
+				r := hmRun(t, 4*time.Minute, nil, "--user", "1000:1000", img, "config", "show")
 				for _, want := range []string{"'default': '" + v.tag + "'", "'base_url': 'http://localhost:11434/v1'", "'provider': 'custom'"} {
 					if !strings.Contains(r.Out, want) {
 						t.Errorf("config missing %s (output tail: %s)", want, hmTail(r.Out, 400))
@@ -223,7 +244,7 @@ func TestImageHermesBakedModel(t *testing.T) {
 				}
 			})
 			s.Check("hermes answers y to an alive check via the baked model", func(t *testing.T) {
-				r := hmRun(t, 60*time.Minute, nil, img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
+				r := hmRun(t, 60*time.Minute, nil, "--user", "1000:1000", img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
 				if !hmAliveYes.MatchString(r.Out) {
 					t.Errorf("[%s] no y answer (output tail: %s)", v.name, hmTail(r.Out, 400))
 				}

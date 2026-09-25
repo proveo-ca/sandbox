@@ -228,7 +228,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
-			Evidence: p.evidenceOrDefault(),
+			Evidence: p.evidenceOrDefault(), ModelVariant: p.ModelVariant,
 		})
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -257,6 +257,15 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		}
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
+	}
+	if ref := modelVariantRef(rs.Man, p.ModelVariant); ref != "" {
+		chosen, isLocal := posture.ResolveImageChoice(ref)
+		if isLocal {
+			ui.Section(ui.SectionRun)
+			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
+		}
+		p.Image = chosen
+		ui.Appf("variant: model → %s", p.Image)
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		ui.Section(ui.SectionRun)

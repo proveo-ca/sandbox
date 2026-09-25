@@ -9,17 +9,20 @@ ARG DEBIAN_FRONTEND=noninteractive
 # UndefinedVar and silently empties the label without this).
 ARG HERMES_AGENT_VERSION
 
-# Upstream's stage2-hook.sh already remaps its runtime UID via HERMES_UID; this
-# aligns it with sbx's uid-1000 sandbox convention instead of proveo's usual
-# usermod dance, which targets a plain single-user image, not an s6-supervised
-# one. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+# Matches the build-time uid below, so stage2-hook.sh's root-start remap is a no-op.
 ENV HERMES_UID=1000
 
 RUN --mount=type=cache,id=proveo-hermes-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=proveo-hermes-apt-lists,target=/var/lib/apt,sharing=locked \
     apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends dumb-init \
-    && rm -rf /tmp/* /var/tmp/*
+    && apt-get install -y --no-install-recommends dumb-init
+
+# proveo launches the agent as uid 1000, and stage2-hook.sh refuses any non-root
+# uid other than hermes's own — so hermes IS uid/gid 1000 in this image.
+# SPEC: _spec/defs/hermes/hermes-paradigm.puml
+RUN usermod -u 1000 hermes && groupmod -g 1000 hermes \
+    && find / -xdev \( -uid 10000 -o -gid 10000 \) -exec chown -h hermes:hermes {} + \
+    && install -d -m 0700 -o hermes -g hermes /tmp/hermes-runtime
 
 RUN mkdir -p /opt/proveo/subagents /opt/proveo/lib /opt/proveo/hooks /opt/proveo/shims
 COPY defs/subagents/ /opt/proveo/subagents/
