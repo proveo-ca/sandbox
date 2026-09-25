@@ -686,6 +686,22 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/defs/hermes/hermes-paradigm.puml",
+      "covers": [
+        "defs/hermes/Dockerfile",
+        "defs/hermes/entrypoint.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/hermes/hermes-topology.puml",
+      "covers": [
+        "defs/hermes/**",
+        "internal/imagebuild/targets.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/defs/opencode/opencode-paradigm.puml",
       "covers": [
         "defs/opencode/entrypoint.sh",

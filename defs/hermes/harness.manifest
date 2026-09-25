@@ -1,0 +1,38 @@
+# SPEC: _spec/components.puml, _spec/defs/hermes/hermes-paradigm.puml
+name: hermes
+description: Hermes Agent (NousResearch) — general-purpose assistant with native browser automation
+egress: true
+docker: sbx
+stability: candidate
+images:
+  hermes: proveo/hermes:latest
+workspace:
+  layout: app
+  configDir: .hermes
+  gitMode: rw
+home:
+  enabled: true
+  mounts:
+    - host: hermes/data
+      container: /proveo-home/data
+      mode: rw
+env:
+  - name: OPENAI_API_KEY
+    description: Hermes talks to any OpenAI-compatible endpoint — set this or another provider key below
+    secret: true
+  - name: ANTHROPIC_API_KEY
+    description: Anthropic provider key
+    secret: true
+  - name: XAI_API_KEY
+    description: xAI (Grok) provider key
+    secret: true
+  - name: PROVEO_LOCAL_MODEL
+    description: Local model name (e.g. qwen3.8, muse-glimmer) served by the Ollama sidecar
+    secret: false
+
+# No `providers:` pin, deliberately: hermes reaches whatever OpenAI-compatible
+# endpoint the operator points it at, and pinning one would make every other
+# unreachable — same reasoning as opencode's manifest.
+# SPEC: _spec/internal/credentials/credential-decisions.puml
+capabilities:
+  hosts: [] # browser targets are open-ended by design; the operator's own egress policy scopes them

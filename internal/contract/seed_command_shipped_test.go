@@ -18,6 +18,7 @@ var seedImageSources = map[string]struct{ file, base string }{
 	"cursor":              {"defs/cursor/Dockerfile", ""},
 	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-lsp:latest"},
 	"claudecode-solidity": {"defs/claudecode/solidity/Dockerfile", "proveo/claudecode:latest"},
+	"hermes":              {"defs/hermes/Dockerfile", ""},
 
 	"claudecode-browser": {"defs/base-node-browser/Dockerfile", "proveo/claudecode:latest"},
 	"codex-browser":      {"defs/base-node-browser/Dockerfile", "proveo/codex:latest"},

@@ -131,6 +131,12 @@ var Specs = map[string]Spec{
 		Dockerfile: "defs/opencode/Dockerfile", Context: ".",
 		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
 		Pins: []Pin{{Arg: "OPENCODE_VERSION", Eco: "npm", Pkg: "opencode-ai"}}},
+	// hermes has no Parent, deliberately: it builds FROM nousresearch/hermes-agent
+	// directly rather than proveo's own base chain, which would duplicate what
+	// upstream's image already bakes. SPEC: _spec/defs/hermes/hermes-paradigm.puml
+	"hermes": {Repo: "proveo/hermes", Override: "PROVEO_HERMES_IMAGE",
+		Dockerfile: "defs/hermes/Dockerfile", Context: ".",
+		EnvArgs: []EnvArg{{Arg: "HERMES_AGENT_VERSION", Default: "latest"}}},
 
 	"claudecode-browser": func() Spec { s := browserOf("claudecode", "claude"); s.Override, s.NeedsOverride = "", ""; return s }(),
 	"codex-browser":      browserOf("codex", "codex"),
