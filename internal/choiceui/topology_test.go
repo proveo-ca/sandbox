@@ -494,3 +494,25 @@ func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
 		}
 	}
 }
+
+func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Square = "sbx · claudecode + qwen3.8"
+	if n := len([]rune(fr.Square)); n != SquareMax {
+		t.Fatalf("fixture is %d runes; this test pins the widest square, SquareMax = %d", n, SquareMax)
+	}
+	fr.Key = KeyNone
+	for _, tier := range []GlyphTier{GlyphsNerd, GlyphsASCII} {
+		rows := paint(t, fr, tier, 0)
+		if !strings.Contains(strings.Join(rows, "\n"), fr.Square) {
+			t.Errorf("%v: the box cut %q:\n%s", tier, fr.Square, strings.Join(rows, "\n"))
+		}
+		g := glyphsFor(tier)
+		for _, r := range rows {
+			if strings.Contains(r, "sbx proxy") && strings.Contains(r, g.key) {
+				t.Errorf("%v: KeyNone must draw no key beside the proxy: %q", tier, r)
+			}
+		}
+	}
+}

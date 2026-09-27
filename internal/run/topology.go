@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -18,13 +19,18 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 			creds = credsDefault
 		}
 		lane, open, refused := lanesOf(tier, sbxBackend)
+		model := modelShort(f.Selection(rowModel))
+		key := keyHomeOf(creds, sbxBackend)
+		if model != "" {
+			key = choiceui.KeyNone
+		}
 		fr := choiceui.Frame{
 			Host:      hostAccount(),
 			HostOS:    "(" + hostPlatform() + ")",
-			Square:    squareOf(man, target),
+			Square:    squareWith(squareOf(man, target), model),
 			Hop:       hopOf(tier, creds, sbxBackend),
 			Interface: interfaceOf(f),
-			Key:       keyHomeOf(creds, sbxBackend),
+			Key:       key,
 			Lane:      lane,
 			Open:      open,
 			Refused:   refused,
@@ -121,6 +127,18 @@ func hostPlatform() string {
 	return runtime.GOOS
 }
 
+// squareWith appends " + model" to the square, trimming model to what choiceui.SquareMax leaves.
+func squareWith(square, model string) string {
+	room := choiceui.SquareMax - utf8.RuneCountInString(square+" + ")
+	if model == "" || room < 1 {
+		return square
+	}
+	if r := []rune(model); len(r) > room {
+		model = string(r[:room-1]) + "…"
+	}
+	return square + " + " + model
+}
+
 func squareOf(man manifest.Manifest, target string) string {
 	if man.Docker == manifest.DockerSbx {
 		return "sbx · " + target
@@ -184,6 +202,8 @@ func captionOf(fr choiceui.Frame, tier, creds string, sbx bool) string {
 		where = "the real key rides inside the container"
 	case choiceui.KeyAtHop:
 		where = "the key stops at the hop and never enters the container"
+	case choiceui.KeyNone:
+		where = "no API key is in play"
 	}
 	name := tier
 	if name == "" {

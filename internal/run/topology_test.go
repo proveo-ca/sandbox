@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 )
@@ -280,5 +281,47 @@ func TestAnUnlockedEgressRowStillFollowsTheSelection(t *testing.T) {
 	}
 	if got := egressTier(&choiceui.Form{}, 0, "open"); got != "open" {
 		t.Fatalf("with no egress row at all, egressTier = %q, want the fallback", got)
+	}
+}
+
+func modelForm(model string) *choiceui.Form {
+	f := stripForm("allow-all", "broker")
+	f.Rows = append(f.Rows, choiceui.Row{Label: rowModel, Options: []string{model}})
+	return f
+}
+
+func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Docker: manifest.DockerSbx}
+	for _, c := range []struct {
+		option, square string
+		key            choiceui.KeyHome
+	}{
+		{modelAPIKeys, "sbx · hermes", choiceui.KeyAtHop},
+		{credentials.AuthSubscription, "sbx · hermes + plan", choiceui.KeyNone},
+		{localModels[0].label(), "sbx · hermes + qwen3.8", choiceui.KeyNone},
+		{localModels[1].label(), "sbx · hermes + glimmer", choiceui.KeyNone},
+	} {
+		fr := topologyOf(man, "hermes", true, "allow-all", "broker")(modelForm(c.option), 0)
+		if fr.Key != c.key || fr.Square != c.square {
+			t.Errorf("%q: key=%v square=%q, want key=%v square=%q", c.option, fr.Key, fr.Square, c.key, c.square)
+		}
+		if c.key == choiceui.KeyNone && !strings.Contains(fr.Caption, "no API key") {
+			t.Errorf("%q: caption %q must say no API key is in play", c.option, fr.Caption)
+		}
+	}
+}
+
+func TestSquareTrimsOnlyTheModelToSquareMax(t *testing.T) {
+	t.Parallel()
+	if got := squareWith("sbx · claudecode", "qwen3.8"); got != "sbx · claudecode + qwen3.8" {
+		t.Errorf("the widest listed pair must fit whole, got %q", got)
+	}
+	got := squareWith("sbx · claudecode", "hf.co/unsloth/Qwen3-GGUF:Q4")
+	if n := len([]rune(got)); n != choiceui.SquareMax || !strings.HasPrefix(got, "sbx · claudecode + ") || !strings.HasSuffix(got, "…") {
+		t.Errorf("a long tag is trimmed to exactly SquareMax with an ellipsis, harness intact: %q (%d)", got, n)
+	}
+	if got := squareWith("sbx · claudecode", ""); got != "sbx · claudecode" {
+		t.Errorf("API keys adds nothing, got %q", got)
 	}
 }

@@ -18,17 +18,17 @@ const (
 
 // localModel is one row choice: repo claims any of its tags, tags and builds pick this host's build.
 type localModel struct {
-	name, repo string
-	tags       map[string]string // "goos/goarch" → Ollama tag; "" = every other host
-	builds     map[string]string // "goos/goarch" → label suffix naming that build; "" = every other host
+	name, repo, short string            // short is the name the topology box prints
+	tags              map[string]string // "goos/goarch" → Ollama tag; "" = every other host
+	builds            map[string]string // "goos/goarch" → label suffix naming that build; "" = every other host
 }
 
 // localModels are the row's local choices in order.
 var localModels = []localModel{
-	{"Qwen 3.8 27B", "qwen3.8",
+	{"Qwen 3.8 27B", "qwen3.8", "qwen3.8",
 		map[string]string{"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
-	{"Muse Glimmer 30B", "muse-glimmer",
+	{"Muse Glimmer 30B", "muse-glimmer", "glimmer",
 		map[string]string{"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
 }
@@ -236,4 +236,20 @@ func (p *Params) applySource(v string, hasAuth bool) {
 	case v != modelAPIKeys:
 		p.AuthVar = v
 	}
+}
+
+// modelShort is what the topology box prints for a model-row answer; "" for API keys.
+func modelShort(option string) string {
+	switch option {
+	case "", modelAPIKeys, credentials.AuthUsage:
+		return ""
+	case credentials.AuthSubscription:
+		return "plan"
+	}
+	for _, m := range localModels {
+		if m.label() == option {
+			return m.short
+		}
+	}
+	return option
 }
