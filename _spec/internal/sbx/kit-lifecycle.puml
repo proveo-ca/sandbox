@@ -5,11 +5,31 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/sandbox_stale_test.go
 ' covers: internal/sbx/run.go
+' covers: internal/backend/sandbox/launch_receipt.go
+' covers: internal/backend/sandbox/launch_receipt_test.go
+'
+' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
+' Re-attach passes the name only, so a kept sandbox runs with the Kit, image
+' and env it was CREATED with. Measured: a hermes run with the host-chrome add-on
+' ticked re-attached to a sandbox kept from an earlier run; PID 1 and the agent
+' still carried the earlier PROVEO_EGRESS_SESSION_ID, PROVEO_HOST_CDP_PORT never
+' arrived, and the agent drove the in-sandbox headless Chromium. sbx's help says
+' -e "takes effect on a re-attach too"; proveo never passes it there.
+' The fix is a RECEIPT written at creation (os.UserCacheDir()/proveo/
+' sbx-sandboxes/<name>.json): image + local image ID, Kit digest, clone, mounts,
+' and a digest per env var, with the session ID normalised to <sid> (two dry
+' runs then compare identical). On reuse:
+'   same receipt            → re-attach, as before
+'   changed/none, stopped   → PreserveClone + SaveState, sbx rm --force, create
+'   changed/none, running   → warn with the changed names + `sbx rm` recipe, re-attach
+' A running sandbox is someone's live session; proveo never removes it.
 title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures, remove success
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
 state "sandbox name exists?" as EXISTS <<choice>>
 state "fresh launch config\nname + Kit + image + env + agent\n+ mounts/clone/ports/limits" as CREATE
+state "receipt matches?" as DRIFT <<choice>>
+state "carry clone + state home\nsbx rm --force" as RETIRE
 state "reattach launch config\nname + trailing agent args ONLY" as REUSE
 state "sbx run" as RUN
 state "sandbox exists after error?" as CREATED <<choice>>
@@ -26,7 +46,10 @@ state "launch failed\nno sandbox to retain" as FAILED
 [*] --> RESOLVE
 RESOLVE --> EXISTS : WriteKit is per run;\nsecret values are never in it
 EXISTS --> CREATE : no
-EXISTS --> REUSE : yes
+EXISTS --> DRIFT : yes
+DRIFT --> REUSE : receipt matches,\nor running (warn)
+DRIFT --> RETIRE : changed, stopped
+RETIRE --> CREATE
 CREATE --> RUN
 REUSE --> RUN
 RUN --> LIVE : agent session opens

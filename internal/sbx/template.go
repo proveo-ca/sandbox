@@ -205,3 +205,6 @@ func ReloadTemplate(image string, report func(string, ...any)) error {
 	writeTemplateReceipt(image)
 	return nil
 }
+
+// LocalImageID is the local Docker image ID for image, or "" when it cannot be read.
+func LocalImageID(image string) string { return sh.LocalImageID(image) }

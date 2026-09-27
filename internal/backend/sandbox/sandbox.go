@@ -850,11 +850,20 @@ func Run(in Input) error {
 		}
 	}()
 	cfg, kit, secrets := Spec(in)
-	if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+	kitDir, err := sbx.WriteKit(cfg.KitDir, kit)
+	if err != nil {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
+	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
+	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+		return err
+	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
+	if launchCfg.KitDir != "" {
+		writeReceipt(cfg.Name, receipt)
+	}
 	if err := sbx.EnsureTemplate(launchCfg.Image, func(f string, a ...any) {
 		ui.Appf(f, a...)
 	}); err != nil {
