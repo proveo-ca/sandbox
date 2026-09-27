@@ -2,6 +2,7 @@
 package sbx
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,9 +55,15 @@ func noEnv(string) string { return "" }
 func TestEnsureHostOllamaNamesTheInstalledTagsWhenOneIsMissing(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 40, true)
-	err := EnsureHostOllama("qwen3.8:27b", noEnv)
+	noPull := func(k string) string {
+		if k == EnvLocalModelPull {
+			return "0"
+		}
+		return ""
+	}
+	err := EnsureHostOllama("qwen3.8:27b", noPull, nil)
 	if err == nil {
-		t.Fatal("qwen3.8:27b is not installed; want a refusal before the sandbox starts")
+		t.Fatal("qwen3.8:27b is not installed and pulling is off; want a refusal before the sandbox starts")
 	}
 	for _, want := range []string{"ollama pull qwen3.8:27b", "qwen3.8:27b-mlx", "qwen3.8:latest"} {
 		if !strings.Contains(err.Error(), want) {
@@ -68,7 +75,7 @@ func TestEnsureHostOllamaNamesTheInstalledTagsWhenOneIsMissing(t *testing.T) {
 func TestEnsureHostOllamaTreatsAnUntaggedNameAsLatest(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 40, true)
-	if err := EnsureHostOllama("qwen3.8", noEnv); err != nil {
+	if err := EnsureHostOllama("qwen3.8", noEnv, nil); err != nil {
 		t.Errorf("qwen3.8 ⇒ qwen3.8:latest is installed: %v", err)
 	}
 }
@@ -76,7 +83,7 @@ func TestEnsureHostOllamaTreatsAnUntaggedNameAsLatest(t *testing.T) {
 func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 12, true)
-	err := EnsureHostOllama("qwen3.8:latest", noEnv)
+	err := EnsureHostOllama("qwen3.8:latest", noEnv, nil)
 	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
 		t.Fatalf("16.5 GiB of weights with 12 GiB available must refuse and name the override, got %v", err)
 	}
@@ -87,7 +94,7 @@ func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
 		}
 		return ""
 	}
-	if err := EnsureHostOllama("qwen3.8:latest", force); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", force, nil); err != nil {
 		t.Errorf("%s=1 must override the fit check: %v", EnvLocalModelForce, err)
 	}
 }
@@ -95,7 +102,7 @@ func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
 func TestEnsureHostOllamaSkipsTheFitCheckForALoadedModel(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[{"name":"qwen3.8:latest","size":20000000000}]}`)
 	stubAvailable(t, 2, true)
-	if err := EnsureHostOllama("qwen3.8:latest", noEnv); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", noEnv, nil); err != nil {
 		t.Errorf("an already-resident model costs no new memory: %v", err)
 	}
 }
@@ -103,7 +110,7 @@ func TestEnsureHostOllamaSkipsTheFitCheckForALoadedModel(t *testing.T) {
 func TestEnsureHostOllamaPassesWhenMemoryIsUnknown(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 0, false)
-	if err := EnsureHostOllama("qwen3.8:latest", noEnv); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", noEnv, nil); err != nil {
 		t.Errorf("no reading (windows, freebsd) must not block: %v", err)
 	}
 }
@@ -112,7 +119,7 @@ func TestEnsureHostOllamaExplainsAMissingServer(t *testing.T) {
 	orig := hostOllamaURL
 	t.Cleanup(func() { hostOllamaURL = orig })
 	hostOllamaURL = "http://127.0.0.1:1"
-	err := EnsureHostOllama("qwen3.8:latest", noEnv)
+	err := EnsureHostOllama("qwen3.8:latest", noEnv, nil)
 	if err == nil || !strings.Contains(err.Error(), "ollama.com/download") {
 		t.Errorf("want an install pointer, got %v", err)
 	}
@@ -148,5 +155,93 @@ func TestHostModelRefMatchesOnlyTheOllamaBase(t *testing.T) {
 		if got := HostModelRef(base); got != want {
 			t.Errorf("HostModelRef(%q) = %v, want %v", base, got, want)
 		}
+	}
+}
+
+// fakePullOllama serves tags that gain model once /api/pull has streamed, and a registry manifest of size bytes.
+func fakePullOllama(t *testing.T, model string, size uint64, pullErr string) *int {
+	t.Helper()
+	pulls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			if pulls > 0 && pullErr == "" {
+				_, _ = fmt.Fprintf(w, `{"models":[{"name":%q,"size":%d}]}`, model, size)
+				return
+			}
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		case "/api/ps":
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		case "/api/pull":
+			pulls++
+			_, _ = fmt.Fprintf(w, "{\"status\":\"pulling manifest\"}\n{\"status\":\"pulling x\",\"total\":%d,\"completed\":%d}\n", size, size/2)
+			if pullErr != "" {
+				_, _ = fmt.Fprintf(w, "{\"error\":%q}\n", pullErr)
+				return
+			}
+			_, _ = w.Write([]byte("{\"status\":\"success\"}\n"))
+		default:
+			if strings.HasPrefix(r.URL.Path, "/v2/") {
+				_, _ = fmt.Fprintf(w, `{"config":{"size":1},"layers":[{"size":%d}]}`, size-1)
+				return
+			}
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	origHost, origReg := hostOllamaURL, ollamaRegistry
+	t.Cleanup(func() { hostOllamaURL, ollamaRegistry = origHost, origReg })
+	hostOllamaURL, ollamaRegistry = srv.URL, srv.URL
+	return &pulls
+}
+
+func TestEnsureHostOllamaPullsAMissingTag(t *testing.T) {
+	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
+	stubAvailable(t, 40, true)
+	var out strings.Builder
+	if err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, &out); err != nil {
+		t.Fatalf("a missing tag must be pulled, not refused: %v", err)
+	}
+	if *pulls != 1 || !strings.Contains(out.String(), "pulled muse-glimmer:30b-mlx") {
+		t.Errorf("pulls=%d progress=%q", *pulls, out.String())
+	}
+}
+
+func TestEnsureHostOllamaPullsButWillNotLoadWhatCannotFit(t *testing.T) {
+	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
+	stubAvailable(t, 12, true)
+	var out strings.Builder
+	err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, &out)
+	if *pulls != 1 || !strings.Contains(out.String(), "would not fit in memory right now") {
+		t.Errorf("memory is transient and the download is not: pull with a warning; pulls=%d out=%q", *pulls, out.String())
+	}
+	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
+		t.Errorf("the load check must still refuse 19 GB with 12 GiB free, got %v", err)
+	}
+}
+
+func TestEnsureHostOllamaReportsAFailedPull(t *testing.T) {
+	fakePullOllama(t, "nope:1", 1000, "pull model manifest: file does not exist")
+	stubAvailable(t, 40, true)
+	err := EnsureHostOllama("nope:1", noEnv, nil)
+	if err == nil || !strings.Contains(err.Error(), "file does not exist") {
+		t.Errorf("want Ollama's own error, got %v", err)
+	}
+}
+
+func TestLibraryRefCoversOllamaNamesOnly(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"muse-glimmer:30b-mlx": "library/muse-glimmer 30b-mlx",
+		"qwen3.8":              "library/qwen3.8 latest",
+		"someone/model:q4":     "someone/model q4",
+	} {
+		repo, tag, ok := libraryRef(in)
+		if got := repo + " " + tag; !ok || got != want {
+			t.Errorf("libraryRef(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	if _, _, ok := libraryRef("hf.co/unsloth/Qwen3-GGUF:Q4_K_M"); ok {
+		t.Error("a Hugging Face ref has no Ollama registry manifest; its size must read as unknown")
 	}
 }

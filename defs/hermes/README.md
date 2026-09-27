@@ -32,9 +32,9 @@ The model row picks the source: API keys (an external provider through your keys
 Muse Glimmer 30B. Each local option is a `--local-model` value for this host — "… MLX" on macOS arm64
 (`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx`, 2.6x the generation speed of GGUF measured on an M4 Pro),
 "… GGUF" elsewhere (`qwen3.8:latest`, `muse-glimmer:latest`). On sbx the model runs on **your host's
-Ollama** and hermes reaches it at `host.docker.internal:11434`. proveo refuses before launch when Ollama
-is not running, the tag is not pulled (it prints `ollama pull <tag>`), or the model would not fit in free
-memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The baked-model images (`hermes-muse-glimmer`,
+Ollama** and hermes reaches it at `host.docker.internal:11434`. A tag you have not pulled is pulled for you
+before launch, with progress (`PROVEO_LOCAL_MODEL_PULL=0` turns that off). proveo refuses when Ollama is
+not running, or the model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The baked-model images (`hermes-muse-glimmer`,
 `hermes-qwen3.8`) are retired. See `_spec/internal/sbx/host-inference.puml`.
 
 ## Host Chrome (logged-in sites)

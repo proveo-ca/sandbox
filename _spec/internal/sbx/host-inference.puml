@@ -16,12 +16,19 @@ skinparam noteTextAlignment left
 ' On sbx, ANY local model — `--local-model X` or a model-row choice — is served by
 ' the operator's own Ollama on the host, never inside the VM and never by a server
 ' proveo starts. The microVM has no GPU on macOS and a passthrough-only GPU on Linux.
-' proveo checks and routes; it does not install, start, pull or tune Ollama.
+' proveo checks, pulls a missing tag, and routes; it never installs, starts or
+' tunes Ollama (2026-09-27: pulling added — refusing with `ollama pull` only
+' made the operator retype what proveo already knew).
 '
 ' ── SEQUENCE (selectBackend, sbx branch, before the sandbox exists) ─────────
 '   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
 '   2. Tag lookup: exact, or bare name ⇒ ":latest" (Ollama's rule). Missing ⇒
-'      refuse with `ollama pull <tag>` and the installed tags of the same repo.
+'      size from registry.ollama.ai/v2/<repo>/manifests/<tag> (config + layers;
+'      muse-glimmer:30b-mlx = 17.75 GiB), a WARNING if it would not fit in memory
+'      right now (memory is transient, the download is not), then POST /api/pull
+'      with progress on stderr. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
+'      (`ollama pull <tag>` + installed tags of the same repo). A non-library ref
+'      (hf.co/…) pulls with no size shown.
 '   3. Already in /api/ps ⇒ resident, no new memory, done.
 '   4. Fit: need = size + size/8 + 1 GiB against reclaimable memory
 '      (macOS vm_stat free+inactive+speculative+purgeable; Linux MemAvailable).
@@ -76,10 +83,10 @@ RUN --> VM : Kit allow localhost:11434\nenv OLLAMA_API_BASE
 AG --> OLL : host.docker.internal:11434/v1
 
 note right of OLL
-  **Check, never manage.** proveo refuses
-  a missing server, a missing tag, or a
-  model that would swap; it does not
-  start, pull or configure Ollama.
+  **Check and pull, never manage.** proveo
+  pulls a missing tag and refuses a missing
+  server or a model that would swap; it
+  never starts or configures Ollama.
 end note
 
 note right of AG

@@ -715,7 +715,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if rs.Model.HostLLM {
 			sidecarModel = ""
 			if !p.PrintOnly {
-				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv); err != nil {
+				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, os.Stderr); err != nil {
 					return false, fmt.Errorf("local model %s: %w", p.LocalModel, err)
 				}
 				ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
