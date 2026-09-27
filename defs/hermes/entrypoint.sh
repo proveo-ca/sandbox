@@ -77,31 +77,7 @@ wire_hermes_local_endpoint() {
   echo "🧩 Wired hermes to ${model} at ${base_v1} (provider custom)"
 }
 
-# A baked-model variant (hermes-muse-glimmer, hermes-qwen3.8) carries its own
-# weights and starts the daemon locally before the agent runs.
-start_baked_ollama() {
-  [[ -n "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
-  if ! command -v ollama >/dev/null 2>&1; then
-    echo "⚠️  OLLAMA_BAKED_MODEL_TAG is set but ollama is not installed in this image" >&2
-    return 0
-  fi
-  ollama serve >/tmp/ollama-serve.log 2>&1 &
-  local waited=0
-  until curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; do
-    sleep 1
-    waited=$((waited + 1))
-    if (( waited >= 30 )); then
-      echo "⚠️  baked ollama did not become ready within 30s — see /tmp/ollama-serve.log" >&2
-      return 0
-    fi
-  done
-  wire_hermes_local_endpoint "http://localhost:11434/v1" "${OLLAMA_BAKED_MODEL_TAG}"
-}
-start_baked_ollama
-
-# Skipped on a baked variant — it wired its own model above.
 configure_hermes_local_model() {
-  [[ -z "${OLLAMA_BAKED_MODEL_TAG:-}" ]] || return 0
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   local base="${OLLAMA_API_BASE:-http://ollama:11434}"
   wire_hermes_local_endpoint "${base%/}/v1" "${PROVEO_LOCAL_MODEL}"
@@ -122,9 +98,9 @@ has_api_key() {
 }
 
 if [[ "$HERMES_LOCAL_WIRED" != 1 ]] && ! has_api_key; then
-  echo "⚠️  No provider API key detected, and no baked model in this image."
+  echo "⚠️  No provider API key detected, and no local model."
   echo "   Export a provider key (e.g. OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY),"
-  echo "   or pick Muse Glimmer / Qwen 3.8 in the model row."
+  echo "   or pick Qwen / Muse Glimmer in the model row (--local-model)."
 fi
 
 echo "hermes version: $(command_version_opencode hermes unknown --version)"

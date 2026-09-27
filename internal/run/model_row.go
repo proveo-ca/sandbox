@@ -3,9 +3,11 @@ package run
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
@@ -14,19 +16,36 @@ const (
 	modelAPIKeys = "API keys"
 )
 
-// localModel is one row choice: image gates it, repo claims any of its tags, tags picks this host's build.
+// localModel is one row choice: repo claims any of its tags, tags and builds pick this host's build.
 type localModel struct {
-	image, label, repo string
-	tags               map[string]string // "goos/goarch" → Ollama tag; "" = every other host
+	name, repo string
+	tags       map[string]string // "goos/goarch" → Ollama tag; "" = every other host
+	builds     map[string]string // "goos/goarch" → label suffix naming that build; "" = every other host
 }
 
 // localModels are the row's local choices in order.
 var localModels = []localModel{
-	{"hermes-qwen3.8", "Qwen 3.8 27B", "qwen3.8", map[string]string{
-		"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"}},
-	{"hermes-muse-glimmer", "Muse Glimmer 30B", "muse-glimmer", map[string]string{
-		"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"}},
+	{"Qwen 3.8 27B", "qwen3.8",
+		map[string]string{"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"},
+		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
+	{"Muse Glimmer 30B", "muse-glimmer",
+		map[string]string{"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"},
+		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
 }
+
+// labelFor is the option text on platform.
+func (m localModel) labelFor(platform string) string {
+	b, ok := m.builds[platform]
+	if !ok {
+		b = m.builds[""]
+	}
+	if b == "" {
+		return m.name
+	}
+	return m.name + " " + b
+}
+
+func (m localModel) label() string { return m.labelFor(ollamaPlatform()) }
 
 func ollamaPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
 
@@ -49,11 +68,11 @@ func modelHelp(localModel string) map[string]string {
 	}
 	claimed := false
 	for _, m := range localModels {
-		h[m.label] = "same as --local-model " + m.tag() + " on " + ollamaPlatform() + ": the host's Ollama serves it, no key"
+		h[m.label()] = "same as --local-model " + m.tag() + " on " + ollamaPlatform() + ": the host's Ollama serves it, no key"
 		if m.owns(localModel) {
 			claimed = true
 			if localModel != m.tag() {
-				h[m.label] = "keeps your --local-model " + localModel + " (the row picks " + m.tag() + " on " + ollamaPlatform() + ")"
+				h[m.label()] = "keeps your --local-model " + localModel + " (the row picks " + m.tag() + " on " + ollamaPlatform() + ")"
 			}
 		}
 	}
@@ -63,21 +82,24 @@ func modelHelp(localModel string) map[string]string {
 	return h
 }
 
-// modelRow is the single-select model row, drawn only for a def that lists a local-model image.
+// noLocalModel names the harnesses whose inference is vendor-pinned.
+var noLocalModel = map[string]bool{"cursor": true}
+
+// acceptsLocalModel reports whether target can run on --local-model.
+func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
+
+// modelRow is the single-select model row, drawn for every harness that accepts --local-model.
 func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
+	if !acceptsLocalModel(man.Name) {
+		return choiceui.Row{}, false
+	}
 	opts := []string{modelAPIKeys}
 	preselect := modelAPIKeys
 	for _, m := range localModels {
-		if _, ok := man.Images[m.image]; !ok {
-			continue
-		}
-		opts = append(opts, m.label)
+		opts = append(opts, m.label())
 		if m.owns(localModel) {
-			preselect = m.label
+			preselect = m.label()
 		}
-	}
-	if len(opts) < 2 {
-		return choiceui.Row{}, false
 	}
 	if localModel != "" && preselect == modelAPIKeys {
 		opts = append(opts, localModel)
@@ -99,7 +121,7 @@ func localModelFor(option string) string {
 		return ""
 	}
 	for _, m := range localModels {
-		if m.label == option {
+		if m.label() == option {
 			return m.tag()
 		}
 	}
@@ -113,18 +135,105 @@ func modelLabelFor(localModel string) string {
 	}
 	for _, m := range localModels {
 		if m.owns(localModel) {
-			return m.label
+			return m.label()
 		}
 	}
 	return localModel
 }
 
+// hostTagFor maps a remembered tag of a listed model to this host's build; other tags pass through.
+func hostTagFor(tag string) string {
+	for _, m := range localModels {
+		if m.owns(tag) {
+			return m.tag()
+		}
+	}
+	return tag
+}
+
 // legacyVariantTag maps a cached modelVariant image key to its --local-model value.
 func legacyVariantTag(variant string) string {
 	for _, m := range localModels {
-		if m.image == variant {
+		if variant == "hermes-"+m.repo {
 			return m.tag()
 		}
 	}
 	return ""
+}
+
+// sourceRow is the one row that picks where the model comes from: provider keys, the harness's plan, or a local model.
+func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localModel string) (choiceui.Row, bool) {
+	local, hasLocal := modelRow(man, localModel)
+	if !hasAuth {
+		return local, hasLocal
+	}
+	r := auth
+	r.Label = rowModel
+	renameOption(&r, credentials.AuthUsage, modelAPIKeys)
+	if !hasLocal {
+		return r, true
+	}
+	if r.Help == nil {
+		r.Help = map[string]string{}
+	}
+	for len(r.Off) < len(r.Options) {
+		r.Off = append(r.Off, false)
+	}
+	for _, opt := range local.Options {
+		if opt == modelAPIKeys {
+			continue
+		}
+		r.Options = append(r.Options, opt)
+		r.Off = append(r.Off, false)
+		r.Help[opt] = local.Help[opt]
+	}
+	if localModel != "" {
+		if i := slices.Index(r.Options, modelLabelFor(localModel)); i >= 0 {
+			r.Selected = i
+		}
+	}
+	return r, true
+}
+
+func renameOption(r *choiceui.Row, from, to string) {
+	i := slices.Index(r.Options, from)
+	if i < 0 {
+		return
+	}
+	r.Options = slices.Clone(r.Options)
+	r.Options[i] = to
+	if h, ok := r.Help[from]; ok {
+		r.Help[to] = h
+		delete(r.Help, from)
+	}
+	if w, ok := r.OffWhy[from]; ok {
+		r.OffWhy[to] = w
+		delete(r.OffWhy, from)
+	}
+	r.Reason = strings.ReplaceAll(r.Reason, from+": ", to+": ")
+}
+
+// isLocalOption reports whether a source-row option names a local model.
+func isLocalOption(v string) bool {
+	return v != modelAPIKeys && !credentials.IsAuthSentinel(v)
+}
+
+// applySource records a source-row answer as --local-model and, on a harness with a plan, the auth answer.
+func (p *Params) applySource(v string, hasAuth bool) {
+	if isLocalOption(v) {
+		if v != modelLabelFor(p.LocalModel) {
+			p.LocalModel = localModelFor(v)
+		}
+		if hasAuth {
+			p.AuthVar = credentials.AuthLocal
+		}
+		return
+	}
+	p.LocalModel = ""
+	switch {
+	case v == modelAPIKeys && hasAuth:
+		p.AuthVar = credentials.AuthUsage
+	case v != modelAPIKeys:
+		p.AuthVar = v
+	}
 }

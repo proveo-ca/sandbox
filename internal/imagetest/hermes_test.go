@@ -6,7 +6,6 @@ package imagetest_test
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,9 +15,6 @@ import (
 )
 
 var hmSeq atomic.Int64
-
-// hmAliveYes matches a line that is just y or yes, ignoring case and trailing punctuation.
-var hmAliveYes = regexp.MustCompile(`(?mi)^\s*\**y(es)?\**\W*$`)
 
 // hmRun runs `docker run --name <unique> args...` bounded by timeout and
 // force-removes the container afterwards, so a timed-out client leaves nothing behind.
@@ -212,43 +208,6 @@ func hmLLM(s *imagetest.Suite) {
 			if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
 				t.Errorf("[%s] hermes chat (output: %s)", p.provider, hmClip(r.Out, 300))
 			}
-		})
-	}
-}
-
-// TestImageHermesBakedModel checks a baked variant through its real
-// entrypoint: the weights are served, hermes is wired to them, and the model
-// answers. On a CPU-only host a turn is ~2,050 prompt tokens at ~5 tokens/s
-// plus ~26s per generated token, so give it a long budget:
-// go test -tags=image -timeout 150m -run TestImageHermesBakedModel ./internal/imagetest/
-func TestImageHermesBakedModel(t *testing.T) {
-	variants := []struct{ envVar, name, tag string }{
-		{"MUSE_GLIMMER_IMAGE", "hermes-muse-glimmer", "muse-glimmer:30b-q4_K_M"},
-		{"QWEN_IMAGE", "hermes-qwen3.8", "qwen3.8:27b-q4_K_M"},
-	}
-	for _, v := range variants {
-		t.Run(v.name, func(t *testing.T) {
-			img := imagetest.Resolve(v.envVar, "proveo/"+v.name+":latest")
-			s := imagetest.New(t, img)
-			s.Inspect("proveo.baked-model label names the pulled tag", img,
-				`{{index .Config.Labels "proveo.baked-model"}}`, v.tag)
-			s.Check("real entrypoint serves the baked weights and wires hermes to them", func(t *testing.T) {
-				r := hmRun(t, 4*time.Minute, nil, "--user", "1000:1000", img, "config", "show")
-				for _, want := range []string{"'default': '" + v.tag + "'", "'base_url': 'http://localhost:11434/v1'", "'provider': 'custom'"} {
-					if !strings.Contains(r.Out, want) {
-						t.Errorf("config missing %s (output tail: %s)", want, hmTail(r.Out, 400))
-					}
-				}
-				if strings.Contains(r.Out, "did not become ready") {
-					t.Error("baked ollama never became ready")
-				}
-			})
-			s.Check("hermes answers y to an alive check via the baked model", func(t *testing.T) {
-				r := hmRun(t, 60*time.Minute, nil, "--user", "1000:1000", img, "chat", "-Q", "--reasoning", "none", "-q", "Are you alive? Output with y/n only")
-				if !hmAliveYes.MatchString(r.Out) {
-					t.Errorf("[%s] no y answer (output tail: %s)", v.name, hmTail(r.Out, 400))
-				}
-			})
 		})
 	}
 }

@@ -69,20 +69,15 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' endpoint is the `custom` provider in hermes's own config.yaml:
 ' model.provider custom, model.base_url <endpoint>/v1, model.default <tag>.
 ' wire_hermes_local_endpoint writes those three through `hermes config set`,
-' for both the sidecar (PROVEO_LOCAL_MODEL) and the baked variants.
+' whenever PROVEO_LOCAL_MODEL is set.
 '
-' ── BAKED-MODEL VARIANTS ────────────────────────────────────────────────────
-' hermes-muse-glimmer and hermes-qwen3.8 (defs/hermes/baked-model/Dockerfile,
-' Needs: "hermes") pull the model's weights at BUILD time — the standard
-' "start the daemon just long enough to pull, then stop it" pattern — so the
-' running container never depends on a sidecar or a runtime pull. Both models
-' ship at 17-18GB minimum with no small distilled variant, so this trades
-' image size for a self-contained, offline-capable sandbox; the default
-' `hermes` target stays lean and network-based for anyone who does not want
-' that trade. entrypoint.sh tells the two apart by OLLAMA_BAKED_MODEL_TAG
-' (baked into the image, absent on the default target): when set, it starts
-' `ollama serve` itself, locally, before the agent launches — there is no
-' sidecar to wait on instead.
+' ── BAKED-MODEL VARIANTS: RETIRED 2026-09-27 ────────────────────────────────
+' hermes-muse-glimmer and hermes-qwen3.8 baked 17-18 GB of weights into ~43 GB
+' images and ran them on the microVM CPU at ~2 prompt tok/s. The host's Ollama
+' serves the same models on the host GPU (_spec/internal/sbx/host-inference.puml),
+' the model row became --local-model, and nothing selected the images any more.
+' Removed: the build targets, defs/hermes/baked-model, OLLAMA_BAKED_MODEL_TAG in
+' entrypoint.sh, TestImageHermesBakedModel.
 '
 ' ── HERMES RUNS AS UID 1000, THE UID PROVEO LAUNCHES ────────────────────────
 ' proveo starts the agent as uid 1000 (--user 1000:1000 on docker, the kit user
@@ -121,7 +116,8 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' path applies. The image stays `hermes`. Layout:
 ' _spec/internal/choiceui/wireframe.puml (box 9).
 '
-' The baked-model images are no longer chosen by the row; they only gate it.
+' The row merges with the auth row on harnesses that have a plan
+' (_spec/internal/choiceui/wireframe.puml, box 9).
 '
 actor "Operator" as OP
 

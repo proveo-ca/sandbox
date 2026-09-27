@@ -146,7 +146,7 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	switch f.Rows[cursor].Label {
 	case "egress":
 		return choiceui.FocusHop
-	case "credentials", "auth":
+	case "credentials", "auth", rowModel:
 		return choiceui.FocusKey
 	case rowExecution:
 		return choiceui.FocusSquare

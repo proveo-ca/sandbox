@@ -690,7 +690,6 @@
       "covers": [
         "defs/hermes/Dockerfile",
         "defs/hermes/entrypoint.sh",
-        "defs/hermes/baked-model/Dockerfile",
         "e2e/hermes_local_model_test.go",
         "internal/imagetest/hermes_test.go",
         "defs/hermes/harness.manifest",

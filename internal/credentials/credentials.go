@@ -294,8 +294,6 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 		why[AuthUsage] = "no provider key is set — export one (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) " +
 			"or run `proveo init` to store it"
 	}
-	why[AuthLocal] = "coming soon — `--local-model` already runs the Ollama sidecar, " +
-		"but nothing routes this row to it yet"
 	var names []string
 	for _, e := range man.Env {
 		if e.Secret {
@@ -388,7 +386,7 @@ var subscriptionLoginFiles = map[string][]string{
 // prefer, or "" when the answer names no variable at all.
 func EffectiveAuthVar(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) string {
 	switch v := strings.TrimSpace(chosen); v {
-	case AuthUsage:
+	case AuthUsage, AuthLocal:
 		// Several keys can back this at once — the role bridges point different
 		// model slots at different vendors — so there is no single one to prefer.
 		return ""
@@ -512,7 +510,7 @@ func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, look
 			return prov != "" && owned[prov]
 		}
 	}
-	if chosen == AuthUsage {
+	if chosen == AuthUsage || chosen == AuthLocal {
 		// The operator's own keys win, so the harness's plan credential is the one
 		// that must not arrive: set, it is what the agent reaches for first.
 		own := subscriptionNames(man)

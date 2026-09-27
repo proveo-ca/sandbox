@@ -230,20 +230,26 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
   avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
 }
-{^"9 · model — only for a def that lists a local-model image (hermes)"
-  model | (X) API keys | ( ) Qwen 3.8 27B | ( ) Muse Glimmer 30B
-  <color:#00BAC6>› API keys — no local model: the agent uses an external LLM provider through your keys</color> | . | . | .
+{^"9 · model — one row: where the model comes from (every harness)"
+  model | (X) API keys | ( ) subscription | ( ) Qwen 3.8 27B MLX | ( ) Muse Glimmer 30B MLX
+  <color:#00BAC6>› API keys — no local model: an external LLM provider through your keys</color> | . | . | . | .
   .
-  The row IS ""--local-model"" (2026-09-27): ""API keys"" = none (an external
-  provider); each local option resolves to THIS host's build — darwin/arm64
-  ""qwen3.8:27b-mlx"" / ""muse-glimmer:30b-mlx"", every other host
-  ""qwen3.8:latest"" / ""muse-glimmer:latest"" (GGUF q4_K_M). Order: API keys,
-  Qwen, Glimmer. ""--local-model <tag>"" preselects the option whose Ollama repo
-  owns the tag and, left untouched, keeps that exact tag; an unlisted tag is drawn
-  as its own option, selected. The image never changes. Options still key on the
-  def's ""images:"" map, so a def with no local-model image draws no row, and only
-  such a def remembers the choice (""localModel"" in agent-settings.yml; a legacy
-  ""modelVariant"" is read once and mapped to its tag).
+  ONE row picks the model source (2026-09-27). It merges what used to be two:
+  the auth row (""usage credits"" · ""subscription"", drawn for a harness with a
+  plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" so every
+  harness reads the same; a harness with no plan (hermes, cecli) draws
+  ""API keys | Qwen | Glimmer"". The "local model — coming soon" placeholder is gone:
+  the models themselves take its place.
+  Each local option IS ""--local-model"" for THIS host: darwin/arm64 ""… MLX""
+  (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every other host ""… GGUF""
+  (""qwen3.8:latest"", ""muse-glimmer:latest""). Picking one on a plan harness also
+  answers auth = ""local model"", which withholds the plan credential.
+  ""--local-model <tag>"" preselects the option whose Ollama repo owns the tag and,
+  untouched, keeps that exact tag; an unlisted tag is drawn as its own option. A
+  REMEMBERED tag of a listed model is re-resolved to this host's build.
+  cursor draws no local options: cursor-agent cannot target a custom endpoint
+  (its --endpoint picks a Cursor backend; open feature request
+  forum.cursor.com/t/cursor-cli-custom-endpoint-and-api-key-support/129424).
   SPEC: _spec/defs/hermes/hermes-paradigm.puml
 }
 }

@@ -40,41 +40,13 @@ func TestAuthRowDrawsTheWholeAxisRiskierFirst(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: no auth row", man.Name)
 		}
-		want := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
+		want := []string{credentials.AuthUsage, credentials.AuthSubscription}
 		if !slices.Equal(r.Options, want) {
 			t.Errorf("%s options = %v, want %v", man.Name, r.Options, want)
 		}
 	}
 }
 
-// The local model is the safe end of the axis and is not wired up: drawn so the
-// operator knows it exists, gated so it cannot be picked.
-func TestLocalModelIsDrawnAndGated(t *testing.T) {
-	t.Parallel()
-	r, ok := authRow(opencodeMan(), env(map[string]string{
-		"OPENCODE_API_KEY": "zen", "ANTHROPIC_API_KEY": "sk",
-	}), "opencode", "", "", "")
-	if !ok {
-		t.Fatal("no auth row")
-	}
-	i := slices.Index(r.Options, credentials.AuthLocal)
-	if i != len(r.Options)-1 {
-		t.Errorf("local model at %d of %v, want last — it is the safest end", i, r.Options)
-	}
-	if !r.Off[i] {
-		t.Error("the local model is selectable, but nothing routes this row to it yet")
-	}
-	if r.Selected == i {
-		t.Error("the row opened on the option that cannot be chosen")
-	}
-	if !strings.Contains(r.Help[credentials.AuthLocal], "nothing billed") {
-		t.Errorf("local help = %q, want it to say what makes it the safe end",
-			r.Help[credentials.AuthLocal])
-	}
-}
-
-// opencode's two live sides, both selectable, each hint naming the variables
-// behind it — the row opencode never got.
 func TestAuthRowOffersBothLiveSidesForOpenCode(t *testing.T) {
 	t.Parallel()
 	r, ok := authRow(opencodeMan(), env(map[string]string{

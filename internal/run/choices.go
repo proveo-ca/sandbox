@@ -49,10 +49,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 			credentialsRow(man, p.credentialsOrDefault(), sandboxOn),
 		),
 	}
-	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
-		form.Rows = append(form.Rows, r)
-	}
-	if r, ok := modelRow(man, p.LocalModel); ok {
+	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
+	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
 	}
 	for _, label := range addonRows {
@@ -87,11 +85,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.Credentials = v
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
-	if v := form.Selection("auth"); v != "" {
-		p.AuthVar = v
-	}
-	if v := form.Selection(rowModel); v != "" && v != modelLabelFor(p.LocalModel) {
-		p.LocalModel = localModelFor(v)
+	if v := form.Selection(rowModel); v != "" {
+		p.applySource(v, hasAuth)
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
 		p.Evidence = v
@@ -107,7 +102,7 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	if len(available) == 0 {
 		return choiceui.Row{}, false
 	}
-	opts := []string{credentials.AuthUsage, credentials.AuthSubscription, credentials.AuthLocal}
+	opts := []string{credentials.AuthUsage, credentials.AuthSubscription}
 	r := axisRow("auth", opts, opts, orElseFirst(authAnswer(chosen, available), preferSubscription(available)))
 	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
 	r.Off = make([]bool, len(r.Options))
@@ -161,8 +156,6 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 	what := map[string]string{
 		credentials.AuthUsage:        usageIs,
 		credentials.AuthSubscription: "billed against the plan " + man.Name + "'s vendor issues",
-		credentials.AuthLocal: "weights on this machine — nothing billed, and no credential " +
-			"for the agent or the egress hop to carry",
 	}
 	// What choosing it costs the other side. Only meaningful where it can be chosen.
 	withholds := map[string]string{

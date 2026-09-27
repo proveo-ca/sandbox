@@ -26,34 +26,16 @@ ignores `OPENAI_BASE_URL`/`HERMES_MODEL` for this. Muse Glimmer and Qwen
 it runs inference at the host-Docker-Desktop level, bypassing containerization, which doesn't
 compose with this repo's per-sandbox isolated-microVM model.
 
-## Baked-model variants
+## Local models on the model row
 
-`hermes-muse-glimmer` and `hermes-qwen3.8` (`defs/hermes/baked-model/Dockerfile`, `Needs: "hermes"`)
-bake the model's weights into the image at build time — `ollama serve & ... ollama pull <tag> &&
-pkill` during `docker build`, same pattern `base-node-browser` uses for Chromium. No sidecar
-container, no `PROVEO_LOCAL_MODEL`, no runtime network dependency for inference: `entrypoint.sh`
-starts a local `ollama serve` itself when it detects `OLLAMA_BAKED_MODEL_TAG` baked into the image,
-waits for it to become ready, and writes the same `config.yaml` wiring at `localhost:11434` before
-launching hermes. Trade-offs, measured building and running `hermes-muse-glimmer` in a sandbox:
-
-- **Image size:** ~20GB (the `q4_K_M` weights are 17GB; `nvfp4`/`mlx` tags need Apple's MLX runtime
-  and fail to pull on Linux).
-- **Build disk:** peaks at ~3x the model size on the Docker volume — ~52GB for muse-glimmer — because
-  BuildKit holds the build snapshot, the exported layer, and the unpacked image at once. Build one
-  variant at a time, and set `PROVEO_BUILDKIT_CACHE=off` so the layer is not also exported to
-  `~/.cache/proveo/buildkit`.
-- **Inference speed:** in a CPU-only VM (no GPU; a Mac host exposes no Metal to the sandbox), a 30B
-  model processes ~2 prompt tokens/s — too slow for hermes's agent prompt.
-
-**The model row no longer uses these images.** Each option is a `--local-model` value: API keys
-(none — an external provider through your keys), Qwen 3.8 27B, Muse Glimmer 30B. The local options
-follow the host: macOS arm64 gets the MLX builds (`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx` — 2.6x the
-generation speed of GGUF measured on an M4 Pro), Linux amd64 the GGUF `:latest` builds. `--local-model
-<tag>` preselects the option owning that tag and keeps your exact tag. On sbx the model runs on
-**your host's Ollama** (host GPU) and hermes reaches it at `host.docker.internal:11434`. proveo refuses
-before launch when Ollama is not running, the tag is not pulled (it prints `ollama pull <tag>`), or the
-model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). See
-`_spec/internal/sbx/host-inference.puml`.
+The model row picks the source: API keys (an external provider through your keys), Qwen 3.8 27B or
+Muse Glimmer 30B. Each local option is a `--local-model` value for this host — "… MLX" on macOS arm64
+(`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx`, 2.6x the generation speed of GGUF measured on an M4 Pro),
+"… GGUF" elsewhere (`qwen3.8:latest`, `muse-glimmer:latest`). On sbx the model runs on **your host's
+Ollama** and hermes reaches it at `host.docker.internal:11434`. proveo refuses before launch when Ollama
+is not running, the tag is not pulled (it prints `ollama pull <tag>`), or the model would not fit in free
+memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The baked-model images (`hermes-muse-glimmer`,
+`hermes-qwen3.8`) are retired. See `_spec/internal/sbx/host-inference.puml`.
 
 ## Host Chrome (logged-in sites)
 

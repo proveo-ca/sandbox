@@ -72,7 +72,7 @@ func Do(p Params, d Deps) (err error) {
 	rs.SquidConfig = d.SquidConfig
 	rs.Log.Artifacts(rs.EgDir, p.willSandbox(rs.Man))
 
-	if p.Target == "cursor" && p.LocalModel != "" {
+	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
 
