@@ -11,16 +11,16 @@ const (
 	modelAPIKeys = "API keys"
 )
 
-// bakedModels labels each baked-model image a def may list, in row order.
-var bakedModels = []struct{ image, label string }{
-	{"hermes-muse-glimmer", "Muse Glimmer 30B"},
-	{"hermes-qwen3.8", "Qwen 3.8 27B"},
+// bakedModels labels each baked-model image a def may list, in row order; host is its Ollama tag.
+var bakedModels = []struct{ image, label, host string }{
+	{"hermes-muse-glimmer", "Muse Glimmer 30B", "muse-glimmer:30b-q4_K_M"},
+	{"hermes-qwen3.8", "Qwen 3.8 27B", "qwen3.8:27b-q4_K_M"},
 }
 
 var modelHelp = map[string]string{
 	modelAPIKeys:       "the model comes from your provider keys, brokered like any usage key",
-	"Muse Glimmer 30B": "runs muse-glimmer:30b-q4_K_M baked into the image; no key, no network",
-	"Qwen 3.8 27B":     "runs qwen3.8:27b-q4_K_M baked into the image; no key, no network",
+	"Muse Glimmer 30B": "local inference, no key: sbx runs it on the host's Ollama (GPU); docker falls back to the baked image (CPU)",
+	"Qwen 3.8 27B":     "local inference, no key: sbx runs it on the host's Ollama (GPU); docker falls back to the baked image (CPU)",
 }
 
 // modelRow is the single-select model row, drawn only for a def that lists a baked-model image.
@@ -49,6 +49,16 @@ func modelVariantFor(option string) string {
 	for _, b := range bakedModels {
 		if b.label == option {
 			return b.image
+		}
+	}
+	return ""
+}
+
+// hostModelFor is the host Ollama tag for a baked-model image key; "" when it has none.
+func hostModelFor(variant string) string {
+	for _, b := range bakedModels {
+		if b.image == variant {
+			return b.host
 		}
 	}
 	return ""

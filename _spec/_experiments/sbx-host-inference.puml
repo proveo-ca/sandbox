@@ -1,0 +1,104 @@
+@startuml SbxHostInferenceExperiment
+' purpose: where a local model runs on the sbx backend so inference gets the host GPU
+' covers: defs/hermes/baked-model/Dockerfile
+' covers: defs/hermes/entrypoint.sh
+' covers: internal/sbx/template.go
+' EXPERIMENT (2026-09-26, sbx v0.42.1 · llmman 0.1.0 · macOS M4 Pro) → spike PASSED
+' → IMPLEMENTED with llmman, which FROZE the host on qwen3.8:27b (262k ctx × 4 slots,
+' 34 GB RSS, swap full) → REPLACED by the operator's host Ollama:
+' _spec/internal/sbx/host-inference.puml. Option B's shape (host server, one port)
+' stands; its server is Ollama, not llmman.
+' Verdict: move inference out of the image and onto the host; retire the baked-model
+' variants (hermes-muse-glimmer, hermes-qwen3.8) once hermes is wired to the host server.
+'
+' TRIGGER. A Linux run of hermes-muse-glimmer failed at `docker save` with
+' "disk quota exceeded" on host /tmp. Tracing it showed the baked model runs on
+' the microVM CPU: defs/hermes/README.md records ~2 prompt tok/s for 30B, unusable.
+'
+' OPTION A — GPU passthrough INTO the VM (`sbx run --gpu`). REJECTED for now.
+'   https://docs.docker.com/ai/sandboxes/configuration/gpu-passthrough/
+'   x86_64 Linux + NVIDIA only; IOMMU + iommufd/vfio_pci; the GPU is unbound from
+'   the host driver (dedicated/headless card); hand-built nerdbox-nvidia-bundle.erofs,
+'   rebuilt per sbx upgrade; gated by platform.allowExperimentalFeatures +
+'   feature.sandbox-gpu. Open boot failure on v0.42.1:
+'   https://github.com/docker/sbx-releases/issues/587 (mkdir /lib/firmware on RO rootfs).
+'   No macOS path at any version.
+'
+' OPTION B — model server ON THE HOST, agent in the VM. ADOPTED.
+'   sbx bundles llmman (bin/llmman) + llama.cpp (libexec/llama, Metal on macOS).
+'   `llmman serve` listens on 127.0.0.1:17434 and speaks OpenAI /v1, Anthropic
+'   /v1/messages and Ollama /api/chat. Backend is host-detected:
+'   CUDA > ROCm > Vulkan > CPU on Linux (or `--ociman docker` → ghcr.io/ggml-org/llama.cpp:server-<backend>).
+'   https://github.com/llmmanorg/llmman
+'   https://github.com/docker/sbx-releases/releases/tag/v0.43.0 (--overflow-provider/--overflow-model)
+'   https://github.com/docker/sbx-releases/releases (v0.45.0 model.providers)
+'
+' HOW `sbx run --model` ROUTES (read from the v0.42.1 binary's embedded template):
+'   it adds a MIXIN kit, `requires: agent: <agent>`, that sets
+'     ANTHROPIC_BASE_URL / OPENAI_BASE_URL → host.docker.internal:<port>
+'     ANTHROPIC_API_KEY / OPENAI_API_KEY   → a dummy local key
+'     SBX_CRED_ANTHROPIC_MODE / SBX_CRED_OPENAI_MODE = none   (stops proxy auth overriding the route)
+'   and network.allowedDomains: "localhost:<port>". Nothing else.
+'   ⇒ proveo does not need `--model`: its own Kit can carry the same env + allow rule.
+'   hermes ignores *_BASE_URL; it reads model.provider/base_url/default from its
+'   config.yaml, which entrypoint.sh already writes via wire_hermes_local_endpoint.
+'
+' MEASURED (throwaway `shell` sandbox, qwen3.5:0.8b Q4_K_M):
+'   curl host.docker.internal:17434/v1/models from the guest   → 200
+'   chat completion from the guest: prompt 164 tok/s · generation 177 tok/s · 2s wall
+'   llama-server --list-devices → MTL0 Apple M4 Pro; spawned without -ngl, so
+'   llama.cpp's default offload applies.
+'   Policy match is "localhost:17434" even though the guest dials host.docker.internal
+'   (the sbx proxy rewrites the host); this Mac's global policy already let it through.
+'
+' DEFECTS FOUND in sbx v0.42.1 (Homebrew cask):
+'   libexec/llama/llama-server ships mode 0644 → "spawn llama-server: Permission denied".
+'   llmman alone does not find it: "no llama-server on PATH and automatic download
+'   failed: no metal llama.cpp release asset found in v0.5.0". sbx puts libexec/llama
+'   on PATH itself; a standalone launch must do the same. Spike ran a chmod'd copy.
+'   [Unverified] whether v0.43+ fixes the mode bit ("slow first launch of the bundled
+'   llmman no longer fails" is the only related note).
+'
+' OPEN before implementation:
+'   - Linux host: which backend llmman picks there, and whether its sbx package bundles
+'     a CUDA llama-server or relies on download / --ociman.
+'   - Model identity: llmman ids are OCI refs (docker.io/ai/qwen3.5:0.8b); muse-glimmer
+'     needs a GGUF ref or `--provider ollama` against a host Ollama.
+'   - Lifecycle: llmman stays resident after first use ("leaves it running
+'     indefinitely"); proveo must start-if-absent, never kill a shared server.
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam shadowing false
+skinparam componentStyle rectangle
+
+title Experiment — local-model inference on the sbx backend\nGPU stays on the host; one HTTP port crosses the VM boundary
+
+package "TODAY — baked model (hermes-muse-glimmer / hermes-qwen3.8)" as today #FBECEC {
+  node "sbx microVM (no GPU)" as vm0 {
+    component "hermes" as h0
+    component "ollama serve\n30B weights in image\n~2 tok/s CPU" as o0
+  }
+  component "host: docker save → /tmp tar\nmulti-GB per image change" as save0
+}
+h0 --> o0 : localhost:11434/v1
+save0 --> vm0 : sbx template load
+
+package "OPTION A — --gpu passthrough (rejected)" as optA #FFF6E0 {
+  node "sbx microVM + VFIO GPU" as vmA
+  note right of vmA
+    Linux x86_64 + NVIDIA, dedicated card,
+    hand-built driver bundle, issue #587
+  end note
+}
+
+package "OPTION B — host inference (adopted)" as optB #E8F5E9 {
+  node "host" as host {
+    component "llmman serve\n127.0.0.1:17434\nllama.cpp · Metal / CUDA / ROCm / Vulkan" as llm
+  }
+  node "sbx microVM" as vmB {
+    component "hermes\nconfig.yaml: provider custom\nbase_url host.docker.internal:17434/v1" as hB
+  }
+  component "proveo Kit\nallowedDomains: localhost:17434\nenv: PROVEO_LOCAL_MODEL, OLLAMA_API_BASE" as kit
+}
+hB --> llm : OpenAI /v1 over the sbx proxy
+kit ..> vmB : applied at create
+@enduml

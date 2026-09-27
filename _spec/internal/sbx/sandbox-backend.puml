@@ -352,7 +352,13 @@ note bottom of CLI
 
   **The image store is crossed locally, per user, and identity is what matters.**
   ""docker save -o <tar>"" then ""template load <tar>"" — it takes a FILE, not stdin,
-  so the obvious pipe fails before a byte moves. Presence alone is not enough: a
+  so the obvious pipe fails before a byte moves. The tar stages under
+  ""os.UserCacheDir()/proveo/sbx-staging"" unless ""$TMPDIR"" is set: a model variant's
+  tar is multi-GB and a Linux ""/tmp"" (tmpfs or per-user quota) failed it with
+  //disk quota exceeded// (2026-09-26, ""hermes-muse-glimmer""). ""sandbox.disk.dockerVolume""
+  sizes the VM's disk, not this host-side write. Not ""~/.proveo"": that is mounted
+  into live sandboxes at ""/proveo-home"", so a concurrent agent would see the tar.
+  Presence alone is not enough: a
   REBUILT "":latest"" matches by reference and would never reload, which is exactly
   how a sandbox came up with no ""/app"" after the workspace layout was
   standardised and the images rebuilt.

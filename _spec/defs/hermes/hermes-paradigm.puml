@@ -114,16 +114,15 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 '
 ' ── ONE MODEL SOURCE PER RUN: THE MODEL ROW ─────────────────────────────────
 ' `proveo run hermes` draws a single-select model row: API keys (default),
-' Muse Glimmer 30B, Qwen 3.8 27B. A baked choice swaps the image to
-' hermes-muse-glimmer / hermes-qwen3.8 and keeps the target `hermes`, so the
-' settings cache and sbx agent kit key on one name. Layout:
-' _spec/internal/choiceui/wireframe.puml (box 9).
+' Muse Glimmer 30B, Qwen 3.8 27B. On sbx (2026-09-26) a local choice is served
+' on the host GPU by the operator's Ollama and the image stays `hermes`
+' (_spec/internal/sbx/host-inference.puml). On the docker fallback it swaps the
+' image to hermes-muse-glimmer / hermes-qwen3.8 (CPU). Either way the target
+' stays `hermes`, so the settings cache and sbx agent kit key on one name.
+' Layout: _spec/internal/choiceui/wireframe.puml (box 9).
 '
-' The Ollama sidecar option is deferred. On sbx, egress.AgentEnv keeps only the
-' plan's env pairs and never starts the sidecar container; macOS only works by
-' falling back to the host's Ollama, which the sandbox network policy must also
-' allow. Neither could be verified, so the first iteration ships the two baked
-' models. `--local-model` still works where the sidecar runs.
+' The baked variants stay until the host route is verified on a Linux GPU host;
+' they are the docker fallback and nothing else.
 '
 actor "Operator" as OP
 

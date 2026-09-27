@@ -554,6 +554,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	for _, h := range credentials.ReachableHosts(credentials.FilterProviders(in.Detected, in.Man.Capabilities)) {
 		addHost(h)
 	}
+	if sbx.HostModelRef(envValue(in.AgentEnv, "OLLAMA_API_BASE")) {
+		hosts[sbx.HostOllamaPolicyHost] = true
+	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {
 		allow = append(allow, h)
@@ -1187,7 +1190,7 @@ func sandboxAgentEnv(pairs []string) []string {
 
 func proxyOnlyVar(name string) bool {
 	switch name {
-	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy",
 		"NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
 		"SSL_CERT_FILE", "GIT_SSL_CAINFO", "INSPECT_PROXY", "ENFORCEMENT_PROXY",
 		"PROVEO_EGRESS_CA_CERT":

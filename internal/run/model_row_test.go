@@ -87,3 +87,17 @@ func TestModelVariantIsSeededFromTheCache(t *testing.T) {
 		t.Errorf("ModelVariant = %q, want the cached hermes-muse-glimmer", p.ModelVariant)
 	}
 }
+
+func TestEveryBakedModelHasAHostReference(t *testing.T) {
+	t.Parallel()
+	for variant, want := range map[string]string{
+		"hermes-muse-glimmer": "muse-glimmer:30b-q4_K_M",
+		"hermes-qwen3.8":      "qwen3.8:27b-q4_K_M",
+		"hermes-gone":         "",
+		"":                    "",
+	} {
+		if got := hostModelFor(variant); got != want {
+			t.Errorf("hostModelFor(%q) = %q, want %q", variant, got, want)
+		}
+	}
+}

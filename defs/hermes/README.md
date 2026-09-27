@@ -43,8 +43,15 @@ launching hermes. Trade-offs, measured building and running `hermes-muse-glimmer
   variant at a time, and set `PROVEO_BUILDKIT_CACHE=off` so the layer is not also exported to
   `~/.cache/proveo/buildkit`.
 - **Inference speed:** in a CPU-only VM (no GPU; a Mac host exposes no Metal to the sandbox), a 30B
-  model processes ~2 prompt tokens/s — too slow for hermes's agent prompt. These variants need a GPU
-  host to be usable; the default `hermes` target stays lean and network-based.
+  model processes ~2 prompt tokens/s — too slow for hermes's agent prompt.
+
+**On the sbx backend the model row no longer uses these images.** Picking Muse Glimmer or Qwen 3.8
+(or passing `--local-model <tag>`) runs the model on **your host's Ollama** (host GPU) and points hermes
+at `host.docker.internal:11434`. proveo refuses before launch when Ollama is not running, the tag is not
+pulled (it prints `ollama pull <tag>`), or the model would not fit in free memory
+(`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The row maps to `muse-glimmer:30b-q4_K_M` and
+`qwen3.8:27b-q4_K_M`. The baked images remain the docker fallback. See
+`_spec/internal/sbx/host-inference.puml`.
 
 ## Explicitly out of scope
 

@@ -443,6 +443,11 @@ func AgentEnv(o Options) ([]string, error) {
 	return AgentEnvPairs(p.AgentArgs), nil
 }
 
+// LocalModelEnv is the agent's local-model variables pointed at base.
+func LocalModelEnv(model, base string) []string {
+	return AgentEnvPairs(localModelArgs(model, base))
+}
+
 func AgentEnvPairs(args []string) []string {
 	var out []string
 	for i := 0; i < len(args)-1; i++ {

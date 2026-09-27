@@ -258,14 +258,11 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
 	}
-	if ref := modelVariantRef(rs.Man, p.ModelVariant); ref != "" {
-		chosen, isLocal := posture.ResolveImageChoice(ref)
-		if isLocal {
-			ui.Section(ui.SectionRun)
-			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
-		}
-		p.Image = chosen
-		ui.Appf("variant: model → %s", p.Image)
+	if host := hostModelFor(p.ModelVariant); host != "" && p.LocalModel == "" && p.willSandbox(rs.Man) {
+		p.LocalModel, rs.Model.Variant = host, p.ModelVariant
+		ui.Appf("variant: model → %s on the host's Ollama", host)
+	} else {
+		applyModelImage(rs, p)
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		ui.Section(ui.SectionRun)
@@ -274,6 +271,21 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	warnDindRetired()
 
 	return nil
+}
+
+// applyModelImage swaps in the baked-model image for the chosen variant.
+func applyModelImage(rs *Spec, p *Params) {
+	ref := modelVariantRef(rs.Man, p.ModelVariant)
+	if ref == "" {
+		return
+	}
+	chosen, isLocal := posture.ResolveImageChoice(ref)
+	if isLocal {
+		ui.Section(ui.SectionRun)
+		ui.Appf("image: %s (local build — newer than the published tag)", chosen)
+	}
+	p.Image = chosen
+	ui.Appf("variant: model → %s", p.Image)
 }
 
 func warnDindRetired() {
@@ -554,7 +566,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 
-	if p.LocalModel != "" {
+	if p.LocalModel != "" && rs.Model.Variant == "" {
 		rs.Model.ModelsDir = ollamaModelsDir()
 		rs.Model.HostOllama = preferHostOllama()
 		rs.Model.OllamaGPU = sidecarOllamaGPU()
@@ -640,6 +652,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			sbxUnavailable = why
 		}
 	}
+	rs.Model.HostLLM = rs.Backend.Sbx && p.LocalModel != ""
+	if !rs.Backend.Sbx && rs.Model.Variant != "" {
+		p.LocalModel, rs.Model.Variant = "", ""
+		applyModelImage(rs, p)
+	}
 
 	ui.Section(ui.SectionEgress)
 	if rs.Backend.Sbx {
@@ -690,9 +707,19 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if !egress.ValidMode(agentMode) {
 			agentMode = "allowlist"
 		}
+		sidecarModel := p.LocalModel
+		if rs.Model.HostLLM {
+			sidecarModel = ""
+			if !p.PrintOnly {
+				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv); err != nil {
+					return false, fmt.Errorf("local model %s: %w", p.LocalModel, err)
+				}
+				ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
+			}
+		}
 		agentEnv, err := egress.AgentEnv(egress.Options{
 			Mode: agentMode, Credentials: p.Credentials, SessionID: rs.Sid,
-			AgentName: p.Target, LocalModel: p.LocalModel,
+			AgentName: p.Target, LocalModel: sidecarModel,
 			HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
 			Providers: rs.Creds.Brokered, AuthVar: p.AuthVar,
 		})
@@ -701,6 +728,10 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				"the variables the plan decided, so a local model or tier the agent "+
 				"reads from its own env will be missing", err)
 			agentEnv = nil
+		}
+		if rs.Model.HostLLM {
+			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
+			agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 		}
 		homeAccess, err := sandbox.PrepareHomeAccess(
 			rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)
