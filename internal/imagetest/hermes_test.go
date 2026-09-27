@@ -6,6 +6,7 @@ package imagetest_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -47,6 +48,7 @@ func TestImageHermes(t *testing.T) {
 	hmTools(s)
 	hmSecurity(s)
 	hmLocalModel(s)
+	hmPersistence(s)
 	hmLLM(s)
 }
 
@@ -184,6 +186,35 @@ func hmLocalModel(s *imagetest.Suite) {
 			if !strings.Contains(r.Out, want) {
 				t.Errorf("config missing %s (output tail: %s)", want, hmTail(r.Out, 400))
 			}
+		}
+	})
+}
+
+// SPEC: _spec/defs/hermes/hermes-persistence.puml
+func hmPersistence(s *imagetest.Suite) {
+	img := s.Image
+	s.Check("on sbx HERMES_HOME is the durable $PROVEO_STATE_HOME/hermes/data, not the /opt/data volume", func(t *testing.T) {
+		state := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(state, "hermes", "data"), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		r := hmRun(t, 3*time.Minute, nil, "-v", state+":/state", "-e", "PROVEO_STATE_HOME=/state", img, "config", "show")
+		if _, err := os.Stat(filepath.Join(state, "hermes", "data", "config.yaml")); err != nil {
+			t.Errorf("hermes wrote no config.yaml into the durable home (%v); output tail: %s", err, hmTail(r.Out, 400))
+		}
+	})
+	s.Check("a home that lived only on /opt/data moves to the empty durable home once", func(t *testing.T) {
+		state := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(state, "hermes", "data"), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		r := hmRun(t, 3*time.Minute, nil, "-v", state+":/state", "-e", "PROVEO_STATE_HOME=/state", "--entrypoint", "bash", img, "-c",
+			`touch /opt/data/state.db && mkdir -p /opt/data/skills/proveo-marker && exec dumb-init -- /entrypoint.sh config show`)
+		if _, err := os.Stat(filepath.Join(state, "hermes", "data", "skills", "proveo-marker")); err != nil {
+			t.Errorf("the /opt/data home was not carried over (%v); output tail: %s", err, hmTail(r.Out, 400))
+		}
+		if !strings.Contains(r.Out, "Moved hermes's home") {
+			t.Errorf("the one-time move must say so; output tail: %s", hmTail(r.Out, 400))
 		}
 	})
 }

@@ -1,0 +1,54 @@
+@startuml HermesPersistence
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: where hermes keeps its home (sessions, memories, skills, vault) so it survives the sandbox
+' covers: defs/hermes/entrypoint.sh (HERMES_HOME block)
+' covers: internal/imagetest/hermes_test.go (hmPersistence)
+'   the sandbox lifecycle that removes volumes ... _spec/internal/sbx/kit-lifecycle.puml
+'
+' ── MEASURED 2026-09-27 (sbx v0.42.1, proveo/hermes:local, v0.21.5) ─────────
+' The image sets HERMES_HOME=/opt/data and declares VOLUME /opt/data. sbx backs
+' that with a PER-SANDBOX volume on the host:
+'   ~/Library/Application Support/com.docker.sandboxes/sandboxes/sandboxd/
+'     containerd/root/com.docker.volume.driver.v1.local/volumes/<id>/
+' Probe: a fresh sandbox got a new volume id; `sbx rm` deleted it. So every
+' successful proveo run (teardown removes the sandbox) and every stale-sandbox
+' re-create erased state.db, memories/, skills/, vault/, .env and config.yaml.
+'
+' The manifest's durable mount (host ~/.proveo/hermes/data) DID reach the
+' sandbox — at its HOST path, because sbx mounts workspaces where they live.
+' The entrypoint only tested /proveo-home/data (the docker rendering), which
+' sbx never creates, so hermes kept writing to the volume and the durable
+' folder stayed empty.
+'
+' ── RULE ───────────────────────────────────────────────────────────────────
+' HERMES_HOME is the first writable of:
+'   /proveo-home/data                        docker + egress rendering
+'   $PROVEO_STATE_HOME/hermes/data           sbx rendering (host path)
+' else the image's /opt/data (non-durable). upstream stage2-hook.sh reads
+' HERMES_HOME and bootstraps/chowns whatever path it is given.
+' One-time move: durable home EMPTY and /opt/data/state.db present ⇒ tar-copy
+' /opt/data into it (tar, not cp -a: the home holds live .sock files).
+'
+' Rescue on 2026-09-27: volume a7796143… copied to ~/.proveo/hermes/data by
+' hand (15,828 files, 2 sockets skipped, state.db integrity_check ok), since a
+' non-empty durable home disables the automatic move.
+
+node "sbx microVM" as VM {
+  component "hermes\nHERMES_HOME" as H
+  component "/opt/data\nimage VOLUME" as V
+}
+folder "host ~/.proveo/hermes/data\n(= $PROVEO_STATE_HOME/hermes/data)" as D
+folder "sbx volume <id>\ndeleted by sbx rm" as SV
+
+H --> D : durable (after this fix)
+V --> SV
+H ..> V : before: every run started over
+
+note right of D
+  **Durable means outside the sandbox.**
+  The folder survives sbx rm, so
+  sessions, skills and the vault
+  outlive every run.
+end note
+@enduml
