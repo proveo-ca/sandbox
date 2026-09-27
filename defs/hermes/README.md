@@ -45,13 +45,24 @@ launching hermes. Trade-offs, measured building and running `hermes-muse-glimmer
 - **Inference speed:** in a CPU-only VM (no GPU; a Mac host exposes no Metal to the sandbox), a 30B
   model processes ~2 prompt tokens/s — too slow for hermes's agent prompt.
 
-**On the sbx backend the model row no longer uses these images.** Picking Muse Glimmer or Qwen 3.8
-(or passing `--local-model <tag>`) runs the model on **your host's Ollama** (host GPU) and points hermes
-at `host.docker.internal:11434`. proveo refuses before launch when Ollama is not running, the tag is not
-pulled (it prints `ollama pull <tag>`), or the model would not fit in free memory
-(`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The row maps to `muse-glimmer:30b-q4_K_M` and
-`qwen3.8:27b-q4_K_M`. The baked images remain the docker fallback. See
+**The model row no longer uses these images.** Each option is a `--local-model` value: API keys
+(none — an external provider through your keys), Qwen 3.8 27B, Muse Glimmer 30B. The local options
+follow the host: macOS arm64 gets the MLX builds (`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx` — 2.6x the
+generation speed of GGUF measured on an M4 Pro), Linux amd64 the GGUF `:latest` builds. `--local-model
+<tag>` preselects the option owning that tag and keeps your exact tag. On sbx the model runs on
+**your host's Ollama** (host GPU) and hermes reaches it at `host.docker.internal:11434`. proveo refuses
+before launch when Ollama is not running, the tag is not pulled (it prints `ollama pull <tag>`), or the
+model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). See
 `_spec/internal/sbx/host-inference.puml`.
+
+## Host Chrome (logged-in sites)
+
+Tick **host chrome (CDP)** in the interface row (sbx only). proveo opens Chrome on a dedicated
+profile (`~/Library/Application Support/proveo/host-chrome/hermes` on macOS) with CDP on
+`127.0.0.1:9222` (`PROVEO_HOST_CDP_PORT` overrides), or reuses a browser already serving CDP there.
+Log into the site in that window once; the profile keeps the session across runs. hermes attaches by
+IP from inside the sandbox. It controls every tab in that profile — keep other logins out of it. See
+`_spec/internal/sbx/host-browser-cdp.puml`.
 
 ## Explicitly out of scope
 

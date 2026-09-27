@@ -40,6 +40,19 @@ if [[ -z "${AGENT_BROWSER_EXECUTABLE_PATH:-}" && -d "${PLAYWRIGHT_BROWSERS_PATH:
   [[ -n "$AGENT_BROWSER_EXECUTABLE_PATH" ]] && export AGENT_BROWSER_EXECUTABLE_PATH
 fi
 
+# Host Chrome over CDP, dialled by IP and bypassing the proxy.
+# SPEC: _spec/internal/sbx/host-browser-cdp.puml
+if [[ -n "${PROVEO_HOST_CDP_PORT:-}" ]]; then
+  host_ip="$(getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR==1{print $1}')"
+  if [[ -n "$host_ip" ]]; then
+    export BROWSER_CDP_URL="http://${host_ip}:${PROVEO_HOST_CDP_PORT}"
+    export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${host_ip}" no_proxy="${no_proxy:+${no_proxy},}${host_ip}"
+    echo "🌐 hermes drives the host Chrome at ${BROWSER_CDP_URL}"
+  else
+    echo "⚠️  host Chrome: host.docker.internal does not resolve — the browser tool stays in-sandbox" >&2
+  fi
+fi
+
 # /command holds s6's tools (s6-setuidgid); s6's own /init puts it on PATH, and
 # this entrypoint replaces /init, so the hook needs it supplied here.
 if [[ -x /opt/hermes/docker/stage2-hook.sh ]]; then

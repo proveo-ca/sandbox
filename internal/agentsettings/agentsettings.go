@@ -24,7 +24,8 @@ type Choice struct {
 	Addons       []string          `yaml:"addons,omitempty"`
 	AuthVar      string            `yaml:"authVar,omitempty"`
 	Evidence     string            `yaml:"evidence,omitempty"`
-	ModelVariant string            `yaml:"modelVariant,omitempty"`
+	LocalModel   string            `yaml:"localModel,omitempty"`
+	ModelVariant string            `yaml:"modelVariant,omitempty"` // legacy: read to migrate, never written
 	Models       map[string]string `yaml:"models,omitempty"`
 	Fingerprint  string            `yaml:"fingerprint"`
 }

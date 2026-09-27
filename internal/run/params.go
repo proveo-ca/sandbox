@@ -22,7 +22,6 @@ type Params struct {
 	AuthVar                                                                     string
 	HostEnvFile                                                                 string
 	Evidence                                                                    string
-	ModelVariant                                                                string // a baked-model image key; "" means provider API keys
 	Shell, PrintOnly                                                            bool
 	Extra                                                                       []string
 	ProxyImage                                                                  string
@@ -95,8 +94,11 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
-	if p.ModelVariant == "" {
-		p.ModelVariant = cached.ModelVariant
+	if p.LocalModel == "" {
+		p.LocalModel = cached.LocalModel
+		if p.LocalModel == "" {
+			p.LocalModel = legacyVariantTag(cached.ModelVariant)
+		}
 	}
 	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
 	p.Roles = provider.RolesFromCanonical(cached.Models)

@@ -44,11 +44,17 @@ skinparam noteTextAlignment left
 ' and a VRAM-based default (num_ctx 32768 at 37.4 GiB), i.e. already tuned.
 '
 ' ── MODEL ROW MAPPING ──────────────────────────────────────────────────────
-'   Muse Glimmer 30B → muse-glimmer:30b-q4_K_M   (the tag the baked image pulls)
-'   Qwen 3.8 27B     → qwen3.8:27b-q4_K_M
-' The row resolves to the host route when sandbox.Selected predicts sbx. If sbx
-' then turns out unavailable, selectBackend restores the baked image and clears
-' LocalModel, so the docker path keeps its own sidecar/baked behaviour.
+'                      darwin/arm64            linux/amd64 (and any other host)
+'   Qwen 3.8 27B     → qwen3.8:27b-mlx         qwen3.8:latest       (27b-q4_K_M)
+'   Muse Glimmer 30B → muse-glimmer:30b-mlx    muse-glimmer:latest  (30b-q4_K_M)
+' The row sets p.LocalModel and nothing else (2026-09-27), so picking an option
+' and passing the flag are the same run on either backend.
+' MLX on Apple Silicon, measured 2026-09-27 on an M4 Pro 48 GB, Ollama 0.34.4,
+' same 2,064-token prompt, num_ctx 8192, one model resident at a time:
+'   qwen3.8:latest   (GGUF, llama.cpp)  prefill 103.4 tok/s · generation  9.3 tok/s · 17.7 GB
+'   qwen3.8:27b-mlx  (MLX)              prefill 123.1 tok/s · generation 24.2 tok/s · 18.2 GB
+' -mlx tags need Ollama's MLX engine (Apple Silicon only); Linux keeps GGUF.
+' -nvfp4 is not mapped: [Unverified] which NVIDIA generations Ollama runs it on.
 '
 ' ── NO_PROXY IS A PROXY VARIABLE ───────────────────────────────────────────
 ' The plan's NO_PROXY (localhost,…,ollama,host.docker.internal) used to cross

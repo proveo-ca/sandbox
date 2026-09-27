@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -228,7 +229,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
-			Evidence: p.evidenceOrDefault(), ModelVariant: p.ModelVariant,
+			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 		})
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -258,12 +259,6 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		p.Image = chosen
 		ui.Appf("variant: browser → %s", p.Image)
 	}
-	if host := hostModelFor(p.ModelVariant); host != "" && p.LocalModel == "" && p.willSandbox(rs.Man) {
-		p.LocalModel, rs.Model.Variant = host, p.ModelVariant
-		ui.Appf("variant: model → %s on the host's Ollama", host)
-	} else {
-		applyModelImage(rs, p)
-	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		ui.Section(ui.SectionRun)
 		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
@@ -273,19 +268,12 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// applyModelImage swaps in the baked-model image for the chosen variant.
-func applyModelImage(rs *Spec, p *Params) {
-	ref := modelVariantRef(rs.Man, p.ModelVariant)
-	if ref == "" {
-		return
+// rememberedLocalModel keeps a local model in the cache only for a def whose row chooses it.
+func rememberedLocalModel(man manifest.Manifest, localModel string) string {
+	if !hasModelRow(man) {
+		return ""
 	}
-	chosen, isLocal := posture.ResolveImageChoice(ref)
-	if isLocal {
-		ui.Section(ui.SectionRun)
-		ui.Appf("image: %s (local build — newer than the published tag)", chosen)
-	}
-	p.Image = chosen
-	ui.Appf("variant: model → %s", p.Image)
+	return localModel
 }
 
 func warnDindRetired() {
@@ -296,6 +284,26 @@ func warnDindRetired() {
 	ui.Warnf("PROVEO_DIND is retired and does nothing: the privileged Docker-in-Docker " +
 		"sidecar is gone. A harness that declares `docker: sbx` gets its own daemon inside " +
 		"the sandbox instead; unset the variable")
+}
+
+// startHostCDP opens or reuses the host browser for the host-CDP add-on and returns the agent's env.
+func startHostCDP(p *Params) ([]string, error) {
+	if !hasAddon(p.Addons, addonHostCDP) {
+		return nil, nil
+	}
+	ui.Section(ui.SectionInterface)
+	port, err := hostcdp.Port(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	profile, _ := hostcdp.ProfileDir(p.Target)
+	if p.PrintOnly {
+		ui.Hostf("%s: the run opens a Chrome on %s with CDP on 127.0.0.1:%d (not started in print mode)", addonHostCDP, profile, port)
+	} else if err := hostcdp.Ensure(p.Target, port, ui.Hostf); err != nil {
+		return nil, fmt.Errorf("%s: %w", addonHostCDP, err)
+	}
+	ui.Warnf("%s: the agent controls every tab and session in that browser — log into only what it should touch", addonHostCDP)
+	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, nil
 }
 
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
@@ -566,7 +574,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 
-	if p.LocalModel != "" && rs.Model.Variant == "" {
+	if p.LocalModel != "" {
 		rs.Model.ModelsDir = ollamaModelsDir()
 		rs.Model.HostOllama = preferHostOllama()
 		rs.Model.OllamaGPU = sidecarOllamaGPU()
@@ -653,10 +661,6 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		}
 	}
 	rs.Model.HostLLM = rs.Backend.Sbx && p.LocalModel != ""
-	if !rs.Backend.Sbx && rs.Model.Variant != "" {
-		p.LocalModel, rs.Model.Variant = "", ""
-		applyModelImage(rs, p)
-	}
 
 	ui.Section(ui.SectionEgress)
 	if rs.Backend.Sbx {
@@ -728,6 +732,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				"the variables the plan decided, so a local model or tier the agent "+
 				"reads from its own env will be missing", err)
 			agentEnv = nil
+		}
+		if hostEnv, err := startHostCDP(p); err != nil {
+			return false, err
+		} else {
+			agentEnv = append(agentEnv, hostEnv...)
 		}
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)

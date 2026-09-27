@@ -1,0 +1,83 @@
+@startuml HostBrowserCDP
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how an sbx agent drives a Chrome on the host over CDP — dedicated profile, dialled by IP, one allowed port
+' covers: internal/hostcdp/hostcdp.go
+' covers: internal/hostcdp/hostcdp_test.go
+' covers: internal/run/choices.go (addonHostCDP, interfaceOptions, gateAddons)
+' covers: internal/run/run.go (startHostCDP)
+' covers: internal/backend/sandbox/sandbox.go (Spec allow)
+' covers: internal/backend/sandbox/host_inference_test.go
+' covers: defs/hermes/entrypoint.sh (PROVEO_HOST_CDP_PORT block)
+' covers: defs/hermes/harness.manifest (capabilities.hostBrowser: cdp)
+'   the Claude-in-Chrome bridge (claudecode) ... _spec/defs/claudecode/chrome-bridge.puml
+'   the in-sandbox browser viewport ............ _spec/internal/sbx/browser-viewport.puml
+'
+' ── WHY (2026-09-27) ───────────────────────────────────────────────────────
+' The operator's hermes task is a logged-in site (Yahoo Fantasy): a login with 2FA
+' the operator completes by hand, kept across runs, watched live. The sandbox has
+' no display, and use_real_profile cannot decrypt a macOS Chrome profile (Keychain)
+' from a Linux VM. A host Chrome on a DEDICATED profile gives all three.
+'
+' ── capabilities.hostBrowser SELECTS THE MECHANISM ─────────────────────────
+'   claude-in-chrome → addonChrome  (native-host bridge; claudecode)
+'   cdp              → addonHostCDP (this file; hermes)
+' The add-on greys out without sbx: it rides sbx's host gateway.
+'
+' ── MEASURED FROM A GUEST (sbx v0.42.1, Chrome 153, host.docker.internal = 169.254.1.1) ─
+'   via proxy  host.docker.internal:P/json/version   200, ws URL = ws://localhost:P/…  ✗ unusable in the VM
+'   direct     host.docker.internal:P/json/version   "Host header is specified and is not an IP address or localhost"
+'   direct     169.254.1.1:P/json/version            200, ws URL = ws://169.254.1.1:P/…  ✓
+'   direct     ws://169.254.1.1:P/devtools/browser/…  101 Switching Protocols
+' Chrome builds webSocketDebuggerUrl from the request's Host, and only accepts an
+' IP or localhost there. So the entrypoint resolves host.docker.internal to its
+' IPv4, sets BROWSER_CDP_URL=http://<ip>:<port>, and appends <ip> to NO_PROXY.
+' Env only, never config.yaml: HERMES_HOME persists, and a stale browser.cdp_url
+' costs every later run a 10 s discovery stall (hermes' own docstring).
+' End to end from the proveo/hermes image: hermes' _get_cdp_override resolved the
+' ws URL, Target.createTarget opened football.fantasysports.yahoo.com in the host
+' Chrome, and `npx agent-browser@^0.26.0 --cdp` read that tab's URL back.
+'
+' ── HOST SIDE ──────────────────────────────────────────────────────────────
+'   port    PROVEO_HOST_CDP_PORT, default 9222; Kit allow += localhost:<port>.
+'   reuse   anything answering 127.0.0.1:<port>/json/version is reused as is.
+'           Chrome ≥136 refuses --remote-debugging-port on the default profile,
+'           so a CDP-serving Chrome is never the everyday one.
+'   launch  else Chrome/Chromium/Brave/Edge with --user-data-dir=
+'           os.UserConfigDir()/proveo/host-chrome/<target>, in its own process
+'           group, left open after the run so the login persists.
+'   NOT ~/.proveo: that tree is mounted into sandboxes at /proveo-home, and the
+'   profile's cookie store would be readable from the VM.
+'
+' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
+' CDP is full control of that browser: every tab, every cookie in the profile.
+' The run warns so; the boundary is "log into only what the agent should touch".
+' [Unverified] whether sbx enforces the Kit allow on the direct (non-proxy) path;
+' the host's global policy was allow-all during every measurement.
+
+actor "Operator" as OP
+node "host" as HOST {
+  component "proveo run" as RUN
+  component "Chrome\ndedicated profile\n127.0.0.1:<port>" as CH
+}
+node "sbx microVM" as VM {
+  component "hermes\nBROWSER_CDP_URL=http://169.254.1.1:<port>" as AG
+}
+
+OP --> CH : logs in once (2FA)
+RUN --> CH : reuse or launch
+RUN --> VM : Kit allow localhost:<port>\nenv PROVEO_HOST_CDP_PORT
+AG --> CH : CDP by IP, NO_PROXY
+
+note right of CH
+  **Dedicated, never everyday.** The profile
+  lives outside ~/.proveo, so the VM cannot
+  read its cookie store off the mount.
+end note
+
+note right of AG
+  **Dial by IP.** Chrome rejects any Host
+  that is not an IP or localhost, and builds
+  its ws URL from that same Host.
+end note
+@enduml

@@ -98,8 +98,7 @@ type ModelSpec struct {
 	ModelsDir  string
 	HostOllama bool
 	OllamaGPU  bool
-	HostLLM    bool   // sbx: served by the host's Ollama, not a sidecar
-	Variant    string // baked-model image key routed to the host; restored on a docker fallback
+	HostLLM    bool // sbx: served by the host's Ollama, not a sidecar
 }
 
 // DockerSpec is what only the docker+egress path needs.

@@ -15,6 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -34,7 +35,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	sandboxOn := sbxBackend
 	chromeWhy := ""
-	if man.Capabilities.HasHostBrowser() {
+	if man.Capabilities.HostBrowser == addonChrome {
 		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
 	}
 	form := &choiceui.Form{
@@ -51,7 +52,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if r, ok := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar); ok {
 		form.Rows = append(form.Rows, r)
 	}
-	if r, ok := modelRow(man, p.ModelVariant); ok {
+	if r, ok := modelRow(man, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
 	}
 	for _, label := range addonRows {
@@ -89,8 +90,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if v := form.Selection("auth"); v != "" {
 		p.AuthVar = v
 	}
-	if v := form.Selection(rowModel); v != "" {
-		p.ModelVariant = modelVariantFor(v)
+	if v := form.Selection(rowModel); v != "" && v != modelLabelFor(p.LocalModel) {
+		p.LocalModel = localModelFor(v)
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
 		p.Evidence = v
@@ -247,6 +248,13 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 				}
 				r.On[j] = true
 				r.OffWhy[opt] = "this harness runs in the sandbox and nowhere else; PROVEO_SBX=0 or --egress-mode review fall back to docker + egress sidecars"
+			case addonHostCDP:
+				if sbxWhy != "" {
+					r.Off[j] = true
+					r.On[j] = false
+					reasons = append(reasons, addonHostCDP+": "+hostCDPSbxWhy)
+					r.OffWhy[opt] = hostCDPSbxWhy
+				}
 			case addonChrome:
 				why := chromeWhy
 				switch {
@@ -461,9 +469,12 @@ const (
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
 	addonChrome  = chromebridge.Addon
+	addonHostCDP = hostcdp.Addon
 )
 
 var addonRows = []string{rowExecution, rowInterface}
+
+const hostCDPSbxWhy = "needs the sbx backend: the sandbox reaches the host browser through sbx's host gateway"
 
 func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
 
@@ -480,6 +491,7 @@ var addonHelp = map[string]string{
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
+	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
@@ -499,8 +511,11 @@ func interfaceOptions(man manifest.Manifest) []string {
 			break
 		}
 	}
-	if man.Capabilities.HasHostBrowser() {
+	switch man.Capabilities.HostBrowser {
+	case addonChrome:
 		opts = append(opts, addonChrome)
+	case manifest.HostBrowserCDP:
+		opts = append(opts, addonHostCDP)
 	}
 	return opts
 }

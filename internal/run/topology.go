@@ -133,7 +133,7 @@ func interfaceOf(f *choiceui.Form) string {
 	if rowTicked(f, rowInterface, addonBrowser) {
 		driven = append(driven, "browser")
 	}
-	if rowTicked(f, rowInterface, addonChrome) {
+	if rowTicked(f, rowInterface, addonChrome) || rowTicked(f, rowInterface, addonHostCDP) {
 		driven = append(driven, "chrome")
 	}
 	return strings.Join(driven, " + ")

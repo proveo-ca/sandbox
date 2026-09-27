@@ -26,3 +26,5 @@ capabilities:
   providers: [anthropic, bedrock, deepinfra, deepseek, fireworks, gmi, google,
               huggingface, minimax, nebius, novita, openai, openrouter, xai, zai]
   hosts: [] # browser targets are open-ended by design; the operator's own egress policy scopes them
+  # SPEC: _spec/internal/sbx/host-browser-cdp.puml
+  hostBrowser: cdp

@@ -114,15 +114,14 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 '
 ' ── ONE MODEL SOURCE PER RUN: THE MODEL ROW ─────────────────────────────────
 ' `proveo run hermes` draws a single-select model row: API keys (default),
-' Muse Glimmer 30B, Qwen 3.8 27B. On sbx (2026-09-26) a local choice is served
-' on the host GPU by the operator's Ollama and the image stays `hermes`
-' (_spec/internal/sbx/host-inference.puml). On the docker fallback it swaps the
-' image to hermes-muse-glimmer / hermes-qwen3.8 (CPU). Either way the target
-' stays `hermes`, so the settings cache and sbx agent kit key on one name.
-' Layout: _spec/internal/choiceui/wireframe.puml (box 9).
+' Qwen 3.8 27B, Muse Glimmer 30B. Each option IS a --local-model value for this
+' host (MLX tags on macOS arm64, GGUF :latest elsewhere; API keys = none), so the
+' row and the flag are one knob. On sbx the host's Ollama serves it on the host GPU
+' (_spec/internal/sbx/host-inference.puml); on docker the existing --local-model
+' path applies. The image stays `hermes`. Layout:
+' _spec/internal/choiceui/wireframe.puml (box 9).
 '
-' The baked variants stay until the host route is verified on a Linux GPU host;
-' they are the docker fallback and nothing else.
+' The baked-model images are no longer chosen by the row; they only gate it.
 '
 actor "Operator" as OP
 

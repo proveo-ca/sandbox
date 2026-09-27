@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -556,6 +558,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	if sbx.HostModelRef(envValue(in.AgentEnv, "OLLAMA_API_BASE")) {
 		hosts[sbx.HostOllamaPolicyHost] = true
+	}
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostcdp.EnvPort)); err == nil {
+		hosts[hostcdp.PolicyHost(port)] = true
 	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {

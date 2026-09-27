@@ -94,6 +94,9 @@ type Capabilities struct {
 	HostBrowser string   `yaml:"hostBrowser"`
 }
 
+// HostBrowserCDP is the hostBrowser value for a harness that attaches to a host Chrome over CDP.
+const HostBrowserCDP = "cdp"
+
 // HasHostBrowser reports whether the harness can drive the operator's browser.
 func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
 
