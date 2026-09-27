@@ -34,6 +34,7 @@ const (
 	KeyAtHost KeyHome = iota
 	KeyInSquare
 	KeyAtHop
+	KeyNone // no API key in play: a plan login or a local model
 )
 
 // LaneKind is what the hop does to the traffic, which is the one thing the tier
@@ -117,14 +118,20 @@ type topoCols struct {
 	headCaption           bool // caption's leading clause only
 }
 
+// boxW is the container's inner width; everything right of the box is laid out from it.
+const boxW = 30
+
+// SquareMax is the widest Frame.Square the box shows whole: walls, padding and the speaking dot take 4.
+const SquareMax = boxW - 4
+
 var blockCols = topoCols{
-	host: 2, box: 13, boxW: 26, hop: 46, lanes: 57,
+	host: 2, box: 13, boxW: boxW, hop: 13 + boxW + 7, lanes: 13 + boxW + 18,
 	width: stripCols, runLen: 3, asksLabel: true,
 }
 
 var paneCols = topoCols{
-	host: 1, box: 11, boxW: 26, hop: 44, lanes: 55,
-	width: 62, runLen: 1, headCaption: true,
+	host: 1, box: 11, boxW: boxW, hop: 11 + boxW + 7, lanes: 11 + boxW + 18,
+	width: 11 + boxW + 25, runLen: 1, headCaption: true,
 }
 
 const (

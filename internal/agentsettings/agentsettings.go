@@ -19,13 +19,15 @@ import (
 const FileName = "agent-settings.yml"
 
 type Choice struct {
-	Egress      string            `yaml:"egress"`
-	Credentials string            `yaml:"credentials"`
-	Addons      []string          `yaml:"addons,omitempty"`
-	AuthVar     string            `yaml:"authVar,omitempty"`
-	Evidence    string            `yaml:"evidence,omitempty"`
-	Models      map[string]string `yaml:"models,omitempty"`
-	Fingerprint string            `yaml:"fingerprint"`
+	Egress       string            `yaml:"egress"`
+	Credentials  string            `yaml:"credentials"`
+	Addons       []string          `yaml:"addons,omitempty"`
+	AuthVar      string            `yaml:"authVar,omitempty"`
+	Evidence     string            `yaml:"evidence,omitempty"`
+	LocalModel   string            `yaml:"localModel,omitempty"`
+	ModelVariant string            `yaml:"modelVariant,omitempty"` // legacy: read to migrate, never written
+	Models       map[string]string `yaml:"models,omitempty"`
+	Fingerprint  string            `yaml:"fingerprint"`
 }
 
 type Store struct {

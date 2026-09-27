@@ -12,8 +12,25 @@ func TemplateLoadArgs() []string { return []string{"template", "load"} }
 
 func TemplateListArgs() []string { return []string{"template", "ls"} }
 
+func templateStagingDir(getenv func(string) string) string {
+	if strings.TrimSpace(getenv("TMPDIR")) != "" {
+		return ""
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, "proveo", "sbx-staging")
+}
+
 func templateLoadViaTar(image string) error {
-	dir, err := os.MkdirTemp("", "proveo-sbx-template-")
+	parent := templateStagingDir(os.Getenv)
+	if parent != "" {
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return err
+		}
+	}
+	dir, err := os.MkdirTemp(parent, "proveo-sbx-template-")
 	if err != nil {
 		return err
 	}
@@ -188,3 +205,6 @@ func ReloadTemplate(image string, report func(string, ...any)) error {
 	writeTemplateReceipt(image)
 	return nil
 }
+
+// LocalImageID is the local Docker image ID for image, or "" when it cannot be read.
+func LocalImageID(image string) string { return sh.LocalImageID(image) }

@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -71,7 +72,7 @@ func Do(p Params, d Deps) (err error) {
 	rs.SquidConfig = d.SquidConfig
 	rs.Log.Artifacts(rs.EgDir, p.willSandbox(rs.Man))
 
-	if p.Target == "cursor" && p.LocalModel != "" {
+	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
 
@@ -228,7 +229,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
-			Evidence: p.evidenceOrDefault(),
+			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 		})
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -267,6 +268,14 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
+// rememberedLocalModel keeps a local model in the cache only for a def whose row chooses it.
+func rememberedLocalModel(man manifest.Manifest, localModel string) string {
+	if !hasModelRow(man) {
+		return ""
+	}
+	return localModel
+}
+
 func warnDindRetired() {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_DIND"))) {
 	case "", "0", "false", "no", "off":
@@ -275,6 +284,26 @@ func warnDindRetired() {
 	ui.Warnf("PROVEO_DIND is retired and does nothing: the privileged Docker-in-Docker " +
 		"sidecar is gone. A harness that declares `docker: sbx` gets its own daemon inside " +
 		"the sandbox instead; unset the variable")
+}
+
+// startHostCDP opens or reuses the host browser for the host-CDP add-on and returns the agent's env.
+func startHostCDP(p *Params) ([]string, error) {
+	if !hasAddon(p.Addons, addonHostCDP) {
+		return nil, nil
+	}
+	ui.Section(ui.SectionInterface)
+	port, err := hostcdp.Port(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	profile, _ := hostcdp.ProfileDir(p.Target)
+	if p.PrintOnly {
+		ui.Hostf("%s: the run opens a Chrome on %s with CDP on 127.0.0.1:%d (not started in print mode)", addonHostCDP, profile, port)
+	} else if err := hostcdp.Ensure(p.Target, port, ui.Hostf); err != nil {
+		return nil, fmt.Errorf("%s: %w", addonHostCDP, err)
+	}
+	ui.Warnf("%s: the agent controls every tab and session in that browser — log into only what it should touch", addonHostCDP)
+	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, nil
 }
 
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
@@ -631,6 +660,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			sbxUnavailable = why
 		}
 	}
+	rs.Model.HostLLM = rs.Backend.Sbx && p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
 	if rs.Backend.Sbx {
@@ -681,9 +711,19 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if !egress.ValidMode(agentMode) {
 			agentMode = "allowlist"
 		}
+		sidecarModel := p.LocalModel
+		if rs.Model.HostLLM {
+			sidecarModel = ""
+			if !p.PrintOnly {
+				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, os.Stderr); err != nil {
+					return false, fmt.Errorf("local model %s: %w", p.LocalModel, err)
+				}
+				ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
+			}
+		}
 		agentEnv, err := egress.AgentEnv(egress.Options{
 			Mode: agentMode, Credentials: p.Credentials, SessionID: rs.Sid,
-			AgentName: p.Target, LocalModel: p.LocalModel,
+			AgentName: p.Target, LocalModel: sidecarModel,
 			HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
 			Providers: rs.Creds.Brokered, AuthVar: p.AuthVar,
 		})
@@ -692,6 +732,15 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 				"the variables the plan decided, so a local model or tier the agent "+
 				"reads from its own env will be missing", err)
 			agentEnv = nil
+		}
+		if hostEnv, err := startHostCDP(p); err != nil {
+			return false, err
+		} else {
+			agentEnv = append(agentEnv, hostEnv...)
+		}
+		if rs.Model.HostLLM {
+			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
+			agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 		}
 		homeAccess, err := sandbox.PrepareHomeAccess(
 			rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)

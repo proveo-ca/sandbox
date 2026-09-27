@@ -248,16 +248,13 @@ func TestBackingNamesTheLoginFile(t *testing.T) {
 func TestEveryClassCanSayWhyItIsUnavailable(t *testing.T) {
 	t.Parallel()
 	why := AuthWhyUnavailable(cursorMan(), "cursor", "")
-	for _, opt := range []string{AuthUsage, AuthSubscription, AuthLocal} {
+	for _, opt := range []string{AuthUsage, AuthSubscription} {
 		if strings.TrimSpace(why[opt]) == "" {
 			t.Errorf("%q gates with no reason", opt)
 		}
 	}
 	if !strings.Contains(why[AuthUsage], "cursor") {
 		t.Errorf("cursor's usage reason = %q, want the vendor named", why[AuthUsage])
-	}
-	if !strings.Contains(why[AuthLocal], "coming soon") {
-		t.Errorf("local reason = %q, want it marked coming soon", why[AuthLocal])
 	}
 	if oc := AuthWhyUnavailable(cecliMan(), "cecli", "")[AuthSubscription]; !strings.Contains(oc, "provider keys only") {
 		t.Errorf("cecli's subscription reason = %q, want it to say there is no plan", oc)
@@ -372,5 +369,17 @@ func TestWithoutAStoredCredentialTheEnvStands(t *testing.T) {
 	suppress := AuthSuppressor(man, "claudecode", "", t.TempDir(), lookup)
 	if suppress("CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("withheld the only credential the run has")
+	}
+}
+
+func TestLocalModelAnswerNamesNoVariableAndWithholdsThePlan(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "claudecode", Subscription: true,
+		Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	if got := EffectiveAuthVar(man, "claudecode", AuthLocal, "", lookupOf(nil)); got != "" {
+		t.Errorf("EffectiveAuthVar(local model) = %q, want no variable — it is a class, not a name", got)
+	}
+	if !AuthSuppressor(man, "claudecode", AuthLocal, "", lookupOf(nil))("CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("a local model run must not carry the plan credential the agent would reach for first")
 	}
 }

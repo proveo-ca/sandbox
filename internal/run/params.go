@@ -94,6 +94,12 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !evidenceSet && cached.Evidence != "" {
 		p.Evidence = cached.Evidence
 	}
+	if p.LocalModel == "" {
+		p.LocalModel = hostTagFor(cached.LocalModel)
+		if p.LocalModel == "" {
+			p.LocalModel = legacyVariantTag(cached.ModelVariant)
+		}
+	}
 	p.RolesRemembered = provider.RolesFromCanonical(cached.Models)
 	p.Roles = provider.RolesFromCanonical(cached.Models)
 }

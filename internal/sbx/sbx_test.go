@@ -1184,3 +1184,19 @@ func TestOOMEvidenceSeparatesAKillFromMerePressure(t *testing.T) {
 		})
 	}
 }
+
+func TestTemplateStagingDirAvoidsTmpfsUnlessTMPDIRIsSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	got := templateStagingDir(func(string) string { return "" })
+	if !strings.HasPrefix(got, home) || !strings.HasSuffix(got, filepath.Join("proveo", "sbx-staging")) {
+		t.Errorf("unset TMPDIR must stage under the user cache dir in %s, got %q", home, got)
+	}
+
+	env := map[string]string{"TMPDIR": "/big/disk"}
+	if got := templateStagingDir(func(k string) string { return env[k] }); got != "" {
+		t.Errorf("explicit TMPDIR must win (empty parent ⇒ os.TempDir), got %q", got)
+	}
+}

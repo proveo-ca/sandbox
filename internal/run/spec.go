@@ -98,6 +98,7 @@ type ModelSpec struct {
 	ModelsDir  string
 	HostOllama bool
 	OllamaGPU  bool
+	HostLLM    bool // sbx: served by the host's Ollama, not a sidecar
 }
 
 // DockerSpec is what only the docker+egress path needs.

@@ -1,0 +1,98 @@
+@startuml HostInference
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how a local model reaches an sbx agent — the host's Ollama on the host GPU, one port across the VM boundary
+' covers: internal/sbx/host_ollama.go
+' covers: internal/sbx/host_ollama_test.go
+' covers: internal/run/model_row.go (bakedModels.host, hostModelFor)
+' covers: internal/run/run.go (promptChoices, selectBackend, applyModelImage)
+' covers: internal/egress/plan.go (LocalModelEnv)
+' covers: internal/backend/sandbox/sandbox.go (Spec allow, proxyOnlyVar)
+' covers: internal/backend/sandbox/host_inference_test.go
+'   the measurements and rejected options ... _spec/_experiments/sbx-host-inference.puml
+'   the model row ............................ _spec/defs/hermes/hermes-paradigm.puml
+'
+' ── RULE ────────────────────────────────────────────────────────────────────
+' On sbx, ANY local model — `--local-model X` or a model-row choice — is served by
+' the operator's own Ollama on the host, never inside the VM and never by a server
+' proveo starts. The microVM has no GPU on macOS and a passthrough-only GPU on Linux.
+' proveo checks, pulls a missing tag, and routes; it never installs, starts or
+' tunes Ollama (2026-09-27: pulling added — refusing with `ollama pull` only
+' made the operator retype what proveo already knew).
+'
+' ── SEQUENCE (selectBackend, sbx branch, before the sandbox exists) ─────────
+'   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
+'   2. Tag lookup: exact, or bare name ⇒ ":latest" (Ollama's rule). Missing ⇒
+'      size from registry.ollama.ai/v2/<repo>/manifests/<tag> (config + layers;
+'      muse-glimmer:30b-mlx = 17.75 GiB), a WARNING if it would not fit in memory
+'      right now (memory is transient, the download is not), then POST /api/pull
+'      with progress on stderr. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
+'      (`ollama pull <tag>` + installed tags of the same repo). A non-library ref
+'      (hf.co/…) pulls with no size shown.
+'   3. Already in /api/ps ⇒ resident, no new memory, done.
+'   4. Fit: need = size + size/8 + 1 GiB against reclaimable memory
+'      (macOS vm_stat free+inactive+speculative+purgeable; Linux MemAvailable).
+'      need > available ⇒ refuse unless PROVEO_LOCAL_MODEL_FORCE=1. No reading
+'      (windows, freebsd) ⇒ pass.
+'   5. agent env = egress.LocalModelEnv(tag, http://host.docker.internal:11434)
+'      + SBX_CRED_ANTHROPIC_MODE=none + SBX_CRED_OPENAI_MODE=none, the pair sbx's
+'      own --model mixin sets so proxy-held auth cannot outrank the local route.
+'   6. Kit network.allow += localhost:11434 — the sbx proxy matches
+'      host.docker.internal:<port> as localhost:<port>. Measured: /api/tags and
+'      /v1/models both 200 from a guest against Ollama bound to 127.0.0.1.
+'   The sidecar plan gets LocalModel="" so no Ollama container is planned.
+'
+' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────
+' sbx bundles llmman, and it served qwen3.8:27b on Metal. It also froze a 48 GB
+' M4 Pro: llama-server reserved the model's full 262k context across 4 unified
+' slots (n_ctx_slot=262144, n_slots=4), reached 34 GB RSS and filled 21.5 GB of
+' swap during hermes's ~14.6k-token first prompt. `llmman serve` exposes no
+' context or slot flag. The operator's Ollama had OLLAMA_CONTEXT_LENGTH=131072
+' and a VRAM-based default (num_ctx 32768 at 37.4 GiB), i.e. already tuned.
+'
+' ── MODEL ROW MAPPING ──────────────────────────────────────────────────────
+'                      darwin/arm64            linux/amd64 (and any other host)
+'   Qwen 3.8 27B     → qwen3.8:27b-mlx         qwen3.8:latest       (27b-q4_K_M)
+'   Muse Glimmer 30B → muse-glimmer:30b-mlx    muse-glimmer:latest  (30b-q4_K_M)
+' The row sets p.LocalModel and nothing else (2026-09-27), so picking an option
+' and passing the flag are the same run on either backend.
+' MLX on Apple Silicon, measured 2026-09-27 on an M4 Pro 48 GB, Ollama 0.34.4,
+' same 2,064-token prompt, num_ctx 8192, one model resident at a time:
+'   qwen3.8:latest   (GGUF, llama.cpp)  prefill 103.4 tok/s · generation  9.3 tok/s · 17.7 GB
+'   qwen3.8:27b-mlx  (MLX)              prefill 123.1 tok/s · generation 24.2 tok/s · 18.2 GB
+' -mlx tags need Ollama's MLX engine (Apple Silicon only); Linux keeps GGUF.
+' -nvfp4 is not mapped: [Unverified] which NVIDIA generations Ollama runs it on.
+'
+' ── NO_PROXY IS A PROXY VARIABLE ───────────────────────────────────────────
+' The plan's NO_PROXY (localhost,…,ollama,host.docker.internal) used to cross
+' into the sandbox and replace sbx's own, which lists gateway.docker.internal.
+' proxyOnlyVar now drops NO_PROXY / no_proxy with the other proxy variables.
+
+actor "Operator" as OP
+node "host" as HOST {
+  component "proveo run" as RUN
+  component "Ollama (operator's)\n127.0.0.1:11434" as OLL
+}
+node "sbx microVM" as VM {
+  component "hermes\nconfig.yaml ← entrypoint.sh" as AG
+}
+
+OP --> RUN : model row / --local-model
+RUN --> OLL : tags · ps · fit check
+RUN --> VM : Kit allow localhost:11434\nenv OLLAMA_API_BASE
+AG --> OLL : host.docker.internal:11434/v1
+
+note right of OLL
+  **Check and pull, never manage.** proveo
+  pulls a missing tag and refuses a missing
+  server or a model that would swap; it
+  never starts or configures Ollama.
+end note
+
+note right of AG
+  **hermes ignores *_BASE_URL.** It reads
+  model.base_url from config.yaml, which
+  wire_hermes_local_endpoint writes from
+  OLLAMA_API_BASE + PROVEO_LOCAL_MODEL.
+end note
+@enduml

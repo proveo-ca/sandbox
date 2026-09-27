@@ -1152,3 +1152,28 @@ func TestThePostureNamesTheCredentialRouteThatWillHappen(t *testing.T) {
 		t.Errorf("posture says %q while the run will store the value and let the proxy attach it", got)
 	}
 }
+
+func TestHostCDPAddonIsOfferedByCapabilityAndNeedsSbx(t *testing.T) {
+	t.Parallel()
+	cdp := manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP}}
+	opts := interfaceOptions(cdp)
+	if !slices.Contains(opts, addonHostCDP) || slices.Contains(opts, addonChrome) {
+		t.Errorf("hostBrowser: cdp ⇒ %v; want %q and not the Claude-in-Chrome bridge", opts, addonHostCDP)
+	}
+	bridge := manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: addonChrome}}
+	if opts := interfaceOptions(bridge); slices.Contains(opts, addonHostCDP) || !slices.Contains(opts, addonChrome) {
+		t.Errorf("hostBrowser: claude-in-chrome ⇒ %v", opts)
+	}
+
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: rowInterface, Options: []string{addonHostCDP}, Multi: true, On: []bool{true}},
+	}}
+	gateAddons(f, "allowlist", "inject", "no sbx", "")
+	if r := f.Rows[0]; !r.Off[0] || r.On[0] || !strings.Contains(r.Reason, "sbx") {
+		t.Errorf("without sbx the add-on must grey+untick: off=%v on=%v reason=%q", r.Off, r.On, r.Reason)
+	}
+	gateAddons(f, "allowlist", "inject", "", "")
+	if r := f.Rows[0]; r.Off[0] {
+		t.Errorf("with sbx the add-on must be live: reason=%q", r.Reason)
+	}
+}

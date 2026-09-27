@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -554,6 +556,12 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	for _, h := range credentials.ReachableHosts(credentials.FilterProviders(in.Detected, in.Man.Capabilities)) {
 		addHost(h)
 	}
+	if sbx.HostModelRef(envValue(in.AgentEnv, "OLLAMA_API_BASE")) {
+		hosts[sbx.HostOllamaPolicyHost] = true
+	}
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostcdp.EnvPort)); err == nil {
+		hosts[hostcdp.PolicyHost(port)] = true
+	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {
 		allow = append(allow, h)
@@ -842,11 +850,20 @@ func Run(in Input) error {
 		}
 	}()
 	cfg, kit, secrets := Spec(in)
-	if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+	kitDir, err := sbx.WriteKit(cfg.KitDir, kit)
+	if err != nil {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
+	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
+	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+		return err
+	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
+	if launchCfg.KitDir != "" {
+		writeReceipt(cfg.Name, receipt)
+	}
 	if err := sbx.EnsureTemplate(launchCfg.Image, func(f string, a ...any) {
 		ui.Appf(f, a...)
 	}); err != nil {
@@ -1187,7 +1204,7 @@ func sandboxAgentEnv(pairs []string) []string {
 
 func proxyOnlyVar(name string) bool {
 	switch name {
-	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy",
 		"NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
 		"SSL_CERT_FILE", "GIT_SSL_CAINFO", "INSPECT_PROXY", "ENFORCEMENT_PROXY",
 		"PROVEO_EGRESS_CA_CERT":

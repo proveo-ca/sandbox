@@ -7,7 +7,7 @@ skinparam noteTextAlignment left
 ' covers: internal/choiceui/anim.go (animFrame, ticker, frame)
 ' covers: internal/choiceui/choiceui.go (the EventKey case)
 ' covers: internal/choiceui/pen.go, internal/choiceui/canvas.go
-' covers: internal/run/topology.go (topologyOf, egressTier, lanesOf)
+' covers: internal/run/topology.go (topologyOf, egressTier, lanesOf, squareWith)
 ' covers: internal/choiceui/anim_test.go, internal/choiceui/topology_test.go
 ' covers: internal/choiceui/layout_test.go, internal/choiceui/pane_test.go
 ' covers: internal/choiceui/pen_test.go, internal/choiceui/canvas_test.go
@@ -251,6 +251,17 @@ skinparam noteTextAlignment left
 ' spine rather than beside its label, because the label lives on the row beneath
 ' — as every outside node's does. On sbx the home is always the hop: the proxy
 ' holds the secret, and a gated forward checkbox does not move it inside the square.
+'
+' ── NO API KEY, NO KEY GLYPH (2026-09-27) ──────────────────────────────────
+' The key is drawn only while the model row answers "API keys". Any other answer
+' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
+' says "no API key is in play", and the square names the model instead:
+' `sbx · <harness> + <model>`, model short (qwen3.8 · glimmer · plan, or the tag).
+' The box is `boxW` = 30 inner columns (was 26; hop and lanes are laid out from
+' it), and SquareMax = boxW - 4 = 26 is the widest square drawn whole —
+' `sbx · claudecode + qwen3.8` is exactly 26. squareWith trims ONLY the model,
+' ending in "…", so the harness is never the part that is cut. The pane is now
+' 66 columns (was 62), so it needs 4 more terminal columns before it docks.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's

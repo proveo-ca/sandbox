@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
@@ -365,5 +366,19 @@ func TestFormatElapsedRefusesASummaryWithoutDuration(t *testing.T) {
 	sum, err := FormatRunSummary("build", 16, &d)
 	if err != nil || sum != "build 16 target(s) in 1s" {
 		t.Errorf("FormatRunSummary = %q, %v", sum, err)
+	}
+}
+
+// parentOf is a hand-kept mirror of the build specs; a variant missing from it
+// is scheduled beside the sibling it Needs and races to build that sibling.
+func TestParentOfMirrorsBuildSpecs(t *testing.T) {
+	for name, s := range imagebuild.Specs {
+		want := s.Needs
+		if want == "" && strings.HasPrefix(name, "base-") {
+			want = s.Parent
+		}
+		if got := parentOf(name); got != want {
+			t.Errorf("parentOf(%q) = %q, want %q (from imagebuild.Specs)", name, got, want)
+		}
 	}
 }
