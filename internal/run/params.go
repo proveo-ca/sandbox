@@ -17,6 +17,8 @@ type Params struct {
 	ModeSet, CredsSet                                                           bool
 	Addons                                                                      []string
 	AddonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
+	AddonsSet                                                                   bool // --addon was passed; the cache does not override it
+	Yes                                                                         bool // --yes: accept the cached and flagged choices without drawing the form
 	Roles                                                                       provider.Roles
 	RolesRemembered                                                             provider.Roles
 	AuthVar                                                                     string
@@ -87,7 +89,10 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	if !p.CredsSet && cached.Credentials != "" {
 		p.Credentials = cached.Credentials
 	}
-	p.Addons, p.AddonsAnswered = normalizeAddons(cached.Addons), true
+	if !p.AddonsSet {
+		p.Addons = normalizeAddons(cached.Addons)
+	}
+	p.AddonsAnswered = true
 	if p.AuthVar == "" {
 		p.AuthVar = cached.AuthVar
 	}

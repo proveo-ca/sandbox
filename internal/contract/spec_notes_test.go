@@ -22,6 +22,8 @@ var specNotesEnforced = []string{
 	"_spec/_experiments/sbx-host-inference.puml",
 	"_spec/internal/sbx/host-inference.puml",
 	"_spec/internal/sbx/host-browser-cdp.puml",
+	"_spec/defs/hermes/hermes-persistence.puml",
+	"_spec/internal/schedule/schedule.puml",
 	"_spec/_devops/sandbox-template-rebase.puml",
 	"_spec/internal/sbx/host-readiness.puml",
 	"_spec/internal/sbx/launch-env.puml",

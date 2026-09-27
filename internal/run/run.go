@@ -218,7 +218,10 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if p.Roles == nil {
 		p.Roles = provider.Roles{}
 	}
-	if rs.Choices.Promptable {
+	if err := p.resolveAddonFlags(rs.Man); err != nil {
+		return err
+	}
+	if rs.Choices.Promptable && !p.Yes {
 		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
 			return err
 		}

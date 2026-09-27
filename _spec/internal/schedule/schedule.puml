@@ -1,0 +1,72 @@
+@startuml Schedule
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how proveo runs a harness unattended at set times — a minutely tick, a tmux terminal, a typed goal
+' covers: internal/schedule/schedule.go
+' covers: internal/schedule/runner.go
+' covers: internal/schedule/install.go
+' covers: internal/schedule/schedule_test.go
+' covers: cmd/proveo/schedule.go
+' covers: e2e/schedule_test.go
+' covers: internal/run/choices.go (resolveAddonFlags), internal/run/params.go (AddonsSet, Yes)
+'   the Glimmer early stop this works around ... _spec/_experiments/sbx-host-inference.puml
+'
+' ── WHY NOT A PLAIN CRON (2026-09-27) ──────────────────────────────────────
+' Every harness is a TUI. cron/launchd give no TTY, so proveo's choice form,
+' hermes's TUI and `/goal` are unreachable. Measured: `hermes chat -q "/goal …"`
+' on a TTY QUEUES the text as a user message; on a non-TTY it is --oneshot, one
+' turn and exit, and hermes runs goal loops in -q only for kanban workers. So
+' the goal has to be TYPED into the running TUI — which needs a terminal proveo
+' owns. internal/tmux already drives TUIs for the e2e suite.
+'
+' ── SHAPE ──────────────────────────────────────────────────────────────────
+'   launchd (macOS) / systemd --user timer (Linux) → `proveo schedule tick` every 60 s
+'   tick   stateless: load ~/.proveo/schedule.yml + schedule-state.json; for each job
+'          whose newest `at` entry fell within catch_up (20 m) and has not fired:
+'          mark it fired, then Launch
+'   Launch tmux session proveo-sched-<job> running `proveo run <target> --yes
+'          --local-model … --addon …` (or the job's `command`), pipe-pane to
+'          ~/.proveo/logs/schedule/<job>/<stamp>.log, and a detached (setsid)
+'          `proveo schedule watch`
+'   watch  caffeinate -i (macOS); wait ≤10 m for the ready marker (default ❯);
+'          type the prompt file flattened to one line as `/goal …` (or /loop,
+'          or plain) + Enter; at the budget type /exit, then kill after 90 s;
+'          write <stamp>.json {outcome: ended|budget|not-ready|failed} and notify
+' One session per job: a tick that finds the session still up skips it.
+' Times are wall-clock in the job's tz, so DST keeps "sun 11:35" at 11:35.
+'
+' ── `proveo run` FOR UNATTENDED USE ────────────────────────────────────────
+'   --yes           seed from the choice cache, never draw the form
+'   --addon <name>  host-chrome · browser · claude-in-chrome; refused unless the
+'                   harness offers it; the cache never overrides a flagged set
+'
+' ── E2E, NO MODEL ──────────────────────────────────────────────────────────
+' A `command:` job stands in for the agent: it prints FAKE-READY>, reads one
+' line, echoes it. The test pins PROVEO_SCHEDULE_NOW, runs a real tick, and
+' asserts only WHEN it fired ("due 2026-09-27T11:35:00-04:00") and WHAT it typed
+' ("/goal <prompt>"). First run caught a nil tmux runner in Launch.
+'
+' ── LIMITS ─────────────────────────────────────────────────────────────────
+' A sleeping Mac runs nothing (waking needs `pmset`, i.e. sudo). The watcher
+' does not re-prompt a stalled agent; `/goal`'s judge continues after each turn.
+
+rectangle "launchd / systemd\nevery 60 s" as T
+component "proveo schedule tick\nstateless" as TICK
+component "tmux proveo-sched-<job>\nproveo run --yes --addon …" as S
+component "proveo schedule watch\ncaffeinate · type /goal · budget" as W
+folder "~/.proveo/logs/schedule/<job>\n<stamp>.log + .json" as L
+
+T --> TICK
+TICK --> S : Launch
+TICK --> W : setsid
+W --> S : WaitFor ready · send-keys
+S --> L : pipe-pane
+W --> L : result
+
+note right of W
+  **Typed, not passed.** `/goal` only
+  works as input to the running TUI,
+  so the watcher types it once the
+  ready marker is on screen.
+end note
+@enduml

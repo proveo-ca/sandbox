@@ -1177,3 +1177,25 @@ func TestHostCDPAddonIsOfferedByCapabilityAndNeedsSbx(t *testing.T) {
 		t.Errorf("with sbx the add-on must be live: reason=%q", r.Reason)
 	}
 }
+
+func TestAddonFlagResolvesAliasesAndRefusesTheUnoffered(t *testing.T) {
+	t.Parallel()
+	cdp := manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP}}
+	p := Params{Target: "hermes", Addons: []string{"host-chrome", "host-chrome"}, AddonsSet: true}
+	if err := p.resolveAddonFlags(cdp); err != nil || !slices.Equal(p.Addons, []string{addonHostCDP}) || !p.AddonsAnswered {
+		t.Errorf("addons = %v answered=%v err=%v", p.Addons, p.AddonsAnswered, err)
+	}
+	bad := Params{Target: "hermes", Addons: []string{"claude-in-chrome"}, AddonsSet: true}
+	if err := bad.resolveAddonFlags(cdp); err == nil || !strings.Contains(err.Error(), addonHostCDP) {
+		t.Errorf("an add-on the harness does not offer must be refused and the offered ones named: %v", err)
+	}
+}
+
+func TestTheCacheDoesNotOverrideFlaggedAddons(t *testing.T) {
+	t.Parallel()
+	p := Params{Addons: []string{addonHostCDP}, AddonsSet: true}
+	p.seedFromCache(agentsettings.Choice{Addons: []string{"browser"}}, func(string) string { return "" }, false)
+	if !slices.Equal(p.Addons, []string{addonHostCDP}) {
+		t.Errorf("addons = %v, want the flagged host chrome", p.Addons)
+	}
+}
