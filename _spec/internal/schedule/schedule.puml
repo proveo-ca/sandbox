@@ -7,6 +7,7 @@ skinparam noteTextAlignment left
 ' covers: internal/schedule/install.go
 ' covers: internal/schedule/schedule_test.go
 ' covers: cmd/proveo/schedule.go
+' covers: cmd/proveo/schedule_test.go
 ' covers: e2e/schedule_test.go
 ' covers: internal/run/choices.go (resolveAddonFlags), internal/run/params.go (AddonsSet, Yes)
 '   the Glimmer early stop this works around ... _spec/_experiments/sbx-host-inference.puml
@@ -28,9 +29,11 @@ skinparam noteTextAlignment left
 '          --local-model … --addon …` (or the job's `command`), pipe-pane to
 '          ~/.proveo/logs/schedule/<job>/<stamp>.log, and a detached (setsid)
 '          `proveo schedule watch`
-'   watch  caffeinate -i (macOS); wait ≤10 m for the ready marker (default ❯);
-'          type the prompt file flattened to one line as `/goal …` (or /loop,
-'          or plain) + Enter; at the budget type /exit, then kill after 90 s;
+'   watch  caffeinate -i (macOS); wait ≤10 m for the ready marker (default ❯),
+'          then for the pane to hold still 3 s (≤60 s); type the prompt file
+'          flattened to one line as `/goal …` (or /loop, or plain) + Enter;
+'          wait ≤30 s for the accepted marker, retype up to 3 tries;
+'          at the budget type /exit, then kill after 90 s;
 '          write <stamp>.json {outcome: ended|budget|not-ready|failed} and notify
 ' One session per job: a tick that finds the session still up skips it.
 ' `proveo schedule` (or `ls`) draws in ui.Printer's vocabulary, not a grid: a
@@ -40,6 +43,51 @@ skinparam noteTextAlignment left
 ' transcripts folder as a store line.
 ' covers: internal/schedule/table.go, internal/schedule/table_test.go
 ' Times are wall-clock in the job's tz, so DST keeps "sun 11:35" at 11:35.
+'
+' ── FAILURE + RETRY (2026-09-28) ───────────────────────────────────────────
+' failed ≡ outcome ∈ {failed, not-ready}. Three sources feed it:
+'   launch   tick's Launch errors → RecordLaunchFailure writes <stamp>.json
+'            {outcome: failed, detail: "launch: …"}; ErrRunning (session still
+'            up) is a skip, not a failure
+'   exit     the session runs `cd <wd> && <argv>; echo $? > <stamp>.exit` (no
+'            exec, so sh outlives the agent); an early end with status ≠ 0 is
+'            failed "the agent exited N before the budget", 0 stays ended
+'   watch    prompt unreadable, ready marker absent (not-ready), send-keys error
+' `proveo schedule` prints ✗ "<outcome>: <detail> — `proveo schedule retry <job>`"
+' under the job's ● line while the job is idle; a running job hides it.
+' On a TTY (stdin ∧ stdout) it then asks "retry <job> (<entry>)? [y/N]" per
+' failed job; tick and pipes never prompt.
+' `proveo schedule retry <job>` relaunches under the failed run's entry and
+' refuses a job that never ran or whose last run did not fail (→ `run`).
+' No auto-retry: a failed run waits for its next `at` or an operator.
+'
+' ── READY ≠ TAKING INPUT (2026-09-28, first real hermes run) ────────────────
+' hermes draws `❯ Find and fix a failing test` (its placeholder) while agent
+' init still blocks the TUI: the typed goal rendered with dropped characters
+' and Enter cleared it without a turn (agent.log: no turn, `ollama ps`: empty).
+' Hand-retyping the same line 4 min later started the goal. Two guards:
+'   settle    marker seen ∧ pane unchanged for settleQuiet
+'   accepted  job `accepted:` › defaultAccepted[target+" "+mode]
+'             ({"hermes goal": "Goal (active"}) › first 24 runes of the prompt
+'             (echoed by most TUIs as the user turn). Residual: a lost Enter
+'             leaves the text in the input box, which also matches.
+' The same run's first attempt also exposed WaitFor polling a dead pane for
+' 10 m: every wait now checks has-session and ends with
+' "the agent exited N before it was ready: <last 3 transcript lines>".
+'
+' ── ATTACH ─────────────────────────────────────────────────────────────────
+'   proveo schedule attach <job> [-r|--read-only]
+'   not running          error naming the job, before tmux prints its own
+'   plain terminal       tmux attach [-r] -t proveo-sched-<job>
+'   inside tmux          switch-client -t …  (tmux refuses a nested attach)
+'   inside tmux + -r     TMUX= tmux attach -r -t …  — a nested client, detach
+'                        with prefix prefix d. `switch-client -r` TOGGLES
+'                        read-only on the operator's own client, which then
+'                        stays read-only after switching back (tmux 3.7b man).
+' Sessions the launchd tick starts share the default socket
+' (/private/tmp/tmux-<uid>/default), so attach reaches them.
+' A writable attach sends keys to the agent; during the settle/type window
+' they interleave with the watcher's instruction.
 '
 ' ── `proveo run` FOR UNATTENDED USE ────────────────────────────────────────
 '   --yes           seed from the choice cache, never draw the form

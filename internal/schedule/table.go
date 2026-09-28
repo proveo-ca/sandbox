@@ -4,6 +4,7 @@ package schedule
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -14,6 +15,7 @@ type Row struct {
 	Next                                    time.Time
 	Job, Entry, Target, Model, Mode, Budget string
 	Status, Last                            string
+	Failed                                  *Result // the last run, when it failed and nothing runs now
 }
 
 // Rows lists every `at` entry of every job, soonest first.
@@ -34,9 +36,13 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 			status = "running"
 		}
 		lastRun := "never"
+		var failed *Result
 		if last != nil {
 			if r := last(name); r != nil {
 				lastRun = r.Started.In(loc).Format("Mon Jan 2 15:04") + " " + r.Outcome
+				if r.Failed() && status != "running" {
+					failed = r
+				}
 			}
 		}
 		for _, e := range j.At {
@@ -50,7 +56,7 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 			}
 			out = append(out, Row{
 				Next: next, Job: name, Entry: e, Target: target, Model: model,
-				Mode: j.ModeOrDefault(), Budget: compact(budget), Status: status, Last: lastRun,
+				Mode: j.ModeOrDefault(), Budget: compact(budget), Status: status, Last: lastRun, Failed: failed,
 			})
 		}
 	}
@@ -61,6 +67,31 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 		return out[i].Job < out[k].Job
 	})
 	return out
+}
+
+// FailedJobs names each job whose last run failed, with that run, in listing order.
+func FailedJobs(rows []Row) []Row {
+	var out []Row
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if r.Failed != nil && !seen[r.Job] {
+			seen[r.Job] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	return s
 }
 
 // compact renders a duration as 45m, 1h or 1h30m.
@@ -139,6 +170,9 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 		p.Section(job)
 		p.Asyncf("%s · %s · %s · %s budget · %s · last %s", head.Target, head.Model, head.Mode, head.Budget,
 			head.Status, head.Last)
+		if f := head.Failed; f != nil {
+			p.Failf("%s: %s — `proveo schedule retry %s`", f.Outcome, clip(firstLine(f.Detail), 160), job)
+		}
 		for _, r := range runs {
 			when := fmt.Sprintf("%-20s  %-10s  %s", r.Next.Format("Mon Jan 2 15:04 MST"), until(r.Next, now), r.Entry)
 			if r.Next.Equal(rows[0].Next) && r.Job == rows[0].Job {

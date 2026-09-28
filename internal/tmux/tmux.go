@@ -87,5 +87,11 @@ func (s *Session) WaitFor(substr string, timeout time.Duration) (string, error) 
 	}
 }
 
+// Alive reports whether the session still exists.
+func (s *Session) Alive() bool {
+	_, err := s.run("has-session", "-t", s.Name)
+	return err == nil
+}
+
 // Kill removes the session (best-effort; safe to call in cleanup).
 func (s *Session) Kill() { _, _ = s.run("kill-session", "-t", s.Name) }

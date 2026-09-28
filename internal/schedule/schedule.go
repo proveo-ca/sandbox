@@ -35,8 +35,9 @@ type Job struct {
 	CatchUp    string   `yaml:"catch_up,omitempty"`
 	Timezone   string   `yaml:"tz,omitempty"`
 	At         []string `yaml:"at"`
-	Ready      string   `yaml:"ready,omitempty"`   // pane text that means the agent takes input
-	Command    []string `yaml:"command,omitempty"` // argv run instead of `proveo run <target>`
+	Ready      string   `yaml:"ready,omitempty"`    // pane text that means the agent takes input
+	Accepted   string   `yaml:"accepted,omitempty"` // pane text that means the agent took the instruction
+	Command    []string `yaml:"command,omitempty"`  // argv run instead of `proveo run <target>`
 }
 
 // Config is the schedule file.

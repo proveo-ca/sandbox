@@ -2,6 +2,7 @@
 package schedule
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -146,12 +147,14 @@ func TestLaunchdPlistRunsTheTickEveryMinute(t *testing.T) {
 
 // fakeTmux scripts a pane: it shows the ready marker, records what is typed, and ends when told.
 type fakeTmux struct {
-	mu     sync.Mutex
-	pane   string
-	typed  []string
-	alive  bool
-	endOn  string
-	killed bool
+	mu      sync.Mutex
+	pane    string
+	typed   []string
+	alive   bool
+	endOn   string
+	killed  bool
+	swallow int  // typed lines dropped before one shows on the pane
+	echo    bool // a kept line shows as "RECEIVED: <line>"
 }
 
 func (f *fakeTmux) run(args ...string) (string, error) {
@@ -168,6 +171,11 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 	case "send-keys":
 		if args[3] == "-l" {
 			f.typed = append(f.typed, args[4])
+			if f.swallow > 0 {
+				f.swallow--
+			} else if f.echo {
+				f.pane += "\nRECEIVED: " + args[4]
+			}
 			if f.endOn != "" && strings.HasPrefix(args[4], f.endOn) {
 				f.alive = false
 			}
@@ -179,7 +187,17 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 	return "", nil
 }
 
+// fastWatch shrinks Watch's polling so a test runs in milliseconds.
+func fastWatch(t *testing.T) {
+	t.Helper()
+	p, q, m, a, b, e := pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll
+	pollEvery, settleQuiet, settleMax, acceptWait = time.Millisecond, 5*time.Millisecond, time.Second, 50*time.Millisecond
+	budgetPoll, exitPoll = time.Millisecond, time.Millisecond
+	t.Cleanup(func() { pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll = p, q, m, a, b, e })
+}
+
 func TestWatchTypesTheGoalOnceTheAgentIsReady(t *testing.T) {
+	fastWatch(t)
 	home := t.TempDir()
 	prompt := filepath.Join(home, "p.md")
 	if err := os.WriteFile(prompt, []byte("Set the best lineup.\nBench anyone Out."), 0o600); err != nil {
@@ -209,5 +227,105 @@ func TestCommandReplacesTheHarnessRun(t *testing.T) {
 	}
 	if err := (Job{Command: []string{"true"}, PromptFile: "p"}).validate(); err != nil {
 		t.Errorf("a command job needs no target: %v", err)
+	}
+}
+
+func TestWatchFailsARunThatExitsNonZero(t *testing.T) {
+	fastWatch(t)
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	transcript := filepath.Join(home, "20260927-113500.log")
+	if err := os.WriteFile(prompt, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ExitFile(transcript), []byte("3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "❯ ", alive: true, endOn: "/goal"}
+	res := Watch(home, "lineup", "sun 11:35", transcript, Job{Target: "hermes", PromptFile: prompt, Budget: "1m"}, f.run, nil)
+	if res.Outcome != "failed" || !strings.Contains(res.Detail, "exited 3") || !res.Failed() {
+		t.Errorf("outcome = %q (%s), want failed with the exit status", res.Outcome, res.Detail)
+	}
+}
+
+func TestWatchRetypesAnInstructionTheAgentSwallowed(t *testing.T) {
+	fastWatch(t)
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the best lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "❯ ", alive: true, swallow: 1, echo: true, endOn: "/exit"}
+	j := Job{Command: []string{"agent"}, PromptFile: prompt, Budget: "1ms"}
+	res := Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t.log"), j, f.run, nil)
+	if n := strings.Count(strings.Join(f.typed, "\n"), "/goal Set the best lineup."); n != 2 {
+		t.Errorf("typed the goal %d times, want 2 (the first was swallowed): %q", n, f.typed)
+	}
+	if res.Outcome != "budget" {
+		t.Errorf("outcome = %q (%s), want budget once the retype took", res.Outcome, res.Detail)
+	}
+
+	f = &fakeTmux{pane: "❯ ", alive: true, swallow: typeAttempts, echo: true}
+	res = Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t.log"), j, f.run, nil)
+	if res.Outcome != "failed" || !strings.Contains(res.Detail, "never showed") || !f.killed {
+		t.Errorf("outcome = %q (%s), killed %v; want failed after %d swallowed tries", res.Outcome, res.Detail, f.killed, typeAttempts)
+	}
+}
+
+func TestWatchFailsFastWhenTheAgentExitsBeforeReady(t *testing.T) {
+	fastWatch(t)
+	home := t.TempDir()
+	transcript := filepath.Join(home, "20260928-155014.log")
+	if err := os.WriteFile(transcript, []byte("\x1b[31m× local model m: needs ~21.0 GiB\x1b[0m\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ExitFile(transcript), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "starting", alive: false}
+	start := time.Now()
+	res := Watch(home, "lineup", "mon 18:50", transcript, Job{Target: "hermes", PromptFile: prompt}, f.run, nil)
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("Watch took %s; an ended session must not wait out readyWait", time.Since(start))
+	}
+	want := "the agent exited 1 before it was ready: × local model m: needs ~21.0 GiB"
+	if res.Outcome != "failed" || res.Detail != want {
+		t.Errorf("result = %q %q\nwant   failed %q", res.Outcome, res.Detail, want)
+	}
+}
+
+func TestAcceptedMarkerPrefersJobThenHarness(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		j    Job
+		want string
+	}{
+		{Job{Target: "hermes", Accepted: "OK>"}, "OK>"},
+		{Job{Target: "hermes"}, "Goal (active"},
+		{Job{Target: "hermes", Mode: "plain"}, "You manage the Yahoo Fan"},
+		{Job{Target: "claude"}, "You manage the Yahoo Fan"},
+	} {
+		if got := c.j.acceptedMarker("You manage the Yahoo\nFantasy team."); got != c.want {
+			t.Errorf("%+v: accepted = %q, want %q", c.j, got, c.want)
+		}
+	}
+}
+
+func TestLaunchFailureLeavesAFailedResult(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	RecordLaunchFailure(home, "lineup", "sun 11:35", errors.New("start tmux session: no server"))
+	last := LastResult(home, "lineup")
+	if last == nil || !last.Failed() || last.Entry != "sun 11:35" || !strings.Contains(last.Detail, "no server") {
+		t.Errorf("last = %+v, want a failed result naming the launch error", last)
+	}
+	for outcome, failed := range map[string]bool{"failed": true, "not-ready": true, "ended": false, "budget": false} {
+		if (Result{Outcome: outcome}).Failed() != failed {
+			t.Errorf("Result{%s}.Failed() != %v", outcome, failed)
+		}
 	}
 }

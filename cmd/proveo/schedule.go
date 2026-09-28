@@ -2,7 +2,10 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/schedule"
@@ -42,7 +46,7 @@ func scheduleCmd() *cobra.Command {
 		Short: "Run harnesses unattended at set times (a minutely tick started by launchd/systemd)",
 		RunE:  func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
-	cmd.AddCommand(scheduleLsCmd(), scheduleTickCmd(), scheduleRunCmd(), scheduleWatchCmd(),
+	cmd.AddCommand(scheduleLsCmd(), scheduleTickCmd(), scheduleRunCmd(), scheduleRetryCmd(), scheduleWatchCmd(),
 		scheduleAttachCmd(), scheduleInstallCmd(), scheduleUninstallCmd())
 	return cmd
 }
@@ -80,7 +84,47 @@ func scheduleTable(cmd *cobra.Command) error {
 	}
 	last := func(job string) *schedule.Result { return schedule.LastResult(home, job) }
 	logDir := func(job string) string { return tildeHome(schedule.LogDir(home, job)) }
-	schedule.Render(ui.New(cmd.OutOrStdout()), schedule.Rows(c, now, running, last), now, schedule.TickStatus(), logDir)
+	rows := schedule.Rows(c, now, running, last)
+	schedule.Render(ui.New(cmd.OutOrStdout()), rows, now, schedule.TickStatus(), logDir)
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return nil
+	}
+	return offerRetries(schedule.FailedJobs(rows), cmd.InOrStdin(), cmd.OutOrStdout(), func(job string) error {
+		return retryJob(home, c, job)
+	})
+}
+
+// offerRetries asks once per failed job and relaunches each yes.
+func offerRetries(failed []schedule.Row, in io.Reader, out io.Writer, retry func(job string) error) error {
+	r := bufio.NewReader(in)
+	for _, f := range failed {
+		if !promptYesNo(fmt.Sprintf("retry %s (%s)?", f.Job, f.Failed.Entry), false, r, out) {
+			continue
+		}
+		if err := retry(f.Job); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retryJob relaunches a job whose last run failed, under that run's entry.
+func retryJob(home string, c schedule.Config, name string) error {
+	j, err := jobNamed(c, name)
+	if err != nil {
+		return err
+	}
+	last := schedule.LastResult(home, name)
+	switch {
+	case last == nil:
+		return fmt.Errorf("%s has not run yet — `proveo schedule run %s` starts it now", name, name)
+	case !last.Failed():
+		return fmt.Errorf("%s's last run %s, not failed — `proveo schedule run %s` starts it again", name, last.Outcome, name)
+	}
+	if err := schedule.Launch(home, proveoExe(), name, last.Entry, j, nil); err != nil {
+		return err
+	}
+	ui.Appf("retrying %s (%s) — `proveo schedule attach %s` to watch", name, last.Entry, name)
 	return nil
 }
 
@@ -116,6 +160,9 @@ func scheduleTickCmd() *cobra.Command {
 					return err
 				}
 				if err := schedule.Launch(home, proveoExe(), d.Job, d.Entry, c.Jobs[d.Job], nil); err != nil {
+					if !errors.Is(err, schedule.ErrRunning) {
+						schedule.RecordLaunchFailure(home, d.Job, d.Entry, err)
+					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "%s tick: %s (%s): %v\n", now.Format(time.RFC3339), d.Job, d.Entry, err)
 					continue
 				}
@@ -150,6 +197,21 @@ func scheduleRunCmd() *cobra.Command {
 	}
 }
 
+func scheduleRetryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retry <job>",
+		Short: "Start a job again when its last run failed (failed or not-ready)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			home, c, err := loadSchedule()
+			if err != nil {
+				return err
+			}
+			return retryJob(home, c, args[0])
+		},
+	}
+}
+
 func scheduleWatchCmd() *cobra.Command {
 	var entry, transcript string
 	cmd := &cobra.Command{
@@ -176,16 +238,39 @@ func scheduleWatchCmd() *cobra.Command {
 }
 
 func scheduleAttachCmd() *cobra.Command {
-	return &cobra.Command{
+	var readOnly bool
+	cmd := &cobra.Command{
 		Use:   "attach <job>",
 		Short: "Watch a running job's terminal (detach with the tmux prefix, then d)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			c := exec.Command("tmux", "attach", "-t", schedule.SessionName(args[0]))
+			sess := schedule.SessionName(args[0])
+			if exec.Command("tmux", "has-session", "-t", sess).Run() != nil {
+				return fmt.Errorf("%s is not running (no tmux session %s) — `proveo schedule` shows its last run", args[0], sess)
+			}
+			args, nested := attachArgs(sess, readOnly, os.Getenv("TMUX") != "")
+			c := exec.Command("tmux", args...)
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			if nested {
+				c.Env = append(os.Environ(), "TMUX=")
+				ui.Notef("read-only inside tmux nests a client: press the prefix twice, then d, to detach")
+			}
 			return c.Run()
 		},
 	}
+	cmd.Flags().BoolVarP(&readOnly, "read-only", "r", false, "watch without sending keys to the agent")
+	return cmd
+}
+
+// attachArgs is the tmux argv for attach; nested means run it with TMUX unset.
+func attachArgs(sess string, readOnly, inTmux bool) (args []string, nested bool) {
+	switch {
+	case readOnly:
+		return []string{"attach", "-r", "-t", sess}, inTmux
+	case inTmux:
+		return []string{"switch-client", "-t", sess}, false
+	}
+	return []string{"attach", "-t", sess}, false
 }
 
 func scheduleInstallCmd() *cobra.Command {

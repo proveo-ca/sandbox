@@ -3,15 +3,18 @@ package schedule
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -19,7 +22,22 @@ const (
 	DefaultReady = "❯"
 	readyWait    = 10 * time.Minute
 	exitGrace    = 90 * time.Second
+	typeAttempts = 3
 )
+
+var (
+	pollEvery   = 500 * time.Millisecond
+	settleQuiet = 3 * time.Second
+	settleMax   = time.Minute
+	acceptWait  = 30 * time.Second
+	budgetPoll  = 15 * time.Second
+	exitPoll    = 5 * time.Second
+)
+
+// defaultAccepted is the pane text a harness shows once it took an instruction, by target and mode.
+var defaultAccepted = map[string]string{"hermes goal": "Goal (active"}
+
+var errGone = errors.New("session ended")
 
 // SessionName is the tmux session a job runs in; one per job at a time.
 func SessionName(job string) string { return "proveo-sched-" + safe(job) }
@@ -65,6 +83,83 @@ func (j Job) readyMarker() string {
 	return DefaultReady
 }
 
+// acceptedMarker is the pane text that proves the agent took the instruction: the job's, the
+// harness's, else the prompt's opening words.
+func (j Job) acceptedMarker(prompt string) string {
+	if j.Accepted != "" {
+		return j.Accepted
+	}
+	if m, ok := defaultAccepted[j.Target+" "+j.ModeOrDefault()]; ok && len(j.Command) == 0 {
+		return m
+	}
+	r := []rune(strings.Join(strings.Fields(prompt), " "))
+	return string(r[:min(24, len(r))])
+}
+
+// awaitText polls the pane for text; errGone when the session ends first.
+func awaitText(sess *tmux.Session, text string, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !sess.Alive() {
+			return false, errGone
+		}
+		if pane, err := sess.Capture(); err == nil && strings.Contains(pane, text) {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		time.Sleep(pollEvery)
+	}
+}
+
+// awaitReady waits for the ready marker, then for the pane to hold still for settleQuiet.
+func awaitReady(sess *tmux.Session, marker string, timeout time.Duration) (string, error) {
+	seen, err := awaitText(sess, marker, timeout)
+	if err != nil {
+		return "", err
+	}
+	pane, _ := sess.Capture()
+	if !seen {
+		return pane, fmt.Errorf("no %q within %s", marker, timeout)
+	}
+	quiet, end := time.Now(), time.Now().Add(settleMax)
+	for time.Since(quiet) < settleQuiet && time.Now().Before(end) {
+		time.Sleep(pollEvery)
+		if !sess.Alive() {
+			return pane, errGone
+		}
+		if cur, err := sess.Capture(); err == nil && cur != pane {
+			pane, quiet = cur, time.Now()
+		}
+	}
+	return pane, nil
+}
+
+// endedEarly is ended when the agent exited 0 (or unknown) after taking its instruction, else failed.
+func endedEarly(finish func(outcome, detail string) Result, transcript string) Result {
+	if code, ok := exitStatus(transcript); ok && code != 0 {
+		return finish("failed", exitedDetail(transcript, "before the budget"))
+	}
+	return finish("ended", "the agent exited before the budget")
+}
+
+// exitedDetail names the agent's exit status and the transcript's last lines.
+func exitedDetail(transcript, when string) string {
+	d := "the agent exited " + when
+	if code, ok := exitStatus(transcript); ok {
+		d = fmt.Sprintf("the agent exited %d %s", code, when)
+	}
+	if b, err := os.ReadFile(transcript); err == nil {
+		t := agentio.NewTail(3)
+		_, _ = t.Write(b)
+		if lines := t.Lines(); len(lines) > 0 {
+			d += ": " + strings.Join(lines, " | ")
+		}
+	}
+	return d
+}
+
 // Result is what one run leaves behind.
 type Result struct {
 	Job        string    `json:"job"`
@@ -74,6 +169,29 @@ type Result struct {
 	Outcome    string    `json:"outcome"` // ended | budget | not-ready | failed
 	Detail     string    `json:"detail,omitempty"`
 	Transcript string    `json:"transcript"`
+}
+
+// Failed reports whether the run needs a retry.
+func (r Result) Failed() bool { return r.Outcome == "failed" || r.Outcome == "not-ready" }
+
+// ExitFile holds the launched command's exit status, next to its transcript.
+func ExitFile(transcript string) string { return strings.TrimSuffix(transcript, ".log") + ".exit" }
+
+func exitStatus(transcript string) (int, bool) {
+	b, err := os.ReadFile(ExitFile(transcript))
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n, err == nil
+}
+
+// RecordLaunchFailure leaves a failed result for a run that never started.
+func RecordLaunchFailure(home, name, entry string, err error) Result {
+	now := time.Now()
+	r := Result{Job: name, Entry: entry, Started: now, Finished: now, Outcome: "failed", Detail: "launch: " + err.Error()}
+	writeResult(home, name, r)
+	return r
 }
 
 func tmuxRun(args ...string) (string, error) {
@@ -88,12 +206,15 @@ func orTmux(run tmux.Runner) tmux.Runner {
 	return run
 }
 
+// ErrRunning means the job's previous run still holds its tmux session.
+var ErrRunning = errors.New("still running")
+
 // Launch starts the job's tmux session and a detached watcher; it returns once both run.
 func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	run = orTmux(run)
 	sess := tmux.New(SessionName(name), run)
-	if _, err := run("has-session", "-t", sess.Name); err == nil {
-		return fmt.Errorf("%s is still running (tmux session %s)", name, sess.Name)
+	if sess.Alive() {
+		return fmt.Errorf("%s: %w (tmux session %s)", name, ErrRunning, sess.Name)
 	}
 	dir := LogDir(home, name)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -108,7 +229,7 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	if err := os.MkdirAll(wd, 0o700); err != nil {
 		return err
 	}
-	cmd := "cd " + shellQuote(wd) + " && exec " + shellJoin(j.RunArgv(proveo))
+	cmd := "cd " + shellQuote(wd) + " && " + shellJoin(j.RunArgv(proveo)) + "; echo $? > " + shellQuote(ExitFile(transcript))
 	if err := sess.Start(200, 50, "sh", "-c", cmd); err != nil {
 		return fmt.Errorf("start tmux session: %w", err)
 	}
@@ -148,35 +269,52 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 		sess.Kill()
 		return finish("failed", "prompt: "+err.Error())
 	}
-	if _, err := sess.WaitFor(j.readyMarker(), readyWait); err != nil {
-		pane, _ := sess.Capture()
-		sess.Kill()
-		return finish("not-ready", fmt.Sprintf("no %q within %s; pane tail: %s", j.readyMarker(), readyWait, tail(pane, 300)))
-	}
-	if err := sess.SendText(j.Instruction(string(prompt))); err != nil {
-		sess.Kill()
-		return finish("failed", "type instruction: "+err.Error())
-	}
-	if err := sess.Enter(); err != nil {
-		sess.Kill()
-		return finish("failed", "submit instruction: "+err.Error())
+	instruction := j.Instruction(string(prompt))
+	for attempt := 1; ; attempt++ {
+		pane, err := awaitReady(sess, j.readyMarker(), readyWait)
+		if errors.Is(err, errGone) {
+			return finish("failed", exitedDetail(transcript, "before it was ready"))
+		}
+		if err != nil {
+			sess.Kill()
+			return finish("not-ready", fmt.Sprintf("no %q within %s; pane tail: %s", j.readyMarker(), readyWait, tail(pane, 300)))
+		}
+		if err := sess.SendText(instruction); err != nil {
+			sess.Kill()
+			return finish("failed", "type instruction: "+err.Error())
+		}
+		if err := sess.Enter(); err != nil {
+			sess.Kill()
+			return finish("failed", "submit instruction: "+err.Error())
+		}
+		took, err := awaitText(sess, j.acceptedMarker(string(prompt)), acceptWait)
+		if errors.Is(err, errGone) {
+			return endedEarly(finish, transcript)
+		}
+		if took {
+			break
+		}
+		if attempt == typeAttempts {
+			sess.Kill()
+			return finish("failed", fmt.Sprintf("the agent never showed %q after %d tries", j.acceptedMarker(string(prompt)), typeAttempts))
+		}
 	}
 	budget, _ := j.BudgetDuration()
 	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
-		if _, err := run("has-session", "-t", sess.Name); err != nil {
-			return finish("ended", "the agent exited before the budget")
+		if !sess.Alive() {
+			return endedEarly(finish, transcript)
 		}
-		time.Sleep(15 * time.Second)
+		time.Sleep(budgetPoll)
 	}
 	_ = sess.SendText("/exit")
 	_ = sess.Enter()
 	end := time.Now().Add(exitGrace)
 	for time.Now().Before(end) {
-		if _, err := run("has-session", "-t", sess.Name); err != nil {
+		if !sess.Alive() {
 			return finish("budget", fmt.Sprintf("stopped at %s with /exit", budget))
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(exitPoll)
 	}
 	sess.Kill()
 	return finish("budget", fmt.Sprintf("stopped at %s; /exit did not end it within %s, session killed", budget, exitGrace))
