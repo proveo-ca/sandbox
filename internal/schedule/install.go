@@ -143,3 +143,29 @@ func Uninstall(report func(string, ...any)) error {
 	}
 	return nil
 }
+
+// TickStatus says whether the minutely tick is registered with the host's service manager.
+func TickStatus() Tick {
+	switch runtime.GOOS {
+	case "darwin":
+		out, err := exec.Command("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), LaunchdLabel)).CombinedOutput()
+		if err != nil {
+			return Tick{Detail: "`proveo schedule install` registers it with launchd"}
+		}
+		exit := "never exited"
+		for _, l := range strings.Split(string(out), "\n") {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(l), "last exit code = "); ok {
+				exit = "last exit " + v
+				break
+			}
+		}
+		return Tick{Installed: true, Detail: "launchd " + LaunchdLabel + " · every 60s · " + exit}
+	case "linux":
+		out, _ := exec.Command("systemctl", "--user", "is-active", systemdUnit+".timer").Output()
+		if strings.TrimSpace(string(out)) == "active" {
+			return Tick{Installed: true, Detail: "systemd --user " + systemdUnit + ".timer · every minute"}
+		}
+		return Tick{Detail: "`proveo schedule install` registers it with systemd --user"}
+	}
+	return Tick{Detail: "no service manager on " + runtime.GOOS + " — run `proveo schedule tick` every minute yourself"}
+}

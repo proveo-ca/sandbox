@@ -128,8 +128,15 @@ func doList() error {
 	if err != nil {
 		return err
 	}
-	for _, name := range sortedKeys(targets) {
-		fmt.Printf("%-16s %s\n", name, targets[name])
+	p := ui.New(os.Stdout)
+	p.Section(ui.SectionTargets)
+	names := sortedKeys(targets)
+	width := 0
+	for _, n := range names {
+		width = max(width, len(n))
+	}
+	for _, name := range names {
+		p.Appf("%-*s  %s", width, name, targets[name])
 	}
 	return nil
 }
@@ -237,8 +244,10 @@ func projectsCmd() *cobra.Command {
 				ui.Notef("no monorepo sub-projects found (not a monorepo, or no workspace members)")
 				return nil
 			}
+			out := ui.New(os.Stdout)
+			out.Section(ui.SectionProjects)
 			for _, p := range projs {
-				fmt.Printf("%-34s %s\n", p.Path, p.Tool)
+				out.Storef("%-34s %s", p.Path, p.Tool)
 			}
 			return nil
 		},
@@ -285,7 +294,11 @@ func doSetup(printOnly bool) error {
 		return nil
 	}
 	if printOnly {
-		fmt.Printf("would append to %s:\n%s", rc, sh.Block(binDir))
+		ui.Section(ui.SectionSetup)
+		ui.Storef("would append to %s:", rc)
+		for _, l := range strings.Split(strings.TrimRight(sh.Block(binDir), "\n"), "\n") {
+			ui.Notef("  %s", l)
+		}
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
@@ -335,12 +348,14 @@ func fuzzyPickProject(projs []workspace.Project) string {
 }
 
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {
-	fmt.Fprintln(out, "Monorepo detected — choose a scope:")
-	fmt.Fprintln(out, "   0) <repo root>")
+	pr := ui.New(out)
+	pr.Section(ui.SectionScope)
+	pr.Hostf("monorepo detected — choose a scope:")
+	pr.Notef("   0) <repo root>")
 	for i, p := range projs {
-		fmt.Fprintf(out, "  %2d) %s\n", i+1, p.Path)
+		pr.Notef("  %2d) %s", i+1, p.Path)
 	}
-	fmt.Fprint(out, "scope [0]: ")
+	pr.Askf("scope [0]:")
 	s, _ := bufio.NewReader(in).ReadString('\n')
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 1 || n > len(projs) {

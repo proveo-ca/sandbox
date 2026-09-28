@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const (
@@ -86,7 +88,7 @@ func sameRepo(models []ollamaModel, want string) []string {
 }
 
 // EnsureHostOllama checks the host Ollama serves model, pulling it when missing, and that loading it fits in memory.
-func EnsureHostOllama(model string, getenv func(string) string, progress io.Writer) error {
+func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) error {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
 		return fmt.Errorf("no Ollama answers on 127.0.0.1:11434 (%v) — local models on sbx run on the host's Ollama: "+
@@ -101,16 +103,18 @@ func EnsureHostOllama(model string, getenv func(string) string, progress io.Writ
 		if off(getenv(EnvLocalModelPull)) {
 			return fmt.Errorf("the host's Ollama has no %q — `ollama pull %s`%s", model, model, hint)
 		}
-		if progress == nil {
-			progress = io.Discard
+		if p == nil {
+			p = ui.New(io.Discard)
 		}
 		if size, known := registrySize(model); known {
-			_, _ = fmt.Fprintf(progress, "  %s is not in the host's Ollama — pulling %.1f GiB\n", model, gib(size))
+			p.Asyncf("%s is not in the host's Ollama — pulling %.1f GiB", model, gib(size))
 			if err := checkFit(ollamaModel{Name: model, Size: size}, getenv); err != nil {
-				_, _ = fmt.Fprintf(progress, "  ⚠ it would not fit in memory right now (%v); pulling anyway, the load check below decides\n", err)
+				p.Warnf("it would not fit in memory right now (%v); pulling anyway, the load check below decides", err)
 			}
+		} else {
+			p.Asyncf("%s is not in the host's Ollama — pulling", model)
 		}
-		if err := pullOllama(model, progress); err != nil {
+		if err := pullOllama(model, p); err != nil {
 			return fmt.Errorf("pull %s into the host's Ollama: %w%s", model, err, hint)
 		}
 		if tags, err = listOllama("/api/tags"); err != nil {
@@ -189,8 +193,8 @@ func registrySize(model string) (uint64, bool) {
 	return total, total > 0
 }
 
-// pullOllama streams the host Ollama's /api/pull, printing progress to w.
-func pullOllama(model string, w io.Writer) error {
+// pullOllama streams the host Ollama's /api/pull; a TTY gets a live progress line, anything else the start and end.
+func pullOllama(model string, p *ui.Printer) error {
 	body, _ := json.Marshal(map[string]any{"model": model, "stream": true})
 	resp, err := http.Post(hostOllamaURL+"/api/pull", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -200,10 +204,8 @@ func pullOllama(model string, w io.Writer) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	if w == nil {
-		w = io.Discard
-	}
 	var last time.Time
+	drawn := false
 	dec := json.NewDecoder(resp.Body)
 	for {
 		var ev struct {
@@ -219,14 +221,19 @@ func pullOllama(model string, w io.Writer) error {
 		}
 		switch {
 		case ev.Error != "":
-			_, _ = fmt.Fprintln(w)
+			if drawn {
+				_, _ = fmt.Fprintln(p.W)
+			}
 			return errors.New(ev.Error)
-		case ev.Total > 0 && time.Since(last) > time.Second:
-			last = time.Now()
-			_, _ = fmt.Fprintf(w, "\r  pulling %s: %5.1f%% of %.1f GiB", model,
+		case ev.Total > 0 && !p.Plain && time.Since(last) > time.Second:
+			last, drawn = time.Now(), true
+			_, _ = fmt.Fprintf(p.W, "\r%s● %s  pulling %s: %5.1f%% of %.1f GiB", ui.ANSI(ui.ColorAsync), ui.ANSIReset, model,
 				100*float64(ev.Completed)/float64(ev.Total), gib(ev.Total))
 		case ev.Status == "success":
-			_, _ = fmt.Fprintf(w, "\r  pulled %s%s\n", model, strings.Repeat(" ", 24))
+			if drawn {
+				_, _ = fmt.Fprint(p.W, "\r\033[K")
+			}
+			p.Okf("pulled %s", model)
 		}
 	}
 	return nil

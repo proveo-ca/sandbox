@@ -175,6 +175,11 @@ const (
 	SectionStarting    = "starting"    // live: handing the image over, retries
 	SectionSecrets     = "secrets"     // live: injection, and the store's prompt
 	SectionResults     = "results"     // after the agent: clones, transcripts
+	SectionTargets     = "targets"     // `proveo ls`: the harness images
+	SectionProjects    = "projects"    // `proveo projects`: monorepo members
+	SectionSetup       = "setup"       // `proveo setup`: the PATH change
+	SectionUninstall   = "uninstall"   // `proveo uninstall`: what is removed
+	SectionSchedule    = "schedule"    // `proveo schedule`: the tick, then one section per job
 )
 
 const sectionRules = 6
@@ -324,6 +329,26 @@ func (p *Printer) Failf(format string, a ...any) { p.line(RoleNone, sevFail, for
 // it follows.
 func (p *Printer) Notef(format string, a ...any) { p.line(RoleNone, sevNone, format, a...) }
 
+// Askf writes a question that waits for input on the same line ("› ", ascii "> ", plain none).
+func (p *Printer) Askf(format string, a ...any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.flushSection()
+	body := fmt.Sprintf(format, a...)
+	if p.Plain {
+		fmt.Fprint(p.W, body+" ")
+		return
+	}
+	prefix := "› "
+	switch p.Tier {
+	case GlyphsASCII:
+		prefix = "> "
+	case GlyphsOff:
+		prefix = strings.Repeat(" ", textCol)
+	}
+	fmt.Fprint(p.W, ANSI(ColorBrand)+prefix+ANSIReset+ANSIBold+body+ANSIReset+" ")
+}
+
 // Rolef writes a line in an explicitly chosen role, for the few callers that
 // decide a role from data rather than at the call site.
 func (p *Printer) Rolef(r Role, format string, a ...any) { p.line(r, sevNone, format, a...) }
@@ -355,6 +380,8 @@ func Warnf(format string, a ...any) { Default.Warnf(format, a...) }
 func Failf(format string, a ...any) { Default.Failf(format, a...) }
 
 func Notef(format string, a ...any) { Default.Notef(format, a...) }
+
+func Askf(format string, a ...any) { Default.Askf(format, a...) }
 
 func Rolef(r Role, format string, a ...any) { Default.Rolef(r, format, a...) }
 

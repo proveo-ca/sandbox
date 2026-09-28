@@ -47,7 +47,9 @@ func doUninstall(yes bool) error {
 	}
 	root := installRoot()
 	if !yes && agentio.IsStdinTTY() {
-		fmt.Fprintf(os.Stderr, "This will remove proveo from %s. Continue? [y/N] ", root)
+		ui.Section(ui.SectionUninstall)
+		ui.Dangerf("this removes proveo from %s", root)
+		ui.Askf("continue? [y/N]")
 		s, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		switch strings.ToLower(strings.TrimSpace(s)) {
 		case "y", "yes":

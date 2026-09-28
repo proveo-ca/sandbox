@@ -7,8 +7,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/run"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func TestPromptEnv(t *testing.T) {
@@ -112,5 +114,37 @@ func TestWizardEnabled(t *testing.T) {
 				t.Errorf("wizardEnabled() with PROVEO_WIZARD=%q = %v, want %v", tc.val, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNumberedPickersUseTheStatusVocabulary(t *testing.T) {
+	var out strings.Builder
+	got, err := pickTargetsNumbered([]maintain.Target{{Name: "hermes"}, {Name: "cecli"}}, "build", strings.NewReader("1\n"), &out)
+	if err != nil || len(got) != 1 || got[0].Name != "hermes" {
+		t.Fatalf("pick = %v, %v", got, err)
+	}
+	for _, want := range []string{"build", "select a target to build:", "   0) all", "   1) hermes", "target [0]: "} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("target picker missing %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if p := pickProjectNumbered([]workspace.Project{{Path: "apps/web"}}, strings.NewReader("1\n"), &out); p != "apps/web" {
+		t.Fatalf("scope = %q", p)
+	}
+	for _, want := range []string{"scope", "monorepo detected — choose a scope:", "   0) <repo root>", "   1) apps/web", "scope [0]: "} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("scope picker missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestAskfWaitsOnTheSameLine(t *testing.T) {
+	var out strings.Builder
+	if got := promptYesNo("build hermes?", true, strings.NewReader("\n"), &out); !got {
+		t.Error("empty answer takes the default")
+	}
+	if s := out.String(); s != "build hermes? [Y/n] " {
+		t.Errorf("plain prompt = %q, want the question and a trailing space, no newline", s)
 	}
 }

@@ -40,6 +40,7 @@ func scheduleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Run harnesses unattended at set times (a minutely tick started by launchd/systemd)",
+		RunE:  func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
 	cmd.AddCommand(scheduleLsCmd(), scheduleTickCmd(), scheduleRunCmd(), scheduleWatchCmd(),
 		scheduleAttachCmd(), scheduleInstallCmd(), scheduleUninstallCmd())
@@ -68,39 +69,33 @@ func jobNamed(c schedule.Config, name string) (schedule.Job, error) {
 	return j, nil
 }
 
+func scheduleTable(cmd *cobra.Command) error {
+	home, c, err := loadSchedule()
+	if err != nil {
+		return err
+	}
+	now := scheduleNow()
+	running := func(job string) bool {
+		return exec.Command("tmux", "has-session", "-t", schedule.SessionName(job)).Run() == nil
+	}
+	last := func(job string) *schedule.Result { return schedule.LastResult(home, job) }
+	logDir := func(job string) string { return tildeHome(schedule.LogDir(home, job)) }
+	schedule.Render(ui.New(cmd.OutOrStdout()), schedule.Rows(c, now, running, last), now, schedule.TickStatus(), logDir)
+	return nil
+}
+
+func tildeHome(p string) string {
+	if h, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, h+string(os.PathSeparator)) {
+		return "~" + p[len(h):]
+	}
+	return p
+}
+
 func scheduleLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
-		Short: "List jobs, their next run and their last result",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			home, c, err := loadSchedule()
-			if err != nil {
-				return err
-			}
-			now := scheduleNow()
-			names := make([]string, 0, len(c.Jobs))
-			for n := range c.Jobs {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			for _, n := range names {
-				j := c.Jobs[n]
-				loc, _ := j.Location()
-				var next time.Time
-				for _, e := range j.At {
-					if t, err := schedule.NextOccurrence(e, now, loc); err == nil && (next.IsZero() || t.Before(next)) {
-						next = t
-					}
-				}
-				last := "never"
-				if r := schedule.LastResult(home, n); r != nil {
-					last = r.Started.In(loc).Format("Mon 15:04") + " " + r.Outcome
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-16s %-8s %-5s next %-22s last %s\n", n, j.Target, j.ModeOrDefault(),
-					next.Format("Mon Jan 2 15:04 MST"), last)
-			}
-			return nil
-		},
+		Short: "Show every scheduled run, by job, soonest first: next time, target, model, mode, budget, status, last result",
+		RunE:  func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
 }
 

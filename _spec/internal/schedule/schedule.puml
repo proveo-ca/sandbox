@@ -33,6 +33,12 @@ skinparam noteTextAlignment left
 '          or plain) + Enter; at the budget type /exit, then kill after 90 s;
 '          write <stamp>.json {outcome: ended|budget|not-ready|failed} and notify
 ' One session per job: a tick that finds the session still up skips it.
+' `proveo schedule` (or `ls`) draws in ui.Printer's vocabulary, not a grid: a
+' `schedule` section with ✓/⚠ for the tick, then one section per job (soonest
+' first) — a scheduler-role ● line (target · model · mode · budget · status ·
+' last), its runs beneath, the next one in bold brand cyan with ▸, and the
+' transcripts folder as a store line.
+' covers: internal/schedule/table.go, internal/schedule/table_test.go
 ' Times are wall-clock in the job's tz, so DST keeps "sun 11:35" at 11:35.
 '
 ' ── `proveo run` FOR UNATTENDED USE ────────────────────────────────────────

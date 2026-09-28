@@ -24,6 +24,18 @@
 ' choiceui and WriteBrandBanner, while the stream that carries most of what an
 ' operator reads printed monochrome.
 '
+' ── EVERY OPERATOR-FACING LINE GOES THROUGH THE PRINTER (2026-09-27) ──────
+' Swept cmd/proveo and internal for raw fmt.Print*: `ls`, `projects`,
+' `setup --print`, the numbered target/scope pickers, the y/N and field prompts
+' (init wizard, uninstall) and the Ollama pull now speak the Printer's verbs
+' under a Section. Askf is the one new verb: a question that waits for input
+' on the SAME line — "› " brand + bold text (ascii "> "), plain the bare text.
+' A pull's live progress line only redraws on a TTY; plain gets start + end.
+' DELIBERATELY PLAIN, because something copies or parses them: `version`
+' (compared against HEAD), the hidden `targets` (tab-separated), `run --print`
+' and `build --print` plans (copy-pasteable commands), the schedule tick's
+' launchd log, transcripts/traces, and in-container markers (PROVEO_SMOKE_READY).
+'
 ' ── THE VERB SET IS NOW TWO AXES, NOT ONE LIST ─────────────────────────────
 ' Severity — is this fine, worth attention, or broken — and role — which layer
 ' is speaking. They are independent, so they are not one enumeration: Okf and
@@ -35,12 +47,13 @@
 ' line under a preceding verb, and it now indents to that verb's TEXT column
 ' instead of to zero, so a warning's detail reads as part of the warning.
 
-title Output vocabulary — six roles, three severities, ten sections, one measured writer
+title Output vocabulary — six roles, three severities, fifteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
 component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
+component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
 component "Section(ui.Section*)\nten closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
