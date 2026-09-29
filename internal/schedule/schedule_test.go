@@ -209,7 +209,9 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 // fastWatch shrinks Watch's polling so a test runs in milliseconds.
 func fastWatch(t *testing.T) {
 	t.Helper()
-	p, q, m, a, b, e := pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll
+	p, q, m, a, b, e, sw := pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll, submitWait
+	submitWait = 20 * time.Millisecond
+	t.Cleanup(func() { submitWait = sw })
 	i, g, tg := interruptWait, exitGrace, termGrace
 	pollEvery, settleQuiet, settleMax, acceptWait = time.Millisecond, 5*time.Millisecond, time.Second, 50*time.Millisecond
 	budgetPoll, exitPoll, interruptWait, exitGrace, termGrace = time.Millisecond, time.Millisecond, time.Millisecond, 50*time.Millisecond, 5*time.Second
@@ -487,5 +489,43 @@ func TestWatchStopsEarlyOnceTheReportIsWritten(t *testing.T) {
 	}
 	if !strings.Contains(res.Detail, "stopped early with /exit") || time.Since(start) > 10*time.Second {
 		t.Errorf("detail %q after %s: a written report must end the run long before its 1h budget", res.Detail, time.Since(start))
+	}
+}
+
+func TestWatchPressesEnterAgainWhenASlashMenuTookTheFirst(t *testing.T) {
+	fastWatch(t)
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "❯ ", alive: true}
+	f.gone = func() bool {
+		if strings.Count(strings.Join(f.keys, " "), "Enter") >= 2 && !strings.Contains(f.pane, "Goal (active") {
+			f.pane += "\n⊙ Goal (active, 0/20 turns): Set the lineup."
+		}
+		return false
+	}
+	j := Job{Target: "hermes", PromptFile: prompt, Budget: "1ms"}
+	res := Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t.log"), j, f.run, nil)
+	if n := len(f.typed); n == 0 || f.typed[0] != "/goal Set the lineup." || strings.Count(strings.Join(f.typed, "|"), "/goal") != 1 {
+		t.Errorf("typed %q: the goal must be typed once and submitted by a second Enter, not retyped", f.typed)
+	}
+	if res.Outcome != "budget" {
+		t.Errorf("outcome = %q (%s)", res.Outcome, res.Detail)
+	}
+}
+
+func TestRewatchNeverTypes(t *testing.T) {
+	fastWatch(t)
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "busy", alive: true, endOn: "/exit"}
+	res := Rewatch(home, "lineup", "manual", filepath.Join(home, "t.log"), Job{Target: "hermes", PromptFile: prompt, Budget: "1ms"}, f.run, nil)
+	if len(f.typed) != 1 || f.typed[0] != "/exit" || res.Outcome != "budget" {
+		t.Errorf("typed %q, outcome %q: a rewatch only stops the run", f.typed, res.Outcome)
 	}
 }

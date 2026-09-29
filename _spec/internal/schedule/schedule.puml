@@ -102,6 +102,13 @@ skinparam noteTextAlignment left
 ' Edits to schedule.yml and prompt files take effect on the next tick / run:
 ' tick and watch reload both each time; `install` only registers the tick.
 '
+' SUBMIT: typing "/goal …" opens hermes's slash-command menu, which can take
+' the ⏎ as "accept completion" (rehearsal 2: the goal sat typed-but-unsent
+' for 4 min, the ❯ marker vanished and attempt 3 waited on it). After ⏎
+' the watcher waits submitWait (5 s) for the accepted marker and presses ⏎
+' once more before it would ever retype. `schedule watch --typed` (Rewatch)
+' takes over a run whose instruction is already in: report or budget only.
+
 ' ── BUDGET STOP (2026-09-28) ───────────────────────────────────────────────
 ' The first real run typed /exit into a BUSY hermes (no effect), was killed at
 ' +90 s, and the kill orphaned its sandbox: SIGHUP took proveo down before its

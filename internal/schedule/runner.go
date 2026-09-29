@@ -29,6 +29,7 @@ var (
 	settleQuiet   = 3 * time.Second
 	settleMax     = time.Minute
 	acceptWait    = 30 * time.Second
+	submitWait    = 5 * time.Second
 	budgetPoll    = 15 * time.Second
 	exitPoll      = 5 * time.Second
 	interruptWait = 5 * time.Second
@@ -300,9 +301,20 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 
 // Watch types the instruction once the agent is ready, then ends the session at the budget.
 func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string)) Result {
+	return watch(home, name, entry, transcript, j, run, notify, false)
+}
+
+// Rewatch takes over a run whose instruction was already typed: it only waits for the report or the budget.
+func Rewatch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string)) Result {
+	return watch(home, name, entry, transcript, j, run, notify, true)
+}
+
+func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string), typed bool) Result {
 	res := Result{Job: name, Entry: entry, Started: time.Now(), Transcript: transcript}
 	report := filepath.Join(j.WorkDir(home, name), ReportFile)
-	_ = os.Remove(report)
+	if !typed {
+		_ = os.Remove(report)
+	}
 	finish := func(outcome, detail string) Result {
 		res.Outcome, res.Detail, res.Finished = outcome, detail, time.Now()
 		res.Summary, res.Report = collectReport(report, transcript)
@@ -327,7 +339,7 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 		return finish("failed", "prompt: "+err.Error())
 	}
 	instruction := j.Instruction(string(prompt))
-	for attempt := 1; ; attempt++ {
+	for attempt := 1; !typed; attempt++ {
 		pane, err := awaitReady(sess, j.readyMarker(), readyWait)
 		if errors.Is(err, errGone) {
 			return finish("failed", exitedDetail(transcript, "before it was ready"))
@@ -344,7 +356,11 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 			sess.Kill()
 			return finish("failed", "submit instruction: "+err.Error())
 		}
-		took, err := awaitText(sess, j.acceptedMarker(string(prompt)), acceptWait)
+		took, err := awaitText(sess, j.acceptedMarker(string(prompt)), submitWait)
+		if err == nil && !took {
+			_ = sess.Enter()
+			took, err = awaitText(sess, j.acceptedMarker(string(prompt)), acceptWait)
+		}
 		if errors.Is(err, errGone) {
 			return endedEarly(finish, transcript)
 		}
@@ -357,8 +373,8 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 		}
 	}
 	budget, _ := j.BudgetDuration()
-	typed := time.Now()
-	deadline := typed.Add(budget)
+	started := time.Now()
+	deadline := started.Add(budget)
 	for time.Now().Before(deadline) {
 		if !sess.Alive() {
 			return endedEarly(finish, transcript)
@@ -368,7 +384,7 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 			if _, err := awaitQuiet(sess, pane, doneQuiet, doneMax); errors.Is(err, errGone) {
 				return endedEarly(finish, transcript)
 			}
-			took := compact(time.Since(typed).Round(time.Minute))
+			took := compact(time.Since(started).Round(time.Minute))
 			return finish("done", "report written after "+took+"; "+stopAgent(sess, "stopped early"))
 		}
 		time.Sleep(budgetPoll)

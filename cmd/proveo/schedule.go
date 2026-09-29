@@ -238,6 +238,7 @@ func scheduleRetryCmd() *cobra.Command {
 
 func scheduleWatchCmd() *cobra.Command {
 	var entry, transcript string
+	var typed bool
 	cmd := &cobra.Command{
 		Use:    "watch <job>",
 		Short:  "Drive one launched job (started by tick/run)",
@@ -252,12 +253,17 @@ func scheduleWatchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if typed {
+				schedule.Rewatch(home, args[0], entry, transcript, j, nil, notify)
+				return nil
+			}
 			schedule.Watch(home, args[0], entry, transcript, j, nil, notify)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&entry, "entry", "", "the schedule entry that fired")
 	cmd.Flags().StringVar(&transcript, "transcript", "", "the transcript file")
+	cmd.Flags().BoolVar(&typed, "typed", false, "the instruction is already in; only wait for the report or the budget")
 	return cmd
 }
 
