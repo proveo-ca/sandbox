@@ -382,8 +382,8 @@ func TestWatchKeepsTheAgentsReport(t *testing.T) {
 	if _, err := os.Stat(report); !os.IsNotExist(err) {
 		t.Errorf("report.md must leave the workdir so the next run cannot reuse it: %v", err)
 	}
-	if b, err := os.ReadFile(filepath.Join(work, "lineup.md")); err != nil || !strings.HasPrefix(string(b), "# Lineup report") {
-		t.Errorf("<task>.md must keep the newest report in the workdir for the next run: %v %q", err, b)
+	if err := os.WriteFile(filepath.Join(work, "lineup.md"), []byte("handoff"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := os.WriteFile(report, []byte("RESULT: stale"), 0o600); err != nil {
@@ -392,6 +392,9 @@ func TestWatchKeepsTheAgentsReport(t *testing.T) {
 	f = &fakeTmux{pane: "❯ ", alive: true, endOn: "/goal"}
 	if res := Watch(home, "lineup", "mon 18:50", transcript, j, f.run, nil); res.Summary != "" || res.Report != "" {
 		t.Errorf("a stale report from an earlier run leaked in: %+v", res)
+	}
+	if b, _ := os.ReadFile(filepath.Join(work, "lineup.md")); string(b) != "handoff" {
+		t.Errorf("the watcher must leave the agent's <task>.md handoff alone, got %q", b)
 	}
 }
 

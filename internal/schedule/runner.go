@@ -172,9 +172,6 @@ func exitedDetail(transcript, when string) string {
 // ReportFile is where a prompt asks the agent to write its final report, in the job's workdir.
 const ReportFile = "report.md"
 
-// ReportCopy is <task>.md in the workdir: the task's newest report, where a later run's agent can read it.
-func ReportCopy(workdir, name string) string { return filepath.Join(workdir, safe(name)+".md") }
-
 // WorkDir is the directory a job's agent runs in (and proveo mounts as its workspace).
 func (j Job) WorkDir(home, name string) string {
 	if j.Workdir != "" {
@@ -184,7 +181,7 @@ func (j Job) WorkDir(home, name string) string {
 }
 
 // collectReport moves the agent's report next to the transcript and returns its RESULT line.
-func collectReport(report, transcript, copyTo string) (summary, path string) {
+func collectReport(report, transcript string) (summary, path string) {
 	b, err := os.ReadFile(report)
 	if err != nil {
 		return "", ""
@@ -193,7 +190,6 @@ func collectReport(report, transcript, copyTo string) (summary, path string) {
 	if os.Rename(report, path) != nil {
 		path = report
 	}
-	_ = os.WriteFile(copyTo, b, 0o600)
 	return reportSummary(string(b)), path
 }
 
@@ -309,7 +305,7 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 	_ = os.Remove(report)
 	finish := func(outcome, detail string) Result {
 		res.Outcome, res.Detail, res.Finished = outcome, detail, time.Now()
-		res.Summary, res.Report = collectReport(report, transcript, ReportCopy(j.WorkDir(home, name), name))
+		res.Summary, res.Report = collectReport(report, transcript)
 		writeResult(home, name, res)
 		if notify != nil {
 			body := outcome + ": " + detail

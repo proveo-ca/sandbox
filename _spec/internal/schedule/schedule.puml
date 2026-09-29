@@ -85,9 +85,12 @@ skinparam noteTextAlignment left
 '   <stamp>.report.md and sets result.summary (RESULT line, else first line)
 '   and result.report (path). The listing appends "· <summary>", or
 '   "· no report" for ended/budget, to the job's `last`.
-' A copy stays at <workdir>/<task>.md: the logs folder is not mounted in
-' the sandbox, so this is how a later run (or a second task sharing the
-' workdir, e.g. a lineup pass 2) reads the previous report.
+' HANDOFF ≠ REPORT: report.md is for the manager and moves to the logs;
+' <workdir>/<task>.md is what the NEXT task needs as input, written by the
+' agent (skill `scheduled-run`), never touched by the watcher. The logs
+' folder is not mounted in the sandbox, so a second task that shares the
+' workdir (lineup pass 2) reads pass 1's handoff there, checking its week
+' and time so a stale one from an earlier week is ignored.
 ' <workdir> is ~/.proveo/schedule/<task> unless `workdir:`; proveo run mounts
 ' it rw at the same path, so the prompt names the host path verbatim.
 ' EARLY EXIT: `/goal` ending does not end the TUI — hermes idles at its
