@@ -87,6 +87,11 @@ func (s *Session) WaitFor(substr string, timeout time.Duration) (string, error) 
 	}
 }
 
+// PanePID is the pid of the process the session's pane started.
+func (s *Session) PanePID() (string, error) {
+	return s.run("display-message", "-p", "-t", s.Name, "#{pane_pid}")
+}
+
 // Alive reports whether the session still exists.
 func (s *Session) Alive() bool {
 	_, err := s.run("has-session", "-t", s.Name)

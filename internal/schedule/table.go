@@ -40,6 +40,12 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 		if last != nil {
 			if r := last(name); r != nil {
 				lastRun = r.Started.In(loc).Format("Mon Jan 2 15:04") + " " + r.Outcome
+				switch {
+				case r.Summary != "":
+					lastRun += " · " + clip(r.Summary, 80)
+				case r.Outcome == "ended" || r.Outcome == "budget":
+					lastRun += " · no report"
+				}
 				if r.Failed() && status != "running" {
 					failed = r
 				}

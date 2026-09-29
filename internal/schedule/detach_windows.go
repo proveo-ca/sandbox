@@ -2,6 +2,11 @@
 
 package schedule
 
-import "os/exec"
+import (
+	"errors"
+	"os/exec"
+)
 
 func detach(*exec.Cmd) {}
+
+func terminateChildren(int) error { return errors.ErrUnsupported }

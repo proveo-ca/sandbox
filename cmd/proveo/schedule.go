@@ -43,8 +43,32 @@ func proveoExe() string {
 func scheduleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schedule",
-		Short: "Run harnesses unattended at set times (a minutely tick started by launchd/systemd)",
-		RunE:  func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
+		Short: "Run harnesses unattended at set times; see, retry and attach to runs",
+		Long: `Run harnesses unattended at set times. A minutely tick (launchd on macOS,
+systemd --user on Linux) starts each due job in a tmux session, types its
+prompt once the agent is ready, and ends it at the job's budget.
+
+Jobs live in ~/.proveo/schedule.yml:
+
+  jobs:
+    sample-task:                      # the task name: attach, run and retry take it
+      target: hermes                  # or command: [argv] instead of proveo run
+      model: muse-glimmer:30b-mlx     # optional local model
+      addons: [host-chrome]           # optional
+      prompt_file: /abs/path/sample-task.md
+      mode: goal                      # goal (default) | loop | plain
+      budget: 45m                     # default 45m
+      tz: America/New_York            # default America/New_York
+      at: ["mon 18:50", "sun 11:35"]  # weekday + 24h clock, in tz
+
+With no subcommand it lists every job, soonest run first. A run whose last
+outcome is failed or not-ready shows ✗ with its reason; on a terminal it
+asks to retry, and ` + "`proveo schedule retry <job>`" + ` starts it again.
+` + "`proveo schedule attach sample-task`" + ` opens a running task's terminal by its task name;
+add -r to watch without typing into it.
+
+Transcripts and results: ~/.proveo/logs/schedule/<job>/.`,
+		RunE: func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
 	cmd.AddCommand(scheduleLsCmd(), scheduleTickCmd(), scheduleRunCmd(), scheduleRetryCmd(), scheduleWatchCmd(),
 		scheduleAttachCmd(), scheduleInstallCmd(), scheduleUninstallCmd())
@@ -176,7 +200,7 @@ func scheduleTickCmd() *cobra.Command {
 
 func scheduleRunCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "run <job>",
+		Use:   "run <task>",
 		Short: "Start a job now, outside its schedule",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -199,7 +223,7 @@ func scheduleRunCmd() *cobra.Command {
 
 func scheduleRetryCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "retry <job>",
+		Use:   "retry <task>",
 		Short: "Start a job again when its last run failed (failed or not-ready)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -240,9 +264,18 @@ func scheduleWatchCmd() *cobra.Command {
 func scheduleAttachCmd() *cobra.Command {
 	var readOnly bool
 	cmd := &cobra.Command{
-		Use:   "attach <job>",
-		Short: "Watch a running job's terminal (detach with the tmux prefix, then d)",
-		Args:  cobra.ExactArgs(1),
+		Use:   "attach <task>",
+		Short: "Open a running task's terminal by its task name (the key under jobs: in schedule.yml)",
+		Long: `Open a running task's terminal. The task name is its key under jobs: in
+~/.proveo/schedule.yml; attach opens the tmux session proveo-sched-<task>.
+
+Without -r your keys reach the agent. Detach with the tmux prefix, then d
+(Ctrl-b d); the run keeps going. Inside tmux, attach switches your client
+to the task's session; with -r it nests a client (Ctrl-b Ctrl-b d). In
+zellij, press Ctrl-b twice, then d.`,
+		Example: `proveo schedule attach sample-task
+proveo schedule attach sample-task -r`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			sess := schedule.SessionName(args[0])
 			if exec.Command("tmux", "has-session", "-t", sess).Run() != nil {

@@ -41,7 +41,7 @@ func TestRowsListEveryEntrySoonestFirst(t *testing.T) {
 	if r := byKey["muse-waivers tue 20:00"]; r.Status != "running" || r.Model != "-" || r.Budget != "1h" || r.Mode != "goal" {
 		t.Errorf("waivers row = %+v", r)
 	}
-	if r := byKey["muse-lineup mon 18:50"]; r.Last != "Sun Sep 27 11:35 ended" || r.Budget != "45m" {
+	if r := byKey["muse-lineup mon 18:50"]; r.Last != "Sun Sep 27 11:35 ended · no report" || r.Budget != "45m" {
 		t.Errorf("lineup row = %+v", r)
 	}
 	if r := byKey["probe mon 09:00"]; r.Target != "command" {
@@ -139,5 +139,18 @@ func TestRenderFlagsAFailedLastRunWithTheRetryCommand(t *testing.T) {
 	}
 	if strings.Count(out, "proveo schedule retry") != 1 {
 		t.Errorf("only the failed, idle job offers a retry:\n%s", out)
+	}
+}
+
+func TestRowsShowTheReportSummary(t *testing.T) {
+	t.Parallel()
+	loc := ny(t)
+	now := time.Date(2026, 9, 28, 21, 0, 0, 0, loc)
+	c := Config{Jobs: map[string]Job{"lineup": {Target: "hermes", PromptFile: "p", At: []string{"thu 18:50"}}}}
+	last := func(string) *Result {
+		return &Result{Started: time.Date(2026, 9, 28, 19, 10, 0, 0, loc), Outcome: "budget", Summary: "no-op — every Week 3 slot is locked"}
+	}
+	if r := Rows(c, now, nil, last)[0]; r.Last != "Mon Sep 28 19:10 budget · no-op — every Week 3 slot is locked" {
+		t.Errorf("last = %q", r.Last)
 	}
 }

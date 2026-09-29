@@ -75,3 +75,28 @@ func TestAttachArgsPerTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleHelpExampleLoads(t *testing.T) {
+	t.Parallel()
+	long := scheduleCmd().Long
+	start := strings.Index(long, "  jobs:")
+	end := strings.Index(long[start:], "\n\n")
+	if start < 0 || end < 0 {
+		t.Fatalf("no schedule.yml example in:\n%s", long)
+	}
+	var yml strings.Builder
+	for _, l := range strings.Split(long[start:start+end], "\n") {
+		yml.WriteString(strings.TrimPrefix(l, "  ") + "\n")
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(schedule.Path(home), []byte(yml.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := schedule.Load(home)
+	if err != nil {
+		t.Fatalf("the help's example must be a valid schedule.yml: %v\n%s", err, yml.String())
+	}
+	if j := c.Jobs["sample-task"]; len(j.At) != 2 || j.Target != "hermes" {
+		t.Errorf("parsed %+v", j)
+	}
+}

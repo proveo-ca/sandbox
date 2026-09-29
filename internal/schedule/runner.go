@@ -21,17 +21,19 @@ import (
 const (
 	DefaultReady = "❯"
 	readyWait    = 10 * time.Minute
-	exitGrace    = 90 * time.Second
 	typeAttempts = 3
 )
 
 var (
-	pollEvery   = 500 * time.Millisecond
-	settleQuiet = 3 * time.Second
-	settleMax   = time.Minute
-	acceptWait  = 30 * time.Second
-	budgetPoll  = 15 * time.Second
-	exitPoll    = 5 * time.Second
+	pollEvery     = 500 * time.Millisecond
+	settleQuiet   = 3 * time.Second
+	settleMax     = time.Minute
+	acceptWait    = 30 * time.Second
+	budgetPoll    = 15 * time.Second
+	exitPoll      = 5 * time.Second
+	interruptWait = 5 * time.Second
+	exitGrace     = 90 * time.Second
+	termGrace     = time.Minute
 )
 
 // defaultAccepted is the pane text a harness shows once it took an instruction, by target and mode.
@@ -160,6 +162,48 @@ func exitedDetail(transcript, when string) string {
 	return d
 }
 
+// ReportFile is where a prompt asks the agent to write its final report, in the job's workdir.
+const ReportFile = "report.md"
+
+// WorkDir is the directory a job's agent runs in (and proveo mounts as its workspace).
+func (j Job) WorkDir(home, name string) string {
+	if j.Workdir != "" {
+		return j.Workdir
+	}
+	return filepath.Join(home, "schedule", safe(name))
+}
+
+// collectReport moves the agent's report next to the transcript and returns its RESULT line.
+func collectReport(report, transcript string) (summary, path string) {
+	b, err := os.ReadFile(report)
+	if err != nil {
+		return "", ""
+	}
+	path = strings.TrimSuffix(transcript, ".log") + ".report.md"
+	if os.Rename(report, path) != nil {
+		path = report
+	}
+	return reportSummary(string(b)), path
+}
+
+// reportSummary is the report's first "RESULT:" line, else its first non-empty line.
+func reportSummary(report string) string {
+	first := ""
+	for l := range strings.SplitSeq(report, "\n") {
+		l = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(l), "#*-> "))
+		if l == "" {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(l, "RESULT:"); ok {
+			return strings.TrimSpace(strings.TrimLeft(rest, "*_ "))
+		}
+		if first == "" {
+			first = l
+		}
+	}
+	return first
+}
+
 // Result is what one run leaves behind.
 type Result struct {
 	Job        string    `json:"job"`
@@ -169,6 +213,8 @@ type Result struct {
 	Outcome    string    `json:"outcome"` // ended | budget | not-ready | failed
 	Detail     string    `json:"detail,omitempty"`
 	Transcript string    `json:"transcript"`
+	Summary    string    `json:"summary,omitempty"` // the report's RESULT line
+	Report     string    `json:"report,omitempty"`  // the agent's report, moved next to the transcript
 }
 
 // Failed reports whether the run needs a retry.
@@ -222,10 +268,7 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	}
 	stamp := time.Now().Format("20060102-150405")
 	transcript := filepath.Join(dir, stamp+".log")
-	wd := j.Workdir
-	if wd == "" {
-		wd = filepath.Join(home, "schedule", safe(name))
-	}
+	wd := j.WorkDir(home, name)
 	if err := os.MkdirAll(wd, 0o700); err != nil {
 		return err
 	}
@@ -251,11 +294,18 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 // Watch types the instruction once the agent is ready, then ends the session at the budget.
 func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string)) Result {
 	res := Result{Job: name, Entry: entry, Started: time.Now(), Transcript: transcript}
+	report := filepath.Join(j.WorkDir(home, name), ReportFile)
+	_ = os.Remove(report)
 	finish := func(outcome, detail string) Result {
 		res.Outcome, res.Detail, res.Finished = outcome, detail, time.Now()
+		res.Summary, res.Report = collectReport(report, transcript)
 		writeResult(home, name, res)
 		if notify != nil {
-			notify("proveo "+name, outcome+": "+detail)
+			body := outcome + ": " + detail
+			if res.Summary != "" {
+				body = outcome + ": " + res.Summary
+			}
+			notify("proveo "+name, body)
 		}
 		return res
 	}
@@ -307,17 +357,41 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 		}
 		time.Sleep(budgetPoll)
 	}
+	return finish("budget", stopAgent(sess, budget))
+}
+
+// stopAgent ends a run at its budget, gentlest first: interrupt the turn and /exit, then
+// SIGTERM the pane's command so `proveo run` tears its sandbox down, then kill the session.
+func stopAgent(sess *tmux.Session, budget time.Duration) string {
+	_ = sess.SendKeys("C-c")
+	time.Sleep(interruptWait)
 	_ = sess.SendText("/exit")
 	_ = sess.Enter()
-	end := time.Now().Add(exitGrace)
-	for time.Now().Before(end) {
-		if !sess.Alive() {
-			return finish("budget", fmt.Sprintf("stopped at %s with /exit", budget))
-		}
-		time.Sleep(exitPoll)
+	if awaitGone(sess, exitGrace) {
+		return fmt.Sprintf("stopped at %s with /exit", budget)
+	}
+	if pid, err := panePID(sess); err == nil && terminateChildren(pid) == nil && awaitGone(sess, termGrace) {
+		return fmt.Sprintf("stopped at %s; /exit did not end it within %s, SIGTERM did", budget, exitGrace)
 	}
 	sess.Kill()
-	return finish("budget", fmt.Sprintf("stopped at %s; /exit did not end it within %s, session killed", budget, exitGrace))
+	return fmt.Sprintf("stopped at %s; neither /exit nor SIGTERM ended it, session killed", budget)
+}
+
+func awaitGone(sess *tmux.Session, timeout time.Duration) bool {
+	for end := time.Now().Add(timeout); time.Now().Before(end); time.Sleep(exitPoll) {
+		if !sess.Alive() {
+			return true
+		}
+	}
+	return !sess.Alive()
+}
+
+func panePID(sess *tmux.Session) (int, error) {
+	out, err := sess.PanePID()
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
 }
 
 func writeResult(home, name string, r Result) {

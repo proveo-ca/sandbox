@@ -75,6 +75,36 @@ skinparam noteTextAlignment left
 ' 10 m: every wait now checks has-session and ends with
 ' "the agent exited N before it was ready: <last 3 transcript lines>".
 '
+' ── REPORT (2026-09-28) ────────────────────────────────────────────────────
+' An outcome says how the run ENDED, never what it DID: the first real run
+' spent 38 min asking "confirm Week 4?" and recorded `budget`, same as a run
+' that set a lineup. The agent's own words are the only witness, and every
+' harness can write a file, so the contract is a file, not a harness adapter:
+'   prompt asks for <workdir>/report.md, first line "RESULT: <verdict>"
+'   Watch removes a stale report.md before typing; finish moves it to
+'   <stamp>.report.md and sets result.summary (RESULT line, else first line)
+'   and result.report (path). The listing appends "· <summary>", or
+'   "· no report" for ended/budget, to the job's `last`.
+' <workdir> is ~/.proveo/schedule/<task> unless `workdir:`; proveo run mounts
+' it rw at the same path, so the prompt names the host path verbatim.
+' Edits to schedule.yml and prompt files take effect on the next tick / run:
+' tick and watch reload both each time; `install` only registers the tick.
+'
+' ── BUDGET STOP (2026-09-28) ───────────────────────────────────────────────
+' The first real run typed /exit into a BUSY hermes (no effect), was killed at
+' +90 s, and the kill orphaned its sandbox: SIGHUP took proveo down before its
+' deferred teardown, and the agent made browser calls for 24 s with no
+' terminal. The stop is now a ladder, gentlest first:
+'   C-c (interrupt the turn) · 5 s · /exit ⏎ · ≤90 s
+'   SIGTERM every child of the pane's sh (= `proveo run`) · ≤60 s
+'   tmux kill-session
+' `proveo run` on sbx turns SIGTERM/SIGHUP into a cancelled context: the sbx
+' client gets SIGTERM (WaitDelay 30 s) and the deferred teardown runs, so a
+' closed terminal or a kill-session no longer leaks a running sandbox.
+' [Unverified] against a live sbx client; unit tests pin the signal path and
+' the ladder, not sbx's response to SIGTERM.
+' There is no budget cap: any positive duration is accepted.
+'
 ' ── ATTACH ─────────────────────────────────────────────────────────────────
 '   proveo schedule attach <job> [-r|--read-only]
 '   not running          error naming the job, before tmux prints its own

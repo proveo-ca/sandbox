@@ -36,7 +36,7 @@ func TestScheduleFiresAtItsTimeAndTypesThePrompt(t *testing.T) {
 	if err := os.WriteFile(prompt, []byte("Set the best lineup for Muse de Parchita.\nBench anyone tagged Out.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	agent := `printf 'FAKE-READY> '; IFS= read -r line; printf '\nRECEIVED: %s\n' "$line"; sleep 2`
+	agent := `printf 'FAKE-READY> '; IFS= read -r line; printf '\nRECEIVED: %s\n' "$line"; printf '# Report\nRESULT: typed ok\n' > report.md; sleep 2`
 	cfg := fmt.Sprintf(`jobs:
   %s:
     command: ["sh", "-c", %q]
@@ -76,6 +76,9 @@ func TestScheduleFiresAtItsTimeAndTypesThePrompt(t *testing.T) {
 	transcript, err := os.ReadFile(res.Transcript)
 	if err != nil {
 		t.Fatalf("transcript: %v (result %+v)", err, *res)
+	}
+	if res.Summary != "typed ok" || !strings.HasSuffix(res.Report, ".report.md") {
+		t.Errorf("the agent's report.md must land in the result: summary %q, report %q", res.Summary, res.Report)
 	}
 	wantPrompt := "RECEIVED: /goal Set the best lineup for Muse de Parchita. Bench anyone tagged Out."
 	if !strings.Contains(string(transcript), wantPrompt) {

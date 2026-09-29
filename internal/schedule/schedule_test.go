@@ -4,12 +4,16 @@ package schedule
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 func ny(t *testing.T) *time.Location {
@@ -153,8 +157,12 @@ type fakeTmux struct {
 	alive   bool
 	endOn   string
 	killed  bool
-	swallow int  // typed lines dropped before one shows on the pane
-	echo    bool // a kept line shows as "RECEIVED: <line>"
+	swallow int               // typed lines dropped before one shows on the pane
+	echo    bool              // a kept line shows as "RECEIVED: <line>"
+	writes  map[string]string // files the agent writes when it ends on endOn
+	keys    []string          // non-literal keys sent, e.g. C-c
+	pid     string            // what #{pane_pid} reports
+	gone    func() bool       // the pane's process ended on its own
 }
 
 func (f *fakeTmux) run(args ...string) (string, error) {
@@ -162,13 +170,21 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 	defer f.mu.Unlock()
 	switch args[0] {
 	case "has-session":
+		if f.gone != nil && f.gone() {
+			f.alive = false
+		}
 		if f.alive {
 			return "", nil
 		}
 		return "", os.ErrNotExist
 	case "capture-pane":
 		return f.pane, nil
+	case "display-message":
+		return f.pid, nil
 	case "send-keys":
+		if args[3] != "-l" {
+			f.keys = append(f.keys, args[3:]...)
+		}
 		if args[3] == "-l" {
 			f.typed = append(f.typed, args[4])
 			if f.swallow > 0 {
@@ -178,6 +194,9 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 			}
 			if f.endOn != "" && strings.HasPrefix(args[4], f.endOn) {
 				f.alive = false
+				for path, body := range f.writes {
+					_ = os.WriteFile(path, []byte(body), 0o600)
+				}
 			}
 		}
 		return "", nil
@@ -191,9 +210,13 @@ func (f *fakeTmux) run(args ...string) (string, error) {
 func fastWatch(t *testing.T) {
 	t.Helper()
 	p, q, m, a, b, e := pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll
+	i, g, tg := interruptWait, exitGrace, termGrace
 	pollEvery, settleQuiet, settleMax, acceptWait = time.Millisecond, 5*time.Millisecond, time.Second, 50*time.Millisecond
-	budgetPoll, exitPoll = time.Millisecond, time.Millisecond
-	t.Cleanup(func() { pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll = p, q, m, a, b, e })
+	budgetPoll, exitPoll, interruptWait, exitGrace, termGrace = time.Millisecond, time.Millisecond, time.Millisecond, 50*time.Millisecond, 5*time.Second
+	t.Cleanup(func() {
+		pollEvery, settleQuiet, settleMax, acceptWait, budgetPoll, exitPoll = p, q, m, a, b, e
+		interruptWait, exitGrace, termGrace = i, g, tg
+	})
 }
 
 func TestWatchTypesTheGoalOnceTheAgentIsReady(t *testing.T) {
@@ -327,5 +350,103 @@ func TestLaunchFailureLeavesAFailedResult(t *testing.T) {
 		if (Result{Outcome: outcome}).Failed() != failed {
 			t.Errorf("Result{%s}.Failed() != %v", outcome, failed)
 		}
+	}
+}
+
+func TestWatchKeepsTheAgentsReport(t *testing.T) {
+	fastWatch(t)
+	home, work := t.TempDir(), t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(work, ReportFile)
+	if err := os.WriteFile(report, []byte("RESULT: stale from last week"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(home, "20260928-161052.log")
+	j := Job{Command: []string{"agent"}, Workdir: work, PromptFile: prompt}
+	f := &fakeTmux{pane: "❯ ", alive: true, endOn: "/goal", writes: map[string]string{
+		report: "# Lineup report\n\nRESULT: no-op — every Week 3 slot is locked\n\nBefore: …\n",
+	}}
+	res := Watch(home, "lineup", "mon 18:50", transcript, j, f.run, nil)
+	if res.Summary != "no-op — every Week 3 slot is locked" {
+		t.Errorf("summary = %q", res.Summary)
+	}
+	if res.Report != filepath.Join(home, "20260928-161052.report.md") {
+		t.Errorf("report path = %q", res.Report)
+	}
+	if b, err := os.ReadFile(res.Report); err != nil || !strings.Contains(string(b), "Before: …") {
+		t.Errorf("the report must move next to the transcript: %v %q", err, b)
+	}
+	if _, err := os.Stat(report); !os.IsNotExist(err) {
+		t.Errorf("report.md must leave the workdir so the next run cannot reuse it: %v", err)
+	}
+
+	if err := os.WriteFile(report, []byte("RESULT: stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f = &fakeTmux{pane: "❯ ", alive: true, endOn: "/goal"}
+	if res := Watch(home, "lineup", "mon 18:50", transcript, j, f.run, nil); res.Summary != "" || res.Report != "" {
+		t.Errorf("a stale report from an earlier run leaked in: %+v", res)
+	}
+}
+
+func TestReportSummaryPrefersTheResultLine(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"# Report\n**RESULT:** changed 2 — Etienne → Warren\n": "changed 2 — Etienne → Warren",
+		"RESULT: blocked — Chrome is logged out":               "blocked — Chrome is logged out",
+		"\n## Lineup before and after\nQB Burrow\n":            "Lineup before and after",
+		"": "",
+	} {
+		if got := reportSummary(in); got != want {
+			t.Errorf("reportSummary(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBudgetStopInterruptsThenExits(t *testing.T) {
+	fastWatch(t)
+	f := &fakeTmux{alive: true, endOn: "/exit"}
+	got := stopAgent(tmux.New("s", f.run), time.Minute)
+	if got != "stopped at 1m0s with /exit" {
+		t.Errorf("stop = %q", got)
+	}
+	if len(f.keys) == 0 || f.keys[0] != "C-c" || len(f.typed) != 1 || f.typed[0] != "/exit" {
+		t.Errorf("keys %q, typed %q: want C-c to interrupt the turn before /exit", f.keys, f.typed)
+	}
+	if f.killed {
+		t.Error("a run that took /exit must not be killed")
+	}
+}
+
+func TestBudgetStopSignalsTheRunBeforeKilling(t *testing.T) {
+	fastWatch(t)
+	pane := exec.Command("sh", "-c", "sleep 30 & wait")
+	if err := pane.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = pane.Wait(); close(done) }()
+	t.Cleanup(func() { _ = pane.Process.Kill() })
+	time.Sleep(200 * time.Millisecond) // sh has forked sleep
+	ended := func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	f := &fakeTmux{alive: true, pid: strconv.Itoa(pane.Process.Pid), gone: ended}
+	got := stopAgent(tmux.New("s", f.run), time.Minute)
+	if !strings.Contains(got, "SIGTERM did") || f.killed {
+		t.Errorf("stop = %q, killed %v; want SIGTERM to end the pane's command without a kill", got, f.killed)
+	}
+
+	f = &fakeTmux{alive: true}
+	if got := stopAgent(tmux.New("s", f.run), time.Minute); !strings.Contains(got, "session killed") || !f.killed {
+		t.Errorf("stop = %q, killed %v; want the kill as the last resort", got, f.killed)
 	}
 }
