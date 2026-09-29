@@ -172,6 +172,9 @@ func exitedDetail(transcript, when string) string {
 // ReportFile is where a prompt asks the agent to write its final report, in the job's workdir.
 const ReportFile = "report.md"
 
+// LastReportFile keeps the newest report in the workdir, where the next run's agent can read it.
+const LastReportFile = "last-report.md"
+
 // WorkDir is the directory a job's agent runs in (and proveo mounts as its workspace).
 func (j Job) WorkDir(home, name string) string {
 	if j.Workdir != "" {
@@ -190,6 +193,7 @@ func collectReport(report, transcript string) (summary, path string) {
 	if os.Rename(report, path) != nil {
 		path = report
 	}
+	_ = os.WriteFile(filepath.Join(filepath.Dir(report), LastReportFile), b, 0o600)
 	return reportSummary(string(b)), path
 }
 
