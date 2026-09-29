@@ -107,7 +107,9 @@ skinparam noteTextAlignment left
 ' +90 s, and the kill orphaned its sandbox: SIGHUP took proveo down before its
 ' deferred teardown, and the agent made browser calls for 24 s with no
 ' terminal. The stop is now a ladder, gentlest first:
-'   C-c (interrupt the turn) · 5 s · /exit ⏎ · ≤90 s
+'   C-c (interrupt the turn) · 5 s · /exit ⏎ · 5 s · ⏎ again · ≤90 s
+'   (rehearsal 2026-09-28: hermes's slash-command menu took the first ⏎ as
+'   "accept completion"; /exit sat unsubmitted until SIGTERM)
 '   SIGTERM every child of the pane's sh (= `proveo run`) · ≤60 s
 '   tmux kill-session
 ' `proveo run` on sbx turns SIGTERM/SIGHUP into a cancelled context: the sbx

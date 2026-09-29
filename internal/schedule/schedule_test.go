@@ -425,6 +425,12 @@ func TestBudgetStopInterruptsThenExits(t *testing.T) {
 	if f.killed {
 		t.Error("a run that took /exit must not be killed")
 	}
+
+	f = &fakeTmux{alive: true}
+	f.gone = func() bool { return strings.Count(strings.Join(f.keys, " "), "Enter") >= 2 }
+	if got := stopAgent(tmux.New("s", f.run), "stopped at 1m"); got != "stopped at 1m with /exit" {
+		t.Errorf("stop = %q, keys %q: a slash-command menu takes the first Enter, so a second must submit /exit", got, f.keys)
+	}
 }
 
 func TestBudgetStopSignalsTheRunBeforeKilling(t *testing.T) {

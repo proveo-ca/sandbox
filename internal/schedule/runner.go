@@ -383,6 +383,10 @@ func stopAgent(sess *tmux.Session, why string) string {
 	time.Sleep(interruptWait)
 	_ = sess.SendText("/exit")
 	_ = sess.Enter()
+	time.Sleep(interruptWait)
+	if sess.Alive() {
+		_ = sess.Enter()
+	}
 	if awaitGone(sess, exitGrace) {
 		return why + " with /exit"
 	}
