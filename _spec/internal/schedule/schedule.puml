@@ -87,6 +87,12 @@ skinparam noteTextAlignment left
 '   "· no report" for ended/budget, to the job's `last`.
 ' <workdir> is ~/.proveo/schedule/<task> unless `workdir:`; proveo run mounts
 ' it rw at the same path, so the prompt names the host path verbatim.
+' EARLY EXIT: `/goal` ending does not end the TUI — hermes idles at its
+' prompt until the budget. So a report IS the finish line: once report.md is
+' non-empty, Watch waits for the pane to hold still doneQuiet (20 s, ≤3 m —
+' the agent echoes the report), then runs the budget-stop ladder and records
+' outcome `done` "report written after Nm; stopped early with /exit".
+' Residual: a draft report written mid-run ends the run ≤3 m later.
 ' Edits to schedule.yml and prompt files take effect on the next tick / run:
 ' tick and watch reload both each time; `install` only registers the tick.
 '

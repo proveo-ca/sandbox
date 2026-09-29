@@ -34,6 +34,8 @@ var (
 	interruptWait = 5 * time.Second
 	exitGrace     = 90 * time.Second
 	termGrace     = time.Minute
+	doneQuiet     = 20 * time.Second
+	doneMax       = 3 * time.Minute
 )
 
 // defaultAccepted is the pane text a harness shows once it took an instruction, by target and mode.
@@ -125,8 +127,13 @@ func awaitReady(sess *tmux.Session, marker string, timeout time.Duration) (strin
 	if !seen {
 		return pane, fmt.Errorf("no %q within %s", marker, timeout)
 	}
-	quiet, end := time.Now(), time.Now().Add(settleMax)
-	for time.Since(quiet) < settleQuiet && time.Now().Before(end) {
+	return awaitQuiet(sess, pane, settleQuiet, settleMax)
+}
+
+// awaitQuiet waits until the pane holds still for quietFor, or max passes.
+func awaitQuiet(sess *tmux.Session, pane string, quietFor, max time.Duration) (string, error) {
+	quiet, end := time.Now(), time.Now().Add(max)
+	for time.Since(quiet) < quietFor && time.Now().Before(end) {
 		time.Sleep(pollEvery)
 		if !sess.Alive() {
 			return pane, errGone
@@ -210,7 +217,7 @@ type Result struct {
 	Entry      string    `json:"entry"`
 	Started    time.Time `json:"started"`
 	Finished   time.Time `json:"finished"`
-	Outcome    string    `json:"outcome"` // ended | budget | not-ready | failed
+	Outcome    string    `json:"outcome"` // done | ended | budget | not-ready | failed
 	Detail     string    `json:"detail,omitempty"`
 	Transcript string    `json:"transcript"`
 	Summary    string    `json:"summary,omitempty"` // the report's RESULT line
@@ -350,31 +357,40 @@ func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 		}
 	}
 	budget, _ := j.BudgetDuration()
-	deadline := time.Now().Add(budget)
+	typed := time.Now()
+	deadline := typed.Add(budget)
 	for time.Now().Before(deadline) {
 		if !sess.Alive() {
 			return endedEarly(finish, transcript)
 		}
+		if fi, err := os.Stat(report); err == nil && fi.Size() > 0 {
+			pane, _ := sess.Capture()
+			if _, err := awaitQuiet(sess, pane, doneQuiet, doneMax); errors.Is(err, errGone) {
+				return endedEarly(finish, transcript)
+			}
+			took := compact(time.Since(typed).Round(time.Minute))
+			return finish("done", "report written after "+took+"; "+stopAgent(sess, "stopped early"))
+		}
 		time.Sleep(budgetPoll)
 	}
-	return finish("budget", stopAgent(sess, budget))
+	return finish("budget", stopAgent(sess, "stopped at "+compact(budget)))
 }
 
 // stopAgent ends a run at its budget, gentlest first: interrupt the turn and /exit, then
 // SIGTERM the pane's command so `proveo run` tears its sandbox down, then kill the session.
-func stopAgent(sess *tmux.Session, budget time.Duration) string {
+func stopAgent(sess *tmux.Session, why string) string {
 	_ = sess.SendKeys("C-c")
 	time.Sleep(interruptWait)
 	_ = sess.SendText("/exit")
 	_ = sess.Enter()
 	if awaitGone(sess, exitGrace) {
-		return fmt.Sprintf("stopped at %s with /exit", budget)
+		return why + " with /exit"
 	}
 	if pid, err := panePID(sess); err == nil && terminateChildren(pid) == nil && awaitGone(sess, termGrace) {
-		return fmt.Sprintf("stopped at %s; /exit did not end it within %s, SIGTERM did", budget, exitGrace)
+		return fmt.Sprintf("%s; /exit did not end it within %s, SIGTERM did", why, exitGrace)
 	}
 	sess.Kill()
-	return fmt.Sprintf("stopped at %s; neither /exit nor SIGTERM ended it, session killed", budget)
+	return why + "; neither /exit nor SIGTERM ended it, session killed"
 }
 
 func awaitGone(sess *tmux.Session, timeout time.Duration) bool {

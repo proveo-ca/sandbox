@@ -409,8 +409,8 @@ func TestReportSummaryPrefersTheResultLine(t *testing.T) {
 func TestBudgetStopInterruptsThenExits(t *testing.T) {
 	fastWatch(t)
 	f := &fakeTmux{alive: true, endOn: "/exit"}
-	got := stopAgent(tmux.New("s", f.run), time.Minute)
-	if got != "stopped at 1m0s with /exit" {
+	got := stopAgent(tmux.New("s", f.run), "stopped at 1m")
+	if got != "stopped at 1m with /exit" {
 		t.Errorf("stop = %q", got)
 	}
 	if len(f.keys) == 0 || f.keys[0] != "C-c" || len(f.typed) != 1 || f.typed[0] != "/exit" {
@@ -440,13 +440,40 @@ func TestBudgetStopSignalsTheRunBeforeKilling(t *testing.T) {
 		}
 	}
 	f := &fakeTmux{alive: true, pid: strconv.Itoa(pane.Process.Pid), gone: ended}
-	got := stopAgent(tmux.New("s", f.run), time.Minute)
+	got := stopAgent(tmux.New("s", f.run), "stopped at 1m")
 	if !strings.Contains(got, "SIGTERM did") || f.killed {
 		t.Errorf("stop = %q, killed %v; want SIGTERM to end the pane's command without a kill", got, f.killed)
 	}
 
 	f = &fakeTmux{alive: true}
-	if got := stopAgent(tmux.New("s", f.run), time.Minute); !strings.Contains(got, "session killed") || !f.killed {
+	if got := stopAgent(tmux.New("s", f.run), "stopped at 1m"); !strings.Contains(got, "session killed") || !f.killed {
 		t.Errorf("stop = %q, killed %v; want the kill as the last resort", got, f.killed)
+	}
+}
+
+func TestWatchStopsEarlyOnceTheReportIsWritten(t *testing.T) {
+	fastWatch(t)
+	dq, dm := doneQuiet, doneMax
+	doneQuiet, doneMax = 5*time.Millisecond, time.Second
+	t.Cleanup(func() { doneQuiet, doneMax = dq, dm })
+	home, work := t.TempDir(), t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(work, ReportFile)
+	f := &fakeTmux{pane: "❯ ", alive: true, echo: true, endOn: "/exit"}
+	j := Job{Command: []string{"agent"}, Workdir: work, PromptFile: prompt, Budget: "1h"}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = os.WriteFile(report, []byte("RESULT: changed 1 — Etienne → Warren\n"), 0o600)
+	}()
+	start := time.Now()
+	res := Watch(home, "lineup", "sun 11:35", filepath.Join(home, "20260928-161052.log"), j, f.run, nil)
+	if res.Outcome != "done" || res.Summary != "changed 1 — Etienne → Warren" {
+		t.Errorf("result = %q %q (%s), want done with the report's RESULT", res.Outcome, res.Summary, res.Detail)
+	}
+	if !strings.Contains(res.Detail, "stopped early with /exit") || time.Since(start) > 10*time.Second {
+		t.Errorf("detail %q after %s: a written report must end the run long before its 1h budget", res.Detail, time.Since(start))
 	}
 }
