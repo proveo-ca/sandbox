@@ -99,12 +99,14 @@ func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, er
 }
 
 func pickTargetsNumbered(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
-	fmt.Fprintf(out, "Select a target to %s:\n", verb)
-	fmt.Fprintln(out, "   0) all")
+	pr := ui.New(out)
+	pr.Section(verb)
+	pr.Appf("select a target to %s:", verb)
+	pr.Notef("   0) all")
 	for i, t := range reg {
-		fmt.Fprintf(out, "  %2d) %s\n", i+1, t.Name)
+		pr.Notef("  %2d) %s", i+1, t.Name)
 	}
-	fmt.Fprint(out, "target [0]: ")
+	pr.Askf("target [0]:")
 	line, _ := bufio.NewReader(in).ReadString('\n')
 	line = strings.TrimSpace(line)
 	if line == "" || line == "0" {

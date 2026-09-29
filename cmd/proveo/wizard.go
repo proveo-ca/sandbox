@@ -26,7 +26,7 @@ func termSecret() (string, error) {
 }
 
 func promptLine(question string, in io.Reader, out io.Writer) string {
-	fmt.Fprintf(out, "%s ", question)
+	ui.New(out).Askf("%s", question)
 	s, _ := bufio.NewReader(in).ReadString('\n')
 	return strings.TrimSpace(s)
 }
@@ -36,7 +36,7 @@ func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	if !def {
 		suffix = "[y/N]"
 	}
-	fmt.Fprintf(out, "%s %s ", question, suffix)
+	ui.New(out).Askf("%s %s", question, suffix)
 	s, _ := bufio.NewReader(in).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "y", "yes":
@@ -58,18 +58,18 @@ func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Wr
 	got := map[string]string{}
 	for _, e := range missing {
 		if e.Description != "" {
-			fmt.Fprintf(out, "   %s — %s\n", e.Name, e.Description)
+			p.Notef("%s — %s", e.Name, e.Description)
 		}
 		var v string
 		var err error
 		if e.Secret && readSecret != nil {
-			fmt.Fprintf(out, "   %s (hidden): ", e.Name)
+			p.Askf("%s (hidden):", e.Name)
 			v, err = readSecret()
 		} else {
 			if r == nil {
 				r = bufio.NewReader(in)
 			}
-			fmt.Fprintf(out, "   %s: ", e.Name)
+			p.Askf("%s:", e.Name)
 			v, err = r.ReadString('\n')
 		}
 		v = strings.TrimSpace(v)

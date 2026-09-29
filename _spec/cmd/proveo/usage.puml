@@ -6,6 +6,26 @@ skinparam packageStyle rectangle
 ' purpose: the CLI surface proveo presents, and the maintainer tooling beside it
 ' covers: cmd/proveo/main.go
 ' covers: cmd/proveo-dev/main.go
+' covers: cmd/proveo/help.go, cmd/proveo/help_test.go
+'
+' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
+' renderHelp replaces cobra's template on every command with the layout of
+' _spec/internal/choiceui/wireframe.puml, printed rather than painted:
+'   banner + tagline       root only; the tagline IS the root's title
+'   title                  bold "<path> — <Short>" on subcommands
+'   header                 "usage:" / "aliases:" — label accent, value body
+'   Long                   verbatim at the 2-col gutter; an indented block that
+'                          opens on `key:` is YAML: key accent, scalar brand,
+'                          punctuation body, `# comment` aside
+'   ────── commands ──────  heading centered on 72 cols, body style
+'   label  text            label accent at col 2, text body at col 24 (or
+'                          label+3), wrapped under its column
+'   (default …)            aside (italic); skipped when usage already says it
+'   hint                   "<path> <command> --help · more on one command"
+' Palette = choiceui.styles(): accent ColorAccent bold, body ColorSecondary,
+' aside italic. Plain (pipe, NO_COLOR, TERM=dumb) keeps the layout, drops the
+' paint, and draws rules in "-", as does PROVEO_GLYPHS=ascii|off.
+' cobra's own "help" command is not listed; the hint names --help instead.
 
 left to right direction
 

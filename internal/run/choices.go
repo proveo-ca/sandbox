@@ -633,3 +633,34 @@ func gitHeader(repoRoot string) []string {
 	}
 	return []string{fmt.Sprintf("git:      %s on %s%s", filepath.Base(repoRoot), branch, dirty)}
 }
+
+// addonAliases are the short --addon spellings of the interface add-ons.
+var addonAliases = map[string]string{
+	"browser":          addonBrowser,
+	"host-chrome":      addonHostCDP,
+	"cdp":              addonHostCDP,
+	"claude-in-chrome": addonChrome,
+}
+
+// resolveAddonFlags maps --addon values to the add-ons this harness offers, refusing any it does not.
+func (p *Params) resolveAddonFlags(man manifest.Manifest) error {
+	if !p.AddonsSet {
+		return nil
+	}
+	offered := interfaceOptions(man)
+	out := make([]string, 0, len(p.Addons))
+	for _, a := range p.Addons {
+		name := strings.TrimSpace(a)
+		if full, ok := addonAliases[name]; ok {
+			name = full
+		}
+		if !slices.Contains(offered, name) {
+			return fmt.Errorf("--addon %q is not offered by %s (offered: %s)", a, p.Target, strings.Join(offered, ", "))
+		}
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	p.Addons, p.AddonsAnswered = out, true
+	return nil
+}

@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +12,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
@@ -904,8 +907,12 @@ func Run(in Input) error {
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
+	stopped, stopSignals := forwardStop()
+	defer stopSignals()
 	run := func() error {
-		c := exec.Command(sbx.Binary, args...)
+		c := exec.CommandContext(stopped, sbx.Binary, args...)
+		c.Cancel = func() error { return c.Process.Signal(syscall.SIGTERM) }
+		c.WaitDelay = stopWait
 		c.Env = child.Apply(os.Environ())
 		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
@@ -1002,6 +1009,25 @@ func Run(in Input) error {
 		return backend.ExitError{Code: ee.ExitCode()}
 	}
 	return runErr
+}
+
+// stopWait bounds how long the sbx client may take to exit once proveo forwards a stop.
+const stopWait = 30 * time.Second
+
+// forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
+// stop and the deferred teardown runs instead of proveo dying mid-run.
+func forwardStop() (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		select {
+		case <-sigs:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() { signal.Stop(sigs); cancel() }
 }
 
 func WarnBaseline() {

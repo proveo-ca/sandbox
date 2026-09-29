@@ -25,12 +25,33 @@ scope_git_worktree "$(pwd)"
 # process means that step never fires on its own — run it explicitly, once,
 # still as root, so the SAME logic upstream maintains does the remap instead
 # of a proveo-side reimplementation that drifts from it on the next release.
-# The manifest's durable home mount; otherwise a writable fallback for a non-root start.
-if [[ -d /proveo-home/data && -w /proveo-home/data ]]; then
-  export HERMES_HOME=/proveo-home/data
+# The manifest's durable home mount (/proveo-home on docker, its host path on sbx); otherwise a writable fallback.
+# SPEC: _spec/defs/hermes/hermes-persistence.puml
+hermes_durable=""
+for d in /proveo-home/data "${PROVEO_STATE_HOME:+${PROVEO_STATE_HOME}/hermes/data}"; do
+  if [[ -n "$d" && -d "$d" && -w "$d" ]]; then
+    hermes_durable="$d"
+    break
+  fi
+done
+if [[ -n "$hermes_durable" ]]; then
+  # One-time move of a home that only ever lived on the image's /opt/data volume.
+  if [[ -z "$(ls -A "$hermes_durable" 2>/dev/null)" && -f /opt/data/state.db ]]; then
+    if tar -C /opt/data -cf - . 2>/dev/null | tar -C "$hermes_durable" -xpf - 2>/dev/null; then
+      echo "📦 Moved hermes's home from the sandbox volume to ${hermes_durable}"
+    else
+      echo "⚠️  could not copy /opt/data to ${hermes_durable}; hermes starts with an empty home there" >&2
+    fi
+  fi
+  export HERMES_HOME="$hermes_durable"
 elif [[ "$(id -u)" != 0 && ! -w "${HERMES_HOME:-/opt/data}" ]]; then
   export HERMES_HOME="${HOME}/.hermes"
 fi
+
+# write_file/patch may also write the workspace and hermes's home, not only the image volume.
+# SPEC: _spec/defs/hermes/hermes-persistence.puml
+HERMES_WRITE_SAFE_ROOT="${HERMES_WRITE_SAFE_ROOT:+${HERMES_WRITE_SAFE_ROOT}:}${PWD}${HERMES_HOME:+:${HERMES_HOME}}"
+export HERMES_WRITE_SAFE_ROOT
 
 # The hook would hand the browser path to s6's environment, which this launch
 # never reads; exporting it here also makes the hook skip its /run/s6 write.

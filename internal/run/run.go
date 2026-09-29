@@ -218,7 +218,10 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if p.Roles == nil {
 		p.Roles = provider.Roles{}
 	}
-	if rs.Choices.Promptable {
+	if err := p.resolveAddonFlags(rs.Man); err != nil {
+		return err
+	}
+	if rs.Choices.Promptable && !p.Yes {
 		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
 			return err
 		}
@@ -715,7 +718,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		if rs.Model.HostLLM {
 			sidecarModel = ""
 			if !p.PrintOnly {
-				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, os.Stderr); err != nil {
+				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
 					return false, fmt.Errorf("local model %s: %w", p.LocalModel, err)
 				}
 				ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const vmStatM4Pro = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -199,7 +201,7 @@ func TestEnsureHostOllamaPullsAMissingTag(t *testing.T) {
 	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
 	stubAvailable(t, 40, true)
 	var out strings.Builder
-	if err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, &out); err != nil {
+	if err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, ui.New(&out)); err != nil {
 		t.Fatalf("a missing tag must be pulled, not refused: %v", err)
 	}
 	if *pulls != 1 || !strings.Contains(out.String(), "pulled muse-glimmer:30b-mlx") {
@@ -211,7 +213,7 @@ func TestEnsureHostOllamaPullsButWillNotLoadWhatCannotFit(t *testing.T) {
 	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
 	stubAvailable(t, 12, true)
 	var out strings.Builder
-	err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, &out)
+	err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, ui.New(&out))
 	if *pulls != 1 || !strings.Contains(out.String(), "would not fit in memory right now") {
 		t.Errorf("memory is transient and the download is not: pull with a warning; pulls=%d out=%q", *pulls, out.String())
 	}

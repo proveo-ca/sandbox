@@ -389,3 +389,18 @@ func TestTeeKeepsTheSectionState(t *testing.T) {
 		t.Errorf("the run heading was drawn %d times across the tee, want 1:\n%s", n, term.String())
 	}
 }
+
+func TestAskfMarksTheQuestionAndKeepsTheLine(t *testing.T) {
+	var b strings.Builder
+	p := &Printer{W: &b, Tier: GlyphsNerd}
+	p.Askf("continue? [y/N]")
+	got := b.String()
+	if !strings.Contains(got, "› ") || !strings.Contains(got, "continue? [y/N]") || strings.HasSuffix(got, "\n") {
+		t.Errorf("fancy Askf = %q, want a › marker, the question, no newline", got)
+	}
+	b.Reset()
+	(&Printer{W: &b, Plain: true}).Askf("continue? [y/N]")
+	if b.String() != "continue? [y/N] " {
+		t.Errorf("plain Askf = %q", b.String())
+	}
+}
