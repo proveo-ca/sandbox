@@ -382,8 +382,8 @@ func TestWatchKeepsTheAgentsReport(t *testing.T) {
 	if _, err := os.Stat(report); !os.IsNotExist(err) {
 		t.Errorf("report.md must leave the workdir so the next run cannot reuse it: %v", err)
 	}
-	if b, err := os.ReadFile(filepath.Join(work, LastReportFile)); err != nil || !strings.HasPrefix(string(b), "# Lineup report") {
-		t.Errorf("last-report.md must keep the newest report in the workdir for the next run: %v %q", err, b)
+	if b, err := os.ReadFile(filepath.Join(work, "lineup.md")); err != nil || !strings.HasPrefix(string(b), "# Lineup report") {
+		t.Errorf("<task>.md must keep the newest report in the workdir for the next run: %v %q", err, b)
 	}
 
 	if err := os.WriteFile(report, []byte("RESULT: stale"), 0o600); err != nil {

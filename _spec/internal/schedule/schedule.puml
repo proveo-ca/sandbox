@@ -85,7 +85,7 @@ skinparam noteTextAlignment left
 '   <stamp>.report.md and sets result.summary (RESULT line, else first line)
 '   and result.report (path). The listing appends "· <summary>", or
 '   "· no report" for ended/budget, to the job's `last`.
-' A copy stays at <workdir>/last-report.md: the logs folder is not mounted in
+' A copy stays at <workdir>/<task>.md: the logs folder is not mounted in
 ' the sandbox, so this is how a later run (or a second task sharing the
 ' workdir, e.g. a lineup pass 2) reads the previous report.
 ' <workdir> is ~/.proveo/schedule/<task> unless `workdir:`; proveo run mounts
