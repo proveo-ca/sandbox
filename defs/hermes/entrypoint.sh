@@ -48,6 +48,11 @@ elif [[ "$(id -u)" != 0 && ! -w "${HERMES_HOME:-/opt/data}" ]]; then
   export HERMES_HOME="${HOME}/.hermes"
 fi
 
+# write_file/patch may also write the workspace and hermes's home, not only the image volume.
+# SPEC: _spec/defs/hermes/hermes-persistence.puml
+HERMES_WRITE_SAFE_ROOT="${HERMES_WRITE_SAFE_ROOT:+${HERMES_WRITE_SAFE_ROOT}:}${PWD}${HERMES_HOME:+:${HERMES_HOME}}"
+export HERMES_WRITE_SAFE_ROOT
+
 # The hook would hand the browser path to s6's environment, which this launch
 # never reads; exporting it here also makes the hook skip its /run/s6 write.
 if [[ -z "${AGENT_BROWSER_EXECUTABLE_PATH:-}" && -d "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then

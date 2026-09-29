@@ -51,4 +51,13 @@ note right of D
   sessions, skills and the vault
   outlive every run.
 end note
+' ── WRITE SAFE ROOT (2026-09-28) ───────────────────────────────────────────
+' The upstream image sets ENV HERMES_WRITE_SAFE_ROOT=/opt/data, and
+' agent/file_safety.py denies write_file/patch outside it (os.pathsep list).
+' Under sbx /opt/data is the VM's own volume: the first scheduled rehearsal
+' could not write <workspace>/report.md ("Write denied … outside
+' HERMES_WRITE_SAFE_ROOT"), wrote /opt/data/muse-lineup/report.md instead,
+' and that copy dies with the sandbox. The entrypoint now appends the
+' workspace ($(pwd) after set_working_directory) and HERMES_HOME (the durable
+' home) to the list. The terminal tool was never restricted by it.
 @enduml
