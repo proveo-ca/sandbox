@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPEC: _spec/packages/lib/seed-and-launch.puml
-# In a proveo-launched sbx session, waits for this boot's instruction seed, then execs "$@" when given.
+# In a proveo-launched sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
@@ -11,5 +11,14 @@ if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marke
   done
   [ -e "$marker" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
 fi
+target="$PWD"
+if [ -n "${PROVEO_CLONE_MAIN:-}" ] && [ "$PWD" = "$PROVEO_CLONE_MAIN" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ -d "$PROVEO_WORKDIR" ]; then
+  target="$PROVEO_WORKDIR"
+fi
+if [ "${1:-}" = "--cwd" ]; then
+  printf '%s\n' "$target"
+  exit 0
+fi
+cd "$target" 2>/dev/null || true
 [ "$#" -gt 0 ] && exec "$@"
 exit 0

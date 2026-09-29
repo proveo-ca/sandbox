@@ -83,34 +83,40 @@ func TestFormSelectedBrokerSurvivesAForwardOnlyManifestOnSbx(t *testing.T) {
 	}
 }
 
-func TestAnEmptyDefaultStillRewritesOntoAForwardOnlyManifest(t *testing.T) {
+// cursor's manifest declares forward, the only mode the docker-egress tiers
+// cannot break; on sbx the proxy brokers it natively, so broker wins there
+// whether it came from the default or the operator (decided 2026-09-29).
+func TestAnEmptyDefaultBrokersOnSbxAndForwardsOnDocker(t *testing.T) {
 	t.Parallel()
-	p := Params{Target: "cursor"}
 	man := manifest.Manifest{
 		Name:         "cursor",
 		Capabilities: manifest.Capabilities{Credentials: []string{"forward"}, Egress: []string{"open"}},
 	}
-	if err := p.applyCapabilitiesAt(man, true); err != nil {
-		t.Fatalf("empty default was refused: %v", err)
-	}
-	if p.Credentials != "forward" {
-		t.Errorf("credentials = %q, want the empty default rewritten to the declared mode", p.Credentials)
+	for sbxOn, want := range map[bool]string{true: "", false: "forward"} {
+		p := Params{Target: "cursor"}
+		if err := p.applyCapabilitiesAt(man, sbxOn); err != nil {
+			t.Fatalf("sbx=%v: empty default was refused: %v", sbxOn, err)
+		}
+		if p.Credentials != want {
+			t.Errorf("sbx=%v: credentials = %q, want %q (empty means the broker default)", sbxOn, p.Credentials, want)
+		}
 	}
 }
 
-func TestAnExplicitBrokerFlagIsStillRefusedOnAForwardOnlyManifest(t *testing.T) {
+func TestAnExplicitBrokerFlagBrokersOnSbxAndIsRefusedOnDocker(t *testing.T) {
 	t.Parallel()
-	p := Params{Target: "cursor", Credentials: "broker", CredsSet: true}
 	man := manifest.Manifest{
 		Name:         "cursor",
 		Capabilities: manifest.Capabilities{Credentials: []string{"forward"}, Egress: []string{"open"}},
 	}
-	err := p.applyCapabilitiesAt(man, true)
-	if err == nil {
-		t.Fatal("expected --credentials broker to stay refused when the operator named it")
+	p := Params{Target: "cursor", Credentials: "broker", CredsSet: true}
+	if err := p.applyCapabilitiesAt(man, true); err != nil || p.Credentials != "broker" {
+		t.Errorf("sbx: --credentials broker = %q, %v; sbx's proxy brokers cursor natively", p.Credentials, err)
 	}
-	if !strings.Contains(err.Error(), "does not support --credentials broker") {
-		t.Errorf("error = %v, want the capability refusal", err)
+	p = Params{Target: "cursor", Credentials: "broker", CredsSet: true}
+	err := p.applyCapabilitiesAt(man, false)
+	if err == nil || !strings.Contains(err.Error(), "does not support --credentials broker") {
+		t.Errorf("docker: err = %v — an intercepting broker breaks cursor's pinned TLS, so naming it stays refused", err)
 	}
 }
 
@@ -129,5 +135,22 @@ func TestHeaderOmitsKeysPresentOnlyInLookup(t *testing.T) {
 	h := buildHeader(man, lookup, provider.Roles{}, t.TempDir(), t.TempDir(), "")
 	if joined := strings.Join(h, "\n"); strings.Contains(joined, "OPENCODE_API_KEY") {
 		t.Errorf("header listed a key that is not in the process env:\n%s", joined)
+	}
+}
+
+func TestCredentialsRowSaysCursorBrokersNativelyOnSbx(t *testing.T) {
+	t.Parallel()
+	cursor := manifest.Manifest{Name: "cursor", Capabilities: manifest.Capabilities{Credentials: []string{"forward"}}}
+	r := credentialsRow(cursor, "broker", true)
+	if !strings.Contains(r.Help["broker"], "cursor always brokers credentials natively") {
+		t.Errorf("broker help = %q", r.Help["broker"])
+	}
+	for i, o := range r.Options {
+		if o == "forward" && (r.Off == nil || !r.Off[i]) {
+			t.Error("forward must stay disabled for cursor on sbx")
+		}
+	}
+	if r := credentialsRow(manifest.Manifest{Name: "codex"}, "broker", true); r.Help["broker"] != "" {
+		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", r.Help["broker"])
 	}
 }

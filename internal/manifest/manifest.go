@@ -54,6 +54,7 @@ type Manifest struct {
 	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
+	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain, dependency or LSP provisioning
 	Images       map[string]string `yaml:"images"`       // target name -> image ref
 	Workspace    Workspace         `yaml:"workspace"`    // mount model
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
@@ -62,6 +63,10 @@ type Manifest struct {
 	AgentEnv     map[string]string `yaml:"agentEnv"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
+
+	// Daemon: false keeps a harness on the sbx backend without promising its
+	// agent a Docker daemon (hermes: not a coding agent).
+	Daemon *bool `yaml:"daemon"`
 
 	RetiredDind          bool `yaml:"dind"`
 	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
@@ -79,12 +84,21 @@ const (
 	retiredDockerDind DockerMode = "dind"
 )
 
+// KindAssistant marks a general assistant: the seed provisions no toolchain,
+// dependency trees or language servers for it.
+const KindAssistant = "assistant"
+
+// IsAssistant reports whether the harness is a general assistant, not a coding agent.
+func (m Manifest) IsAssistant() bool { return m.Kind == KindAssistant }
+
 // IsSbx reports whether this harness runs on the sandbox backend.
 func (m Manifest) IsSbx() bool { return m.Docker == DockerSbx }
 
 // WantsDocker reports whether the agent is promised a daemon at all — the half
 // of the contract the image must honour by shipping a docker client.
-func (m Manifest) WantsDocker() bool { return m.Docker != DockerNone }
+func (m Manifest) WantsDocker() bool {
+	return m.Docker != DockerNone && (m.Daemon == nil || *m.Daemon)
+}
 
 type Capabilities struct {
 	Egress      []string `yaml:"egress"`
@@ -180,9 +194,17 @@ func (m Manifest) Validate() error {
 	default:
 		return fmt.Errorf("manifest %q: invalid docker %q (want %q, or omit the key)", m.Name, m.Docker, DockerSbx)
 	}
+	if m.Daemon != nil && m.Docker == DockerNone {
+		return fmt.Errorf("manifest %q: daemon: only qualifies docker: %s — without it no daemon is promised anyway", m.Name, DockerSbx)
+	}
 	if m.RetiredDind || m.RetiredSandboxDocker {
 		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare the docker mode instead (docker: %s)",
 			m.Name, DockerSbx)
+	}
+	switch m.Kind {
+	case "", "coding", KindAssistant:
+	default:
+		return fmt.Errorf("manifest %q: invalid kind %q (want coding or %s)", m.Name, m.Kind, KindAssistant)
 	}
 	switch m.Stability {
 	case "", "experimental", "candidate", "stable":

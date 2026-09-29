@@ -246,7 +246,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 				"inspector on this host, so every new connection will be DENIED without a prompt", why)
 		}
 	}
-	if p.Target == "cursor" && p.intercepts() {
+	if p.Target == "cursor" && p.intercepts() && !sandbox.Selected(rs.Man) {
 		ui.Warnf("cursor + --egress-mode %s --credentials %s: cursor-agent pins its TLS, so any intercepting tier "+
 			"breaks it (it reports \"invalid API key\") — use --egress-mode open --credentials forward",
 			p.Mode, p.credentialsOrDefault())
@@ -546,12 +546,15 @@ func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, w
 		}
 		return false, "not a git repository — sbx clones with git", nil
 	case workspace.LinkedWorktree(ws.InputDir):
-		if p.CloneSet {
-			return false, "", fmt.Errorf("--clone cannot clone a linked git worktree (%s):\n"+
-				"  sbx clones the MAIN worktree only. Run from the main checkout, or drop --clone",
-				ws.InputDir)
+		if _, err := workspace.CloneSource(ws.InputDir); err != nil {
+			if p.CloneSet {
+				return false, "", fmt.Errorf("--clone cannot clone the linked git worktree %s: %v\n"+
+					"  sbx clones the main worktree and checks out the worktree's branch. Commit onto a branch, or drop --clone",
+					ws.InputDir, err)
+			}
+			return false, "linked git worktree — " + err.Error(), nil
 		}
-		return false, "linked git worktree — sbx clones only the main worktree", nil
+		return true, "", nil
 	case ws.ScopeRel() != "":
 		if p.CloneSet {
 			return true, "", nil
@@ -559,6 +562,39 @@ func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, w
 		return false, "monorepo sub-scope — the primary workspace has to be the repository root", nil
 	}
 	return true, "", nil
+}
+
+// stageCloneEnv stages the project .env a clone lacks; broker runs drop the provider keys sbx's proxy holds.
+func stageCloneEnv(rs *Spec, p *Params) string {
+	src := workspace.ProjectEnvFile(rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
+	if src == "" {
+		return ""
+	}
+	dir := filepath.Join(rs.EgDir, "sbx", "project-env")
+	var strip []string
+	if !p.forwards() {
+		strip = provider.KeyVars()
+	}
+	if p.PrintOnly {
+		return filepath.Join(dir, ".env")
+	}
+	path, dropped, err := credentials.StageProjectEnv(src, dir, strip)
+	if err != nil {
+		ui.Warnf("clone: %s not staged (%v) — the agent runs without the project .env", src, err)
+		return ""
+	}
+	ui.Storef("clone: %s mounted read-only as the clone's .env (a copy, refreshed each run)", src)
+	if len(dropped) > 0 {
+		ui.Notef("clone: dropped %s from it — sbx's proxy attaches those, the agent never holds them (`--credentials forward` keeps them)", strings.Join(dropped, ", "))
+	}
+	return path
+}
+
+func cloneOffHint(whyOff string) string {
+	if whyOff == "" {
+		return "Clone mode is off for this run (--clone=false or PROVEO_CLONE=off)."
+	}
+	return "Clone mode cannot apply here: " + whyOff + "."
 }
 
 func predictClone(p *Params, sbxBackend bool, ws workspace.MountSpec) bool {
@@ -692,12 +728,27 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
 		}
 	}
+	if rs.Backend.Clone && workspace.LinkedWorktree(rs.Workspace.WS.InputDir) {
+		rs.Backend.CloneSource, _ = workspace.CloneSource(rs.Workspace.WS.InputDir)
+		ui.Notef("workspace: linked worktree — sbx clones the main worktree %s and the seed checks out %s; "+
+			"uncommitted edits in %s stay on the host", rs.Backend.CloneSource.Main, rs.Backend.CloneSource.Ref, rs.Workspace.WS.InputDir)
+	}
+	if rs.Backend.Sbx && rs.Backend.Clone {
+		rs.Backend.CloneEnv = stageCloneEnv(rs, p)
+	}
 	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
 	if rs.Backend.Sbx {
 		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
 		if dropped > 0 && !rs.Backend.Clone {
-			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them;\n"+
-				"  the seed rebuilds a foreign tree only with PROVEO_DEPS=reinstall (it rewrites your checkout) — `--clone` keeps untracked trees out and installs fresh", dropped)
+			ok, why := workspace.SharedTreesAllowed(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
+			if !ok {
+				return false, fmt.Errorf("sbx would mount your checkout with its %d dependency tree(s) (node_modules, target, .venv …): %s.\n"+
+					"  %s\n"+
+					"  Run from a git checkout where --clone applies, so the seed installs into a private clone, or set PROVEO_DEPS=shared to accept the rewrite",
+					dropped, why, cloneOffHint(rs.Backend.CloneOff))
+			}
+			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them (%s);\n"+
+				"  `--clone` keeps untracked trees out and installs fresh", dropped, why)
 		}
 		browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
 		cdpPort := 0
@@ -770,6 +821,9 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			ScopeRel:         rs.Workspace.WS.ScopeRel(),
 			WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
 			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
+			CloneSource:      rs.Backend.CloneSource,
+			CloneEnv:         rs.Backend.CloneEnv,
+			Links:            rs.Workspace.Links,
 			DataDir:          p.DataDir,
 			Memory:           sbx.MemoryLimit(),
 			CPUs:             sbx.CPULimit(),

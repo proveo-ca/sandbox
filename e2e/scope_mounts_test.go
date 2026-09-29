@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -103,14 +104,15 @@ func newTempWorktree(t *testing.T) (worktree string) {
 // TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode
 // --shell`, not a hand-built `docker run --entrypoint bash`: the git-safe-dir
 // bridging under test is the real entrypoint's own, already applied before
-// the shell prompt appears, not a manually re-invoked copy of it.
+// the shell prompt appears, not a manually re-invoked copy of it. It asserts
+// the MOUNTED worktree, which since clone-through-main is the explicit opt-out.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
 	requireHarness(t, target)
 	proveoBin := buildProveo(t)
 	wt := newTempWorktree(t)
 
-	sess := launchShell(t, proveoBin, target, wt)
+	sess := launchShellEnv(t, proveoBin, target, wt, []string{"PROVEO_DEPS=shared"}, "--clone=false")
 	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
@@ -130,6 +132,33 @@ echo "WORKTREE_OK"`
 	if !strings.Contains(seeded, "?? AGENTS.md") {
 		t.Errorf("claudecode left the worktree untouched, but its seed writes AGENTS.md "+
 			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)
+	}
+}
+
+// TestMountedWorktreeRefusesAForeignPlatformInstall pins the gate: a mounted
+// checkout on another platform would take a Linux install into the host tree.
+func TestMountedWorktreeRefusesAForeignPlatformInstall(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("a linux host of the image's arch runs its trees as-is; the gate passes")
+	}
+	if !sbxAvailable() {
+		t.Skip("sandbox backend unavailable")
+	}
+	const target = "claudecode"
+	requireHarness(t, target)
+	wt := newTempWorktree(t)
+	run := func(env ...string) (string, error) {
+		cmd := exec.Command(buildProveo(t), "run", target, "--input", wt, "--clone=false", "--print")
+		cmd.Env = append(os.Environ(), append([]string{"PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_DEPS="}, env...)...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run()
+	if err == nil || !strings.Contains(out, "PROVEO_DEPS=shared") || !strings.Contains(out, "--clone") {
+		t.Fatalf("a mounted worktree on %s/%s must refuse and name both remedies (err=%v):\n%s", runtime.GOOS, runtime.GOARCH, err, out)
+	}
+	if out, err := run("PROVEO_DEPS=shared"); err != nil {
+		t.Fatalf("PROVEO_DEPS=shared is consent and must let the run through: %v\n%s", err, out)
 	}
 }
 

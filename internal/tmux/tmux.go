@@ -32,8 +32,12 @@ func New(name string, run Runner) *Session {
 	if run == nil {
 		run = execRunner
 	}
-	return &Session{Name: name, run: run}
+	return &Session{Name: sessionName.Replace(name), run: run}
 }
+
+// sessionName rewrites what tmux's target syntax reads as separators: "." is
+// window.pane and ":" is session:window, so "hermes-qwen3.8" named no session.
+var sessionName = strings.NewReplacer(".", "-", ":", "-")
 
 // Start launches cmd in a new detached session sized w×h (a fixed size keeps
 // captures deterministic).

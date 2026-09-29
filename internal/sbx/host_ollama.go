@@ -241,6 +241,21 @@ func pullOllama(model string, p *ui.Printer) error {
 
 func gib(b uint64) float64 { return float64(b) / (1 << 30) }
 
+// LocalModelFits reports whether an installed host model fits the host's free
+// memory by the same estimate EnsureHostOllama refuses on; nil when it fits or
+// cannot be judged.
+func LocalModelFits(model string, getenv func(string) string) error {
+	tags, err := listOllama("/api/tags")
+	if err != nil {
+		return nil
+	}
+	m, ok := matchTag(tags, model)
+	if !ok {
+		return nil
+	}
+	return checkFit(m, getenv)
+}
+
 func checkFit(m ollamaModel, getenv func(string) string) error {
 	need := m.Size + m.Size/8 + 1<<30
 	avail, known := availableMemory()

@@ -63,3 +63,31 @@ func TestDepCopyPolicyCopiesOnlyWhenHostAndImageAgree(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedTreesAllowedOnlyWhenTheyRunAsIsOrTheOperatorSaysSo(t *testing.T) {
+	t.Parallel()
+	linuxArm := Platform{OS: "linux", Arch: "arm64"}
+	mac := Platform{OS: "darwin", Arch: "arm64"}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		host Platform
+		ok   bool
+		want string
+	}{
+		{"macOS host is refused", nil, mac, false, "darwin/arm64 ≠ image linux/arm64"},
+		{"cross-arch linux is refused", nil, Platform{OS: "linux", Arch: "amd64"}, false, "rewrites the host trees"},
+		{"matching linux host passes", nil, linuxArm, true, "matches the image"},
+		{"PROVEO_DEPS=shared accepts the rewrite", map[string]string{"PROVEO_DEPS": "shared"}, mac, true, "PROVEO_DEPS=shared"},
+		{"PROVEO_DEPS=reinstall already accepts it", map[string]string{"PROVEO_DEPS": "Reinstall"}, mac, true, "PROVEO_DEPS=reinstall"},
+		{"PROVEO_DEPS_COPY is not consent", map[string]string{"PROVEO_DEPS_COPY": "never"}, mac, false, "≠ image"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ok, why := SharedTreesAllowed(env(tc.env), tc.host, linuxArm)
+			if ok != tc.ok || !strings.Contains(why, tc.want) {
+				t.Errorf("= %v %q, want %v mentioning %q", ok, why, tc.ok, tc.want)
+			}
+		})
+	}
+}

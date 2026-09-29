@@ -231,9 +231,9 @@ func TestProveoHomePersistence(t *testing.T) {
 		const mark = "PROVEO-HOME-E2E-OK"
 		markerHost := filepath.Join(home, ".cursor", "E2E_HOME_MARK")
 
-		forceClean(proveoBin)
+		cleanLeftovers(proveoBin)
 		t.Cleanup(func() {
-			forceClean(proveoBin)
+			cleanLeftovers(proveoBin)
 			rmByAncestor(cursorImage)
 		})
 
@@ -302,9 +302,9 @@ func TestProveoHomePersistence(t *testing.T) {
 		)
 		seedCursorChat(t, home, chatID, title)
 
-		forceClean(proveoBin)
+		cleanLeftovers(proveoBin)
 		t.Cleanup(func() {
-			forceClean(proveoBin)
+			cleanLeftovers(proveoBin)
 			rmByAncestor(cursorImage)
 		})
 

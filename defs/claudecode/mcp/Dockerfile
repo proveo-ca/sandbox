@@ -116,7 +116,7 @@ COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-see
 RUN install -d /opt/proveo/shims \
     && printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed %s "$@"\n' "$(command -v claude)" > /opt/proveo/shims/claude \
     && chmod 0755 /opt/proveo/shims/claude \
-    && printf '\n/usr/local/bin/proveo-await-seed\n' >> /etc/bash.bashrc
+    && printf '\ncd "$(/usr/local/bin/proveo-await-seed --cwd)" 2>/dev/null || true\n' >> /etc/bash.bashrc
 ENV PATH=/opt/proveo/shims:${PATH}
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js

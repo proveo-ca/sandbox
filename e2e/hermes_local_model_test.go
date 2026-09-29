@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -52,11 +53,21 @@ func TestHermesLocalModelE2E(t *testing.T) {
 				t.Skipf("local model %q: %s", m.want, why)
 			}
 
+			// proveo refuses a model the host cannot hold rather than swap it in;
+			// that is a host precondition, like an absent model, not a hermes fault.
+			if err := sbx.LocalModelFits(model, os.Getenv); err != nil {
+				t.Skipf("local model %q does not fit this host right now: %v", model, err)
+			}
+
 			proveoBin := buildProveo(t)
 			work := t.TempDir()
 
+			before, canList := sbxSandboxNames()
 			sess := tmux.New(fmt.Sprintf("proveo-e2e-hermes-%s-%d", m.label, os.Getpid()), nil)
-			t.Cleanup(sess.Kill)
+			t.Cleanup(func() {
+				sess.Kill()
+				removeLeakedSandboxes(t, before, canList)
+			})
 
 			if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
 				"--egress-mode", "open", "--local-model", model, "--input", work, "--scope", ".",
@@ -64,10 +75,12 @@ func TestHermesLocalModelE2E(t *testing.T) {
 				t.Fatalf("start session: %v", err)
 			}
 
-			deadline := time.Now().Add(3 * time.Minute)
+			// A 27B reasoning model under hermes's full tool and skill prompt took
+			// 4m17s to its first answer on the host GPU (2026-09-29).
+			deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_TIMEOUT", 10*time.Minute))
 			for {
 				screen, _ := sess.CaptureAll()
-				if strings.Contains(strings.ToUpper(screen), "PONG") {
+				if answeredPong(screen) {
 					return
 				}
 				if time.Now().After(deadline) {
@@ -77,4 +90,17 @@ func TestHermesLocalModelE2E(t *testing.T) {
 			}
 		})
 	}
+}
+
+// answeredPong finds the model's reply on a line of its own. The prompt echo
+// ("Respond with only the word PONG.") carries the word too, so a whole-screen
+// match passed before the model said anything.
+func answeredPong(screen string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		w := strings.Trim(strings.ToUpper(strings.TrimSpace(line)), ".!│ ")
+		if w == "PONG" {
+			return true
+		}
+	}
+	return false
 }

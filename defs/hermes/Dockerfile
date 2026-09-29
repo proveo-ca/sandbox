@@ -24,6 +24,13 @@ RUN usermod -u 1000 hermes && groupmod -g 1000 hermes \
     && find / -xdev \( -uid 10000 -o -gid 10000 \) -exec chown -h hermes:hermes {} + \
     && install -d -m 0700 -o hermes -g hermes /tmp/hermes-runtime
 
+# sbx runs every kit step and its clone as the template user `agent`; this base
+# is not an sbx template, so uid 1000 answers to that name too.
+# SPEC: _spec/defs/hermes/hermes-paradigm.puml
+RUN groupadd -o -g 1000 agent \
+    && useradd -o -u 1000 -g 1000 -M -d /home/agent -s /bin/bash agent \
+    && install -d -o 1000 -g 1000 /home/agent
+
 RUN mkdir -p /opt/proveo/subagents /opt/proveo/lib /opt/proveo/hooks /opt/proveo/shims
 COPY defs/subagents/ /opt/proveo/subagents/
 COPY defs/lib/ /opt/proveo/lib/
@@ -39,7 +46,7 @@ COPY --chmod=0755 defs/hermes/entrypoint.sh /entrypoint.sh
 # /opt/hermes/bin/hermes) already drops root -> the "hermes" user via
 # s6-setuidgid when invoked as root, so the proveo shim wraps THAT path rather
 # than re-deriving a privilege drop of our own.
-RUN printf '#!/bin/sh\nPROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded exec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes "$@"\n' > /opt/proveo/shims/hermes \
+RUN printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes "$@"\n' > /opt/proveo/shims/hermes \
     && chmod 0755 /opt/proveo/shims/hermes
 
 WORKDIR /app

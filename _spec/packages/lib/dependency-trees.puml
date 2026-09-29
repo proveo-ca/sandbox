@@ -11,6 +11,7 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/workspace/platform.go
+' covers: internal/workspace/platform_test.go (SharedTreesAllowed)
 '
 ' ── WHAT THE IN-CONTAINER STEP DOES, IN ORDER, PER PROJECT ─────────────────
 '   1. a HOST-BUILT tree is made usable. On the docker backend proveo never
@@ -209,7 +210,26 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' a nested overlay has no expression there. Passed through, each copy would
 ' become an unrelated extra workspace while the host tree still rode in inside
 ' the mirrored checkout. On sbx the only thing that keeps host-built trees out
-' is --clone, and the caller says so when it drops any.
+' is --clone.
+'
+' ── WHY A MOUNTED sbx CHECKOUT ON ANOTHER PLATFORM REFUSES TO START ────────
+' The docker rule is "copy when the platforms match, install when they do not".
+' A mounted sbx checkout can honour neither half: there is no private copy to
+' install into, and the guest agent runs as uid 1000 with no capabilities and
+' a non-setuid sudo (probed 2026-09-29), so the seed cannot bind a VM-local
+' directory over the tree either. Whatever installs there installs into the
+' HOST tree — the seed's own "absent → install", or the agent's `pnpm i`.
+'
+' A warning did not stop it: proveo-claudecode-1b3fcb7f printed one and still
+' left a macOS worktree with Linux-only nx binaries. So SharedTreesAllowed is a
+' gate, and it asks the same platform question DepCopyPolicy does:
+'   host == image        the host trees run as-is — mount, warn, proceed.
+'   host ≠ image         refuse, naming --clone and why clone did not apply.
+'   PROVEO_DEPS=shared   the operator accepts the rewrite (reinstall already
+'                        said so, and passes too).
+' PROVEO_DEPS_COPY is NOT consent: it steers the docker copy, which sbx never
+' makes. The gate counts every planned tree, present or absent, because an
+' absent one is exactly where the seed's install would land.
 
 node "Host checkout" as HOST <<host>> {
   database "source\nbind-mounted at /app" as SRC <<db>>
@@ -307,9 +327,9 @@ end note
 
 note bottom of REG
   **sbx cannot overlay.** It mirrors the checkout at its
-  host path; ""StripDepCopies"" drops the staged dirs and
-  the run warns that host trees cross. Clone mode — the
-  sbx default — carries tracked files only, so nothing
-  host-built arrives and the seed installs into the clone.
+  host path; ""StripDepCopies"" drops the staged dirs.
+  Clone mode — the sbx default, worktrees included —
+  carries tracked files only, so the seed installs into
+  the clone. A mount on another platform refuses to start.
 end note
 @enduml

@@ -100,3 +100,13 @@ func (f *flakyRunner) run(...string) (string, error) {
 	}
 	return f.out, nil
 }
+
+func TestNewNamesASessionTmuxCanTarget(t *testing.T) {
+	t.Parallel()
+	if got := New("proveo-e2e-hermes-qwen3.8-42", nil).Name; got != "proveo-e2e-hermes-qwen3-8-42" {
+		t.Errorf("Name = %q — tmux reads '.' as window.pane, so capture-pane answered \"can't find pane\"", got)
+	}
+	if got := New("a:b", nil).Name; got != "a-b" {
+		t.Errorf("Name = %q — ':' separates session from window", got)
+	}
+}

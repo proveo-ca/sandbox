@@ -12,6 +12,20 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox_test.go
 ' covers: e2e/clone_output_test.go
 ' covers: e2e/git_access_test.go (hostCarriesCommit, hostRefLog)
+' covers: internal/workspace/mount.go (CloneSource, WorktreeSource)
+' covers: internal/backend/sandbox/sandbox.go (cloneThroughMain, sandboxKey, agentWorkdir, realPath, startupCommands, CloneRefVar, CloneMainVar)
+' covers: internal/sbx/kit.go (WorktreeDirCommand)
+' covers: packages/lib/proveo-await-seed
+' covers: packages/lib/entrypoint-lib.sh (proveo_clone_checkout)
+' covers: internal/workspace/clone_source_test.go
+' covers: internal/backend/sandbox/worktree_clone_test.go
+' covers: internal/contract/clone_checkout_test.go
+' covers: e2e/clone_test.go (TestCloneOfALinkedWorktreeLeavesItsHostTreeAlone)
+' covers: internal/credentials/credentials.go (StageProjectEnv)
+' covers: internal/run/run.go (stageCloneEnv)
+' covers: packages/lib/entrypoint-lib.sh (proveo_clone_env, proveo_clone_links)
+' covers: internal/credentials/stage_env_test.go
+' covers: e2e/seed_ready_test.go
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -32,6 +46,84 @@ skinparam noteTextAlignment left
 ' to the mounted checkout and SAYS WHY. An explicit --clone in those shapes is
 ' an error rather than a fallback, because it asked for a promise that cannot
 ' be kept.
+'
+' ── A LINKED WORKTREE CLONES THROUGH ITS MAIN WORKTREE ─────────────────────
+' A linked worktree's .git is a FILE, so sbx cannot clone it. Until 2026-09-29
+' that made it fall back to the mounted checkout, and the mount carried two
+' hazards at once: the worktree over virtiofs, and — to reach the shared .git —
+' the MAIN worktree mounted read-write beside it. Measured on
+' proveo-claudecode-1b3fcb7f (2026-09-24 → 09-28): a Linux `pnpm install` in
+' the sandbox rewrote ~/Projects/pluvo/worktrees/dev/node_modules with
+' @nx/nx-linux-arm64-* only, and nx on the Mac then died with
+' "WorkspaceContext is not a constructor".
+'
+' sbx itself refuses the direct route: `sbx create --clone` from a linked
+' worktree fails with "--clone is not supported when run from a Git worktree
+' … run from the main repository instead" (probed 2026-09-29). So the clone is
+' of the MAIN worktree, at the main worktree's path — and every branch lives in
+' the shared refs, so it carries the worktree's branch as origin/<branch>.
+'
+' The FIRST cut checked that branch out in the clone itself, and the agent then
+' started in ~/Projects/pluvo/monorepo although the operator launched in
+' ~/Projects/pluvo/worktrees/dev: the wrong prompt path, and /resume found none
+' of the sessions Claude Code keys by that cwd. So the layout inside the VM is
+'   <main path>      the sbx clone, left on its own branch
+'   <worktree path>  `git worktree add` of that clone, on the worktree's branch
+' — a real linked worktree at the host worktree's own path, on the VM's disk,
+' sharing the clone's .git. The agent, PROVEO_WORKDIR, the .env link, the
+' installs, and the teardown snapshot and lift all use the worktree path; the
+' refs/heads/* fetch sees its commits because the .git is shared.
+'
+' Four mechanics make that path reachable:
+'   sbx makes the parents of mount points root-owned, and the agent is uid 1000
+'     with no sudo, so a ROOT kit startup command (WorktreeDirCommand) creates
+'     the worktree directory owned by 1000; the seed then waits up to 10s for it
+'     to be writable, since startup order is not documented;
+'   paths are passed RESOLVED (realPath): sbx mounts /private/var/…, and an
+'     unresolved /var/… names the VM's own /var — measured in the e2e;
+'   sbx starts the agent in the primary workspace, so proveo-await-seed (the
+'     claude/opencode/hermes shims exec it; bash.bashrc cds to its --cwd) moves
+'     a launch from PROVEO_CLONE_MAIN into PROVEO_WORKDIR — only from exactly
+'     there, so a claude started by hand elsewhere stays put, and only when the
+'     worktree exists, so a failed add leaves the agent in the clone;
+'   an existing worktree is left alone, so a reattached boot never moves an
+'     agent off a branch it chose.
+' The sandbox is NAMED for the worktree, not the main worktree it clones, or a
+' worktree run would reattach to the main checkout's VM. A detached HEAD clones
+' only when some branch holds it — sbx clones branches, so an orphan commit
+' would never reach the clone.
+' Uncommitted edits in the worktree stay on the host, as they do for the main
+' checkout, and the run says so.
+'
+' ── THE PROJECT .env IS STAGED, NOT CLONED ─────────────────────────────────
+' .env is gitignored, so a clone never carries it, and until 2026-09-29 the
+' agent simply ran without one — the mounted checkout it replaced always had
+' it. The operator chose a READ-ONLY mount over a copy into the clone: the
+' agent reads the host's values but cannot edit or commit them.
+' sbx mounts directories only, and the directory holding the real .env is the
+' repository root — the clone target itself. So stageCloneEnv copies the
+' project's .env (ProjectEnvFile: the input dir's, else the repo root's; a
+' worktree's symlink resolves to the main checkout's) into
+' <state>/sbx/project-env/.env (0600), which is mounted read-only, and
+' proveo_clone_env symlinks $PROVEO_WORKDIR/.env to it before the release.
+' It is a per-run snapshot: host edits land on the next run.
+' Under --credentials broker the copy DROPS every provider key variable, since
+' sbx's proxy attaches those and the agent must never hold them; forward keeps
+' the file whole. /.env goes into the clone's .git/info/exclude, so a project
+' that forgot to ignore it still never commits the link at teardown, and an
+' existing .env in a reattached clone is left alone and reported.
+'
+' ── IGNORED HOST SYMLINKS ARE RELINKED, NOT CLONED ─────────────────────────
+' The same gap took _spec: ~/Projects/pluvo/<worktree>/_spec is a symlink to
+' ~/Syncd/pluvo/_spec and .gitignore:152 ignores it, so the clone had no _spec
+' while its TARGET was mounted — an agent in worktrees/main reported "No _spec/
+' tree exists in this worktree" (2026-09-29). The mount plan already resolves
+' every escaping symlink (workspace.Link, LinkMounted); cloneLinks hands the
+' mounted ones to the seed as PROVEO_CLONE_LINKS (rel=target, '|'-separated)
+' and proveo_clone_links recreates each one the clone lacks, before the
+' release, excluded in .git/info/exclude. A path the clone already has is never
+' replaced, a rel with ".." is refused, and .env stays with its own policy
+' (LinkEnvPolicy) rather than riding this list.
 '
 ' ── THE REGRESSION GUARD DRIVES THE REAL RUN ───────────────────────────────
 ' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone
@@ -201,6 +293,13 @@ note bottom of CLONE
   Elsewhere the run falls back to the mounted
   checkout and says why; an explicit ""--clone""
   there is an error, not a fallback.
+end note
+
+note as WORKTREE
+  **A linked worktree clones its main worktree.**
+  The seed adds a VM-local worktree at the host
+  worktree's path, and the agent starts there. The
+  old mount rewrote the host's node_modules.
 end note
 
 note as CLONEGUARD

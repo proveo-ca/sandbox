@@ -58,3 +58,16 @@ func DepCopyPolicy(getenv func(string) string, host, image Platform) (reuse bool
 	}
 	return false, fmt.Sprintf("host %s ≠ image %s — staging empty; the seed installs for %s", host, image, image)
 }
+
+// SharedTreesAllowed decides whether a mounted sbx checkout may carry its
+// dependency trees into a sandbox of another platform.
+func SharedTreesAllowed(getenv func(string) string, host, image Platform) (bool, string) {
+	switch mode := strings.ToLower(strings.TrimSpace(getenv("PROVEO_DEPS"))); mode {
+	case "shared", "reinstall":
+		return true, "PROVEO_DEPS=" + mode + " — the sandbox may rewrite the host trees for " + image.String()
+	}
+	if host == image && host.OS != "" {
+		return true, fmt.Sprintf("host %s matches the image — the host trees run as-is", host)
+	}
+	return false, fmt.Sprintf("host %s ≠ image %s — an install in the sandbox rewrites the host trees for %s", host, image, image)
+}

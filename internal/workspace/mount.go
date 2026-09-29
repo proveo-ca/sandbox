@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -152,6 +153,7 @@ const ContainerGitCommonDir = "/proveo-git"
 type gitWorktree struct {
 	CommonDir string // <main>/.git — objects, refs, config
 	Name      string // per-worktree dir under <common>/worktrees/
+	GitDir    string // <common>/worktrees/<name> — HEAD, index
 }
 
 func readGitWorktree(tree string) (gitWorktree, bool) {
@@ -178,12 +180,63 @@ func readGitWorktree(tree string) (gitWorktree, bool) {
 	if !isDir(common) {
 		return gitWorktree{}, false
 	}
-	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir)}, true
+	return gitWorktree{CommonDir: filepath.Clean(common), Name: filepath.Base(gitDir), GitDir: filepath.Clean(gitDir)}, true
 }
 
 func LinkedWorktree(dir string) bool {
 	_, ok := readGitWorktree(dir)
 	return ok
+}
+
+// WorktreeSource is what sbx clones on a linked worktree's behalf.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+type WorktreeSource struct {
+	Main string // the main worktree: sbx's clone source
+	Ref  string // the linked worktree's HEAD: a branch name, or a commit id
+}
+
+// CloneSource resolves a linked worktree to its main worktree and HEAD.
+func CloneSource(dir string) (WorktreeSource, error) {
+	wt, ok := readGitWorktree(dir)
+	if !ok {
+		return WorktreeSource{}, fmt.Errorf("%s is not a linked git worktree", dir)
+	}
+	main := filepath.Dir(wt.CommonDir)
+	if filepath.Base(wt.CommonDir) != ".git" || !isDir(filepath.Join(main, ".git")) {
+		return WorktreeSource{}, fmt.Errorf("its repository %s is bare — sbx clones a main worktree", wt.CommonDir)
+	}
+	b, err := os.ReadFile(filepath.Join(wt.GitDir, "HEAD"))
+	if err != nil {
+		return WorktreeSource{}, fmt.Errorf("read HEAD: %w", err)
+	}
+	head := strings.TrimSpace(string(b))
+	if ref, ok := strings.CutPrefix(head, "ref:"); ok {
+		name, ok := strings.CutPrefix(strings.TrimSpace(ref), "refs/heads/")
+		if !ok || name == "" {
+			return WorktreeSource{}, fmt.Errorf("HEAD points outside refs/heads (%s)", head)
+		}
+		return WorktreeSource{Main: main, Ref: name}, nil
+	}
+	if !isCommitID(head) {
+		return WorktreeSource{}, fmt.Errorf("HEAD is neither a branch nor a commit id (%q)", head)
+	}
+	out, err := exec.Command("git", "-C", dir, "for-each-ref", "--count=1", "--contains", head, "--format=%(refname)", "refs/heads/").Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return WorktreeSource{}, fmt.Errorf("detached HEAD %s is on no branch — sbx clones branches only", head[:12])
+	}
+	return WorktreeSource{Main: main, Ref: head}, nil
+}
+
+func isCommitID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // WorktreeEnv returns GIT_DIR/GIT_WORK_TREE for a linked worktree, or nil.
@@ -443,6 +496,9 @@ func refuseLinkTarget(target, root string) string {
 	}
 	return ""
 }
+
+// ProjectEnvFile is the project's own .env, resolved to a regular file, or "".
+func ProjectEnvFile(inputDir, repoRoot string) string { return envMountSource(inputDir, repoRoot) }
 
 func envMountSource(inputDir, repoRoot string) string {
 	candidates := []string{filepath.Join(inputDir, ".env")}

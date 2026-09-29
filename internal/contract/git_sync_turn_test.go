@@ -117,12 +117,19 @@ func hookEnv(t *testing.T, extra ...string) []string {
 // stubModelCLI writes an executable named `name` (e.g. "claude") into a
 // fresh dir and returns that dir, for callers to prepend onto PATH so
 // git-sync-turn.sh's `command -v` finds the stub before any real CLI.
+// It also provides a pass-through `timeout`: the hook refuses an unbounded
+// model call, and macOS ships no coreutils timeout.
 func stubModelCLI(t *testing.T, name, body string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("timeout"); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "timeout"), []byte("#!/usr/bin/env bash\nshift\nexec \"$@\"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return dir
 }
@@ -843,7 +850,6 @@ func TestOpenCodeLaunchWaitsForTheGitSyncPlugin(t *testing.T) {
 	df := readRepoFile(t, "defs/opencode/Dockerfile")
 	for _, need := range []string{
 		"packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed",
-		"PROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded",
 		"> /opt/proveo/shims/opencode",
 		"/opt/proveo/shims:",
 	} {
@@ -860,5 +866,37 @@ func TestOpenCodeLaunchWaitsForTheGitSyncPlugin(t *testing.T) {
 	}
 	if provision >= 0 && marker > provision {
 		t.Error("the hooks marker must land before toolchain provisioning, or the launch waits out its limit")
+	}
+	release := -1
+	if marker >= 0 {
+		if i := strings.Index(seed[marker:], `proveo_release_agent "$target"`); i >= 0 {
+			release = marker + i
+		}
+	}
+	if release < 0 || (provision >= 0 && release > provision) {
+		t.Error("opencode waits on the release marker, so it must follow the plugin install and precede provisioning")
+	}
+	if strings.Contains(df, "PROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded") {
+		t.Error("the opencode shim still waits on the hooks marker, which lands before subagents and LSP config")
+	}
+}
+
+func TestGitSyncNamesWhyGitAddFailed(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file, so git add cannot be made to fail this way")
+	}
+	dir := initRepo(t)
+	locked := filepath.Join(dir, "locked.txt")
+	if err := os.WriteFile(locked, []byte("x\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o644) })
+	out, _, code := runGitSync(t, dir, `{"hook_event_name":"Stop","stop_hook_active":false}`, hookEnv(t, "PROVEO_GIT_SYNC_MSG=off"))
+	if code != 0 {
+		t.Fatalf("exit %d stdout %q", code, out)
+	}
+	if !strings.Contains(out, "git add failed: ") || !strings.Contains(out, "locked.txt") {
+		t.Errorf("stdout %q — a bare \"git add failed\" left the agent guessing at a cause the hook had in hand", out)
 	}
 }
