@@ -86,13 +86,7 @@ func main() {
 	root.SetVersionTemplate("{{printf \"%s version %s\\n\" .Name .Version}}")
 	root.Flags().BoolVar(&flagLS, "ls", false, "List available harness targets")
 	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
-	defaultHelp := root.HelpFunc()
-	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if !cmd.HasParent() {
-			ui.WriteBrandBanner(cmd.OutOrStdout())
-		}
-		defaultHelp(cmd, args)
-	})
+	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { renderHelp(cmd.OutOrStdout(), cmd) })
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), projectsCmd(), setupCmd(), initCmd(),
 		updateCmd(), uninstallCmd(), cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
