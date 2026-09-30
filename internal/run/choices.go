@@ -15,6 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -248,6 +249,18 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 					reasons = append(reasons, addonHostCDP+": "+hostCDPSbxWhy)
 					r.OffWhy[opt] = hostCDPSbxWhy
 				}
+			case addonAndroid:
+				if sbxWhy != "" {
+					r.Off[j] = true
+					r.On[j] = false
+					reasons = append(reasons, addonAndroid+": "+hostADBSbxWhy)
+					r.OffWhy[opt] = hostADBSbxWhy
+				}
+			case addonIOS:
+				r.Off[j] = true
+				r.On[j] = false
+				reasons = append(reasons, addonIOS+": "+hostadb.IOSWhy)
+				r.OffWhy[opt] = hostadb.IOSWhy
 			case addonChrome:
 				why := chromeWhy
 				switch {
@@ -469,11 +482,15 @@ const (
 	addonSandbox = "docker (sandbox)"
 	addonChrome  = chromebridge.Addon
 	addonHostCDP = hostcdp.Addon
+	addonAndroid = hostadb.Addon
+	addonIOS     = hostadb.AddonIOS
 )
 
 var addonRows = []string{rowExecution, rowInterface}
 
 const hostCDPSbxWhy = "needs the sbx backend: the sandbox reaches the host browser through sbx's host gateway"
+
+const hostADBSbxWhy = "needs the sbx backend: the sandbox reaches the host adb server through sbx's host gateway"
 
 func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
 
@@ -491,6 +508,8 @@ var addonHelp = map[string]string{
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
+	addonAndroid: "the agent drives an Android emulator on this host through its adb server (artemis MCP) — log in there once; the emulator stays open after the run",
+	addonIOS:     "the agent drives an iOS Simulator on this host — coming soon",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
@@ -515,6 +534,12 @@ func interfaceOptions(man manifest.Manifest) []string {
 		opts = append(opts, addonChrome)
 	case manifest.HostBrowserCDP:
 		opts = append(opts, addonHostCDP)
+	}
+	if man.Capabilities.HasHostDevice(manifest.HostDeviceAndroid) {
+		opts = append(opts, addonAndroid)
+	}
+	if man.Capabilities.HasHostDevice(manifest.HostDeviceIOS) {
+		opts = append(opts, addonIOS)
 	}
 	return opts
 }
@@ -646,6 +671,8 @@ var addonAliases = map[string]string{
 	"host-chrome":      addonHostCDP,
 	"cdp":              addonHostCDP,
 	"claude-in-chrome": addonChrome,
+	"android":          addonAndroid,
+	"ios":              addonIOS,
 }
 
 // resolveAddonFlags maps --addon values to the add-ons this harness offers, refusing any it does not.
@@ -662,6 +689,9 @@ func (p *Params) resolveAddonFlags(man manifest.Manifest) error {
 		}
 		if !slices.Contains(offered, name) {
 			return fmt.Errorf("--addon %q is not offered by %s (offered: %s)", a, p.Target, strings.Join(offered, ", "))
+		}
+		if name == addonIOS {
+			return fmt.Errorf("--addon %q: %s", a, hostadb.IOSWhy)
 		}
 		if !slices.Contains(out, name) {
 			out = append(out, name)

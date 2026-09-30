@@ -24,6 +24,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -640,6 +641,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostcdp.EnvPort)); err == nil {
 		hosts[hostcdp.PolicyHost(port)] = true
+	}
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostadb.EnvPort)); err == nil {
+		hosts[hostadb.PolicyHost(port)] = true
 	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {

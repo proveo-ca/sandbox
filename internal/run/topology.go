@@ -154,6 +154,9 @@ func interfaceOf(f *choiceui.Form) string {
 	if rowTicked(f, rowInterface, addonChrome) || rowTicked(f, rowInterface, addonHostCDP) {
 		driven = append(driven, "chrome")
 	}
+	if rowTicked(f, rowInterface, addonAndroid) {
+		driven = append(driven, "android")
+	}
 	return strings.Join(driven, " + ")
 }
 

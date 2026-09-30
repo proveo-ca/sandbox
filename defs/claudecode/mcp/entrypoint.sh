@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/host-android-adb.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -111,5 +111,10 @@ export DISABLE_AUTOUPDATER="${DISABLE_AUTOUPDATER:-1}"
 CLAUDE_CHROME_ARGS=()
 [[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
 
+CLAUDE_MCP_ARGS=()
+if proveo_host_adb_env && artemis_cfg="$(proveo_artemis_mcp_config)"; then
+  CLAUDE_MCP_ARGS=(--mcp-config "$artemis_cfg")
+fi
+
 echo "🚀 Launching Claude Code..."
-proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" -- "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" "${CLAUDE_MCP_ARGS[@]}" -- "$@"

@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -307,6 +308,25 @@ func startHostCDP(p *Params) ([]string, error) {
 	}
 	ui.Warnf("%s: the agent controls every tab and session in that browser — log into only what it should touch", addonHostCDP)
 	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, nil
+}
+
+// startHostADB reuses or boots the host emulator for the android add-on and returns the agent's env.
+func startHostADB(p *Params) ([]string, error) {
+	if !hasAddon(p.Addons, addonAndroid) {
+		return nil, nil
+	}
+	ui.Section(ui.SectionInterface)
+	port, err := hostadb.Port(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	if p.PrintOnly {
+		ui.Hostf("%s: the run reuses or boots an emulator on the host adb server 127.0.0.1:%d (not started in print mode)", addonAndroid, port)
+	} else if err := hostadb.Ensure(os.Getenv, port, ui.Hostf); err != nil {
+		return nil, fmt.Errorf("%s: %w", addonAndroid, err)
+	}
+	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
+	return []string{fmt.Sprintf("%s=%d", hostadb.EnvPort, port)}, nil
 }
 
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
@@ -791,6 +811,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			return false, err
 		} else {
 			agentEnv = append(agentEnv, hostEnv...)
+		}
+		if adbEnv, err := startHostADB(p); err != nil {
+			return false, err
+		} else {
+			agentEnv = append(agentEnv, adbEnv...)
 		}
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)

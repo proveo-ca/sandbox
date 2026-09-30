@@ -2682,3 +2682,54 @@ proveo_seed() {
  proveo_chrome_bridge "$target"
 
 }
+
+# Host Android emulator over the host adb server; artemis is the MCP driver.
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+PROVEO_ARTEMIS_REF="${PROVEO_ARTEMIS_REF:-351ca8422f7b5b54e80a9c1ce03a222e02415b6b}"
+
+proveo_host_adb_env() {
+  [[ -n "${PROVEO_HOST_ADB_PORT:-}" ]] || return 1
+  local host_ip
+  host_ip="$(getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR==1{print $1}')"
+  if [[ -z "$host_ip" ]]; then
+    echo "⚠️  android: host.docker.internal does not resolve — the host emulator stays unreachable" >&2
+    return 1
+  fi
+  export ADB_HOST="$host_ip" ADB_PORT="$PROVEO_HOST_ADB_PORT"
+  export ADB_SERVER_SOCKET="tcp:${host_ip}:${PROVEO_HOST_ADB_PORT}"
+}
+
+_proveo_artemis_python() {
+  local tools ref="$PROVEO_ARTEMIS_REF"
+  tools="$(_proveo_tool_home)/.local/share/uv/tools"
+  if [[ ! -x "$tools/artemis/bin/python" ]] || ! grep -qF "$ref" "$tools/artemis/uv-receipt.toml" 2>/dev/null; then
+    echo "📱 android: installing artemis @ ${ref:0:12} into the toolchain home (first run only)" >&2
+    UV_TOOL_DIR="$tools" UV_TOOL_BIN_DIR="$(_proveo_tool_home)/.local/bin" \
+      uv tool install -q --force --python 3.12 "artemis @ git+https://github.com/google/artemis@${ref}" >&2 || {
+      echo "⚠️  android: artemis install failed — the agent keeps plain adb" >&2
+      return 1
+    }
+    _proveo_artemis_headless_cv "$tools/artemis/bin/python" || return 1
+  fi
+  printf '%s' "$tools/artemis/bin/python"
+}
+
+# opencv-python links libxcb, which the images do not ship; the headless wheel is the same cv2.
+_proveo_artemis_headless_cv() {
+  local py="$1" v
+  v="$("$py" -c 'import importlib.metadata as m; print(m.version("opencv-python"))' 2>/dev/null)" || return 0
+  uv pip uninstall -q --python "$py" opencv-python >&2 \
+    && uv pip install -q --python "$py" "opencv-python-headless==${v}" >&2 || {
+    echo "⚠️  android: could not swap opencv-python for its headless wheel — artemis would not import" >&2
+    return 1
+  }
+}
+
+proveo_artemis_mcp_config() {
+  [[ -n "${ADB_HOST:-}" && -n "${ADB_PORT:-}" ]] || return 1
+  local py
+  py="$(_proveo_artemis_python)" || return 1
+  printf '{"mcpServers":{"artemis":{"command":"%s","args":["-m","mcp_server"],"env":{"ADB_HOST":"%s","ADB_PORT":"%s","PYTHONUNBUFFERED":"1"}}}}' \
+    "$py" "$ADB_HOST" "$ADB_PORT"
+  echo "📱 android: artemis MCP drives the host emulator via adb ${ADB_HOST}:${ADB_PORT}" >&2
+}

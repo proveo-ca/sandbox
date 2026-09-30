@@ -1,0 +1,174 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — where do Android/iOS emulators live for an sbx agent running google/artemis: in the box, or on the host?
+' status: measured 2026-09-29, host + guest legs (H1, H2 pass); built as _spec/internal/sbx/host-android-adb.puml
+' would touch: internal/run/choices.go (interfaceOptions, addonHelp, gateAddons: + android, + ios coming soon)
+' would touch: internal/manifest/manifest.go (capabilities.hostDevice, beside hostBrowser)
+' would touch: a new internal/hostadb, shaped like internal/hostcdp
+'   the pattern this copies ......... _spec/internal/sbx/host-browser-cdp.puml
+'   why the box has no /dev/kvm ..... _spec/_experiments/nested-sbx-kvm.puml
+'   the host-side egress bypass ..... _spec/_experiments/cdp-shared-browser.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── SOURCES ─────────────────────────────────────────────────────────────────
+'   artemis          : https://github.com/google/artemis
+'   artemis adb env  : https://github.com/google/artemis/blob/main/.env.example
+'   artemis image    : https://github.com/google/artemis/blob/main/Dockerfile
+'   idb architecture : https://github.com/facebook/idb/blob/main/website/docs/idb/architecture.mdx
+'   idb remote       : https://github.com/facebook/idb/blob/main/website/docs/idb/installation.mdx
+'   emulator on arm64: https://gist.github.com/atyachin/2f7c6054c4cd6945397165a23623987d
+'
+' ── WHAT ARTEMIS IS ─────────────────────────────────────────────────────────
+' Python 3.12 MCP server; drives Android through an ADB SERVER it does not own.
+'   ADB_HOST=127.0.0.1  ADB_PORT=5037  ADB_DEVICE_SERIAL=   (.env.example)
+' Upstream's own Dockerfile installs `adb` and nothing else: device-outside,
+' agent-inside is the shape artemis already expects.
+' drivers/ = android | cloud | mock. `ios` exists only as a Literal in
+' drivers/types.py; no iOS driver ships. So "ios: coming soon" is upstream-true.
+'
+' ── Q1: CAN THE EMULATOR LIVE INSIDE sbx? NO ────────────────────────────────
+'   emulator (hvf/kvm)  needs /dev/kvm; the box has none (nested-sbx-kvm.puml)
+'   redroid             needs binder + CAP_SYS_ADMIN; CapEff is 0x0
+'   cuttlefish          needs /dev/kvm
+'   pure TCG            [Speculation] boots, at >10x the 52 s hvf boot
+' Every in-box route fails on the runtime, not the image. Same floor as E1.
+'
+' ── Q2: HOST BRIDGE, MEASURED ON THIS HOST (M4 Pro, macOS 26.7) ────────────
+'   emulator 36.4.9 · AVD Medium_Phone_API_36.1 (Play, release-keys, no root)
+'   -accel-check                     hvf OK
+'   -no-window -no-audio boot        52 s to sys.boot_completed=1
+'   listeners                        127.0.0.1:5037 adb server
+'                                    127.0.0.1:5554 emulator CONSOLE
+'                                    127.0.0.1:5555 emulator adbd
+'   raw host:version  -> 5037        OKAY 0029
+'   raw host:devices-l -> 5037       OKAY emulator-5554 device
+'   fresh adbkey -> 5555 direct      unauthorized
+'   same, with -skip-adb-auth        unauthorized (Play image ignores it)
+' So the ADB SERVER is the reachable seam; the key never leaves the host.
+'
+' ── MEASURED FROM A GUEST (sbx v0.42.1, per-sandbox allow localhost:5037) ──
+'   raw host:version  -> 169.254.1.1:5037            OKAY 0029, 18.5 ms
+'   raw host:devices-l -> host.docker.internal:5037  OKAY emulator-5554
+'   policy log                                       localhost:5037 transparent
+'   adbutils AdbClient(host=169.254.1.1)  (= artemis factory.py:62)
+'     get_state            device
+'     am start SETTINGS    mCurrentFocus = SettingsHomepageActivity
+'     screenshot           1080x2400 in 0.96 s
+'     uiautomator dump     30 071 bytes in 2.59 s
+' Unlike Chrome, ADB ignores Host, so the hostname works too; the IP stays
+' canonical for parity with hostcdp. `uv tool install` of artemis: 733 s,
+' 985 MB; the GUI opencv wheel needs libxcb, so the lib swaps in headless.
+'
+' ── LIFECYCLE: THE hostcdp SHAPE, ONE FOR ONE ──────────────────────────────
+'   hostcdp (hermes)                      hostadb (android)
+'   Ready: GET :9222/json/version         Ready: host:devices lists a serial
+'   reuse whatever answers                reuse any running emulator
+'   launch Chrome --user-data-dir=        launch emulator -avd proveo-<target>
+'     UserConfigDir/proveo/host-chrome      (dedicated AVD = dedicated profile)
+'   own process group, left open          own process group, left open
+'   env BROWSER_CDP_URL=http://<ip>:P     env ADB_HOST=<ip> ADB_PORT=5037
+'   Kit allow localhost:<port>            Kit allow localhost:5037
+' Windowed launch lets the operator watch and log in once; AVD userdata
+' persists the login across runs, as the Chrome profile does.
+'
+' ── THREE ROUTES; DECIDED 2026-09-29: RAW 5037 ─────────────────────────────
+'   raw      ADB_HOST=<gateway ip> ADB_PORT=5037  key on host · host dials  ← chosen
+'   relay    same, via a host relay that drops connect/kill/reverse  (deferred)
+'   in-VM    VM adb server -> <gateway ip>:5555  host adbkey copied into VM ✗
+' Raw mirrors hostcdp: dial the gateway by IP, one Kit allow, env only, and a
+' run-time warning carries the risk, as it does for host Chrome.
+'
+' ── THE HOLE RAW 5037 OPENS, ACCEPTED BY WARNING ─────────────────────────────────────────────────
+' An adb server is a host-side dialer. `host:connect:<ip>:<port>` makes the
+' HOST open a TCP connection, outside sbx egress. `reverse` lets the device
+' reach host loopback. The emulator's own network is the host's NAT, so an
+' agent browsing inside Android is outside policy — the host-Chrome case again.
+' Deferred mitigation: a host relay forwarding only
+'   host:version  host:devices[-l]  host:track-devices  host:transport:<serial>
+' and refusing connect/disconnect/kill/reverse; plus `-http-proxy` on launch.
+'
+' ── Q3: CAN THE NERDBOX (non-macOS) RUN AN iOS SIMULATOR? NO ───────────────
+' Simulator runtimes are macOS frameworks shipped only in Xcode; Apple's
+' licence confines macOS to Apple hardware. Reachable iOS for a Linux host:
+'   remote Mac     idb_companion on macOS :10882; the idb CLI is pure Python
+'                  and runs anywhere — the same seam shape as the adb server
+'   cloud          Corellium (virtual iOS), BrowserStack/Appetize (streamed)
+' Android on the nerdbox is fine: the host emulator runs on KVM, same bridge.
+'
+' ── RECOMMENDATION ─────────────────────────────────────────────────────────
+' Host bridge, raw 5037, warned. "Fully inside sbx + attach"
+' is the preferred UX but is gated by the same upstream sbx feature as E1
+' (/dev/kvm into the VM). Revisit when docker/sbx-releases ships device
+' passthrough; until then `attach` = attach to the HOST emulator.
+'
+' ── NEXT, UNMEASURED ───────────────────────────────────────────────────────
+' H1  PASS  guest raw host:version -> 169.254.1.1:5037
+' H2  PASS  adbutils via the gateway: launch, screenshot, hierarchy
+' H2b PASS  artemis MCP initialize in a guest after the headless-cv2 swap
+'           (e2e/host_adb_sbx_test.go, PROVEO_ARTEMIS_E2E=1)
+' H2c full artemis mobile_run_task (needs a funded model key)
+' H3  scrcpy video over the bridged server (artemis mirrors the screen)
+' H4  (if the relay is revived) it refuses host:connect and still passes H2
+' H5  [Unverified] whether sbx enforces the Kit allow on the direct path
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — mobile device reach: in the box, or bridged to the host
+
+node "macOS host (M4 Pro)" as HOST <<host>> {
+  component "Android emulator\nhvf · 52 s boot" as EMU <<app>>
+  component "adb server\n127.0.0.1:5037" as ADB <<app>>
+  component "iOS Simulator\nidb_companion :10882" as SIM <<async>>
+}
+
+node "sbx microVM" as VM <<host>> {
+  component "artemis MCP\nADB_HOST=169.254.1.1" as ART <<app>>
+  component "in-box emulator\nno /dev/kvm · CapEff 0x0" as INBOX <<error>>
+}
+
+node "nerdbox (Linux)" as NERD <<cloud>> {
+  component "iOS Simulator\nnot possible" as NOSIM <<error>>
+}
+
+ART ARROW_MAIN ADB : ADB over gateway IP · Kit allow localhost:5037
+ADB ARROW_MAIN EMU : emulator-5554
+ART ARROW_QUEUE SIM : coming soon — no artemis iOS driver
+ART ARROW_ERROR INBOX : blocked by the runtime
+NERD ARROW_QUEUE SIM : remote companion over network
+
+note bottom of ART
+  **The server is the seam, not adbd.** A fresh
+  key on :5555 reads unauthorized, even with
+  -skip-adb-auth on a Play image; :5037 answers
+  OKAY and keeps the adbkey on the host.
+end note
+
+note bottom of ADB
+  **An adb server dials for you.** host:connect
+  opens a host TCP socket outside sbx egress;
+  the run warns, as host CDP does, and a relay
+  that drops connect stays the deferred fix.
+end note
+
+note bottom of INBOX
+  **The floor is the runtime again.** No
+  /dev/kvm, zero caps, no binder: emulator,
+  redroid and cuttlefish all stop at the same
+  gate nested-sbx-kvm.puml already measured.
+end note
+
+note bottom of NOSIM
+  **iOS needs a Mac somewhere.** Simulator
+  runtimes ship only in Xcode on macOS; a Linux
+  host reaches iOS through a remote Mac's
+  idb_companion or a cloud device.
+end note
+
+note bottom of SIM
+  **Same shape, one release later.** idb's CLI
+  is pure Python and speaks to a companion on
+  :10882, so iOS reuses the same bridge once
+  artemis grows a driver.
+end note
+
+@enduml

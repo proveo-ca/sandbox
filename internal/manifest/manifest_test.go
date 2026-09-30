@@ -370,3 +370,17 @@ func TestKindAssistantIsTheOnlyAlternativeToCoding(t *testing.T) {
 		t.Errorf("Validate(kind: chatbot) = %v", err)
 	}
 }
+
+func TestHostDevicesAcceptOnlyKnownKinds(t *testing.T) {
+	m := Manifest{Name: "x", Images: map[string]string{"x": "proveo/x"}, Capabilities: Capabilities{HostDevices: []string{HostDeviceAndroid, HostDeviceIOS}}}
+	if err := m.Validate(); err != nil {
+		t.Errorf("android + ios must validate: %v", err)
+	}
+	m.Capabilities.HostDevices = []string{"windows-phone"}
+	if err := m.Validate(); err == nil {
+		t.Error("an unknown hostDevices kind must be refused")
+	}
+	if !(Capabilities{HostDevices: []string{HostDeviceAndroid}}).HasHostDevice(HostDeviceAndroid) {
+		t.Error("HasHostDevice(android) = false")
+	}
+}

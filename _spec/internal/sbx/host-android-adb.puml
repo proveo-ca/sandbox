@@ -1,0 +1,99 @@
+@startuml HostAndroidADB
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how an sbx agent drives an Android emulator on the host — host adb server, dialled by IP, one allowed port, artemis as the MCP driver
+' covers: internal/hostadb/hostadb.go
+' covers: internal/hostadb/hostadb_test.go
+' covers: internal/run/choices.go (addonAndroid, addonIOS, interfaceOptions, gateAddons, addonAliases)
+' covers: internal/run/run.go (startHostADB)
+' covers: internal/run/topology.go (interfaceOf)
+' covers: internal/run/host_adb_test.go
+' covers: internal/manifest/manifest.go (capabilities.hostDevices)
+' covers: internal/backend/sandbox/sandbox.go (Spec allow)
+' covers: internal/backend/sandbox/host_adb_test.go
+' covers: packages/lib/entrypoint-lib.sh (proveo_host_adb_env, proveo_artemis_mcp_config)
+' covers: internal/contract/host_adb_lib_test.go
+' covers: defs/claudecode/mcp/entrypoint.sh (CLAUDE_MCP_ARGS)
+' covers: defs/claudecode/harness.manifest (capabilities.hostDevices)
+'   why this shape, measured ............ _spec/_experiments/mobile-device-reach.puml
+'   the pattern it copies ............... _spec/internal/sbx/host-browser-cdp.puml
+'
+' ── WHY (2026-09-29) ───────────────────────────────────────────────────────
+' google/artemis drives Android through an adb SERVER it does not own
+' (ADB_HOST/ADB_PORT). The box has no /dev/kvm, so the emulator lives on the
+' host; the host adb server is the one seam a fresh VM can use without the
+' host's adbkey (the emulator's adbd refuses a fresh key, measured).
+'
+' ── capabilities.hostDevices SELECTS THE ROWS ──────────────────────────────
+'   android → addonAndroid  live under sbx; greyed without it
+'   ios     → addonIOS      always greyed: "coming soon" (no artemis driver)
+' `--addon android` resolves; `--addon ios` is refused with the same reason.
+'
+' ── HOST SIDE (internal/hostadb) ───────────────────────────────────────────
+'   port    PROVEO_HOST_ADB_PORT, default 5037; Kit allow += localhost:<port>.
+'   reuse   any serial the server lists in state "device" is reused as is.
+'   launch  else `adb -P <port> start-server`, then `emulator -avd <avd>`
+'           windowed, own process group, ANDROID_ADB_SERVER_PORT=<port>,
+'           left open after the run. Wait: host:devices + sys.boot_completed=1.
+'   avd     PROVEO_HOST_AVD when it names an AVD, else the first listed.
+'   sdk     ANDROID_HOME > ANDROID_SDK_ROOT > ~/Library/Android/sdk (darwin)
+'           > ~/Android/Sdk; each tool falls back to PATH.
+'
+' ── GUEST SIDE (entrypoint lib) ────────────────────────────────────────────
+'   proveo_host_adb_env        ADB_HOST=<ip> ADB_PORT=<port>
+'                              ADB_SERVER_SOCKET=tcp:<ip>:<port> (plain adb)
+'   proveo_artemis_mcp_config  `uv tool install` artemis @ PROVEO_ARTEMIS_REF
+'                              into the toolchain home (synced to the host),
+'                              reinstalls only when the receipt lacks the ref,
+'                              prints an mcpServers JSON for that python.
+' After a fresh install opencv-python is swapped for opencv-python-headless
+' at the same version: the GUI wheel links libxcb.so.1, which no proveo image
+' ships, and `python -m mcp_server` dies importing cv2 without the swap.
+' Measured in a guest (uv 0.9.26, arm64): install 733 s, 985 MB tool env;
+' swap 89 s; initialize answered in 3 s by artemis 1.30.0, logging
+' "Activated remote ADB server endpoint 169.254.1.1:5037".
+' claudecode passes it as `--mcp-config <json>`: per launch, never
+' `claude mcp add --scope user`, which would land in the mounted home.
+'
+' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
+' ADB is full control of every device on that server. The server also dials:
+' host:connect opens a TCP socket FROM THE HOST, outside sbx egress, and the
+' emulator's own traffic leaves through the host's network. The run warns so.
+' A relay that forwards only device services is the deferred fix
+' (mobile-device-reach.puml).
+' [Unverified] whether sbx enforces the Kit allow on the direct path; the
+' host's global policy was allow-all during every measurement.
+
+actor "Operator" as OP
+node "host" as HOST {
+  component "proveo run" as RUN
+  component "adb server\n127.0.0.1:5037" as ADB
+  component "Android emulator\nwindowed AVD" as EMU
+}
+node "sbx microVM" as VM {
+  component "claudecode\n--mcp-config artemis" as AG
+  component "artemis MCP\nADB_HOST=169.254.1.1" as ART
+}
+
+OP --> EMU : watches, logs in once
+RUN --> ADB : start-server
+RUN --> EMU : reuse or boot
+RUN --> VM : Kit allow localhost:5037\nenv PROVEO_HOST_ADB_PORT
+AG --> ART : stdio MCP
+ART --> ADB : adb protocol by IP
+ADB --> EMU : emulator-5554
+
+note right of ADB
+  **The server is the seam.** A fresh VM key
+  reads unauthorized on adbd :5555; the server
+  holds the host key and answers the VM, so
+  the key never leaves the host.
+end note
+
+note right of ART
+  **Installed once, pinned.** uv installs the
+  pinned ref into the toolchain home, which
+  syncs to the host; a later run reuses it
+  unless the receipt names another ref.
+end note
+@enduml
