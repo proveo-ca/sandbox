@@ -90,6 +90,18 @@ func SeedCommand(target string) KitCommand {
 	}
 }
 
+// WorktreeDirCommand creates, as root, the directory a worktree clone adds its
+// linked worktree at: sbx makes mount-point parents root-owned, so uid 1000
+// cannot create it. It never fails the startup.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func WorktreeDirCommand(dir string) KitCommand {
+	return KitCommand{
+		Command:     []string{"/bin/sh", "-c", `install -d -o 1000 -g 1000 "$1" || true`, "proveo-worktree-dir", dir},
+		User:        "root",
+		Description: "proveo: the linked worktree's directory, owned by the agent",
+	}
+}
+
 // SeedEntrypointCommand runs the def's entrypoint up to, not including, the
 // agent launch: PROVEO_SEED_ONLY makes proveo_exec_agent return instead of
 // exec, so a mixin kit gets the def's own wiring while sbx launches the agent.

@@ -347,3 +347,26 @@ func TestAgentEnv(t *testing.T) {
 		t.Errorf("disjoint names must validate: %v", err)
 	}
 }
+
+func TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon(t *testing.T) {
+	t.Parallel()
+	off := false
+	m := Manifest{Name: "hermes", Docker: DockerSbx, Daemon: &off}
+	if !m.IsSbx() || m.WantsDocker() {
+		t.Errorf("daemon: false → sbx=%v wants=%v; want the sandbox kept and the daemon withdrawn", m.IsSbx(), m.WantsDocker())
+	}
+	if on := (Manifest{Docker: DockerSbx}); !on.WantsDocker() {
+		t.Error("docker: sbx with no daemon key still promises one")
+	}
+}
+
+func TestKindAssistantIsTheOnlyAlternativeToCoding(t *testing.T) {
+	t.Parallel()
+	if !(Manifest{Kind: KindAssistant}).IsAssistant() || (Manifest{}).IsAssistant() {
+		t.Error("IsAssistant must hold for kind: assistant only")
+	}
+	bad := Manifest{Name: "x", Kind: "chatbot", Images: map[string]string{"x": "img"}}
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "invalid kind") {
+		t.Errorf("Validate(kind: chatbot) = %v", err)
+	}
+}

@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -122,6 +123,9 @@ func printOnlyRun(t *testing.T, workdir string, extraEnv []string, target string
 }
 
 var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
+
+// daemonHarnesses are the sbx harnesses whose agent is promised a daemon.
+var daemonHarnesses = dockerTargets(manifest.Manifest.WantsDocker)
 
 func dockerTargets(pick func(manifest.Manifest) bool) []string {
 	wd, err := os.Getwd()
@@ -451,7 +455,7 @@ func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 	requireTmux(t)
 
-	targets := append([]string{}, sandboxHarnesses...)
+	targets := append([]string{}, daemonHarnesses...)
 	if len(targets) == 0 {
 		t.Fatal("no def promises a docker daemon — the matrix cannot be empty")
 	}
@@ -709,18 +713,48 @@ func dockerVersionish(s string) bool {
 	return regexp.MustCompile(`^\d+\.\d+`).MatchString(s)
 }
 
+// sbxSandboxNames lists the sandboxes a test could have made: those whose
+// primary workspace lies under the test process's temp root. An operator's
+// sandbox never qualifies, so no cleanup built on this can remove one.
 func sbxSandboxNames() (map[string]bool, bool) {
-	out, err := exec.Command(sbx.Binary, "ls").CombinedOutput()
+	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
 		return nil, false
 	}
+	var listing struct {
+		Sandboxes []struct {
+			Name       string   `json:"name"`
+			Workspaces []string `json:"workspaces"`
+		} `json:"sandboxes"`
+	}
+	if json.Unmarshal(out, &listing) != nil {
+		return nil, false
+	}
 	names := map[string]bool{}
-	for _, f := range strings.Fields(string(out)) {
-		if strings.HasPrefix(f, "proveo-") {
-			names[f] = true
+	for _, sb := range listing.Sandboxes {
+		if strings.HasPrefix(sb.Name, sbx.NamePrefix) && len(sb.Workspaces) > 0 && underTestTemp(sb.Workspaces[0]) {
+			names[sb.Name] = true
 		}
 	}
 	return names, true
+}
+
+func underTestTemp(path string) bool {
+	for _, root := range testTempRoots() {
+		if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func testTempRoots() []string {
+	root := filepath.Clean(os.TempDir())
+	roots := []string{root}
+	if r, err := filepath.EvalSymlinks(root); err == nil && r != root {
+		roots = append(roots, r)
+	}
+	return roots
 }
 
 // newSandboxes is what this run added and has not cleaned up.
@@ -793,4 +827,23 @@ func envValueInArgv(argv, name string) string {
 		}
 	}
 	return got
+}
+
+// TestSweepNeverClaimsAnOperatorSandbox pins the ownership rule: a sandbox
+// the operator starts while the suite runs is not "new since the test began".
+func TestSweepNeverClaimsAnOperatorSandbox(t *testing.T) {
+	t.Parallel()
+	home, _ := os.UserHomeDir()
+	for _, p := range []string{filepath.Join(home, "Projects", "pluvo", "worktrees", "dev"), "/Users/op/repo", "/"} {
+		if underTestTemp(p) {
+			t.Errorf("%s counts as test-owned; the sweep would `sbx rm --force` the operator's sandbox on it", p)
+		}
+	}
+	tmp := t.TempDir()
+	if !underTestTemp(tmp) {
+		t.Errorf("%s is a test workspace and must be swept", tmp)
+	}
+	if r, err := filepath.EvalSymlinks(tmp); err == nil && !underTestTemp(r) {
+		t.Errorf("%s — sbx reports resolved paths (/private/var/…), which must still count", r)
+	}
 }

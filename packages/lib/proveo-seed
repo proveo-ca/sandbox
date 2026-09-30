@@ -7,7 +7,10 @@ source /entrypoint-lib.sh
 # treats any non-zero startup command as fatal and `exit $rc`s the container
 # while the agent session is already live (~15s into a go.mod workspace).
 rc=0
+proveo_restore_image_path
 proveo_seed "$@" || rc=$?
+[[ -e "$PROVEO_INSTRUCTIONS_MARKER" ]] || proveo_release_agent "${1:-}"
+: > "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" 2>/dev/null || true
 if (( rc != 0 )); then
   printf 'proveo-seed: proveo_seed exited %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
 fi

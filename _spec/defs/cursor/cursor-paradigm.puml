@@ -148,6 +148,13 @@ note bottom of VENDOR
   same guarantee was a run-time default — broker unless the
   operator had //explicitly// changed the mode flag — and
   that is the shape the removed ""main\.go"" prose described.
+
+  **On sbx the broker is native, not an interception.**
+  sbx's proxy attaches ""CURSOR_API_KEY"" itself, so on that
+  backend broker stands whether defaulted or named, the TLS
+  warning is reserved for docker-egress tiers, and the picker
+  keeps forward off with "cursor always brokers credentials
+  natively" on the broker option (operator decision 2026-09-29).
 end note
 
 note bottom of EP

@@ -94,6 +94,14 @@ note right of M
   read as a typo. The retired ""dind:"" / ""sandbox_docker:"" boolean
   keys are still PARSED for the same reason.
 
+  **""daemon: false"" splits the backend from the promise.**
+  ""docker: sbx"" used to mean both "runs in an sbx sandbox" and
+  "the agent gets a daemon". hermes is a general assistant, not a
+  coding agent, on an upstream base with no Docker Engine, so it
+  keeps the sandbox and withdraws the daemon (decided 2026-09-29).
+  ""WantsDocker"" is ""IsSbx"" minus that; the docker-access matrix
+  iterates ""WantsDocker"", the backend suites keep ""IsSbx"".
+
   **The promise is asserted for EVERY def that makes it, and
   there is now one way to assert it.** The e2e matrix
   (""TestEveryHarnessGetsTheDockerAccessItPromises"") is derived
@@ -210,7 +218,10 @@ note bottom of CAP
 
   * ""egress: [open]"" — cursor pins its TLS; every intercepting tier
     breaks it
-  * ""credentials: [forward]"" — nothing can be injected into that TLS
+  * ""credentials: [forward]"" — nothing proveo intercepts can inject into
+    that TLS. It is the docker-egress truth: on sbx the proxy brokers
+    cursor natively, so broker wins there (default or named) and the
+    picker keeps forward off, saying so on the broker option.
   * ""providers: [anthropic]"" — claudecode reads only its own key and
     OAuth token
 

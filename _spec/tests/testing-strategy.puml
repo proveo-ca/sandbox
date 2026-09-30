@@ -424,11 +424,16 @@ title Testing strategy — four layers, speed traded for fidelity
 ' reworded once, and that reword broke a test that waited on it.
 '
 ' ── TEARDOWN IS SHARED STATE ────────────────────────────────────────────────
-' `proveo clean --force` removes EVERY proveo container, so running it after each
-' test can tear down a sibling still coming up. forceCleanIfCrowded therefore only
-' sweeps once at least cleanThreshold = 10 containers carrying the
-' `proveo.egress.session` label have accumulated; below that the risk outweighs the
-' benefit and the suite-level clean handles it.
+' The suite used to call `proveo clean --force`, which removes EVERY proveo
+' container AND every per-run state dir under the operator's real
+' ~/.local/state/proveo/egress, live or not. On 2026-09-29 it deleted the
+' home-files dirs of two live operator sandboxes (proveo-claudecode-8abaedd2 and
+' -36915573), which sbx then refused to start ("workspace directory … no longer
+' exists on the host"). cleanLeftovers therefore runs `proveo clean` WITHOUT
+' --force, so anything that looks live — a sibling still coming up, or the
+' operator's run — is kept, under a throwaway PROVEO_EGRESS_ROOT, so no real
+' run's state dir is ever a candidate. cleanLeftoversIfCrowded still waits for
+' cleanThreshold = 10 `proveo.egress.session` containers before sweeping.
 '
 ' ── AND SANDBOXES ARE SHARED STATE NEITHER KEY SWEEPS ──────────────────────
 ' Measured 2026-09-15. This is the INTERACTION of two decisions, neither wrong on
@@ -447,8 +452,16 @@ title Testing strategy — four layers, speed traded for fidelity
 '
 ' `sweepSandboxesAfter` closes it, hooked into `harnessImage` so every case that
 ' resolves a harness gets it. Three properties, each deliberate:
-'   * it removes only names ABSENT when the test started, so an operator's own
-'     sandboxes and a sibling test's are left alone;
+'   * it removes only sandboxes the TEST could have made: absent when the test
+'     started AND with a primary workspace under the process temp root
+'     (sbxSandboxNames reads `sbx ls --json`). "Absent at start" alone was not
+'     ownership: on 2026-09-29 an operator started `proveo run` in
+'     ~/Projects/pluvo/worktrees/dev while TestGitIsWritableInEveryHarness ran,
+'     and its cleanup `sbx rm --force`d proveo-claudecode-1b3fcb7f mid-session
+'     ("sandbox … was stopped"). And `sbx ls` was measured returning an EMPTY
+'     table with exit 0 under that load, which made every sandbox "new". A
+'     listing that fails skips the sweep; TestSweepNeverClaimsAnOperatorSandbox
+'     pins the ownership rule;
 '   * it is registered BEFORE the tmux session's Kill, because cleanups run LIFO
 '     and the session has to die before the VM underneath it;
 '   * its failures are IGNORED, since proveo's own teardown already removes most

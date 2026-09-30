@@ -70,8 +70,8 @@ func (p *Params) applyCapabilitiesAt(man manifest.Manifest, sandboxOn bool) erro
 	}
 	mode := p.credentialsOrDefault()
 	if !c.AllowsCredentials(mode) {
-		if sandboxOn && p.Credentials == "broker" && !p.CredsSet {
-			return nil
+		if sandboxOn && mode == "broker" {
+			return nil // sbx's proxy brokers natively; the capability list is the docker-egress truth
 		}
 		if p.CredsSet {
 			return fmt.Errorf("%s does not support --credentials %s (allowed: %s)",

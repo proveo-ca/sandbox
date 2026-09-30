@@ -18,6 +18,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: packages/lib/proveo-await-seed
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
+' covers: e2e/seed_ready_test.go
 '
 ' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
@@ -55,9 +56,70 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' and passed after a 60s sleep (measured 2026-09-23).
 ' Claude Code 2.1.277 reads AGENTS.md when a project has no CLAUDE.md, so the
 ' "@AGENTS.md" CLAUDE.md bridge is gone and the default ships as AGENTS.md.
-' proveo_seed_instructions runs as proveo_seed's first step: it copies the
-' default only into a workspace carrying neither file, then touches
+' proveo_seed_instructions copies the default only into a workspace carrying
+' neither file. proveo_release_agent touches
 ' /dev/shm/proveo-instructions-seeded (tmpfs, so every boot starts unmarked).
+'
+' ── THE RELEASE POINT: AFTER CONFIG, BEFORE INSTALLS ───────────────────────
+' Until 2026-09-29 the marker was written by the instructions step, the first
+' one, so everything after it raced the agent. Claude Code reads
+' ~/.claude/agents, plugins, hooks and settings ONCE, at startup. Measured on
+' proveo-claudecode-8abaedd2: boot 16:07:02, release 16:07:25, plugins
+' 16:07:33, settings.json 16:07:34 — and the session printed "Plugins changed.
+' Run /reload-plugins to activate." A fresh sandbox got its subagents after
+' the release too, and the agent reported adversarial-reviewer "isn't
+' registered as a subagent type in this session".
+'
+' So proveo_seed now runs, in order:
+'   clone checkout → clone .env → instructions → known hosts → state/config
+'   restore → git-sync hooks → subagents → trust → wire_config → house rules →
+'   UI defaults → claude hooks → browser skills → RELEASE → tools restore →
+'   toolchain, deps, LSP binaries → wire_config again.
+' Installs stay after the release because a monorepo's are measured in tens
+' of seconds to minutes, and the agent should not wait on them.
+' wire_config runs TWICE because LSP plugins enable only once their server
+' binary exists: the first pass registers the servers the image bakes
+' (typescript-language-server, pyright-langserver), the second the ones the
+' toolchain step installed. A server installed per project is therefore still
+' registered after startup — the price of not waiting on its install.
+' proveo-seed releases the agent even when proveo_seed fails, so a seed miss
+' costs the agent its setup, never the full PROVEO_INSTRUCTIONS_WAIT.
+' Moving wire_config ahead of the release exposed a bare $CODEX_HOME in
+' configure_codex_lsp: the Kit never exports it (only codex's entrypoint does),
+' and proveo-seed runs under `set -euo pipefail`, so "CODEX_HOME: unbound
+' variable" ended the WHOLE seed — no house rules, no snapshot, no installs.
+' The same e2e caught the first wiring pass missing every npm-baked server.
+' sbx starts each kit step through `su`, and Debian's su resets PATH to
+' /usr/local/sbin:…:/bin, dropping /usr/local/share/npm-global/bin,
+' ~/.local/bin and /opt/proveo/shims — so typescript-language-server and
+' pyright-langserver were invisible until the toolchain step re-exported PATH.
+' proveo-seed now calls proveo_restore_image_path first: PID 1 is the image
+' entrypoint started with the image ENV, so /proc/1/environ holds its PATH; when
+' that is unreadable (a root PID 1) the known image dirs stand in.
+'
+' It defaults to the agent home now, and TestEverySeedSurvivesAnUnsetHarnessHome
+' runs every harness's seed with no harness home exported and a stub LSP bridge
+' on PATH, because each wiring function returns early without one.
+' opencode and hermes used to wait on the HOOKS marker, set before subagents
+' and LSP config, because the release was once the first step; they now wait
+' on the release like claudecode.
+'
+' proveo_release_agent SNAPSHOTS, into /dev/shm/proveo-release-snapshot, the
+' files its harness reads once at startup (_proveo_release_paths: subagents and
+' LSP/plugin wiring) before it writes the marker. The second wire_config pass
+' rewrites those files after the release, so only the snapshot can say what the
+' agent actually saw. proveo-seed marks /dev/shm/proveo-seed-done when the whole
+' seed is over, and releases the agent itself only if the seed never did.
+'
+' e2e/seed_ready_test.go (TestSeedReleasesEveryHarnessReady) drives every sbx
+' harness on a fresh clone under the DEFAULT broker credentials and asserts,
+' per a readySpecs row (a missing row fails): the snapshot holds its subagents
+' and names a baked LSP server; the harness itself lists adversarial-reviewer
+' where an offline listing exists (claude's stream-json init event, `opencode
+' agent list`); the clone's .env is linked, read-only and stripped of provider
+' keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
+' own toolchain step — is on PATH and wired. codex, cursor and cecli have no
+' offline registration listing, so their row asserts the files only.
 ' The wait lives in the image because sbx offers no launch gate: a
 ' /opt/proveo/shims/claude shim ahead on PATH, and /etc/bash.bashrc for the
 ' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND

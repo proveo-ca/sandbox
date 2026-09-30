@@ -9,6 +9,27 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' covers: defs/hermes/harness.manifest
 ' covers: internal/contract/hermes_providers_test.go
 '
+' ── WHAT sbx ASSUMES OF AN IMAGE, AND WHAT HERMES WAS MISSING ──────────────
+' Every other def descends from the sbx shell-docker template, which carries a
+' user named `agent` at uid 1000 and a Docker Engine. hermes descends from its
+' upstream image instead, and sbx runs every kit startup step and its clone as
+' `agent`: with uid 1000 named only `hermes`, `su agent` failed, the clone never
+' ran, and the agent sat in an empty root-owned workspace (measured
+' 2026-09-29: "su: user agent does not exist", commit "none"). uid 1000 now
+' answers to `agent` as well, with /home/agent; hermes keeps /opt/data.
+' The Engine it does not get: `daemon: false` in the manifest withdraws the
+' promise, because hermes is not a coding agent (operator decision).
+' For the same reason the manifest declares `kind: assistant`: the Spec hands
+' the seed PROVEO_AGENT_KIND=assistant, and proveo_seed skips the tools restore,
+' the toolchain, dependency-tree and language-server installs, and the second
+' wiring pass. hermes renders no subagents and wires no LSP either. Its
+' workspace still arrives as a clone with its .env and relinked symlinks.
+'
+' sbx also REPLACES a Kit entrypoint's part after `--` with a run's trailing
+' args, so `-- chat -q …` reached dumb-init as the program ("[dumb-init] chat:
+' No such file or directory"). sandbox.OwnAgentCommand puts the entrypoint
+' script back in front of them.
+'
 ' ── WHY HERMES AND NOT xAI's "grok-bot" ─────────────────────────────────────
 ' This def was cut on a branch originally scoped for an xAI "grok-bot"
 ' integration. Research found neither xAI product fit: Grok Bot (the cloud

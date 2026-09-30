@@ -34,7 +34,7 @@ func TestReviewTierConsentGate(t *testing.T) {
 	sess := tmux.New(fmt.Sprintf("proveo-review-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceClean(proveoBin)
+		cleanLeftovers(proveoBin)
 	})
 
 	cmd := []string{"env"}

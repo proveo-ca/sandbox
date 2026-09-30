@@ -104,13 +104,13 @@ func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
 
 	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
 
-	forceClean(proveoBin)
+	cleanLeftovers(proveoBin)
 	beforeEgress := containersWithSuffix("-egress")
 	beforeAgent := dockerIDsByAncestor("ubuntu:24.04")
 	sess := tmux.New(fmt.Sprintf("proveo-dotenv-%s-%d", target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceCleanIfCrowded(proveoBin)
+		cleanLeftoversIfCrowded(proveoBin)
 	})
 
 	cmd := []string{"env"}
@@ -227,13 +227,13 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	}
 
 	work := t.TempDir()
-	forceClean(proveoBin)
+	cleanLeftovers(proveoBin)
 	before := containersWithSuffix("-egress")
 
 	sess := tmux.New(fmt.Sprintf("proveo-cred-egress-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
-		forceCleanIfCrowded(proveoBin)
+		cleanLeftoversIfCrowded(proveoBin)
 		if ref, ok := anyImagePresent(t, "proveo/claudecode"); ok {
 			rmByAncestor(ref)
 		}
@@ -266,21 +266,30 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Logf("egress broker.env verified for %d provider keys, byte-for-byte", len(keys))
 }
 
-// TestCursorEgressException asserts the cursor exception, now expressed as
-// declared capabilities rather than a target-name special case: cursor's
-// manifest pins egress:[open] credentials:[forward] because its vendor TLS
-// cannot be intercepted.
+// TestCursorEgressException asserts the cursor exception, expressed as declared
+// capabilities rather than a target-name special case: cursor's manifest pins
+// egress:[open] credentials:[forward] because an intercepting tier cannot carry
+// its pinned TLS — and on sbx the proxy brokers it natively instead.
 func TestCursorEgressException(t *testing.T) {
 	proveoBin := buildProveo(t)
 
-	// Default → open + forward: real key forwarded, no sentinel, no internal net.
+	// Default on sbx → broker: sbx's proxy attaches the key natively, so it goes
+	// to sbx's secret store and never rides argv (decided 2026-09-29).
+	// Default on docker → open + forward: an intercepting broker breaks cursor's
+	// pinned TLS, so the real key is forwarded, no sentinel, no internal net.
 	def := runPrint(t, proveoBin, "cursor")
 	defCmd := agentCommandLine(t, def)
 	if strings.Contains(defCmd, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
-		t.Error("cursor default should forward the REAL key, not hand the agent the sentinel")
+		t.Error("cursor default must never hand the agent the sentinel")
 	}
-	if !hasBareEnv(defCmd, "CURSOR_API_KEY") {
-		t.Errorf("cursor default should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
+	onSbx := strings.Contains(def, "backend: docker sandboxes (sbx)")
+	switch {
+	case onSbx && hasBareEnv(defCmd, "CURSOR_API_KEY"):
+		t.Errorf("cursor on sbx brokers natively — the key belongs in sbx's secret store, not a bare -e:\n%s", defCmd)
+	case onSbx && !strings.Contains(def, "secret store first: CURSOR_API_KEY"):
+		t.Errorf("cursor on sbx must name CURSOR_API_KEY for sbx's secret store:\n%s", def)
+	case !onSbx && !hasBareEnv(defCmd, "CURSOR_API_KEY"):
+		t.Errorf("cursor default on docker should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
 	}
 	if strings.Contains(defCmd, "--internal") {
 		t.Error("cursor default must not run behind an --internal network: nothing can intercept its TLS")
@@ -293,7 +302,6 @@ func TestCursorEgressException(t *testing.T) {
 	for _, tc := range []struct{ flag, value, want string }{
 		{"--egress-mode", "allowlist", "does not support --egress-mode allowlist (allowed: open)"},
 		{"--egress-mode", "review", "does not support --egress-mode review (allowed: open)"},
-		{"--credentials", "broker", "does not support --credentials broker (allowed: forward)"},
 	} {
 		out, err := runPrintErr(t, proveoBin, "cursor", tc.flag, tc.value)
 		if err == nil {
@@ -466,16 +474,28 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(wd, "..")
 }
 
-func forceClean(proveoBin string) { _ = exec.Command(proveoBin, "clean", "--force").Run() }
+// cleanLeftovers removes what earlier tests left behind and nothing live: no
+// --force, so an operator's in-progress run keeps its containers, and a
+// throwaway PROVEO_EGRESS_ROOT, so no real run's state dir is ever a candidate.
+func cleanLeftovers(proveoBin string) {
+	root, err := os.MkdirTemp("", "proveo-e2e-clean-")
+	if err != nil {
+		return
+	}
+	defer os.RemoveAll(root)
+	cmd := exec.Command(proveoBin, "clean")
+	cmd.Env = append(os.Environ(), "PROVEO_EGRESS_ROOT="+root)
+	_ = cmd.Run()
+}
 
 const cleanThreshold = 10
 
-func forceCleanIfCrowded(proveoBin string) {
+func cleanLeftoversIfCrowded(proveoBin string) {
 	out, err := exec.Command("docker", "ps", "-aq", "--filter", "label=proveo.egress.session").Output()
 	if err != nil || len(strings.Fields(string(out))) < cleanThreshold {
 		return
 	}
-	forceClean(proveoBin)
+	cleanLeftovers(proveoBin)
 }
 
 func rmByAncestor(image string) {

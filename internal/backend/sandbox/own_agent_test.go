@@ -142,13 +142,15 @@ func TestShellFlagStillWinsOverTheGate(t *testing.T) {
 	}
 }
 
-// Extras reach the image's ENTRYPOINT as "$@" — bare words, the way the docker
-// backend passes them — because there is no bash to reinterpret them.
+// Extras reach the entrypoint script as "$@", bare words, the way the docker
+// backend passes them. sbx REPLACES the Kit entrypoint's part after `--` with
+// trailing args (measured 2026-09-29: `-- /bin/echo X` printed X and no
+// entrypoint banner), so the script has to lead them.
 func TestOwnAgentPassesExtrasThrough(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	cfg, _ := specFor(t, "cecli", "--version")
-	if len(cfg.Command) != 1 || cfg.Command[0] != "--version" {
-		t.Errorf("command = %v, want the extras verbatim", cfg.Command)
+	if n := len(cfg.Command); n < 2 || cfg.Command[n-1] != "--version" || cfg.Command[n-2] == "--version" {
+		t.Errorf("command = %v, want the entrypoint script, then the extras verbatim", cfg.Command)
 	}
 }
 

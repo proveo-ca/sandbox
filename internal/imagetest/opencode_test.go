@@ -27,6 +27,10 @@ func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) im
 	return imagetest.Docker(timeout, env, append([]string{"run", "--rm", "--name", name}, args...)...)
 }
 
+// ocNoInstalls keeps the config checks off the network: a markdown fixture made
+// the seed download marksman, and that alone outran the 30s budget.
+var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
+
 func ocWrite(t *testing.T, path, body string, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -188,7 +192,7 @@ func ocConfig(s *imagetest.Suite) {
 	mount := fixture + ":/app"
 
 	s.Check("entrypoint detects opencode.json + AGENTS.md + .env", func(t *testing.T) {
-		r := ocRun(t, 30*time.Second, nil, "-v", mount, "--entrypoint", "/entrypoint.sh", img, "--version")
+		r := ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "/entrypoint.sh", img, "--version")...)
 		for _, want := range []string{"Found opencode.json", "Found AGENTS.md", "Loaded environment variables from .env"} {
 			if !strings.Contains(r.Out, want) {
 				t.Errorf("entrypoint detects config (missing %q; output: %s)", want, ocClip(r.Out, 300))
@@ -206,8 +210,8 @@ if [[ "${1:-}" == "--version" ]]; then
 fi
 `, 0o755)
 	fakeRun := func(t *testing.T) string {
-		return ocRun(t, 30*time.Second, nil, "-v", mount, "--entrypoint", "bash", img, "-c",
-			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`).Out
+		return ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "bash", img, "-c",
+			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`)...).Out
 	}
 
 	// SPEC: _spec/_plans/retire-model-bridging.puml
@@ -232,7 +236,7 @@ fi
 	})
 
 	s.Check("entrypoint forwards args to opencode (--version)", func(t *testing.T) {
-		r := ocRun(t, 30*time.Second, nil, img, "--version")
+		r := ocRun(t, 30*time.Second, nil, append(ocNoInstalls, img, "--version")...)
 		if !regexp.MustCompile(`[0-9]+\.[0-9]+`).MatchString(r.Out) {
 			t.Errorf("entrypoint forwards args (output: %s)", ocClip(r.Out, 300))
 		}

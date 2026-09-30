@@ -774,6 +774,38 @@ func WriteBrokerEnv(dir string, lookup func(string) string) (string, error) {
 	return path, nil
 }
 
+// StageProjectEnv copies src to dir/.env (0600), dropping the lines that set a
+// name in strip, and returns the staged path and the names it dropped.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func StageProjectEnv(src, dir string, strip []string) (string, []string, error) {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return "", nil, err
+	}
+	drop := map[string]bool{}
+	for _, n := range strip {
+		drop[n] = true
+	}
+	var out strings.Builder
+	var dropped []string
+	for _, line := range strings.SplitAfter(string(b), "\n") {
+		name, _, ok := strings.Cut(strings.TrimPrefix(strings.TrimSpace(line), "export "), "=")
+		if ok && drop[strings.TrimSpace(name)] {
+			dropped = append(dropped, strings.TrimSpace(name))
+			continue
+		}
+		out.WriteString(line)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte(out.String()), 0o600); err != nil {
+		return "", nil, err
+	}
+	return path, dropped, nil
+}
+
 func ProviderLookup(envFile string) func(string) string {
 	return ProviderLookupWith(envFile, &secretref.Resolver{
 		Getenv: os.Getenv,

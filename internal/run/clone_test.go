@@ -34,6 +34,7 @@ func linkedWorktree(t *testing.T) (mainRepo, wt string) {
 	write(t, filepath.Join(mainRepo, ".git", "worktrees", "wt", "commondir"), "../..\n")
 	mkdir(t, wt)
 	write(t, filepath.Join(wt, ".git"), "gitdir: "+filepath.Join(mainRepo, ".git", "worktrees", "wt")+"\n")
+	write(t, filepath.Join(mainRepo, ".git", "worktrees", "wt", "HEAD"), "ref: refs/heads/feat\n")
 	return mainRepo, wt
 }
 
@@ -51,6 +52,8 @@ func TestDecideCloneDefaultsToACloneOnlyWhereSbxCanMakeOne(t *testing.T) {
 	repo := t.TempDir()
 	mkdir(t, filepath.Join(repo, ".git"))
 	mainRepo, wt := linkedWorktree(t)
+	badMain, badWt := linkedWorktree(t)
+	write(t, filepath.Join(badMain, ".git", "worktrees", "wt", "HEAD"), "ref: refs/remotes/origin/x\n")
 
 	cases := []struct {
 		name    string
@@ -74,11 +77,15 @@ func TestDecideCloneDefaultsToACloneOnlyWhereSbxCanMakeOne(t *testing.T) {
 			ws: workspace.MountSpec{InputDir: t.TempDir()}, on: false, whyHas: "not a git repository"},
 		{name: "no repository: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: true,
 			ws: workspace.MountSpec{InputDir: t.TempDir()}, errHas: "needs a git repository"},
-		{name: "linked worktree: default falls back", p: Params{Clone: true}, sbx: true,
-			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, on: false, whyHas: "linked git worktree",
-			explain: "sbx documents clone mode for the main worktree only — " + mainRepo},
-		{name: "linked worktree: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: true,
-			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, errHas: "linked git worktree"},
+		{name: "linked worktree on a branch clones through the main worktree", p: Params{Clone: true}, sbx: true,
+			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, on: true,
+			explain: "a mounted worktree hands its host-built trees to a Linux install — " + mainRepo},
+		{name: "linked worktree: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true}, sbx: true,
+			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, on: true},
+		{name: "unclonable worktree: default falls back and says why", p: Params{Clone: true}, sbx: true,
+			ws: workspace.MountSpec{RepoRoot: badWt, InputDir: badWt}, on: false, whyHas: "linked git worktree"},
+		{name: "unclonable worktree: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: true,
+			ws: workspace.MountSpec{RepoRoot: badWt, InputDir: badWt}, errHas: "cannot clone the linked git worktree"},
 		{name: "monorepo sub-scope: default falls back", p: Params{Clone: true}, sbx: true,
 			ws: workspace.MountSpec{RepoRoot: repo, InputDir: filepath.Join(repo, "apps", "web")}, on: false, whyHas: "sub-scope"},
 		{name: "monorepo sub-scope: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true}, sbx: true,

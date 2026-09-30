@@ -315,31 +315,17 @@ func sweepSandboxesAfter(t *testing.T) {
 	if _, already := sweptTests.LoadOrStore(t.Name(), true); already {
 		return
 	}
-	before := sandboxNamesNow()
+	before, ok := sbxSandboxNames()
 	t.Cleanup(func() {
 		sweptTests.Delete(t.Name())
-		for name := range sandboxNamesNow() {
-			if !before[name] {
-				_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
-			}
+		if !ok {
+			t.Logf("sweep skipped: `sbx ls` failed when %s started, so nothing proves which sandboxes it made", t.Name())
+			return
+		}
+		for _, name := range newSandboxes(before) {
+			_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
 		}
 	})
 }
 
 var sweptTests sync.Map
-
-func sandboxNamesNow() map[string]bool {
-	out, err := exec.Command(sbx.Binary, "ls").Output()
-	if err != nil {
-		return nil
-	}
-	names := map[string]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 2 || !strings.HasPrefix(f[0], sbx.NamePrefix) {
-			continue
-		}
-		names[f[0]] = true
-	}
-	return names
-}

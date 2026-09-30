@@ -3,6 +3,11 @@
 skinparam noteTextAlignment left
 title git-sync-turn — commit and push before Stop / idle
 ' purpose: why a turn may not return until the tree is committed and pushed
+'
+' A failed `git add` names git's own first "error:" line in the block reason.
+' A bare "git add failed" (seen 2026-09-29 in proveo-claudecode-1b3fcb7f, whose
+' clone and trace were gone with the sandbox) left the agent guessing at a
+' cause the hook had in hand. TestGitSyncNamesWhyGitAddFailed pins it.
 ' covers: packages/lib/hooks/git-sync-turn.sh
 ' covers: packages/lib/hooks/proveo-git-sync-turn.js
 ' covers: packages/lib/entrypoint-lib.sh
@@ -71,24 +76,28 @@ end note
 
 note as N_MSG
   **Subject asks the smallest model.** Static
-  "persist turn" repeated every commit. Now
-  the diff goes to claude/codex/cursor-agent/
-  opencode's cheapest model (env override per
-  PROVEO_GIT_SYNC_MODEL_*); any failure keeps
-  "persist turn". PROVEO_GIT_SYNC_MSG=off
-  skips the call, commit still happens.
-  Cursor has no verified small-model id —
-  unset PROVEO_GIT_SYNC_MODEL_CURSOR = skip.
+  "persist turn" repeated every commit; now the
+  diff goes to the harness's cheapest model.
+  Any failure keeps "persist turn".
+end note
+
+note as N_MSG_KNOBS
+  PROVEO_GIT_SYNC_MODEL_* overrides the model;
+  PROVEO_GIT_SYNC_MSG=off skips the call and the
+  commit still happens. Cursor has no verified
+  small-model id: unset MODEL_CURSOR = skip.
 end note
 
 note as N_RECURSE
   **The CLI it calls can re-fire this hook.**
   claude -p / codex exec / cursor-agent -p /
-  opencode run share the same home config as
-  the live session, Stop hooks included — a
-  naive call would recurse. PROVEO_GIT_SYNC_
-  MSG_INFLIGHT=1 is set on the child and
-  checked first thing on script entry.
+  opencode run share the live session's Stop
+  hooks, so a naive call would recurse.
+end note
+
+note as N_INFLIGHT
+  PROVEO_GIT_SYNC_MSG_INFLIGHT=1 is set on the
+  child and checked first thing on entry.
 end note
 
 note bottom of OC

@@ -3,6 +3,10 @@ name: hermes
 description: Hermes Agent (NousResearch) — general-purpose assistant with native browser automation
 egress: true
 docker: sbx
+# hermes is a general assistant, not a coding agent: it runs in an sbx sandbox
+# but its agent is promised no Docker daemon, and its upstream base ships none.
+daemon: false
+kind: assistant
 stability: candidate
 images:
   hermes: proveo/hermes:latest

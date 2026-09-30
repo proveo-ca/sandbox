@@ -123,7 +123,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return
 	}
-	if wd := FirstHost(cfg.Mounts); wd != "" {
+	if wd := agentWorkdir(in, cfg.Mounts); wd != "" {
 		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
 		}
@@ -157,7 +157,7 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 		return false
 	default:
 		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
-		for _, l := range CloneRescueLines(cfg.Name, in.Sid, FirstHost(cfg.Mounts), in.RepoRoot) {
+		for _, l := range CloneRescueLines(cfg.Name, in.Sid, agentWorkdir(in, cfg.Mounts), in.RepoRoot) {
 			ui.Notef("%s", l)
 		}
 		return false
@@ -184,7 +184,7 @@ func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
 }
 
 func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
-	wd := FirstHost(cfg.Mounts)
+	wd := agentWorkdir(in, cfg.Mounts)
 	if wd == "" {
 		return -1, "", errors.New("no workspace mount to bundle from")
 	}
@@ -247,7 +247,7 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 
 func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
 	rel, ok := nestedRel(in.RepoRoot, in.OutputDir)
-	wd := FirstHost(cfg.Mounts)
+	wd := agentWorkdir(in, cfg.Mounts)
 	if !ok || wd == "" {
 		return
 	}
@@ -354,6 +354,79 @@ func cdpPublish(in Input) []string {
 	return []string{fmt.Sprintf("%d:%d", in.CDPHostPort, sbx.CDPRelayPort)}
 }
 
+// CloneRefVar names the ref the seed checks out in a worktree's clone.
+const CloneRefVar = "PROVEO_CLONE_REF"
+
+// CloneMainVar names the clone a linked worktree is added to inside the VM.
+const CloneMainVar = "PROVEO_CLONE_MAIN"
+
+// agentWorkdir is where the agent works: the linked worktree's own path in a
+// worktree clone, else the primary workspace.
+func agentWorkdir(in Input, mounts []sbx.Mount) string {
+	if worktreeClone(in) {
+		return realPath(in.RepoRoot)
+	}
+	return FirstHost(mounts)
+}
+
+// realPath is a host path as sbx mounts it inside the VM: symlinks resolved.
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+// CloneLinksVar carries rel=target pairs, '|'-separated, the seed recreates in a clone.
+const CloneLinksVar = "PROVEO_CLONE_LINKS"
+
+// cloneLinks lists the mounted escaping symlinks a clone lacks when git ignores them.
+func cloneLinks(in Input) string {
+	if !in.Clone {
+		return ""
+	}
+	var pairs []string
+	for _, l := range in.Links {
+		if l.Action != workspace.LinkMounted || strings.ContainsAny(l.Rel+l.Target, "|=") {
+			continue
+		}
+		pairs = append(pairs, l.Rel+"="+l.Target)
+	}
+	return strings.Join(pairs, "|")
+}
+
+// CloneEnvVar names the staged .env the seed links into a clone.
+const CloneEnvVar = "PROVEO_CLONE_ENV"
+
+func worktreeClone(in Input) bool { return in.Clone && in.CloneSource.Main != "" }
+
+// cloneThroughMain makes the main worktree the primary workspace and drops the
+// linked worktree's own bind; the worktree-nested output dir stays for SplitNested.
+func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
+	out := []sbx.Mount{{Host: in.CloneSource.Main}}
+	for _, m := range mounts {
+		host := filepath.Clean(m.Host)
+		if host == filepath.Clean(in.RepoRoot) || host == filepath.Clean(in.CloneSource.Main) ||
+			m.Container == workspace.ContainerGitCommonDir {
+			continue
+		}
+		if _, nested := nestedRel(in.CloneSource.Main, m.Host); nested {
+			ui.Warnf("clone: %s is inside the main worktree and cannot be mounted into a clone — read it from the clone instead", m.Host)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// sandboxKey is the workspace a sandbox name is derived from.
+func sandboxKey(in Input, mounts []sbx.Mount) string {
+	if worktreeClone(in) {
+		return in.RepoRoot
+	}
+	return FirstHost(WorkspaceBinds(mounts))
+}
+
 func SplitNested(root string, mounts []sbx.Mount) (kept, nested []sbx.Mount) {
 	for _, m := range mounts {
 		if _, ok := nestedRel(root, m.Host); ok {
@@ -389,7 +462,7 @@ func KeptLines(name, runLog string) []string {
 }
 
 func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
-	name, workdir := strings.TrimSpace(cfg.Name), FirstHost(cfg.Mounts)
+	name, workdir := strings.TrimSpace(cfg.Name), agentWorkdir(in, cfg.Mounts)
 	if name == "" || workdir == "" {
 		return nil
 	}
@@ -512,6 +585,9 @@ type Input struct {
 	BridgeEnv        []string
 	ScopeRel         string
 	WorktreeFallback bool
+	CloneSource      workspace.WorktreeSource // a linked worktree cloned through its main worktree
+	CloneEnv         string                   // staged project .env, mounted read-only for the seed to link
+	Links            []workspace.Link         // escaping symlinks the plan resolved; a clone recreates the mounted ones
 	WorktreeEnv      []string
 	DataDir          string
 	Memory           string
@@ -666,8 +742,20 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.ScopeRel != "" {
 		env = append(env, "PROVEO_SCOPE_REL="+in.ScopeRel)
 	}
-	if in.WorktreeFallback {
+	if in.Man.IsAssistant() {
+		env = append(env, "PROVEO_AGENT_KIND="+manifest.KindAssistant)
+	}
+	if in.WorktreeFallback && !worktreeClone(in) {
 		env = append(env, in.WorktreeEnv...)
+	}
+	if worktreeClone(in) {
+		env = append(env, CloneRefVar+"="+in.CloneSource.Ref, CloneMainVar+"="+realPath(in.CloneSource.Main))
+	}
+	if in.Clone && in.CloneEnv != "" {
+		env = append(env, CloneEnvVar+"="+in.CloneEnv)
+	}
+	if v := cloneLinks(in); v != "" {
+		env = append(env, CloneLinksVar+"="+v)
 	}
 
 	var mounts, homeSourceMounts []sbx.Mount
@@ -683,8 +771,16 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	for _, m := range in.HomeAccess.Mounts {
 		mounts = append(mounts, sbx.Mount{Host: m.Host, Container: m.Container, ReadOnly: m.ReadOnly})
 	}
+	if dir := scopedIndexDir(in); dir != "" && len(in.HomeAccess.Mounts) > 0 {
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			mounts = append(mounts, sbx.Mount{Host: dir})
+		}
+	}
 	if in.DataDir != "" {
 		mounts = append(mounts, sbx.Mount{Host: in.DataDir, Container: "/workspace/data", ReadOnly: true})
+	}
+	if worktreeClone(in) {
+		mounts = cloneThroughMain(in, mounts)
 	}
 	if in.Clone && in.RepoRoot != "" {
 		var nested []sbx.Mount
@@ -697,6 +793,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			}
 			ui.Warnf("clone: %s is inside the repository and cannot be mounted into a clone — read it from the clone instead", m.Host)
 		}
+	}
+	if in.Clone && in.CloneEnv != "" {
+		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv), ReadOnly: true})
 	}
 
 	harness := Harness(in)
@@ -717,14 +816,14 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 			in.Image, harness)
 	}
 	if ownAgent {
-		agent, command = sbx.AgentName(harness), in.Extra
+		agent, command = sbx.AgentName(harness), OwnAgentCommand(entrypoint, in.Extra)
 	}
 	if in.Shell {
 		command, agent = nil, sbx.ShellAgent
 	}
 	command = withChromeFlag(agent, in.BridgeEnv, command)
 	cfg := sbx.RunConfig{
-		Name:    sbx.SandboxName(in.Target, FirstHost(WorkspaceBinds(mounts))),
+		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
 		Image:   in.Image,
 		Memory:  in.Memory,
@@ -760,7 +859,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
 		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
 		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
-		Setup:         &sbx.KitSetup{Startup: startupCommands(in.Target, ownAgent)},
+		Setup:         &sbx.KitSetup{Startup: startupCommands(in, ownAgent)},
 	}
 	if ownAgent {
 		kit.Kind = "sandbox"
@@ -771,6 +870,21 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		kit.Credentials = creds
 	}
 	return cfg, kit, secrets
+}
+
+// OwnAgentCommand is an own-agent Kit's trailing command. sbx replaces the
+// entrypoint's part after `--` with trailing args, so that part leads them.
+// SPEC: _spec/internal/sbx/sbx-kit-contract.puml
+func OwnAgentCommand(entrypoint, extra []string) []string {
+	if len(extra) == 0 {
+		return extra
+	}
+	for i, a := range entrypoint {
+		if a == "--" && i+1 < len(entrypoint) {
+			return append(append([]string{}, entrypoint[i+1:]...), extra...)
+		}
+	}
+	return extra
 }
 
 // MCPGatewayVar is the variable sbx's built-in agent kits gate their MCP
@@ -1239,9 +1353,14 @@ func proxyOnlyVar(name string) bool {
 	return false
 }
 
-// startupCommands is the seed, plus the def's own entrypoint for a mixin kit.
-func startupCommands(target string, ownAgent bool) []sbx.KitCommand {
-	cmds := []sbx.KitCommand{sbx.SeedCommand(target)}
+// startupCommands is the seed, plus the def's own entrypoint for a mixin kit;
+// a worktree clone first gets its worktree directory.
+func startupCommands(in Input, ownAgent bool) []sbx.KitCommand {
+	var cmds []sbx.KitCommand
+	if worktreeClone(in) {
+		cmds = append(cmds, sbx.WorktreeDirCommand(agentWorkdir(in, nil)))
+	}
+	cmds = append(cmds, sbx.SeedCommand(in.Target))
 	if !ownAgent {
 		cmds = append(cmds, sbx.SeedEntrypointCommand())
 	}
@@ -1313,16 +1432,37 @@ func envValue(env []string, key string) string {
 // scopedGitIndexEnv hides the repository paths a subproject scope does not
 // mount, so `git status` in the sandbox does not report them as deleted.
 // scopedGitIndexEnv names a host-built index that hides the repository paths a scope does not mount.
-func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
+// scopedIndexDir is where a sub-scope's private git index lives on the host,
+// under the proveo home; a narrowed home mounts it on its own.
+func scopedIndexDir(in Input) string {
 	if in.ScopeRel == "" || in.RepoRoot == "" || in.Sid == "" {
-		return nil
+		return ""
 	}
-	home := stateHomeHost(binds)
+	home := in.HomeRoot
+	if home == "" {
+		home = stateHomeHost(homeBinds(in.Mounts))
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "git-index")
+}
+
+func homeBinds(mounts []runner.Mount) []sbx.Mount {
+	var out []sbx.Mount
+	for _, m := range mounts {
+		out = append(out, sbx.Mount{Host: m.Host, Container: m.Container})
+	}
+	return out
+}
+
+func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
+	dir := scopedIndexDir(in)
 	src := filepath.Join(in.RepoRoot, ".git", "index")
-	if home == "" || !exists(src) {
+	if dir == "" || !exists(src) {
 		return nil
 	}
-	dst := filepath.Join(home, "git-index", in.Sid)
+	dst := filepath.Join(dir, in.Sid)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil
 	}
@@ -1396,8 +1536,12 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 	binds := WorkspaceBinds(mounts)
 	out := append([]string{}, env...)
 	out = append(out, sandboxAgentEnv(in.AgentEnv)...)
-	out = append(out, "PROVEO_WORKDIR="+FirstHost(binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1")
-	out = append(out, gitSafeDirectoryEnv(in.RepoRoot)...)
+	out = append(out, "PROVEO_WORKDIR="+agentWorkdir(in, binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1")
+	if worktreeClone(in) {
+		out = append(out, gitSafeDirectoryEnv(in.CloneSource.Main)...)
+	} else {
+		out = append(out, gitSafeDirectoryEnv(in.RepoRoot)...)
+	}
 	out = append(out, launchConfigEnv(agent, in.AgentEnv)...)
 	out = append(out, scopedGitIndexEnv(in, binds)...)
 	return out

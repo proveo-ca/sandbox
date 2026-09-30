@@ -194,7 +194,7 @@ excludes=(
   ':(exclude,glob)**/id_ed25519'
 )
 if ! git add -A -- . "${excludes[@]}" >/dev/null 2>&1; then
-  git add -A -- . >/dev/null 2>&1 || fail "git add failed"
+  add_err="$(git add -A -- . 2>&1 >/dev/null)" || fail "git add failed: $( { printf '%s\n' "$add_err" | grep -m1 '^error:'; } || printf '%s\n' "$add_err" | grep -v '^hint:' | tail -n 1)"
   git reset -q -- '.env' '.env.*' '*.pem' '*.key' 'credentials.json' 'auth.json' 'id_rsa' 'id_ed25519' >/dev/null 2>&1 || true
 fi
 

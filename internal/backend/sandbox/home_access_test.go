@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -146,5 +147,57 @@ func TestSpecReplacesTheWholeProveoHomeWithNarrowBinds(t *testing.T) {
 	joined := strings.Join(cfg.Env, "\n")
 	if !strings.Contains(joined, sbx.StateHomeVar+"="+root) {
 		t.Errorf("state sync lost the host root while narrowing mounts:\n%s", joined)
+	}
+}
+
+func TestSpecCarriesTheScopedIndexThroughANarrowedHome(t *testing.T) {
+	t.Parallel()
+	root, runDir := t.TempDir(), t.TempDir()
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a"}} {
+		if args[0] == "add" {
+			for _, f := range []string{"apps/web/a.ts", "packages/lib/b.ts"} {
+				if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(f)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	h := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: ".config/opencode", Container: "/proveo-home/.config/opencode"}}}
+	a, err := PrepareHomeAccess(root, runDir, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Cleanup()
+	cfg, _, _ := Spec(Input{
+		Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h},
+		Sid: "proveo-1-2", EgDir: runDir, Lookup: func(string) string { return "" },
+		RepoRoot: repo, ScopeRel: "apps/web",
+		Mounts: []runner.Mount{
+			{Host: filepath.Join(repo, "apps", "web"), Container: "/app/apps/web"},
+			{Host: root, Container: "/proveo-home"},
+		},
+		HomeRoot: root, HomeAccess: a,
+	})
+	dir := filepath.Join(root, "git-index")
+	var mounted bool
+	for _, m := range cfg.Mounts {
+		mounted = mounted || m.Host == dir
+	}
+	env := strings.Join(cfg.Env, "\n")
+	if !mounted || !strings.Contains(env, "GIT_INDEX_FILE="+filepath.Join(dir, "proveo-1-2")) {
+		t.Fatalf("the scoped index is not reachable in the sandbox (mounted=%v) — git reads every unmounted path as deleted:\n%s", mounted, env)
+	}
+	idx := exec.Command("git", "-C", repo, "ls-files", "-v")
+	idx.Env = append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(dir, "proveo-1-2"))
+	b, _ := idx.Output()
+	if !strings.Contains(string(b), "S packages/lib/b.ts") || strings.Contains(string(b), "S apps/web/a.ts") {
+		t.Errorf("the scoped index must hide only unmounted paths:\n%s", b)
 	}
 }

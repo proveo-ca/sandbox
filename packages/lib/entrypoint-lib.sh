@@ -2014,7 +2014,8 @@ _codex_toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 
 configure_codex_lsp() {
   command -v mcp-language-server >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}"
-  local cfg="$CODEX_HOME/config.toml" langs=() block="" line lang server i n
+  local codex_home="${CODEX_HOME:-$(_proveo_agent_home)/.codex}"
+  local cfg="$codex_home/config.toml" langs=() block="" line lang server i n
   local -a f extra
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
@@ -2041,7 +2042,7 @@ configure_codex_lsp() {
   done < <(detect_workspace_lsps "$scan")
 
   (( ${#langs[@]} > 0 )) || return 0
-  mkdir -p "$CODEX_HOME" 2>/dev/null || return 0
+  mkdir -p "$codex_home" 2>/dev/null || return 0
   touch "$cfg" 2>/dev/null || return 0
   if printf '%s' "$block" | _proveo_write_block "$cfg" \
        "# >>> proveo lsp (generated — edits are overwritten) >>>" \
@@ -2518,14 +2519,130 @@ proveo_seed_instructions() {
    echo "⚠️  Could not seed AGENTS.md (workspace may be read-only); continuing" >&2
   fi
  fi
+}
+
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+_proveo_release_paths() {
+ local h c
+ h="$(_proveo_agent_home)"
+ [[ -n "$h" ]] || return 0
+ case "${1:-}" in
+ claudecode) printf '%s\n' "$h/.claude/agents" "$h/.claude/settings.json" "$h/.claude/plugins/installed_plugins.json" "$h/.claude/skills/proveo-lsp" ;;
+ codex) c="${CODEX_HOME:-$h/.codex}"; printf '%s\n' "$h/.codex/agents" "$c/config.toml" ;;
+ cursor) c="${CURSOR_CONFIG_DIR:-$h/.cursor}"; printf '%s\n' "$h/.cursor/agents" "$c/mcp.json" ;;
+ cecli) printf '%s\n' "${CECLI_HOME:-$h/.cecli}/agents" "$h/.cecli.conf.yml" ;;
+ opencode) printf '%s\n' "$h/.config/opencode/agents" "$h/.config/opencode/opencode.json" ;;
+ esac
+}
+
+# Snapshots what the agent reads at startup, then releases it.
+proveo_release_agent() {
+ local snap="${PROVEO_RELEASE_SNAPSHOT:-/dev/shm/proveo-release-snapshot}" p
+ rm -rf "$snap" 2>/dev/null || true
+ if mkdir -p "$snap" 2>/dev/null; then
+  while IFS= read -r p; do
+   [[ -e "$p" ]] || continue
+   mkdir -p "$snap$(dirname "$p")" 2>/dev/null && cp -a "$p" "$snap$(dirname "$p")/" 2>/dev/null || true
+  done < <(_proveo_release_paths "${1:-}")
+ fi
  : > "$PROVEO_INSTRUCTIONS_MARKER" 2>/dev/null || true
+}
+
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+# sbx runs kit steps through su, which resets PATH; PID 1 still holds the image's.
+proveo_restore_image_path() {
+ local env="${PROVEO_PROC_ROOT:-/proc}/1/environ" image="" d
+ if [[ -r "$env" ]]; then
+  image="$(tr '\0' '\n' < "$env" 2>/dev/null | sed -n 's/^PATH=//p' | head -n 1)"
+ fi
+ if [[ -z "$image" ]]; then
+  for d in /opt/proveo/shims "${HOME:-}/.local/bin" /usr/local/share/npm-global/bin /opt/jre/bin; do
+   [[ -d "$d" ]] && image="${image:+$image:}$d"
+  done
+ fi
+ [[ -n "$image" ]] || return 0
+ case ":$PATH:" in *":$image:"*) return 0 ;; esac
+ export PATH="$image:$PATH"
+}
+
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_clone_checkout() {
+ local ref="${PROVEO_CLONE_REF:-}" main="${PROVEO_CLONE_MAIN:-}" dir
+ [[ -n "$ref" && -n "$main" ]] || return 0
+ command -v git >/dev/null 2>&1 || return 0
+ dir="$(_proveo_scan_root)"
+ git -C "$main" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "⚠️  clone: ${main} is not a git clone; the worktree ${dir} was not created" >&2
+  return 0
+ }
+ if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  return 0
+ fi
+ local n=50
+ mkdir -p "$dir" 2>/dev/null
+ while [[ ! -w "$dir" ]] && (( n-- > 0 )); do sleep 0.2; mkdir -p "$dir" 2>/dev/null; done
+ if git -C "$main" show-ref --verify --quiet "refs/heads/${ref}"; then
+  git -C "$main" worktree add -q "$dir" "$ref"
+ elif git -C "$main" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
+  git -C "$main" worktree add -q --track -b "$ref" "$dir" "origin/${ref}"
+ else
+  git -C "$main" worktree add -q --detach "$dir" "$ref"
+ fi 2>/dev/null || {
+  echo "⚠️  clone: could not add the worktree ${dir} at ${ref}; the agent starts in ${main}" >&2
+  return 0
+ }
+ echo "🌿 clone: ${dir} is a worktree of the clone at ${ref}"
+}
+
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_clone_env() {
+ local src="${PROVEO_CLONE_ENV:-}" dir dst gd
+ [[ -n "$src" ]] || return 0
+ [[ -r "$src" ]] || { echo "⚠️  clone: ${src} is not readable; .env not linked" >&2; return 0; }
+ dir="$(_proveo_scan_root)"
+ dst="${dir}/.env"
+ if [[ -e "$dst" || -L "$dst" ]]; then
+  [[ "$(readlink "$dst" 2>/dev/null)" == "$src" ]] || echo "ℹ️  clone: ${dst} already exists; the host .env is not linked over it"
+  return 0
+ fi
+ ln -s "$src" "$dst" 2>/dev/null || { echo "⚠️  clone: could not link ${dst}" >&2; return 0; }
+ gd="$(cd "$dir" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+ if [[ -n "$gd" ]] && ! grep -qxF '/.env' "$gd/info/exclude" 2>/dev/null; then
+  mkdir -p "$gd/info" 2>/dev/null && printf '/.env\n' >> "$gd/info/exclude" 2>/dev/null
+ fi
+ echo "🔑 clone: .env → ${src} (read-only, staged from the host)"
+}
+
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_clone_links() {
+ local pairs="${PROVEO_CLONE_LINKS:-}" dir gd pair rel target dst made=""
+ [[ -n "$pairs" ]] || return 0
+ dir="$(_proveo_scan_root)"
+ gd="$(cd "$dir" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+ local IFS='|'
+ for pair in $pairs; do
+  rel="${pair%%=*}" target="${pair#*=}"
+  [[ -n "$rel" && -n "$target" && "$rel" != /* && "$rel" != *..* ]] || continue
+  dst="${dir}/${rel}"
+  [[ -e "$dst" || -L "$dst" ]] && continue
+  mkdir -p "$(dirname "$dst")" 2>/dev/null
+  ln -s "$target" "$dst" 2>/dev/null || { echo "⚠️  clone: could not link ${rel} → ${target}" >&2; continue; }
+  if [[ -n "$gd" ]] && ! grep -qxF "/${rel}" "$gd/info/exclude" 2>/dev/null; then
+   mkdir -p "$gd/info" 2>/dev/null && printf '/%s\n' "$rel" >> "$gd/info/exclude" 2>/dev/null
+  fi
+  made="${made:+$made, }${rel}"
+ done
+ [[ -z "$made" ]] || echo "🔗 clone: relinked ${made} (host symlinks git does not carry)"
 }
 
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ proveo_clone_checkout
+ proveo_clone_env
+ proveo_clone_links
  proveo_seed_instructions "$target"
  local home; home="$(_proveo_agent_home)"
- [[ -n "$target" && -n "$home" ]] || return 0
+ [[ -n "$target" && -n "$home" ]] || { proveo_release_agent "$target"; return 0; }
 
  seed_github_known_hosts "$home" || true
 
@@ -2546,16 +2663,20 @@ proveo_seed() {
 
  accept_workspace_trust "$(_proveo_scan_root)"
 
- proveo_sync_tools restore || true
-
- proveo_provision_toolchain
-
  proveo_wire_config "$target"
-
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_seed_browser_skills "$target"
+ proveo_release_agent "$target"
+
+ if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
+  echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
+ else
+  proveo_sync_tools restore || true
+  proveo_provision_toolchain
+  proveo_wire_config "$target"
+ fi
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
  proveo_chrome_bridge "$target"

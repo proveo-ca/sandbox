@@ -395,6 +395,12 @@ func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui
 	if sandboxOn {
 		r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
 		r.OffWhy = map[string]string{"forward": r.Reason}
+		if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
+			if r.Help == nil {
+				r.Help = map[string]string{}
+			}
+			r.Help["broker"] = man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"
+		}
 		return r
 	}
 	allowed := man.Capabilities.Credentials

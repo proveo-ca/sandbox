@@ -90,6 +90,8 @@ type BackendSpec struct {
 	Sbx          bool
 	Clone        bool
 	CloneOff     string
+	CloneSource  workspace.WorktreeSource // set when a linked worktree clones through its main worktree
+	CloneEnv     string                   // staged project .env the clone links, or ""
 	BrowserImage string
 }
 
