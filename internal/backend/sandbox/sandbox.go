@@ -474,7 +474,14 @@ func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
 	}
 	lines := []string{fmt.Sprintf(
 		"IDE attach%s: run `sbx %s` once, then connect to `%s` and open %s",
-		when, strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir)}
+		when, strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir),
+		fmt.Sprintf("JetBrains: Remote Development → SSH → host `%s` (OpenSSH config), project %s",
+			sbx.SSHHost(name), workdir)}
+	if worktreeClone(in) {
+		lines = append(lines, fmt.Sprintf(
+			"workdir: linked worktree of %s inside the clone; `sbx ls` lists %s as the workspace",
+			in.CloneSource.Main, in.CloneSource.Main))
+	}
 	if live {
 		lines = append(lines, "the running agent and the editor both write this tree")
 	}

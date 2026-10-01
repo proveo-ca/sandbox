@@ -12,6 +12,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func TestSplitNestedKeepsTheRootAndItsSiblingsOnly(t *testing.T) {
@@ -194,6 +195,8 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 		"IDE attach (live):",
 		"sbx setup ssh",
 		"proveo-1-2.sbx",
+		"JetBrains: Remote Development → SSH → host `proveo-1-2.sbx`",
+		"project /host/repo",
 		"the running agent and the editor both write this tree",
 		"DISPOSABLE CLONE",
 		"commit IDE edits",
@@ -228,6 +231,28 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 	}
 	if strings.Contains(direct, "DISPOSABLE") {
 		t.Errorf("direct mode was described as a clone:\n%s", direct)
+	}
+}
+
+func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
+	t.Parallel()
+	in := Input{Clone: true, RepoRoot: "/host/worktrees/dev", CloneSource: workspace.WorktreeSource{Main: "/host/repo"}}
+	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
+
+	got := strings.Join(IDEAttachLines(in, cfg, true), "\n")
+	for _, want := range []string{
+		"open /host/worktrees/dev",
+		"host `proveo-1-2.sbx` (OpenSSH config), project /host/worktrees/dev",
+		"linked worktree of /host/repo inside the clone",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("worktree clone attach guidance lacks %q:\n%s", want, got)
+		}
+	}
+
+	plain := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
+	if strings.Contains(plain, "linked worktree") {
+		t.Errorf("a main-checkout clone was described as a worktree:\n%s", plain)
 	}
 }
 

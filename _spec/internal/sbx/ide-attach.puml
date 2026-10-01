@@ -2,7 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how an sbx sandbox becomes a local IDE target while the agent runs, and after a kept exit
-' status: applied 2026-09-21; live local attach is offered; remote attach remains unsupported.
+' status: applied 2026-09-21; JetBrains target 2026-10-01; live local attach is offered;
+'   remote attach remains unsupported; JetBrains over the sbx ProxyCommand is unverified.
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/sbx/sbx.go
@@ -34,6 +35,11 @@ skinparam noteTextAlignment left
 ' staging dir for declared home-root files. Logs from unrelated runs are not
 ' mounted. The root files copy back after the in-VM save; newest wins.
 '
+' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
+' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A
+' worktree clone names the worktree path and the main checkout sbx lists as
+' its workspace, so the IDE opens the tree the agent edits.
+'
 ' WHICH TREE IS LOUD. Direct mode says that IDE saves write the host checkout.
 ' Clone mode says DISPOSABLE CLONE, requires commits, and prints the exact git
 ' fetch into refs/proveo/<sid> before the operator removes the sandbox.
@@ -42,6 +48,7 @@ title IDE attach — upstream SSH, live and after exit,\nlocal only, with a narr
 node "operator host" as HOST <<host>> {
   component """sbx setup ssh""\nupstream-owned config" as SETUP <<app>>
   component "editor\nconnects to <sid>.sbx" as IDE <<app>>
+  component "JetBrains Remote Dev\nhost <sid>.sbx · project workdir" as JB <<app>>
   database "host checkout" as TREE <<db>>
   database """refs/proveo/<sid>""\ncarried clone commits" as REFS <<db>>
   database "PROVEO_HOME\nother run logs stay hidden" as HOME <<db>>
@@ -56,6 +63,8 @@ node "sandbox" as BOX <<host>> {
 component "remote attach\nnot established" as REMOTE <<error>>
 
 SETUP ARROW_MAIN IDE : <sid>.sbx
+SETUP ARROW_MAIN JB : OpenSSH config
+JB ARROW_MAIN WORK : PROVEO_WORKDIR
 IDE ARROW_MAIN WORK : live or kept
 AGENT ARROW_MAIN WORK
 TREE ARROW_MAIN WORK : direct mode
@@ -68,6 +77,13 @@ note bottom of IDE
   setup command and SSH host. It does not wrap
   an SSH session, inspect exit 255, or maintain
   ControlMaster policy; upstream owns those.
+end note
+
+note bottom of JB
+  **Workdir, not the listed workspace.** A
+  worktree clone lists the main checkout; the
+  project path is the linked worktree.
+  [Unverified] ProxyCommand + KnownHostsCommand.
 end note
 
 note bottom of WORK
@@ -97,6 +113,9 @@ legend bottom
   ==
   A named sbx run prints `sbx setup ssh`, `<sid>.sbx`, and the workspace under
   the interface heading so an editor can attach while the agent is live.
+  --
+  A JetBrains line names host `<sid>.sbx` (OpenSSH config) and project = the
+  agent workdir; a worktree clone also names the main checkout sbx lists.
   --
   Two writers share the tree with no mediation. proveo names that; it does not
   withhold the host.
