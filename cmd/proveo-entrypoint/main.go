@@ -1,20 +1,23 @@
-// SPEC: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/cmd/proveo-entrypoint/prep-sequence.puml, _spec/_paradigms/harness-paradigms.puml
+// SPEC: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/internal/sbx/host-android-adb.puml, _spec/cmd/proveo-entrypoint/prep-sequence.puml, _spec/_paradigms/harness-paradigms.puml
 package main
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/adbmirror"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/verify"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: proveo-entrypoint prep [target] | proveo-entrypoint verify [dir] | proveo-entrypoint <target> -- <command> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: proveo-entrypoint prep [target] | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror | proveo-entrypoint <target> -- <command> [args...]")
 		os.Exit(2)
 	}
 
@@ -27,6 +30,17 @@ func main() {
 		if lines != "" {
 			fmt.Println(lines)
 		}
+		return
+	}
+
+	if os.Args[1] == "adb-mirror" {
+		host, port := os.Getenv("ADB_HOST"), os.Getenv("ADB_PORT")
+		if host == "" || port == "" {
+			fmt.Fprintln(os.Stderr, "proveo-entrypoint adb-mirror: ADB_HOST and ADB_PORT must be set")
+			os.Exit(2)
+		}
+		logf := func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }
+		adbmirror.Run(context.Background(), net.JoinHostPort(host, port), 150*time.Millisecond, logf)
 		return
 	}
 

@@ -73,6 +73,20 @@ RUN --mount=type=cache,id=proveo-base-apt-cache,target=/var/cache/apt,sharing=lo
     && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
+# Android: adb for the host emulator; arm64 adds qemu-user + the amd64 runtime for aapt2.
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+COPY --chmod=0755 defs/base/proveo-aapt2 /usr/local/lib/proveo/aapt2
+RUN --mount=type=cache,id=proveo-base-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=proveo-base-apt-lists,target=/var/lib/apt,sharing=locked \
+    apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends adb \
+    && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
+         apt-get install -y --no-install-recommends \
+           qemu-user libc6-amd64-cross libstdc++6-amd64-cross libgcc-s1-amd64-cross; \
+       fi \
+    && rm -rf /tmp/* /var/tmp/* \
+    && /usr/local/sbin/proveo-harden
+
 # The jlink'd JRE is gone: the template ships a full JDK 25. /opt/jre stays as
 # a SYMLINK so JAVA_HOME and every downstream reference to it keep working
 # without knowing the arch-specific path underneath.

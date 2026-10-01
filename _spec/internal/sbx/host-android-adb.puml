@@ -1,36 +1,54 @@
 @startuml HostAndroidADB
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: how an sbx agent drives an Android emulator on the host — host adb server, dialled by IP, one allowed port, artemis as the MCP driver
+' purpose: how an sbx agent drives an Android emulator on the host — host adb server dialled by IP, adb forwards mirrored into the VM, mobile-mcp tools on the harness's own model
 ' covers: internal/hostadb/hostadb.go
 ' covers: internal/hostadb/hostadb_test.go
-' covers: internal/run/choices.go (addonAndroid, addonIOS, interfaceOptions, gateAddons, addonAliases)
+' covers: internal/adbmirror/adbmirror.go
+' covers: internal/adbmirror/adbmirror_test.go
+' covers: cmd/proveo-entrypoint/main.go (adb-mirror)
+' covers: internal/run/choices.go (addonAndroid, addonIOS, interfaceOptions, gateAddons, addonAliases, resolveAddonFlags)
 ' covers: internal/run/run.go (startHostADB)
 ' covers: internal/run/topology.go (interfaceOf)
 ' covers: internal/run/host_adb_test.go
 ' covers: internal/manifest/manifest.go (capabilities.hostDevices)
-' covers: internal/backend/sandbox/sandbox.go (Spec allow)
+' covers: internal/backend/sandbox/sandbox.go (Spec allow, withMobileMCP, withLocalModelTools, launchConfigEnv, EnvHostOS)
 ' covers: internal/backend/sandbox/host_adb_test.go
-' covers: packages/lib/entrypoint-lib.sh (proveo_host_adb_env, proveo_artemis_mcp_config)
+' covers: packages/lib/entrypoint-lib.sh (proveo_host_adb_env, proveo_adb_mirror_start, proveo_mobile_mcp_exec, ensure_jvm_toolchain, proveo_install_claude_env_hook, _proveo_persist_tool_env, proveo_apply_ui_defaults)
+' covers: internal/contract/claude_env_hook_test.go
+' covers: internal/contract/host_devices_test.go
+' covers: internal/egress/plan.go (localModelArgs)
+' covers: defs/base/Dockerfile (adb, qemu floor)
+' covers: defs/base/proveo-aapt2
+' covers: defs/opencode/harness.manifest (capabilities.hostDevices)
+' covers: defs/claudecode/mcp/entrypoint.sh (CLAUDE_LOCAL_ARGS)
+' covers: internal/contract/jvm_toolchain_test.go
 ' covers: internal/contract/host_adb_lib_test.go
-' covers: defs/claudecode/mcp/entrypoint.sh (CLAUDE_MCP_ARGS)
 ' covers: defs/claudecode/harness.manifest (capabilities.hostDevices)
+' covers: e2e/host_adb_sbx_test.go
+' covers: e2e/android_addon_test.go
+' covers: e2e/android_app_test.go
+' covers: e2e/testdata/android-hello/**
 '   why this shape, measured ............ _spec/_experiments/mobile-device-reach.puml
 '   the pattern it copies ............... _spec/internal/sbx/host-browser-cdp.puml
+'   why the box has no emulator ......... _spec/_experiments/nested-sbx-kvm.puml
 '
-' ── WHY (2026-09-29) ───────────────────────────────────────────────────────
-' google/artemis drives Android through an adb SERVER it does not own
-' (ADB_HOST/ADB_PORT). The box has no /dev/kvm, so the emulator lives on the
-' host; the host adb server is the one seam a fresh VM can use without the
-' host's adbkey (the emulator's adbd refuses a fresh key, measured).
+' ── WHY ────────────────────────────────────────────────────────────────────
+' The box has no /dev/kvm, so the emulator lives on the host. The host adb
+' server is the one seam a fresh VM can use without the host's adbkey: the
+' emulator's adbd refuses a fresh key, the server already holds the host's.
+' The driver is mobile-next/mobile-mcp. Its tools are primitives (tap, swipe,
+' type, element list, screenshot) and it runs no model, so the harness's own
+' inference does the reasoning and the run needs no second provider or key.
 '
 ' ── capabilities.hostDevices SELECTS THE ROWS ──────────────────────────────
 '   android → addonAndroid  live under sbx; greyed without it
-'   ios     → addonIOS      always greyed: "coming soon" (no artemis driver)
+'   ios     → addonIOS      always greyed: "coming soon" (not built; iOS
+'                           Simulators also need a macOS host with Xcode)
 ' `--addon android` resolves; `--addon ios` is refused with the same reason.
 '
 ' ── HOST SIDE (internal/hostadb) ───────────────────────────────────────────
-'   port    PROVEO_HOST_ADB_PORT, default 5037; Kit allow += localhost:<port>.
+'   port    PROVEO_HOST_ADB_PORT, default 5037.
 '   reuse   any serial the server lists in state "device" is reused as is.
 '   launch  else `adb -P <port> start-server`, then `emulator -avd <avd>`
 '           windowed, own process group, ANDROID_ADB_SERVER_PORT=<port>,
@@ -38,22 +56,136 @@ skinparam noteTextAlignment left
 '   avd     PROVEO_HOST_AVD when it names an AVD, else the first listed.
 '   sdk     ANDROID_HOME > ANDROID_SDK_ROOT > ~/Library/Android/sdk (darwin)
 '           > ~/Android/Sdk; each tool falls back to PATH.
+'   kit     allow += localhost:<port>, registry.npmjs.org (the install).
+'   env     PROVEO_HOST_ADB_PORT=<port>
+'           ADB_SERVER_SOCKET=tcp:host.docker.internal:<port> — every process
+'           in the sandbox (the agent's Bash, `--shell`) reaches the server;
+'           adb resolves the name itself and ignores Host, unlike Chrome.
+'   host os PROVEO_HOST_OS=<runtime.GOOS> into every sandbox (EnvHostOS),
+'           for fixes measured on one host OS only.
 '
-' ── GUEST SIDE (entrypoint lib) ────────────────────────────────────────────
-'   proveo_host_adb_env        ADB_HOST=<ip> ADB_PORT=<port>
-'                              ADB_SERVER_SOCKET=tcp:<ip>:<port> (plain adb)
-'   proveo_artemis_mcp_config  `uv tool install` artemis @ PROVEO_ARTEMIS_REF
-'                              into the toolchain home (synced to the host),
-'                              reinstalls only when the receipt lacks the ref,
-'                              prints an mcpServers JSON for that python.
-' After a fresh install opencv-python is swapped for opencv-python-headless
-' at the same version: the GUI wheel links libxcb.so.1, which no proveo image
-' ships, and `python -m mcp_server` dies importing cv2 without the swap.
-' Measured in a guest (uv 0.9.26, arm64): install 733 s, 985 MB tool env;
-' swap 89 s; initialize answered in 3 s by artemis 1.30.0, logging
-' "Activated remote ADB server endpoint 169.254.1.1:5037".
-' claudecode passes it as `--mcp-config <json>`: per launch, never
-' `claude mcp add --scope user`, which would land in the mounted home.
+' ── ONE ROW PER HARNESS (hostadb.Launches) ─────────────────────────────────
+' A harness gets android only with a per-launch way to take the mobile server;
+' a contract test fails a manifest that declares android without one, and an
+' sbx harness with no row at all.
+'   claudecode  --mcp-config <hostadb.MCPConfig>, prepended host-side by
+'               withMobileMCP (sbx runs claude as its own agent, so the
+'               image's entrypoint never launches it), as --chrome is
+'   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
+'               OPENCODE_CONFIG_CONTENT launchConfigEnv already builds
+'   codex       not wired yet: -c mcp_servers.mobile.* per launch
+'   cecli       not wired yet: --mcp-servers / CECLI_MCP_SERVERS
+'   cursor      none: MCP only from a persistent ~/.cursor/mcp.json
+'   hermes      none: MCP only from its persistent config.yaml; no built-in
+'               Android control (the community plugin wants a local SDK)
+'
+' ── GUEST SIDE ─────────────────────────────────────────────────────────────
+'   image (base)               apt `adb` (Ubuntu 1:34.0.5): protocol 1.0.41,
+'                              same as the host's 36.0.2, so the client never
+'                              kills the host server over a version mismatch
+'   proveo_host_adb_env        ADB_HOST/ADB_PORT from ADB_SERVER_SOCKET, else
+'                              the resolved gateway IP + PROVEO_HOST_ADB_PORT
+'   proveo_adb_mirror_start    `proveo-entrypoint adb-mirror` in the background
+'   proveo_mobile_mcp_exec     the MCP server's command (bash -c, via the
+'                              lib): env, mirror, npm-install
+'                              @mobilenext/mobile-mcp at
+'                              PROVEO_MOBILE_MCP_VERSION (1.0.6) into the
+'                              toolchain home on first use, then exec it with
+'                              MOBILEMCP_DISABLE_TELEMETRY=1; stdout stays the
+'                              server's alone, every notice goes to stderr
+'
+' ── WHY THE MIRROR (internal/adbmirror) ────────────────────────────────────
+' mobilecli, mobile-mcp's driver, starts an on-device server and reaches it
+' with `adb forward tcp:<P> localabstract:mobilecli-server`, then dials
+' http://localhost:<P>. Behind a remote server that listener opens on the
+' HOST's loopback, so element and tap calls read "device server did not
+' start". mobilecli picks P free in the VM on purpose, for "tooling that
+' tunnels forwarded ports by their number". The mirror is that tooling:
+'   poll    host:list-forward every 150 ms
+'   mirror  listen 127.0.0.1:<P> in the VM per tcp forward
+'   carry   per connection: host:transport:<serial>, then the forward's own
+'           target, through the adb server — no host port, no extra allow
+'   drop    close the listener when the forward disappears; a taken port is
+'           retried on the next poll
+' MOBILEMCP_LEGACY_ROBOT=1 would skip mobilecli (plain adb shell), but its
+' element list runs `uiautomator dump /dev/tty`, which API 36 kills (on the
+' host as well), so legacy mode loses the accessibility tree.
+'
+' ── MEASURED (e2e, rebuilt image, 2026-09-30) ──────────────────────────────
+'   install          mobile-mcp 1.0.6 via npm, ~5 s, 133 MB
+'   tools            list devices, launch app, element list (@e1…), tap,
+'                    screenshot (text + image), HOME: all error=False
+'   host server      same pid before and after every guest session
+'   telemetry        posthog + scarf only in runs without the opt-out
+'   choice form      android ticked by keystroke (Down, Right, Space, Enter)
+'                    in `proveo run claudecode --shell`: the run boots the
+'                    AVD, the sandbox reads PROVEO_HOST_ADB_PORT=5037 and
+'                    its adb lists emulator-5554; left unticked, no device
+'                    appears, no "android:" line, the env stays unset
+'
+' ── AN ANDROID APP IN THE WORKSPACE (e2e/testdata/android-hello) ───────────
+' A stock Gradle project: AGP 9.4.1, compileSdk/targetSdk 36, one Activity,
+' no dependencies, no mise.toml. install.sh runs `gradle assembleDebug`, then
+' `adb install -r` through ADB_SERVER_SOCKET.
+' The seed provisions it from the sources alone (ensure_jvm_toolchain, a row of
+' ensure_project_tools), inside the sandbox only:
+'   detect   build.gradle[.kts] / settings.gradle[.kts] → gradle;
+'            a com.android.* plugin in them → android
+'   java     the image's JDK when ≥ 17, else mise java@temurin-21
+'   gradle   nothing when ./gradlew exists, else mise gradle@latest
+'   android  mise android-sdk@20.0, licenses accepted, ANDROID_HOME persisted;
+'            AGP fetches platform + build-tools itself
+' Google ships aapt2, aidl and zipalign for x86_64 Linux only (issuetracker
+' 227219818; no linux-aarch64 archive in repository2-3.xml), and a sandbox
+' takes the host CPU's architecture. cmdline-tools 23.0's sdkmanager also
+' forwards to an x86_64-only `android` binary, hence 20.0.
+'   amd64 guest                native, nothing extra
+'   arm64 guest, macOS host    PROVEO_HOST_OS=darwin: build-tools 36.0.0 too,
+'                              and a marked ~/.gradle/gradle.properties block
+'                              sets android.aapt2FromMavenOverride to
+'                              /usr/local/lib/proveo/aapt2, which runs that
+'                              x86_64 aapt2 under qemu-user (base image, arm64
+'                              only: qemu-user + amd64-cross libc, ~13 MB)
+'   arm64 guest, other host    notice, no SDK: no measured path
+'
+' ── TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT ─────────────────────────
+' sbx starts the agent before the seed provisions, and Claude Code snapshots
+' its shell at start, so `!./install.sh` read `gradle: command not found`
+' (opencode re-reads its shell and was fine). Claude Code re-sources
+' CLAUDE_ENV_FILE before each Bash command, but only a hook may write it:
+'   seed     _proveo_persist_tool_env writes ~/.proveo-tool-env.sh beside the
+'            ~/.bashrc block
+'   hook     proveo_install_claude_env_hook adds one SessionStart hook that
+'            appends `[ -f ~/.proveo-tool-env.sh ] && . ~/.proveo-tool-env.sh`
+'            to CLAUDE_ENV_FILE; installed before proveo_release_agent, which
+'            the claude shim waits on
+' Measured: an operator-set CLAUDE_ENV_FILE is ignored; a FileChanged hook
+' sees files in the session cwd only; the SessionStart line picks up a file
+' written after launch on the next command.
+' respondToBashCommands defaults to false (seeded only when unset), so a `!`
+' line costs no model call.
+'
+' ── CLAUDE CODE ON A LOCAL MODEL ───────────────────────────────────────────
+' Each turn sends ~15k prompt tokens; side requests on the same single-slot
+' Ollama model evicted the cached prompt, the 3-6 min reprocess outlasted the
+' first-byte wait, and Claude Code retried forever. localModelArgs adds:
+'   CLAUDE_CODE_EFFORT_LEVEL=low, CLAUDE_CODE_DISABLE_THINKING=1
+'   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+'   API_TIMEOUT_MS, CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS = 20 min
+' and claude gets `--tools Bash,Read,Edit,Write` (withLocalModelTools; the
+' entrypoint's CLAUDE_LOCAL_ARGS on docker). Trivial prompt on glimmer:
+' default 495 s, trimmed 245 s, hooks and CLAUDE.md kept. CLAUDE_CODE_SIMPLE
+' was 90 s but drops hooks and CLAUDE.md, so it is not used.
+'
+' ── THE USER-STYLE E2E (e2e/android_app_test.go) ───────────────────────────
+' One subtest per harness row (opencode, claudecode), local model
+' muse-glimmer:30b-mlx, no hosted inference:
+'   form       `proveo run <h>` → [x] android by keystroke → Enter
+'   sandbox    reaches the host emulator; the seed log shows the Android build
+'   TUI        first-run dialogs answered as a user would; `!./install.sh`
+'   host       pm list packages ca.proveo.hello; am start -W → Status: ok
+'   agent      typed prompt; MOBILE-CHECK hello=yes, absent=no; a mobile
+'              tool INVOCATION in the harness's own session record
 '
 ' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
 ' ADB is full control of every device on that server. The server also dials:
@@ -71,16 +203,19 @@ node "host" as HOST {
   component "Android emulator\nwindowed AVD" as EMU
 }
 node "sbx microVM" as VM {
-  component "claudecode\n--mcp-config artemis" as AG
-  component "artemis MCP\nADB_HOST=169.254.1.1" as ART
+  component "claude (sbx agent)\n--mcp-config, injected host-side" as AG
+  component "mobile-mcp\nADB_SERVER_SOCKET=tcp:host.docker.internal:5037" as MCP
+  component "adb-mirror\n127.0.0.1:<P> per forward" as MIR
 }
 
 OP --> EMU : watches, logs in once
 RUN --> ADB : start-server
 RUN --> EMU : reuse or boot
 RUN --> VM : Kit allow localhost:5037\nenv PROVEO_HOST_ADB_PORT
-AG --> ART : stdio MCP
-ART --> ADB : adb protocol by IP
+AG --> MCP : stdio MCP
+MCP --> ADB : adb protocol by IP
+MCP --> MIR : http://localhost:<P>
+MIR --> ADB : transport + forward target
 ADB --> EMU : emulator-5554
 
 note right of ADB
@@ -90,10 +225,17 @@ note right of ADB
   the key never leaves the host.
 end note
 
-note right of ART
-  **Installed once, pinned.** uv installs the
-  pinned ref into the toolchain home, which
-  syncs to the host; a later run reuses it
-  unless the receipt names another ref.
+note right of MCP
+  **The harness thinks, mobile-mcp acts.** Its
+  tools are primitives: tap, swipe, type, the
+  element list, a screenshot. No model runs
+  inside it, so no second key is needed.
+end note
+
+note right of MIR
+  **A forward, carried by number.** The host
+  listener sits on the host's loopback; the
+  mirror opens the same device socket through
+  the server, so no extra port is allowed.
 end note
 @enduml

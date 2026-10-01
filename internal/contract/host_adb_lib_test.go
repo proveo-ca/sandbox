@@ -2,25 +2,28 @@
 package contract_test
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-const artemisRef = "351ca8422f7b5b54e80a9c1ce03a222e02415b6b"
+const mobileMCPVersion = "1.0.6"
 
-// adbLib runs script against the entrypoint lib with getent and uv stubbed on PATH.
-func adbLib(t *testing.T, env []string, script string) (stdout, stderr, uvLog string) {
+// adbLib runs script against the entrypoint lib with getent, npm, adb and proveo-entrypoint stubbed on PATH.
+func adbLib(t *testing.T, env []string, script string) (stdout, stderr, calls string) {
 	t.Helper()
 	bash := bashOrSkip(t)
 	bin, tools := t.TempDir(), t.TempDir()
-	log := filepath.Join(t.TempDir(), "uv.log")
+	log := filepath.Join(t.TempDir(), "calls.log")
 	stub := map[string]string{
-		"getent": `[ "$2" = host.docker.internal ] && printf '169.254.1.1     STREAM host.docker.internal\n'`,
-		"uv":     `printf '%s\n' "$*" >>"` + log + `"`,
+		"getent":            `[ "$2" = host.docker.internal ] && printf '169.254.1.1     STREAM host.docker.internal\n'`,
+		"npm":               `printf 'npm %s\n' "$*" >>"` + log + `"`,
+		"adb":               `exit 0`,
+		"pgrep":             `exit 1`,
+		"proveo-entrypoint": `printf 'mirror %s %s:%s\n' "$*" "$ADB_HOST" "$ADB_PORT" >>"` + log + `"`,
 	}
 	for name, body := range stub {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
@@ -35,75 +38,82 @@ source "$1/packages/lib/entrypoint-lib.sh"
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	_ = cmd.Run()
+	time.Sleep(50 * time.Millisecond)
 	b, _ := os.ReadFile(log)
 	return out.String(), errb.String(), string(b)
 }
 
 func TestHostADBEnvIsInertWithoutTheAddon(t *testing.T) {
-	out, _, _ := adbLib(t, []string{"PROVEO_HOST_ADB_PORT="}, `proveo_host_adb_env; echo "rc=$? host=${ADB_HOST:-}"`)
+	out, _, _ := adbLib(t, []string{"PROVEO_HOST_ADB_PORT=", "ADB_SERVER_SOCKET="}, `proveo_host_adb_env; echo "rc=$? host=${ADB_HOST:-}"`)
 	if !strings.Contains(out, "rc=1 host=\n") {
-		t.Errorf("no PROVEO_HOST_ADB_PORT must export nothing: %q", out)
+		t.Errorf("no adb address must export nothing: %q", out)
 	}
 }
 
-func TestHostADBEnvDialsTheGatewayByIP(t *testing.T) {
-	out, _, _ := adbLib(t, []string{"PROVEO_HOST_ADB_PORT=5037"},
+func TestHostADBEnvPrefersTheSocketProveoSet(t *testing.T) {
+	out, _, _ := adbLib(t, []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037", "PROVEO_HOST_ADB_PORT=5037"},
+		`proveo_host_adb_env && echo "$ADB_HOST $ADB_PORT $ADB_SERVER_SOCKET"`)
+	if strings.TrimSpace(out) != "host.docker.internal 5037 tcp:host.docker.internal:5037" {
+		t.Errorf("env = %q", out)
+	}
+}
+
+func TestHostADBEnvFallsBackToTheGatewayIP(t *testing.T) {
+	out, _, _ := adbLib(t, []string{"ADB_SERVER_SOCKET=", "PROVEO_HOST_ADB_PORT=5037"},
 		`proveo_host_adb_env && echo "$ADB_HOST $ADB_PORT $ADB_SERVER_SOCKET"`)
 	if strings.TrimSpace(out) != "169.254.1.1 5037 tcp:169.254.1.1:5037" {
 		t.Errorf("env = %q", out)
 	}
 }
 
-func TestArtemisConfigReusesAnInstallAtThePinnedRef(t *testing.T) {
-	out, _, uv := adbLib(t, []string{"PROVEO_HOST_ADB_PORT=5037"}, `
-d="$TOOLS/.local/share/uv/tools/artemis"; mkdir -p "$d/bin"; : >"$d/bin/python"; chmod +x "$d/bin/python"
-printf 'requirements = [{ name = "artemis", git = "https://github.com/google/artemis?rev=`+artemisRef+`" }]\n' >"$d/uv-receipt.toml"
-proveo_host_adb_env && proveo_artemis_mcp_config`)
-	if uv != "" {
-		t.Errorf("a matching receipt must not reinstall; uv ran: %q", uv)
+// installedServer fakes a mobile-mcp install whose server prints the env it was exec'd with.
+const installedServer = `
+d="$TOOLS/mobile-mcp/node_modules"; mkdir -p "$d/@mobilenext/mobile-mcp" "$d/.bin"
+printf '{\n  "version": "` + mobileMCPVersion + `",\n}\n' >"$d/@mobilenext/mobile-mcp/package.json"
+printf '#!/bin/sh\necho "served telemetry_off=$MOBILEMCP_DISABLE_TELEMETRY socket=$ADB_SERVER_SOCKET"\n' >"$d/.bin/mcp-server-mobile"
+chmod +x "$d/.bin/mcp-server-mobile"
+`
+
+func TestMobileMCPExecRunsTheInstalledServer(t *testing.T) {
+	out, _, calls := adbLib(t, []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037", "TMPDIR=" + t.TempDir()},
+		installedServer+`proveo_mobile_mcp_exec`)
+	if strings.Contains(calls, "npm ") {
+		t.Errorf("a matching version must not reinstall; npm ran: %q", calls)
 	}
-	var cfg struct {
-		MCPServers map[string]struct {
-			Command string            `json:"command"`
-			Args    []string          `json:"args"`
-			Env     map[string]string `json:"env"`
-		} `json:"mcpServers"`
+	if strings.TrimSpace(out) != "served telemetry_off=1 socket=tcp:host.docker.internal:5037" {
+		t.Errorf("stdout = %q; want only the server's own output, telemetry off", out)
 	}
-	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
-		t.Fatalf("config is not JSON: %v\n%s", err, out)
-	}
-	a, ok := cfg.MCPServers["artemis"]
-	if !ok || !strings.HasSuffix(a.Command, "/uv/tools/artemis/bin/python") || strings.Join(a.Args, " ") != "-m mcp_server" {
-		t.Errorf("artemis server = %+v", a)
-	}
-	if a.Env["ADB_HOST"] != "169.254.1.1" || a.Env["ADB_PORT"] != "5037" {
-		t.Errorf("artemis env = %v", a.Env)
+	if !strings.Contains(calls, "mirror adb-mirror host.docker.internal:5037") {
+		t.Errorf("calls = %q; want the mirror started on the socket's address", calls)
 	}
 }
 
-func TestArtemisConfigInstallsThePinnedRefWhenStale(t *testing.T) {
-	_, _, uv := adbLib(t, []string{"PROVEO_HOST_ADB_PORT=5037"}, `proveo_host_adb_env && proveo_artemis_mcp_config`)
-	if !strings.Contains(uv, "tool install") || !strings.Contains(uv, "google/artemis@"+artemisRef) {
-		t.Errorf("uv = %q; want a tool install of the pinned ref", uv)
+func TestMobileMCPExecInstallsThePinnedVersionWhenStale(t *testing.T) {
+	_, _, calls := adbLib(t, []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037", "TMPDIR=" + t.TempDir()},
+		`proveo_mobile_mcp_exec`)
+	if !strings.Contains(calls, "npm install") || !strings.Contains(calls, "@mobilenext/mobile-mcp@"+mobileMCPVersion) {
+		t.Errorf("calls = %q; want an npm install of the pinned version", calls)
 	}
 }
 
-func TestArtemisInstallSwapsOpenCVForTheHeadlessWheel(t *testing.T) {
-	_, _, uv := adbLib(t, []string{"PROVEO_HOST_ADB_PORT=5037"}, `
-d="$TOOLS/.local/share/uv/tools/artemis/bin"; mkdir -p "$d"
-printf '#!/bin/sh\necho 5.0.0.93\n' >"$d/python"; chmod +x "$d/python"
-proveo_host_adb_env && proveo_artemis_mcp_config >/dev/null`)
-	lines := strings.Split(strings.TrimSpace(uv), "\n")
-	if len(lines) != 3 || !strings.HasPrefix(lines[0], "tool install") ||
-		!strings.Contains(lines[1], "pip uninstall") || !strings.Contains(lines[1], "opencv-python") ||
-		!strings.Contains(lines[2], "opencv-python-headless==5.0.0.93") {
-		t.Errorf("uv calls = %q; want install, uninstall opencv-python, install the headless wheel at the same version", lines)
+func TestMobileMCPExecNeedsAnADBAddress(t *testing.T) {
+	out, _, calls := adbLib(t, []string{"ADB_SERVER_SOCKET=", "PROVEO_HOST_ADB_PORT="}, `proveo_mobile_mcp_exec; echo "rc=$?"`)
+	if strings.TrimSpace(out) != "rc=1" || calls != "" {
+		t.Errorf("no adb address must serve nothing and install nothing: out=%q calls=%q", out, calls)
 	}
 }
 
-func TestArtemisConfigNeedsTheADBEnv(t *testing.T) {
-	out, _, uv := adbLib(t, []string{"ADB_HOST=", "ADB_PORT="}, `proveo_artemis_mcp_config; echo "rc=$?"`)
-	if strings.TrimSpace(out) != "rc=1" || uv != "" {
-		t.Errorf("no adb env must emit nothing and install nothing: out=%q uv=%q", out, uv)
+func TestAdbMirrorStartsWithTheSocketAddress(t *testing.T) {
+	out, _, calls := adbLib(t, []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037", "TMPDIR=" + t.TempDir()},
+		`proveo_host_adb_env && proveo_adb_mirror_start; echo "rc=$?"`)
+	if strings.TrimSpace(out) != "rc=0" || !strings.Contains(calls, "mirror adb-mirror host.docker.internal:5037") {
+		t.Errorf("out=%q calls=%q; want proveo-entrypoint adb-mirror with ADB_HOST/ADB_PORT", out, calls)
+	}
+}
+
+func TestAdbMirrorIsInertWithoutTheADBEnv(t *testing.T) {
+	out, _, calls := adbLib(t, []string{"ADB_HOST=", "ADB_PORT="}, `proveo_adb_mirror_start; echo "rc=$?"`)
+	if strings.TrimSpace(out) != "rc=1" || calls != "" {
+		t.Errorf("out=%q calls=%q", out, calls)
 	}
 }

@@ -105,6 +105,9 @@ func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, kit sbx.Kit, secrets [][
 // sandboxNameHash matches the workspace fingerprint in a sandbox name.
 var sandboxNameHash = regexp.MustCompile(`proveo-([a-z0-9]+)-[0-9a-f]{8}`)
 
+// hostOSValue is the host OS the plan records; goldens hold a placeholder so every host renders them alike.
+var hostOSValue = regexp.MustCompile(`(` + sandbox.EnvHostOS + `[=:] ?)[a-z]+`)
+
 func scrub(s string, replacements map[string]string) string {
 	keys := make([]string, 0, len(replacements))
 	for k := range replacements {
@@ -365,6 +368,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 			assertNoSecretValues(t, got, oauthValue, keyValue, cursorValue)
 			got = scrub(got, map[string]string{work: "<WORK>", data: "<DATA>", home: "<HOME>", runDir: "<RUN>"})
 			got = sandboxNameHash.ReplaceAllString(got, "proveo-$1-<WORKHASH>")
+			got = hostOSValue.ReplaceAllString(got, "${1}<HOSTOS>")
 			assertGolden(t, "sbx-"+tc.name, got)
 
 			again, _, _ := sandbox.Spec(tc.in(work, data, home))

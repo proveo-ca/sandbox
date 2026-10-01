@@ -10,6 +10,7 @@ skinparam noteTextAlignment left
 '   the worked example, one direction .. _spec/defs/claudecode/chrome-bridge.puml
 '   the host-side viewport ............. _spec/internal/sbx/browser-viewport.puml
 '   the grammar an allow entry must use  _spec/internal/sbx/kit-domain-form.puml
+'   direction two, per service ......... _spec/internal/sbx/host-android-adb.puml
 '   what governs egress on sbx ......... _spec/internal/sbx/policy-baseline.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -84,7 +85,12 @@ skinparam noteTextAlignment left
 '                     INSIDE the run. `RunConfig.Publish` plus
 '                     `sbx ports --publish`. BUILT, for exactly one port.
 '   SANDBOX -> HOST   the agent reaches a service on the operator's machine.
-'                     `host.docker.internal`, plus an allow entry. NOT BUILT.
+'                     `host.docker.internal`, plus an allow entry. BUILT PER
+'                     SERVICE, never generically: host Ollama, host Chrome
+'                     (CDP) and the host adb server are each one add-on, one
+'                     Kit allow `localhost:<port>`, explicit per run
+'                     (host-inference.puml, host-browser-cdp.puml,
+'                     host-android-adb.puml). A generic tunnel stays unbuilt.
 '
 ' claude-in-chrome is the worked example of the first: `cdpPublish` derives one
 ' publish spec and `StartCDPViewport` holds the host end while the run lives. A
@@ -201,7 +207,8 @@ legend bottom
   **The order to do it in**
   ==
   **1. Split the item.** HOST -> SANDBOX is a publish and is built for one port;
-  SANDBOX -> HOST is a trust grant and is not built. They share a sentence and no
+  SANDBOX -> HOST is a trust grant, built only per service (Ollama, Chrome CDP, adb),
+  never generically. They share a sentence and no
   machinery, and treating them as one feature is how the wrong default gets shipped.
   --
   **2. Keep the closed default.** The docker add-host switch already defaults to closed.

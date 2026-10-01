@@ -2,6 +2,7 @@
 package hostadb
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -188,5 +189,29 @@ func TestEnsureExplainsAMissingAdb(t *testing.T) {
 	err := Ensure(env(map[string]string{"ANDROID_HOME": "/none"}), 1, nil)
 	if err == nil || !strings.Contains(err.Error(), "no adb found") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestGuestEnvNamesTheHostByName(t *testing.T) {
+	got := GuestEnv(5038)
+	want := []string{EnvPort + "=5038", "ADB_SERVER_SOCKET=tcp:host.docker.internal:5038"}
+	if !slices.Equal(got, want) {
+		t.Errorf("GuestEnv = %v; want %v", got, want)
+	}
+}
+
+func TestMCPConfigLaunchesThroughTheEntrypointLib(t *testing.T) {
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(MCPConfig), &cfg); err != nil {
+		t.Fatalf("MCPConfig is not JSON: %v", err)
+	}
+	m, ok := cfg.MCPServers["mobile"]
+	if !ok || m.Command != "bash" || len(m.Args) != 2 || !strings.Contains(m.Args[1], "proveo_mobile_mcp_exec") {
+		t.Errorf("mobile server = %+v", m)
 	}
 }

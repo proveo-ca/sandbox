@@ -581,3 +581,13 @@ func TestSquidCacheVolumeNameIsAlwaysLegal(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalModelRunsClaudeCodeAtLowEffortWithoutThinking(t *testing.T) {
+	env := strings.Join(LocalModelEnv("muse-glimmer:30b-mlx", "http://host.docker.internal:11434"), "\n")
+	for _, want := range []string{"CLAUDE_CODE_EFFORT_LEVEL=low", "CLAUDE_CODE_DISABLE_THINKING=1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "API_TIMEOUT_MS=1200000", "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS=1200000"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("local-model env lacks %s:\n%s", want, env)
+		}
+	}
+}

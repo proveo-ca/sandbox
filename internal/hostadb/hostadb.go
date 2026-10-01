@@ -19,11 +19,53 @@ import (
 const (
 	Addon       = "android (host emulator)"
 	AddonIOS    = "ios (host simulator)"
-	IOSWhy      = "coming soon — artemis ships no iOS driver yet"
+	IOSWhy      = "coming soon — not built yet; iOS Simulators also need a macOS host with Xcode"
 	EnvPort     = "PROVEO_HOST_ADB_PORT"
 	EnvAVD      = "PROVEO_HOST_AVD"
 	DefaultPort = 5037
 )
+
+// MCPConfig is the --mcp-config JSON that launches mobile-mcp through the image's entrypoint lib.
+const MCPConfig = `{"mcpServers":{"mobile":{"command":"bash","args":["-c","source /entrypoint-lib.sh && proveo_mobile_mcp_exec"]}}}`
+
+// mcpCommand is the mobile server's command line inside the sandbox.
+var mcpCommand = []string{"bash", "-c", "source /entrypoint-lib.sh && proveo_mobile_mcp_exec"}
+
+// Launch is how one harness takes the mobile MCP server for a single launch.
+type Launch struct {
+	Flags    []string       // prepended to the agent command
+	Opencode map[string]any // merged into OPENCODE_CONFIG_CONTENT under "mcp"
+	Why      string         // set: the harness gets no android row
+}
+
+// Launches is every harness's row; a harness absent here gets no android row either.
+var Launches = map[string]Launch{
+	"claudecode": {Flags: []string{"--mcp-config", MCPConfig}},
+	"opencode": {Opencode: map[string]any{
+		"mobile": map[string]any{"type": "local", "command": mcpCommand, "enabled": true},
+	}},
+	"codex":  {Why: "not wired yet: codex takes -c mcp_servers.mobile.* per launch"},
+	"cecli":  {Why: "not wired yet: cecli takes --mcp-servers / CECLI_MCP_SERVERS per launch"},
+	"cursor": {Why: "cursor-agent reads MCP servers only from a persistent ~/.cursor/mcp.json"},
+	"hermes": {Why: "hermes reads MCP servers only from its persistent config.yaml"},
+}
+
+// Supports reports whether harness has a per-launch way to take the mobile server.
+func Supports(harness string) bool {
+	l, ok := Launches[harness]
+	return ok && l.Why == ""
+}
+
+// GuestEnv is what the agent's own processes need to reach the host adb server by name.
+func GuestEnv(port int) []string {
+	return []string{
+		fmt.Sprintf("%s=%d", EnvPort, port),
+		fmt.Sprintf("ADB_SERVER_SOCKET=tcp:host.docker.internal:%d", port),
+	}
+}
+
+// InstallHosts is what the guest needs to install the pinned mobile-mcp.
+var InstallHosts = []string{"registry.npmjs.org"}
 
 var (
 	hostAddr  = func(port int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) }

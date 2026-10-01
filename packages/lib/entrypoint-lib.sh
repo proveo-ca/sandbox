@@ -626,7 +626,78 @@ ensure_project_tools() {
  fi
  fi
 
+ ensure_jvm_toolchain .
+
  _proveo_unlock_installs
+}
+
+PROVEO_AAPT2_WRAPPER="${PROVEO_AAPT2_WRAPPER:-/usr/local/lib/proveo/aapt2}"
+readonly PROVEO_ANDROID_START="# >>> proveo android (generated — edits are overwritten) >>>"
+readonly PROVEO_ANDROID_END="# <<< proveo android <<<"
+
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+# A workspace's own build files name its JVM build: android when a module applies a
+# com.android.* plugin, gradle for any other Gradle build, empty otherwise.
+_jvm_build_kind() {
+  local d="${1:-.}" f kind=""
+  for f in "$d"/settings.gradle.kts "$d"/settings.gradle "$d"/build.gradle.kts "$d"/build.gradle \
+           "$d"/*/build.gradle.kts "$d"/*/build.gradle; do
+    [[ -f "$f" ]] || continue
+    kind=gradle
+    if grep -qE 'com\.android\.(application|library|test|dynamic-feature)' "$f" 2>/dev/null; then
+      echo android
+      return 0
+    fi
+  done
+  printf '%s' "$kind"
+}
+
+_java_major() {
+  command -v java >/dev/null 2>&1 || { echo 0; return 0; }
+  java -version 2>&1 | awk -F'"' '/version/ { split($2, v, "."); print (v[1] == 1 ? v[2] : v[1]) + 0; exit }'
+}
+
+# Row per build kind; each provisions only what the build names and the image lacks.
+ensure_jvm_toolchain() {
+ local d="${1:-.}" kind
+ kind="$(_jvm_build_kind "$d")"
+ [[ -n "$kind" ]] || return 0
+ if (( $(_java_major) < 17 )); then
+  echo "📦 Detected a Gradle build. Installing Java ${PROVEO_JAVA_VERSION:-temurin-21} via mise..."
+  _mise_install "java@${PROVEO_JAVA_VERSION:-temurin-21}" >/dev/null || echo "WARN: mise could not install Java"
+ fi
+ if [[ ! -x "$d/gradlew" ]] && ! command -v gradle >/dev/null 2>&1; then
+  echo "📦 Detected a Gradle build without a wrapper. Installing Gradle ${PROVEO_GRADLE_VERSION:-latest} via mise..."
+  _mise_install "gradle@${PROVEO_GRADLE_VERSION:-latest}" >/dev/null || echo "WARN: mise could not install Gradle"
+ fi
+ [[ "$kind" == android ]] || return 0
+ local emulated=""
+ case "$(uname -m)" in
+ aarch64 | arm64)
+  if [[ "${PROVEO_HOST_OS:-}" != darwin ]]; then
+   echo "⚠️  android: Google ships aapt2 for x86_64 Linux only, and arm64 guests have a measured path on macOS hosts alone — no Android SDK provisioned"
+   return 0
+  fi
+  if ! command -v qemu-x86_64 >/dev/null 2>&1 || [[ ! -x "$PROVEO_AAPT2_WRAPPER" ]]; then
+   echo "⚠️  android: this image lacks the qemu aapt2 floor — no Android SDK provisioned"
+   return 0
+  fi
+  emulated=1 ;;
+ esac
+ local ver="${PROVEO_ANDROID_CMDLINE_TOOLS:-20.0}" root
+ echo "📦 Detected an Android build. Installing Android cmdline-tools ${ver} via mise..."
+ _mise_install "android-sdk@${ver}" >/dev/null || { echo "WARN: mise could not install the Android SDK"; return 0; }
+ root="$(mise where "android-sdk@${ver}" 2>/dev/null)"
+ [[ -d "$root" ]] || { echo "WARN: no Android SDK root after the install"; return 0; }
+ export ANDROID_HOME="$root" ANDROID_SDK_ROOT="$root"
+ export PATH="$root/cmdline-tools/${ver}/bin:$root/platform-tools:$PATH"
+ yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
+ [[ -n "$emulated" ]] || return 0
+ local bt="${PROVEO_ANDROID_BUILD_TOOLS:-36.0.0}"
+ sdkmanager "build-tools;${bt}" >/dev/null 2>&1 || echo "WARN: sdkmanager could not install build-tools ${bt}"
+ printf 'android.aapt2FromMavenOverride=%s\n' "$PROVEO_AAPT2_WRAPPER" \
+  | _proveo_write_block "$(_proveo_agent_home)/.gradle/gradle.properties" "$PROVEO_ANDROID_START" "$PROVEO_ANDROID_END"
+ echo "📦 android: macOS host, arm64 sandbox — AGP runs build-tools ${bt} aapt2 under qemu-user"
 }
 
 # SPEC: _spec/packages/lib/python-environment.puml
@@ -1290,6 +1361,7 @@ proveo_apply_ui_defaults() {
     try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
     if (j.theme === undefined) j.theme = "custom:proveo-sandbox";
     if (j.syntaxHighlightingDisabled === undefined) j.syntaxHighlightingDisabled = false;
+    if (j.respondToBashCommands === undefined) j.respondToBashCommands = false;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
   ' 2>/dev/null || true
@@ -1322,6 +1394,32 @@ proveo_install_claude_hooks() {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
   ' 2>/dev/null && echo "🛡️  cwd guard: PreToolUse(Bash) hook names a vanished working directory instead of a silent exit 1"
+  return 0
+}
+
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+# Claude Code re-sources CLAUDE_ENV_FILE before each Bash command; a SessionStart hook points it at the toolchain env.
+proveo_install_claude_env_hook() {
+  local target="${1:-}" home
+  [[ "$target" == claudecode ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_AGENT_HOME="$home" node -e '
+    const fs = require("fs");
+    const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
+    const path = dir + "/settings.json";
+    const cmd = "echo '"'"'[ -f \"$HOME/.proveo-tool-env.sh\" ] && . \"$HOME/.proveo-tool-env.sh\"'"'"' >> \"$CLAUDE_ENV_FILE\"";
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+    if (typeof j.hooks !== "object" || j.hooks === null) j.hooks = {};
+    if (!Array.isArray(j.hooks.SessionStart)) j.hooks.SessionStart = [];
+    const present = j.hooks.SessionStart.some(g => g && Array.isArray(g.hooks)
+      && g.hooks.some(h => h && h.command === cmd));
+    if (!present) j.hooks.SessionStart.push({ hooks: [{ type: "command", command: cmd }] });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+  ' 2>/dev/null && echo "🧰 toolchain env: Claude Code's shells source ~/.proveo-tool-env.sh, so tools provisioned after launch reach them"
   return 0
 }
 
@@ -2481,16 +2579,23 @@ _proveo_write_block() {
 _proveo_persist_tool_env() {
  local home tool; home="$(_proveo_agent_home)"; tool="$(_proveo_tool_home)"
  [[ -n "$home" ]] || return 0
- {
+ local env
+ env="$({
    printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    [[ -n "${GOFLAGS:-}" ]] && printf 'export GOFLAGS="%s"\n' "$GOFLAGS"
+   if [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}" ]]; then
+     printf 'export ANDROID_HOME="%s"\nexport ANDROID_SDK_ROOT="%s"\n' "$ANDROID_HOME" "$ANDROID_HOME"
+     printf 'export PATH="%s/cmdline-tools/%s/bin:$PATH"\n' "$ANDROID_HOME" "${PROVEO_ANDROID_CMDLINE_TOOLS:-20.0}"
+   fi
    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
      printf 'export VIRTUAL_ENV="%s"\nexport PATH="%s/bin:$PATH"\n' "$VIRTUAL_ENV" "$VIRTUAL_ENV"
    fi
- } | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
+ })"
+ printf '%s\n' "$env" | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
+ printf '%s\n' "$env" > "$home/.proveo-tool-env.sh" 2>/dev/null || true
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
@@ -2667,6 +2772,7 @@ proveo_seed() {
  proveo_compose_house_rules "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
+ proveo_install_claude_env_hook "$target"
  proveo_seed_browser_skills "$target"
  proveo_release_agent "$target"
 
@@ -2683,13 +2789,18 @@ proveo_seed() {
 
 }
 
-# Host Android emulator over the host adb server; artemis is the MCP driver.
+# Host Android emulator over the host adb server; mobile-mcp is the MCP driver.
 # SPEC: _spec/internal/sbx/host-android-adb.puml
-PROVEO_ARTEMIS_REF="${PROVEO_ARTEMIS_REF:-351ca8422f7b5b54e80a9c1ce03a222e02415b6b}"
+PROVEO_MOBILE_MCP_VERSION="${PROVEO_MOBILE_MCP_VERSION:-1.0.6}"
 
 proveo_host_adb_env() {
+  local sock="${ADB_SERVER_SOCKET:-}" rest host_ip
+  if [[ "$sock" == tcp:*:* ]]; then
+    rest="${sock#tcp:}"
+    export ADB_HOST="${rest%:*}" ADB_PORT="${rest##*:}"
+    return 0
+  fi
   [[ -n "${PROVEO_HOST_ADB_PORT:-}" ]] || return 1
-  local host_ip
   host_ip="$(getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR==1{print $1}')"
   if [[ -z "$host_ip" ]]; then
     echo "⚠️  android: host.docker.internal does not resolve — the host emulator stays unreachable" >&2
@@ -2699,37 +2810,43 @@ proveo_host_adb_env() {
   export ADB_SERVER_SOCKET="tcp:${host_ip}:${PROVEO_HOST_ADB_PORT}"
 }
 
-_proveo_artemis_python() {
-  local tools ref="$PROVEO_ARTEMIS_REF"
-  tools="$(_proveo_tool_home)/.local/share/uv/tools"
-  if [[ ! -x "$tools/artemis/bin/python" ]] || ! grep -qF "$ref" "$tools/artemis/uv-receipt.toml" 2>/dev/null; then
-    echo "📱 android: installing artemis @ ${ref:0:12} into the toolchain home (first run only)" >&2
-    UV_TOOL_DIR="$tools" UV_TOOL_BIN_DIR="$(_proveo_tool_home)/.local/bin" \
-      uv tool install -q --force --python 3.12 "artemis @ git+https://github.com/google/artemis@${ref}" >&2 || {
-      echo "⚠️  android: artemis install failed — the agent keeps plain adb" >&2
-      return 1
-    }
-    _proveo_artemis_headless_cv "$tools/artemis/bin/python" || return 1
-  fi
-  printf '%s' "$tools/artemis/bin/python"
-}
-
-# opencv-python links libxcb, which the images do not ship; the headless wheel is the same cv2.
-_proveo_artemis_headless_cv() {
-  local py="$1" v
-  v="$("$py" -c 'import importlib.metadata as m; print(m.version("opencv-python"))' 2>/dev/null)" || return 0
-  uv pip uninstall -q --python "$py" opencv-python >&2 \
-    && uv pip install -q --python "$py" "opencv-python-headless==${v}" >&2 || {
-    echo "⚠️  android: could not swap opencv-python for its headless wheel — artemis would not import" >&2
+proveo_adb_mirror_start() {
+  [[ -n "${ADB_HOST:-}" && -n "${ADB_PORT:-}" ]] || return 1
+  command -v proveo-entrypoint >/dev/null 2>&1 || {
+    echo "⚠️  android: no proveo-entrypoint in this image — adb forwards stay on the host" >&2
     return 1
   }
+  pgrep -f "proveo-entrypoint adb-mirror" >/dev/null 2>&1 && return 0
+  nohup proveo-entrypoint adb-mirror >>"${TMPDIR:-/tmp}/proveo-adb-mirror.log" 2>&1 &
+  disown 2>/dev/null || true
 }
 
-proveo_artemis_mcp_config() {
-  [[ -n "${ADB_HOST:-}" && -n "${ADB_PORT:-}" ]] || return 1
-  local py
-  py="$(_proveo_artemis_python)" || return 1
-  printf '{"mcpServers":{"artemis":{"command":"%s","args":["-m","mcp_server"],"env":{"ADB_HOST":"%s","ADB_PORT":"%s","PYTHONUNBUFFERED":"1"}}}}' \
-    "$py" "$ADB_HOST" "$ADB_PORT"
-  echo "📱 android: artemis MCP drives the host emulator via adb ${ADB_HOST}:${ADB_PORT}" >&2
+_proveo_mobile_mcp_bin() {
+  local prefix ver="$PROVEO_MOBILE_MCP_VERSION" pkg
+  prefix="$(_proveo_tool_home)/mobile-mcp"
+  pkg="$prefix/node_modules/@mobilenext/mobile-mcp/package.json"
+  if ! grep -qF "\"version\": \"${ver}\"" "$pkg" 2>/dev/null; then
+    echo "📱 android: installing mobile-mcp ${ver} into the toolchain home" >&2
+    npm install -q --no-audit --no-fund --prefix "$prefix" "@mobilenext/mobile-mcp@${ver}" >&2 || {
+      echo "⚠️  android: mobile-mcp install failed — the agent keeps plain adb" >&2
+      return 1
+    }
+  fi
+  printf '%s' "$prefix/node_modules/.bin/mcp-server-mobile"
+}
+
+proveo_mobile_mcp_exec() {
+  proveo_host_adb_env || {
+    echo "⚠️  android: no adb server address (ADB_SERVER_SOCKET or PROVEO_HOST_ADB_PORT)" >&2
+    return 1
+  }
+  command -v adb >/dev/null 2>&1 || {
+    echo "⚠️  android: no adb client in this image — mobile-mcp stays off" >&2
+    return 1
+  }
+  proveo_adb_mirror_start || true
+  local bin
+  bin="$(_proveo_mobile_mcp_bin)" || return 1
+  echo "📱 android: mobile-mcp drives the host emulator via adb ${ADB_HOST}:${ADB_PORT}" >&2
+  MOBILEMCP_DISABLE_TELEMETRY=1 exec "$bin"
 }

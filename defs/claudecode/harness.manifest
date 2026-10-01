@@ -57,6 +57,6 @@ capabilities:
   # Claude in Chrome: the agent drives the OPERATOR's Chrome through proveo's
   # bridge — add-on "claude-in-chrome", off by default, on both backends.
   hostBrowser: claude-in-chrome
-  # Host emulators the agent drives: android over the host adb server (artemis
-  # MCP), ios greyed "coming soon". SPEC: _spec/internal/sbx/host-android-adb.puml
+  # Host emulators the agent drives: android over the host adb server (mobile-mcp
+  # on the harness's model), ios greyed "coming soon". SPEC: _spec/internal/sbx/host-android-adb.puml
   hostDevices: [android, ios]

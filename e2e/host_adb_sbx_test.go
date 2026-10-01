@@ -99,25 +99,54 @@ PY
 	}
 	t.Logf("guest view: %s", strings.TrimSpace(out))
 
-	if os.Getenv("PROVEO_ARTEMIS_E2E") != "1" {
-		t.Log("artemis MCP handshake skipped: set PROVEO_ARTEMIS_E2E=1 (first install downloads several hundred MB)")
-		return
-	}
-	mcp := fmt.Sprintf(`set -e
+	session := fmt.Sprintf(`set -e
 export HOME=/tmp %s=%d
 source /tmp/entrypoint-lib.sh
 proveo_host_adb_env
-cfg="$(proveo_artemis_mcp_config)"
-py="$(printf '%%s' "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["mcpServers"]["artemis"]["command"])')"
-printf '%%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proveo","version":"1"}}}' \
-  | timeout 120 "$py" -m mcp_server 2>/dev/null | head -c 4096
+proveo_adb_mirror_start
+python3 - <<'PY'
+import json, subprocess, sys
+p = subprocess.Popen(["bash", "-c", "source /tmp/entrypoint-lib.sh && proveo_mobile_mcp_exec"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+def call(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"); p.stdin.flush()
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == i: return m["result"]
+def tool(i, name, args):
+    r = call(i, "tools/call", {"name": name, "arguments": args})
+    kinds = [c["type"] for c in r.get("content", [])]
+    text = " ".join(c.get("text", "") for c in r.get("content", []) if c["type"] == "text")
+    print("%%s error=%%s kinds=%%s text=%%s" %% (name, r.get("isError", False), ",".join(kinds), text[:160].replace("\n", " ")))
+    return text
+call(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "proveo", "version": "1"}})
+p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
+dev = json.loads(tool(2, "mobile_list_available_devices", {}))["devices"][0]["id"]
+tool(3, "mobile_launch_app", {"device": dev, "packageName": "com.android.settings"})
+tool(4, "mobile_list_elements_on_screen", {"device": dev})
+tool(5, "mobile_click_on_screen_at_coordinates", {"device": dev, "x": 540, "y": 640})
+tool(6, "mobile_take_screenshot", {"device": dev})
+tool(7, "mobile_press_button", {"device": dev, "button": "HOME"})
+p.terminate()
+PY
 `, hostadb.EnvPort, port)
-	ob, err = exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", mcp).CombinedOutput()
+	ob, err = exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", session).CombinedOutput()
 	out = string(ob)
 	if err != nil {
-		t.Fatalf("artemis exec: %v\n%s", err, out)
+		t.Fatalf("mobile-mcp session: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, `"serverInfo"`) {
-		t.Fatalf("artemis did not answer an MCP initialize:\n%s", out)
+	for _, want := range []string{
+		"mobile_launch_app error=False",
+		"mobile_list_elements_on_screen error=False",
+		"mobile_click_on_screen_at_coordinates error=False",
+		"mobile_take_screenshot error=False kinds=text,image",
+		"mobile_press_button error=False",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("mobile-mcp session missing %q:\n%s", want, out)
+		}
+	}
+	t.Logf("mobile-mcp session:\n%s", strings.TrimSpace(out))
+	if !strings.Contains(out, "@e1") {
+		t.Errorf("list_elements returned no element refs — the forwarded device server is unreachable:\n%s", out)
 	}
 }

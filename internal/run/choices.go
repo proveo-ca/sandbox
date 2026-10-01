@@ -508,7 +508,7 @@ var addonHelp = map[string]string{
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
-	addonAndroid: "the agent drives an Android emulator on this host through its adb server (artemis MCP) — log in there once; the emulator stays open after the run",
+	addonAndroid: "the agent drives an Android emulator on this host through its adb server (mobile-mcp) — log in there once; the emulator stays open after the run",
 	addonIOS:     "the agent drives an iOS Simulator on this host — coming soon",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }

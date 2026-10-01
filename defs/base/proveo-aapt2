@@ -1,0 +1,10 @@
+#!/bin/sh
+# Runs the SDK's x86_64 aapt2 under qemu-user for AGP on arm64 guests of macOS hosts.
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+real="$(ls -d "$sdk"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -n 1)"
+if [ -z "$real" ]; then
+  echo "proveo aapt2: no build-tools aapt2 under ${sdk:-\$ANDROID_HOME}" >&2
+  exit 127
+fi
+exec qemu-x86_64 -L /usr/x86_64-linux-gnu "$real" "$@"

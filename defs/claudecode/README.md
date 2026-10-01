@@ -205,21 +205,22 @@ Two different browsers, two different add-ons in the `proveo run` picker:
 | `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (FROM `proveo/base-node-browser`) | sbx or docker |
 | `chrome (host browser)` | **your own Chrome**, through the Claude in Chrome extension — your logins, the extension's site permissions | any claudecode image | docker only |
 
-## Mobile: an Android emulator on the host, driven by artemis
+## Mobile: an Android emulator on the host, driven by mobile-mcp
 
 | add-on | what the agent drives | image | backend |
 | --- | --- | --- | --- |
-| `android (host emulator)` | an Android emulator **on your host**, through its adb server, with [google/artemis](https://github.com/google/artemis) as the MCP driver | any claudecode image | sbx only |
-| `ios (host simulator)` | greyed: coming soon (artemis ships no iOS driver) | — | — |
+| `android (host emulator)` | an Android emulator **on your host**, through its adb server, with [mobile-next/mobile-mcp](https://github.com/mobile-next/mobile-mcp) tools (tap, swipe, type, element list, screenshot) on Claude Code's own model | any claudecode image | sbx only |
+| `ios (host simulator)` | greyed: coming soon | — | — |
 
 `proveo run claudecode --addon android` reuses any device the host adb server
 (`127.0.0.1:5037`, `PROVEO_HOST_ADB_PORT`) lists, else boots a windowed AVD
 (`PROVEO_HOST_AVD`, else the first one) and leaves it open. Inside the VM,
-`ADB_HOST`/`ADB_PORT`/`ADB_SERVER_SOCKET` point at the host gateway, and the first
-run installs artemis at a pinned ref into the toolchain home (measured: ~12 min, ~1 GB,
-once per toolchain home); Claude Code loads it
-with `--mcp-config`. The agent controls every device on that server, and the server
-can dial out from the host, so the run warns. Spec: `_spec/internal/sbx/host-android-adb.puml`.
+`ADB_SERVER_SOCKET` points the image's `adb` at the host gateway,
+`proveo-entrypoint adb-mirror` carries adb forwards into the VM, and the first run
+npm-installs mobile-mcp at a pinned version into the toolchain home (~5 s). Claude
+Code loads it with `--mcp-config`. The agent controls every device on that server,
+and the server can dial out from the host, so the run warns. Spec:
+`_spec/internal/sbx/host-android-adb.puml`.
 
 ### `browser` — agent-browser beside Playwright
 

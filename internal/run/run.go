@@ -326,7 +326,7 @@ func startHostADB(p *Params) ([]string, error) {
 		return nil, fmt.Errorf("%s: %w", addonAndroid, err)
 	}
 	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
-	return []string{fmt.Sprintf("%s=%d", hostadb.EnvPort, port)}, nil
+	return hostadb.GuestEnv(port), nil
 }
 
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {

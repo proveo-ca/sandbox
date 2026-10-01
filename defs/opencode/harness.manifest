@@ -36,4 +36,7 @@ env:
 # side would make the other unreachable.
 # SPEC: _spec/internal/credentials/credential-decisions.puml
 capabilities:
+  # Host emulators: android over the host adb server (mobile-mcp on the
+  # harness's model), ios greyed "coming soon". SPEC: _spec/internal/sbx/host-android-adb.puml
+  hostDevices: [android, ios]
   hosts: [.opencode.ai, models.dev]
