@@ -108,7 +108,7 @@ COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/defaults/ /opt/claude
 COPY --chown=${USER_NAME}:${USER_NAME} defs/subagents/ /opt/proveo/subagents/
 
 COPY AGENTS.md /opt/proveo/AGENTS.md
-COPY AGENTS.md /etc/claude-code/CLAUDE.md
+COPY --chown=${USER_NAME}:${USER_NAME} AGENTS.md /etc/claude-code/CLAUDE.md
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 --chown=${USER_NAME}:${USER_NAME} packages/lib/proveo-seed /usr/local/bin/proveo-seed
 # SPEC: _spec/packages/lib/seed-and-launch.puml

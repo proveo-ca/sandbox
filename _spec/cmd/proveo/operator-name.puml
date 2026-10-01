@@ -1,0 +1,85 @@
+@startuml OperatorName
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how `proveo init` asks the operator's name once and every agent's house rules address them by it, with "Executor" as the default
+' covers: internal/operator/operator.go
+' covers: internal/operator/operator_test.go
+' covers: cmd/proveo/init_operator.go
+' covers: cmd/proveo/init_operator_test.go
+' covers: cmd/proveo/init.go (operatorStage after credentialStage)
+' covers: internal/run/run.go (operator.Env on both backends)
+' covers: internal/ui/ui.go (SectionOperator)
+' covers: packages/lib/entrypoint-lib.sh (_proveo_operator_name, _proveo_address_operator, proveo_compose_house_rules, proveo_address_operator_claude)
+' covers: internal/contract/operator_name_test.go
+' covers: e2e/operator_name_test.go
+' covers: defs/claudecode/mcp/Dockerfile (/etc/claude-code/CLAUDE.md owned by the agent user)
+'   the plan item this delivers ......... _spec/_plans/white-label-brand-manifest.puml (D)
+'   the init stages around it ........... _spec/cmd/proveo/init-credential-entry.puml
+'
+' ── WHY ────────────────────────────────────────────────────────────────────
+' The images bake this repository's AGENTS.md as proveo's house rules
+' (/opt/proveo/AGENTS.md for every harness, /etc/claude-code/CLAUDE.md for
+' claudecode), and its first rule reads `Address me as "Executor"`. That made
+' one maintainer's preference every operator's name. The template keeps the
+' line; each host now decides the name.
+'
+' ── ASK (proveo init, last stage) ──────────────────────────────────────────
+'   form     title "Greetings, how may I address you?", one field `name`,
+'            placeholder = the stored name, else Executor
+'   keep     operator.Sanitize: first 16 runes, trimmed, no quotes, backslashes,
+'            backticks or control characters
+'   empty    keeps the stored name; with none stored, Executor and no file
+'   skipped  --print, --yes or no terminal: reports the name in use
+'   store    ~/.proveo/operator.yml   `name: <value>`  (PROVEO_HOME honoured)
+'
+' ── CARRY (proveo run) ─────────────────────────────────────────────────────
+'   sbx      agent env PROVEO_OPERATOR_NAME=<name>
+'   docker   -e PROVEO_OPERATOR_NAME, value on the docker process (ChildEnv)
+'   none     nothing is passed when no name is stored
+'
+' ── APPLY (the seed, before the agent is released) ─────────────────────────
+'   _proveo_operator_name     re-sanitizes; 16 characters under C.UTF-8, so a
+'                             multibyte name is cut by character, not byte
+'   _proveo_address_operator  rewrites every `Address me as "…"` on stdin;
+'                             awk reads the name from ENVIRON with & escaped,
+'                             so no character can reach the pattern syntax
+'   codex, opencode           proveo_compose_house_rules filters the template
+'                             into the user-level instructions block
+'   claudecode                proveo_address_operator_claude rewrites the
+'                             managed /etc/claude-code/CLAUDE.md in place (the
+'                             image hands that file to the agent user)
+'   no name                   every file stays as baked: "Executor"
+' The /opt/proveo/AGENTS.md template is never edited, so every run starts from
+' the shipped default and a removed name takes effect on the next boot.
+
+actor "Operator" as OP
+node "host" as HOST {
+  component "proveo init\noperator stage" as INIT
+  component "~/.proveo/operator.yml\nname: <16 runes>" as FILE <<db>>
+  component "proveo run" as RUN
+}
+node "sandbox" as VM {
+  component "seed\n_proveo_address_operator" as SEED
+  component "house rules\nAddress me as \"<name>\"" as RULES
+}
+
+OP --> INIT : "Greetings, how may I address you?"
+INIT --> FILE : Sanitize + Save
+RUN --> FILE : operator.Env
+RUN --> SEED : PROVEO_OPERATOR_NAME
+SEED --> RULES : codex/opencode block,\nclaudecode managed CLAUDE.md
+
+note right of FILE
+  **Empty keeps, nothing defaults.** A blank
+  answer keeps a stored name; with none stored
+  no file is written and agents keep calling
+  the operator Executor.
+end note
+
+note right of SEED
+  **The name cannot escape its quotes.** Host
+  and seed both drop quotes, backslashes and
+  control characters; awk takes it from the
+  environment with & escaped.
+end note
+@enduml

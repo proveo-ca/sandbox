@@ -404,6 +404,9 @@ func localModelArgs(model, base string) []string {
 		"-e", "ANTHROPIC_BASE_URL=" + base, "-e", "ANTHROPIC_AUTH_TOKEN=ollama",
 		"-e", "ANTHROPIC_API_KEY=",
 		"-e", "ANTHROPIC_MODEL=" + model, "-e", "ANTHROPIC_SMALL_FAST_MODEL=" + model,
+		"-e", "CLAUDE_CODE_EFFORT_LEVEL=low", "-e", "CLAUDE_CODE_DISABLE_THINKING=1",
+		"-e", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"-e", "API_TIMEOUT_MS=1200000", "-e", "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS=1200000",
 		"-e", "NO_PROXY=" + noProxyHosts, "-e", "no_proxy=" + noProxyHosts,
 	}
 }

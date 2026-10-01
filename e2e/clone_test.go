@@ -94,6 +94,73 @@ func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	}
 }
 
+// TestCloneCarriesAGitignoredSymlinkedDotEnv drives a real clone run whose .env
+// is gitignored and a symlink out of the checkout.
+func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
+	if !sbxAvailable() {
+		t.Skip("sandbox backend unavailable")
+	}
+	const target = "claudecode"
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
+
+	work, _ := filepath.EvalSymlinks(t.TempDir())
+	secrets, _ := filepath.EvalSymlinks(t.TempDir())
+	token := randToken()
+	hostEnv := filepath.Join(secrets, "base.env")
+	writeFile(t, hostEnv, []byte("PROVEO_E2E_DOTENV="+token+"\n"))
+	writeFile(t, filepath.Join(work, ".gitignore"), []byte(".env\n"))
+	gitInit(t, work)
+	if err := os.Symlink(hostEnv, filepath.Join(work, ".env")); err != nil {
+		t.Fatal(err)
+	}
+
+	before, canList := sbxSandboxNames()
+	sess := tmux.New(fmt.Sprintf("proveo-clonedotenv-%d", os.Getpid()), nil)
+	t.Cleanup(func() {
+		sess.Kill()
+		removeLeakedSandboxes(t, before, canList)
+	})
+
+	cmd := []string{"env"}
+	if s := harnessSecrets(t, target); len(s) > 0 {
+		cmd = append(cmd, childEnvArgsFor(t, s[0])...)
+	} else {
+		cmd = append(cmd, childEnvArgs(t)...)
+	}
+	cmd = append(cmd,
+		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_AUTO_INSTALL_TOOLS=false",
+		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+	)
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start sandbox session: %v", err)
+	}
+
+	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
+	w := newWatcher(t, sess)
+	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+
+	script := `printf 'origin=%s\nenv=%s\nwritable=%s\nstatus=[%s]\n' ` +
+		`"$(git remote get-url origin 2>/dev/null)" ` +
+		`"$(grep -c ` + quoteWord("PROVEO_E2E_DOTENV="+token) + ` .env 2>/dev/null)" ` +
+		`"$( (: >> .env) 2>/dev/null && echo yes || echo no)" ` +
+		`"$(git status --porcelain -- .env 2>/dev/null)"`
+	out, status := shellExec(t, sess, script, 60*time.Second)
+	if status != 0 {
+		t.Fatalf("probe exited %d:\n%s", status, out)
+	}
+	for _, want := range []string{"origin=/run/sandbox/source", "env=1", "writable=no", "status=[]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("probe lacks %q — a gitignored, symlinked host .env must reach the clone "+
+				"read-only and stay out of git status:\n%s", want, out)
+		}
+	}
+	if b, err := os.ReadFile(hostEnv); err != nil || string(b) != "PROVEO_E2E_DOTENV="+token+"\n" {
+		t.Errorf("the run changed the host .env target: %q, %v", b, err)
+	}
+}
+
 // TestCloneOfALinkedWorktreeLeavesItsHostTreeAlone guards the linked-worktree
 // shape: sbx clones the main worktree, the seed checks out the worktree's
 // branch, and the worktree's macOS tree on the host stays byte-for-byte.

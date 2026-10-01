@@ -1,0 +1,180 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — where do Android/iOS emulators live for an sbx agent: in the box, or on the host?
+' status: measured 2026-09-29/30; built as _spec/internal/sbx/host-android-adb.puml
+'   what was built ................... _spec/internal/sbx/host-android-adb.puml
+'   the pattern it copies ............ _spec/internal/sbx/host-browser-cdp.puml
+'   why the box has no /dev/kvm ...... _spec/_experiments/nested-sbx-kvm.puml
+'   the host-side egress bypass ...... _spec/_experiments/cdp-shared-browser.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── SOURCES ─────────────────────────────────────────────────────────────────
+'   mobile-mcp       : https://github.com/mobile-next/mobile-mcp
+'   mobilecli        : https://github.com/mobile-next/mobilecli
+'   idb architecture : https://github.com/facebook/idb/blob/main/website/docs/idb/architecture.mdx
+'   idb remote       : https://github.com/facebook/idb/blob/main/website/docs/idb/installation.mdx
+'   emulator on arm64: https://gist.github.com/atyachin/2f7c6054c4cd6945397165a23623987d
+'
+' ── Q1: CAN THE EMULATOR LIVE INSIDE sbx? NO ────────────────────────────────
+'   emulator (hvf/kvm)  needs /dev/kvm; the box has none (nested-sbx-kvm.puml)
+'   redroid             needs binder + CAP_SYS_ADMIN; CapEff is 0x0
+'   cuttlefish          needs /dev/kvm
+'   pure TCG            [Speculation] boots, at >10x the 52 s hvf boot
+' Every in-box route fails on the runtime, not the image. Same floor as E1.
+'
+' ── Q2: HOST BRIDGE, MEASURED ON THIS HOST (M4 Pro, macOS 26.7) ────────────
+'   emulator 36.4.9 · AVD Medium_Phone_API_36.1 (Play, release-keys, no root)
+'   -accel-check                     hvf OK
+'   -no-window -no-audio boot        52 s to sys.boot_completed=1
+'   listeners                        127.0.0.1:5037 adb server
+'                                    127.0.0.1:5554 emulator CONSOLE
+'                                    127.0.0.1:5555 emulator adbd
+'   raw host:version  -> 5037        OKAY 0029
+'   raw host:devices-l -> 5037       OKAY emulator-5554 device
+'   fresh adbkey -> 5555 direct      unauthorized
+'   same, with -skip-adb-auth        unauthorized (Play image ignores it)
+' So the ADB SERVER is the reachable seam; the key never leaves the host.
+'
+' ── MEASURED FROM A GUEST (sbx v0.42.1, per-sandbox allow localhost:5037) ──
+'   raw host:version  -> 169.254.1.1:5037            OKAY 0029, 18.5 ms
+'   raw host:devices-l -> host.docker.internal:5037  OKAY emulator-5554
+'   policy log                                       localhost:5037 transparent
+'   adbutils AdbClient(host=169.254.1.1)
+'     get_state            device
+'     am start SETTINGS    mCurrentFocus = SettingsHomepageActivity
+'     screenshot           1080x2400 in 0.96 s
+'     uiautomator dump     30 071 bytes in 2.59 s
+'   Ubuntu adb 34.0.5 via ADB_SERVER_SOCKET  devices + shell OK, no local
+'                                            server, host server pid unchanged
+' Unlike Chrome, ADB ignores Host, so the hostname works too; the IP stays
+' canonical for parity with hostcdp.
+'
+' ── LIFECYCLE: THE hostcdp SHAPE, ONE FOR ONE ──────────────────────────────
+'   hostcdp (hermes)                      hostadb (android)
+'   Ready: GET :9222/json/version         Ready: host:devices lists a serial
+'   reuse whatever answers                reuse any running emulator
+'   launch Chrome --user-data-dir=        launch emulator -avd <avd>
+'     UserConfigDir/proveo/host-chrome      (PROVEO_HOST_AVD, else the first)
+'   own process group, left open          own process group, left open
+'   env BROWSER_CDP_URL=http://<ip>:P     env ADB_SERVER_SOCKET=tcp:<ip>:5037
+'   Kit allow localhost:<port>            Kit allow localhost:5037
+' Windowed launch lets the operator watch and log in once; AVD userdata
+' persists the login across runs, as the Chrome profile does.
+'
+' ── THREE ROUTES; DECIDED 2026-09-29: RAW 5037 ─────────────────────────────
+'   raw      ADB_SERVER_SOCKET=tcp:<gateway ip>:5037  key on host · host dials  ← chosen
+'   relay    same, via a host relay that drops connect/kill/reverse  (deferred)
+'   in-VM    VM adb server -> <gateway ip>:5555  host adbkey copied into VM ✗
+' Raw mirrors hostcdp: dial the gateway by IP, one Kit allow, env only, and a
+' run-time warning carries the risk, as it does for host Chrome.
+'
+' ── THE HOLE RAW 5037 OPENS, ACCEPTED BY WARNING ───────────────────────────
+' An adb server is a host-side dialer. `host:connect:<ip>:<port>` makes the
+' HOST open a TCP connection, outside sbx egress. `reverse` lets the device
+' reach host loopback. The emulator's own network is the host's NAT, so an
+' agent browsing inside Android is outside policy — the host-Chrome case again.
+' Deferred mitigation: a host relay forwarding only
+'   host:version  host:devices[-l]  host:track-devices  host:transport:<serial>
+'   host:list-forward
+' and refusing connect/disconnect/kill/reverse; plus `-http-proxy` on launch.
+'
+' ── THE DRIVER: PRIMITIVES ON THE HARNESS'S MODEL ─────────────────────────
+' mobile-mcp 1.0.6 exposes tools, not an agent: tap, swipe, type, element
+' list, screenshot, app launch, buttons. The harness's own model reasons over
+' them, so the add-on adds no provider, no key and no second loop.
+'   default (mobilecli)   element list + tap need an on-device server reached
+'                         by `adb forward`; behind the remote server that
+'                         listener lands on the HOST's loopback → "device
+'                         server did not start" until forwards are mirrored
+'   MOBILEMCP_LEGACY_ROBOT=1  plain adb shell: launch, screenshot, tap, HOME
+'                         work; element list fails — `uiautomator dump
+'                         /dev/tty` is Killed on API 36, on the host too
+' A VM-side mirror (host:list-forward, then host:transport + the forward's own
+' target per connection) made the default mode whole: launch, elements, tap,
+' type, screenshot, foreground app, HOME. Built as internal/adbmirror.
+'
+' ── Q3: CAN THE NERDBOX (non-macOS) RUN AN iOS SIMULATOR? NO ───────────────
+' Simulator runtimes are macOS frameworks shipped only in Xcode; Apple's
+' licence confines macOS to Apple hardware. Reachable iOS for a Linux host:
+'   remote Mac     idb_companion on macOS :10882; the idb CLI is pure Python
+'                  and runs anywhere — the same seam shape as the adb server
+'   cloud          Corellium (virtual iOS), BrowserStack/Appetize (streamed)
+' mobile-mcp lists iOS Simulators too, on a macOS host with Xcode.
+' Android on the nerdbox is fine: the host emulator runs on KVM, same bridge.
+'
+' ── RECOMMENDATION ─────────────────────────────────────────────────────────
+' Host bridge, raw 5037, warned. "Fully inside sbx + attach" is the preferred
+' UX but is gated by the same upstream sbx feature as E1 (/dev/kvm into the
+' VM). Revisit when docker/sbx-releases ships device passthrough; until then
+' `attach` = attach to the HOST emulator.
+'
+' ── HYPOTHESES ─────────────────────────────────────────────────────────────
+' H1  PASS  guest raw host:version -> 169.254.1.1:5037
+' H2  PASS  adbutils via the gateway: launch, screenshot, hierarchy
+' H3  PASS  mobile-mcp through the gateway + adb-mirror, e2e on the rebuilt
+'           image (host server pid unchanged)
+' H4  open  a real harness session driving the emulator through mobile-mcp
+' H5  open  (if the relay is revived) it refuses host:connect and passes H3
+' H6  [Unverified] whether sbx enforces the Kit allow on the direct path
+' ────────────────────────────────────────────────────────────────────────────
+
+title Experiment — mobile device reach: in the box, or bridged to the host
+
+node "macOS host (M4 Pro)" as HOST <<host>> {
+  component "Android emulator\nhvf · 52 s boot" as EMU <<app>>
+  component "adb server\n127.0.0.1:5037" as ADB <<app>>
+  component "iOS Simulator\nXcode only" as SIM <<async>>
+}
+
+node "sbx microVM" as VM <<host>> {
+  component "mobile-mcp + adb-mirror\nADB_SERVER_SOCKET=tcp:169.254.1.1:5037" as MCP <<app>>
+  component "in-box emulator\nno /dev/kvm · CapEff 0x0" as INBOX <<error>>
+}
+
+node "nerdbox (Linux)" as NERD <<cloud>> {
+  component "iOS Simulator\nnot possible" as NOSIM <<error>>
+}
+
+MCP ARROW_MAIN ADB : ADB over gateway IP · Kit allow localhost:5037
+ADB ARROW_MAIN EMU : emulator-5554
+MCP ARROW_QUEUE SIM : coming soon — not built
+MCP ARROW_ERROR INBOX : blocked by the runtime
+NERD ARROW_QUEUE SIM : remote Mac over network
+
+note bottom of MCP
+  **The server is the seam, not adbd.** A fresh
+  key on :5555 reads unauthorized, even with
+  -skip-adb-auth on a Play image; :5037 answers
+  OKAY and keeps the adbkey on the host.
+end note
+
+note bottom of ADB
+  **An adb server dials for you.** host:connect
+  opens a host TCP socket outside sbx egress;
+  the run warns, as host CDP does, and a relay
+  that drops connect stays the deferred fix.
+end note
+
+note bottom of INBOX
+  **The floor is the runtime again.** No
+  /dev/kvm, zero caps, no binder: emulator,
+  redroid and cuttlefish all stop at the same
+  gate nested-sbx-kvm.puml already measured.
+end note
+
+note bottom of NOSIM
+  **iOS needs a Mac somewhere.** Simulator
+  runtimes ship only in Xcode on macOS; a Linux
+  host reaches iOS through a remote Mac's
+  idb_companion or a cloud device.
+end note
+
+note bottom of SIM
+  **Same seam, one release later.** Simulators
+  run beside the Android emulator on the Mac;
+  idb's companion on :10882 or mobile-mcp's
+  iOS path would reach them from the VM.
+end note
+
+@enduml

@@ -519,6 +519,7 @@ func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 		"_proveo_walk",                     // the prune list §7c, §7d and §8 must share
 		"_proveo_project_roots",            // NESTED project discovery, every language
 		"ensure_dependency_trees",          // §7d host-built dependency probe
+		"ensure_jvm_toolchain",             // Gradle/Android build tools from the build files
 		"_dep_lang_class",                  // the per-language remedy table
 		"proveo_provision_toolchain",       // §7 install-shaped work, reached by BOTH backends
 		"_proveo_agent_home",               // the home the AGENT runs with, not this process's

@@ -16,6 +16,17 @@ skinparam noteTextAlignment left
 '   what a refused mode costs downstream . _spec/internal/sbx/sandbox-backend.puml
 '   who holds the key on this backend .... _spec/internal/sbx/credential-path.puml
 '
+' ── REACH THE BASELINE DOES NOT GOVERN ────────────────────────────────────
+' The baseline and the Kit allow govern traffic that leaves the sandbox. An
+' add-on that hands the agent a HOST service also hands it whatever that
+' service can reach from the host, outside every sbx rule. Each one is an
+' explicit per-run opt-in that warns at launch:
+'   host Chrome (CDP)   the browser fetches from the host network
+'                       (host-browser-cdp.puml)
+'   android (host adb)  host:connect, reverse and the emulator's NIC dial from
+'                       the host; accepted 2026-09-29, relay deferred
+'                       (host-android-adb.puml, ACCEPTED RISK)
+'
 ' ── THE TIER VOCABULARY OUTLIVES THE MECHANISM IT ONCE NAMED ───────────────
 ' Recorded here 2026-09-16, when the docker+egress diagrams were retired
 ' (_spec/tests/testing-strategy.puml). sbx deprecated those egress mechanisms, so

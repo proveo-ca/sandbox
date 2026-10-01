@@ -111,5 +111,9 @@ export DISABLE_AUTOUPDATER="${DISABLE_AUTOUPDATER:-1}"
 CLAUDE_CHROME_ARGS=()
 [[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
 
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+CLAUDE_LOCAL_ARGS=()
+[[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && CLAUDE_LOCAL_ARGS=(--tools Bash,Read,Edit,Write)
+
 echo "🚀 Launching Claude Code..."
-proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" -- "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" "${CLAUDE_LOCAL_ARGS[@]}" -- "$@"

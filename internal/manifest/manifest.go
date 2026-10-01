@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -106,10 +107,20 @@ type Capabilities struct {
 	Providers   []string `yaml:"providers"`
 	Hosts       []string `yaml:"hosts"`
 	HostBrowser string   `yaml:"hostBrowser"`
+	HostDevices []string `yaml:"hostDevices"`
 }
 
 // HostBrowserCDP is the hostBrowser value for a harness that attaches to a host Chrome over CDP.
 const HostBrowserCDP = "cdp"
+
+// hostDevices values: the host emulators a harness can drive.
+const (
+	HostDeviceAndroid = "android"
+	HostDeviceIOS     = "ios"
+)
+
+// HasHostDevice reports whether the harness declares the host device kind.
+func (c Capabilities) HasHostDevice(kind string) bool { return slices.Contains(c.HostDevices, kind) }
 
 // HasHostBrowser reports whether the harness can drive the operator's browser.
 func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
@@ -225,6 +236,11 @@ func (m Manifest) Validate() error {
 	case "", "rw", "ro":
 	default:
 		return fmt.Errorf("manifest %q: invalid workspace.mode %q", m.Name, m.Workspace.Mode)
+	}
+	for _, d := range m.Capabilities.HostDevices {
+		if d != HostDeviceAndroid && d != HostDeviceIOS {
+			return fmt.Errorf("manifest %q: invalid capabilities.hostDevices entry %q (want %s or %s)", m.Name, d, HostDeviceAndroid, HostDeviceIOS)
+		}
 	}
 	seen := map[string]bool{}
 	for _, e := range m.Env {

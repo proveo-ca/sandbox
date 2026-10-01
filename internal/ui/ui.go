@@ -180,6 +180,7 @@ const (
 	SectionSetup       = "setup"       // `proveo setup`: the PATH change
 	SectionUninstall   = "uninstall"   // `proveo uninstall`: what is removed
 	SectionSchedule    = "schedule"    // `proveo schedule`: the tick, then one section per job
+	SectionOperator    = "operator"    // `proveo init`: how agents address the operator
 )
 
 const sectionRules = 6

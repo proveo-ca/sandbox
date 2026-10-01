@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -641,6 +643,12 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostcdp.EnvPort)); err == nil {
 		hosts[hostcdp.PolicyHost(port)] = true
 	}
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostadb.EnvPort)); err == nil {
+		hosts[hostadb.PolicyHost(port)] = true
+		for _, h := range hostadb.InstallHosts {
+			addHost(h)
+		}
+	}
 	allow := make([]string, 0, len(hosts))
 	for h := range hosts {
 		allow = append(allow, h)
@@ -822,6 +830,10 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		command, agent = nil, sbx.ShellAgent
 	}
 	command = withChromeFlag(agent, in.BridgeEnv, command)
+	if agent != sbx.ShellAgent {
+		command = withMobileMCP(harness, in.AgentEnv, command)
+		command = withLocalModelTools(agent, in.AgentEnv, command)
+	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
 		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
@@ -933,6 +945,36 @@ func withChromeFlag(agent string, bridge, command []string) []string {
 		}
 	}
 	return append([]string{"--chrome"}, command...)
+}
+
+// LocalModelTools is the built-in tool set Claude Code keeps on a local model, where each tool schema costs prefill.
+const LocalModelTools = "Bash,Read,Edit,Write"
+
+// withLocalModelTools narrows sbx claude's built-in tools when the run uses a local model.
+func withLocalModelTools(agent string, env, command []string) []string {
+	if agent != sbx.BuiltinAgent("claudecode") || envValue(env, "PROVEO_LOCAL_MODEL") == "" {
+		return command
+	}
+	for _, a := range command {
+		if a == "--tools" {
+			return command
+		}
+	}
+	return append([]string{"--tools", LocalModelTools}, command...)
+}
+
+// withMobileMCP prepends the harness's per-launch mobile-server flags when the android add-on is on.
+func withMobileMCP(harness string, env, command []string) []string {
+	flags := hostadb.Launches[harness].Flags
+	if len(flags) == 0 || envValue(env, hostadb.EnvPort) == "" {
+		return command
+	}
+	for _, a := range command {
+		if a == flags[0] {
+			return command
+		}
+	}
+	return append(append([]string{}, flags...), command...)
 }
 
 func KitEnvVars(env []string) map[string]string {
@@ -1390,34 +1432,36 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 		return nil
 	}
 	model, base := envValue(agentEnv, "PROVEO_LOCAL_MODEL"), envValue(agentEnv, "OLLAMA_API_BASE")
-	if model == "" {
+	mcp := envValue(agentEnv, hostadb.EnvPort) != ""
+	if model == "" && !mcp {
 		return nil
 	}
-	if base == "" {
-		base = "http://ollama:11434"
-	}
-	cfg := map[string]any{
-		"$schema": "https://opencode.ai/config.json",
-		"provider": map[string]any{
+	cfg := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	var out []string
+	if model != "" {
+		if base == "" {
+			base = "http://ollama:11434"
+		}
+		cfg["provider"] = map[string]any{
 			"ollama": map[string]any{
 				"npm":     "@ai-sdk/openai-compatible",
 				"name":    "Ollama (local)",
 				"options": map[string]any{"baseURL": strings.TrimRight(base, "/") + "/v1", "apiKey": "ollama"},
 				"models":  map[string]any{model: map[string]any{"name": model + " (local)"}},
 			},
-		},
-		"model":       "ollama/" + model,
-		"small_model": "ollama/" + model,
+		}
+		cfg["model"] = "ollama/" + model
+		cfg["small_model"] = "ollama/" + model
+		out = append(out, "OPENCODE_MODEL=ollama/"+model, "OPENCODE_SMALL_MODEL=ollama/"+model)
+	}
+	if mcp {
+		cfg["mcp"] = hostadb.Launches["opencode"].Opencode
 	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return nil
 	}
-	return []string{
-		"OPENCODE_CONFIG_CONTENT=" + string(b),
-		"OPENCODE_MODEL=ollama/" + model,
-		"OPENCODE_SMALL_MODEL=ollama/" + model,
-	}
+	return append([]string{"OPENCODE_CONFIG_CONTENT=" + string(b)}, out...)
 }
 
 func envValue(env []string, key string) string {
@@ -1532,11 +1576,17 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 // launchEnv is everything the agent must already hold when sbx starts it: the
 // plan's decision, the workdir, git's reach across the mount boundary and the
 // repository's safety, the def's model wiring, and the scoped index.
+// EnvHostOS tells the guest which OS the host runs, for fixes measured on one host OS only.
+const EnvHostOS = "PROVEO_HOST_OS"
+
+var hostOS = runtime.GOOS
+
 func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []string {
 	binds := WorkspaceBinds(mounts)
 	out := append([]string{}, env...)
 	out = append(out, sandboxAgentEnv(in.AgentEnv)...)
-	out = append(out, "PROVEO_WORKDIR="+agentWorkdir(in, binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1")
+	out = append(out, "PROVEO_WORKDIR="+agentWorkdir(in, binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1",
+		EnvHostOS+"="+hostOS)
 	if worktreeClone(in) {
 		out = append(out, gitSafeDirectoryEnv(in.CloneSource.Main)...)
 	} else {

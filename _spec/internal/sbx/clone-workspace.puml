@@ -133,6 +133,10 @@ skinparam noteTextAlignment left
 ' agrees with itself indefinitely while the run it stands in for moves.
 ' TestCloneModeLandsTheCloneAndLiftsTheOutputDir already worked this way, so the
 ' two now share one launch shape (_spec/tests/testing-strategy.puml).
+' TestCloneCarriesAGitignoredSymlinkedDotEnv uses the same shape for the staged
+' .env: gitignored, symlinked out of the checkout, it must read back in the
+' clone, refuse a write, and stay out of `git status`. It asserts on .env alone,
+' because the instructions seed leaves AGENTS.md untracked in the clone.
 '
 ' ── NOTHING MAY BE MOUNTED UNDER THE REPOSITORY IN CLONE MODE ──────────────
 ' sbx clones only into an EMPTY workspace, and it mounts every positional

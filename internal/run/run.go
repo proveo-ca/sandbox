@@ -21,8 +21,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -307,6 +309,25 @@ func startHostCDP(p *Params) ([]string, error) {
 	}
 	ui.Warnf("%s: the agent controls every tab and session in that browser — log into only what it should touch", addonHostCDP)
 	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, nil
+}
+
+// startHostADB reuses or boots the host emulator for the android add-on and returns the agent's env.
+func startHostADB(p *Params) ([]string, error) {
+	if !hasAddon(p.Addons, addonAndroid) {
+		return nil, nil
+	}
+	ui.Section(ui.SectionInterface)
+	port, err := hostadb.Port(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	if p.PrintOnly {
+		ui.Hostf("%s: the run reuses or boots an emulator on the host adb server 127.0.0.1:%d (not started in print mode)", addonAndroid, port)
+	} else if err := hostadb.Ensure(os.Getenv, port, ui.Hostf); err != nil {
+		return nil, fmt.Errorf("%s: %w", addonAndroid, err)
+	}
+	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
+	return hostadb.GuestEnv(port), nil
 }
 
 func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
@@ -792,6 +813,12 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		} else {
 			agentEnv = append(agentEnv, hostEnv...)
 		}
+		if adbEnv, err := startHostADB(p); err != nil {
+			return false, err
+		} else {
+			agentEnv = append(agentEnv, adbEnv...)
+		}
+		agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
 			agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
@@ -906,6 +933,12 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		rs.Docker.ReviewSocket = reviewgate.Path(filepath.Join(rs.EgDir, "review"))
 	}
 
+	operatorPairs := operator.Env(proveohome.Root(os.Getenv))
+	var operatorNames []string
+	for _, kv := range operatorPairs {
+		k, _, _ := strings.Cut(kv, "=")
+		operatorNames = append(operatorNames, k)
+	}
 	plan, agent, err := dockeregress.Assemble(dockeregress.Input{
 		Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 		Mode: p.Mode, Credentials: p.Credentials,
@@ -918,8 +951,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
 		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
 		HostBridge: bridge != nil,
-		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
-		ChildEnv:        rs.Creds.Child.Pairs(),
+		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: append(rs.Creds.Env, operatorNames...),
+		ChildEnv:        append(rs.Creds.Child.Pairs(), operatorPairs...),
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),

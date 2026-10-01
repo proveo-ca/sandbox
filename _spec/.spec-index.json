@@ -1655,6 +1655,61 @@
         "internal/contract/git_sync_turn_test.go"
       ],
       "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/host-android-adb.puml",
+      "covers": [
+        "internal/hostadb/hostadb.go",
+        "internal/hostadb/hostadb_test.go",
+        "internal/adbmirror/adbmirror.go",
+        "internal/adbmirror/adbmirror_test.go",
+        "cmd/proveo-entrypoint/main.go",
+        "internal/run/choices.go",
+        "internal/run/run.go",
+        "internal/run/topology.go",
+        "internal/run/host_adb_test.go",
+        "internal/manifest/manifest.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/host_adb_test.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/claude_env_hook_test.go",
+        "internal/contract/host_devices_test.go",
+        "internal/egress/plan.go",
+        "defs/base/Dockerfile",
+        "defs/base/proveo-aapt2",
+        "defs/opencode/harness.manifest",
+        "defs/claudecode/mcp/entrypoint.sh",
+        "internal/contract/jvm_toolchain_test.go",
+        "internal/contract/host_adb_lib_test.go",
+        "defs/claudecode/harness.manifest",
+        "e2e/host_adb_sbx_test.go",
+        "e2e/android_addon_test.go",
+        "e2e/android_app_test.go",
+        "e2e/testdata/android-hello/**"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_experiments/mobile-device-reach.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/operator-name.puml",
+      "covers": [
+        "internal/operator/operator.go",
+        "internal/operator/operator_test.go",
+        "cmd/proveo/init_operator.go",
+        "cmd/proveo/init_operator_test.go",
+        "cmd/proveo/init.go",
+        "internal/run/run.go",
+        "internal/ui/ui.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/operator_name_test.go",
+        "e2e/operator_name_test.go",
+        "defs/claudecode/mcp/Dockerfile"
+      ],
+      "fingerprint": null
     }
   ],
   "unresolved": []
