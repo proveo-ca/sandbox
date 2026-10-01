@@ -187,14 +187,29 @@ skinparam noteTextAlignment left
 '   agent      typed prompt; MOBILE-CHECK hello=yes, absent=no; a mobile
 '              tool INVOCATION in the harness's own session record
 '
-' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
-' ADB is full control of every device on that server. The server also dials:
-' host:connect opens a TCP socket FROM THE HOST, outside sbx egress, and the
-' emulator's own traffic leaves through the host's network. The run warns so.
-' A relay that forwards only device services is the deferred fix
-' (mobile-device-reach.puml).
-' [Unverified] whether sbx enforces the Kit allow on the direct path; the
-' host's global policy was allow-all during every measurement.
+' ── ACCEPTED RISK: THE ADB SERVER DIALS FROM THE HOST (decided 2026-09-29) ─
+' The android add-on hands the agent the host adb server (raw 5037; the
+' filtering relay was considered and deferred). ADB is full control of every
+' device on that server, and three of its paths leave through the HOST's
+' network, where no sbx Kit allow, baseline or proveo tier applies:
+'   host:connect:<ip>:<port>  the server opens a TCP socket from the host to
+'                             any address the agent names
+'   reverse tcp:<P> ...       the device reaches the host's loopback services
+'   the emulator's own NIC    apps and the browser inside Android use the
+'                             host's NAT, so their traffic is outside policy
+' The Kit's localhost:<port> allow governs only the sandbox→server hop.
+' Accepted with a run-time warning (startHostADB, every run with the add-on):
+'   "the agent controls every device on that adb server, and the server dials
+'    any address it is told to from this host — outside sbx egress"
+' The same class of reach as host Chrome over CDP (host-browser-cdp.puml).
+' Deferred mitigations, none built:
+'   relay        a host relay forwarding only host:version, host:devices[-l],
+'                host:track-devices, host:list-forward, host:transport:<serial>,
+'                refusing connect/disconnect/kill/reverse (mobile-device-reach)
+'   http-proxy   launch the emulator with -http-proxy at an egress-governed
+'                proxy, so in-device browsing re-enters policy
+' [Unverified] whether sbx enforces the Kit allow on the sandbox→server hop;
+' the host's global policy was allow-all during every measurement.
 
 actor "Operator" as OP
 node "host" as HOST {
@@ -202,6 +217,7 @@ node "host" as HOST {
   component "adb server\n127.0.0.1:5037" as ADB
   component "Android emulator\nwindowed AVD" as EMU
 }
+cloud "host network\nno sbx policy" as NET
 node "sbx microVM" as VM {
   component "claude (sbx agent)\n--mcp-config, injected host-side" as AG
   component "mobile-mcp\nADB_SERVER_SOCKET=tcp:host.docker.internal:5037" as MCP
@@ -217,6 +233,8 @@ MCP --> ADB : adb protocol by IP
 MCP --> MIR : http://localhost:<P>
 MIR --> ADB : transport + forward target
 ADB --> EMU : emulator-5554
+ADB -[#red]-> NET : host:connect (accepted risk)
+EMU -[#red]-> NET : in-device traffic
 
 note right of ADB
   **The server is the seam.** A fresh VM key
@@ -237,5 +255,11 @@ note right of MIR
   listener sits on the host's loopback; the
   mirror opens the same device socket through
   the server, so no extra port is allowed.
+end note
+note bottom of NET
+  **Accepted: adb dials from the host.**
+  host:connect, reverse and the emulator's NIC
+  leave through the host network, outside every
+  sbx rule; the run warns, the relay is deferred.
 end note
 @enduml
