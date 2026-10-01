@@ -97,7 +97,10 @@ func doInit(o initOptions) error {
 	installed, why := installedVersion(plan)
 	if o.printOnly {
 		printPlan(plan, installed)
-		return credentialStage(o) // reports where each credential rests; provisions nothing
+		if err := credentialStage(o); err != nil { // reports where each credential rests; provisions nothing
+			return err
+		}
+		return operatorStage(o)
 	}
 
 	d, err := decide(plan, host, installed, checks, o)
@@ -149,7 +152,10 @@ func doInit(o initOptions) error {
 		return err
 	}
 
-	return credentialStage(o)
+	if err := credentialStage(o); err != nil {
+		return err
+	}
+	return operatorStage(o)
 }
 
 func describeHost(h sbx.Host) string {

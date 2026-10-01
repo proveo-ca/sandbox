@@ -24,6 +24,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -817,6 +818,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		} else {
 			agentEnv = append(agentEnv, adbEnv...)
 		}
+		agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
 			agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
@@ -931,6 +933,12 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		rs.Docker.ReviewSocket = reviewgate.Path(filepath.Join(rs.EgDir, "review"))
 	}
 
+	operatorPairs := operator.Env(proveohome.Root(os.Getenv))
+	var operatorNames []string
+	for _, kv := range operatorPairs {
+		k, _, _ := strings.Cut(kv, "=")
+		operatorNames = append(operatorNames, k)
+	}
 	plan, agent, err := dockeregress.Assemble(dockeregress.Input{
 		Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
 		Mode: p.Mode, Credentials: p.Credentials,
@@ -943,8 +951,8 @@ func execute(rs *Spec, p *Params, d Deps) error {
 		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
 		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
 		HostBridge: bridge != nil,
-		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: rs.Creds.Env,
-		ChildEnv:        rs.Creds.Child.Pairs(),
+		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: append(rs.Creds.Env, operatorNames...),
+		ChildEnv:        append(rs.Creds.Child.Pairs(), operatorPairs...),
 		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
 		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),

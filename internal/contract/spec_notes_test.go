@@ -24,6 +24,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/sbx/host-inference.puml",
 	"_spec/internal/sbx/host-browser-cdp.puml",
 	"_spec/internal/sbx/host-android-adb.puml",
+	"_spec/cmd/proveo/operator-name.puml",
 	"_spec/defs/hermes/hermes-persistence.puml",
 	"_spec/internal/schedule/schedule.puml",
 	"_spec/_devops/sandbox-template-rebase.puml",

@@ -1195,6 +1195,37 @@ _house_rules_target() { case "$1" in
   cursor|cecli) echo "" ;;
 esac; }
 
+# SPEC: _spec/cmd/proveo/operator-name.puml
+PROVEO_CLAUDE_MANAGED_MD="${PROVEO_CLAUDE_MANAGED_MD:-/etc/claude-code/CLAUDE.md}"
+
+# The name `proveo init` stored, without quotes, backslashes or control characters; empty keeps the house default.
+_proveo_operator_name() {
+  local LC_ALL=C.UTF-8 n="${PROVEO_OPERATOR_NAME:-}"
+  n="$(printf '%s' "$n" | tr -d '"\\`' | tr -d '[:cntrl:]')"
+  printf '%s' "${n:0:16}"
+}
+
+# Rewrites the `Address me as "…"` directive on stdin to the stored name.
+_proveo_address_operator() {
+  local name
+  name="$(_proveo_operator_name)"
+  if [[ -z "$name" ]]; then
+    cat
+    return 0
+  fi
+  PROVEO_ADDRESS="${name//&/\\&}" awk '{ gsub(/Address me as "[^"]*"/, "Address me as \"" ENVIRON["PROVEO_ADDRESS"] "\"") } 1'
+}
+
+# claudecode reads its house rules from the managed CLAUDE.md the image bakes.
+proveo_address_operator_claude() {
+  [[ "${1:-}" == claudecode ]] || return 0
+  [[ -n "$(_proveo_operator_name)" && -w "$PROVEO_CLAUDE_MANAGED_MD" ]] || return 0
+  local body
+  body="$(_proveo_address_operator < "$PROVEO_CLAUDE_MANAGED_MD")" || return 0
+  printf '%s\n' "$body" > "$PROVEO_CLAUDE_MANAGED_MD" \
+    && echo "📐 house rules address you as \"$(_proveo_operator_name)\""
+}
+
 proveo_compose_house_rules() {
   local target="${1:-}" home rel dest
   case "$(printf '%s' "${PROVEO_HOUSE_RULES:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1208,7 +1239,7 @@ proveo_compose_house_rules() {
   dest="$home/$rel"
   {
     printf '<!-- proveo house rules · source: %s -->\n\n' "$PROVEO_HOUSE_RULES_FILE"
-    cat "$PROVEO_HOUSE_RULES_FILE"
+    _proveo_address_operator < "$PROVEO_HOUSE_RULES_FILE"
     printf '\n'
   } | _proveo_write_block "$dest" "$PROVEO_RULES_START" "$PROVEO_RULES_END"
   echo "📐 house rules → ${dest} (project instructions still take precedence)"
@@ -2770,6 +2801,7 @@ proveo_seed() {
 
  proveo_wire_config "$target"
  proveo_compose_house_rules "$target"
+ proveo_address_operator_claude "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_install_claude_env_hook "$target"

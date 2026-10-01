@@ -1693,6 +1693,23 @@
       "spec": "_spec/_experiments/mobile-device-reach.puml",
       "covers": [],
       "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/operator-name.puml",
+      "covers": [
+        "internal/operator/operator.go",
+        "internal/operator/operator_test.go",
+        "cmd/proveo/init_operator.go",
+        "cmd/proveo/init_operator_test.go",
+        "cmd/proveo/init.go",
+        "internal/run/run.go",
+        "internal/ui/ui.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/operator_name_test.go",
+        "e2e/operator_name_test.go",
+        "defs/claudecode/mcp/Dockerfile"
+      ],
+      "fingerprint": null
     }
   ],
   "unresolved": []
