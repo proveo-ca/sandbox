@@ -4,6 +4,7 @@ package sbx
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -113,6 +114,39 @@ func TestSetupSSHArgsAndHostAreUpstreamOwned(t *testing.T) {
 	}
 	if got := SSHHost("  "); got != "" {
 		t.Errorf("SSHHost of an empty name = %q, want nothing to connect to", got)
+	}
+}
+
+func TestIDELaunchTargetsAreRemoteSessionsOnTheSbxHost(t *testing.T) {
+	t.Parallel()
+	link := GatewayLink("proveo-1-2", "/Users/me/my repo")
+	u, err := url.Parse(link)
+	if err != nil {
+		t.Fatalf("GatewayLink() = %q is not a URL: %v", link, err)
+	}
+	if u.Scheme != "jetbrains" || u.Host != "gateway" || u.Path != "/ssh/environment" {
+		t.Errorf("GatewayLink() = %q, want jetbrains://gateway/ssh/environment", link)
+	}
+	q := u.Query()
+	for k, want := range map[string]string{
+		"h": "proveo-1-2.sbx", "u": SSHUser, "p": "22", "launchIde": "true", "projectHint": "/Users/me/my repo",
+	} {
+		if got := q.Get(k); got != want {
+			t.Errorf("GatewayLink() %s = %q, want %q", k, got, want)
+		}
+	}
+	if GatewayLink(" ", "/repo") != "" || GatewayLink("sb", " ") != "" {
+		t.Error("GatewayLink without a host or a path must name nothing")
+	}
+
+	if got, want := VSCodeRemoteArgs("proveo-1-2", "/repo"), []string{"code", "--remote", "ssh-remote+proveo-1-2.sbx", "/repo"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("VSCodeRemoteArgs() = %q, want %q", got, want)
+	}
+	if VSCodeRemoteArgs("", "/repo") != nil {
+		t.Error("VSCodeRemoteArgs without a host must name nothing")
+	}
+	if got, want := ShellLine([]string{"code", "/Users/me/my repo"}), "code '/Users/me/my repo'"; got != want {
+		t.Errorf("ShellLine() = %q, want %q", got, want)
 	}
 }
 

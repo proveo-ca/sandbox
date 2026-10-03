@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -329,6 +330,36 @@ func SSHHost(name string) string {
 		return ""
 	}
 	return name + ".sbx"
+}
+
+const SSHUser = "_default_user_"
+
+func GatewayLink(name, path string) string {
+	host := SSHHost(name)
+	if host == "" || strings.TrimSpace(path) == "" {
+		return ""
+	}
+	q := url.Values{"h": {host}, "u": {SSHUser}, "p": {"22"}, "launchIde": {"true"}, "projectHint": {path}}
+	return "jetbrains://gateway/ssh/environment?" + q.Encode()
+}
+
+func VSCodeRemoteArgs(name, path string) []string {
+	host := SSHHost(name)
+	if host == "" || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	return []string{"code", "--remote", "ssh-remote+" + host, path}
+}
+
+func ShellLine(args []string) string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = a
+		if a == "" || strings.ContainsAny(a, " \t'\"$`\\;&|<>()*?[]#~") {
+			out[i] = bashQuote(a)
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 func NotFound(out string) bool {

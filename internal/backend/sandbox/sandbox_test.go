@@ -195,8 +195,12 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 		"IDE attach (live):",
 		"sbx setup ssh",
 		"proveo-1-2.sbx",
-		"JetBrains: Remote Development → SSH → host `proveo-1-2.sbx`",
-		"project /host/repo",
+		"JetBrains: File → Remote Development → SSH → host `proveo-1-2.sbx`, use OpenSSH config, project /host/repo",
+		"Toolbox (an IDE already installed in that environment): `jetbrains://gateway/ssh/environment?",
+		"h=proveo-1-2.sbx",
+		"projectHint=%2Fhost%2Frepo",
+		"VS Code: `code --remote ssh-remote+proveo-1-2.sbx /host/repo`",
+		"a local Open or Recent of /host/repo edits the HOST checkout, not this clone",
 		"the running agent and the editor both write this tree",
 		"DISPOSABLE CLONE",
 		"commit IDE edits",
@@ -229,6 +233,12 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 	if !strings.Contains(direct, "mounted checkout") || !strings.Contains(direct, "write the host tree directly") {
 		t.Errorf("direct attach guidance hides its write boundary:\n%s", direct)
 	}
+	if !strings.Contains(direct, "jetbrains://gateway/ssh/environment?") || !strings.Contains(direct, "code --remote ssh-remote+proveo-1-2.sbx") {
+		t.Errorf("direct attach guidance lacks the remote launch targets:\n%s", direct)
+	}
+	if strings.Contains(direct, "edits the HOST checkout, not this clone") {
+		t.Errorf("direct mode warned that a local open misses a clone it does not have:\n%s", direct)
+	}
 	if strings.Contains(direct, "DISPOSABLE") {
 		t.Errorf("direct mode was described as a clone:\n%s", direct)
 	}
@@ -242,7 +252,10 @@ func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
 	got := strings.Join(IDEAttachLines(in, cfg, true), "\n")
 	for _, want := range []string{
 		"open /host/worktrees/dev",
-		"host `proveo-1-2.sbx` (OpenSSH config), project /host/worktrees/dev",
+		"host `proveo-1-2.sbx`, use OpenSSH config, project /host/worktrees/dev",
+		"projectHint=%2Fhost%2Fworktrees%2Fdev",
+		"code --remote ssh-remote+proveo-1-2.sbx /host/worktrees/dev",
+		"a local Open or Recent of /host/worktrees/dev edits the HOST checkout",
 		"linked worktree of /host/repo inside the clone",
 	} {
 		if !strings.Contains(got, want) {

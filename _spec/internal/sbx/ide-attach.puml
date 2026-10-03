@@ -2,12 +2,13 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how an sbx sandbox becomes a local IDE target while the agent runs, and after a kept exit
-' status: applied 2026-09-21; JetBrains target 2026-10-01; live local attach is offered;
-'   remote attach remains unsupported; JetBrains over the sbx ProxyCommand is unverified.
+' status: applied 2026-09-21; JetBrains target 2026-10-01; launch links 2026-10-02;
+'   live local attach is offered; remote attach remains unsupported.
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/sbx/sbx.go
-' covers: internal/sbx/run.go
+' covers: internal/sbx/run.go (SSHHost, GatewayLink, VSCodeRemoteArgs, ShellLine)
+' covers: internal/sbx/sbx_test.go
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/backend/sandbox/sandbox_test.go
 ' covers: internal/backend/sandbox/home_access_test.go
@@ -15,6 +16,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/golden_test.go
 ' covers: cmd/proveo/main_test.go
 ' covers: e2e/home_test.go
+' covers: e2e/ide_attach_test.go
 '   clone return path ........ _spec/internal/sbx/clone-workspace.puml
 '   wider post-close UI ...... _spec/_plans/post-close-surface.puml
 '   workspace boundary ....... _spec/_paradigms/workspace-boundary.puml
@@ -40,6 +42,29 @@ skinparam noteTextAlignment left
 ' worktree clone names the worktree path and the main checkout sbx lists as
 ' its workspace, so the IDE opens the tree the agent edits.
 '
+' THE PATH IS AMBIGUOUS, THE LINK IS NOT. The clone sits at the host path
+' (Claude Code keys /resume by cwd), so "open <workdir>" names two trees: over
+' SSH the clone, through a local Open or Recent the host checkout. Measured
+' 2026-10-02 on proveo-claudecode-1b3fcb7f: `ssh <sid>.sbx` and `sbx exec` both
+' saw the clone on /dev/vdj ext4 with the host read-only at /run/sandbox/source,
+' while IntelliJ had opened /Users/…/worktrees/dev LOCALLY (idea.log
+' componentStore, 335,727 host files indexed) with an `sbx exec` terminal — the
+' editor on the host copy, the terminal in the clone. proveo now prints routes
+' that can only open a remote session, and in clone mode names that a local
+' open edits the host checkout:
+'   JetBrains  File → Remote Development → SSH → <sid>.sbx, OpenSSH config on
+'              (IntelliJ downloads its own backend; worked 2026-10-01)
+'   Toolbox    jetbrains://gateway/ssh/environment?h=<sid>.sbx&u=_default_user_
+'              &p=22&launchIde=true&projectHint=<workdir>
+'   VS Code    code --remote ssh-remote+<sid>.sbx <workdir>
+' Measured 2026-10-02: the Toolbox link reaches the sandbox through the OpenSSH
+' config (Daemon ssh-askpass, auth succeeded, Toolbox agent deployed under
+' /home/agent), but launches only an IDE already installed in that environment —
+' with ideHint=* and ideHint=IU both: "Failed to launch IDE … Reason: tool not
+' found". It never installs one, so it is the secondary route.
+' Sources: jetbrains.com/help/toolbox-app/gettings-started-with-ssh.html,
+'   code.visualstudio.com/docs/remote/ssh.
+'
 ' WHICH TREE IS LOUD. Direct mode says that IDE saves write the host checkout.
 ' Clone mode says DISPOSABLE CLONE, requires commits, and prints the exact git
 ' fetch into refs/proveo/<sid> before the operator removes the sandbox.
@@ -49,6 +74,8 @@ node "operator host" as HOST <<host>> {
   component """sbx setup ssh""\nupstream-owned config" as SETUP <<app>>
   component "editor\nconnects to <sid>.sbx" as IDE <<app>>
   component "JetBrains Remote Dev\nhost <sid>.sbx · project workdir" as JB <<app>>
+  component "VS Code Remote SSH\ncode --remote ssh-remote+<sid>.sbx" as VSC <<app>>
+  component "local Open / Recent\nsame path string" as LOCAL <<error>>
   database "host checkout" as TREE <<db>>
   database """refs/proveo/<sid>""\ncarried clone commits" as REFS <<db>>
   database "PROVEO_HOME\nother run logs stay hidden" as HOME <<db>>
@@ -65,6 +92,9 @@ component "remote attach\nnot established" as REMOTE <<error>>
 SETUP ARROW_MAIN IDE : <sid>.sbx
 SETUP ARROW_MAIN JB : OpenSSH config
 JB ARROW_MAIN WORK : PROVEO_WORKDIR
+SETUP ARROW_MAIN VSC : OpenSSH config
+VSC ARROW_MAIN WORK : PROVEO_WORKDIR
+LOCAL ARROW_ERROR TREE : clone mode: wrong tree
 IDE ARROW_MAIN WORK : live or kept
 AGENT ARROW_MAIN WORK
 TREE ARROW_MAIN WORK : direct mode
@@ -83,7 +113,15 @@ note bottom of JB
   **Workdir, not the listed workspace.** A
   worktree clone lists the main checkout; the
   project path is the linked worktree.
-  [Unverified] ProxyCommand + KnownHostsCommand.
+  Toolbox link: needs an IDE installed
+  in the environment; it never installs one.
+end note
+
+note bottom of LOCAL
+  **Same path, other tree.** The clone keeps
+  the host path, so a local open lands on the
+  host checkout. Clone mode says so and points
+  at the launch links.
 end note
 
 note bottom of WORK
@@ -114,8 +152,18 @@ legend bottom
   A named sbx run prints `sbx setup ssh`, `<sid>.sbx`, and the workspace under
   the interface heading so an editor can attach while the agent is live.
   --
-  A JetBrains line names host `<sid>.sbx` (OpenSSH config) and project = the
-  agent workdir; a worktree clone also names the main checkout sbx lists.
+  A JetBrains line names Remote Development → SSH → `<sid>.sbx` with the OpenSSH
+  config and project = the agent workdir; a Toolbox line carries a
+  `jetbrains://gateway/ssh/environment` link for an IDE already installed there;
+  a VS Code line carries `code --remote ssh-remote+<sid>.sbx <workdir>`. A worktree clone
+  also names the main checkout sbx lists.
+  --
+  Clone mode names that a local Open or Recent of the workdir edits the host
+  checkout, not the clone. Direct mode does not, since both are one tree.
+  --
+  e2e: three `ssh <sid>.sbx` connections each land in the clone (origin
+  /run/sandbox/source, no host passthrough); each write reaches the agent's
+  tree and never the host checkout at the same path.
   --
   Two writers share the tree with no mediation. proveo names that; it does not
   withhold the host.
