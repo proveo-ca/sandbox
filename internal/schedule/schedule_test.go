@@ -529,3 +529,30 @@ func TestRewatchNeverTypes(t *testing.T) {
 		t.Errorf("typed %q, outcome %q: a rewatch only stops the run", f.typed, res.Outcome)
 	}
 }
+
+func TestCurrentRunIsTheNewestTranscriptWithoutAnExitFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	dir := LogDir(home, "muse-lineup-refine")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !CurrentRun(home, "muse-lineup-refine").IsZero() {
+		t.Fatal("no transcript: want zero")
+	}
+	for _, f := range []string{"20261001-163223.log", "20261001-163223.exit", "20261004-163707.log"} {
+		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := time.Date(2026, 10, 4, 16, 37, 7, 0, time.Local)
+	if got := CurrentRun(home, "muse-lineup-refine"); !got.Equal(want) {
+		t.Errorf("CurrentRun = %s, want %s", got, want)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "20261004-163707.exit"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentRun(home, "muse-lineup-refine"); !got.IsZero() {
+		t.Errorf("every transcript exited: CurrentRun = %s, want zero", got)
+	}
+}

@@ -15,11 +15,18 @@ type Row struct {
 	Next                                    time.Time
 	Job, Entry, Target, Model, Mode, Budget string
 	Status, Last                            string
-	Failed                                  *Result // the last run, when it failed and nothing runs now
+	Since                                   time.Time     // start of the run in progress, in the job's tz; zero when idle or unknown
+	Span                                    time.Duration // the job's budget
+	Failed                                  *Result       // the last run, when it failed and nothing runs now
+}
+
+// Live is a run in progress: its tmux session is up.
+type Live struct {
+	Since time.Time // zero when no transcript names the start
 }
 
 // Rows lists every `at` entry of every job, soonest first.
-func Rows(c Config, now time.Time, running func(job string) bool, last func(job string) *Result) []Row {
+func Rows(c Config, now time.Time, running func(job string) *Live, last func(job string) *Result) []Row {
 	var out []Row
 	for name, j := range c.Jobs {
 		loc, err := j.Location()
@@ -32,8 +39,14 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 			target = "command"
 		}
 		status := "idle"
-		if running != nil && running(name) {
-			status = "running"
+		var since time.Time
+		if running != nil {
+			if l := running(name); l != nil {
+				status = "running"
+				if !l.Since.IsZero() {
+					since = l.Since.In(loc)
+				}
+			}
 		}
 		lastRun := "never"
 		var failed *Result
@@ -63,6 +76,7 @@ func Rows(c Config, now time.Time, running func(job string) bool, last func(job 
 			out = append(out, Row{
 				Next: next, Job: name, Entry: e, Target: target, Model: model,
 				Mode: j.ModeOrDefault(), Budget: compact(budget), Status: status, Last: lastRun, Failed: failed,
+				Since: since, Span: budget,
 			})
 		}
 	}
@@ -176,6 +190,9 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 		p.Section(job)
 		p.Asyncf("%s · %s · %s · %s budget · %s · last %s", head.Target, head.Model, head.Mode, head.Budget,
 			head.Status, head.Last)
+		if head.Status == "running" {
+			p.Notef("%s", paint(ui.ColorBrand, true, liveLine(head, job, now)))
+		}
 		if f := head.Failed; f != nil {
 			p.Failf("%s: %s — `proveo schedule retry %s`", f.Outcome, clip(firstLine(f.Detail), 160), job)
 		}
@@ -191,4 +208,18 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 			p.Storef("transcripts %s", logDir(job))
 		}
 	}
+}
+
+// liveLine names a run in progress: since when, elapsed against the budget, and how to watch it.
+func liveLine(r Row, job string, now time.Time) string {
+	attach := "`proveo schedule attach " + job + "`"
+	if r.Since.IsZero() {
+		return "● running now · " + attach
+	}
+	elapsed := now.Sub(r.Since).Truncate(time.Minute)
+	clock := fmt.Sprintf("%s of %s", compact(elapsed), compact(r.Span))
+	if elapsed > r.Span {
+		clock += ", past the budget"
+	}
+	return fmt.Sprintf("● running since %s · %s · %s", r.Since.Format("15:04 MST"), clock, attach)
 }

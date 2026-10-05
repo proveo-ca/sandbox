@@ -103,8 +103,11 @@ func scheduleTable(cmd *cobra.Command) error {
 		return err
 	}
 	now := scheduleNow()
-	running := func(job string) bool {
-		return exec.Command("tmux", "has-session", "-t", schedule.SessionName(job)).Run() == nil
+	running := func(job string) *schedule.Live {
+		if exec.Command("tmux", "has-session", "-t", schedule.SessionName(job)).Run() != nil {
+			return nil
+		}
+		return &schedule.Live{Since: schedule.CurrentRun(home, job)}
 	}
 	last := func(job string) *schedule.Result { return schedule.LastResult(home, job) }
 	logDir := func(job string) string { return tildeHome(schedule.LogDir(home, job)) }

@@ -18,7 +18,12 @@ func TestRowsListEveryEntrySoonestFirst(t *testing.T) {
 		"muse-waivers": {Target: "hermes", PromptFile: "p", Budget: "1h", At: []string{"tue 20:00"}},
 		"probe":        {Command: []string{"true"}, PromptFile: "p", Mode: "plain", At: []string{"mon 09:00"}},
 	}}
-	running := func(job string) bool { return job == "muse-waivers" }
+	running := func(job string) *Live {
+		if job == "muse-waivers" {
+			return &Live{}
+		}
+		return nil
+	}
 	last := func(job string) *Result {
 		if job == "muse-lineup" {
 			return &Result{Started: time.Date(2026, 9, 27, 11, 35, 0, 0, loc), Outcome: "ended"}
@@ -121,7 +126,12 @@ func TestRenderFlagsAFailedLastRunWithTheRetryCommand(t *testing.T) {
 		}
 		return failed
 	}
-	running := func(job string) bool { return job == "muse-waivers" }
+	running := func(job string) *Live {
+		if job == "muse-waivers" {
+			return &Live{}
+		}
+		return nil
+	}
 	rows := Rows(c, now, running, last)
 
 	got := FailedJobs(rows)
@@ -152,5 +162,46 @@ func TestRowsShowTheReportSummary(t *testing.T) {
 	}
 	if r := Rows(c, now, nil, last)[0]; r.Last != "Mon Sep 28 19:10 budget · no-op — every Week 3 slot is locked" {
 		t.Errorf("last = %q", r.Last)
+	}
+}
+
+func TestRenderGivesARunningJobItsOwnLine(t *testing.T) {
+	t.Parallel()
+	loc := ny(t)
+	now := time.Date(2026, 10, 4, 20, 1, 0, 0, loc)
+	c := Config{Jobs: map[string]Job{
+		"muse-lineup":        {Target: "hermes", PromptFile: "p", Budget: "36m", At: []string{"mon 18:50"}},
+		"muse-lineup-refine": {Target: "hermes", PromptFile: "p", Budget: "36m", At: []string{"mon 19:32"}},
+		"muse-trades":        {Target: "hermes", PromptFile: "p", At: []string{"tue 21:00"}},
+	}}
+	running := func(job string) *Live {
+		switch job {
+		case "muse-lineup-refine":
+			return &Live{Since: time.Date(2026, 10, 4, 19, 37, 7, 0, loc)}
+		case "muse-trades":
+			return &Live{}
+		}
+		return nil
+	}
+	var b strings.Builder
+	p := ui.New(&b)
+	p.Plain = true
+	Render(p, Rows(c, now, running, nil), now, Tick{Installed: true, Detail: "launchd"}, nil)
+	out := b.String()
+	for _, want := range []string{
+		"● running since 19:37 EDT · 23m of 36m · `proveo schedule attach muse-lineup-refine`",
+		"● running now · `proveo schedule attach muse-trades`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "attach muse-lineup`") {
+		t.Errorf("an idle job has no running line:\n%s", out)
+	}
+
+	late := time.Date(2026, 10, 4, 20, 20, 0, 0, loc)
+	if got := liveLine(Row{Since: time.Date(2026, 10, 4, 19, 37, 0, 0, loc), Span: 36 * time.Minute}, "j", late); !strings.Contains(got, "43m of 36m, past the budget") {
+		t.Errorf("over budget: %q", got)
 	}
 }
