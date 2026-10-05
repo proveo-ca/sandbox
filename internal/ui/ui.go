@@ -200,7 +200,9 @@ func (p *Printer) flushSection() {
 	}
 	head := sectionHeading(p.Tier, p.Plain, p.pending, p.width())
 	if !p.Plain {
-		head = ANSI(ColorSecondary) + head + ANSIReset
+		spaced := " " + p.pending + " "
+		before, after, _ := strings.Cut(head, spaced)
+		head = ANSI(ColorRule) + before + ANSIReset + ANSIBold + ANSI(ColorSecondary) + spaced + ANSIReset + ANSI(ColorRule) + after + ANSIReset
 	}
 	fmt.Fprint(p.W, "\n"+head+"\n")
 	p.shown, p.pending = p.pending, ""
@@ -294,7 +296,7 @@ func (p *Printer) line(r Role, s sev, format string, a ...any) {
 		fmt.Fprintf(p.W, tag(s, r)+format+"\n", a...)
 		return
 	}
-	body := fmt.Sprintf(format, a...)
+	body := paintBody(s, fmt.Sprintf(format, a...))
 	if c, ok := r.color(); ok && s == sevNone {
 		prefix = ANSI(c) + prefix + ANSIReset
 	}
@@ -302,6 +304,46 @@ func (p *Printer) line(r Role, s sev, format string, a ...any) {
 		prefix = ANSI(c) + prefix + ANSIReset
 	}
 	fmt.Fprint(p.W, prefix+body+"\n")
+}
+
+const labelMax = 40
+
+// splitDetail cuts a body at its first " — " or at a short "label: ".
+func splitDetail(body string) (head, tail string, ok bool) {
+	cut := -1
+	if i := strings.Index(body, " — "); i > 0 {
+		cut = i
+	}
+	if i := strings.Index(body, ": "); i > 0 && textWidthOf(body[:i]) <= labelMax && (cut < 0 || i < cut) {
+		return body[:i+1], body[i+1:], true
+	}
+	if cut < 0 {
+		return body, "", false
+	}
+	return body[:cut], body[cut:], true
+}
+
+func grey(s string) string {
+	if s == "" {
+		return s
+	}
+	on := ANSI(ColorMuted)
+	return on + strings.ReplaceAll(s, ANSIReset, ANSIReset+on) + ANSIReset
+}
+
+// paintBody greys every line except a severity head.
+func paintBody(s sev, body string) string {
+	if s == sevNone {
+		return grey(body)
+	}
+	head, tail, ok := splitDetail(body)
+	if s == sevFail {
+		head = ANSIBold + head + ANSIReset
+	}
+	if !ok {
+		return head
+	}
+	return head + grey(tail)
 }
 
 func sevColor(s sev) (int, bool) {
@@ -463,8 +505,12 @@ func wrapOne(ln []byte, width int) []byte {
 			out.WriteByte(' ')
 			col++
 		}
-		out.Write(word)
-		col += w
+		if col+w > width {
+			col = breakWord(&out, word, col, width, pad)
+		} else {
+			out.Write(word)
+			col += w
+		}
 		lineHasWord = true
 		wordStart = -1
 	}
@@ -488,6 +534,35 @@ func wrapOne(ln []byte, width int) []byte {
 		flushWord(len(ln))
 	}
 	return out.Bytes()
+}
+
+// breakWord writes a word wider than the line, breaking it at the width.
+func breakWord(out *bytes.Buffer, word []byte, col, width int, pad string) int {
+	s := string(word)
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			j := i
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			out.WriteString(s[i:j])
+			i = j
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runewidth.RuneWidth(r)
+		if col+rw > width {
+			out.WriteString("\n" + pad)
+			col = textCol
+		}
+		out.WriteString(s[i : i+size])
+		col += rw
+		i += size
+	}
+	return col
 }
 
 func displayWidth(b []byte) int {
@@ -526,7 +601,9 @@ const (
 	ColorAccent    = ColorApp   // first-party emphasis
 	ColorWarn      = ColorAsync // attention, not yet a failure
 	ColorFail      = ColorError
-	ColorSecondary = ColorDB // supporting text — light enough to read on dark terminals
+	ColorSecondary = ColorDB    // supporting text — light enough to read on dark terminals
+	ColorMuted     = 0x8A8A8A   // stream detail — grey that reads on dark and light
+	ColorRule      = ColorCloud // stream divider rules
 )
 
 func ANSI(rgb int) string {
