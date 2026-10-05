@@ -315,3 +315,25 @@ func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
 		t.Fatalf("Kit variables = %v: the seed refuses %s without %s", vars, chromebridge.EnvAddr, chromebridge.EnvToken)
 	}
 }
+
+func TestPlanPortsKeepsFreePortsAndMovesTakenOnes(t *testing.T) {
+	t.Parallel()
+	taken := map[int]bool{3000: true}
+	got := PlanPorts([]int{3000, 6006}, []string{"next", "storybook"}, func(p int) bool { return !taken[p] })
+	if got[1] != (PublishedPort{Host: 6006, Guest: 6006, What: "storybook"}) {
+		t.Errorf("PlanPorts free 6006 = %+v, want host 6006", got[1])
+	}
+	if got[0].Guest != 3000 || got[0].Host == 3000 || got[0].Host <= 0 {
+		t.Errorf("PlanPorts taken 3000 = %+v, want a different free host port", got[0])
+	}
+}
+
+func TestPortPublishAppendsAfterTheCDPRelay(t *testing.T) {
+	t.Parallel()
+	in := Input{Browser: true, CDPHostPort: 51000, Ports: []PublishedPort{{Host: 3000, Guest: 3000}, {Host: 51001, Guest: 6006}}}
+	got := append(cdpPublish(in), portPublish(in)...)
+	want := []string{"51000:9222", "3000:3000", "51001:6006"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("publish args mismatch (-want +got):\n%s", diff)
+	}
+}

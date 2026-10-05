@@ -3,6 +3,7 @@ package run
 
 import (
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/devports"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -28,6 +29,7 @@ type Params struct {
 	Extra                                                                       []string
 	ProxyImage                                                                  string
 	Clone, CloneSet                                                             bool
+	Ports                                                                       []devports.Candidate
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }

@@ -1,0 +1,62 @@
+@startuml DevPorts
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: discover a workspace's run commands, match each to the port it serves, and offer to publish them from an sbx sandbox
+' covers: internal/devports/**, internal/run/choices.go (portsRow, selectedPorts, addonHeading), internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts)
+' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
+'   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
+'   the publish half it generalises . _spec/_plans/tools-and-localhost-tunnels.puml (cdpPublish was the only caller)
+'   the stream that reports it ...... _spec/internal/ui/output-vocabulary.puml
+'
+' ── A STATIC CATALOG, NOT A PROBE ──────────────────────────────────────────
+' proveo never runs the project to learn its port. It reads the files that
+' NAME the run command and matches each line against a closed catalog:
+'   package.json scripts .... dev · start · serve · preview · storybook · develop · dev:*
+'   mise.toml [tasks.X] ..... same names, the run = line
+'   Makefile targets ........ same names, the recipe lines
+'   Procfile(.dev) .......... every process line
+'   manage.py ............... django runserver :8000
+'   main.go ................. ListenAndServe(":N") and friends — explicit only
+' An explicit port in the line (--port N, -p N, PORT=N, --bind h:N,
+' runserver h:N) beats the tool's default. `go run` and `cargo run` have no
+' default, so they appear only with an explicit port.
+'
+' ── ONE CANDIDATE PER PORT ─────────────────────────────────────────────────
+' A monorepo names the same port many times (next dev and next start both
+' :3000). Dedupe keeps one per port: explicit over default, then the file
+' nearest the root. The walk stops at depth 2 and skips dependency trees and
+' dot-dirs, so node_modules never offers a port.
+'
+' ── THE ROW: OFFERED, NEVER PRE-TICKED ─────────────────────────────────────
+' The execution divider's row is now labelled "OS" (heading stays
+' "execution"). "ports" sits under it only when docker (sandbox) is the
+' runtime: the docker+egress backend publishes nothing. Every box starts
+' unticked — publishing opens an inbound path, and the closed default the
+' tunnels plan argues for is kept. Several ports tick independently.
+'
+' ── PUBLISH: SAME HOST PORT WHEN FREE ──────────────────────────────────────
+' Each ticked port becomes `sbx run -p HOST:GUEST` after the CDP relay's
+' entry. HOST = GUEST when the host loopback can bind it, else a free
+' loopback port, and the report says the host port was taken. The server
+' inside must listen on 0.0.0.0; the report says so once.
+' Not cached across runs and not settable by flag yet: --yes and non-TTY
+' runs publish nothing.
+
+title Dev ports — a static catalog, an opt-in row, one -p per tick
+
+component "Discover(root)\nwalk ≤ 2 levels\nskip deps + dot-dirs" as DISC <<app>>
+component "catalog\nnext 3000 · vite 5173 · astro 4321\nng 4200 · storybook 6006 · django 8000\nflask 5000 · rails 3000 · hugo 1313 …" as CAT <<db>>
+component "Match(line)\nexplicit port > tool default" as MATCH <<app>>
+component "dedupe\none per port" as DEDUP <<app>>
+component "portsRow\nunder execution · OS\nsbx only · unticked" as ROW <<app>>
+component "PlanPorts\nsame host port if free" as PLAN <<host>>
+component "sbx run -p H:G" as SBX <<cloud>>
+component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
+
+DISC ARROW_MAIN MATCH : each run line
+MATCH ARROW_MAIN CAT
+MATCH ARROW_MAIN DEDUP
+DEDUP ARROW_MAIN ROW : candidates
+ROW ARROW_MAIN PLAN : ticked
+PLAN ARROW_MAIN SBX
+PLAN ARROW_MAIN REP
+@enduml

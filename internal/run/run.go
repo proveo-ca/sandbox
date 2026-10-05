@@ -4,6 +4,7 @@ package run
 import (
 	"errors"
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/devports"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -834,6 +835,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
+			Ports:    planPorts(p.Ports, p.PrintOnly),
 			Roles:    p.Roles,
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
@@ -884,6 +886,19 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes.
+func planPorts(chosen []devports.Candidate, printOnly bool) []sandbox.PublishedPort {
+	guests, what := make([]int, 0, len(chosen)), make([]string, 0, len(chosen))
+	for _, c := range chosen {
+		guests = append(guests, c.Port)
+		what = append(what, c.Tool+" · "+c.Source)
+	}
+	free := sandbox.LoopbackFree
+	if printOnly {
+		free = func(int) bool { return true }
+	}
+	return sandbox.PlanPorts(guests, what, free)
+}
+
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {

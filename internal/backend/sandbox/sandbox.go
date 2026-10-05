@@ -349,6 +349,61 @@ func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
 	return func() { close(stop) }
 }
 
+// PublishedPort is one dev server port the operator chose to publish to the host's loopback.
+type PublishedPort struct {
+	Host, Guest int
+	What        string
+}
+
+// PlanPorts keeps each guest port on the same host port unless the host already uses it.
+func PlanPorts(guests []int, what []string, free func(int) bool) []PublishedPort {
+	out := make([]PublishedPort, 0, len(guests))
+	taken := map[int]bool{}
+	for i, g := range guests {
+		h := g
+		if !free(h) || taken[h] {
+			h = FreeLoopbackPort()
+		}
+		taken[h] = true
+		out = append(out, PublishedPort{Host: h, Guest: g, What: what[i]})
+	}
+	return out
+}
+
+// LoopbackFree reports whether port can be bound on the host's loopback.
+func LoopbackFree(port int) bool {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = l.Close()
+	return true
+}
+
+func portPublish(in Input) []string {
+	out := make([]string, 0, len(in.Ports))
+	for _, p := range in.Ports {
+		out = append(out, fmt.Sprintf("%d:%d", p.Host, p.Guest))
+	}
+	return out
+}
+
+// ReportPorts names each published port where the operator will open it.
+func ReportPorts(in Input) {
+	if len(in.Ports) == 0 {
+		return
+	}
+	ui.Section(ui.SectionInterface)
+	for _, p := range in.Ports {
+		moved := ""
+		if p.Host != p.Guest {
+			moved = fmt.Sprintf(" — host :%d was taken", p.Guest)
+		}
+		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
+	}
+	ui.Notef("start the server inside the sandbox on 0.0.0.0 (e.g. `next dev -H 0.0.0.0`, `vite --host`) so the publish reaches it")
+}
+
 func cdpPublish(in Input) []string {
 	if !in.Browser || in.CDPHostPort <= 0 {
 		return nil
@@ -582,6 +637,7 @@ type Input struct {
 	OutputDir              string
 	Browser                bool
 	CDPHostPort            int
+	Ports                  []PublishedPort
 	Extra                  []string
 	Roles                  provider.Roles
 	Evidence               string // was params.evidenceOrDefault()
@@ -856,7 +912,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Memory:  in.Memory,
 		CPUs:    in.CPUs,
 		Clone:   in.Clone,
-		Publish: cdpPublish(in),
+		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), homeSourceMounts)),
@@ -1072,6 +1128,7 @@ func Run(in Input) error {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
 	PrintIDEAttach(in, cfg, true)
+	ReportPorts(in)
 	defer StartCDPViewport(in, launchCfg)()
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))

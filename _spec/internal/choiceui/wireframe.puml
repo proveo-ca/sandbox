@@ -264,4 +264,11 @@ legend bottom
   a glyph before a label — accented marker; devicon by default, ASCII via PROVEO_GLYPHS=ascii
   a "›" line under a row — what the option the cursor is on does, wrapped; "off:" adds why it cannot be picked
 end legend
-@endsalt
+@endsaltnote as PortsRow
+  **2026-10-05: execution's row is "OS"; "ports" joins it.**
+  The divider still reads ""execution""; its row label is
+  ""OS"" (host · docker (sandbox)). Under it, sbx only, a
+  multi-select ""ports"" row offers each discovered dev
+  port, all unticked. _spec/internal/devports/dev-ports.puml
+end note
+

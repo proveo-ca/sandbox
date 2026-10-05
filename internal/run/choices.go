@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
@@ -54,16 +55,25 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
 	}
+	var found []devports.Candidate
+	if sandboxOn {
+		found = devports.Discover(scanRoot(p.Input, repoRoot))
+	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
 		if len(opts) == 0 {
 			continue
 		}
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
-			Label: label, Options: opts, Multi: true, Divider: true,
+			Label: label, Heading: addonHeading[label], Options: opts, Multi: true, Divider: true,
 			Radio: label == rowExecution,
 			On:    p.addonDefaults(opts), Help: addonHelp,
 		})...)
+		if label == rowExecution {
+			if r, ok := portsRow(found, p.Ports); ok {
+				form.Rows = append(form.Rows, r)
+			}
+		}
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
@@ -86,6 +96,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.Credentials = v
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
+	p.Ports = selectedPorts(form, found)
 	if v := form.Selection(rowModel); v != "" {
 		p.applySource(v, hasAuth)
 	}
@@ -473,8 +484,9 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 }
 
 const (
-	rowExecution = "execution"
+	rowExecution = "OS"
 	rowInterface = "interface"
+	rowPorts     = "ports"
 
 	addonHost    = "host"
 	addonTUI     = "tui (this session)"
@@ -487,6 +499,46 @@ const (
 )
 
 var addonRows = []string{rowExecution, rowInterface}
+
+// addonHeading names a divider whose group is not named for its row.
+var addonHeading = map[string]string{rowExecution: "execution"}
+
+func scanRoot(input, repoRoot string) string {
+	if input != "" {
+		return input
+	}
+	return OrWD(repoRoot)
+}
+
+// portsRow offers each discovered run command's port for publishing; every box starts unticked.
+func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui.Row, bool) {
+	if len(found) == 0 {
+		return choiceui.Row{}, false
+	}
+	r := choiceui.Row{Label: rowPorts, Multi: true, Help: map[string]string{}}
+	for _, c := range found {
+		opt := c.Label()
+		r.Options = append(r.Options, opt)
+		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.Candidate) bool { return x.Port == c.Port }))
+		how := "the tool's default port"
+		if c.Explicit {
+			how = "the port the command names"
+		}
+		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
+	}
+	return r, true
+}
+
+func selectedPorts(f *choiceui.Form, found []devports.Candidate) []devports.Candidate {
+	picked := f.Selections(rowPorts)
+	var out []devports.Candidate
+	for _, c := range found {
+		if slices.Contains(picked, c.Label()) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 const hostCDPSbxWhy = "needs the sbx backend: the sandbox reaches the host browser through sbx's host gateway"
 
