@@ -41,6 +41,13 @@ skinparam noteTextAlignment left
 ' first) — a scheduler-role ● line (target · model · mode · budget · status ·
 ' last), its runs beneath, the next one in bold brand cyan with ▸, and the
 ' transcripts folder as a store line.
+' A running job (tmux session up) adds a bold brand line under its ● line:
+'   ● running since <start, job tz> · <elapsed> of <budget>[, past the budget]
+'     · `proveo schedule attach <job>`
+' start = the stamp of the newest <stamp>.log without <stamp>.exit (CurrentRun);
+' no such transcript → "● running now · `proveo schedule attach <job>`".
+' 2026-10-04: a live muse-lineup-refine showed only the word "running" mid-line,
+' beside a "last … done" from Oct 1, and read as idle.
 ' covers: internal/schedule/table.go, internal/schedule/table_test.go
 ' Times are wall-clock in the job's tz, so DST keeps "sun 11:35" at 11:35.
 '

@@ -442,6 +442,21 @@ func writeResult(home, name string, r Result) {
 	_ = os.WriteFile(filepath.Join(dir, r.Started.Format("20060102-150405")+".json"), b, 0o600)
 }
 
+// CurrentRun is when the run in progress started: the newest transcript without an exit file, or zero.
+func CurrentRun(home, name string) time.Time {
+	m, _ := filepath.Glob(filepath.Join(LogDir(home, name), "*.log"))
+	for i := len(m) - 1; i >= 0; i-- {
+		if _, err := os.Stat(ExitFile(m[i])); err == nil {
+			continue
+		}
+		t, err := time.ParseInLocation("20060102-150405", strings.TrimSuffix(filepath.Base(m[i]), ".log"), time.Local)
+		if err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 // LastResult is the newest result a job left, or nil.
 func LastResult(home, name string) *Result {
 	m, _ := filepath.Glob(filepath.Join(LogDir(home, name), "*.json"))

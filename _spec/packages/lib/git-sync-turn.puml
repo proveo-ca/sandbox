@@ -75,10 +75,25 @@ note as N_OFF
 end note
 
 note as N_MSG
-  **Subject asks the smallest model.** Static
-  "persist turn" repeated every commit; now the
-  diff goes to the harness's cheapest model.
-  Any failure keeps "persist turn".
+  **Subject describes the work.** The staged
+  diff goes to a light model (Claude: sonnet).
+  One retry at 2x timeout; then the subject
+  summarises paths. No static subject exists.
+end note
+
+note as N_MSG_WHY
+  **13 static subjects hid the failure.**
+  eda7718..f1eb5a9 (2026-09-24/25) all fell
+  back to "persist turn"; the e2e pinned
+  MSG=off, so no test saw the model path.
+end note
+
+note as N_ISOLATE
+  **claude -p loads CLAUDE.md by default.**
+  Measured 2026-10-02: the reply opened with
+  "Executor," from AGENTS.md. The call runs
+  in /, --setting-sources "", --tools "",
+  diff on stdin. --bare drops OAuth: unused.
 end note
 
 note as N_MSG_KNOBS

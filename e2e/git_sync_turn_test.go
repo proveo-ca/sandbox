@@ -84,10 +84,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 		removeLeakedSandboxes(t, before, canList)
 	})
 	cmd := append([]string{"env"}, envArgs...)
-	// PROVEO_GIT_SYNC_MSG=off: this test asserts the exact static subject; the
-	// model-generated subject is unit-tested (internal/contract) with a
-	// stubbed CLI, where the model call and its recursion guard can be
-	// verified deterministically without live credentials.
+	// PROVEO_GIT_SYNC_MSG=off: SPEC: _spec/packages/lib/git-sync-turn.puml
 	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_AUTO_INSTALL_TOOLS=false", "PROVEO_GIT_SYNC_MSG=off",
 		proveoBin, "run", h.target, "--egress-mode", "open", "--credentials", "forward", "--input", work)
 	if err := sess.Start(220, 50, append(cmd, runArgs...)...); err != nil {
@@ -236,8 +233,8 @@ func assertGitSyncTurn(t *testing.T, h gitSyncHarness, state map[string]string, 
 			t.Errorf("%s trace[%d] = result %q error %q, want allow with no error", h.target, i, r.Result, r.Error)
 		}
 	}
-	if got := state["SUBJECT"]; got != "[proveo] persist turn" {
-		t.Errorf("%s: last commit touching %s = %q, want %q", h.target, hookProbeFile, got, "[proveo] persist turn")
+	if got := state["SUBJECT"]; !regexp.MustCompile(`^\[proveo\] (Add|Update) ` + regexp.QuoteMeta(hookProbeFile) + `$`).MatchString(got) {
+		t.Errorf("%s: last commit touching %s = %q, want the path summary", h.target, hookProbeFile, got)
 	}
 	if got := state["DIRTY"]; got != "" {
 		t.Errorf("%s: %s still dirty after the hook: %q", h.target, hookProbeFile, got)

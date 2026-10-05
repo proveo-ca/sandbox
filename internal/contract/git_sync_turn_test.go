@@ -186,8 +186,8 @@ func TestGitSyncCommitsADirtyTree(t *testing.T) {
 		t.Errorf("stdout %q, want empty: Stop accepts only \"block\" or no decision", out)
 	}
 	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
-	if !strings.Contains(sub, "[proveo] persist turn") {
-		t.Errorf("subject %q, want [proveo] persist turn", sub)
+	if got := strings.TrimSpace(sub); got != "[proveo] Add work.txt" {
+		t.Errorf("subject %q, want [proveo] Add work.txt", got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "work.txt")); err != nil {
 		t.Fatal(err)
@@ -232,7 +232,8 @@ func TestGitSyncFallsBackWhenTheModelFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "flaky.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stub := stubModelCLI(t, "claude", `exit 1`)
+	calls := filepath.Join(t.TempDir(), "calls")
+	stub := stubModelCLI(t, "claude", fmt.Sprintf(`echo x >> '%s'; exit 1`, calls))
 	env := hookEnv(t,
 		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"PROVEO_GIT_SYNC_MSG=auto",
@@ -241,9 +242,96 @@ func TestGitSyncFallsBackWhenTheModelFails(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
 	}
-	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
-	if !strings.Contains(sub, "[proveo] persist turn") {
-		t.Errorf("subject %q, want the static fallback when the model errors", sub)
+	sub := strings.TrimSpace(gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"))
+	if sub != "[proveo] Add flaky.txt" {
+		t.Errorf("subject %q, want the path summary when the model errors twice", sub)
+	}
+	if b, _ := os.ReadFile(calls); strings.Count(string(b), "x") != 2 {
+		t.Errorf("model called %d times, want 2 (one retry)", strings.Count(string(b), "x"))
+	}
+}
+
+func TestGitSyncRetriesTheModelOnce(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "retry.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := filepath.Join(t.TempDir(), "calls")
+	stub := stubModelCLI(t, "claude", fmt.Sprintf(`
+[[ -f '%[1]s' ]] && { echo "wire the retry path"; exit 0; }
+touch '%[1]s'; exit 1
+`, calls))
+	env := hookEnv(t,
+		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PROVEO_GIT_SYNC_MSG=auto",
+	)
+	out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, env)
+	if code != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
+	}
+	if sub := strings.TrimSpace(gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")); sub != "[proveo] wire the retry path" {
+		t.Errorf("subject %q, want the second attempt's line", sub)
+	}
+}
+
+func TestGitSyncIsolatesTheClaudeSubjectCall(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "iso.txt"), []byte("isolated-body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := t.TempDir()
+	stub := stubModelCLI(t, "claude", fmt.Sprintf(`
+printf '%%s\n' "$@" > '%[1]s/argv'
+pwd > '%[1]s/cwd'
+cat > '%[1]s/stdin'
+echo "isolate the subject call"
+`, rec))
+	env := hookEnv(t,
+		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PROVEO_GIT_SYNC_MSG=auto",
+	)
+	if out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, env); code != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
+	}
+	argv, _ := os.ReadFile(filepath.Join(rec, "argv"))
+	for _, want := range []string{"--model\nsonnet\n", "--setting-sources\n\n", "--tools\n\n", "--strict-mcp-config\n", "--system-prompt\n", "--no-session-persistence\n"} {
+		if !strings.Contains(string(argv), want) {
+			t.Errorf("claude argv lacks %q:\n%s", want, argv)
+		}
+	}
+	if cwd, _ := os.ReadFile(filepath.Join(rec, "cwd")); strings.TrimSpace(string(cwd)) != "/" {
+		t.Errorf("claude ran in %q, want / so no repo CLAUDE.md loads", strings.TrimSpace(string(cwd)))
+	}
+	if in, _ := os.ReadFile(filepath.Join(rec, "stdin")); !strings.Contains(string(in), "isolated-body") {
+		t.Errorf("claude stdin %q, want the staged diff", in)
+	}
+}
+
+func TestGitSyncPathSubjectSummarisesMixedChanges(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	for name, body := range map[string]string{"README": "changed\n", "a.txt": "a\n", "b.txt": "b\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`, hookEnv(t)); code != 0 {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
+	}
+	if sub := strings.TrimSpace(gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")); sub != "[proveo] Update README, a.txt (+1 more)" {
+		t.Errorf("subject %q, want [proveo] Update README, a.txt (+1 more)", sub)
+	}
+}
+
+func TestGitSyncNeverCommitsAStaticSubject(t *testing.T) {
+	src, err := os.ReadFile(gitSyncScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "persist turn") {
+		t.Error("git-sync-turn.sh still carries the static \"persist turn\" subject")
 	}
 }
 
@@ -262,9 +350,9 @@ func TestGitSyncMsgOffSkipsTheModelEvenWhenOneIsAvailable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s")
-	if !strings.Contains(sub, "[proveo] persist turn") {
-		t.Errorf("subject %q, PROVEO_GIT_SYNC_MSG=off must keep the static subject", sub)
+	sub := strings.TrimSpace(gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"))
+	if sub != "[proveo] Add quiet.txt" {
+		t.Errorf("subject %q, PROVEO_GIT_SYNC_MSG=off must use the path summary", sub)
 	}
 }
 
@@ -357,7 +445,7 @@ func TestGitSyncPushesToOrigin(t *testing.T) {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, errb)
 	}
 	remoteLog := gitCmd(t, bare, nil, "log", "-1", "--pretty=%s")
-	if !strings.Contains(remoteLog, "[proveo] persist turn") {
+	if strings.TrimSpace(remoteLog) != "[proveo] Add pushed.txt" {
 		t.Errorf("origin log %q, want the persist commit", remoteLog)
 	}
 }
@@ -720,8 +808,8 @@ func TestGitSyncCommitsOnlyToAReadOnlyOrigin(t *testing.T) {
 	if code != 0 || out != "" {
 		t.Fatalf("read-only origin: exit %d stdout %q stderr %q, want exit 0 and no decision", code, out, errb)
 	}
-	if sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"); !strings.Contains(sub, "[proveo] persist turn") {
-		t.Errorf("subject %q, want the persist commit", sub)
+	if sub := gitCmd(t, dir, nil, "log", "-1", "--pretty=%s"); strings.TrimSpace(sub) != "[proveo] Add clone.txt" {
+		t.Errorf("subject %q, want [proveo] Add clone.txt", sub)
 	}
 	got := readGitSyncTrace(t, filepath.Join(dir, ".git", "proveo-git-sync.ndjson"))
 	if len(got) != 1 || got[0].Result != "allow" || got[0].Error != "" {
