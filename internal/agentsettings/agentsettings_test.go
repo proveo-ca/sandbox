@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
@@ -137,5 +139,33 @@ func TestModelsAreNotPartOfTheFingerprint(t *testing.T) {
 	wider := Fingerprint(manifest.Capabilities{Egress: []string{"allowlist", "review"}})
 	if a == wider {
 		t.Error("a capability change must change the fingerprint")
+	}
+}
+
+func TestPortsAreRememberedPerPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := []Port{{Port: 3000, Command: "dev", Source: "apps/web/package.json"}}
+	s.RememberPorts("/repo/a", web)
+	s.RememberPorts("/repo/b", nil)
+	if err := s.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ports, ok := got.PortsFor("/repo/a"); !ok || !cmp.Equal(web, ports) {
+		t.Errorf("PortsFor(/repo/a) = %v, %v; want %v, true", ports, ok, web)
+	}
+	if ports, ok := got.PortsFor("/repo/b"); !ok || len(ports) != 0 {
+		t.Errorf("PortsFor(/repo/b) = %v, %v; want none, true", ports, ok)
+	}
+	if _, ok := got.PortsFor("/repo/c"); ok {
+		t.Error("PortsFor(/repo/c) answered a path nobody asked about")
 	}
 }

@@ -1,7 +1,8 @@
 @startuml DevPorts
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: discover a workspace's run commands, match each to the port it serves, and offer to publish them from an sbx sandbox
-' covers: internal/devports/**, internal/run/choices.go (portsRow, selectedPorts, addonHeading), internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts)
+' covers: internal/devports/**, internal/run/choices.go (portsRow, selectedPorts, addonHeading), internal/run/run.go (rememberedPorts, portsToRemember, planPorts)
+' covers: internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts, DevServerScript, StartDevServers), internal/agentsettings/agentsettings.go (Workspaces, PortsFor, RememberPorts)
 ' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
 '   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
 '   the publish half it generalises . _spec/_plans/tools-and-localhost-tunnels.puml (cdpPublish was the only caller)
@@ -36,10 +37,31 @@
 ' ── PUBLISH: SAME HOST PORT WHEN FREE ──────────────────────────────────────
 ' Each ticked port becomes `sbx run -p HOST:GUEST` after the CDP relay's
 ' entry. HOST = GUEST when the host loopback can bind it, else a free
-' loopback port, and the report says the host port was taken. The server
-' inside must listen on 0.0.0.0; the report says so once.
-' Not cached across runs and not settable by flag yet: --yes and non-TTY
-' runs publish nothing.
+' loopback port, and the report says the host port was taken.
+'
+' ── THE RUN COMMAND RUNS IN THE SANDBOX (2026-10-05) ───────────────────────
+' Publishing an empty port is pointless, so proveo starts the server itself:
+' devports.Launch turns the candidate into `HOST=0.0.0.0 PORT=N <cmd>` run in
+' the source's directory under the agent workdir —
+'   package.json .. <npm|pnpm|yarn|bun> run X (+ the tool's bind args)
+'   mise.toml ..... mise run X -- <bind>     Makefile .. make X
+'   Procfile ...... the line (+ bind)        manage.py . runserver 0.0.0.0:N
+'   main.go ....... go run .
+' The lockfile nearest the source picks the package manager. A line that
+' already binds 0.0.0.0 gets no extra args. StartDevServers runs it through
+' `sbx exec … bash -lc`, skips when the port already answers (the agent may
+' have started it), logs to /tmp/proveo-dev-N.log, and restarts it with
+' 3 s → 30 s backoff while the sandbox runs — deps installing in a fresh
+' clone make the first attempts fail.
+'
+' ── REMEMBERED PER PATH, APPLIED ON EVERY RUN ──────────────────────────────
+' agent-settings.yml gains `workspaces: {<real path>: {ports: [...]}}`,
+' harness-independent: the ports belong to the project, not the agent. The
+' answer seeds the row's ticks, and --yes / non-TTY runs publish it with no
+' form. An answered "none" is kept as an empty list, so it is not re-asked
+' as a first run. A remembered port no longer discovered is dropped with a
+' warning. The answer is written only when the form DREW the ports row —
+' a docker+egress run never shows it, so it never records "none".
 
 title Dev ports — a static catalog, an opt-in row, one -p per tick
 
@@ -51,6 +73,8 @@ component "portsRow\nunder execution · OS\nsbx only · unticked" as ROW <<app>>
 component "PlanPorts\nsame host port if free" as PLAN <<host>>
 component "sbx run -p H:G" as SBX <<cloud>>
 component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
+component "StartDevServers\nsbx exec bash -lc\nskip if served · backoff" as DEV <<async>>
+database "agent-settings.yml\nworkspaces.<path>.ports" as MEM <<db>>
 
 DISC ARROW_MAIN MATCH : each run line
 MATCH ARROW_MAIN CAT
@@ -59,4 +83,7 @@ DEDUP ARROW_MAIN ROW : candidates
 ROW ARROW_MAIN PLAN : ticked
 PLAN ARROW_MAIN SBX
 PLAN ARROW_MAIN REP
+PLAN ARROW_MAIN DEV : Launch(cmd, dir)
+MEM ARROW_MAIN ROW : seeds ticks · --yes uses as-is
+ROW ARROW_OPTIONAL MEM : answered form
 @enduml

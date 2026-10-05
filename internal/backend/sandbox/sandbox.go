@@ -349,25 +349,26 @@ func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
 	return func() { close(stop) }
 }
 
-// PublishedPort is one dev server port the operator chose to publish to the host's loopback.
+// PublishedPort is one dev server the run starts in the sandbox and publishes to the host's loopback.
 type PublishedPort struct {
 	Host, Guest int
 	What        string
+	Dir         string // workspace-relative directory the command runs in
+	Cmd         string // shell command that starts the server on every interface
 }
 
 // PlanPorts keeps each guest port on the same host port unless the host already uses it.
-func PlanPorts(guests []int, what []string, free func(int) bool) []PublishedPort {
-	out := make([]PublishedPort, 0, len(guests))
+func PlanPorts(ports []PublishedPort, free func(int) bool) []PublishedPort {
 	taken := map[int]bool{}
-	for i, g := range guests {
-		h := g
+	for i := range ports {
+		h := ports[i].Guest
 		if !free(h) || taken[h] {
 			h = FreeLoopbackPort()
 		}
 		taken[h] = true
-		out = append(out, PublishedPort{Host: h, Guest: g, What: what[i]})
+		ports[i].Host = h
 	}
-	return out
+	return ports
 }
 
 // LoopbackFree reports whether port can be bound on the host's loopback.
@@ -388,6 +389,9 @@ func portPublish(in Input) []string {
 	return out
 }
 
+// DevLog is where a published port's server writes inside the sandbox.
+func DevLog(port int) string { return fmt.Sprintf("/tmp/proveo-dev-%d.log", port) }
+
 // ReportPorts names each published port where the operator will open it.
 func ReportPorts(in Input) {
 	if len(in.Ports) == 0 {
@@ -400,8 +404,71 @@ func ReportPorts(in Input) {
 			moved = fmt.Sprintf(" — host :%d was taken", p.Guest)
 		}
 		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
+		ui.Notef("runs `%s` in %s — log %s", p.Cmd, p.Dir, DevLog(p.Guest))
 	}
-	ui.Notef("start the server inside the sandbox on 0.0.0.0 (e.g. `next dev -H 0.0.0.0`, `vite --host`) so the publish reaches it")
+}
+
+// DevServerScript starts cmd in dir unless something already listens on port.
+func DevServerScript(workdir string, p PublishedPort) string {
+	dir := filepath.Join(workdir, p.Dir)
+	return fmt.Sprintf("if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then exit 0; fi\ncd %q || exit 1\nexec %s >>%s 2>&1\n",
+		p.Guest, dir, p.Cmd, DevLog(p.Guest))
+}
+
+const (
+	devRetryMin = 3 * time.Second
+	devRetryMax = 30 * time.Second
+)
+
+// StartDevServers keeps each published port's server running while the sandbox runs.
+func StartDevServers(in Input, cfg sbx.RunConfig) func() {
+	workdir := agentWorkdir(in, cfg.Mounts)
+	if len(in.Ports) == 0 || workdir == "" {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	wait := func(d time.Duration) bool {
+		select {
+		case <-stop:
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
+	for _, p := range in.Ports {
+		go func() {
+			delay := devRetryMin
+			for {
+				if !sbx.Running(cfg.Name) {
+					if !wait(devRetryMin) {
+						return
+					}
+					continue
+				}
+				c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc", DevServerScript(workdir, p))
+				c.Stdout, c.Stderr = io.Discard, io.Discard
+				began := time.Now()
+				if err := c.Start(); err == nil {
+					done := make(chan struct{})
+					go func() { _ = c.Wait(); close(done) }()
+					select {
+					case <-stop:
+						_ = c.Process.Kill()
+						return
+					case <-done:
+					}
+				}
+				if time.Since(began) > devRetryMax {
+					delay = devRetryMin
+				}
+				if !wait(delay) {
+					return
+				}
+				delay = min(delay*2, devRetryMax)
+			}
+		}()
+	}
+	return func() { close(stop) }
 }
 
 func cdpPublish(in Input) []string {
@@ -1129,6 +1196,7 @@ func Run(in Input) error {
 	}
 	PrintIDEAttach(in, cfg, true)
 	ReportPorts(in)
+	defer StartDevServers(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))

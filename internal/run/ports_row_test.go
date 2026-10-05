@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/devports"
 )
@@ -66,5 +67,26 @@ func TestExecutionRowIsNamedOSUnderTheExecutionHeading(t *testing.T) {
 	t.Parallel()
 	if rowExecution != "OS" || addonHeading[rowExecution] != "execution" {
 		t.Errorf("execution row = {Label %q Heading %q}, want {OS execution}", rowExecution, addonHeading[rowExecution])
+	}
+}
+
+func TestRememberedPortsFollowThisRunsDiscovery(t *testing.T) {
+	t.Parallel()
+	saved := []agentsettings.Port{
+		{Port: 6006, Command: "storybook", Source: "apps/docs/package.json"},
+		{Port: 9000, Command: "dev", Source: "gone/package.json"},
+	}
+	if diff := cmp.Diff(foundPorts[1:], rememberedPorts(saved, foundPorts)); diff != "" {
+		t.Errorf("rememberedPorts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestPortsRoundTripThroughTheStore(t *testing.T) {
+	t.Parallel()
+	if diff := cmp.Diff(foundPorts, rememberedPorts(portsToRemember(foundPorts), foundPorts)); diff != "" {
+		t.Errorf("remember → recall mismatch (-want +got):\n%s", diff)
+	}
+	if got := portsToRemember(nil); got == nil || len(got) != 0 {
+		t.Errorf("portsToRemember(nil) = %#v, want an empty answer", got)
 	}
 }

@@ -319,12 +319,24 @@ func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
 func TestPlanPortsKeepsFreePortsAndMovesTakenOnes(t *testing.T) {
 	t.Parallel()
 	taken := map[int]bool{3000: true}
-	got := PlanPorts([]int{3000, 6006}, []string{"next", "storybook"}, func(p int) bool { return !taken[p] })
-	if got[1] != (PublishedPort{Host: 6006, Guest: 6006, What: "storybook"}) {
+	got := PlanPorts([]PublishedPort{{Guest: 3000, What: "next"}, {Guest: 6006, What: "storybook"}},
+		func(p int) bool { return !taken[p] })
+	if got[1].Host != 6006 {
 		t.Errorf("PlanPorts free 6006 = %+v, want host 6006", got[1])
 	}
 	if got[0].Guest != 3000 || got[0].Host == 3000 || got[0].Host <= 0 {
 		t.Errorf("PlanPorts taken 3000 = %+v, want a different free host port", got[0])
+	}
+}
+
+func TestDevServerScriptSkipsAPortAlreadyServedAndLogs(t *testing.T) {
+	t.Parallel()
+	got := DevServerScript("/work/repo", PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
+	want := "if (exec 3<>/dev/tcp/127.0.0.1/3000) 2>/dev/null; then exit 0; fi\n" +
+		"cd \"/work/repo/apps/web\" || exit 1\n" +
+		"exec HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0 >>/tmp/proveo-dev-3000.log 2>&1\n"
+	if got != want {
+		t.Errorf("DevServerScript() =\n%s\nwant\n%s", got, want)
 	}
 }
 

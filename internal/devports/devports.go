@@ -20,6 +20,7 @@ type Candidate struct {
 	Tool     string // the catalog entry that matched: "next", "vite", "django" …
 	Source   string // workspace-relative file the command came from
 	Explicit bool   // the command names its port; false = the tool's default
+	Line     string // the command line as the file states it
 }
 
 // Label is the one-line form a choice row prints.
@@ -32,43 +33,44 @@ type tool struct {
 	name string
 	re   *regexp.Regexp
 	port int
+	bind string // args that make the server listen on every interface
 }
 
 // catalog is ordered: the first match wins.
 var catalog = []tool{
-	{"storybook", regexp.MustCompile(`\bstorybook\s+dev\b|\bstart-storybook\b`), 6006},
-	{"vite preview", regexp.MustCompile(`\bvite\s+preview\b`), 4173},
-	{"next", regexp.MustCompile(`\bnext\s+(dev|start)\b`), 3000},
-	{"nuxt", regexp.MustCompile(`\bnuxi?\s+(dev|preview)\b`), 3000},
-	{"astro", regexp.MustCompile(`\bastro\s+(dev|preview)\b`), 4321},
-	{"remix", regexp.MustCompile(`\bremix\s+dev\b`), 3000},
-	{"react-router", regexp.MustCompile(`\breact-router\s+dev\b`), 5173},
-	{"angular", regexp.MustCompile(`\bng\s+serve\b`), 4200},
-	{"gatsby", regexp.MustCompile(`\bgatsby\s+develop\b`), 8000},
-	{"expo", regexp.MustCompile(`\bexpo\s+start\b`), 8081},
-	{"wrangler", regexp.MustCompile(`\bwrangler\s+(pages\s+)?dev\b`), 8787},
-	{"docusaurus", regexp.MustCompile(`\bdocusaurus\s+start\b`), 3000},
-	{"react-scripts", regexp.MustCompile(`\breact-scripts\s+start\b`), 3000},
-	{"webpack", regexp.MustCompile(`\bwebpack(-dev-server|\s+serve)\b`), 8080},
-	{"parcel", regexp.MustCompile(`\bparcel\b`), 1234},
-	{"eleventy", regexp.MustCompile(`\beleventy\b.*--serve\b`), 8080},
-	{"vite", regexp.MustCompile(`\bvite(\s+dev)?\s*($|&|;|\s-)`), 5173},
-	{"django", regexp.MustCompile(`\bmanage\.py\s+runserver\b`), 8000},
-	{"fastapi", regexp.MustCompile(`\bfastapi\s+(dev|run)\b`), 8000},
-	{"uvicorn", regexp.MustCompile(`\buvicorn\b`), 8000},
-	{"gunicorn", regexp.MustCompile(`\bgunicorn\b`), 8000},
-	{"flask", regexp.MustCompile(`\bflask\s+run\b`), 5000},
-	{"streamlit", regexp.MustCompile(`\bstreamlit\s+run\b`), 8501},
-	{"jupyter", regexp.MustCompile(`\bjupyter\s+(lab|notebook)\b`), 8888},
-	{"mkdocs", regexp.MustCompile(`\bmkdocs\s+serve\b`), 8000},
-	{"rails", regexp.MustCompile(`\brails\s+(s|server)\b`), 3000},
-	{"hugo", regexp.MustCompile(`\bhugo\s+server\b`), 1313},
-	{"jekyll", regexp.MustCompile(`\bjekyll\s+serve\b`), 4000},
-	{"php", regexp.MustCompile(`\bphp\s+(-S|artisan\s+serve)\b`), 8000},
-	{"air", regexp.MustCompile(`(^|\s)air(\s|$)`), 8080},
-	{"go run", regexp.MustCompile(`\bgo\s+run\b`), 0},
-	{"cargo run", regexp.MustCompile(`\bcargo\s+(run|watch)\b`), 0},
-	{"python", regexp.MustCompile(`\bpython3?\s+-m\s+http\.server\b`), 8000},
+	{"storybook", regexp.MustCompile(`\bstorybook\s+dev\b|\bstart-storybook\b`), 6006, "--host 0.0.0.0"},
+	{"vite preview", regexp.MustCompile(`\bvite\s+preview\b`), 4173, "--host 0.0.0.0"},
+	{"next", regexp.MustCompile(`\bnext\s+(dev|start)\b`), 3000, "-H 0.0.0.0"},
+	{"nuxt", regexp.MustCompile(`\bnuxi?\s+(dev|preview)\b`), 3000, "--host 0.0.0.0"},
+	{"astro", regexp.MustCompile(`\bastro\s+(dev|preview)\b`), 4321, "--host 0.0.0.0"},
+	{"remix", regexp.MustCompile(`\bremix\s+dev\b`), 3000, "--host 0.0.0.0"},
+	{"react-router", regexp.MustCompile(`\breact-router\s+dev\b`), 5173, "--host 0.0.0.0"},
+	{"angular", regexp.MustCompile(`\bng\s+serve\b`), 4200, "--host 0.0.0.0"},
+	{"gatsby", regexp.MustCompile(`\bgatsby\s+develop\b`), 8000, "-H 0.0.0.0"},
+	{"expo", regexp.MustCompile(`\bexpo\s+start\b`), 8081, ""},
+	{"wrangler", regexp.MustCompile(`\bwrangler\s+(pages\s+)?dev\b`), 8787, "--ip 0.0.0.0"},
+	{"docusaurus", regexp.MustCompile(`\bdocusaurus\s+start\b`), 3000, "--host 0.0.0.0"},
+	{"react-scripts", regexp.MustCompile(`\breact-scripts\s+start\b`), 3000, ""},
+	{"webpack", regexp.MustCompile(`\bwebpack(-dev-server|\s+serve)\b`), 8080, "--host 0.0.0.0"},
+	{"parcel", regexp.MustCompile(`\bparcel\b`), 1234, "--host 0.0.0.0"},
+	{"eleventy", regexp.MustCompile(`\beleventy\b.*--serve\b`), 8080, ""},
+	{"vite", regexp.MustCompile(`\bvite(\s+dev)?\s*($|&|;|\s-)`), 5173, "--host 0.0.0.0"},
+	{"django", regexp.MustCompile(`\bmanage\.py\s+runserver\b`), 8000, ""},
+	{"fastapi", regexp.MustCompile(`\bfastapi\s+(dev|run)\b`), 8000, "--host 0.0.0.0"},
+	{"uvicorn", regexp.MustCompile(`\buvicorn\b`), 8000, "--host 0.0.0.0"},
+	{"gunicorn", regexp.MustCompile(`\bgunicorn\b`), 8000, ""},
+	{"flask", regexp.MustCompile(`\bflask\s+run\b`), 5000, "--host 0.0.0.0"},
+	{"streamlit", regexp.MustCompile(`\bstreamlit\s+run\b`), 8501, "--server.address 0.0.0.0"},
+	{"jupyter", regexp.MustCompile(`\bjupyter\s+(lab|notebook)\b`), 8888, "--ip 0.0.0.0"},
+	{"mkdocs", regexp.MustCompile(`\bmkdocs\s+serve\b`), 8000, ""},
+	{"rails", regexp.MustCompile(`\brails\s+(s|server)\b`), 3000, "-b 0.0.0.0"},
+	{"hugo", regexp.MustCompile(`\bhugo\s+server\b`), 1313, "--bind 0.0.0.0"},
+	{"jekyll", regexp.MustCompile(`\bjekyll\s+serve\b`), 4000, "--host 0.0.0.0"},
+	{"php", regexp.MustCompile(`\bphp\s+(-S|artisan\s+serve)\b`), 8000, ""},
+	{"air", regexp.MustCompile(`(^|\s)air(\s|$)`), 8080, ""},
+	{"go run", regexp.MustCompile(`\bgo\s+run\b`), 0, ""},
+	{"cargo run", regexp.MustCompile(`\bcargo\s+(run|watch)\b`), 0, ""},
+	{"python", regexp.MustCompile(`\bpython3?\s+-m\s+http\.server\b`), 8000, ""},
 }
 
 var explicitPort = []*regexp.Regexp{
@@ -170,7 +172,7 @@ func candidate(name, line, rel string) (Candidate, bool) {
 	if !ok {
 		return Candidate{}, false
 	}
-	return Candidate{Port: port, Command: name, Tool: t, Source: rel, Explicit: explicit}, true
+	return Candidate{Port: port, Command: name, Tool: t, Source: rel, Explicit: explicit, Line: strings.TrimSpace(line)}, true
 }
 
 func fromPackageJSON(path, rel string) []Candidate {
@@ -314,4 +316,81 @@ func better(a, b Candidate) bool {
 		return la < lb
 	}
 	return a.Command < b.Command
+}
+
+// bindOf is the catalog's bind args for a tool name.
+func bindOf(toolName string) string {
+	for _, t := range catalog {
+		if t.name == toolName {
+			return t.bind
+		}
+	}
+	return ""
+}
+
+var bindsAll = regexp.MustCompile(`0\.0\.0\.0|::`)
+
+// Launch is the shell command that starts c's server on every interface, and the
+// directory, relative to root, it runs in.
+func Launch(c Candidate, root string) (dir, cmd string) {
+	dir = filepath.Dir(c.Source)
+	line := c.Line
+	bind := bindOf(c.Tool)
+	if bindsAll.MatchString(line) {
+		bind = ""
+	}
+	env := "HOST=0.0.0.0 PORT=" + strconv.Itoa(c.Port) + " "
+	switch filepath.Base(c.Source) {
+	case "package.json":
+		pm := packageManager(filepath.Join(root, dir), root)
+		run := pm + " run " + shellQuote(c.Command)
+		if bind != "" {
+			sep := " "
+			if pm == "npm" {
+				sep = " -- "
+			}
+			run += sep + bind
+		}
+		return dir, env + run
+	case "mise.toml", ".mise.toml":
+		run := "mise run " + shellQuote(strings.TrimPrefix(c.Command, "tasks."))
+		if bind != "" {
+			run += " -- " + bind
+		}
+		return dir, env + run
+	case "Makefile":
+		return dir, env + "make " + shellQuote(c.Command)
+	case "manage.py":
+		return dir, env + "python3 manage.py runserver 0.0.0.0:" + strconv.Itoa(c.Port)
+	case "main.go":
+		return dir, env + "go run ."
+	}
+	if bind != "" {
+		line += " " + bind
+	}
+	return dir, env + line
+}
+
+// packageManager walks from dir up to root for a lockfile.
+func packageManager(dir, root string) string {
+	for {
+		for _, lf := range []struct{ file, pm string }{
+			{"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"bun.lockb", "bun"}, {"bun.lock", "bun"},
+		} {
+			if _, err := os.Stat(filepath.Join(dir, lf.file)); err == nil {
+				return lf.pm
+			}
+		}
+		if dir == root || dir == filepath.Dir(dir) {
+			return "npm"
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
+func shellQuote(s string) string {
+	if regexp.MustCompile(`^[\w:./@-]+$`).MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

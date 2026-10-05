@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -214,6 +215,11 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
 	}
+	rs.Choices.PortsRoot = realPathOf(scanRoot(p.Input, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot)))
+	p.discovered = devports.Discover(rs.Choices.PortsRoot)
+	if saved, ok := rs.Choices.Settings.PortsFor(rs.Choices.PortsRoot); ok {
+		p.Ports = rememberedPorts(saved, p.discovered)
+	}
 	// Roles are no longer read from the environment: proveo does not choose an
 	// agent's model. What remains is whatever a previous session remembered,
 	// seeded above, and it is kept only as the vocabulary the credential and
@@ -237,6 +243,9 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 		})
+		if p.portsAsked {
+			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
+		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
 		}
@@ -835,7 +844,7 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
-			Ports:    planPorts(p.Ports, p.PrintOnly),
+			Ports:    planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
 			Roles:    p.Roles,
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
@@ -886,17 +895,49 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes.
-func planPorts(chosen []devports.Candidate, printOnly bool) []sandbox.PublishedPort {
-	guests, what := make([]int, 0, len(chosen)), make([]string, 0, len(chosen))
-	for _, c := range chosen {
-		guests = append(guests, c.Port)
-		what = append(what, c.Tool+" · "+c.Source)
+func realPathOf(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
 	}
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
+}
+
+// rememberedPorts maps a saved answer onto this run's discovery; a port whose command is gone is dropped and reported.
+func rememberedPorts(saved []agentsettings.Port, found []devports.Candidate) []devports.Candidate {
+	var out []devports.Candidate
+	for _, sp := range saved {
+		i := slices.IndexFunc(found, func(c devports.Candidate) bool { return c.Port == sp.Port })
+		if i < 0 {
+			ui.Warnf("remembered port %d (%q in %s) is no longer in this workspace — not published", sp.Port, sp.Command, sp.Source)
+			continue
+		}
+		out = append(out, found[i])
+	}
+	return out
+}
+
+func portsToRemember(chosen []devports.Candidate) []agentsettings.Port {
+	out := make([]agentsettings.Port, 0, len(chosen))
+	for _, c := range chosen {
+		out = append(out, agentsettings.Port{Port: c.Port, Command: c.Command, Source: c.Source})
+	}
+	return out
+}
+
+func planPorts(chosen []devports.Candidate, root string, printOnly bool) []sandbox.PublishedPort {
 	free := sandbox.LoopbackFree
 	if printOnly {
 		free = func(int) bool { return true }
 	}
-	return sandbox.PlanPorts(guests, what, free)
+	out := make([]sandbox.PublishedPort, 0, len(chosen))
+	for _, c := range chosen {
+		dir, cmd := devports.Launch(c, root)
+		out = append(out, sandbox.PublishedPort{Guest: c.Port, What: c.Tool + " · " + c.Source, Dir: dir, Cmd: cmd})
+	}
+	return sandbox.PlanPorts(out, free)
 }
 
 func recordOutcome(launched bool, err error) {

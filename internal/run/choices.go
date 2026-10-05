@@ -57,7 +57,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	var found []devports.Candidate
 	if sandboxOn {
-		found = devports.Discover(scanRoot(p.Input, repoRoot))
+		found = p.discovered
 	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
@@ -72,6 +72,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		if label == rowExecution {
 			if r, ok := portsRow(found, p.Ports); ok {
 				form.Rows = append(form.Rows, r)
+				p.portsAsked = true
 			}
 		}
 	}
@@ -96,7 +97,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.Credentials = v
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
-	p.Ports = selectedPorts(form, found)
+	if p.portsAsked {
+		p.Ports = selectedPorts(form, found)
+	}
 	if v := form.Selection(rowModel); v != "" {
 		p.applySource(v, hasAuth)
 	}

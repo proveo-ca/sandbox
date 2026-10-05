@@ -30,6 +30,8 @@ type Params struct {
 	ProxyImage                                                                  string
 	Clone, CloneSet                                                             bool
 	Ports                                                                       []devports.Candidate
+	discovered                                                                  []devports.Candidate
+	portsAsked                                                                  bool // the form drew the ports row
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }
