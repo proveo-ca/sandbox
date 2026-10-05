@@ -220,6 +220,10 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if saved, ok := rs.Choices.Settings.PortsFor(rs.Choices.PortsRoot); ok {
 		p.Ports = rememberedPorts(saved, p.discovered)
 	}
+	p.discoveredApps = devports.AndroidApps(rs.Choices.PortsRoot)
+	if saved, ok := rs.Choices.Settings.AppsFor(rs.Choices.PortsRoot); ok {
+		p.Apps = rememberedApps(saved, p.discoveredApps)
+	}
 	// Roles are no longer read from the environment: proveo does not choose an
 	// agent's model. What remains is whatever a previous session remembered,
 	// seeded above, and it is kept only as the vocabulary the credential and
@@ -245,6 +249,9 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		})
 		if p.portsAsked {
 			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
+		}
+		if p.appsAsked {
+			rs.Choices.Settings.RememberApps(rs.Choices.PortsRoot, appsToRemember(p.Apps))
 		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
@@ -823,11 +830,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		} else {
 			agentEnv = append(agentEnv, hostEnv...)
 		}
-		if adbEnv, err := startHostADB(p); err != nil {
+		adbEnv, err := startHostADB(p)
+		if err != nil {
 			return false, err
-		} else {
-			agentEnv = append(agentEnv, adbEnv...)
 		}
+		agentEnv = append(agentEnv, adbEnv...)
 		agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
@@ -844,7 +851,8 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
-			Ports:    planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
+			Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
+			AndroidApps: androidApps(p), AndroidEnv: adbEnv,
 			Roles:    p.Roles,
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
@@ -915,6 +923,36 @@ func rememberedPorts(saved []agentsettings.Port, found []devports.Candidate) []d
 			continue
 		}
 		out = append(out, found[i])
+	}
+	return out
+}
+
+// rememberedApps maps a saved answer onto this run's discovery; a module that is gone is dropped and reported.
+// androidApps is what the run installs: the chosen modules, only with the android add-on on.
+func androidApps(p *Params) []devports.AndroidApp {
+	if !hasAddon(p.Addons, addonAndroid) {
+		return nil
+	}
+	return p.Apps
+}
+
+func rememberedApps(saved []agentsettings.App, found []devports.AndroidApp) []devports.AndroidApp {
+	var out []devports.AndroidApp
+	for _, sa := range saved {
+		i := slices.IndexFunc(found, func(a devports.AndroidApp) bool { return a.Module == sa.Module })
+		if i < 0 {
+			ui.Warnf("remembered Android app %s (%s) is no longer in this workspace — not installed", sa.AppID, sa.Module)
+			continue
+		}
+		out = append(out, found[i])
+	}
+	return out
+}
+
+func appsToRemember(chosen []devports.AndroidApp) []agentsettings.App {
+	out := make([]agentsettings.App, 0, len(chosen))
+	for _, a := range chosen {
+		out = append(out, agentsettings.App{Module: a.Module, AppID: a.AppID})
 	}
 	return out
 }

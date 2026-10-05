@@ -56,8 +56,12 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.Rows = append(form.Rows, r)
 	}
 	var found []devports.Candidate
+	var apps []devports.AndroidApp
 	if sandboxOn {
 		found = p.discovered
+		if slices.Contains(interfaceOptions(man), addonAndroid) {
+			apps = p.discoveredApps
+		}
 	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
@@ -74,12 +78,17 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 				form.Rows = append(form.Rows, r)
 				p.portsAsked = true
 			}
+			if r, ok := appsRow(apps, p.Apps); ok {
+				form.Rows = append(form.Rows, r)
+				p.appsAsked = true
+			}
 		}
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy, chromeWhy)
 		gateReview(f, hasAddon(selectedAddons(f), addonSandbox))
+		gateApps(f)
 	}
 	form.OnChange(form)
 
@@ -99,6 +108,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
 	if p.portsAsked {
 		p.Ports = selectedPorts(form, found)
+	}
+	if p.appsAsked {
+		p.Apps = selectedApps(form, apps)
 	}
 	if v := form.Selection(rowModel); v != "" {
 		p.applySource(v, hasAuth)
@@ -490,6 +502,7 @@ const (
 	rowExecution = "OS"
 	rowInterface = "interface"
 	rowPorts     = "ports"
+	rowApps      = "apps"
 
 	addonHost    = "host"
 	addonTUI     = "tui (this session)"
@@ -530,6 +543,56 @@ func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui
 		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
 	}
 	return r, true
+}
+
+// appsRow offers each Android application module for build + install + launch on the host emulator.
+func appsRow(found []devports.AndroidApp, chosen []devports.AndroidApp) (choiceui.Row, bool) {
+	if len(found) == 0 {
+		return choiceui.Row{}, false
+	}
+	r := choiceui.Row{Label: rowApps, Multi: true, Help: map[string]string{}}
+	for _, a := range found {
+		opt := a.Label()
+		r.Options = append(r.Options, opt)
+		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.AndroidApp) bool { return x.Module == a.Module }))
+		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
+	}
+	return r, true
+}
+
+const appsNeedAndroid = "needs [x] android under interface: the install goes to the emulator that add-on boots"
+
+// gateApps greys the apps row while android is unticked.
+func gateApps(f *choiceui.Form) {
+	android := rowTicked(f, rowInterface, addonAndroid)
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		if r.Label != rowApps {
+			continue
+		}
+		r.Off = make([]bool, len(r.Options))
+		r.OffWhy = map[string]string{}
+		r.Reason = ""
+		if android {
+			return
+		}
+		for j, opt := range r.Options {
+			r.Off[j] = true
+			r.OffWhy[opt] = appsNeedAndroid
+		}
+		r.Reason = appsNeedAndroid
+	}
+}
+
+func selectedApps(f *choiceui.Form, found []devports.AndroidApp) []devports.AndroidApp {
+	picked := f.Selections(rowApps)
+	var out []devports.AndroidApp
+	for _, a := range found {
+		if slices.Contains(picked, a.Label()) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func selectedPorts(f *choiceui.Form, found []devports.Candidate) []devports.Candidate {

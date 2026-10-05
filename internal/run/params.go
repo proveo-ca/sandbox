@@ -32,6 +32,9 @@ type Params struct {
 	Ports                                                                       []devports.Candidate
 	discovered                                                                  []devports.Candidate
 	portsAsked                                                                  bool // the form drew the ports row
+	Apps                                                                        []devports.AndroidApp
+	discoveredApps                                                              []devports.AndroidApp
+	appsAsked                                                                   bool // the form drew the apps row
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }

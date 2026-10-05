@@ -3,7 +3,9 @@
 ' purpose: discover a workspace's run commands, match each to the port it serves, and offer to publish them from an sbx sandbox
 ' covers: internal/devports/**, internal/run/choices.go (portsRow, selectedPorts, addonHeading), internal/run/run.go (rememberedPorts, portsToRemember, planPorts)
 ' covers: internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts, DevServerScript, StartDevServers), internal/agentsettings/agentsettings.go (Workspaces, PortsFor, RememberPorts)
+' covers: internal/devports/android.go, packages/lib/entrypoint-lib.sh (proveo_android_install, PROVEO_TOOLCHAIN_READY)
 ' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
+' covers: internal/contract/android_install_lib_test.go, e2e/android_seed_install_test.go
 '   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
 '   the publish half it generalises . _spec/_plans/tools-and-localhost-tunnels.puml (cdpPublish was the only caller)
 '   the stream that reports it ...... _spec/internal/ui/output-vocabulary.puml
@@ -63,6 +65,26 @@
 ' warning. The answer is written only when the form DREW the ports row —
 ' a docker+egress run never shows it, so it never records "none".
 
+' ── ANDROID APPS: THE SEED INSTALLS, THE HOST TRIGGERS (2026-10-05) ───────
+' The same pattern for Android: a build file applying com.android.application
+' (or the android.application alias) is an app module; applicationId, else
+' namespace, is its package. The "apps" row sits beside "ports", sbx only,
+' greyed until [x] android is ticked, unticked by default, remembered per
+' path (workspaces.<path>.apps) and reused by --yes.
+'   host   once the sandbox runs: `sbx exec … bash -lc` exports the adb
+'          guest env, cd's to the agent workdir, sources /entrypoint-lib.sh
+'          and calls proveo_android_install ":app|ca.proveo.hello" …
+'   seed   proveo_android_install waits for PROVEO_TOOLCHAIN_READY — written
+'          by proveo_seed after proveo_provision_toolchain, cleared at its
+'          start — then per module: ./gradlew (else gradle) <module>:installDebug,
+'          and on success `adb shell monkey -p <id> -c …LAUNCHER 1`.
+'          A failed build skips the launch. Log: /tmp/proveo-android-install.log
+' WHY THE HOST TRIGGERS: a re-attached sandbox keeps the env of its first
+' launch (reuseOrCreate), so an env var could not carry this run's answer;
+' `sbx exec` always carries it. Install + launch run ONCE; the agent re-runs
+' installDebug after its own edits. The function ships in the image, so it
+' reaches a sandbox after the harness image is rebuilt.
+
 title Dev ports — a static catalog, an opt-in row, one -p per tick
 
 component "Discover(root)\nwalk ≤ 2 levels\nskip deps + dot-dirs" as DISC <<app>>
@@ -74,7 +96,9 @@ component "PlanPorts\nsame host port if free" as PLAN <<host>>
 component "sbx run -p H:G" as SBX <<cloud>>
 component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
 component "StartDevServers\nsbx exec bash -lc\nskip if served · backoff" as DEV <<async>>
-database "agent-settings.yml\nworkspaces.<path>.ports" as MEM <<db>>
+database "agent-settings.yml\nworkspaces.<path>.ports · .apps" as MEM <<db>>
+component "appsRow\ngreyed until android\n:app ca.proveo.hello" as APPS <<app>>
+component "proveo_android_install\nwait toolchain → installDebug\n→ monkey launch" as AINST <<async>>
 
 DISC ARROW_MAIN MATCH : each run line
 MATCH ARROW_MAIN CAT
@@ -86,4 +110,6 @@ PLAN ARROW_MAIN REP
 PLAN ARROW_MAIN DEV : Launch(cmd, dir)
 MEM ARROW_MAIN ROW : seeds ticks · --yes uses as-is
 ROW ARROW_OPTIONAL MEM : answered form
+MEM ARROW_MAIN APPS
+APPS ARROW_MAIN AINST : sbx exec, once
 @enduml

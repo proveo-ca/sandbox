@@ -169,3 +169,21 @@ func TestPortsAreRememberedPerPath(t *testing.T) {
 		t.Error("PortsFor(/repo/c) answered a path nobody asked about")
 	}
 }
+
+func TestAppsAndPortsShareAWorkspaceEntry(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s, _ := Load(root)
+	s.RememberPorts("/repo", []Port{{Port: 3000, Command: "dev", Source: "package.json"}})
+	s.RememberApps("/repo", []App{{Module: ":app", AppID: "ca.proveo.hello"}})
+	if err := s.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Load(root)
+	if apps, ok := got.AppsFor("/repo"); !ok || len(apps) != 1 || apps[0].AppID != "ca.proveo.hello" {
+		t.Errorf("AppsFor(/repo) = %v, %v", apps, ok)
+	}
+	if ports, ok := got.PortsFor("/repo"); !ok || len(ports) != 1 {
+		t.Errorf("PortsFor(/repo) = %v, %v after RememberApps", ports, ok)
+	}
+}

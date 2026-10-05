@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/proveo-ca/proveo/internal/devports"
 	"io"
 	"net"
 	"os"
@@ -408,6 +409,68 @@ func ReportPorts(in Input) {
 	}
 }
 
+// AndroidLog is where the seed's Android install writes inside the sandbox.
+const AndroidLog = "/tmp/proveo-android-install.log"
+
+// ReportAndroidApps names each app the run installs on the host emulator.
+func ReportAndroidApps(in Input) {
+	if len(in.AndroidApps) == 0 {
+		return
+	}
+	ui.Section(ui.SectionInterface)
+	for _, a := range in.AndroidApps {
+		ui.Hostf("android app: %s — gradle %s, then launch, once the sandbox toolchain is ready", a.AppID, a.Task())
+	}
+	ui.Notef("log %s inside the sandbox", AndroidLog)
+}
+
+// AndroidInstallScript hands the chosen modules to the seed's proveo_android_install.
+func AndroidInstallScript(workdir string, env []string, apps []devports.AndroidApp) string {
+	var b strings.Builder
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		fmt.Fprintf(&b, "export %s=%q\n", k, v)
+	}
+	fmt.Fprintf(&b, "cd %q || exit 1\nsource /entrypoint-lib.sh\nproveo_android_install", workdir)
+	for _, a := range apps {
+		fmt.Fprintf(&b, " %q", a.Module+"|"+a.AppID)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// StartAndroidInstall runs the install once the sandbox is up; the seed function waits for its own toolchain.
+func StartAndroidInstall(in Input, cfg sbx.RunConfig) func() {
+	workdir := agentWorkdir(in, cfg.Mounts)
+	if len(in.AndroidApps) == 0 || workdir == "" {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	go func() {
+		for !sbx.Running(cfg.Name) {
+			select {
+			case <-stop:
+				return
+			case <-time.After(devRetryMin):
+			}
+		}
+		c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc",
+			AndroidInstallScript(workdir, in.AndroidEnv, in.AndroidApps))
+		c.Stdout, c.Stderr = io.Discard, io.Discard
+		if c.Start() != nil {
+			return
+		}
+		done := make(chan struct{})
+		go func() { _ = c.Wait(); close(done) }()
+		select {
+		case <-stop:
+			_ = c.Process.Kill()
+		case <-done:
+		}
+	}()
+	return func() { close(stop) }
+}
+
 // DevServerScript starts cmd in dir unless something already listens on port.
 func DevServerScript(workdir string, p PublishedPort) string {
 	dir := filepath.Join(workdir, p.Dir)
@@ -705,6 +768,8 @@ type Input struct {
 	Browser                bool
 	CDPHostPort            int
 	Ports                  []PublishedPort
+	AndroidApps            []devports.AndroidApp
+	AndroidEnv             []string // the host adb server's guest env, for the install's adb
 	Extra                  []string
 	Roles                  provider.Roles
 	Evidence               string // was params.evidenceOrDefault()
@@ -1196,7 +1261,9 @@ func Run(in Input) error {
 	}
 	PrintIDEAttach(in, cfg, true)
 	ReportPorts(in)
+	ReportAndroidApps(in)
 	defer StartDevServers(in, cfg)()
+	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))

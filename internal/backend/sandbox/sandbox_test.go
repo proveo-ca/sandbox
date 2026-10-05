@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"errors"
+	"github.com/proveo-ca/proveo/internal/devports"
 	"os"
 	"strings"
 	"testing"
@@ -347,5 +348,17 @@ func TestPortPublishAppendsAfterTheCDPRelay(t *testing.T) {
 	want := []string{"51000:9222", "3000:3000", "51001:6006"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("publish args mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestAndroidInstallScriptHandsTheModulesToTheSeed(t *testing.T) {
+	t.Parallel()
+	got := AndroidInstallScript("/work/repo", []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037"},
+		[]devports.AndroidApp{{Module: ":app", AppID: "ca.proveo.hello"}, {AppID: "ca.proveo.root"}})
+	want := "export ADB_SERVER_SOCKET=\"tcp:host.docker.internal:5037\"\n" +
+		"cd \"/work/repo\" || exit 1\nsource /entrypoint-lib.sh\n" +
+		"proveo_android_install \":app|ca.proveo.hello\" \"|ca.proveo.root\"\n"
+	if got != want {
+		t.Errorf("AndroidInstallScript() =\n%s\nwant\n%s", got, want)
 	}
 }

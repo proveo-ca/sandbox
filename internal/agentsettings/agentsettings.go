@@ -38,6 +38,13 @@ type Store struct {
 // Workspace is what one workspace path remembers, whichever harness runs it.
 type Workspace struct {
 	Ports []Port `yaml:"ports"`
+	Apps  []App  `yaml:"apps,omitempty"`
+}
+
+// App is one Android application module the run installs on the host emulator.
+type App struct {
+	Module string `yaml:"module"`
+	AppID  string `yaml:"appId"`
 }
 
 // Port is one published dev port and the run command that serves it.
@@ -64,7 +71,31 @@ func (s *Store) RememberPorts(path string, ports []Port) {
 	if ports == nil {
 		ports = []Port{}
 	}
-	s.Workspaces[path] = Workspace{Ports: ports}
+	w := s.Workspaces[path]
+	w.Ports = ports
+	s.Workspaces[path] = w
+}
+
+// AppsFor is the remembered Android app answer for a workspace path; ok is false when it was never answered.
+func (s *Store) AppsFor(path string) ([]App, bool) {
+	if s == nil || s.Workspaces == nil {
+		return nil, false
+	}
+	w, ok := s.Workspaces[path]
+	return w.Apps, ok && w.Apps != nil
+}
+
+// RememberApps records a workspace path's Android app answer; an empty answer is kept as "none".
+func (s *Store) RememberApps(path string, apps []App) {
+	if s.Workspaces == nil {
+		s.Workspaces = map[string]Workspace{}
+	}
+	if apps == nil {
+		apps = []App{}
+	}
+	w := s.Workspaces[path]
+	w.Apps = apps
+	s.Workspaces[path] = w
 }
 
 func Path(root string) string { return filepath.Join(root, FileName) }

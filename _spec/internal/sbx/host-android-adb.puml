@@ -262,4 +262,10 @@ note bottom of NET
   leave through the host network, outside every
   sbx rule; the run warns, the relay is deferred.
 end note
+note as SeedInstall
+  **2026-10-05: no more typed `!./install.sh`.**
+  An "apps" row (execution, gated on android)
+  has the seed build, install, launch the app:
+  _spec/internal/devports/dev-ports.puml
+end note
 @enduml
