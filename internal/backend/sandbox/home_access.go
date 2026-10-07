@@ -4,6 +4,7 @@ package sandbox
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +54,17 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 			return HomeAccess{}, fmt.Errorf("sandbox home access: %w", err)
 		}
 	}
+	declared := len(a.Mounts)
 	if err := addDir(filepath.Join(root, "toolchains")); err != nil {
 		return HomeAccess{}, fmt.Errorf("sandbox home access: %w", err)
+	}
+	for _, m := range a.Mounts[:declared] {
+		for _, l := range linkedDirs(root, m.Host) {
+			if !seen[l.Host] {
+				seen[l.Host] = true
+				a.Mounts = append(a.Mounts, l)
+			}
+		}
 	}
 	if len(h.Files) == 0 {
 		return a, nil
@@ -74,6 +84,39 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 		}
 	}
 	return a, nil
+}
+
+// linkedDirs is dir's first-level symlinks to directories outside the proveo
+// home, as read-only mounts of their resolved targets.
+// SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
+func linkedDirs(root, dir string) []runner.Mount {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	home := realPath(root)
+	var out []runner.Mount
+	for _, e := range entries {
+		if e.Type()&fs.ModeSymlink == 0 {
+			continue
+		}
+		target, err := filepath.EvalSymlinks(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
+			continue
+		}
+		if within(target, home) || within(home, target) || len(strings.Split(strings.Trim(filepath.ToSlash(target), "/"), "/")) < 2 {
+			continue
+		}
+		out = append(out, runner.Mount{Host: target, ReadOnly: true})
+	}
+	return out
+}
+
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
 // Commit copies home-root config files back after the in-VM config sync. The

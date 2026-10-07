@@ -37,6 +37,18 @@ skinparam noteTextAlignment left
 ' staging dir for declared home-root files. Logs from unrelated runs are not
 ' mounted. The root files copy back after the in-VM save; newest wins.
 '
+' LINKED DIRS FOLLOW, READ-ONLY (2026-10-07). sbx mounts each dir at its host
+' path, so a symlink in a declared dir whose target lies outside every mount
+' dangles in the VM. PrepareHomeAccess reads each declared dir's direct entries:
+' a symlink to a directory outside the home view adds its resolved target as a
+' read-only mount, so the link resolves and the VM cannot write through it.
+' Refused: `/`, a top-level dir, a target inside or containing the proveo home
+' (a link to logs/ would undo the narrow view). Deeper
+' links, file links and targets already inside a mount add nothing.
+' Use: hermes/data/skills-muse → ~/Projects/proveo/skills/yahoo-ff (git), edited
+' and committed on the host only. Docker binds the whole home at /proveo-home;
+' an absolute link there still dangles (not handled).
+'
 ' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
 ' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A
 ' worktree clone names the worktree path and the main checkout sbx lists as

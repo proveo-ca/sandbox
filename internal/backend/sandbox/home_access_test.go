@@ -201,3 +201,60 @@ func TestSpecCarriesTheScopedIndexThroughANarrowedHome(t *testing.T) {
 		t.Errorf("the scoped index must hide only unmounted paths:\n%s", b)
 	}
 }
+
+func TestHomeAccessMountsALinkedDirReadOnly(t *testing.T) {
+	t.Parallel()
+	root, runDir, repo := t.TempDir(), t.TempDir(), t.TempDir()
+	data := filepath.Join(root, "hermes", "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(repo, filepath.Join(data, "skills-muse")); err != nil {
+		t.Fatal(err)
+	}
+	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(repo)
+	if !slices.Contains(a.Mounts, runner.Mount{Host: want, ReadOnly: true}) {
+		t.Errorf("mounts %+v: a declared dir's link out of the home view must mount its target read-only at its host path", a.Mounts)
+	}
+}
+
+func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
+	t.Parallel()
+	root, runDir, other := t.TempDir(), t.TempDir(), t.TempDir()
+	data := filepath.Join(root, "hermes", "data")
+	for _, d := range []string{filepath.Join(data, "deep"), filepath.Join(root, "toolchains", "go"), filepath.Join(root, "logs")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(other, "f")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		filepath.Join(data, "home"):           root,                                    // contains the proveo home
+		filepath.Join(data, "slash"):          string(filepath.Separator),              // the whole host
+		filepath.Join(data, "top"):            "/usr",                                  // a top-level dir
+		filepath.Join(data, "logs"):           filepath.Join(root, "logs"),             // unmounted part of the proveo home
+		filepath.Join(data, "file"):           file,                                    // not a directory
+		filepath.Join(data, "go"):             filepath.Join(root, "toolchains", "go"), // already mounted
+		filepath.Join(data, "deep", "nested"): other,                                   // below the first level
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range a.Mounts {
+		if m.ReadOnly {
+			t.Errorf("mounted %s: only a first-level link to a directory outside the home view may add a mount", m.Host)
+		}
+	}
+}
