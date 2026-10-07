@@ -26,6 +26,7 @@ func Available() bool {
 type Session struct {
 	Name string
 	run  Runner
+	pid  string // pane pid Pin saw; empty = any session under Name
 }
 
 func New(name string, run Runner) *Session {
@@ -96,10 +97,24 @@ func (s *Session) PanePID() (string, error) {
 	return s.run("display-message", "-p", "-t", s.Name, "#{pane_pid}")
 }
 
-// Alive reports whether the session still exists.
+// Pin ties the session to the process its pane runs now.
+// SPEC: _spec/internal/schedule/schedule.puml (ONE WATCHER PER SESSION)
+func (s *Session) Pin() {
+	if pid, err := s.PanePID(); err == nil {
+		s.pid = strings.TrimSpace(pid)
+	}
+}
+
+// Alive reports whether the session still exists and, once pinned, still runs the pinned pane.
 func (s *Session) Alive() bool {
-	_, err := s.run("has-session", "-t", s.Name)
-	return err == nil
+	if _, err := s.run("has-session", "-t", s.Name); err != nil {
+		return false
+	}
+	if s.pid == "" {
+		return true
+	}
+	pid, err := s.PanePID()
+	return err == nil && strings.TrimSpace(pid) == s.pid
 }
 
 // Kill removes the session (best-effort; safe to call in cleanup).

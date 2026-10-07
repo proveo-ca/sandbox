@@ -110,3 +110,16 @@ func TestNewNamesASessionTmuxCanTarget(t *testing.T) {
 		t.Errorf("Name = %q — ':' separates session from window", got)
 	}
 }
+
+func TestPinnedSessionReadsAReplacementAsGone(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{outputs: []string{"100\n", "", "100\n", "", "200\n"}}
+	s := New("proveo-sched-job", rec.run)
+	s.Pin()
+	if !s.Alive() {
+		t.Fatal("the pinned session itself must read as alive")
+	}
+	if s.Alive() {
+		t.Error("a new session under the same name runs another pane pid: want gone")
+	}
+}

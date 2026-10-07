@@ -37,10 +37,15 @@ var (
 	termGrace     = time.Minute
 	doneQuiet     = 20 * time.Second
 	doneMax       = 3 * time.Minute
+	wrapUpBefore  = 10 * time.Minute
+	wrapUpMin     = time.Minute
 )
 
 // defaultAccepted is the pane text a harness shows once it took an instruction, by target and mode.
 var defaultAccepted = map[string]string{"hermes goal": "Goal (active"}
+
+// steerPrefix types a message into a busy harness without ending its turn, by target.
+var steerPrefix = map[string]string{"hermes": "/steer "}
 
 var errGone = errors.New("session ended")
 
@@ -79,6 +84,39 @@ func (j Job) Instruction(prompt string) string {
 		return "/loop " + flat
 	}
 	return flat
+}
+
+// Clock is the line appended to the instruction: when the session stops and when to report by.
+func (j Job) Clock(stop time.Time, budget time.Duration) string {
+	loc, err := j.Location()
+	if err != nil {
+		loc = time.Local
+	}
+	by := stop.Add(-wrapUpLead(budget))
+	return fmt.Sprintf("Clock: proveo stops this session at %s (%s budget); write the report by %s. Run `date` to check.",
+		stop.In(loc).Format("15:04 MST"), compact(budget), by.In(loc).Format("15:04 MST"))
+}
+
+// wrapUpLead is how long before the stop the agent is told to write its report.
+func wrapUpLead(budget time.Duration) time.Duration { return min(wrapUpBefore, budget/4) }
+
+// wrapUp steers the agent to write its report; false when the target has no steer or the budget no room.
+func (j Job) wrapUp(sess *tmux.Session, stop time.Time, budget time.Duration) bool {
+	prefix, ok := steerPrefix[j.Target]
+	if !ok || len(j.Command) > 0 || wrapUpLead(budget) < wrapUpMin || !sess.Alive() {
+		return false
+	}
+	loc, err := j.Location()
+	if err != nil {
+		loc = time.Local
+	}
+	left := max(1, int(time.Until(stop).Round(time.Minute)/time.Minute))
+	_ = sess.SendText(fmt.Sprintf("%sproveo schedule: %d minutes left — this session stops at %s. Stop the task and write the report now with what you have.",
+		prefix, left, stop.In(loc).Format("15:04 MST")))
+	_ = sess.Enter()
+	time.Sleep(submitWait)
+	_ = sess.Enter()
+	return true
 }
 
 func (j Job) readyMarker() string {
@@ -333,6 +371,8 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 
 	run = orTmux(run)
 	sess := tmux.New(SessionName(name), run)
+	sess.Pin()
+	budget, _ := j.BudgetDuration()
 	prompt, err := os.ReadFile(j.PromptFile)
 	if err != nil {
 		sess.Kill()
@@ -348,7 +388,7 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 			sess.Kill()
 			return finish("not-ready", fmt.Sprintf("no %q within %s; pane tail: %s", j.readyMarker(), readyWait, tail(pane, 300)))
 		}
-		if err := sess.SendText(instruction); err != nil {
+		if err := sess.SendText(instruction + " " + j.Clock(time.Now().Add(budget), budget)); err != nil {
 			sess.Kill()
 			return finish("failed", "type instruction: "+err.Error())
 		}
@@ -372,10 +412,14 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 			return finish("failed", fmt.Sprintf("the agent never showed %q after %d tries", j.acceptedMarker(string(prompt)), typeAttempts))
 		}
 	}
-	budget, _ := j.BudgetDuration()
 	started := time.Now()
 	deadline := started.Add(budget)
+	warned := false
 	for time.Now().Before(deadline) {
+		if !warned && !time.Now().Before(deadline.Add(-wrapUpLead(budget))) {
+			warned = true
+			j.wrapUp(sess, deadline, budget)
+		}
 		if !sess.Alive() {
 			return endedEarly(finish, transcript)
 		}
@@ -395,6 +439,9 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 // stopAgent ends a run at its budget, gentlest first: interrupt the turn and /exit, then
 // SIGTERM the pane's command so `proveo run` tears its sandbox down, then kill the session.
 func stopAgent(sess *tmux.Session, why string) string {
+	if !sess.Alive() {
+		return why + "; the agent had already exited"
+	}
 	_ = sess.SendKeys("C-c")
 	time.Sleep(interruptWait)
 	_ = sess.SendText("/exit")
