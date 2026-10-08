@@ -174,7 +174,7 @@ def supervise(command, env, lease):
                 os.killpg(child.pid, signal.SIGCONT)
 
     def suspend(_, __):
-        if child is not None:
+        if _ is not None and child is not None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(child.pid, signal.SIGTSTP)
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
@@ -274,20 +274,85 @@ def check_service_environment(env):
             raise RuntimeFailure("service environment redirects managed state")
 
 
-def record_runtime(lease, root):
-    content = str(root).encode() if root is not None else b""
+def record_runtime(lease, root, name="opencode.db"):
+    content = json.dumps({"root": str(root), "database": name}).encode() if root is not None else b""
     os.lseek(lease, 0, os.SEEK_SET)
     os.write(lease, content)
     os.ftruncate(lease, len(content))
     os.fsync(lease)
 
 
-def recover_orphan(lease, helper, durable):
+def checkpoint(helper, data, root, target, durable, name):
+    helper.snapshot(data, target, name, rebase=(data, durable), state_source=root / "state/opencode")
+
+
+def migration_digest(root, helper, name):
+    databases, files, _ = helper.inventory(root, name)
+    digest = hashlib.sha256()
+    for rel in sorted(databases):
+        digest.update(str(rel).encode())
+        digest.update(helper.database_digest(root / rel))
+    for rel in sorted(files):
+        digest.update(str(rel).encode())
+        digest.update(hashlib.sha256((root / rel).read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def migrate_legacy(legacy, durable, helper, name):
+    if legacy == durable or not legacy.exists():
+        return None
+    lease = os.open(legacy / helper.LIFECYCLE_LOCK_NAME, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        recover_orphan(lease, helper, legacy, name)
+        with tempfile.TemporaryDirectory(prefix="proveo-opencode-migrate-", dir="/tmp") as temporary:
+            clean, existing = Path(temporary, "legacy"), Path(temporary, "canonical")
+            helper.snapshot(legacy, clean, name, rebase=(legacy, durable))
+            helper.snapshot(durable, existing, name)
+            marker = legacy / helper.MIGRATION_NAME
+            if marker.exists():
+                if marker.is_symlink():
+                    raise RuntimeFailure("legacy migration record is a symlink")
+                previous = json.loads(marker.read_text())
+                if previous != {"canonical": str(durable), "digest": migration_digest(clean, helper, name)}:
+                    raise RuntimeFailure("legacy store changed after migration")
+                helper.normalize_offline(legacy, name)
+                helper.snapshot(clean, legacy, name)
+                return lease
+            dbs, files, _ = helper.inventory(clean, name)
+            old_dbs, old_files, _ = helper.inventory(existing, name)
+            for rel in set(dbs).intersection(old_dbs):
+                if helper.database_digest(clean / rel) != helper.database_digest(existing / rel):
+                    raise RuntimeFailure("legacy and canonical session histories diverge")
+            for rel in set(files).intersection(old_files):
+                if hashlib.sha256((clean / rel).read_bytes()).digest() != hashlib.sha256((existing / rel).read_bytes()).digest():
+                    raise RuntimeFailure("legacy and canonical artifacts diverge")
+            helper.normalize_offline(legacy, name)
+            helper.normalize_offline(durable, name)
+            helper.snapshot(clean, durable, name)
+            helper.snapshot(clean, legacy, name)
+            record = Path(temporary, "migration.json")
+            record.write_text(json.dumps({"canonical": str(durable), "digest": migration_digest(clean, helper, name)}))
+            helper.publish(record, marker)
+        return lease
+    except Exception:
+        os.close(lease)
+        raise
+
+
+def recover_orphan(lease, helper, durable, name="opencode.db"):
     os.lseek(lease, 0, os.SEEK_SET)
     content = os.read(lease, 4096).decode()
     if not content:
         return
-    root = Path(content)
+    if content.startswith("{"):
+        record = json.loads(content)
+        root = Path(record["root"])
+        name = record["database"]
+        if Path(name).name != name or name in helper.AUTH_FILES or name.startswith(".proveo-"):
+            raise RuntimeFailure("invalid interrupted database record")
+    else:
+        root = Path(content)
     if not root.is_absolute() or root.parent != Path("/tmp") or not root.name.startswith("proveo-opencode-runtime-") or root.is_symlink():
         raise RuntimeFailure("invalid interrupted-run record")
     if not root.exists():
@@ -298,20 +363,18 @@ def recover_orphan(lease, helper, durable):
     data = root / "data/opencode"
     if (root / "data").is_symlink() or data.is_symlink():
         raise RuntimeFailure("interrupted-run data contains a symlink")
-    helper.normalize_offline(data)
-    try:
-        recovery_root = durable / helper.RECOVERY_NAME
-        recovery_root.mkdir(mode=0o700, exist_ok=True)
-        recovery = Path(tempfile.mkdtemp(prefix="interrupted-", dir=recovery_root))
-        with tempfile.TemporaryDirectory(prefix="proveo-opencode-recovered-", dir="/tmp") as clean:
-            helper.snapshot(data, clean)
-            helper.snapshot(clean, recovery)
-            helper.normalize_offline(durable)
-            helper.snapshot(clean, durable)
-        shutil.rmtree(recovery)
-    finally:
-        shutil.rmtree(root)
-        record_runtime(lease, None)
+    helper.normalize_offline(data, name)
+    recovery_root = durable / helper.RECOVERY_NAME
+    recovery_root.mkdir(mode=0o700, exist_ok=True)
+    recovery = Path(tempfile.mkdtemp(prefix="interrupted-", dir=recovery_root))
+    with tempfile.TemporaryDirectory(prefix="proveo-opencode-recovered-", dir="/tmp") as clean:
+        checkpoint(helper, data, root, clean, durable, name)
+        helper.snapshot(clean, recovery, name)
+        helper.normalize_offline(durable, name)
+        helper.snapshot(clean, durable, name)
+    shutil.rmtree(recovery)
+    shutil.rmtree(root)
+    record_runtime(lease, None)
 
 
 def main():
@@ -321,6 +384,7 @@ def main():
     env = dict(os.environ)
     args = sys.argv[2:]
     lease = None
+    legacy_lease = None
     recovery = None
     clean = None
     root = None
@@ -348,7 +412,13 @@ def main():
                 print("proveo: another OpenCode run owns this durable database", file=sys.stderr)
                 return 75
             phase = "interrupted-run recovery"
-            recover_orphan(lease, helper, durable)
+            recover_orphan(lease, helper, durable, name)
+            phase = "legacy migration"
+            try:
+                legacy_lease = migrate_legacy(legacy_directory(env), durable, helper, name)
+            except BlockingIOError:
+                print("proveo: another OpenCode run owns the legacy database", file=sys.stderr)
+                return 75
         with tempfile.TemporaryDirectory(prefix="proveo-opencode-runtime-", dir="/tmp") as temporary:
             root = Path(temporary)
             child_env, data = private_environment(env, root, name)
@@ -357,18 +427,24 @@ def main():
             if mode != "empty":
                 phase = "restore"
                 origin = Path(env["PROVEO_OPENCODE_RUNTIME_DATA"]) if disposable and env.get("PROVEO_OPENCODE_RUNTIME_DATA") else durable
-                helper.snapshot(origin, data)
+                helper.snapshot(origin, data, name)
+            state = root / "state/opencode"
+            state_origin = data / helper.STATE_NAME
+            if not state_origin.exists():
+                home = env.get("PROVEO_HOME") or env["HOME"]
+                state_origin = Path(env.get("XDG_STATE_HOME") or str(Path(home) / ".local/state")) / "opencode"
+            helper.copy_state(state_origin, state)
             if not disposable:
                 phase = "offline checkpoint"
-                helper.normalize_offline(durable)
+                helper.normalize_offline(durable, name)
                 phase = "startup publication"
-                helper.snapshot(data, durable)
+                checkpoint(helper, data, root, durable, durable, name)
                 recovery_root = durable / helper.RECOVERY_NAME
                 recovery_root.mkdir(mode=0o700, exist_ok=True)
                 recovery = Path(tempfile.mkdtemp(prefix="run-", dir=recovery_root))
                 phase = "recovery checkpoint"
-                helper.snapshot(data, recovery)
-                record_runtime(lease, root)
+                checkpoint(helper, data, root, recovery, durable, name)
+                record_runtime(lease, root, name)
             command = [sys.argv[1], *args] if mode == "empty" else native_command(sys.argv[1], args)
             phase = "native process"
             code = 128 + received[-1] if received else supervise(command, child_env, lease)
@@ -376,9 +452,9 @@ def main():
                 return code
             clean = Path(tempfile.mkdtemp(prefix="proveo-opencode-recovery-", dir="/tmp"))
             try:
-                helper.snapshot(data, clean)
-                helper.snapshot(clean, recovery)
-                helper.snapshot(clean, durable)
+                checkpoint(helper, data, root, clean, durable, name)
+                helper.snapshot(clean, recovery, name)
+                helper.snapshot(clean, durable, name)
             except Exception:
                 if clean is not None:
                     print(f"proveo: OpenCode state publication failed; credential-free recovery: {recovery}; clean staging: {clean}", file=sys.stderr)
@@ -393,6 +469,8 @@ def main():
         print(f"proveo: OpenCode credential lifecycle failed during {phase} ({type(error).__name__})", file=sys.stderr)
         return 74
     finally:
+        if legacy_lease is not None:
+            os.close(legacy_lease)
         if lease is not None:
             if root is not None and not root.exists():
                 record_runtime(lease, None)

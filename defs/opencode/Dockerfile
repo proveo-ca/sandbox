@@ -74,6 +74,7 @@ COPY defs/lib/ /opt/proveo/lib/
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY packages/lib/opencode-credentials.py /usr/local/lib/proveo/opencode-credentials.py
+COPY defs/opencode/harness.manifest /usr/local/lib/proveo/opencode.harness.manifest
 COPY --chmod=0755 packages/lib/proveo-opencode-runtime /usr/local/bin/proveo-opencode-runtime
 RUN python3 -c 'import ctypes, fcntl, sqlite3, sys; assert sqlite3.sqlite_version_info >= (3, 33, 0); assert sys.version_info >= (3, 11)'
 # The sbx Kit names this as its ONE startup command for every target

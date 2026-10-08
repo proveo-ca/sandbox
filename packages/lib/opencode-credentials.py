@@ -32,6 +32,7 @@ LOCK_NAME = ".proveo-opencode-snapshot.lock"
 LIFECYCLE_LOCK_NAME = ".proveo-opencode-runtime.lock"
 RECOVERY_NAME = ".proveo-opencode-recovery"
 STATE_NAME = ".proveo-opencode-state"
+MIGRATION_NAME = ".proveo-opencode-migrated"
 SIDECARS = ("-wal", "-shm", "-journal")
 AUTH_FILES = ("auth.json", "mcp-auth.json")
 TOKEN_SCHEMAS = {
@@ -152,6 +153,8 @@ def rebase_database(db, old, new):
             for rowid, text in db.execute(
                 f'SELECT rowid, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL'
             ).fetchall():
+                if str(old).rstrip("/") + "/" not in text:
+                    continue
                 value = json.loads(text)
                 changed = rebased(value, old, new)
                 if changed != value:
@@ -255,7 +258,12 @@ def inventory(root, selected="opencode.db"):
         for name in filenames:
             path = Path(directory, name)
             rel = path.relative_to(root)
-            if str(rel) in (*AUTH_FILES, LOCK_NAME, LIFECYCLE_LOCK_NAME):
+            if str(rel) in (
+                *AUTH_FILES,
+                LOCK_NAME,
+                LIFECYCLE_LOCK_NAME,
+                MIGRATION_NAME,
+            ):
                 continue
             if not stat.S_ISREG(path.lstat().st_mode):
                 raise SnapshotError("data directory contains a non-regular file")
@@ -418,12 +426,25 @@ def snapshot(
                     files.extend(
                         Path(directory, name).relative_to(stage) for name in names
                     )
+                files = [rel for rel in files if (stage / rel).is_file()]
             for rel in directories:
                 (destination / rel).mkdir(mode=0o700, parents=True, exist_ok=True)
             for name in AUTH_FILES:
                 auth = destination / name
                 if os.path.lexists(auth):
                     auth.unlink()
+            state = destination / STATE_NAME
+            if state.exists():
+                for file in state.iterdir():
+                    if file.name in AUTH_FILES or re.fullmatch(
+                        r"service(?:-[A-Za-z0-9._-]+)?\.json", file.name
+                    ):
+                        file.unlink()
+                locks = state / "locks"
+                if locks.is_symlink():
+                    locks.unlink()
+                elif locks.exists():
+                    shutil.rmtree(locks)
             ordered = sorted(set(files)) + sorted(set(databases + old_databases))
             for rel in ordered:
                 target = destination / rel
