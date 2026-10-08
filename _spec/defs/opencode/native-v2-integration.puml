@@ -1,0 +1,160 @@
+@startuml
+' purpose: the approved native OpenCode v2 integration before source migration
+' covers: defs/opencode/defaults/**
+' covers: defs/opencode/sample_opencode.json
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/harness.manifest
+' covers: packages/lib/entrypoint-lib.sh
+' covers: packages/lib/hooks/**
+' covers: defs/subagents/_frontmatter/opencode/**
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/launch_config_test.go
+' covers: internal/backend/sandbox/host_adb_test.go
+' covers: internal/hostadb/**
+' covers: internal/proveohome/**
+' covers: internal/contract/**
+' covers: internal/imagetest/opencode_test.go
+' covers: e2e/**
+' status: PLANNED; the Executor approved Complete v2 integration before implementation.
+' Preserved crew and auth boundary: _spec/defs/opencode/opencode-paradigm.puml
+' Shipped package pin: _spec/_devops/agent-version-pin.puml
+' Shared hook semantics: _spec/packages/lib/git-sync-turn.puml
+' Host-side launch timing: _spec/internal/sbx/launch-env.puml
+' Mobile transport ownership: _spec/internal/sbx/host-android-adb.puml
+' Persistence transport: _spec/packages/lib/config-seeding-and-persistence.puml
+'
+' Approved native contract, not evidence that these source migrations shipped:
+' agents replaces agent; permissions is an ordered action/resource/effect list.
+' update: disable replaces autoupdate; compaction.auto: true replaces context flags.
+' Default seeds select no model, including no title model or agent model.
+' Generated YAML removes the old temperature key before native permission decoding.
+' Both local-provider writers use providers.ollama.package and settings, with
+' package @opencode/ai/providers/openai-compatible and the existing /v1 endpoint.
+' An explicit local-model request selects root model and title.model, not small_model.
+' OpenCode mobile MCP uses mcp.servers.mobile and disabled: false, not enabled: true.
+' The plugin default-exports an object with id and setup(ctx); its observer uses
+' ctx.events and event.data for session.idle. Do not prescribe an unverified
+' subscription signature or revive the v1 named-export/event.type callback.
+' Authentication comes from launch environment credentials or broker sentinels;
+' in-sandbox login is not the supported authentication path.
+'
+' Permission migration is mechanical, not an opportunity to tighten delegation:
+' preserve ordering and existing effects for edit and native shell actions.
+' plan: edit deny, shell deny. build: edit allow, shell ask.
+' Advisors: edit deny, shell deny. spec-keeper: edit allow, shell deny; its
+' existing prompt limits editing to _spec/, PLAN.md, and AGENTS.md.
+' Do not introduce path-filter enforcement or new delegation denies by default.
+' Config, generated user agent files, and project AGENTS.md remain missing-only;
+' OPENCODE_RESEED=1 is the existing explicit replacement override.
+' Explicit local-model/add-on wiring remains distinct from default reseeding.
+'
+' Credential persistence is an invariant, not a chosen cleanup mechanism:
+' v2 stores auth tokens in a SQLite credential table alongside durable session state.
+' Removing auth.json alone is insufficient; deleting the session database is forbidden.
+' Preserve session/history/resume data and safely exclude or scrub credentials on
+' every persistence path, including database journals, snapshots, and restored state.
+' The implementation agent owns the exact safe lifecycle and pinned schema validation.
+' Do not infer a database filename, SQL statement, transaction order, or vacuum policy.
+' Do not silently broaden PROVEO_KEEP_AGENT_LOGINS to allow persisted v2 tokens.
+'
+' Acceptance work for primary/build:
+' native decoding and effective permissions; missing-only and explicit reseed;
+' provider parity for entrypoint and launchConfigEnv; model + MCP composition;
+' lowercase root logger arguments; no log streaming onto the root TUI;
+' actual v2 plugin loading, helper execution, closed stdin, and recursion isolation;
+' resumable sessions and credential-free launch/restore/save persistence;
+' eventual idle trace/commit/push in a live session, never push-before-CLI-return.
+' Offline contracts check behavior/decoded structure, not legacy string matches.
+' Image and e2e validation run against the pinned @opencode/cli release.
+
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title PLANNED — Complete native OpenCode v2 integration
+left to right direction
+
+package "defs/opencode" {
+  component "defaults/opencode.json\nsample_opencode.json" as DEFAULTS <<app>>
+  component "entrypoint.sh\nseed + local-provider writer" as EP <<app>>
+  component "Dockerfile\n@opencode/cli pin\nOPENCODE_DISABLE_AUTOUPDATE=1" as IMAGE <<host>>
+  component "opencode.json\nagents + ordered permissions\nupdate: disable · compaction.auto: true\nno default model selection" as CONFIG <<app>>
+}
+
+component "defs/subagents/_frontmatter/opencode\nnative permissions; no old temperature key" as FM <<app>>
+component "packages/lib/entrypoint-lib.sh\nrender_subagents · seed · persistence" as LIB <<app>>
+component "internal/backend/sandbox/sandbox.go\nlaunchConfigEnv\nOPENCODE_CONFIG_CONTENT" as GO <<app>>
+component "internal/hostadb/hostadb.go\nmcp.servers.mobile\ndisabled: false" as ADB <<app>>
+component "opencode\nroot: --log-level debug\nheadless run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
+component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.events · event.data" as PLUGIN <<async>>
+component "packages/lib/hooks/git-sync-turn.sh\nbest-effort idle dialect\nsubject helper: opencode run --standalone" as HOOK <<app>>
+component "internal/proveohome\nsession-preserving credential boundary" as HOME <<app>>
+database "OpenCode SQLite\ncredential table + session history" as STATE <<db>>
+component "internal/contract\ninternal/imagetest/opencode_test.go\ne2e" as TESTS <<app>>
+
+DEFAULTS ARROW_MAIN EP : missing-only; explicit reseed
+EP ARROW_MAIN CONFIG : native defaults + requested local model
+FM ARROW_MAIN LIB : render native agent YAML
+LIB ARROW_MAIN CONFIG : preserve user files
+ADB ARROW_MAIN GO : requested mobile server
+GO ARROW_MAIN CLI : one composed native inline config
+CONFIG ARROW_MAIN CLI : persistent user configuration
+IMAGE ARROW_MAIN CLI : pinned CLI; updater disabled
+LIB ARROW_MAIN PLUGIN : install before plugin loading
+CLI ARROW_QUEUE PLUGIN : idle notification, not a return gate
+PLUGIN ARROW_QUEUE HOOK : start best-effort helper; stdin closed
+CLI ARROW_MAIN STATE : durable session history
+HOME ARROW_ERROR STATE : exclude/scrub credentials, keep sessions
+LIB ARROW_MAIN HOME : restore/save must preserve the invariant
+TESTS ARROW_OPTIONAL CONFIG : native decoding and effective permissions
+TESTS ARROW_OPTIONAL CLI : image + live acceptance
+TESTS ARROW_OPTIONAL HOME : sessions retained; credentials absent
+TESTS ARROW_OPTIONAL HOOK : eventual completion; no return gate
+
+note bottom of DEFAULTS
+  Seed only missing files so user config
+  remains under user control. An explicit reseed
+  may replace those defaults, but this migration
+  preserves permission effects without adding
+  new restrictions on delegation.
+end note
+
+note bottom of FM
+  Remove the old ""temperature"" key from
+  generated agent YAML. Its presence selects the
+  legacy decoder, which can silently discard
+  native permissions even when the file
+  otherwise looks valid.
+end note
+
+note bottom of GO
+  Both provider writers must emit the same
+  native config before launch. The inline
+  payload combines local-model and mobile-server
+  settings so one environment entry cannot
+  overwrite the other.
+end note
+
+note bottom of HOME
+  Keep session history when scrubbing stored
+  credentials from storage. The safe lifecycle
+  must leave durable state free of tokens and
+  keys across every persistence path, not erase
+  the session database.
+end note
+
+note bottom of PLUGIN
+  The idle observer provides best-effort git sync
+  after a completed turn. It must start the git
+  helper without making CLI return depend on
+  that helper finishing, so eventual completion
+  remains the only guarantee.
+end note
+
+note bottom of TESTS
+  Static tests must inspect decoded native
+  permissions, not just matching text. Image and
+  live tests must verify preserved user files,
+  resumable sessions, credential-free state, and
+  eventual idle git sync against the pinned CLI.
+end note
+@enduml

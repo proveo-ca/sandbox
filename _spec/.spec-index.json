@@ -43,6 +43,7 @@
         "internal/contract/agent_pin_test.go",
         "internal/posture/posture.go",
         "internal/run/run.go",
+        "defs/opencode/entrypoint.sh",
         "defs/opencode/README.md",
         "CODING_HARNESSES.md"
       ],
@@ -713,10 +714,35 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/defs/opencode/native-v2-integration.puml",
+      "covers": [
+        "defs/opencode/defaults/**",
+        "defs/opencode/sample_opencode.json",
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/Dockerfile",
+        "defs/opencode/harness.manifest",
+        "packages/lib/entrypoint-lib.sh",
+        "packages/lib/hooks/**",
+        "defs/subagents/_frontmatter/opencode/**",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/launch_config_test.go",
+        "internal/backend/sandbox/host_adb_test.go",
+        "internal/hostadb/**",
+        "internal/proveohome/**",
+        "internal/contract/**",
+        "internal/imagetest/opencode_test.go",
+        "e2e/**"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/defs/opencode/opencode-paradigm.puml",
       "covers": [
         "defs/opencode/entrypoint.sh",
-        "packages/lib/entrypoint-lib.sh"
+        "defs/opencode/harness.manifest",
+        "defs/subagents/_frontmatter/opencode/**",
+        "packages/lib/entrypoint-lib.sh",
+        "e2e/opencode_auth_test.go"
       ],
       "fingerprint": null
     },
@@ -1488,6 +1514,7 @@
         "packages/lib/hooks/git-sync-turn.sh",
         "packages/lib/hooks/proveo-git-sync-turn.js",
         "packages/lib/entrypoint-lib.sh",
+        "defs/opencode/entrypoint.sh",
         "defs/cursor/defaults/hooks.json",
         "defs/base/Dockerfile",
         "defs/cursor/Dockerfile",

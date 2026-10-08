@@ -85,6 +85,12 @@ class CredentialSnapshotTests(unittest.TestCase):
                 (messages,),
             )
             self.assertEqual(
+                db.execute(
+                    "SELECT session_id, seq, data FROM session_message WHERE id = 'message-fixture'"
+                ).fetchone(),
+                ("session-fixture", 1, '{"text":"keep message"}'),
+            )
+            self.assertEqual(
                 db.execute("SELECT data FROM permission").fetchone(),
                 ('{"edit":"allow","bash":"ask"}',),
             )
@@ -93,7 +99,8 @@ class CredentialSnapshotTests(unittest.TestCase):
                 ("20260805200742_import_legacy_credentials",),
             )
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone(), ("delete",))
-        self.assertNotIn(FAKE_VALUE.encode(), path.read_bytes())
+        self.assertNotIn(b"SYNTHETIC_FIXTURE_CREDENTIAL_", path.read_bytes())
+        self.assertNotIn(b"x" * 128, path.read_bytes())
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         for suffix in credentials.SIDECARS:
             self.assertFalse(Path(str(path) + suffix).exists())
@@ -101,6 +108,8 @@ class CredentialSnapshotTests(unittest.TestCase):
     def test_snapshot_preserves_sessions_permissions_and_source_auth(self):
         with contextlib.closing(self.fixture()) as source:
             (self.source / "auth.json").write_text("SYNTHETIC_AUTH_FILE")
+            self.destination.mkdir()
+            (self.destination / "auth.json").write_text("SYNTHETIC_OLD_AUTH_FILE")
             (self.source / "log").mkdir()
             (self.source / "log" / "fixture.log").write_text("keep log")
             before = (self.source / "opencode.db").read_bytes()
@@ -156,6 +165,46 @@ class CredentialSnapshotTests(unittest.TestCase):
         credentials.snapshot(self.destination, next_run)
         self.assert_clean(next_run)
 
+    def test_in_progress_wal_transaction_is_not_persisted_or_disturbed(self):
+        with contextlib.closing(self.fixture()) as writer:
+            writer.execute("PRAGMA journal_mode = WAL")
+            writer.execute(
+                "INSERT INTO session_message VALUES ('uncommitted', 'session-fixture', 2, 'pending')"
+            )
+            credentials.snapshot(self.source, self.destination)
+            self.assert_clean(messages=1)
+            self.assertTrue(writer.in_transaction)
+            self.assertEqual(
+                writer.execute("SELECT count(*) FROM credential").fetchone(), (2,)
+            )
+            writer.commit()
+            credentials.snapshot(self.source, self.destination)
+            self.assert_clean(messages=2)
+
+    def test_concurrent_publisher_is_refused_without_overwriting_database(self):
+        self.fixture().close()
+        credentials.snapshot(self.source, self.destination)
+        before = (self.destination / "opencode.db").read_bytes()
+        fd = os.open(self.destination / credentials.LOCK_NAME, os.O_RDWR)
+        try:
+            credentials.fcntl.flock(
+                fd, credentials.fcntl.LOCK_EX | credentials.fcntl.LOCK_NB
+            )
+            with self.assertRaises(BlockingIOError):
+                credentials.snapshot(self.source, self.destination)
+        finally:
+            os.close(fd)
+        self.assertEqual((self.destination / "opencode.db").read_bytes(), before)
+
+    def test_directory_at_auth_path_is_refused_before_copying_auth_contents(self):
+        self.fixture().close()
+        (self.source / "auth.json").mkdir()
+        (self.source / "auth.json" / "private").write_text("SYNTHETIC_MALFORMED_AUTH")
+        with self.assertRaises(credentials.SnapshotError):
+            credentials.snapshot(self.source, self.destination)
+        self.assertFalse((self.destination / "auth.json").exists())
+        self.assertFalse((self.destination / "opencode.db").exists())
+
     def test_channel_custom_and_destination_only_databases_are_clean(self):
         self.fixture(name="opencode-next.db").close()
         self.fixture(name="custom-database").close()
@@ -168,7 +217,14 @@ class CredentialSnapshotTests(unittest.TestCase):
         self.fixture().close()
         credentials.snapshot(self.source, self.destination)
         before = (self.destination / "opencode.db").read_bytes()
-        for kind in ("malformed", "unsupported", "trigger", "reference", "orphan"):
+        for kind in (
+            "malformed",
+            "unsupported",
+            "missing",
+            "trigger",
+            "reference",
+            "orphan",
+        ):
             with self.subTest(kind=kind):
                 bad = self.root / kind
                 bad.mkdir()
@@ -183,6 +239,8 @@ class CredentialSnapshotTests(unittest.TestCase):
                             db.execute(
                                 "ALTER TABLE credential ADD COLUMN secret_v3 text"
                             )
+                        elif kind == "missing":
+                            db.execute("DROP TABLE credential")
                         elif kind == "trigger":
                             db.execute(
                                 "CREATE TRIGGER copy_auth AFTER DELETE ON credential BEGIN UPDATE permission SET data = old.value; END"

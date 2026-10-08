@@ -1,16 +1,9 @@
 @startuml
-!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-skinparam noteTextAlignment left
-title git-sync-turn — commit and push before Stop / idle
-' purpose: why a turn may not return until the tree is committed and pushed
-'
-' A failed `git add` names git's own first "error:" line in the block reason.
-' A bare "git add failed" (seen 2026-09-29 in proveo-claudecode-1b3fcb7f, whose
-' clone and trace were gone with the sandbox) left the agent guessing at a
-' cause the hook had in hand. TestGitSyncNamesWhyGitAddFailed pins it.
+' purpose: Stop persistence checkpoints versus best-effort OpenCode idle synchronization
 ' covers: packages/lib/hooks/git-sync-turn.sh
 ' covers: packages/lib/hooks/proveo-git-sync-turn.js
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/opencode/entrypoint.sh
 ' covers: defs/cursor/defaults/hooks.json
 ' covers: defs/base/Dockerfile
 ' covers: defs/cursor/Dockerfile
@@ -20,10 +13,22 @@ title git-sync-turn — commit and push before Stop / idle
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/git_sync_turn_test.go
 ' covers: e2e/git_sync_turn_test.go
+' Approved OpenCode plugin migration: _spec/defs/opencode/native-v2-integration.puml
+' The native plugin and nested --standalone helper are PLANNED, not shipped here.
+' OpenCode synchronization is eventual in a live session; neither idle observation
+' nor hook failure gates CLI return. Do not assert commit/push before run exits.
+'
+' A failed `git add` names git's own first "error:" line in the block reason.
+' A bare "git add failed" (seen 2026-09-29 in proveo-claudecode-1b3fcb7f, whose
+' clone and trace were gone with the sandbox) left the agent guessing at a
+' cause the hook had in hand. TestGitSyncNamesWhyGitAddFailed pins it.
 '   seed step order ............... _spec/packages/lib/seed-and-launch.puml
 '   live e2e per def .............. _spec/tests/44-git-sync-turn-e2e.puml
 '   git identity .................. _spec/internal/gitidentity/authorship.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title git-sync-turn — Stop checkpoint / best-effort idle observer
 
 participant "Claude / Codex\nStop" as STOP <<app>>
 participant "Cursor stop" as CU <<app>>
@@ -34,7 +39,7 @@ participant "block / followup" as BLOCK <<error>>
 
 STOP ARROW_MAIN HOOK : stdin JSON
 CU ARROW_MAIN HOOK : stdin JSON
-OC ARROW_OPTIONAL HOOK : plugin event, awaited
+OC ARROW_QUEUE HOOK : idle notification, best-effort
 HOOK ARROW_MAIN GIT
 GIT ARROW_MAIN HOOK : clean or pushed
 HOOK ARROW_MAIN STOP : no decision / {}
@@ -43,11 +48,11 @@ BLOCK ARROW_QUEUE STOP : reason as next prompt
 BLOCK ARROW_QUEUE CU : followup_message
 
 note right of HOOK
-  **Turn-end is the persist gate.** The
-  script commits and pushes; Claude,
-  Cursor and Codex can still block if
-  that fails. OpenCode only observes
-  idle after the turn already returned.
+  Turn-end hooks give Claude, Cursor, and Codex
+  a persistence checkpoint before returning.
+  OpenCode observes an idle session, so git sync
+  remains best-effort and must never become an
+  awaited CLI-return gate.
 end note
 
 note bottom of BLOCK
@@ -104,10 +109,11 @@ note as N_MSG_KNOBS
 end note
 
 note as N_RECURSE
-  **The CLI it calls can re-fire this hook.**
-  claude -p / codex exec / cursor-agent -p /
-  opencode run share the live session's Stop
-  hooks, so a naive call would recurse.
+  Nested subject generation can load the live
+  session's hooks and recurse into git sync.
+  The native OpenCode migration adds
+  ""--standalone"" to that helper while retaining
+  the inflight guard across every harness call.
 end note
 
 note as N_INFLIGHT
