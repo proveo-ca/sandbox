@@ -29,8 +29,8 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' Every harness must keep its CLI's auto-updater OFF — claudecode by
 ' DISABLE_AUTOUPDATER, cecli by `check-update: false`, cursor by the same class.
 ' Approved OpenCode v2 integration uses OPENCODE_DISABLE_AUTOUPDATE=1 and
-' native update: disable; both are present in the in-progress source.
-' Acceptance remains pending in the sibling plan; source presence is not a test result.
+' native update: disable; both are implemented in source with focused fixture proof.
+' Latest rebuilt-image/full e2e acceptance remains pending in the native sibling.
 ' A successful runtime update replaces the resolved release and unpins the image.
 '
 ' But it moved the update layer UP, and the rung it moved to has no motor and

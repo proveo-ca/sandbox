@@ -3,9 +3,15 @@
 ' covers: defs/opencode/**
 ' covers: defs/subagents/_frontmatter/opencode/**
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/opencode_presentation_test.go
+' covers: e2e/opencode_presentation*
+' covers: e2e/testdata/opencode_presentation.*
 ' Native migration and pending acceptance: _spec/defs/opencode/native-v2-integration.puml
 ' Crew/auth decisions: _spec/defs/opencode/opencode-paradigm.puml
-' Automatic approval is an approved target, not evidence that its exact setting passed tests.
+' Automatic session preferences and headless --auto have persisted native fixture proof.
+' Source-backed child navigation is not a default main-transcript live wait graph.
+' Focused/offline proof does not close pending reviews, latest image/e2e, cross-VM
+' locking, or model-driven live idle synchronization gates in the native sibling.
 ' Legacy local-model e2e caught cloud fallback without an ollama provider definition.
 ' The shared LSP detector emits lang|count|cmd|arg...|extcsv; native rendering keeps
 ' every command field between the count and trailing extension CSV.
@@ -32,12 +38,13 @@ package "Harness Layer" as Harness {
  component "LSP auto-detect" as Lsp <<logic>>
  component "shared native bootstrap + subagents" as Seed <<logic>>
  component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
+ component "Dockerfile\nOPENCODE_CLI_CONFIG_CONTENT" as CliPrefs <<logic>>
 }
 
 package "Primary Agents" as Primaries {
  component "plan\n(edit + shell deny)" as Plan <<agent>>
  component "build\n(edit allow; native shell ask rule)" as Build <<agent>>
- component "opencode session\napproved automatic approval mode" as Policy <<logic>>
+ component "opencode session\nsession.permissions: autoaccept" as Policy <<logic>>
 }
 
 package "Subagent Crew" as Crew {
@@ -63,7 +70,7 @@ Entrypoint --> Seed
 Entrypoint --> AgentsMd
 Lead --> Plan : delegate planning
 Lead --> Build : delegate implementation
-Seed --> Policy : approved session policy; validation pending
+CliPrefs --> Policy : native automatic asks; explicit denies remain denied
 Policy --> Build : automatic asks, not per-shell HITL
 Build --> Architect : request design
 Build --> Domain : request domain advice
@@ -87,8 +94,8 @@ note bottom of Primaries
 end note
 
 note bottom of Policy
-  Approved session policy is automatic.
-  Exact native setting awaits validation.
+  Native session policy is autoaccept.
+  Explicit denies still reject.
 end note
 
 note right of Env

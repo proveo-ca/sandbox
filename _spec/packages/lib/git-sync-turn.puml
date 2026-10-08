@@ -16,8 +16,10 @@
 ' covers: internal/contract/testdata/opencode_git_sync_plugin.mjs
 ' covers: e2e/git_sync_turn_test.go
 ' Approved OpenCode plugin migration: _spec/defs/opencode/native-v2-integration.puml
-' The native plugin and --standalone helper exist in source; acceptance remains pending
-' in the sibling PLANNED integration. Do not equate source presence with passed tests.
+' The native plugin, --standalone helper and headless --auto are implemented;
+' primary reports focused plugin/runtime contracts passed. Full live acceptance is
+' tracked by the native sibling: model-driven idle commit/push in actual sbx remains
+' unexecuted because sbx/tooling is unavailable, not because fixture work is pending.
 ' OpenCode synchronization is eventual in a live session; neither idle observation
 ' nor hook failure gates CLI return. Do not assert commit/push before run exits.
 '

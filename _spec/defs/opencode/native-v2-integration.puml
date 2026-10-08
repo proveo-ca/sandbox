@@ -17,9 +17,14 @@
 ' covers: internal/proveohome/**
 ' covers: internal/sbx/run.go
 ' covers: internal/contract/**
+' covers: internal/contract/opencode_presentation_test.go
 ' covers: internal/imagetest/opencode_test.go
 ' covers: e2e/**
-' status: PLANNED; native implementation exists, but accepted tests and HIGH repairs remain pending.
+' covers: e2e/opencode_presentation*
+' covers: e2e/testdata/opencode_presentation.*
+' status: implemented contracts; PLANNED acceptance remains for the open live gates below.
+' Primary reports focused source/unit and persisted offline native fixture passes.
+' Security/adversarial repairs are implemented; their re-evaluations remain in progress.
 ' Approval update: the Executor explicitly requested automatic permissions (YOLO)
 ' for proveo run opencode; this supersedes the former human shell-checkpoint policy.
 ' Preserved crew and auth boundary: _spec/defs/opencode/opencode-paradigm.puml
@@ -30,7 +35,7 @@
 ' Mobile transport ownership: _spec/internal/sbx/host-android-adb.puml
 ' Persistence transport: _spec/packages/lib/config-seeding-and-persistence.puml
 '
-' Approved native contract, not evidence that these source migrations shipped:
+' Implemented native contract, inspected in source and backed by focused fixture tests:
 ' agents replaces agent; permissions is an ordered action/resource/effect list.
 ' update: disable replaces autoupdate; compaction.auto: true replaces context flags.
 ' Default seeds select no model, including no title model or agent model.
@@ -40,8 +45,8 @@
 ' An explicit local-model request selects root model and agents.title.model, not small_model.
 ' OpenCode mobile MCP uses mcp.servers.mobile and disabled: false, not enabled: true.
 ' The plugin default-exports an object with id and setup(ctx); its observer uses
-' the context event stream and event.data for session.idle. The in-progress
-' implementation uses ctx.event.subscribe; validate that API against the pinned CLI.
+' the context event stream and event.data for session.idle through ctx.event.subscribe.
+' Focused plugin/runtime contracts do not establish model-driven live idle completion.
 ' Do not revive the v1 named export or returned event callback.
 ' Authentication comes from launch environment credentials or broker sentinels;
 ' in-sandbox login is not the supported authentication path.
@@ -50,11 +55,14 @@
 ' preserve ordering and existing effects for edit and native shell actions.
 ' plan: edit deny, shell deny. build: edit allow, shell ask.
 ' Those are native role rules, not a claim that each ask needs a human response.
-' Approved session policy automatically accepts ask requests; explicit denies must
-' retain native semantics. Risky-operation house rules remain prompt instructions,
+' session.permissions: autoaccept accepts ask requests; explicit denies retain
+' native semantics. Risky-operation house rules remain prompt instructions,
 ' not an interactive native approval gate. Do not add new delegation restrictions.
-' Primary is validating the exact session.permissions setting/value and its interaction
-' with explicit denies against the pinned CLI; do not invent an enum or bypass flag.
+' Runtime native_command injects --auto once for headless run, independently of
+' evidence verbosity. No other native command gains this run-specific approval flag.
+' The persisted offline fixture executes the actual native shell tool: ask runs,
+' explicit deny returns Permission denied: shell, and direct run without --auto
+' rejects a non-interactive ask. These are native simulator tests, not live model tests.
 ' Advisors: edit deny, shell deny. spec-keeper: edit allow, shell deny; its
 ' existing prompt limits editing to _spec/, PLAN.md, and AGENTS.md.
 ' Do not introduce path-filter enforcement or new delegation denies by default.
@@ -68,35 +76,68 @@
 ' Its published root schema still describes v1; validate native contracts with the
 ' pinned binary rather than replacing correct v2 fields to satisfy that schema.
 '
+' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config
+' General editor schema pointer: https://opencode.ai/config.json (v1; advisory).
+' Native schema/behavior evidence: e2e/testdata/opencode_presentation.py,
+' e2e/testdata/opencode_presentation.mjs, and their persisted JSON fixture.
+' Exact OPENCODE_CLI_CONFIG_CONTENT payload quoted from the image and fixture:
+' {
+'   "session": {
+'     "permissions": "autoaccept", "markdown": "source", "thinking": "show",
+'     "grouping": "none", "verbosity": "high", "sidebar": "auto"
+'   },
+'   "tabs": {"mode": "on", "indicators": "status"},
+'   "mini": {
+'     "tools": "show", "thinking": "show", "shell_output": "show",
+'     "turn_summary": "show", "footer": "show"
+'   }
+' }
+' Inline preferences override saved global cli.json without modifying that file.
+' Source Markdown disables concealment; thinking show expands full returned blocks.
+' High verbosity and grouping none expose individual calls/thoughts, not grouped summaries.
+' The eight session/tab values are observed in the actual native TUI Settings dialog.
+' Each of the five mini fields has a native invalid-value schema control; this does
+' not claim that live model-driven mini output was exercised by the offline fixture.
+' Child transcript navigation and the unsupported main-transcript wait-graph default
+' are documented by the owning crew diagram and primary's native UI/source audit.
+'
 ' The Executor chose a private per-run database and a full-lifetime durable-store lease.
 ' Stateful runs sharing that store must serialize through the full writer lifetime,
 ' including descendants and publication; failure must preserve recoverable session data.
-' These chosen boundaries do not imply that every security repair is already correct.
+' Focused lifecycle fixtures exercise these boundaries; final review is still pending.
 ' v2 stores auth tokens in SQLite alongside durable session state.
 ' Removing auth.json alone is insufficient; deleting the session database is forbidden.
 ' Cover every native account token store, provider credentials, and mcp-auth stores;
 ' an empty credential table alone is not proof of credential-free persistence.
+' Implemented token handling covers credential, account, control_account, account_state,
+' auth.json, and mcp-auth.json. Schema-specific sanitization applies only to native
+' databases at the data root; ordinary Git/reference SQLite files copy unchanged.
 ' Preserve session/history/resume data and safely exclude or scrub credentials on
 ' every persistence path, including database journals, snapshots, and restored state.
 ' Preserve nonauth state and artifacts rather than dropping the entire data directory.
 ' Session and artifact paths must resolve after restore across backend mappings;
 ' durable history must not depend on a deleted private runtime directory.
-' The implementation agent owns safe account-store handling and backend path mapping.
-' Do not invent SQL, publication ordering, token-store filenames, or path-rewrite rules.
+' Non-auth native state persists; artifact output and stored session paths rebase to
+' the canonical durable store instead of retaining the per-run temporary prefix.
+' The wrapper uses manifest/config mappings for the same Docker and sbx store;
+' divergent legacy/canonical histories fail rather than silently overwriting either.
+' Protected orphan recovery retains source/lease records on publication failure;
+' controlling-PTY suspend/resume and descendant lifetime ownership have source fixtures.
+' Do not infer cross-VM filesystem lock behavior from local fixture serialization.
 ' Do not silently broaden PROVEO_KEEP_AGENT_LOGINS to allow persisted v2 tokens.
 '
-' Acceptance work for primary/build:
-' native decoding and effective permissions; missing-only and explicit reseed;
-' pinned-CLI automatic approval behavior and explicit deny semantics;
-' provider parity for entrypoint and launchConfigEnv; model + MCP composition;
-' lowercase root logger arguments; no log streaming onto the root TUI;
-' actual v2 plugin loading, helper execution, closed stdin, and recursion isolation;
-' resumable sessions and credential-free launch/restore/save persistence;
-' all native account/MCP token stores, interrupted-run recovery, and concurrent runs;
-' nonauth artifacts retained and session paths usable after backend restore;
-' eventual idle trace/commit/push in a live session, never push-before-CLI-return.
-' Offline contracts check behavior/decoded structure, not legacy string matches.
-' Image and e2e validation run against the pinned @opencode/cli release.
+' Verification scope reported by primary, not commands executed by spec-keeper:
+' - all five diagrams passed per-file PlantUML checks and the enforced note-box test
+'   before this revision; edited diagrams require the normal post-edit recheck.
+' - focused source/unit suites passed, including repaired credential/runtime fixtures.
+' - persisted offline native presentation/shell-policy fixtures passed against v2.0.25.
+' Remaining acceptance: adversarial/security re-evaluations and the latest rebuilt
+' native image/full e2e suite. Actual sbx cross-VM file locking and model-driven
+' live idle git synchronization remain unexecuted because sbx/tooling is unavailable.
+' The offline simulator scripts the model stream; it does not establish live provider,
+' child-operation rendering, or network-backed idle commit/push behavior.
+' Runtime database publication is distinct from git synchronization: never turn idle
+' commit/push into an awaited CLI-return gate or promise completion after CLI exit.
 '
 ' Register: manual normalized word/syllable counts; two sentences per note.
 ' FK: note bottom of DEFAULTS; words=30 syllables=55; FK 11.9
@@ -105,14 +146,17 @@
 ' FK: note bottom of HOME; words=30 syllables=51; FK 10.3
 ' FK: note bottom of PLUGIN; words=33 syllables=61; FK 12.7
 ' FK: note bottom of TESTS; words=33 syllables=60; FK 12.3
-' FK: note bottom of POLICY; words=32 syllables=58; FK 12.0
+' FK: note bottom of POLICY; words=32 syllables=57; FK 11.7
 ' FK: note bottom of RUNTIME; words=34 syllables=59; FK 11.5
 ' FK: note bottom of CREDENTIALS; words=32 syllables=59; FK 12.4
 ' FK: note bottom of STATE; words=31 syllables=57; FK 12.2
+' FK: note bottom of PREFS; words=34 syllables=63; FK 12.9
+' FK: note bottom of CLI; words=32 syllables=56; FK 11.3
+' FK: note bottom of CREDENTIALS (native scope); words=34 syllables=61; FK 12.2
 
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title PLANNED — Complete native OpenCode v2 integration
+title Native OpenCode v2 integration — implemented; PLANNED live acceptance
 left to right direction
 
 package "defs/opencode" {
@@ -124,15 +168,16 @@ package "defs/opencode" {
 
 component "defs/subagents/_frontmatter/opencode\nnative permissions; no old temperature key" as FM <<app>>
 component "packages/lib/entrypoint-lib.sh\nrender_subagents · seed · persistence" as LIB <<app>>
-component "opencode session\napproved automatic permissions mode\nexact setting awaits pinned CLI validation" as POLICY <<app>>
+component "opencode session\nsession.permissions: autoaccept\nexplicit denies remain denied" as POLICY <<app>>
+component "OPENCODE_CLI_CONFIG_CONTENT\nnative session/tabs/mini preferences\noverrides global cli.json without rewriting it" as PREFS <<app>>
 component "internal/backend/sandbox/sandbox.go\nlaunchConfigEnv\nOPENCODE_CONFIG_CONTENT" as GO <<app>>
 component "internal/hostadb/hostadb.go\nmcp.servers.mobile\ndisabled: false" as ADB <<app>>
-component "opencode\nroot: --log-level debug\nheadless run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
+component "opencode\nroot logger: --log-level debug\nheadless run: --auto independent of evidence\nverbose run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
 component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.event.subscribe · event.data" as PLUGIN <<async>>
 component "packages/lib/hooks/git-sync-turn.sh\nbest-effort idle dialect\nsubject helper: opencode run --standalone" as HOOK <<app>>
 component "internal/proveohome\nsession-preserving credential boundary" as HOME <<app>>
 component "packages/lib/proveo-opencode-runtime\nprivate per-run DB\nfull-lifetime durable-store lease" as RUNTIME <<app>>
-component "packages/lib/opencode-credentials.py\nall provider/account/MCP credential stores\nsecurity repairs pending" as CREDENTIALS <<app>>
+component "packages/lib/opencode-credentials.py\nnative provider/account/MCP token removal\nordinary reference SQLite unchanged" as CREDENTIALS <<app>>
 database "OpenCode durable state\nsessions + nonauth state + artifacts\nrestorable backend paths" as STATE <<db>>
 component "internal/contract\ninternal/imagetest/opencode_test.go\ne2e" as TESTS <<app>>
 
@@ -144,12 +189,16 @@ ADB ARROW_MAIN GO : requested mobile server
 GO ARROW_MAIN CLI : one composed native inline config
 CONFIG ARROW_MAIN CLI : persistent user configuration
 IMAGE ARROW_MAIN CLI : pinned CLI; updater disabled
+IMAGE ARROW_MAIN PREFS : exact inline native CLI preferences
+PREFS ARROW_MAIN POLICY : session.permissions: autoaccept
+PREFS ARROW_MAIN CLI : presentation defaults; global preferences preserved
 CONFIG ARROW_MAIN POLICY : role rules remain native
-POLICY ARROW_MAIN CLI : automatic approval target, not per-shell HITL
+POLICY ARROW_MAIN CLI : automatic asks, not per-shell HITL
 LIB ARROW_MAIN PLUGIN : install before plugin loading
 CLI ARROW_QUEUE PLUGIN : idle notification, not a return gate
 PLUGIN ARROW_QUEUE HOOK : start best-effort helper; stdin closed
 RUNTIME ARROW_MAIN CLI : private active database
+RUNTIME ARROW_MAIN CLI : headless run --auto exactly once
 RUNTIME ARROW_MAIN STATE : exclusive lifecycle ownership
 RUNTIME ARROW_MAIN CREDENTIALS : credential-free persistence boundary
 CREDENTIALS ARROW_MAIN STATE : preserve resumable state and artifacts
@@ -160,6 +209,7 @@ TESTS ARROW_OPTIONAL CLI : image + live acceptance
 TESTS ARROW_OPTIONAL HOME : sessions retained; credentials absent
 TESTS ARROW_OPTIONAL HOOK : eventual completion; no return gate
 TESTS ARROW_OPTIONAL POLICY : automatic asks; native deny semantics
+TESTS ARROW_OPTIONAL PREFS : native TUI eight values; mini schema controls
 
 note bottom of DEFAULTS
   Seed only missing files so user config
@@ -212,7 +262,7 @@ end note
 note bottom of POLICY
   Automatic session approval satisfies ask rules
   without requiring a human checkpoint for each
-  shell command. Explicit deny rules must retain
+  shell command. Explicit deny rules keep their
   native meaning, while risk guidance remains
   an instruction, not an approval gate.
 end note
@@ -239,5 +289,29 @@ note bottom of STATE
   Session paths must resolve after restore, rather
   than retaining a private runtime directory that
   disappears when the process exits.
+end note
+
+note bottom of PREFS
+  Inline CLI preferences win over saved global
+  choices without rewriting the user's file.
+  The image can expose execution and accept ask
+  requests while preserving durable settings for
+  runs that do not inherit this environment.
+end note
+
+note bottom of CLI
+  Headless automatic approval comes from the
+  runtime flag rather than the evidence switches.
+  Add that flag once so ask requests can execute
+  without narration, while explicit deny rules
+  still reject the operation.
+end note
+
+note bottom of CREDENTIALS
+  Only native databases at the data root undergo
+  token scrubbing, so ordinary Git databases stay
+  intact. Apply the native auth schema only to
+  those stores, not every file that uses the
+  same database format.
 end note
 @enduml
