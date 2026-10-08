@@ -46,6 +46,16 @@ This definition follows the shared [coding harness container contract](../../COD
 mise run build opencode
 ```
 
+The build resolves `@opencode/cli`'s current npm release and installs that exact version.
+`opencode --version` must report `opencode v<version>` before the build succeeds.
+The image records `proveo.agent=@opencode/cli` and `proveo.agent.version=<version>`.
+
+To pin a specific v2 release:
+
+```bash
+OPENCODE_VERSION=2.0.6 mise run build opencode
+```
+
 To build a specific tag:
 
 ```bash

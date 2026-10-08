@@ -242,10 +242,10 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 		override, eco, pkg  string
 		wantURL, want, note string
 	}{
-		{name: "npm scoped package", body: `{"name":"@opencode/cli","version":"2.0.24"}`,
+		{name: "npm registry", body: `{"name":"@opencode/cli","version":"2.0.25"}`,
 			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
-			wantURL: "https://registry.npmjs.org/@opencode/cli/latest", want: "2.0.24",
-			note: "pin: @opencode/cli@2.0.24 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
+			wantURL: "https://registry.npmjs.org/@opencode/cli/latest", want: "2.0.25",
+			note: "pin: @opencode/cli@2.0.25 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
 		{name: "npm honours NPM_CONFIG_REGISTRY", body: `{"version":"2.0.0"}`,
 			env:      map[string]string{"NPM_CONFIG_REGISTRY": "https://npm.example/"},
 			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
@@ -283,6 +283,48 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 				t.Errorf("fetched %q, want [%s]", asked, c.wantURL)
 			}
 		})
+	}
+}
+
+func TestOpencodeBuildTracksV2Releases(t *testing.T) {
+	t.Parallel()
+	d := &fakeDocker{}
+	b, errb := newTest(t, d, map[string]string{"PROVEO_BUILDKIT_CACHE": "0"})
+	const registryURL = "https://registry.npmjs.org/@opencode/cli/latest"
+	var fetched []string
+	var version string
+	b.Fetch = func(url string) ([]byte, error) {
+		fetched = append(fetched, url)
+		switch url {
+		case registryURL:
+			return fmt.Appendf(nil, `{"name":"@opencode/cli","version":%q}`, version), nil
+		case "https://registry.npmjs.org/opencode-ai/latest":
+			return []byte(`{"name":"opencode-ai","version":"1.18.35"}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected registry URL %s", url)
+		}
+	}
+	versions := []string{"2.0.24", "2.0.25"}
+	for _, v := range versions {
+		version = v
+		if err := b.BuildTarget("opencode", "local", Options{}); err != nil {
+			t.Fatalf("BuildTarget: %v\n%s", err, errb)
+		}
+		if note := "pin: @opencode/cli@" + v + " (resolved upstream"; !strings.Contains(errb.String(), note) {
+			t.Errorf("build log lacks %q:\n%s", note, errb)
+		}
+	}
+	if !slices.Equal(fetched, []string{registryURL, registryURL}) {
+		t.Errorf("fetched %q, want the v2 registry on every build", fetched)
+	}
+	builds := d.builds()
+	if len(builds) != len(versions) {
+		t.Fatalf("builds = %q, want one per release", builds)
+	}
+	for i, v := range versions {
+		if arg := "--build-arg OPENCODE_VERSION=" + v; !strings.Contains(builds[i], arg) {
+			t.Errorf("build %d lacks %q: %s", i, arg, builds[i])
+		}
 	}
 }
 
