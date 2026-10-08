@@ -131,11 +131,50 @@ Resume a prior session with:
 proveo run opencode --resume <session-id>
 ```
 
-## Baked-in HITL defaults
+## Baked-in workflow and presentation defaults
 
-The image ships an opinionated, non-YOLO setup at `/opt/opencode/defaults/` and
-seeds it into `~/.config/opencode/` on first run. Re-run with `-e OPENCODE_RESEED=1`
+The image launches OpenCode in native automatic-permission mode and ships its workflow defaults at `/opt/opencode/defaults/`.
+The shared seed copies missing configuration into `~/.config/opencode/` on first run.
+Re-run with `-e OPENCODE_RESEED=1`
 to force a refresh from the baked-in copy.
+
+### Automatic permissions and visible execution
+
+The image sets `OPENCODE_CLI_CONFIG_CONTENT` with these session preferences:
+
+```json
+{
+  "session": {
+    "permissions": "autoaccept",
+    "markdown": "source",
+    "thinking": "show",
+    "grouping": "none",
+    "verbosity": "high",
+    "sidebar": "auto"
+  },
+  "tabs": { "mode": "on", "indicators": "status" },
+  "mini": {
+    "tools": "show",
+    "thinking": "show",
+    "shell_output": "show",
+    "turn_summary": "show",
+    "footer": "show"
+  }
+}
+```
+
+Inline preferences override the saved global `cli.json` while the environment variable is set.
+Headless `run` also receives the native `--auto` flag.
+Automatic approval accepts permission requests that no explicit deny rule blocks.
+Source mode disables Markdown concealment.
+Thinking mode expands available reasoning blocks.
+High verbosity displays individual tools and thoughts.
+
+Click a running subagent row to open its live transcript.
+Alternatively, use **Ctrl+P → Toggle subagent picker** and press **Enter** on a child.
+Status-marked tabs show busy and attention states for opened sessions.
+V2 has no setting that renders a live child-operation wait graph in the main transcript.
+Code Mode's `execute` row opens its separate **Code / Output** dialog.
 
 ### Default `opencode.json`
 
@@ -144,10 +183,10 @@ Two primary agents, mirroring the plan→build loop:
 | Agent   | `edit` | `shell` | Use it for                              |
 | ------- | ------ | ------- | --------------------------------------- |
 | `plan`  | `deny` | `deny`  | Spec'ing, drafting a step list to review |
-| `build` | `allow`| `ask`   | Implementation with shell approval      |
+| `build` | `allow`| `ask`   | Implementation with automatic approval  |
 
 V2 expresses permissions as ordered `action`, `resource`, and `effect` rules under `agents.<name>.permissions`.
-Saved approvals can satisfy an `ask` rule.
+The image's automatic session policy satisfies `ask` requests.
 The defaults enable `compaction.auto` and set `update: "disable"`.
 The image also sets `OPENCODE_DISABLE_AUTOUPDATE=1`.
 The defaults leave model selection to OpenCode.
@@ -177,8 +216,8 @@ to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
    the plan as `PLAN.md` so it shows up in `git log`.
 2. Hand the plan to `@adversarial-reviewer` and `@security-reviewer` (or
    `@systems-design`, `@monorepo-coordinator`) before any code is written.
-3. Switch to the `build` agent. It edits freely but **every** `bash` invocation asks
-   you first. Commit incrementally on a `agent/<task>` branch — never `main`.
+3. Switch to the `build` agent. The automatic session policy handles permission requests.
+   Commit incrementally on an `agent/<task>` branch — never `main`.
 4. After each chunk: `@adversarial-reviewer` on the diff. Treat its `[BLOCKER]` and
    `[HIGH]` items as merge gates.
 5. Cross-review with a different model family for a second opinion, e.g.:

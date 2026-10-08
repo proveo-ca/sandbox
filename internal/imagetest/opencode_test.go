@@ -172,6 +172,15 @@ func ocSecurity(s *imagetest.Suite) {
 	s.Failure("cannot write to /usr/bin", img, "touch /usr/bin/testfile 2>/dev/null")
 	s.Failure("cannot write to /etc", img, "touch /etc/testfile 2>/dev/null")
 	s.Contains("v2 auto-update is disabled", img, `echo $OPENCODE_DISABLE_AUTOUPDATE`, "1")
+	s.Success("native YOLO and visible execution preferences are baked", img,
+		`printf '%s' "$OPENCODE_CLI_CONFIG_CONTENT" | jq -e '
+          .session.permissions == "autoaccept" and .session.markdown == "source"
+          and .session.thinking == "show" and .session.grouping == "none"
+          and .session.verbosity == "high" and .session.sidebar == "auto"
+          and .tabs.mode == "on" and .tabs.indicators == "status"
+          and .mini.tools == "show" and .mini.thinking == "show"
+          and .mini.shell_output == "show" and .mini.turn_summary == "show"
+          and .mini.footer == "show"'`)
 
 	s.Check("arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--user", "4242:4242", "--entrypoint", "bash", img, "-c",

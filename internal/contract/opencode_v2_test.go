@@ -66,7 +66,7 @@ func TestOpencodeV2Defaults(t *testing.T) {
 				Mode:        "primary", Permissions: opencodeV2Policy("deny", "deny"),
 			},
 			"build": {
-				Description: "Implementer. Edits allowed; bash requires human approval per command.",
+				Description: "Implementer. Edits allowed; shell requests use the session approval policy.",
 				Mode:        "primary", Permissions: opencodeV2Policy("allow", "ask"),
 			},
 		},
