@@ -18,10 +18,11 @@ import (
 // proveo home is deliberately absent: an attached editor must not inherit
 // every prior run log merely because the agent needs its own config and tools.
 type HomeAccess struct {
-	Root      string
-	FilesRoot string
-	Mounts    []runner.Mount
-	files     []string
+	Root           string
+	FilesRoot      string
+	LegacyOpenCode string
+	Mounts         []runner.Mount
+	files          []string
 }
 
 func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error) {
@@ -55,6 +56,27 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 		}
 	}
 	declared := len(a.Mounts)
+	for _, m := range h.Mounts {
+		if filepath.ToSlash(m.Container) != "/proveo-home/.local/share/opencode" {
+			continue
+		}
+		legacy := filepath.Join(root, ".local", "share", "opencode")
+		info, err := os.Lstat(legacy)
+		if os.IsNotExist(err) {
+			break
+		}
+		if err != nil {
+			return HomeAccess{}, fmt.Errorf("sandbox OpenCode history: %w", err)
+		}
+		if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
+			return HomeAccess{}, fmt.Errorf("sandbox OpenCode history: legacy data must be a directory")
+		}
+		if err := addDir(legacy); err != nil {
+			return HomeAccess{}, fmt.Errorf("sandbox OpenCode history: %w", err)
+		}
+		a.LegacyOpenCode = legacy
+		break
+	}
 	if err := addDir(filepath.Join(root, "toolchains")); err != nil {
 		return HomeAccess{}, fmt.Errorf("sandbox home access: %w", err)
 	}

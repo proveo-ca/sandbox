@@ -1278,6 +1278,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.HomeAccess.FilesRoot != "" {
 		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
 	}
+	if in.HomeAccess.LegacyOpenCode != "" {
+		cfg.Env = append(cfg.Env, "PROVEO_OPENCODE_LEGACY_DATA="+in.HomeAccess.LegacyOpenCode)
+	}
 	var creds []sbx.KitCredential
 	if ownAgent {
 		var domains []string

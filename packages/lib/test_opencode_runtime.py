@@ -430,6 +430,114 @@ class RuntimeTests(unittest.TestCase):
         until(b"PTY_READY> ")
         self.assert_clean(messages=2)
 
+    def test_direct_controlling_pty_session_leader_suspends_and_resumes(self):
+        process, terminal = pty.fork()
+        if process == 0:
+            os.execve(sys.executable, self.command("hold"), self.env)
+        self.addCleanup(os.close, terminal)
+
+        def cleanup():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(process, signal.SIGCONT)
+                os.kill(process, signal.SIGTERM)
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(process, 0)
+
+        self.addCleanup(cleanup)
+        ready = self.wait_event("ready")
+        self.assertEqual(os.getsid(process), process)
+        os.write(terminal, b"\x1a")
+        deadline = time.monotonic() + 10
+        status = None
+        while time.monotonic() < deadline:
+            pid, value = os.waitpid(process, os.WNOHANG | os.WUNTRACED)
+            if pid and os.WIFSTOPPED(value):
+                status = value
+                break
+            time.sleep(0.025)
+        self.assertIsNotNone(status, "direct-PTY supervisor did not stop")
+        assert status is not None
+        self.assertEqual(os.WSTOPSIG(status), signal.SIGSTOP)
+        self.assertEqual(self.run_cli("append").returncode, 75)
+        os.kill(process, signal.SIGCONT)
+        time.sleep(0.15)
+        self.assertEqual(os.tcgetpgrp(terminal), os.getpgid(ready["pid"]))
+        os.write(terminal, b"\x03")
+        pid, status = os.waitpid(process, 0)
+        self.assertEqual(pid, process)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 130)
+        self.assert_clean(messages=2)
+
+    def test_final_checkpoint_disk_full_retains_latest_private_state_until_retry(self):
+        proxy = self.root / "failing-helper.py"
+        proxy.write_text(
+            "import runpy, os, errno\nfrom pathlib import Path\n"
+            f'globals().update({{k:v for k,v in runpy.run_path({str(HELPER)!r}).items() if not k.startswith("__")}})\n'
+            "_snapshot=snapshot\ndef snapshot(source, destination, *args, **kwargs):\n"
+            '    if os.environ.get("FAIL_FINAL_CHECKPOINT") == "1" and (Path(source)/"latest-native-write").exists():\n'
+            '        raise OSError(errno.ENOSPC,"injected final snapshot disk full")\n'
+            "    return _snapshot(source,destination,*args,**kwargs)\n"
+        )
+        env = dict(
+            self.env,
+            PROVEO_OPENCODE_CREDENTIAL_HELPER=str(proxy),
+            FAIL_FINAL_CHECKPOINT="1",
+        )
+        result = self.run_cli("final-disk-full", env=env)
+        self.assertEqual(result.returncode, 74, result.stderr)
+        ready = self.wait_event("ready")
+        database = Path(ready["database"])
+        root = database.parents[2]
+        self.addCleanup(shutil.rmtree, root, True)
+        self.assertTrue(database.exists())
+        record = json.loads(
+            (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_text()
+        )
+        self.assertEqual(record["root"], str(root))
+        with contextlib.closing(sqlite3.connect(database)) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
+            )
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM credential").fetchone(), (1,)
+            )
+        self.assertIn("not credential-free", result.stderr)
+        self.assert_clean(messages=1)
+        result = self.run_cli("append")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_clean(messages=3)
+        self.assertFalse(database.exists())
+
+    def test_custom_database_selection_change_recovers_and_publishes_without_auth(self):
+        with contextlib.closing(
+            sqlite3.connect(self.durable / "opencode.db")
+        ) as source:
+            with contextlib.closing(
+                sqlite3.connect(self.durable / "custom-database")
+            ) as destination:
+                source.backup(destination)
+        env = dict(self.env, OPENCODE_DB="custom-database")
+        first = self.start("hold", env=env)
+        ready = self.wait_event("ready")
+        self.assertEqual(Path(ready["database"]).name, "custom-database")
+        first.kill()
+        os.kill(ready["pid"], signal.SIGTERM)
+        first.communicate(timeout=10)
+        result = self.run_cli("append")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_clean(messages=2)
+        with contextlib.closing(
+            sqlite3.connect(self.durable / "custom-database")
+        ) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
+            )
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
+            )
+            self.assertEqual(db.execute("PRAGMA quick_check").fetchone(), ("ok",))
+        self.assertFalse(Path(ready["database"]).exists())
+
     def test_sbx_maps_manifest_store_and_never_uses_live_home_data(self):
         state = self.root / "host-state"
         store = state / "opencode/share"
@@ -572,8 +680,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len(recoveries), 1)
         self.assert_clean(recoveries[0])
         ready = self.wait_event("ready")
-        self.assertFalse(Path(ready["database"]).parent.exists())
-        self.assertIn("credential-free recovery", result.stderr)
+        self.assertTrue(Path(ready["database"]).parent.exists())
+        self.addCleanup(shutil.rmtree, Path(ready["database"]).parents[2], True)
+        self.assertIn("previous credential-free checkpoint", result.stderr)
 
     def test_failed_publication_preserves_latest_clean_history_and_existing_store(self):
         result = self.run_cli("obstruct")
@@ -588,7 +697,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len(recoveries), 1)
         self.assert_clean(recoveries[0], messages=2)
         ready = self.wait_event("ready")
-        self.assertFalse(Path(ready["database"]).parent.exists())
+        self.assertTrue(Path(ready["database"]).parent.exists())
+        self.addCleanup(shutil.rmtree, Path(ready["database"]).parents[2], True)
 
     def test_config_and_state_sync_skip_runtime_data_and_keep_other_artifacts(self):
         state = self.root / "sync-state"

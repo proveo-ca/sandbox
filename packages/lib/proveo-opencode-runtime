@@ -56,6 +56,8 @@ def durable_directory(env):
 
 
 def legacy_directory(env):
+    if env.get("PROVEO_OPENCODE_LEGACY_DATA"):
+        return Path(env["PROVEO_OPENCODE_LEGACY_DATA"]).resolve()
     home = env.get("PROVEO_STATE_HOME") or env.get("PROVEO_HOME") or env["HOME"]
     return (Path(env.get("XDG_DATA_HOME") or str(Path(home) / ".local/share")) / "opencode").resolve()
 
@@ -178,7 +180,7 @@ def supervise(command, env, lease):
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(child.pid, signal.SIGTSTP)
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
-        if terminal is None:
+        if terminal is None or os.getsid(0) == os.getpgrp() or os.getsid(os.getppid()) != os.getsid(0):
             os.kill(os.getpid(), signal.SIGSTOP)
         else:
             os.killpg(os.getpgrp(), signal.SIGTSTP)
@@ -286,7 +288,36 @@ def record_runtime(lease, root, name="opencode.db"):
 
 
 def checkpoint(helper, data, root, target, durable, name):
-    helper.snapshot(data, target, name, rebase=(data, durable), state_source=root / "state/opencode")
+    helper.snapshot(data, target, name, rebase=(data, durable), state_source=root / "state/opencode", prefix=durable)
+
+
+class RuntimeDirectory:
+    def __init__(self):
+        self.path = Path(tempfile.mkdtemp(prefix="proveo-opencode-runtime-", dir="/tmp"))
+        self.retain = False
+
+    def __enter__(self):
+        return self.path
+
+    def __exit__(self, *_):
+        if not self.retain:
+            shutil.rmtree(self.path)
+
+
+def restore_prefix(origin, durable, env, helper):
+    marker = origin / helper.PREFIX_NAME
+    if marker.exists():
+        if marker.is_symlink():
+            raise RuntimeFailure("stored data-prefix record is a symlink")
+        previous = json.loads(marker.read_text())["data"]
+        if not Path(previous).is_absolute():
+            raise RuntimeFailure("stored data prefix is not absolute")
+        return previous, durable
+    host = Path(env.get("PROVEO_STATE_HOME") or env.get("PROVEO_HOME") or env["HOME"]).resolve()
+    try:
+        return str(Path("/proveo-home") / durable.relative_to(host)), durable
+    except ValueError:
+        return origin, durable
 
 
 def migration_digest(root, helper, name):
@@ -310,7 +341,7 @@ def migrate_legacy(legacy, durable, helper, name):
         recover_orphan(lease, helper, legacy, name)
         with tempfile.TemporaryDirectory(prefix="proveo-opencode-migrate-", dir="/tmp") as temporary:
             clean, existing = Path(temporary, "legacy"), Path(temporary, "canonical")
-            helper.snapshot(legacy, clean, name, rebase=(legacy, durable))
+            helper.snapshot(legacy, clean, name, rebase=(legacy, durable), prefix=durable)
             helper.snapshot(durable, existing, name)
             marker = legacy / helper.MIGRATION_NAME
             if marker.exists():
@@ -391,6 +422,7 @@ def main():
     recovery = None
     clean = None
     root = None
+    directory = None
     phase = "preflight"
     received = []
 
@@ -422,7 +454,8 @@ def main():
             except BlockingIOError:
                 print("proveo: another OpenCode run owns the legacy database", file=sys.stderr)
                 return 75
-        with tempfile.TemporaryDirectory(prefix="proveo-opencode-runtime-", dir="/tmp") as temporary:
+        directory = RuntimeDirectory()
+        with directory as temporary:
             root = Path(temporary)
             child_env, data = private_environment(env, root, name)
             if mode == "snapshot":
@@ -430,7 +463,7 @@ def main():
             if mode != "empty":
                 phase = "restore"
                 origin = Path(env["PROVEO_OPENCODE_RUNTIME_DATA"]) if disposable and env.get("PROVEO_OPENCODE_RUNTIME_DATA") else durable
-                helper.snapshot(origin, data, name)
+                helper.snapshot(origin, data, name, rebase=restore_prefix(origin, durable, env, helper))
             state = root / "state/opencode"
             state_origin = data / helper.STATE_NAME
             if not state_origin.exists():
@@ -453,14 +486,14 @@ def main():
             code = 128 + received[-1] if received else supervise(command, child_env, lease)
             if disposable:
                 return code
-            clean = Path(tempfile.mkdtemp(prefix="proveo-opencode-recovery-", dir="/tmp"))
             try:
+                clean = Path(tempfile.mkdtemp(prefix="proveo-opencode-recovery-", dir="/tmp"))
                 checkpoint(helper, data, root, clean, durable, name)
                 helper.snapshot(clean, recovery, name)
                 helper.snapshot(clean, durable, name)
             except Exception:
-                if clean is not None:
-                    print(f"proveo: OpenCode state publication failed; credential-free recovery: {recovery}; clean staging: {clean}", file=sys.stderr)
+                directory.retain = True
+                print(f"proveo: OpenCode state publication failed; latest private state retained (not credential-free): {root}; previous credential-free checkpoint: {recovery}", file=sys.stderr)
                 return 74
             shutil.rmtree(clean)
             clean = None

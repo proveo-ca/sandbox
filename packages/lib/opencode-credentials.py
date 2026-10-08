@@ -33,6 +33,7 @@ LIFECYCLE_LOCK_NAME = ".proveo-opencode-runtime.lock"
 RECOVERY_NAME = ".proveo-opencode-recovery"
 STATE_NAME = ".proveo-opencode-state"
 MIGRATION_NAME = ".proveo-opencode-migrated"
+PREFIX_NAME = ".proveo-opencode-paths.json"
 SIDECARS = ("-wal", "-shm", "-journal")
 AUTH_FILES = ("auth.json", "mcp-auth.json")
 TOKEN_SCHEMAS = {
@@ -239,21 +240,98 @@ def native_database(path, selected):
     )
 
 
+def root_databases(root, selected):
+    databases = set()
+    for path in root.iterdir():
+        if path.name in (
+            *AUTH_FILES,
+            LOCK_NAME,
+            LIFECYCLE_LOCK_NAME,
+            MIGRATION_NAME,
+            PREFIX_NAME,
+        ) or path.name.endswith(SIDECARS):
+            continue
+        if not stat.S_ISREG(path.lstat().st_mode):
+            continue
+        if native_database(Path(path.name), selected):
+            databases.add(path.name)
+            continue
+        with path.open("rb") as file:
+            header = file.read(16)
+        if header != b"SQLite format 3\x00":
+            continue
+        with contextlib.closing(
+            sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
+        ) as db:
+            db.execute("PRAGMA query_only = ON")
+            names = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'"
+                )
+            }
+            sensitive = False
+            for table in names.intersection(TOKEN_SCHEMAS):
+                columns = {
+                    row[1] for row in db.execute(f'PRAGMA table_info("{table}")')
+                }
+                sensitive |= (
+                    {"access_token", "refresh_token"} <= columns
+                    or table == "credential"
+                    and {"id", "value"} <= columns
+                )
+            if sensitive or {"project", "session", "message", "part"} <= names:
+                databases.add(path.name)
+    return databases
+
+
+def artifact_link(root, path, databases):
+    text = os.readlink(path)
+    if Path(text).is_absolute():
+        raise SnapshotError("artifact symlink is absolute")
+    try:
+        target = (path.parent / text).resolve(strict=True)
+        rel = target.relative_to(root)
+    except (ValueError, OSError, RuntimeError):
+        raise SnapshotError("artifact symlink escapes or has no target") from None
+    if (
+        not rel.parts
+        or rel.parts[0]
+        in (
+            *AUTH_FILES,
+            LOCK_NAME,
+            LIFECYCLE_LOCK_NAME,
+            MIGRATION_NAME,
+            PREFIX_NAME,
+            RECOVERY_NAME,
+            STATE_NAME,
+        )
+        or len(rel.parts) == 1
+        and rel.name in databases
+    ):
+        raise SnapshotError("artifact symlink targets managed authentication state")
+    return text
+
+
 def inventory(root, selected="opencode.db"):
     databases, files, directories, sidecars = [], [], [], []
     if not root.exists():
         return databases, files, directories
+    known = root_databases(root, selected)
     for directory, dirnames, filenames in os.walk(root, followlinks=False):
         if Path(directory) == root and RECOVERY_NAME in dirnames:
             if (root / RECOVERY_NAME).is_symlink():
                 raise SnapshotError("recovery directory contains a symlink")
             dirnames.remove(RECOVERY_NAME)
-        for name in dirnames:
+        for name in list(dirnames):
             path = Path(directory, name)
             if str(path.relative_to(root)) in AUTH_FILES:
                 raise SnapshotError("legacy auth path is not a file")
             if path.is_symlink():
-                raise SnapshotError("data directory contains a symlink")
+                artifact_link(root, path, known)
+                files.append(path.relative_to(root))
+                dirnames.remove(name)
+                continue
             directories.append(path.relative_to(root))
         for name in filenames:
             path = Path(directory, name)
@@ -265,15 +343,26 @@ def inventory(root, selected="opencode.db"):
                 MIGRATION_NAME,
             ):
                 continue
+            if path.is_symlink():
+                artifact_link(root, path, known)
+                if len(rel.parts) == 1 and native_database(rel, selected):
+                    raise SnapshotError("native database is a symlink")
+                files.append(rel)
+                continue
             if not stat.S_ISREG(path.lstat().st_mode):
                 raise SnapshotError("data directory contains a non-regular file")
             suffix = next(
                 (suffix for suffix in SIDECARS if name.endswith(suffix)), None
             )
-            if suffix and native_database(Path(str(rel)[: -len(suffix)]), selected):
+            base = Path(str(rel)[: -len(suffix)]) if suffix else None
+            if (
+                base is not None
+                and len(base.parts) == 1
+                and (base.name in known or native_database(base, selected))
+            ):
                 sidecars.append(rel)
                 continue
-            if native_database(rel, selected):
+            if len(rel.parts) == 1 and rel.name in known:
                 databases.append(rel)
             else:
                 files.append(rel)
@@ -288,6 +377,12 @@ def inventory(root, selected="opencode.db"):
 def publish(source, target):
     fd, tmp = tempfile.mkstemp(prefix=".proveo-clean-", dir=target.parent)
     try:
+        if source.is_symlink():
+            os.close(fd)
+            os.unlink(tmp)
+            os.symlink(os.readlink(source), tmp)
+            os.replace(tmp, target)
+            return
         with os.fdopen(fd, "wb") as output, source.open("rb") as input_file:
             shutil.copyfileobj(input_file, output)
             output.flush()
@@ -377,7 +472,12 @@ def database_digest(path):
 
 
 def snapshot(
-    source, destination, selected="opencode.db", rebase=None, state_source=None
+    source,
+    destination,
+    selected="opencode.db",
+    rebase=None,
+    state_source=None,
+    prefix=None,
 ):
     source = Path(source).resolve()
     destination = Path(destination).resolve()
@@ -417,7 +517,10 @@ def snapshot(
             for rel in files:
                 target = stage / rel
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                shutil.copy2(source / rel, target)
+                if (source / rel).is_symlink():
+                    os.symlink(os.readlink(source / rel), target)
+                else:
+                    shutil.copy2(source / rel, target)
             if state_source is not None:
                 shutil.rmtree(stage / STATE_NAME, ignore_errors=True)
                 copy_state(state_source, stage / STATE_NAME, rebase)
@@ -426,7 +529,14 @@ def snapshot(
                     files.extend(
                         Path(directory, name).relative_to(stage) for name in names
                     )
-                files = [rel for rel in files if (stage / rel).is_file()]
+                files = [
+                    rel
+                    for rel in files
+                    if (stage / rel).is_file() or (stage / rel).is_symlink()
+                ]
+            if prefix is not None:
+                (stage / PREFIX_NAME).write_text(json.dumps({"data": str(prefix)}))
+                files.append(Path(PREFIX_NAME))
             for rel in directories:
                 (destination / rel).mkdir(mode=0o700, parents=True, exist_ok=True)
             for name in AUTH_FILES:
@@ -445,7 +555,11 @@ def snapshot(
                     locks.unlink()
                 elif locks.exists():
                     shutil.rmtree(locks)
-            ordered = sorted(set(files)) + sorted(set(databases + old_databases))
+            ordered = sorted(set(files) - {Path(PREFIX_NAME)}) + sorted(
+                set(databases + old_databases)
+            )
+            if (stage / PREFIX_NAME).exists():
+                ordered.append(Path(PREFIX_NAME))
             for rel in ordered:
                 target = destination / rel
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
