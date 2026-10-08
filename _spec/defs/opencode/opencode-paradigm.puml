@@ -1,25 +1,29 @@
 @startuml
-' purpose: the preserved OpenCode crew and host-auth boundary during native v2 migration
+' purpose: the native OpenCode crew, automatic permissions, visible execution and host-auth boundary
 ' covers: defs/opencode/entrypoint.sh
 ' covers: defs/opencode/harness.manifest
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/README.md
 ' covers: defs/opencode/defaults/**
 ' covers: defs/opencode/sample_opencode.json
 ' covers: defs/subagents/_frontmatter/opencode/**
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: e2e/opencode_auth_test.go
+' covers: internal/contract/opencode_presentation_test.go
+' covers: e2e/opencode_presentation*
+' covers: e2e/testdata/opencode_presentation.*
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title OpenCode crew — native role rules and approved automatic session policy
+title OpenCode crew — automatic asks, explicit denies and visible execution
 
 ' Approved native schema and lifecycle: _spec/defs/opencode/native-v2-integration.puml
 ' Seed order: _spec/packages/lib/seed-and-launch.puml
 ' Model bridge retirement: _spec/_plans/retire-model-bridging.puml
 ' Billing and credential decisions: _spec/internal/credentials/credential-decisions.puml
 '
-' The sibling native integration is PLANNED, not proof of shipped behavior.
-' This diagram owns the crew, host authentication, and preserved decisions;
-' native implementation exists, but the automatic mode and security repairs
-' remain subject to pinned-CLI validation and acceptance in the sibling plan.
+' The sibling records implemented source/fixture contracts and PLANNED live acceptance.
+' Primary reports persisted offline native TUI and shell-policy fixtures passed.
+' Final adversarial/security re-evaluations and latest rebuilt-image/e2e gates remain open.
 '
 ' ── HOW THE GLOBAL CONFIG IS SEEDED WHEN ABSENT ────────────────────────────
 ' entrypoint seed_defaults delegates to shared proveo_seed; its native bootstrap
@@ -30,8 +34,10 @@ title OpenCode crew — native role rules and approved automatic session policy
 ' An unset placeholder became an empty model persisted in the durable home;
 ' baked defaults and sample therefore name no default model.
 ' plan denies edit and shell; build allows edit and retains a shell ask rule.
-' The new approved session policy is automatic, not a human checkpoint per shell.
-' Primary must validate the precise native mode and deny interaction before acceptance.
+' The image sets session.permissions: autoaccept through OPENCODE_CLI_CONFIG_CONTENT.
+' The runtime separately injects headless run --auto once, regardless of evidence mode.
+' Native offline fixtures execute shell ask and preserve explicit deny rejection;
+' direct native run without --auto rejects a non-interactive ask.
 ' Risky-operation house rules remain instructions; they do not create native prompts.
 '
 ' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1, and the same flag re-seeds
@@ -61,8 +67,26 @@ title OpenCode crew — native role rules and approved automatic session policy
 ' The former auth.json-only explanation described v1, not the v2 token store.
 ' The approved v2 lifecycle preserves sessions and removes stored credentials;
 ' the approved private per-run DB and full-lifetime lease live in the native sibling.
-' Account/MCP token-store repairs and restored artifact/session paths remain pending.
+' Account/MCP token stores, nonauth state, rebased artifact paths, protected recovery,
+' PTY job control and canonical backend mapping now have implemented source fixtures.
+' Actual sbx cross-VM file locks and model-driven live idle git sync remain unexecuted.
 ' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
+'
+' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config
+' General editor schema pointer: https://opencode.ai/config.json (v1; advisory).
+' Exact session/tabs/mini bindings and schema controls are quoted in the native sibling.
+' Presentation semantics and navigation follow primary's native UI/source audit,
+' documented in defs/opencode/README.md: source disables Markdown concealment;
+' thinking show expands full available returned blocks; high verbosity and grouping
+' none expose individual calls and thoughts. Mini tools/thinking/shell_output/
+' turn_summary/footer all use show. Tabs use on + status; sidebar uses auto.
+' A running subagent row opens the child's live transcript; Ctrl+P -> Toggle subagent
+' picker -> Enter provides the alternate route. Opened tabs show busy/attention status.
+' No supported default setting renders a live child-operation wait graph in the main
+' transcript; Code Mode execute opens a separate Code / Output dialog instead.
+' The persisted offline fixture proves eight session/tab Settings values and native
+' mini schema controls, not model-driven child operations or live mini output.
+' These are upstream native controls, not a custom aligned layout or a new salt surface.
 '
 ' Register: manual normalized word/syllable counts; two sentences per note.
 ' FK: note right of CREW; words=28 syllables=54; FK 12.6
@@ -70,6 +94,9 @@ title OpenCode crew — native role rules and approved automatic session policy
 ' FK: note bottom of EP (auth); words=30 syllables=54; FK 11.5
 ' FK: note bottom of DEV; words=32 syllables=54; FK 10.6
 ' FK: note bottom of CLI; words=28 syllables=49; FK 10.5
+' FK: note bottom of TRANSCRIPT; words=33 syllables=59; FK 11.9
+' FK: note bottom of DISPLAY; words=32 syllables=60; FK 12.8
+' FK: note bottom of CHILD; words=30 syllables=52; FK 10.7
 '
 actor "Developer\nreviews between loops" as DEV
 
@@ -79,7 +106,7 @@ node "opencode container" as CTR <<host>> {
 
   frame "Seeded crew (~/.config/opencode/agents)" as CREW <<host>> {
     component "plan\nread-only: edit + shell denied" as PLAN <<app>>
-    component "build\nedit allow · native shell ask rule\napproved automatic session policy" as BUILD <<app>>
+    component "build\nedit allow · native shell ask rule\nsession.permissions: autoaccept" as BUILD <<app>>
     component "advisors\nedit + shell denied" as REV <<app>>
     component "spec-keeper\nedit allow · shell deny\nedit scope enforced by prompt" as SPEC <<app>>
   }
@@ -87,6 +114,11 @@ node "opencode container" as CTR <<host>> {
   component "native LSP\nauto-enabled per detected language" as LSP <<app>>
   artifact "AGENTS.md" as MD <<db>>
   database "/app — repo (rw, .git rw)" as WS <<db>>
+  component "defs/opencode/Dockerfile\nOPENCODE_CLI_CONFIG_CONTENT" as DISPLAY <<app>>
+  component "opencode session transcript\nmarkdown source · thinking show\ngrouping none · verbosity high\nsidebar auto" as TRANSCRIPT <<app>>
+  component "opencode mini\ntools · thinking · shell_output\nturn_summary · footer: show" as MINI <<app>>
+  component "opencode subagent rows / picker\nlive child transcripts" as CHILD <<app>>
+  component "opencode tabs\nmode on · indicators status" as TABS <<app>>
 }
 
 DEV ARROW_MAIN CLI
@@ -100,6 +132,11 @@ CLI ARROW_OPTIONAL PLAN : specs and step lists
 BUILD ARROW_QUEUE REV : review loop
 BUILD ARROW_QUEUE SPEC : spec maintenance
 REV ARROW_MAIN DEV : findings surface to the human
+DISPLAY ARROW_MAIN CLI : native CLI preferences; saved global cli.json preserved
+CLI ARROW_MAIN TRANSCRIPT : source text + available thinking + individual calls
+CLI ARROW_MAIN MINI : five native visibility preferences
+CLI ARROW_OPTIONAL CHILD : select running child row / picker
+CHILD ARROW_MAIN TABS : opened sessions show status
 
 note right of CREW
   Primary agents separate planning from
@@ -138,5 +175,34 @@ note bottom of CLI
   log output competes with terminal rendering.
   Headless run can expose logs and thinking blocks
   without corrupting that interactive surface.
+end note
+
+note bottom of TRANSCRIPT
+  Source Markdown keeps text visible instead of
+  concealing it behind a rendered view. Showing
+  thinking expands full returned blocks, so
+  visibility depends on provider output rather
+  than on reasoning the provider never sent.
+end note
+
+note bottom of DISPLAY
+  High verbosity exposes individual tool calls
+  and thoughts instead of reducing the transcript
+  to summaries. No grouping keeps each call
+  separate, so the operator can attribute
+  displayed output to its own operation.
+end note
+
+note bottom of CHILD
+  Subagent rows and the interactive picker open
+  live child transcripts instead of expanding
+  every child operation inline. No supported
+  default setting draws a live wait graph in
+  the main transcript.
+end note
+
+note bottom of TABS
+  Opened sessions expose busy
+  and attention status icons.
 end note
 @enduml

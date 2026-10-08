@@ -733,8 +733,11 @@
         "internal/proveohome/**",
         "internal/sbx/run.go",
         "internal/contract/**",
+        "internal/contract/opencode_presentation_test.go",
         "internal/imagetest/opencode_test.go",
-        "e2e/**"
+        "e2e/**",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
     },
@@ -743,12 +746,17 @@
       "covers": [
         "defs/opencode/entrypoint.sh",
         "defs/opencode/harness.manifest",
+        "defs/opencode/Dockerfile",
+        "defs/opencode/README.md",
         "defs/opencode/defaults/**",
         "defs/opencode/sample_opencode.json",
         "defs/subagents/_frontmatter/opencode/**",
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/proveo-opencode-runtime",
-        "e2e/opencode_auth_test.go"
+        "e2e/opencode_auth_test.go",
+        "internal/contract/opencode_presentation_test.go",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
     },
@@ -757,7 +765,10 @@
       "covers": [
         "defs/opencode/**",
         "defs/subagents/_frontmatter/opencode/**",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/opencode_presentation_test.go",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
     },
