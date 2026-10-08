@@ -25,7 +25,7 @@ class NativeRuntimeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.durable = self.home / ".local/share/opencode"
+        self.durable = self.home / "opencode/share"
         self.env = {
             "PATH": os.environ["PATH"],
             "HOME": str(self.home),
@@ -33,6 +33,10 @@ class NativeRuntimeTests(unittest.TestCase):
             "PROVEO_OPENCODE_CREDENTIAL_HELPER": str(
                 RUNTIME.with_name("opencode-credentials.py")
             ),
+            "PROVEO_OPENCODE_HOME_MANIFEST": str(
+                RUNTIME.parents[2] / "defs/opencode/harness.manifest"
+            ),
+            "OPENCODE_DISABLE_MODELS_FETCH": "1",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
             "XDG_CACHE_HOME": "/home/agent/.cache",
@@ -108,6 +112,88 @@ class NativeRuntimeTests(unittest.TestCase):
             if args == ("debug", "agents"):
                 self.assertIsInstance(json.loads(result.stdout), list)
         self.assertFalse(self.durable.exists())
+
+    def test_native_account_schemas_and_control_tokens_are_scrubbed(self):
+        self.initialize()
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            for table, expected in credentials.TOKEN_SCHEMAS.items():
+                actual = [
+                    (row[1], row[2], row[3], row[5])
+                    for row in db.execute(f"PRAGMA table_info({table})")
+                ]
+                self.assertEqual(actual, expected)
+            db.execute(
+                "INSERT INTO account (id, email, url, access_token, refresh_token, token_expiry, time_created, time_updated) "
+                "VALUES ('account_fixture', 'fixture@example.test', 'https://example.test', 'SYNTHETIC_ACCOUNT_ACCESS', 'SYNTHETIC_ACCOUNT_REFRESH', 1, 1, 2)"
+            )
+            db.execute(
+                "INSERT INTO control_account (email, url, access_token, refresh_token, token_expiry, active, time_created, time_updated) "
+                "VALUES ('fixture@example.test', 'https://example.test', 'SYNTHETIC_CONTROL_ACCESS', 'SYNTHETIC_CONTROL_REFRESH', 1, 1, 1, 2)"
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO account_state VALUES (1, 'account_fixture', 'org_fixture')"
+            )
+            db.commit()
+        (self.durable / "mcp-auth.json").write_text("SYNTHETIC_LEGACY_MCP_SECRET")
+        result = self.run_native("session", "list", "--format", "json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            for table in ("credential", "account", "control_account"):
+                self.assertEqual(
+                    db.execute(f"SELECT count(*) FROM {table}").fetchone(), (0,)
+                )
+            self.assertEqual(
+                db.execute(
+                    "SELECT active_account_id, active_org_id FROM account_state WHERE id=1"
+                ).fetchone(),
+                (None, None),
+            )
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+        self.assertFalse((self.durable / "mcp-auth.json").exists())
+        self.assertNotIn(
+            b"SYNTHETIC_ACCOUNT", (self.durable / "opencode.db").read_bytes()
+        )
+        self.assertNotIn(
+            b"SYNTHETIC_CONTROL", (self.durable / "opencode.db").read_bytes()
+        )
+
+    def test_actual_truncation_output_remains_accessible_after_resume(self):
+        driver = RUNTIME.with_name("opencode-truncation-driver.mjs")
+        result = subprocess.run(
+            ["node", str(driver), sys.executable, str(RUNTIME), NATIVE, str(self.root)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            messages = [
+                json.loads(row[0])
+                for row in db.execute("SELECT data FROM session_message")
+            ]
+        paths = []
+
+        def visit(value):
+            if isinstance(value, dict):
+                if "outputPath" in value:
+                    paths.append(value["outputPath"])
+                for item in value.values():
+                    visit(item)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        visit(messages)
+        self.assertEqual(len(set(paths)), 1, messages)
+        output = Path(paths[0])
+        self.assertTrue(output.is_relative_to(self.durable))
+        self.assertGreater(output.stat().st_size, 50 * 1024)
+        self.assertEqual(output.read_text().count("native truncation fixture"), 5000)
+        self.assertIn(str(output), json.dumps(messages))
+        resumed = self.run_native("session", "list", "--format", "json")
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertTrue(output.exists())
 
     def test_await_seed_and_runtime_shim_cover_docker_and_sbx(self):
         shim = self.root / "opencode"

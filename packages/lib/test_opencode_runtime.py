@@ -1,8 +1,15 @@
 # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_paradigms/credential-boundary.puml
 
 import contextlib
+import errno
+import importlib.machinery
+import importlib.util
 import json
 import os
+import pty
+import select
+import shlex
+import shutil
 from pathlib import Path
 import signal
 import sqlite3
@@ -11,11 +18,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from test_opencode_credentials import (
     FAKE_VALUE,
     HELPER,
     SCHEMA,
+    credentials,
 )
 
 
@@ -30,7 +39,7 @@ class RuntimeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.durable = self.home / ".local/share/opencode"
+        self.durable = self.home / "opencode/share"
         self.durable.mkdir(parents=True)
         self.fixture(self.durable)
         self.native = self.root / "native-opencode"
@@ -48,6 +57,9 @@ class RuntimeTests(unittest.TestCase):
             PROVEO_OPENCODE_RUNTIME_DATA="",
             PROVEO_GIT_SYNC_MSG_INFLIGHT="",
             PROVEO_OPENCODE_CREDENTIAL_HELPER=str(HELPER),
+            PROVEO_OPENCODE_HOME_MANIFEST=str(
+                HELPER.parents[2] / "defs/opencode/harness.manifest"
+            ),
             PROVEO_RUNTIME_EVENTS=str(self.root / "events.jsonl"),
             OPENAI_API_KEY="SYNTHETIC_ENV_KEY",
             PYTHONDONTWRITEBYTECODE="1",
@@ -167,6 +179,176 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(restart.returncode, 0, restart.stderr)
         self.assert_clean(messages=3)
         self.assertFalse(Path(ready["database"]).parent.exists())
+
+    def test_native_preferences_history_stashes_and_pins_round_trip_in_order(self):
+        result = self.run_cli("preferences")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        saved = self.durable / credentials.STATE_NAME
+        expected = {
+            name: (saved / name).read_bytes()
+            for name in (
+                "prompt-history.jsonl",
+                "prompt-stash.jsonl",
+                "model.json",
+                "session.json",
+            )
+        }
+        self.assertFalse((saved / "service.json").exists())
+        proc = self.start("hold")
+        ready = self.wait_event("ready", count=2)
+        root = Path(ready["database"]).parents[2]
+        for name, content in expected.items():
+            self.assertEqual((root / "state/opencode" / name).read_bytes(), content)
+        proc.terminate()
+        proc.communicate(timeout=10)
+        for name, content in expected.items():
+            self.assertEqual((saved / name).read_bytes(), content)
+
+    def test_legacy_docker_history_migrates_to_the_same_sbx_store_and_lease(self):
+        shutil.rmtree(self.durable)
+        legacy = self.home / ".local/share/opencode"
+        self.fixture(legacy)
+        first = self.start("hold")
+        self.wait_event("ready")
+        self.assert_clean(legacy, messages=1)
+        guest = self.root / "guest"
+        guest.mkdir()
+        sbx_env = dict(
+            self.env,
+            HOME=str(guest),
+            PROVEO_HOME=str(guest),
+            PROVEO_STATE_HOME=str(self.home),
+            PROVEO_CONFIG_DIRS="opencode/share|.local/share/opencode|auth.json",
+        )
+        rejected = self.run_cli("append", env=sbx_env)
+        self.assertEqual(rejected.returncode, 75, rejected.stderr)
+        first.terminate()
+        first.communicate(timeout=10)
+        result = self.run_cli("append", env=sbx_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_clean(messages=3)
+        result = self.run_cli("append")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_clean(messages=4)
+
+    def test_divergent_legacy_and_canonical_histories_are_not_overwritten(self):
+        legacy = self.home / ".local/share/opencode"
+        self.fixture(legacy)
+        with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
+            db.execute(
+                "INSERT INTO session_message VALUES ('legacy-only', 'session-fixture', 2, 'keep legacy history')"
+            )
+            db.commit()
+        before = (self.durable / "opencode.db").read_bytes()
+        result = self.run_cli("append")
+        self.assertEqual(result.returncode, 74, result.stderr)
+        self.assertEqual((self.durable / "opencode.db").read_bytes(), before)
+        self.assertEqual(self.events(), [])
+        with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
+            )
+
+    def test_orphan_disk_full_preserves_source_record_and_then_recovers(self):
+        first = self.start("hold")
+        ready = self.wait_event("ready")
+        first.kill()
+        os.kill(ready["pid"], signal.SIGTERM)
+        first.communicate(timeout=10)
+        loader = importlib.machinery.SourceFileLoader("runtime_fixture", str(RUNTIME))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        runtime = importlib.util.module_from_spec(spec)
+        loader.exec_module(runtime)
+        fd = os.open(self.durable / credentials.LIFECYCLE_LOCK_NAME, os.O_RDWR)
+        self.addCleanup(os.close, fd)
+        credentials.fcntl.flock(
+            fd, credentials.fcntl.LOCK_EX | credentials.fcntl.LOCK_NB
+        )
+        record = (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_bytes()
+        original = credentials.snapshot
+        for phase in ("create", "backup", "publication"):
+            with self.subTest(phase=phase):
+
+                def snapshot(source, destination, *args, **kwargs):
+                    destination = Path(destination)
+                    if (
+                        phase == "backup"
+                        and destination.parent.name == credentials.RECOVERY_NAME
+                        or phase == "publication"
+                        and destination == self.durable
+                    ):
+                        raise OSError(errno.ENOSPC, "injected disk full")
+                    return original(source, destination, *args, **kwargs)
+
+                with mock.patch.object(credentials, "snapshot", side_effect=snapshot):
+                    if phase == "create":
+                        with mock.patch.object(
+                            runtime.tempfile,
+                            "mkdtemp",
+                            side_effect=OSError(errno.ENOSPC, "injected disk full"),
+                        ):
+                            with self.assertRaises(OSError):
+                                runtime.recover_orphan(fd, credentials, self.durable)
+                    else:
+                        with self.assertRaises(OSError):
+                            runtime.recover_orphan(fd, credentials, self.durable)
+                self.assertTrue(Path(ready["database"]).exists())
+                self.assertEqual(
+                    (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_bytes(),
+                    record,
+                )
+                with contextlib.closing(sqlite3.connect(ready["database"])) as db:
+                    self.assertEqual(
+                        db.execute("SELECT count(*) FROM session_message").fetchone(),
+                        (2,),
+                    )
+        runtime.recover_orphan(fd, credentials, self.durable)
+        self.assert_clean(messages=2)
+        self.assertFalse(Path(ready["database"]).exists())
+
+    def test_controlling_pty_suspend_returns_shell_job_and_foreground_resumes(self):
+        shell, terminal = pty.fork()
+        if shell == 0:
+            os.execve("/bin/bash", ["bash", "--noprofile", "--norc", "-i"], self.env)
+        self.addCleanup(os.close, terminal)
+
+        def cleanup():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(shell, signal.SIGKILL)
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(shell, 0)
+
+        self.addCleanup(cleanup)
+        captured = bytearray()
+
+        def until(marker):
+            deadline = time.monotonic() + 10
+            while marker not in captured and time.monotonic() < deadline:
+                readable, _, _ = select.select([terminal], [], [], 0.1)
+                if readable:
+                    captured.extend(os.read(terminal, 65536))
+            self.assertIn(marker, bytes(captured))
+
+        os.write(terminal, b"PS1='PTY_READY> '\n")
+        until(b"PTY_READY> ")
+        captured.clear()
+        os.write(terminal, (shlex.join(self.command("hold")) + "\n").encode())
+        ready = self.wait_event("ready")
+        os.write(terminal, b"\x1a")
+        until(b"Stopped")
+        until(b"PTY_READY> ")
+        self.assertEqual(self.run_cli("append").returncode, 75)
+        captured.clear()
+        os.write(terminal, b"fg\n")
+        time.sleep(0.2)
+        self.assertEqual(os.tcgetpgrp(terminal), os.getpgid(ready["pid"]))
+        while select.select([terminal], [], [], 0)[0]:
+            os.read(terminal, 65536)
+        captured.clear()
+        os.write(terminal, b"\x03")
+        until(b"PTY_READY> ")
+        self.assert_clean(messages=2)
 
     def test_sbx_maps_manifest_store_and_never_uses_live_home_data(self):
         state = self.root / "host-state"

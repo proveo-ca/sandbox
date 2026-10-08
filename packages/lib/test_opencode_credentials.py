@@ -41,6 +41,17 @@ INSERT INTO session_message VALUES ('message-fixture', 'session-fixture', 1, '{"
 INSERT INTO permission VALUES ('project-fixture', '{"edit":"allow","bash":"ask"}');
 INSERT INTO migration VALUES ('20260805200742_import_legacy_credentials');
 """
+ACCOUNT_SCHEMA = """
+CREATE TABLE account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL,
+ access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer,
+ time_created integer NOT NULL, time_updated integer NOT NULL);
+CREATE TABLE control_account (email text NOT NULL, url text NOT NULL,
+ access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer,
+ active integer NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL,
+ PRIMARY KEY(email, url));
+CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text REFERENCES account(id) ON DELETE SET NULL,
+ active_org_id text);
+"""
 
 
 class CredentialSnapshotTests(unittest.TestCase):
@@ -124,6 +135,98 @@ class CredentialSnapshotTests(unittest.TestCase):
             self.assertEqual(
                 (self.destination / "log" / "fixture.log").read_text(), "keep log"
             )
+
+    def test_account_control_account_and_legacy_mcp_tokens_are_removed(self):
+        with contextlib.closing(self.fixture()) as source:
+            source.executescript(ACCOUNT_SCHEMA)
+            source.execute(
+                "INSERT INTO account VALUES ('fixture-account', 'fixture@example.test', 'https://example.test', ?, ?, 1, 1, 2)",
+                ("SYNTHETIC_ACCOUNT_ACCESS", "SYNTHETIC_ACCOUNT_REFRESH"),
+            )
+            source.execute(
+                "INSERT INTO control_account VALUES ('fixture@example.test', 'https://example.test', ?, ?, 1, 1, 1, 2)",
+                ("SYNTHETIC_CONTROL_ACCESS", "SYNTHETIC_CONTROL_REFRESH"),
+            )
+            source.execute(
+                "INSERT INTO account_state VALUES (1, 'fixture-account', 'fixture-org')"
+            )
+            source.commit()
+            (self.source / "mcp-auth.json").write_text("SYNTHETIC_SOURCE_MCP_TOKEN")
+            self.destination.mkdir()
+            (self.destination / "mcp-auth.json").write_text(
+                "SYNTHETIC_DESTINATION_ONLY_MCP_TOKEN"
+            )
+            credentials.snapshot(self.source, self.destination)
+            self.assert_clean()
+            with contextlib.closing(
+                sqlite3.connect(self.destination / "opencode.db")
+            ) as db:
+                for table in ("account", "control_account"):
+                    self.assertEqual(
+                        db.execute(f"SELECT count(*) FROM {table}").fetchone(), (0,)
+                    )
+                self.assertEqual(
+                    db.execute(
+                        "SELECT active_account_id, active_org_id FROM account_state"
+                    ).fetchone(),
+                    (None, None),
+                )
+            self.assertEqual(
+                source.execute("SELECT count(*) FROM account").fetchone(), (1,)
+            )
+            self.assertEqual(
+                source.execute("SELECT count(*) FROM control_account").fetchone(), (1,)
+            )
+            self.assertEqual(
+                source.execute(
+                    "SELECT active_account_id FROM account_state"
+                ).fetchone(),
+                ("fixture-account",),
+            )
+            self.assertTrue((self.source / "mcp-auth.json").exists())
+            self.assertFalse((self.destination / "mcp-auth.json").exists())
+            self.assertNotIn(
+                b"SYNTHETIC_ACCOUNT", (self.destination / "opencode.db").read_bytes()
+            )
+            self.assertNotIn(
+                b"SYNTHETIC_CONTROL", (self.destination / "opencode.db").read_bytes()
+            )
+
+    def test_reference_sqlite_files_and_sidecars_are_copied_without_sanitizing(self):
+        self.fixture().close()
+        reference = self.source / "refs/project/testdata/opencode.db"
+        reference.parent.mkdir(parents=True)
+        with contextlib.closing(sqlite3.connect(reference)) as db:
+            db.executescript(
+                "CREATE TABLE example_fixture (value text); INSERT INTO example_fixture VALUES ('keep reference fixture');"
+            )
+        sidecar = Path(str(reference) + "-wal")
+        sidecar.write_bytes(b"ordinary reference sidecar bytes")
+        original = reference.read_bytes()
+        credentials.normalize_offline(self.source)
+        credentials.snapshot(self.source, self.destination)
+        self.assert_clean()
+        self.assertEqual(reference.read_bytes(), original)
+        self.assertEqual(
+            (self.destination / reference.relative_to(self.source)).read_bytes(),
+            original,
+        )
+        self.assertEqual(
+            (self.destination / sidecar.relative_to(self.source)).read_bytes(),
+            sidecar.read_bytes(),
+        )
+
+    def test_unsupported_account_schema_keeps_previous_session_database(self):
+        self.fixture().close()
+        credentials.snapshot(self.source, self.destination)
+        previous = (self.destination / "opencode.db").read_bytes()
+        with contextlib.closing(sqlite3.connect(self.source / "opencode.db")) as db:
+            db.executescript(ACCOUNT_SCHEMA)
+            db.execute("ALTER TABLE account ADD COLUMN unsupported_token text")
+            db.commit()
+        with self.assertRaises(credentials.SnapshotError):
+            credentials.snapshot(self.source, self.destination)
+        self.assertEqual((self.destination / "opencode.db").read_bytes(), previous)
 
     def test_live_wal_backup_includes_committed_state_without_mutating_auth(self):
         with contextlib.closing(self.fixture()) as writer:
@@ -209,7 +312,7 @@ class CredentialSnapshotTests(unittest.TestCase):
         self.fixture(name="opencode-next.db").close()
         self.fixture(name="custom-database").close()
         self.fixture(directory=self.destination, name="opencode.db").close()
-        credentials.snapshot(self.source, self.destination)
+        credentials.snapshot(self.source, self.destination, selected="custom-database")
         for name in ("opencode-next.db", "custom-database", "opencode.db"):
             self.assert_clean(name=name)
 

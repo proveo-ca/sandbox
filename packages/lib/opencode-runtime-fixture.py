@@ -90,6 +90,23 @@ elif mode == "obstruct":
     Path(os.environ["PROVEO_OPENCODE_DURABLE_DATA"], "opencode.db-wal").write_bytes(
         b"synthetic publication obstruction"
     )
+elif mode == "preferences":
+    state = Path(os.environ["XDG_STATE_HOME"], "opencode")
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "prompt-history.jsonl").write_text(
+        '{"text":"first","pasted":[]}\n{"text":"second","pasted":[]}\n'
+    )
+    (state / "prompt-stash.jsonl").write_text(
+        '{"prompt":{"text":"stashed","pasted":[]},"timestamp":2}\n'
+    )
+    (state / "model.json").write_text(
+        '{"recent":["second","first"],"favorite":["first"]}'
+    )
+    (state / "session.json").write_text('{"pinned":["session-fixture"]}')
+    (state / "service.json").write_text(
+        '{"password":"SYNTHETIC_TRANSIENT_SERVER_SECRET"}'
+    )
+    append()
 else:
     append()
 db.close()
