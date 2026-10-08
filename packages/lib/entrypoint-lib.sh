@@ -2746,7 +2746,7 @@ proveo_clone_env() {
  if [[ -n "$gd" ]] && ! grep -qxF '/.env' "$gd/info/exclude" 2>/dev/null; then
   mkdir -p "$gd/info" 2>/dev/null && printf '/.env\n' >> "$gd/info/exclude" 2>/dev/null
  fi
- echo "🔑 clone: .env → ${src} (read-only, staged from the host)"
+ echo "🔑 clone: .env → ${src} (staged from the host; edits merge back at teardown)"
 }
 
 # SPEC: _spec/internal/sbx/clone-workspace.puml
@@ -2771,12 +2771,53 @@ proveo_clone_links() {
  [[ -z "$made" ]] || echo "🔗 clone: relinked ${made} (host symlinks git does not carry)"
 }
 
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_clone_base() {
+ local dir f
+ [[ -n "${PROVEO_CLONE_WORKSPACE:-}" ]] || return 0
+ dir="$(_proveo_scan_root)"
+ f="$(git -C "$dir" rev-parse --path-format=absolute --git-path proveo-clone-base 2>/dev/null)" || return 0
+ [[ -n "$f" && ! -s "$f" ]] || return 0
+ git -C "$dir" rev-parse HEAD > "$f" 2>/dev/null || rm -f "$f" 2>/dev/null
+ return 0
+}
+
+PROVEO_SEED_REFUSED="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
+
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_assert_shares() {
+ local pairs="${PROVEO_SHARES:-}" dir pair rel mode p bad=""
+ rm -f "$PROVEO_SEED_REFUSED" 2>/dev/null || true
+ [[ -n "$pairs" ]] || return 0
+ dir="$(_proveo_scan_root)"
+ local IFS='|'
+ for pair in $pairs; do
+  rel="${pair%%=*}" mode="${pair#*=}" p="${dir}/${rel}"
+  if [[ ! -e "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is missing"
+  elif [[ ! -r "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is unreadable"
+  elif [[ "$mode" == rw && ! -w "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is read-only, so edits cannot reach the host"
+  fi
+ done
+ if [[ -z "$bad" ]]; then
+  echo "✅ shares: ${pairs//|/, } at ${dir}"
+  return 0
+ fi
+ printf '%s\n' "$bad" > "$PROVEO_SEED_REFUSED" 2>/dev/null || true
+ echo "❌ shares: ${bad} — the agent is not released" >&2
+ return 1
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
  proveo_clone_env
  proveo_clone_links
+ proveo_clone_base
+ proveo_assert_shares || return 1
  proveo_seed_instructions "$target"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || { proveo_release_agent "$target"; return 0; }

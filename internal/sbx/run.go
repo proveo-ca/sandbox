@@ -300,6 +300,29 @@ func CDPRelayArgs(name string) []string {
 // nothing to unpack and nothing went wrong.
 const CloneLiftNothing = 3
 
+// CloneBaseName is the git-path the seed records the clone's starting HEAD at.
+const CloneBaseName = "proveo-clone-base"
+
+// CloneSpanArgs prints the clone's recorded base, then its HEAD, one per line.
+func CloneSpanArgs(name, workdir string) []string {
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " && cat \"$(git rev-parse --git-path " + CloneBaseName + ")\" && git rev-parse HEAD"}
+}
+
+// CloneRebaseArgs records sha as the clone's base, so the next lift starts there.
+func CloneRebaseArgs(name, workdir, sha string) []string {
+	if !hexOnly.MatchString(sha) {
+		return nil
+	}
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " && printf '%s\\n' " + sha + " > \"$(git rev-parse --git-path " + CloneBaseName + ")\""}
+}
+
+// CloneReadArgs prints one file of the clone on stdout.
+func CloneReadArgs(name, workdir, rel string) []string {
+	return []string{"exec", "-w", "/", name, "--", "cat", strings.TrimSuffix(workdir, "/") + "/" + rel}
+}
+
 func CloneLiftArgs(name, workdir, rel string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		"cd " + bashQuote(workdir) + " && { [ -d " + bashQuote(rel) + " ] || exit " +

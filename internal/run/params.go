@@ -3,8 +3,9 @@ package run
 
 import (
 	"fmt"
-	"github.com/proveo-ca/proveo/internal/devports"
 	"strings"
+
+	"github.com/proveo-ca/proveo/internal/devports"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"

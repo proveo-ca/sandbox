@@ -2,14 +2,19 @@
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 # In a proveo-launched sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
+refused="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
 limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
   n=$((limit * 5))
-  while [ ! -e "$marker" ] && [ "$n" -gt 0 ]; do
+  while [ ! -e "$marker" ] && [ ! -e "$refused" ] && [ "$n" -gt 0 ]; do
     sleep 0.2
     n=$((n - 1))
   done
-  [ -e "$marker" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
+  [ -e "$marker" ] || [ -e "$refused" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
+fi
+if [ -n "${SANDBOX_VM_ID:-}" ] && [ -s "$refused" ]; then
+  echo "proveo: the seed did not release the agent — $(cat "$refused")" >&2
+  [ "${1:-}" = "--cwd" ] || exit 1
 fi
 target="$PWD"
 if [ -n "${PROVEO_CLONE_MAIN:-}" ] && [ "$PWD" = "$PROVEO_CLONE_MAIN" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ -d "$PROVEO_WORKDIR" ]; then

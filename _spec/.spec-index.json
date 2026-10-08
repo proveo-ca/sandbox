@@ -151,6 +151,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/package-caches.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_experiments/reusable-clone.puml",
       "covers": [],
       "fingerprint": null
@@ -1076,7 +1081,13 @@
         "e2e/clone_test.go",
         "internal/backend/sandbox/sandbox_test.go",
         "e2e/clone_output_test.go",
-        "e2e/git_access_test.go"
+        "e2e/git_access_test.go",
+        "internal/credentials/project_env_merge.go",
+        "internal/credentials/project_env_merge_test.go",
+        "internal/backend/sandbox/clone_shares_test.go",
+        "packages/lib/entrypoint-lib.sh",
+        "packages/lib/proveo-await-seed",
+        "internal/contract/seed_shares_test.go"
       ],
       "fingerprint": null
     },
@@ -1531,7 +1542,8 @@
         "internal/contract/seed_command_shipped_test.go",
         "internal/contract/agent_launch_guard_test.go",
         "internal/contract/spec_notes_test.go",
-        "internal/imagetest/*_test.go"
+        "internal/imagetest/*_test.go",
+        "internal/contract/seed_shares_test.go"
       ],
       "fingerprint": null
     },

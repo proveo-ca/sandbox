@@ -93,6 +93,9 @@ type BackendSpec struct {
 	CloneOff     string
 	CloneSource  workspace.WorktreeSource // set when a linked worktree clones through its main worktree
 	CloneEnv     string                   // staged project .env the clone links, or ""
+	CloneEnvBase string                   // the staged bytes at launch, for the teardown merge
+	CloneEnvHost string                   // the host .env the staged copy came from
+	CloneStrip   []string                 // brokered keys the staged copy dropped
 	BrowserImage string
 }
 

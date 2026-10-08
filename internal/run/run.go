@@ -4,7 +4,6 @@ package run
 import (
 	"errors"
 	"fmt"
-	"github.com/proveo-ca/proveo/internal/devports"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/devports"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -617,15 +618,28 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 		return filepath.Join(dir, ".env")
 	}
 	path, dropped, err := credentials.StageProjectEnv(src, dir, strip)
+	if err == nil {
+		err = copyFile0600(path, filepath.Join(rs.EgDir, "sbx", "project-env.base"))
+	}
 	if err != nil {
 		ui.Warnf("clone: %s not staged (%v) — the agent runs without the project .env", src, err)
 		return ""
 	}
-	ui.Storef("clone: %s mounted read-only as the clone's .env (a copy, refreshed each run)", src)
+	rs.Backend.CloneEnvBase = filepath.Join(rs.EgDir, "sbx", "project-env.base")
+	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip = src, strip
+	ui.Storef("clone: %s mounted read-write as the clone's .env (a copy, refreshed each run; edits merge back at teardown)", src)
 	if len(dropped) > 0 {
 		ui.Notef("clone: dropped %s from it — sbx's proxy attaches those, the agent never holds them (`--credentials forward` keeps them)", strings.Join(dropped, ", "))
 	}
 	return path
+}
+
+func copyFile0600(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o600)
 }
 
 func cloneOffHint(whyOff string) string {
@@ -869,6 +883,9 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
 			CloneSource:      rs.Backend.CloneSource,
 			CloneEnv:         rs.Backend.CloneEnv,
+			CloneEnvBase:     rs.Backend.CloneEnvBase,
+			CloneEnvHost:     rs.Backend.CloneEnvHost,
+			CloneEnvStrip:    rs.Backend.CloneStrip,
 			Links:            rs.Workspace.Links,
 			DataDir:          p.DataDir,
 			Memory:           sbx.MemoryLimit(),

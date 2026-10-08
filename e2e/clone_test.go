@@ -141,23 +141,118 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 	w := newWatcher(t, sess)
 	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
 
-	script := `printf 'origin=%s\nenv=%s\nwritable=%s\nstatus=[%s]\n' ` +
+	script := `printf 'origin=%s\nenv=%s\nwritable=%s\nstatus=[%s]\nrefused=[%s]\n' ` +
 		`"$(git remote get-url origin 2>/dev/null)" ` +
 		`"$(grep -c ` + quoteWord("PROVEO_E2E_DOTENV="+token) + ` .env 2>/dev/null)" ` +
 		`"$( (: >> .env) 2>/dev/null && echo yes || echo no)" ` +
-		`"$(git status --porcelain -- .env 2>/dev/null)"`
+		`"$(git status --porcelain -- .env 2>/dev/null)" ` +
+		`"$(cat /dev/shm/proveo-seed-refused 2>/dev/null)"`
 	out, status := shellExec(t, sess, script, 60*time.Second)
 	if status != 0 {
 		t.Fatalf("probe exited %d:\n%s", status, out)
 	}
-	for _, want := range []string{"origin=/run/sandbox/source", "env=1", "writable=no", "status=[]"} {
+	for _, want := range []string{"origin=/run/sandbox/source", "env=1", "writable=yes", "status=[]", "refused=[]"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("probe lacks %q — a gitignored, symlinked host .env must reach the clone "+
-				"read-only and stay out of git status:\n%s", want, out)
+				"writable, pass the seed's share assertion, and stay out of git status:\n%s", want, out)
 		}
 	}
-	if b, err := os.ReadFile(hostEnv); err != nil || string(b) != "PROVEO_E2E_DOTENV="+token+"\n" {
-		t.Errorf("the run changed the host .env target: %q, %v", b, err)
+
+	// An append writes through the link; `sed -i` saves by rename and replaces it.
+	edited, added := randToken(), randToken()
+	if err := sess.SendText("printf 'PROVEO_E2E_DOTENV_EDIT=%s\\n' " + added + " >> .env && " +
+		"sed -i 's/^PROVEO_E2E_DOTENV=.*/PROVEO_E2E_DOTENV=" + edited + "/' .env && exit"); err != nil {
+		t.Fatalf("send edit: %v", err)
+	}
+	if err := sess.Enter(); err != nil {
+		t.Fatal(err)
+	}
+	screen, exited := waitSessionExit(sess, timeout)
+	if !exited {
+		t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+	}
+	want := "PROVEO_E2E_DOTENV=" + edited + "\nPROVEO_E2E_DOTENV_EDIT=" + added + "\n"
+	if b, err := os.ReadFile(hostEnv); err != nil || string(b) != want {
+		t.Errorf("host .env target after teardown = %q, %v; want %q — the clone's edits must merge home\n%s", b, err, want, screen)
+	}
+	if fi, err := os.Lstat(filepath.Join(work, ".env")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the checkout's .env is no longer a symlink (%v) — the write-back must replace the target, "+
+			"or a monorepo .env stops cascading to its worktrees", err)
+	}
+	if !strings.Contains(screen, ".env edits carried home") {
+		t.Errorf("teardown did not report the .env write-back\n%s", screen)
+	}
+}
+
+// TestCloneLiftsTrackedSpecEdits edits a tracked _spec inside the clone and
+// expects the edit in the host worktree after teardown, beside a host edit the
+// lift must keep.
+func TestCloneLiftsTrackedSpecEdits(t *testing.T) {
+	if !sbxAvailable() {
+		t.Skip("sandbox backend unavailable")
+	}
+	const target = "claudecode"
+	requireHarness(t, target)
+	proveoBin := buildProveo(t)
+
+	work, _ := filepath.EvalSymlinks(t.TempDir())
+	mkdirAll(t, filepath.Join(work, "_spec"))
+	writeFile(t, filepath.Join(work, "_spec", "lift.puml"), []byte("@startuml\n@enduml\n"))
+	writeFile(t, filepath.Join(work, "_spec", "host.puml"), []byte("@startuml\n@enduml\n"))
+	gitInit(t, work)
+
+	before, canList := sbxSandboxNames()
+	sess := tmux.New(fmt.Sprintf("proveo-clonespec-%d", os.Getpid()), nil)
+	t.Cleanup(func() {
+		sess.Kill()
+		removeLeakedSandboxes(t, before, canList)
+	})
+
+	cmd := []string{"env"}
+	if s := harnessSecrets(t, target); len(s) > 0 {
+		cmd = append(cmd, childEnvArgsFor(t, s[0])...)
+	} else {
+		cmd = append(cmd, childEnvArgs(t)...)
+	}
+	cmd = append(cmd,
+		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_AUTO_INSTALL_TOOLS=false",
+		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+	)
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start sandbox session: %v", err)
+	}
+
+	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
+	w := newWatcher(t, sess)
+	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+
+	out, status := shellExec(t, sess, `printf 'refused=[%s]\n' "$(cat /dev/shm/proveo-seed-refused 2>/dev/null)"`, 60*time.Second)
+	if status != 0 || !strings.Contains(out, "refused=[]") {
+		t.Fatalf("the seed refused the shares (exit %d):\n%s", status, out)
+	}
+
+	hostEdit := "' host edit " + randToken() + "\n"
+	writeFile(t, filepath.Join(work, "_spec", "host.puml"), []byte(hostEdit))
+	mark := randToken()
+	if err := sess.SendText("printf \"' %s\\n\" " + mark + " >> _spec/lift.puml && printf x >> _spec/host.puml && exit"); err != nil {
+		t.Fatalf("send edit: %v", err)
+	}
+	if err := sess.Enter(); err != nil {
+		t.Fatal(err)
+	}
+	screen, exited := waitSessionExit(sess, timeout)
+	if !exited {
+		t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+	}
+	if got := readIn(work, filepath.Join("_spec", "lift.puml")); !strings.Contains(got, mark) {
+		t.Errorf("_spec/lift.puml on the host = %q; the clone's edit must reach the worktree\n%s", got, screen)
+	}
+	if got := readIn(work, filepath.Join("_spec", "host.puml")); got != hostEdit {
+		t.Errorf("_spec/host.puml on the host = %q; the lift overwrote an edit the host made during the run", got)
+	}
+	if staged, _ := exec.Command("git", "-C", work, "diff", "--cached", "--name-only").Output(); len(staged) != 0 {
+		t.Errorf("the lift staged %q; it must leave the index alone", staged)
 	}
 }
 
