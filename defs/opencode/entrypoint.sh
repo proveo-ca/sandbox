@@ -24,76 +24,9 @@ else
   apply_env_bridges
 fi
 
-# NAMES NO MODEL, DELIBERATELY. This used to write "{env:OPENCODE_MODEL}" into
-# every model slot, filled by the retired bridge tables. opencode substitutes an
-# UNSET {env:...} with the EMPTY STRING, so once the bridging went the seed
-# started pinning the model to "" — and pinning it in the DURABLE HOME, where it
-# outlives the run. A config that names no model is what lets the agent's own
-# default apply, which is the answer this plan recorded for Q1.
-# SPEC: _spec/_plans/retire-model-bridging.puml
-write_minimal_opencode_config() {
-  local target="$1"
-  cat >"$target" <<'EOF'
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {},
-  "autoupdate": false,
-  "agent": {
-    "plan": {
-      "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
-      "mode": "primary",
-      "temperature": 0.1,
-      "permission": { "edit": "deny", "bash": "deny" }
-    },
-    "build": {
-      "description": "Implementer. Edits allowed; bash requires human approval per command.",
-      "mode": "primary",
-      "temperature": 0.2,
-      "permission": { "edit": "allow", "bash": "ask" }
-    }
-  }
-}
-EOF
-}
-seed_opencode_config() {
-  local target="$1"
-  local candidate
-  local candidates=(
-    "${HOME}/.config/opencode/sample_opencode.json"
-    "${HOME}/Library/Application Support/opencode/sample_opencode.json"
-    "/opt/opencode/sample_opencode.json"
-    "/opt/homebrew/share/opencode/sample_opencode.json"
-    "/usr/local/share/opencode/sample_opencode.json"
-  )
-
-  for candidate in "${candidates[@]}"; do
-    if [[ -f "$candidate" ]]; then
-      cp -f "$candidate" "$target"
-      return 0
-    fi
-  done
-
-  write_minimal_opencode_config "$target"
-}
-
+# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
 seed_defaults() {
-  local src="/opt/opencode/defaults"
-  local dst="${HOME}/.config/opencode"
-  mkdir -p "$dst" "$dst/agents"
-
-  if [[ "${OPENCODE_RESEED:-0}" == "1" ]]; then
-    echo "🔁 OPENCODE_RESEED=1 — re-seeding $dst from baked-in defaults"
-    seed_opencode_config "$dst/opencode.json"
-    proveo_seed opencode
-    return 0
-  fi
-
-  local seeded=()
-  [[ -f "$dst/opencode.json" ]] || { seed_opencode_config "$dst/opencode.json"; seeded+=("opencode.json"); }
   proveo_seed opencode
-  if (( ${#seeded[@]} > 0 )); then
-    echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
-  fi
 }
 seed_defaults
 ensure_git_safe_directory "$(pwd)"
@@ -102,45 +35,48 @@ scope_git_worktree "$(pwd)"
 
 configure_opencode_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
-  command -v jq >/dev/null 2>&1 || { echo "⚠️  jq missing; cannot wire Ollama provider" >&2; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "❌ Install jq to wire the requested Ollama model" >&2; return 1; }
   local config_file="${HOME}/.config/opencode/opencode.json"
   local base="${OLLAMA_API_BASE:-http://ollama:11434}"
   local model="${PROVEO_LOCAL_MODEL}"
-  mkdir -p "$(dirname "$config_file")"
+  if [[ -e "${config_file}c" ]]; then
+    echo "❌ Wire the requested Ollama model in ${config_file}c directly; automatic wiring cannot edit the higher-priority JSONC config" >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "$config_file")" || return 1
   local existing='{}' tmp
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
-  tmp="$(mktemp)"
-  # SELECTING the local model is this block's job now, not just registering the
-  # provider. Registering only makes the id available; something still has to
-  # choose it, and until the retirement that something was apply_model_bridges
-  # writing OPENCODE_MODEL from ARCHITECT_MODEL. opencode is the one harness whose
-  # local model was named ONLY by the bridge -- cecli sets CECLI_MODEL itself and
-  # claudecode gets ANTHROPIC_MODEL from `docker -e` -- so deleting the bridge left
-  # --local-model here wiring a provider nothing selected. PROVEO_LOCAL_MODEL is
-  # deliberately in scope (Q2 is deferred); a role name would not be.
-  # SPEC: _spec/_plans/retire-model-bridging.puml
+  if [[ -e "$config_file" ]]; then
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+      echo "❌ Fix $config_file to contain one valid JSON object before wiring the requested Ollama model" >&2
+      return 1
+    fi
+    existing="$(cat "$config_file")" || return 1
+  fi
+  while [[ "$base" == */ ]]; do base="${base%/}"; done
+  while [[ "$base" == */v1 ]]; do
+    base="${base%/v1}"
+    while [[ "$base" == */ ]]; do base="${base%/}"; done
+  done
+  tmp="$(mktemp "${config_file}.tmp.XXXXXX")" || return 1
+  # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
   if printf '%s' "$existing" | jq \
-       --arg base "${base%/}/v1" --arg model "$model" '
-         .provider.ollama = {
-           npm: "@ai-sdk/openai-compatible",
-           name: "Ollama (local)",
-           options: { baseURL: $base, apiKey: "ollama" },
-           models: { ($model): { name: ($model + " (local)") } }
-         }
-         | .model = ("ollama/" + $model)
-         | .small_model = ("ollama/" + $model)
-       ' >"$tmp"; then
-    mv "$tmp" "$config_file"
-    # The PROVEO_MODELS preamble below is the assertable contract for what the
-    # container will actually run (_spec/cmd/proveo-entrypoint/prep-sequence.puml),
-    # and opencode does not read these itself — the config above is what it reads.
-    # They exist so the preamble reports the truth instead of "unset".
+       --arg base "$base/v1" --arg model "$model" '
+          .providers.ollama = {
+            package: "@opencode/ai/providers/openai-compatible",
+            name: "Ollama (local)",
+            settings: { baseURL: $base, apiKey: "ollama" },
+            models: { ($model): { name: ($model + " (local)") } }
+          }
+          | .model = ("ollama/" + $model)
+          | .agents.title.model = ("ollama/" + $model)
+        ' >"$tmp" && mv "$tmp" "$config_file"; then
     export OPENCODE_MODEL="ollama/$model"
     export OPENCODE_SMALL_MODEL="ollama/$model"
     echo "🧩 Wired Ollama provider (ollama/$model → $base) into $config_file"
   else
     rm -f "$tmp"
-    echo "⚠️  Could not wire Ollama provider (jq failed)" >&2
+    echo "❌ Could not wire the requested Ollama model in $config_file; check its providers/agents objects and write permissions" >&2
+    return 1
   fi
 }
 configure_opencode_local_model

@@ -1,6 +1,9 @@
 description: Ruthless senior-engineer reviewer. Finds problems; never suggests fixes on first pass.
 mode: subagent
-temperature: 0.1
-permission:
-  edit: deny
-  bash: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny

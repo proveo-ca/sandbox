@@ -1,9 +1,26 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {},
-  "autoupdate": false,
-  "agent": {
-    "plan": { "mode": "primary" },
-    "build": { "mode": "primary" }
+  "providers": {},
+  "update": "disable",
+  "agents": {
+    "plan": {
+      "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
+      "mode": "primary",
+      "permissions": [
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "build": {
+      "description": "Implementer. Edits allowed; bash requires human approval per command.",
+      "mode": "primary",
+      "permissions": [
+        { "action": "edit", "resource": "*", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "ask" }
+      ]
+    }
+  },
+  "compaction": {
+    "auto": true
   }
 }
