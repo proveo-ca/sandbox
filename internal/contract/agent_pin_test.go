@@ -21,9 +21,9 @@ var agentPins = []struct {
 }{
 	{
 		image: "proveo/opencode", target: "opencode",
-		arg: "OPENCODE_VERSION", pkg: "opencode-ai", ecosystem: "npm",
-		install: regexp.MustCompile(`npm install -g "opencode-ai@\$\{OPENCODE_VERSION\}"`),
-		banned:  []string{"opencode-ai@latest", "npm install -g opencode-ai "},
+		arg: "OPENCODE_VERSION", pkg: "@opencode/cli", ecosystem: "npm",
+		install: regexp.MustCompile(`npm install -g "@opencode/cli@\$\{OPENCODE_VERSION\}"`),
+		banned:  []string{"@opencode/cli@latest", "npm install -g @opencode/cli "},
 	},
 	{
 		image: "proveo/claudecode", target: "claudecode",
@@ -76,8 +76,10 @@ func TestEveryHarnessPinsItsAgentByABuildArgItUses(t *testing.T) {
 			}
 
 			spec := imagebuild.Specs[p.target]
-			if !slices.ContainsFunc(spec.Pins, func(pin imagebuild.Pin) bool { return pin.Arg == p.arg && pin.Eco == p.ecosystem }) {
-				t.Errorf("imagebuild target %s does not pin %s via %s — the Dockerfile requires the arg, so a build without it fails", p.target, p.arg, p.ecosystem)
+			if !slices.ContainsFunc(spec.Pins, func(pin imagebuild.Pin) bool {
+				return pin.Arg == p.arg && pin.Eco == p.ecosystem && (p.ecosystem == "cursor" || pin.Pkg == p.pkg)
+			}) {
+				t.Errorf("imagebuild target %s does not pin %s with %s via %s", p.target, p.pkg, p.arg, p.ecosystem)
 			}
 		})
 	}

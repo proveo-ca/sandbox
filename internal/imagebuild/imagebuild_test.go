@@ -242,14 +242,14 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 		override, eco, pkg  string
 		wantURL, want, note string
 	}{
-		{name: "npm registry", body: `{"name":"opencode-ai","version":"1.18.27"}`,
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			wantURL: "https://registry.npmjs.org/opencode-ai/latest", want: "1.18.27",
-			note: "pin: opencode-ai@1.18.27 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
+		{name: "npm scoped package", body: `{"name":"@opencode/cli","version":"2.0.24"}`,
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			wantURL: "https://registry.npmjs.org/@opencode/cli/latest", want: "2.0.24",
+			note: "pin: @opencode/cli@2.0.24 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
 		{name: "npm honours NPM_CONFIG_REGISTRY", body: `{"version":"2.0.0"}`,
 			env:      map[string]string{"NPM_CONFIG_REGISTRY": "https://npm.example/"},
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			wantURL: "https://npm.example/opencode-ai/latest", want: "2.0.0", note: "@2.0.0 (resolved upstream"},
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			wantURL: "https://npm.example/@opencode/cli/latest", want: "2.0.0", note: "@2.0.0 (resolved upstream"},
 		{name: "pypi current release", body: `{"info":{"name":"cecli-dev","version":"1.4.0"},"releases":{"1.3.0":[]}}`,
 			override: "CECLI_VERSION", eco: "pypi", pkg: "cecli-dev",
 			wantURL: "https://pypi.org/pypi/cecli-dev/json", want: "1.4.0",
@@ -260,9 +260,9 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 			wantURL: "https://cursor.com/install", want: "2026.08.31-4057e58",
 			note: "@2026.08.31-4057e58 (resolved upstream; override with CURSOR_AGENT_VERSION=<version>)"},
 		{name: "an exported override wins without asking upstream",
-			env:      map[string]string{"OPENCODE_VERSION": "1.18.20"},
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			want: "1.18.20", note: "pin: opencode-ai@1.18.20 (from OPENCODE_VERSION)"},
+			env:      map[string]string{"OPENCODE_VERSION": "2.0.6"},
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			want: "2.0.6", note: "pin: @opencode/cli@2.0.6 (from OPENCODE_VERSION)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -289,7 +289,7 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ override, eco, pkg string }{
-		{"OPENCODE_VERSION", "npm", "opencode-ai"},
+		{"OPENCODE_VERSION", "npm", "@opencode/cli"},
 		{"CECLI_VERSION", "pypi", "cecli-dev"},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, nil)

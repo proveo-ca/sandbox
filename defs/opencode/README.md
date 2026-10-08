@@ -1,6 +1,6 @@
 # opencode Docker Runner
 
-Custom Docker image for [`opencode-ai`](https://github.com/anomalyco/opencode) with:
+Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/docs)) with:
 
 - `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm`)
 - Root-free runtime: baked non-root user `opencode` (uid 1000); the run wrapper launches as the invoking host uid via `--user $(id -u):$(id -g)`
