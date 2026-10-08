@@ -40,8 +40,8 @@ title opencode paradigm — subagent crew with HITL oversight
 ' The pre-migration writer uses provider.ollama/npm/options and small_model.
 ' The native sibling owns its replacement; both versions must register AND
 ' select PROVEO_LOCAL_MODEL, using <OLLAMA_API_BASE>/v1 (default ollama:11434).
-' An undefined ollama provider can fall back to a cloud model, so a local
-' request must never amount to a model string without the provider definition.
+' Legacy local-model e2e caught an undefined ollama provider falling back to
+' a cloud model; a local request must also supply the provider definition.
 '
 ' ── HOST AUTH AND BILLING DECISIONS RETAINED FROM THE ORIGINAL NOTES ───────
 ' Zen (opencode/<model>) and Go (opencode-go/<model>) use OPENCODE_API_KEY.
@@ -61,6 +61,13 @@ title opencode paradigm — subagent crew with HITL oversight
 ' The approved v2 lifecycle preserves sessions and removes stored credentials;
 ' the native sibling deliberately leaves its safe implementation unresolved.
 ' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
+'
+' Register: manual normalized word/syllable counts; two sentences per note.
+' FK: note right of CREW; words=28 syllables=54; FK 12.6
+' FK: note bottom of EP (model); words=30 syllables=56; FK 12.3
+' FK: note bottom of EP (auth); words=30 syllables=54; FK 11.5
+' FK: note bottom of DEV; words=32 syllables=54; FK 10.6
+' FK: note bottom of CLI; words=28 syllables=49; FK 10.5
 '
 actor "Developer\nreviews between loops" as DEV
 

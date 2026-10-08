@@ -26,6 +26,9 @@
 '   live e2e per def .............. _spec/tests/44-git-sync-turn-e2e.puml
 '   git identity .................. _spec/internal/gitidentity/authorship.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' Register: manual normalized word/syllable counts; two sentences per rewritten note.
+' FK: note right of HOOK; words=30 syllables=55; FK 11.9
+' FK: note as N_RECURSE; words=32 syllables=55; FK 10.9
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 title git-sync-turn — Stop checkpoint / best-effort idle observer

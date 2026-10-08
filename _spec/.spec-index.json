@@ -723,6 +723,8 @@
         "defs/opencode/harness.manifest",
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/hooks/**",
+        "packages/lib/opencode-credentials.py",
+        "packages/lib/test_opencode_credentials.py",
         "defs/subagents/_frontmatter/opencode/**",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/launch_config_test.go",
@@ -1520,10 +1522,10 @@
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/codex/Dockerfile",
+        "defs/codex/managed/requirements.toml",
         "defs/claudecode/mcp/Dockerfile",
         "internal/contract/git_sync_turn_test.go",
-        "e2e/git_sync_turn_test.go",
-        "defs/codex/managed/requirements.toml"
+        "e2e/git_sync_turn_test.go"
       ],
       "fingerprint": null
     },
