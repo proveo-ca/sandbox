@@ -4,9 +4,12 @@
 import argparse
 import contextlib
 import fcntl
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
+import re
 import sqlite3
 import stat
 import sys
@@ -28,7 +31,47 @@ CREDENTIAL_COLUMNS = [
 LOCK_NAME = ".proveo-opencode-snapshot.lock"
 LIFECYCLE_LOCK_NAME = ".proveo-opencode-runtime.lock"
 RECOVERY_NAME = ".proveo-opencode-recovery"
+STATE_NAME = ".proveo-opencode-state"
 SIDECARS = ("-wal", "-shm", "-journal")
+AUTH_FILES = ("auth.json", "mcp-auth.json")
+TOKEN_SCHEMAS = {
+    "credential": CREDENTIAL_COLUMNS,
+    "account": [
+        ("id", "TEXT", 0, 1),
+        ("email", "TEXT", 1, 0),
+        ("url", "TEXT", 1, 0),
+        ("access_token", "TEXT", 1, 0),
+        ("refresh_token", "TEXT", 1, 0),
+        ("token_expiry", "INTEGER", 0, 0),
+        ("time_created", "INTEGER", 1, 0),
+        ("time_updated", "INTEGER", 1, 0),
+    ],
+    "control_account": [
+        ("email", "TEXT", 1, 1),
+        ("url", "TEXT", 1, 2),
+        ("access_token", "TEXT", 1, 0),
+        ("refresh_token", "TEXT", 1, 0),
+        ("token_expiry", "INTEGER", 0, 0),
+        ("active", "INTEGER", 1, 0),
+        ("time_created", "INTEGER", 1, 0),
+        ("time_updated", "INTEGER", 1, 0),
+    ],
+    "account_state": [
+        ("id", "INTEGER", 0, 1),
+        ("active_account_id", "TEXT", 0, 0),
+        ("active_org_id", "TEXT", 0, 0),
+    ],
+}
+JSON_COLUMNS = {
+    "session_message": ("data",),
+    "event": ("data",),
+    "session_pending": ("data",),
+    "session_inbox": ("payload",),
+    "instruction_blob": ("value",),
+    "instruction_entry": ("value",),
+    "instruction_state": ("initial_values", "current_values"),
+    "session_v2": ("metadata", "summary_diffs", "revert"),
+}
 
 
 class SnapshotError(Exception):
@@ -53,30 +96,90 @@ def credential_schema(connection):
             and {"project", "session", "message", "part"} <= tables
             and not any("credential" in name.lower() for name, _, _ in objects)
         ):
-            return False
-        raise SnapshotError("unsupported credential schema")
-    info = connection.execute("PRAGMA table_xinfo(credential)").fetchall()
-    if any(row[6] != 0 for row in info):
-        raise SnapshotError("unsupported credential schema")
-    columns = [
-        (name, kind.upper(), required, primary)
-        for _, name, kind, required, _, primary, _ in info
-    ]
-    if columns != CREDENTIAL_COLUMNS:
-        raise SnapshotError("unsupported credential schema")
-    if any(kind == "trigger" and table == "credential" for _, kind, table in objects):
-        raise SnapshotError("unsupported credential trigger")
+            pass
+        else:
+            raise SnapshotError("unsupported credential schema")
+    for table, expected in TOKEN_SCHEMAS.items():
+        if table not in tables:
+            continue
+        info = connection.execute('PRAGMA table_xinfo("' + table + '")').fetchall()
+        columns = [
+            (name, kind.upper(), required, primary)
+            for _, name, kind, required, _, primary, _ in info
+        ]
+        if any(row[6] != 0 for row in info) or columns != expected:
+            raise SnapshotError("unsupported authentication schema")
+    if any(kind == "trigger" and table in TOKEN_SCHEMAS for _, kind, table in objects):
+        raise SnapshotError("unsupported authentication trigger")
     for table in tables:
         quoted = table.replace('"', '""')
-        if any(
-            row[2].lower() == "credential"
-            for row in connection.execute('PRAGMA foreign_key_list("' + quoted + '")')
-        ):
-            raise SnapshotError("unsupported credential reference")
-    return True
+        for row in connection.execute('PRAGMA foreign_key_list("' + quoted + '")'):
+            if row[2].lower() not in TOKEN_SCHEMAS:
+                continue
+            if (
+                table == "account_state"
+                and row[2] == "account"
+                and row[3:5] == ("active_account_id", "id")
+                and row[6] == "SET NULL"
+            ):
+                continue
+            raise SnapshotError("unsupported authentication reference")
+    return bool(tables.intersection(TOKEN_SCHEMAS))
 
 
-def database_snapshot(source, target):
+def rebased(value, old, new):
+    if isinstance(value, str):
+        return value.replace(str(old).rstrip("/") + "/", str(new).rstrip("/") + "/")
+    if isinstance(value, list):
+        return [rebased(item, old, new) for item in value]
+    if isinstance(value, dict):
+        return {key: rebased(item, old, new) for key, item in value.items()}
+    return value
+
+
+def rebase_database(db, old, new):
+    tables = {
+        row[0]
+        for row in db.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
+    }
+    for table, columns in JSON_COLUMNS.items():
+        if table not in tables:
+            continue
+        present = {row[1] for row in db.execute('PRAGMA table_info("' + table + '")')}
+        for column in columns:
+            if column not in present:
+                continue
+            for rowid, text in db.execute(
+                f'SELECT rowid, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL'
+            ).fetchall():
+                value = json.loads(text)
+                changed = rebased(value, old, new)
+                if changed != value:
+                    db.execute(
+                        f'UPDATE "{table}" SET "{column}" = ? WHERE rowid = ?',
+                        (json.dumps(changed, separators=(",", ":")), rowid),
+                    )
+    for table, column in (
+        ("session_v2", "directory"),
+        ("project", "worktree"),
+        ("project_directory", "directory"),
+        ("worktree", "directory"),
+    ):
+        if table in tables and column in {
+            row[1] for row in db.execute(f'PRAGMA table_info("{table}")')
+        }:
+            for rowid, value in db.execute(
+                f'SELECT rowid, "{column}" FROM "{table}"'
+            ).fetchall():
+                changed = rebased(value, old, new)
+                if changed != value:
+                    db.execute(
+                        f'UPDATE "{table}" SET "{column}" = ? WHERE rowid = ?',
+                        (changed, rowid),
+                    )
+
+
+def database_snapshot(source, target, rebase=None):
     deadline = time.monotonic() + 30
 
     def progress(*_):
@@ -93,22 +196,47 @@ def database_snapshot(source, target):
             dst.execute("PRAGMA trusted_schema = OFF")
             check_database(dst)
             has_credentials = credential_schema(dst)
+            tables = set()
             if dst.execute("PRAGMA journal_mode = DELETE").fetchone() != ("delete",):
                 raise SnapshotError("cannot create standalone SQLite snapshot")
             dst.execute("PRAGMA secure_delete = ON")
             if has_credentials:
-                dst.execute("DELETE FROM credential")
-                dst.commit()
+                tables = {
+                    row[0]
+                    for row in dst.execute(
+                        "SELECT name FROM sqlite_schema WHERE type = 'table'"
+                    )
+                }
+                if "account_state" in tables:
+                    dst.execute(
+                        "UPDATE account_state SET active_account_id = NULL, active_org_id = NULL"
+                    )
+                for table in ("credential", "account", "control_account"):
+                    if table in tables:
+                        dst.execute('DELETE FROM "' + table + '"')
+            if rebase is not None:
+                rebase_database(dst, *rebase)
+            dst.commit()
             dst.execute("VACUUM")
             check_database(dst)
-            if has_credentials and dst.execute(
-                "SELECT count(*) FROM credential"
-            ).fetchone() != (0,):
-                raise SnapshotError("credential removal failed")
+            if has_credentials:
+                for table in ("credential", "account", "control_account"):
+                    if table in tables and dst.execute(
+                        'SELECT count(*) FROM "' + table + '"'
+                    ).fetchone() != (0,):
+                        raise SnapshotError("credential removal failed")
     os.chmod(target, 0o600)
 
 
-def inventory(root):
+def native_database(path, selected):
+    return len(path.parts) == 1 and (
+        path.name == selected
+        or path.name == "opencode.db"
+        or re.fullmatch(r"opencode-[A-Za-z0-9._-]+\.db", path.name) is not None
+    )
+
+
+def inventory(root, selected="opencode.db"):
     databases, files, directories, sidecars = [], [], [], []
     if not root.exists():
         return databases, files, directories
@@ -119,7 +247,7 @@ def inventory(root):
             dirnames.remove(RECOVERY_NAME)
         for name in dirnames:
             path = Path(directory, name)
-            if path.relative_to(root) == Path("auth.json"):
+            if str(path.relative_to(root)) in AUTH_FILES:
                 raise SnapshotError("legacy auth path is not a file")
             if path.is_symlink():
                 raise SnapshotError("data directory contains a symlink")
@@ -127,20 +255,17 @@ def inventory(root):
         for name in filenames:
             path = Path(directory, name)
             rel = path.relative_to(root)
-            if rel in (Path("auth.json"), Path(LOCK_NAME), Path(LIFECYCLE_LOCK_NAME)):
+            if str(rel) in (*AUTH_FILES, LOCK_NAME, LIFECYCLE_LOCK_NAME):
                 continue
             if not stat.S_ISREG(path.lstat().st_mode):
                 raise SnapshotError("data directory contains a non-regular file")
-            if name.endswith(SIDECARS):
+            suffix = next(
+                (suffix for suffix in SIDECARS if name.endswith(suffix)), None
+            )
+            if suffix and native_database(Path(str(rel)[: -len(suffix)]), selected):
                 sidecars.append(rel)
                 continue
-            with path.open("rb") as file:
-                header = file.read(16)
-            if header == b"SQLite format 3\x00" or path.suffix in (
-                ".db",
-                ".sqlite",
-                ".sqlite3",
-            ):
+            if native_database(rel, selected):
                 databases.append(rel)
             else:
                 files.append(rel)
@@ -166,9 +291,9 @@ def publish(source, target):
             os.unlink(tmp)
 
 
-def normalize_offline(root):
+def normalize_offline(root, selected="opencode.db"):
     root = Path(root).resolve()
-    databases, _, _ = inventory(root)
+    databases, _, _ = inventory(root, selected)
     with contextlib.ExitStack() as stack:
         connections = []
         for rel in databases:
@@ -200,7 +325,52 @@ def normalize_offline(root):
                 path.unlink()
 
 
-def snapshot(source, destination):
+def copy_state(source, destination, rebase=None):
+    source, destination = Path(source), Path(destination)
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not source.exists():
+        return
+    for directory, dirs, files in os.walk(source, followlinks=False):
+        if Path(directory) == source:
+            dirs[:] = [name for name in dirs if name != "locks"]
+        for name in dirs:
+            if Path(directory, name).is_symlink():
+                raise SnapshotError("native state contains a symlink")
+        for name in files:
+            rel = Path(directory, name).relative_to(source)
+            if len(rel.parts) == 1 and (
+                name in AUTH_FILES
+                or re.fullmatch(r"service(?:-[A-Za-z0-9._-]+)?\.json", name)
+            ):
+                continue
+            origin = source / rel
+            if not stat.S_ISREG(origin.lstat().st_mode):
+                raise SnapshotError("native state contains a non-regular file")
+            target = destination / rel
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copy2(origin, target)
+            if rebase and target.suffix in (".json", ".jsonl"):
+                text = target.read_text()
+                updated = text.replace(
+                    str(rebase[0]).rstrip("/") + "/", str(rebase[1]).rstrip("/") + "/"
+                )
+                if text != updated:
+                    target.write_text(updated)
+
+
+def database_digest(path):
+    digest = hashlib.sha256()
+    with contextlib.closing(
+        sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True)
+    ) as db:
+        for statement in db.iterdump():
+            digest.update(statement.encode())
+    return digest.digest()
+
+
+def snapshot(
+    source, destination, selected="opencode.db", rebase=None, state_source=None
+):
     source = Path(source).resolve()
     destination = Path(destination).resolve()
     if (
@@ -219,8 +389,8 @@ def snapshot(source, destination):
     )
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        databases, files, directories = inventory(source)
-        old_databases, _, _ = inventory(destination)
+        databases, files, directories = inventory(source, selected)
+        old_databases, _, _ = inventory(destination, selected)
         for rel in set(databases + old_databases):
             for suffix in SIDECARS:
                 if os.path.lexists(str(destination / rel) + suffix):
@@ -235,20 +405,30 @@ def snapshot(source, destination):
                 target = stage / rel
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 origin = source if rel in databases else destination
-                database_snapshot(origin / rel, target)
+                database_snapshot(origin / rel, target, rebase)
             for rel in files:
                 target = stage / rel
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 shutil.copy2(source / rel, target)
+            if state_source is not None:
+                shutil.rmtree(stage / STATE_NAME, ignore_errors=True)
+                copy_state(state_source, stage / STATE_NAME, rebase)
+                for directory, _, names in os.walk(stage / STATE_NAME):
+                    directories.append(Path(directory).relative_to(stage))
+                    files.extend(
+                        Path(directory, name).relative_to(stage) for name in names
+                    )
             for rel in directories:
                 (destination / rel).mkdir(mode=0o700, parents=True, exist_ok=True)
-            for rel in set(databases + old_databases + files):
+            for name in AUTH_FILES:
+                auth = destination / name
+                if os.path.lexists(auth):
+                    auth.unlink()
+            ordered = sorted(set(files)) + sorted(set(databases + old_databases))
+            for rel in ordered:
                 target = destination / rel
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 publish(stage / rel, target)
-            auth = destination / "auth.json"
-            if os.path.lexists(auth):
-                auth.unlink()
             directory_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory_fd)
@@ -265,9 +445,10 @@ def main():
     parser.add_argument("source")
     parser.add_argument("destination")
     parser.add_argument("--offline-destination", required=True, action="store_true")
+    parser.add_argument("--database", default="opencode.db")
     args = parser.parse_args()
     try:
-        snapshot(args.source, args.destination)
+        snapshot(args.source, args.destination, args.database)
     except (SnapshotError, sqlite3.Error, OSError):
         print(
             "proveo: OpenCode credential-free snapshot failed; do not launch or reuse unsanitized state",

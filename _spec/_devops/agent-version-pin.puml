@@ -29,7 +29,8 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' Every harness must keep its CLI's auto-updater OFF — claudecode by
 ' DISABLE_AUTOUPDATER, cecli by `check-update: false`, cursor by the same class.
 ' Approved OpenCode v2 integration uses OPENCODE_DISABLE_AUTOUPDATE=1 and
-' native update: disable; the source replacement is pending in the sibling plan.
+' native update: disable; both are present in the in-progress source.
+' Acceptance remains pending in the sibling plan; source presence is not a test result.
 ' A successful runtime update replaces the resolved release and unpins the image.
 '
 ' But it moved the update layer UP, and the rung it moved to has no motor and
@@ -163,10 +164,10 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '
 ' Register: manual normalized word/syllable counts; two sentences per note.
 ' FK: note over BK; words=32 syllables=53; FK 10.2
-' FK: note as N_ARG; words=31 syllables=58; FK 12.5
+' FK: note over BK (N_ARG); words=31 syllables=58; FK 12.5
 ' FK: note over LIB; words=29 syllables=55; FK 12.4
-' FK: note as N_REFUSE; words=29 syllables=56; FK 12.9
-' FK: note as N_UPDATE; words=32 syllables=58; FK 12.0
+' FK: note over LIB (N_REFUSE); words=29 syllables=56; FK 12.9
+' FK: note over BK (N_UPDATE); words=32 syllables=58; FK 12.0
 ' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
@@ -205,7 +206,8 @@ note over BK
   that version.
 end note
 
-note as N_ARG
+' note-id: N_ARG
+note over BK
   A bare version argument prevents direct builds
   from silently selecting the newest release.
   The guard requires the resolved version, while
@@ -221,7 +223,8 @@ note over LIB
   access.
 end note
 
-note as N_REFUSE
+' note-id: N_REFUSE
+note over LIB
   Failed retrieval returns an error rather than
   guessing a version or accepting latest.
   Unsupported ecosystems fail the same way
@@ -229,7 +232,8 @@ note as N_REFUSE
   the unpinned installation path.
 end note
 
-note as N_UPDATE
+' note-id: N_UPDATE
+note over BK
   Disable the harness updater so runtime cannot
   replace the release pinned by the image.
   The approved native migration uses the v2

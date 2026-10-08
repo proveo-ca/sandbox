@@ -1,36 +1,49 @@
 @startuml OpenCodeTopology
+' purpose: the OpenCode native crew layout and approved automatic session policy
+' covers: defs/opencode/**
+' covers: defs/subagents/_frontmatter/opencode/**
+' covers: packages/lib/entrypoint-lib.sh
+' Native migration and pending acceptance: _spec/defs/opencode/native-v2-integration.puml
+' Crew/auth decisions: _spec/defs/opencode/opencode-paradigm.puml
+' Automatic approval is an approved target, not evidence that its exact setting passed tests.
+' Legacy local-model e2e caught cloud fallback without an ollama provider definition.
+' The shared LSP detector emits lang|count|cmd|arg...|extcsv; native rendering keeps
+' every command field between the count and trailing extension CSV.
+' Register: manual normalized word/syllable counts; two sentences per reasoning note.
+' FK: note right of Crew; words=31 syllables=57; FK 12.2
+' FK: note right of Env; words=30 syllables=56; FK 12.3
+' FK: note right of Lsp; words=30 syllables=53; FK 11.1
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 skinparam linetype ortho
-' purpose: what an opencode container is made of and where each part comes from
-' covers: defs/opencode/**
 
 left to right direction
 
 title OpenCode Topology — GStack Subagent Crew
 
-actor "Human (HITL)" as Human
+actor "Human\nrisk instructions + review" as Human
 actor "Primary Agent\n(Team Lead)" as Lead
 
 package "Harness Layer" as Harness {
  component "entrypoint.sh" as Entrypoint <<script>>
- component ".env + model normalization" as Env <<logic>>
+ component ".env + requested local-provider wiring" as Env <<logic>>
  component "LSP auto-detect" as Lsp <<logic>>
- component "seed defaults + subagents" as Seed <<logic>>
+ component "shared native bootstrap + subagents" as Seed <<logic>>
  component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
 }
 
 package "Primary Agents" as Primaries {
- component "plan\n(read-only, temp=0.1)" as Plan <<agent>>
- component "build\n(edit+ask bash, temp=0.2)" as Build <<agent>>
+ component "plan\n(edit + shell deny)" as Plan <<agent>>
+ component "build\n(edit allow; native shell ask rule)" as Build <<agent>>
+ component "opencode session\napproved automatic approval mode" as Policy <<logic>>
 }
 
 package "Subagent Crew" as Crew {
  component "@architect\n(design before code)" as Architect <<subagent>>
- component "@backend / @frontend\n(domain implementers)" as Domain <<subagent>>
- component "@devops / @sre" as Ops <<subagent>>
+ component "@backend / @frontend\n(domain advisors; no edit/shell)" as Domain <<subagent>>
+ component "@devops / @sre\n(advisors; no edit/shell)" as Ops <<subagent>>
  component "@adversarial-reviewer\n(find bugs, no fixes)" as Reviewer <<subagent>>
  component "@security-reviewer" as Security <<subagent>>
  component "@spec-keeper\n(_spec/ changes)" as SpecKeeper <<subagent>>
@@ -39,7 +52,7 @@ package "Subagent Crew" as Crew {
 
 package "Verification Layer" as Verify {
  component "detect test/lint/build cmds" as Detect <<logic>>
- component "context rot/drift mitigation" as Context <<logic>>
+ component "compaction.auto" as Context <<logic>>
  component "review gates\nBLOCKER/HIGH stop completion" as Gates <<logic>>
 }
 
@@ -50,42 +63,48 @@ Entrypoint --> Seed
 Entrypoint --> AgentsMd
 Lead --> Plan : delegate planning
 Lead --> Build : delegate implementation
+Seed --> Policy : approved session policy; validation pending
+Policy --> Build : automatic asks, not per-shell HITL
 Build --> Architect : request design
-Build --> Domain : request code
+Build --> Domain : request domain advice
 Domain --> Reviewer : request review
 Reviewer --> Security : security review if needed
 Lead --> Verify : run detected commands
 Verify --> Gates : enforce before done
-Human --> Lead : approve risky bash, merge
+Human --> Lead : risk instructions + merge review
 
 note right of Crew
-Subagents are markdown-defined.
-Lead orchestrates delegation
-and enforces review loops.
-Domain routing decides which
-specialist reviews the work.
+  Shared Markdown bodies define the advisor crew
+  without granting implementation rights.
+  The lead routes reviews by concern, while the
+  spec-keeper prompt confines its existing edit
+  exception to the approved documentation scope.
 end note
 
 note bottom of Primaries
-plan = read-only spec producer
-build = edit-capable implementer
+  plan = edit + shell denied
+  build = edit allowed; shell rule ask
+end note
+
+note bottom of Policy
+  Approved session policy is automatic.
+  Exact native setting awaits validation.
 end note
 
 note right of Env
-  **""ollama/<model>"" resolves only when an ""ollama"" provider is DEFINED.**
-  Without that block opencode does not error — it silently falls back to
-  its default cloud model, which is the failure the agent-E2E suite caught:
-  a run that looks local, bills remotely, and sends the workspace out.
-  So ""--local-model"" writes the provider definition, not just the model id.
+  The default seed names no model so the harness
+  retains model selection. An explicit
+  local-model request registers its provider
+  and selects that model instead of reviving
+  the retired role-to-model bridge.
 end note
 
 note right of Lsp
-  The shared detector emits ""lang|count|cmd|arg…|extcsv"" lines; this
-  entrypoint renders them into opencode's own ""lsp"" shape —
-  ""{lang: {command: [cmd, args…], extensions: [.…]}}"" — where command is
-  every field between the count and the trailing CSV. The detector itself
-  lives in ""packages/lib/entrypoint-lib\.sh"" and is shared by every
-  LSP-capable harness; only this rendering is opencode-specific.
+  The shared detector emits command fields
+  followed by the extension list for each
+  language. The native writer preserves those
+  boundaries when building LSP entries, so
+  arguments cannot become file extensions.
 end note
 
 

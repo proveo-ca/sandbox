@@ -2,11 +2,14 @@
 ' purpose: the preserved OpenCode crew and host-auth boundary during native v2 migration
 ' covers: defs/opencode/entrypoint.sh
 ' covers: defs/opencode/harness.manifest
+' covers: defs/opencode/defaults/**
+' covers: defs/opencode/sample_opencode.json
 ' covers: defs/subagents/_frontmatter/opencode/**
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: packages/lib/proveo-opencode-runtime
 ' covers: e2e/opencode_auth_test.go
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title opencode paradigm — subagent crew with HITL oversight
+title OpenCode crew — native role rules and approved automatic session policy
 
 ' Approved native schema and lifecycle: _spec/defs/opencode/native-v2-integration.puml
 ' Seed order: _spec/packages/lib/seed-and-launch.puml
@@ -15,31 +18,29 @@ title opencode paradigm — subagent crew with HITL oversight
 '
 ' The sibling native integration is PLANNED, not proof of shipped behavior.
 ' This diagram owns the crew, host authentication, and preserved decisions;
-' it does not claim the existing v1 config/plugin writers already speak v2.
+' native implementation exists, but the automatic mode and security repairs
+' remain subject to pinned-CLI validation and acceptance in the sibling plan.
 '
 ' ── HOW THE GLOBAL CONFIG IS SEEDED WHEN ABSENT ────────────────────────────
-' seed_opencode_config prefers a sample shipped by opencode itself, trying five
-' paths in order — ~/.config/opencode/sample_opencode.json, the macOS
-' Library/Application Support path, /opt/opencode, and the two Homebrew/
-' usr-local share dirs — so the seed tracks upstream's own defaults wherever
-' the install put them. Only when none exists does it write a MINIMAL config of
-' proveo's own.
+' entrypoint seed_defaults delegates to shared proveo_seed; its native bootstrap
+' uses baked defaults after config restore and before agent rendering/release.
+' It preserves existing JSON, JSONC, and user agent files unless explicitly reseeded.
 '
 ' The old model/small_model env placeholders belonged to the retired bridges.
 ' An unset placeholder became an empty model persisted in the durable home;
-' the active sample and minimal fallback therefore name no default model.
-' The baked defaults still carry v1 fields; the approved native migration must
-' align defaults, sample, and fallback without selecting a default model.
-' plan denies edit and shell; build allows edit and asks before shell.
+' baked defaults and sample therefore name no default model.
+' plan denies edit and shell; build allows edit and retains a shell ask rule.
+' The new approved session policy is automatic, not a human checkpoint per shell.
+' Primary must validate the precise native mode and deny interaction before acceptance.
+' Risky-operation house rules remain instructions; they do not create native prompts.
 '
 ' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1, and the same flag re-seeds
 ' the project AGENTS.md. Everything else the seed writes goes through
 ' proveo_seed (_spec/packages/lib/seed-and-launch.puml).
 '
 ' ── THE LOCAL MODEL IS A PROVIDER ENTRY, NOT A MODEL STRING ────────────────
-' The pre-migration writer uses provider.ollama/npm/options and small_model.
-' The native sibling owns its replacement; both versions must register AND
-' select PROVEO_LOCAL_MODEL, using <OLLAMA_API_BASE>/v1 (default ollama:11434).
+' The native writer uses providers.ollama/package/settings and agents.title.model.
+' It must register AND select PROVEO_LOCAL_MODEL with one /v1 endpoint suffix.
 ' Legacy local-model e2e caught an undefined ollama provider falling back to
 ' a cloud model; a local request must also supply the provider definition.
 '
@@ -59,7 +60,8 @@ title opencode paradigm — subagent crew with HITL oversight
 ' providerAliases folds both routes onto opencode for host/key routing.
 ' The former auth.json-only explanation described v1, not the v2 token store.
 ' The approved v2 lifecycle preserves sessions and removes stored credentials;
-' the native sibling deliberately leaves its safe implementation unresolved.
+' the approved private per-run DB and full-lifetime lease live in the native sibling.
+' Account/MCP token-store repairs and restored artifact/session paths remain pending.
 ' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
 '
 ' Register: manual normalized word/syllable counts; two sentences per note.
@@ -77,7 +79,7 @@ node "opencode container" as CTR <<host>> {
 
   frame "Seeded crew (~/.config/opencode/agents)" as CREW <<host>> {
     component "plan\nread-only: edit + shell denied" as PLAN <<app>>
-    component "build\nedit allow · shell ask" as BUILD <<app>>
+    component "build\nedit allow · native shell ask rule\napproved automatic session policy" as BUILD <<app>>
     component "advisors\nedit + shell denied" as REV <<app>>
     component "spec-keeper\nedit allow · shell deny\nedit scope enforced by prompt" as SPEC <<app>>
   }

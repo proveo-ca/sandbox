@@ -12,9 +12,12 @@
 ' covers: defs/codex/managed/requirements.toml
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/git_sync_turn_test.go
+' covers: internal/contract/opencode_runtime_test.go
+' covers: internal/contract/testdata/opencode_git_sync_plugin.mjs
 ' covers: e2e/git_sync_turn_test.go
 ' Approved OpenCode plugin migration: _spec/defs/opencode/native-v2-integration.puml
-' The native plugin and nested --standalone helper are PLANNED, not shipped here.
+' The native plugin and --standalone helper exist in source; acceptance remains pending
+' in the sibling PLANNED integration. Do not equate source presence with passed tests.
 ' OpenCode synchronization is eventual in a live session; neither idle observation
 ' nor hook failure gates CLI return. Do not assert commit/push before run exits.
 '
@@ -28,7 +31,11 @@
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' Register: manual normalized word/syllable counts; two sentences per rewritten note.
 ' FK: note right of HOOK; words=30 syllables=55; FK 11.9
-' FK: note as N_RECURSE; words=32 syllables=55; FK 10.9
+' FK: note over HOOK (N_RECURSE); words=32 syllables=55; FK 10.9
+' FK: note over OC (N_RACE); words=32 syllables=58; FK 12.0
+' Historical startup measurement: sbx launched OpenCode six seconds before the plugin
+' seed copied it. The current release boundary includes native config and agents,
+' not just the older hooks-only marker; tool provisioning need not gate release.
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 title git-sync-turn — Stop checkpoint / best-effort idle observer
@@ -58,7 +65,7 @@ note right of HOOK
   awaited CLI-return gate.
 end note
 
-note bottom of BLOCK
+note over BLOCK
   **One continuation, then rest.** A
   failed persist blocks Stop once.
   stop_hook_active or loop_count>0
@@ -74,7 +81,8 @@ note right of GIT
   remote means commit, then allow.
 end note
 
-note as N_OFF
+' note-id: N_OFF
+note over HOOK
   **Off is a no-op.** Set
   PROVEO_GIT_SYNC=off to skip seed
   and the script. Cursor still bakes
@@ -82,21 +90,24 @@ note as N_OFF
   An aborted Cursor turn never commits.
 end note
 
-note as N_MSG
+' note-id: N_MSG
+note over GIT
   **Subject describes the work.** The staged
   diff goes to a light model (Claude: sonnet).
   One retry at 2x timeout; then the subject
   summarises paths. No static subject exists.
 end note
 
-note as N_MSG_WHY
+' note-id: N_MSG_WHY
+note over GIT
   **13 static subjects hid the failure.**
   eda7718..f1eb5a9 (2026-09-24/25) all fell
   back to "persist turn"; the e2e pinned
   MSG=off, so no test saw the model path.
 end note
 
-note as N_ISOLATE
+' note-id: N_ISOLATE
+note over HOOK
   **claude -p loads CLAUDE.md by default.**
   Measured 2026-10-02: the reply opened with
   "Executor," from AGENTS.md. The call runs
@@ -104,14 +115,16 @@ note as N_ISOLATE
   diff on stdin. --bare drops OAuth: unused.
 end note
 
-note as N_MSG_KNOBS
+' note-id: N_MSG_KNOBS
+note over GIT
   PROVEO_GIT_SYNC_MODEL_* overrides the model;
   PROVEO_GIT_SYNC_MSG=off skips the call and the
   commit still happens. Cursor has no verified
   small-model id: unset MODEL_CURSOR = skip.
 end note
 
-note as N_RECURSE
+' note-id: N_RECURSE
+note over HOOK
   Nested subject generation can load the live
   session's hooks and recurse into git sync.
   The native OpenCode migration adds
@@ -119,48 +132,54 @@ note as N_RECURSE
   the inflight guard across every harness call.
 end note
 
-note as N_INFLIGHT
+' note-id: N_INFLIGHT
+note over HOOK
   PROVEO_GIT_SYNC_MSG_INFLIGHT=1 is set on the
   child and checked first thing on entry.
 end note
 
-note bottom of OC
+note over OC
   **Idle must not inherit the TTY.**
   The script opened with cat. On a
   TTY that never EOFs, so every key
   after session.idle went to cat.
   Plugin: </dev/null. Script: skip TTY.
 end note
-note as N_DIALECT
+' note-id: N_DIALECT
+note over STOP, CU
   **Allow is silence.** Claude and Codex Stop
   accept "block" or no decision; "allow" is a
   schema error shown as "Stop hook error".
   Cursor still takes {}.
 end note
 
-note as N_CODEX
+' note-id: N_CODEX
+note over STOP
   **Codex hooks are managed, not user.** User
   hooks.json waits for /hooks review, so an
   unattended turn never ran it. The image
   bakes /etc/codex/requirements.toml instead.
 end note
 
-note as N_LAZY
+' note-id: N_LAZY
+note over OC
   **Bun's $ is lazy.** An unawaited
   ShellPromise never spawns; the idle plugin
   ran nothing. Measured 2026-09-24 in
   proveo-opencode-c1c4da74 with a probe plugin.
 end note
 
-note as N_RACE
-  **The TUI loads plugins once, at start.** sbx
-  launched opencode 6s before the seed copied
-  the plugin. The seed now installs hooks first
-  and marks /dev/shm/proveo-hooks-seeded; the
-  opencode shim awaits it.
+' note-id: N_RACE
+note over OC
+  Plugin discovery happens at launch, so the seed
+  must install hooks before releasing the agent.
+  Release also follows native config and agent
+  rendering, while tool provisioning can continue
+  after the CLI starts.
 end note
 
-note as N_CLONE
+' note-id: N_CLONE
+note over GIT
   **A read-only origin is commit-only.** In an
   sbx clone origin is /run/sandbox/source (ro).
   Push there always failed; teardown already
