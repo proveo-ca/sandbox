@@ -7,6 +7,8 @@
 ' covers: defs/opencode/harness.manifest
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: packages/lib/hooks/**
+' covers: packages/lib/opencode-credentials.py
+' covers: packages/lib/test_opencode_credentials.py
 ' covers: defs/subagents/_frontmatter/opencode/**
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/launch_config_test.go
@@ -34,8 +36,9 @@
 ' An explicit local-model request selects root model and title.model, not small_model.
 ' OpenCode mobile MCP uses mcp.servers.mobile and disabled: false, not enabled: true.
 ' The plugin default-exports an object with id and setup(ctx); its observer uses
-' ctx.events and event.data for session.idle. Do not prescribe an unverified
-' subscription signature or revive the v1 named-export/event.type callback.
+' the context event stream and event.data for session.idle. The in-progress
+' implementation uses ctx.event.subscribe; validate that API against the pinned CLI.
+' Do not revive the v1 named export or returned event callback.
 ' Authentication comes from launch environment credentials or broker sentinels;
 ' in-sandbox login is not the supported authentication path.
 '
@@ -67,6 +70,14 @@
 ' eventual idle trace/commit/push in a live session, never push-before-CLI-return.
 ' Offline contracts check behavior/decoded structure, not legacy string matches.
 ' Image and e2e validation run against the pinned @opencode/cli release.
+'
+' Register: manual normalized word/syllable counts; two sentences per note.
+' FK: note bottom of DEFAULTS; words=30 syllables=56; FK 12.3
+' FK: note bottom of FM; words=28 syllables=53; FK 12.2
+' FK: note bottom of GO; words=27 syllables=52; FK 12.4
+' FK: note bottom of HOME; words=30 syllables=51; FK 10.3
+' FK: note bottom of PLUGIN; words=33 syllables=61; FK 12.7
+' FK: note bottom of TESTS; words=33 syllables=60; FK 12.3
 
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
@@ -85,7 +96,7 @@ component "packages/lib/entrypoint-lib.sh\nrender_subagents · seed · persisten
 component "internal/backend/sandbox/sandbox.go\nlaunchConfigEnv\nOPENCODE_CONFIG_CONTENT" as GO <<app>>
 component "internal/hostadb/hostadb.go\nmcp.servers.mobile\ndisabled: false" as ADB <<app>>
 component "opencode\nroot: --log-level debug\nheadless run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
-component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.events · event.data" as PLUGIN <<async>>
+component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.event.subscribe · event.data" as PLUGIN <<async>>
 component "packages/lib/hooks/git-sync-turn.sh\nbest-effort idle dialect\nsubject helper: opencode run --standalone" as HOOK <<app>>
 component "internal/proveohome\nsession-preserving credential boundary" as HOME <<app>>
 database "OpenCode SQLite\ncredential table + session history" as STATE <<db>>

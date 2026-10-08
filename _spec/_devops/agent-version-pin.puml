@@ -154,11 +154,20 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' contains the pin; pip show reports it; Cursor matches the installer release.
 ' The Go resolver honors NPM_CONFIG_REGISTRY and reads PyPI info.version through
 ' its HTTP client; the host needs no npm, curl, or python3 for those lookups.
-' Failed or unsupported retrieval returns no version; Failf names the override
-' <ARG>=<x.y.z> and the last fetch error rather than silently accepting latest.
+' Failed or unsupported retrieval returns no version. A failed known-ecosystem
+' lookup makes Failf name <ARG>=<x.y.z> and the last fetch error; an unsupported
+' ecosystem gets its own refusal rather than silently accepting latest.
 ' Inspect a built image with docker image inspect -f
 ' {{index .Config.Labels "proveo.agent.version"}} proveo/opencode:local.
 ' Compare upstream with npm view @opencode/cli version; image suites check the pin.
+'
+' Register: manual normalized word/syllable counts; two sentences per note.
+' FK: note over BK; words=32 syllables=53; FK 10.2
+' FK: note as N_ARG; words=31 syllables=58; FK 12.5
+' FK: note over LIB; words=29 syllables=55; FK 12.4
+' FK: note as N_REFUSE; words=29 syllables=56; FK 12.9
+' FK: note as N_UPDATE; words=32 syllables=58; FK 12.0
+' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
 participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
