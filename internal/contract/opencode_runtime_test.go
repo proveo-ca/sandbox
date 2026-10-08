@@ -1,3 +1,4 @@
+// SPEC: _spec/packages/lib/git-sync-turn.puml, _spec/packages/lib/seed-and-launch.puml
 package contract_test
 
 import (
@@ -31,6 +32,9 @@ func TestOpenCodeNativeGitSyncPluginLifecycle(t *testing.T) {
 
 func TestOpenCodeRuntimeEvidenceArguments(t *testing.T) {
 	t.Parallel()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node unavailable")
+	}
 	body := readRepoFile(t, "defs/opencode/entrypoint.sh")
 	start := strings.Index(body, "\nOPENCODE_EVIDENCE_ARGS=()")
 	if start < 0 {
