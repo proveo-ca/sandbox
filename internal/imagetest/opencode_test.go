@@ -171,7 +171,7 @@ func ocSecurity(s *imagetest.Suite) {
 	s.Failure("ss not available", img, "which ss")
 	s.Failure("cannot write to /usr/bin", img, "touch /usr/bin/testfile 2>/dev/null")
 	s.Failure("cannot write to /etc", img, "touch /etc/testfile 2>/dev/null")
-	s.Contains("auto-update is disabled", img, `echo $OPENCODE_AUTO_UPDATE`, "false")
+	s.Contains("v2 auto-update is disabled", img, `echo $OPENCODE_DISABLE_AUTOUPDATE`, "1")
 
 	s.Check("arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--user", "4242:4242", "--entrypoint", "bash", img, "-c",
@@ -264,16 +264,19 @@ func ocDefaults(s *imagetest.Suite) {
    done
    echo "roster: $(echo $roster | tr "\n" " ")"`)
 
-	s.Contains("default opencode.json: build agent has bash:ask", img, "cat /opt/opencode/defaults/opencode.json", `"bash": "ask"`)
-	s.Contains("default opencode.json: plan agent has bash:deny", img, "cat /opt/opencode/defaults/opencode.json", `"bash": "deny"`)
-	s.Contains("default opencode.json: context rot enabled", img, "cat /opt/opencode/defaults/opencode.json", `"rot": true`)
+	s.Success("default opencode.json: build agent asks before shell execution", img,
+		`jq -e '.agents.build.permissions | any(.action == "shell" and .resource == "*" and .effect == "ask")' /opt/opencode/defaults/opencode.json`)
+	s.Success("default opencode.json: plan agent denies shell execution", img,
+		`jq -e '.agents.plan.permissions | any(.action == "shell" and .resource == "*" and .effect == "deny")' /opt/opencode/defaults/opencode.json`)
+	s.Success("default opencode.json: automatic compaction enabled", img,
+		`jq -e '.compaction.auto == true' /opt/opencode/defaults/opencode.json`)
 
 	// SPEC: _spec/_plans/retire-model-bridging.puml
 	for _, seed := range []string{"/opt/opencode/defaults/opencode.json", "/opt/opencode/sample_opencode.json"} {
 		s.Success(filepath.Base(seed)+": names no model by environment", img, "! grep -q 'env:OPENCODE' "+seed)
 	}
 	s.Success("default opencode.json: plan and build omit their own model (inherit the global)", img,
-		"jq -e '.agent.plan.model == null and .agent.build.model == null' /opt/opencode/defaults/opencode.json")
+		"jq -e '.agents.plan.model == null and .agents.build.model == null and .model == null' /opt/opencode/defaults/opencode.json")
 
 	s.Check("entrypoint seeds ~/.config/opencode on first run", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--entrypoint", "/entrypoint.sh", img, "--version")
@@ -319,21 +322,42 @@ func ocMCP(s *imagetest.Suite) {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-5",
   "mcp": {
-    "fs-test": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
-      "enabled": true
+    "servers": {
+      "fs-test": {
+        "type": "local",
+        "command": ["node", "/app/mcp-fixture.cjs"]
+      }
     }
   }
 }
+`, 0o644)
+	ocWrite(s.T, filepath.Join(fixture, "mcp-fixture.cjs"), `const fs = require("node:fs")
+const readline = require("node:readline")
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  const request = JSON.parse(line)
+  if (request.id === undefined) return
+  let result = {}
+  switch (request.method) {
+    case "initialize":
+      result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fs-test", version: "1.0.0" } }
+      break
+    case "tools/list":
+      result = { tools: [{ name: "read_file", description: "Read a fixture file", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }] }
+      break
+    case "tools/call":
+      result = { content: [{ type: "text", text: fs.readFileSync(request.params.arguments.path, "utf8") }] }
+      break
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\n")
+})
 `, 0o644)
 	ocWrite(s.T, filepath.Join(fixture, "marker.txt"), "MCP_FIXTURE_OK\n", 0o644)
 	mount := fixture + ":/app"
 
 	s.Check("opencode discovers MCP server from opencode.json", func(t *testing.T) {
 		r := ocRun(t, 90*time.Second, nil, "-v", mount, "-w", "/app", "--entrypoint", "bash", img, "-c",
-			`cd /app && timeout 60 opencode mcp list 2>&1 || true`)
-		if !regexp.MustCompile(`fs-test|filesystem`).MatchString(r.Out) {
+			`timeout 60 opencode mcp list 2>&1`)
+		if !r.OK() || !regexp.MustCompile(`(?m)^✓ fs-test\s+connected$`).MatchString(r.Out) {
 			t.Errorf("MCP discovery (output: %s)", ocClip(r.Out, 400))
 		}
 	})

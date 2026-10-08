@@ -92,7 +92,7 @@ RUN install -d /opt/proveo/shims \
 USER ${USER_NAME}
 WORKDIR /workspace
 
-ENV OPENCODE_AUTO_UPDATE=false \
+ENV OPENCODE_DISABLE_AUTOUPDATE=1 \
     PATH="/opt/proveo/shims:/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \
