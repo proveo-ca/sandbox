@@ -6,9 +6,11 @@ import ctypes
 import fcntl
 import importlib.util
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
+import re
 import signal
 import subprocess
 import sys
@@ -33,22 +35,28 @@ def load_credentials():
 def durable_directory(env):
     if env.get("PROVEO_OPENCODE_DURABLE_DATA"):
         return Path(env["PROVEO_OPENCODE_DURABLE_DATA"]).resolve()
-    if env.get("PROVEO_STATE_HOME"):
-        host = Path(env["PROVEO_STATE_HOME"]).resolve()
-        entries = []
-        for entry in env.get("PROVEO_CONFIG_DIRS", "").split(";"):
-            fields = entry.split("|")
-            if len(fields) >= 2 and fields[1] == ".local/share/opencode":
-                rel = Path(fields[0])
-                if rel.is_absolute() or ".." in rel.parts or not rel.parts:
-                    raise RuntimeFailure("invalid durable data mapping")
-                entries.append(host / rel)
-        if len(entries) > 1:
-            raise RuntimeFailure("ambiguous durable data mapping")
-        return (entries[0] if entries else host / "opencode/share").resolve()
     home = env.get("PROVEO_HOME") or env.get("HOME")
     if not home:
         raise RuntimeFailure("agent home is unavailable")
+    host = Path(env.get("PROVEO_STATE_HOME") or home).resolve()
+    entries = []
+    for entry in env.get("PROVEO_CONFIG_DIRS", "").split(";"):
+        fields = entry.split("|")
+        if len(fields) >= 2 and fields[1] == ".local/share/opencode":
+            entries.append(fields[0])
+    if not entries:
+        manifest = Path(env.get("PROVEO_OPENCODE_HOME_MANIFEST", "/usr/local/lib/proveo/opencode.harness.manifest"))
+        entries = re.findall(r"(?m)^\s+- host: ([^\n]+)\n\s+container: /proveo-home/\.local/share/opencode\s*$", manifest.read_text())
+    if len(entries) != 1:
+        raise RuntimeFailure("missing or ambiguous durable data mapping")
+    rel = Path(entries[0].strip())
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        raise RuntimeFailure("invalid durable data mapping")
+    return (host / rel).resolve()
+
+
+def legacy_directory(env):
+    home = env.get("PROVEO_STATE_HOME") or env.get("PROVEO_HOME") or env["HOME"]
     return (Path(env.get("XDG_DATA_HOME") or str(Path(home) / ".local/share")) / "opencode").resolve()
 
 
@@ -148,6 +156,36 @@ def supervise(command, env, lease):
     previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     terminal = None
     foreground = None
+
+    def foreground_child():
+        if terminal is None or child is None:
+            return
+        old = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+        try:
+            os.tcsetpgrp(terminal, child.pid)
+        finally:
+            signal.signal(signal.SIGTTOU, old)
+
+    def resume(_, __):
+        if child is not None:
+            if terminal is not None and os.tcgetpgrp(terminal) == os.getpgrp():
+                foreground_child()
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGCONT)
+
+    def suspend(_, __):
+        if child is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGTSTP)
+        signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+        if terminal is None:
+            os.kill(os.getpid(), signal.SIGSTOP)
+        else:
+            os.killpg(os.getpgrp(), signal.SIGTSTP)
+        signal.signal(signal.SIGTSTP, suspend)
+
+    previous[signal.SIGTSTP] = signal.signal(signal.SIGTSTP, suspend)
+    previous[signal.SIGCONT] = signal.signal(signal.SIGCONT, resume)
     try:
         child = subprocess.Popen(command, env=env, process_group=0, pass_fds=(() if lease is None else (lease,)))
         if sys.stdin.isatty():
@@ -162,13 +200,17 @@ def supervise(command, env, lease):
         if received:
             forward(received[-1], None)
         while True:
-            try:
-                code = child.wait(timeout=0.1)
+            pid, status = os.waitpid(child.pid, os.WNOHANG | os.WUNTRACED | os.WCONTINUED)
+            if pid and os.WIFSTOPPED(status):
+                suspend(None, None)
+            elif pid and (os.WIFEXITED(status) or os.WIFSIGNALED(status)):
+                code = os.waitstatus_to_exitcode(status)
+                child.returncode = code
                 break
-            except subprocess.TimeoutExpired:
-                if signaled_at is not None and time.monotonic() - signaled_at > 5:
-                    with contextlib.suppress(ProcessLookupError):
-                        os.killpg(child.pid, signal.SIGKILL)
+            if signaled_at is not None and time.monotonic() - signaled_at > 5:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(child.pid, signal.SIGKILL)
+            time.sleep(0.025)
         terminate_descendants(child.pid)
         return 128 + (received[-1] if received else -code) if received or code < 0 else code
     finally:

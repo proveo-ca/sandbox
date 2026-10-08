@@ -721,16 +721,17 @@
         "defs/opencode/entrypoint.sh",
         "defs/opencode/Dockerfile",
         "defs/opencode/harness.manifest",
+        "defs/opencode/README.md",
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/hooks/**",
-        "packages/lib/opencode-credentials.py",
-        "packages/lib/test_opencode_credentials.py",
+        "packages/lib/*opencode*",
         "defs/subagents/_frontmatter/opencode/**",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/launch_config_test.go",
         "internal/backend/sandbox/host_adb_test.go",
         "internal/hostadb/**",
         "internal/proveohome/**",
+        "internal/sbx/run.go",
         "internal/contract/**",
         "internal/imagetest/opencode_test.go",
         "e2e/**"
@@ -742,8 +743,11 @@
       "covers": [
         "defs/opencode/entrypoint.sh",
         "defs/opencode/harness.manifest",
+        "defs/opencode/defaults/**",
+        "defs/opencode/sample_opencode.json",
         "defs/subagents/_frontmatter/opencode/**",
         "packages/lib/entrypoint-lib.sh",
+        "packages/lib/proveo-opencode-runtime",
         "e2e/opencode_auth_test.go"
       ],
       "fingerprint": null
@@ -751,7 +755,9 @@
     {
       "spec": "_spec/defs/opencode/opencode-topology.puml",
       "covers": [
-        "defs/opencode/**"
+        "defs/opencode/**",
+        "defs/subagents/_frontmatter/opencode/**",
+        "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
     },
@@ -1525,6 +1531,8 @@
         "defs/codex/managed/requirements.toml",
         "defs/claudecode/mcp/Dockerfile",
         "internal/contract/git_sync_turn_test.go",
+        "internal/contract/opencode_runtime_test.go",
+        "internal/contract/testdata/opencode_git_sync_plugin.mjs",
         "e2e/git_sync_turn_test.go"
       ],
       "fingerprint": null
