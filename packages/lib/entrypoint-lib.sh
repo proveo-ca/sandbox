@@ -2475,6 +2475,7 @@ proveo_sync_config() {
   deny="${arel#*|}"
   arel="${arel%%|*}"
   [[ -n "$hrel" && -n "$arel" ]] || continue
+  [[ "$arel" == .local/share/opencode || "$arel" == .local/share/opencode/* ]] && continue
   case "$mode" in
   restore) src="$host/$hrel" dst="$home/$arel" ;;
   save) src="$home/$arel" dst="$host/$hrel" ;;
@@ -2577,17 +2578,14 @@ proveo_sync_state() {
  while read -r dir; do
   [[ -n "$dir" ]] || continue
   rel="${dir#"$home"/}"
+  [[ "$rel" == .local/share/opencode || "$rel" == .local/share/opencode/* ]] && continue
   case "$mode" in
   restore) src="$host/$rel" dst="$dir" ;;
   save) src="$dir" dst="$host/$rel" ;;
   esac
   [[ -d "$src" ]] || continue
   [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
-  if [[ "$rel" == .local/share/opencode ]]; then
-   proveo_opencode_sync_data "$src" "$dst" || rc=1
-  else
-   _proveo_sync_tree "$src" "$dst" || rc=1
-  fi
+  _proveo_sync_tree "$src" "$dst" || rc=1
  done < <(_proveo_volume_state_dirs)
  rm -rf "$lock" 2>/dev/null
  ((rc == 0)) || printf 'proveo: state %s completed with copy errors\n' "$mode" >&2

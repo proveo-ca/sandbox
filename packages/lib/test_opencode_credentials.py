@@ -307,7 +307,7 @@ class CredentialSnapshotTests(unittest.TestCase):
 
     def test_cli_does_not_disclose_fixture_auth_and_leaves_environment_untouched(self):
         (self.source / "opencode.db").write_bytes(b"SYNTHETIC_INVALID_DATABASE")
-        env = dict(os.environ, OPENAI_API_KEY="SYNTHETIC_ENV_KEY")
+        env = dict(PATH=os.environ["PATH"], OPENAI_API_KEY="SYNTHETIC_ENV_KEY")
         result = subprocess.run(
             [
                 "python3",
@@ -323,7 +323,7 @@ class CredentialSnapshotTests(unittest.TestCase):
         self.assertNotIn(b"SYNTHETIC", result.stdout + result.stderr)
         self.assertEqual(env["OPENAI_API_KEY"], "SYNTHETIC_ENV_KEY")
 
-    def test_shell_state_round_trip_preserves_environment_auth(self):
+    def test_shell_explicit_snapshot_round_trip_preserves_environment_auth(self):
         agent = self.root / "agent"
         data = agent / ".local" / "share" / "opencode"
         self.fixture(directory=data).close()
@@ -335,15 +335,14 @@ class CredentialSnapshotTests(unittest.TestCase):
         library = HELPER.with_name("entrypoint-lib.sh")
         script = """set -eu
 source "$1"
-_proveo_volume_state_dirs() { printf '%s\\n' "$HOME/.local/share/opencode"; }
-proveo_sync_state save
+proveo_opencode_sync_data "$HOME/.local/share/opencode" "$PROVEO_STATE_HOME/.local/share/opencode"
 test "$OPENAI_API_KEY" = SYNTHETIC_ENV_KEY
 HOME="$2"
-proveo_sync_state restore
+proveo_opencode_sync_data "$PROVEO_STATE_HOME/.local/share/opencode" "$HOME/.local/share/opencode"
 test "$OPENAI_API_KEY" = SYNTHETIC_ENV_KEY
 """
         env = dict(
-            os.environ,
+            PATH=os.environ["PATH"],
             HOME=str(agent),
             PROVEO_HOME="",
             PROVEO_STATE_HOME=str(state),
@@ -367,15 +366,14 @@ test "$OPENAI_API_KEY" = SYNTHETIC_ENV_KEY
         state = self.root / "state"
         state.mkdir()
         env = dict(
-            os.environ,
+            PATH=os.environ["PATH"],
             HOME=str(agent),
             PROVEO_HOME="",
             PROVEO_STATE_HOME=str(state),
             PROVEO_OPENCODE_CREDENTIAL_HELPER=str(self.root / "missing-helper"),
         )
         script = """source "$1"
-_proveo_volume_state_dirs() { printf '%s\\n' "$HOME/.local/share/opencode"; }
-proveo_sync_state save
+proveo_opencode_sync_data "$HOME/.local/share/opencode" "$PROVEO_STATE_HOME/.local/share/opencode"
 """
         result = subprocess.run(
             ["bash", "-c", script, "bash", str(HELPER.with_name("entrypoint-lib.sh"))],

@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_paradigms/credential-boundary.puml
+
+import contextlib
+import ctypes
+import fcntl
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+
+class RuntimeFailure(Exception):
+    pass
+
+
+def load_credentials():
+    path = os.environ.get("PROVEO_OPENCODE_CREDENTIAL_HELPER", "/usr/local/lib/proveo/opencode-credentials.py")
+    spec = importlib.util.spec_from_file_location("proveo_opencode_credentials", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeFailure("credential helper is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def durable_directory(env):
+    if env.get("PROVEO_OPENCODE_DURABLE_DATA"):
+        return Path(env["PROVEO_OPENCODE_DURABLE_DATA"]).resolve()
+    if env.get("PROVEO_STATE_HOME"):
+        host = Path(env["PROVEO_STATE_HOME"]).resolve()
+        entries = []
+        for entry in env.get("PROVEO_CONFIG_DIRS", "").split(";"):
+            fields = entry.split("|")
+            if len(fields) >= 2 and fields[1] == ".local/share/opencode":
+                rel = Path(fields[0])
+                if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+                    raise RuntimeFailure("invalid durable data mapping")
+                entries.append(host / rel)
+        if len(entries) > 1:
+            raise RuntimeFailure("ambiguous durable data mapping")
+        return (entries[0] if entries else host / "opencode/share").resolve()
+    home = env.get("PROVEO_HOME") or env.get("HOME")
+    if not home:
+        raise RuntimeFailure("agent home is unavailable")
+    return (Path(env.get("XDG_DATA_HOME") or str(Path(home) / ".local/share")) / "opencode").resolve()
+
+
+def database_name(env):
+    name = env.get("OPENCODE_DB", "opencode.db")
+    inherited = env.get("PROVEO_OPENCODE_RUNTIME_DATA")
+    path = Path(name)
+    managed = path.is_absolute() and path.parent.resolve() == durable_directory(env)
+    if path.is_absolute() and (managed or inherited and path.parent.resolve() == Path(inherited).resolve()):
+        name = path.name
+        path = Path(name)
+    if path.is_absolute() or len(path.parts) != 1 or name in (".", "..", ":memory:", "auth.json") or name.startswith(".proveo-") or name.endswith(("-wal", "-shm", "-journal")):
+        raise RuntimeFailure("external OPENCODE_DB overrides are unsupported")
+    return name
+
+
+def command_words(args):
+    words = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            break
+        if arg in ("--log-level", "--completions", "--server", "--session", "-s", "--prompt"):
+            index += 2
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        words.append(arg)
+        index += 1
+    return words
+
+
+def diagnostic(args):
+    before_separator = args[:args.index("--")] if "--" in args else args
+    if any(arg in ("--version", "-v", "--help", "-h", "--completions") for arg in before_separator):
+        return "empty"
+    if command_words(args)[:1] == ["debug"]:
+        return "snapshot"
+    return None
+
+
+def children():
+    text = Path(f"/proc/self/task/{os.getpid()}/children").read_text()
+    return [int(pid) for pid in text.split()]
+
+
+def send(pid, sig):
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, sig)
+
+
+def terminate_descendants(group):
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(group, signal.SIGTERM)
+    deadline = time.monotonic() + 5
+    signaled = set()
+    killed = set()
+    while children():
+        remaining = children()
+        for pid in remaining:
+            if pid not in signaled:
+                send(pid, signal.SIGTERM)
+                signaled.add(pid)
+            if time.monotonic() >= deadline and pid not in killed:
+                send(pid, signal.SIGKILL)
+                killed.add(pid)
+        for pid in remaining:
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(pid, os.WNOHANG)
+        time.sleep(0.05)
+
+
+def supervise(command, env, lease):
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:
+        raise RuntimeFailure("cannot supervise detached OpenCode processes")
+    received = []
+    signaled_at = None
+    child = None
+
+    def forward(sig, _):
+        nonlocal signaled_at
+        received.append(sig)
+        if signaled_at is None:
+            signaled_at = time.monotonic()
+        if child is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(child.pid, sig)
+        for pid in children():
+            if child is None or pid != child.pid:
+                with contextlib.suppress(ProcessLookupError):
+                    if child is None or os.getpgid(pid) != child.pid:
+                        send(pid, sig)
+
+    previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
+    terminal = None
+    foreground = None
+    try:
+        child = subprocess.Popen(command, env=env, process_group=0, pass_fds=(() if lease is None else (lease,)))
+        if sys.stdin.isatty():
+            with contextlib.suppress(OSError):
+                terminal = sys.stdin.fileno()
+                foreground = os.tcgetpgrp(terminal)
+                old = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+                try:
+                    os.tcsetpgrp(terminal, child.pid)
+                finally:
+                    signal.signal(signal.SIGTTOU, old)
+        if received:
+            forward(received[-1], None)
+        while True:
+            try:
+                code = child.wait(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if signaled_at is not None and time.monotonic() - signaled_at > 5:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(child.pid, signal.SIGKILL)
+        terminate_descendants(child.pid)
+        return 128 + (received[-1] if received else -code) if received or code < 0 else code
+    finally:
+        if child is not None and child.poll() is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGTERM)
+            child.wait()
+            terminate_descendants(child.pid)
+        if terminal is not None and foreground is not None:
+            old = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+            try:
+                with contextlib.suppress(OSError):
+                    os.tcsetpgrp(terminal, foreground)
+            finally:
+                signal.signal(signal.SIGTTOU, old)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def private_environment(env, root, name):
+    data = root / "data/opencode"
+    data.mkdir(mode=0o700, parents=True)
+    (root / "tmp").mkdir(mode=0o700)
+    result = dict(env, XDG_DATA_HOME=str(data.parent), XDG_STATE_HOME=str(root / "state"),
+                  OPENCODE_DB=str(data / name), PROVEO_OPENCODE_RUNTIME_DATA=str(data),
+                  PROVEO_OPENCODE_DURABLE_DATA=str(durable_directory(env)), TMPDIR=str(root / "tmp"))
+    return result, data
+
+
+def native_command(binary, args):
+    words = command_words(args)
+    state_commands = ("run", "mini", "api", "models", "stats", "reload", "session", "auth")
+    if not words or words[0] in state_commands or words[0] not in (
+        "debug", "serve", "service", "acp", "mcp", "plugin", "upgrade", "update", "uninstall", "pair"
+    ):
+        if "--standalone" not in args and not any(arg == "--server" or arg.startswith("--server=") for arg in args):
+            index = args.index("--") if "--" in args else len(args)
+            args = args[:index] + ["--standalone"] + args[index:]
+    return [binary, *args]
+
+
+def diagnostic_config(env, root):
+    home = Path(env.get("PROVEO_HOME") or env["HOME"])
+    source = Path(env.get("OPENCODE_CONFIG_DIR") or str(Path(env.get("XDG_CONFIG_HOME") or str(home / ".config")) / "opencode"))
+    target = root / "config/opencode"
+    if source.exists():
+        shutil.copytree(source, target, ignore=shutil.ignore_patterns("service*.json"))
+    else:
+        target.mkdir(mode=0o700, parents=True)
+    (target / "service.json").write_text(json.dumps({"disabled": True}))
+    env["OPENCODE_CONFIG_DIR"] = str(target)
+
+
+def check_service_environment(env):
+    home = Path(env.get("PROVEO_HOME") or env["HOME"])
+    config = Path(env.get("OPENCODE_CONFIG_DIR") or str(Path(env.get("XDG_CONFIG_HOME") or str(home / ".config")) / "opencode"))
+    for file in config.glob("service*.json"):
+        settings = json.loads(file.read_text())
+        variables = settings.get("env", {})
+        if any(key in variables for key in ("OPENCODE_DB", "XDG_DATA_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG_DIR", "PROVEO_OPENCODE_RUNTIME_DATA")):
+            raise RuntimeFailure("service environment redirects managed state")
+
+
+def record_runtime(lease, root):
+    content = str(root).encode() if root is not None else b""
+    os.lseek(lease, 0, os.SEEK_SET)
+    os.write(lease, content)
+    os.ftruncate(lease, len(content))
+    os.fsync(lease)
+
+
+def recover_orphan(lease, helper, durable):
+    os.lseek(lease, 0, os.SEEK_SET)
+    content = os.read(lease, 4096).decode()
+    if not content:
+        return
+    root = Path(content)
+    if not root.is_absolute() or root.parent != Path("/tmp") or not root.name.startswith("proveo-opencode-runtime-") or root.is_symlink():
+        raise RuntimeFailure("invalid interrupted-run record")
+    if not root.exists():
+        record_runtime(lease, None)
+        return
+    if root.stat().st_uid != os.geteuid():
+        raise RuntimeFailure("interrupted-run directory has a different owner")
+    data = root / "data/opencode"
+    if (root / "data").is_symlink() or data.is_symlink():
+        raise RuntimeFailure("interrupted-run data contains a symlink")
+    helper.normalize_offline(data)
+    try:
+        recovery_root = durable / helper.RECOVERY_NAME
+        recovery_root.mkdir(mode=0o700, exist_ok=True)
+        recovery = Path(tempfile.mkdtemp(prefix="interrupted-", dir=recovery_root))
+        with tempfile.TemporaryDirectory(prefix="proveo-opencode-recovered-", dir="/tmp") as clean:
+            helper.snapshot(data, clean)
+            helper.snapshot(clean, recovery)
+            helper.normalize_offline(durable)
+            helper.snapshot(clean, durable)
+        shutil.rmtree(recovery)
+    finally:
+        shutil.rmtree(root)
+        record_runtime(lease, None)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("proveo: OpenCode runtime requires the native executable", file=sys.stderr)
+        return 64
+    env = dict(os.environ)
+    args = sys.argv[2:]
+    lease = None
+    recovery = None
+    clean = None
+    root = None
+    phase = "preflight"
+    received = []
+
+    def defer_signal(sig, _):
+        received.append(sig)
+
+    previous = {sig: signal.signal(sig, defer_signal) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
+    try:
+        helper = load_credentials()
+        name = database_name(env)
+        mode = diagnostic(args)
+        disposable = mode is not None or env.get("PROVEO_GIT_SYNC_MSG_INFLIGHT") == "1"
+        durable = durable_directory(env)
+        if not disposable:
+            check_service_environment(env)
+        if not disposable:
+            durable.mkdir(mode=0o700, parents=True, exist_ok=True)
+            lease = os.open(durable / helper.LIFECYCLE_LOCK_NAME, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            try:
+                fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print("proveo: another OpenCode run owns this durable database", file=sys.stderr)
+                return 75
+            phase = "interrupted-run recovery"
+            recover_orphan(lease, helper, durable)
+        with tempfile.TemporaryDirectory(prefix="proveo-opencode-runtime-", dir="/tmp") as temporary:
+            root = Path(temporary)
+            child_env, data = private_environment(env, root, name)
+            if mode == "snapshot":
+                diagnostic_config(child_env, root)
+            if mode != "empty":
+                phase = "restore"
+                origin = Path(env["PROVEO_OPENCODE_RUNTIME_DATA"]) if disposable and env.get("PROVEO_OPENCODE_RUNTIME_DATA") else durable
+                helper.snapshot(origin, data)
+            if not disposable:
+                phase = "offline checkpoint"
+                helper.normalize_offline(durable)
+                phase = "startup publication"
+                helper.snapshot(data, durable)
+                recovery_root = durable / helper.RECOVERY_NAME
+                recovery_root.mkdir(mode=0o700, exist_ok=True)
+                recovery = Path(tempfile.mkdtemp(prefix="run-", dir=recovery_root))
+                phase = "recovery checkpoint"
+                helper.snapshot(data, recovery)
+                record_runtime(lease, root)
+            command = [sys.argv[1], *args] if mode == "empty" else native_command(sys.argv[1], args)
+            phase = "native process"
+            code = 128 + received[-1] if received else supervise(command, child_env, lease)
+            if disposable:
+                return code
+            clean = Path(tempfile.mkdtemp(prefix="proveo-opencode-recovery-", dir="/tmp"))
+            try:
+                helper.snapshot(data, clean)
+                helper.snapshot(clean, recovery)
+                helper.snapshot(clean, durable)
+            except Exception:
+                if clean is not None:
+                    print(f"proveo: OpenCode state publication failed; credential-free recovery: {recovery}; clean staging: {clean}", file=sys.stderr)
+                return 74
+            shutil.rmtree(clean)
+            clean = None
+            if recovery is not None:
+                shutil.rmtree(recovery)
+            recovery = None
+            return 128 + received[-1] if received else code
+    except Exception as error:
+        print(f"proveo: OpenCode credential lifecycle failed during {phase} ({type(error).__name__})", file=sys.stderr)
+        return 74
+    finally:
+        if lease is not None:
+            if root is not None and not root.exists():
+                record_runtime(lease, None)
+            os.close(lease)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

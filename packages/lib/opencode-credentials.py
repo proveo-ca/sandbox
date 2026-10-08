@@ -26,6 +26,8 @@ CREDENTIAL_COLUMNS = [
     ("time_updated", "INTEGER", 1, 0),
 ]
 LOCK_NAME = ".proveo-opencode-snapshot.lock"
+LIFECYCLE_LOCK_NAME = ".proveo-opencode-runtime.lock"
+RECOVERY_NAME = ".proveo-opencode-recovery"
 SIDECARS = ("-wal", "-shm", "-journal")
 
 
@@ -111,6 +113,10 @@ def inventory(root):
     if not root.exists():
         return databases, files, directories
     for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        if Path(directory) == root and RECOVERY_NAME in dirnames:
+            if (root / RECOVERY_NAME).is_symlink():
+                raise SnapshotError("recovery directory contains a symlink")
+            dirnames.remove(RECOVERY_NAME)
         for name in dirnames:
             path = Path(directory, name)
             if path.relative_to(root) == Path("auth.json"):
@@ -121,7 +127,7 @@ def inventory(root):
         for name in filenames:
             path = Path(directory, name)
             rel = path.relative_to(root)
-            if rel == Path("auth.json") or rel == Path(LOCK_NAME):
+            if rel in (Path("auth.json"), Path(LOCK_NAME), Path(LIFECYCLE_LOCK_NAME)):
                 continue
             if not stat.S_ISREG(path.lstat().st_mode):
                 raise SnapshotError("data directory contains a non-regular file")
@@ -158,6 +164,40 @@ def publish(source, target):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def normalize_offline(root):
+    root = Path(root).resolve()
+    databases, _, _ = inventory(root)
+    with contextlib.ExitStack() as stack:
+        connections = []
+        for rel in databases:
+            db = stack.enter_context(
+                contextlib.closing(
+                    sqlite3.connect(
+                        (root / rel).as_uri() + "?mode=rw", uri=True, timeout=0
+                    )
+                )
+            )
+            db.execute("PRAGMA trusted_schema = OFF")
+            db.execute("PRAGMA locking_mode = EXCLUSIVE")
+            db.execute("BEGIN EXCLUSIVE")
+            db.execute("ROLLBACK")
+            connections.append(db)
+        for db in connections:
+            checkpoint = db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint[0] != 0:
+                raise SnapshotError("offline checkpoint is busy")
+            if db.execute("PRAGMA journal_mode = DELETE").fetchone() != ("delete",):
+                raise SnapshotError("cannot checkpoint offline destination")
+            check_database(db)
+    for rel in databases:
+        for suffix in ("-wal", "-shm"):
+            path = Path(str(root / rel) + suffix)
+            if path.exists():
+                if suffix == "-wal" and path.stat().st_size:
+                    raise SnapshotError("offline checkpoint left a non-empty WAL")
+                path.unlink()
 
 
 def snapshot(source, destination):
