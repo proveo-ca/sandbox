@@ -152,9 +152,9 @@ func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 	case "opencode":
 		switch {
 		case list:
-			return nil, fmt.Errorf("opencode has no session list subcommand; use --resume <id>")
+			return []string{"session", "list"}, nil
 		case cont:
-			return nil, fmt.Errorf("opencode has no --continue; use --resume <session-id>")
+			return []string{"--continue"}, nil
 		default:
 			return []string{"--session", resumeID}, nil
 		}

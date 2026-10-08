@@ -106,7 +106,7 @@ $diff"
     PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" cursor-agent -p --force --sandbox disabled --trust --model "$model" "$prompt" 2>/dev/null
   elif command -v opencode >/dev/null 2>&1; then
     model="${PROVEO_GIT_SYNC_MODEL_OPENCODE:-anthropic/claude-haiku-4-5}"
-    PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" opencode run -m "$model" "$prompt" 2>/dev/null
+    PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" opencode run --standalone -m "$model" "$prompt" 2>/dev/null
   else
     return 1
   fi

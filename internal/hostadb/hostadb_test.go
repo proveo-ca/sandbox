@@ -215,3 +215,31 @@ func TestMCPConfigLaunchesThroughTheEntrypointLib(t *testing.T) {
 		t.Errorf("mobile server = %+v", m)
 	}
 }
+
+func TestOpencodeLaunchUsesNativeV2MobileMCP(t *testing.T) {
+	launch := Launches["opencode"]
+	if !Supports("opencode") || len(launch.Flags) != 0 {
+		t.Fatalf("OpenCode must take mobile MCP through config: %+v", launch)
+	}
+	content, err := json.Marshal(launch.Opencode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Servers map[string]struct {
+			Type     string   `json:"type"`
+			Command  []string `json:"command"`
+			Disabled bool     `json:"disabled"`
+		} `json:"servers"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(content)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		t.Fatalf("OpenCode MCP config is not native v2 JSON: %v\n%s", err, content)
+	}
+	m, ok := cfg.Servers["mobile"]
+	want := []string{"bash", "-c", "source /entrypoint-lib.sh && proveo_mobile_mcp_exec"}
+	if len(cfg.Servers) != 1 || !ok || m.Type != "local" || m.Disabled || !slices.Equal(m.Command, want) {
+		t.Errorf("mobile MCP server = %+v", cfg.Servers)
+	}
+}

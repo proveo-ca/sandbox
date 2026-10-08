@@ -608,19 +608,34 @@ func TestGitSyncScriptNeverForcePushesOrSkipsHooks(t *testing.T) {
 	}
 }
 
-func TestGitSyncPluginListensForSessionIdle(t *testing.T) {
+func TestGitSyncOpenCodeSubjectUsesAPrivateServer(t *testing.T) {
 	t.Parallel()
-	src := readRepoFile(t, "packages/lib/hooks/proveo-git-sync-turn.js")
-	for _, want := range []string{
-		"session.idle", "git-sync-turn.sh", "PROVEO_GIT_SYNC_DIALECT=idle",
-		"</dev/null", "GIT_TERMINAL_PROMPT=0", ".quiet()",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("plugin lacks %q", want)
-		}
+	bash := bashOrSkip(t)
+	src := readRepoFile(t, "packages/lib/hooks/git-sync-turn.sh")
+	start := strings.Index(src, "_model_subject_once() {")
+	end := strings.Index(src, "\n_gen_commit_subject() {")
+	if start < 0 || end <= start {
+		t.Fatal("subject invocation function missing")
 	}
-	if !strings.Contains(src, "await $") {
-		t.Error("an unawaited Bun ShellPromise never spawns, so session.idle runs no hook")
+	stub := stubModelCLI(t, "opencode", `printf 'INFLIGHT=%s\n' "$PROVEO_GIT_SYNC_MSG_INFLIGHT"; printf '%s\n' "$@"`)
+	probe := src[start:end] + `
+command() {
+  if [[ "$1" == -v ]]; then
+    case "$2" in claude|codex|cursor-agent) return 1 ;; esac
+  fi
+  builtin command "$@"
+}
+_model_subject_once 20 'staged diff'`
+	cmd := exec.Command(bash, "-c", probe)
+	cmd.Env = hookEnv(t, "PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subject probe: %v\n%s", err, out)
+	}
+	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-4-5\n", "staged diff"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("subject invocation lacks %q:\n%s", want, out)
+		}
 	}
 }
 

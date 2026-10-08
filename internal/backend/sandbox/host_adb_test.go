@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,37 +47,38 @@ func TestWithMobileMCPHandsClaudeTheServer(t *testing.T) {
 }
 
 func TestOpencodeConfigCarriesTheMobileServer(t *testing.T) {
-	env := launchConfigEnv("opencode", hostadb.GuestEnv(5037))
-	raw := strings.TrimPrefix(envValue(env, "OPENCODE_CONFIG_CONTENT"), "")
-	var cfg struct {
-		MCP map[string]struct {
-			Type    string   `json:"type"`
-			Command []string `json:"command"`
-			Enabled bool     `json:"enabled"`
-		} `json:"mcp"`
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		t.Fatalf("OPENCODE_CONFIG_CONTENT is not JSON: %v\n%s", err, raw)
-	}
-	m := cfg.MCP["mobile"]
-	if m.Type != "local" || !m.Enabled || len(m.Command) != 3 || !strings.Contains(m.Command[2], "proveo_mobile_mcp_exec") {
-		t.Errorf("mobile server = %+v", m)
-	}
-	if cfg.Model != "" {
-		t.Errorf("no local model ⇒ no model key, got %q", cfg.Model)
-	}
-
-	both := launchConfigEnv("opencode", append(hostadb.GuestEnv(5037), "PROVEO_LOCAL_MODEL=muse-glimmer:30b-mlx"))
-	joined := envValue(both, "OPENCODE_CONFIG_CONTENT")
-	if !strings.Contains(joined, `"mobile"`) || !strings.Contains(joined, `"ollama/muse-glimmer:30b-mlx"`) {
-		t.Errorf("local model + android ⇒ one config carrying both:\n%s", joined)
-	}
-	if n := strings.Count(strings.Join(both, "\n"), "OPENCODE_CONFIG_CONTENT="); n != 1 {
-		t.Errorf("%d OPENCODE_CONFIG_CONTENT entries; a second would clobber the first", n)
-	}
-	if launchConfigEnv("opencode", nil) != nil {
-		t.Error("neither a local model nor android ⇒ no opencode config")
+	for _, model := range []string{"", "muse-glimmer:30b-mlx"} {
+		t.Run("local model="+model, func(t *testing.T) {
+			input := append(hostadb.GuestEnv(5037), "PROVEO_LOCAL_MODEL="+model, "OLLAMA_API_BASE=http://host.docker.internal:11434/v1/")
+			env := launchConfigEnv("opencode", input)
+			cfg := opencodeConfigFromEnv(t, env)
+			if cfg.MCP == nil || len(cfg.MCP.Servers) != 1 {
+				t.Fatalf("want one MCP server, got %+v", cfg.MCP)
+			}
+			m, ok := cfg.MCP.Servers["mobile"]
+			command := []string{"bash", "-c", "source /entrypoint-lib.sh && proveo_mobile_mcp_exec"}
+			if !ok || m.Type != "local" || m.Disabled || !slices.Equal(m.Command, command) {
+				t.Errorf("mobile server = %+v", m)
+			}
+			if model == "" {
+				if cfg.Model != "" || cfg.Agents != nil || cfg.Providers != nil || len(env) != 1 {
+					t.Errorf("mobile only must not choose a model or emit model metadata: %v", env)
+				}
+				var fields map[string]any
+				if err := json.Unmarshal([]byte(envValue(env, "OPENCODE_CONFIG_CONTENT")), &fields); err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := fields["model"]; ok {
+					t.Error("mobile only must omit the model key")
+				}
+			} else {
+				assertOpencodeLocalModelConfig(t, env, cfg, model, "http://host.docker.internal:11434/v1")
+			}
+			input = append(input, `OPENCODE_CONFIG_CONTENT={"model":"openai/gpt-5","mcp":{"servers":{"mobile":{"type":"remote","url":"https://example.com/mcp","disabled":true}}}}`)
+			if override := launchConfigEnv("opencode", input); !slices.Equal(override, env) {
+				t.Errorf("launch configuration must override existing inline content:\n%v\n%v", env, override)
+			}
+		})
 	}
 }
 
