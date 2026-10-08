@@ -5,8 +5,10 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +41,24 @@ const (
 	releaseSnap   = "/dev/shm/proveo-release-snapshot"
 	seedDone      = "/dev/shm/proveo-seed-done"
 )
+
+const opencodeRegistryProbe = `timeout 90 bash -c 'until opencode debug agents 2>/dev/null | node -e "const agents = JSON.parse(require(\"node:fs\").readFileSync(0, \"utf8\")); process.exit(agents.some(a => a.id === \"adversarial-reviewer\" && a.mode === \"subagent\") ? 0 : 1)"; do sleep 1; done'`
+
+func TestOpencodeV2SeedReadyAgentRegistry(t *testing.T) {
+	requireDocker(t)
+	image := harnessImageName("opencode")
+	if !imageExists(image) {
+		t.Skipf("harness image %s not built", image)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
+		"--env", `OPENCODE_CONFIG_CONTENT={"agents":{"adversarial-reviewer":{"description":"Offline registry probe","mode":"subagent","system":"Review code"}}}`,
+		"--entrypoint", "bash", image, "-c", opencodeRegistryProbe)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode v2 registry probe: %v\n%s", err, out)
+	}
+}
 
 // TestSeedReleasesEveryHarnessReady launches every sbx harness on a fresh clone
 // under the default broker credentials and asserts what its agent has AT
@@ -175,7 +195,7 @@ func readyLaunchScript(spec readySpec) string {
 	case "claude":
 		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | head -1 | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
 	case "opencode":
-		b.WriteString("echo \"registered=$(timeout 90 opencode agent list 2>/dev/null | grep -q '^adversarial-reviewer (subagent)' && echo yes || echo no)\"\n")
+		fmt.Fprintf(&b, "echo \"registered=$(%s && echo yes || echo no)\"\n", opencodeRegistryProbe)
 	}
 	b.WriteString(`echo "env_link=$(readlink .env)"
 echo "env_db=$(grep -c '^DB_URL=postgres://probe$' .env 2>/dev/null)"

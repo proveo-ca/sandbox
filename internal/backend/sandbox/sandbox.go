@@ -1857,8 +1857,7 @@ func gitSafeDirectoryEnv(repoRoot string) []string {
 	}
 }
 
-// launchConfigEnv renders the def's model wiring in the form the agent reads
-// at launch, for a def whose entrypoint sbx does not run before the agent.
+// launchConfigEnv renders OpenCode's per-launch model and MCP configuration.
 func launchConfigEnv(agent string, agentEnv []string) []string {
 	if agent != "opencode" {
 		return nil
@@ -1874,16 +1873,20 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 		if base == "" {
 			base = "http://ollama:11434"
 		}
-		cfg["provider"] = map[string]any{
+		base = strings.TrimRight(base, "/")
+		for strings.HasSuffix(base, "/v1") {
+			base = strings.TrimRight(strings.TrimSuffix(base, "/v1"), "/")
+		}
+		cfg["providers"] = map[string]any{
 			"ollama": map[string]any{
-				"npm":     "@ai-sdk/openai-compatible",
-				"name":    "Ollama (local)",
-				"options": map[string]any{"baseURL": strings.TrimRight(base, "/") + "/v1", "apiKey": "ollama"},
-				"models":  map[string]any{model: map[string]any{"name": model + " (local)"}},
+				"package":  "@opencode/ai/providers/openai-compatible",
+				"name":     "Ollama (local)",
+				"settings": map[string]any{"baseURL": base + "/v1", "apiKey": "ollama"},
+				"models":   map[string]any{model: map[string]any{"name": model + " (local)"}},
 			},
 		}
 		cfg["model"] = "ollama/" + model
-		cfg["small_model"] = "ollama/" + model
+		cfg["agents"] = map[string]any{"title": map[string]any{"model": "ollama/" + model}}
 		out = append(out, "OPENCODE_MODEL=ollama/"+model, "OPENCODE_SMALL_MODEL=ollama/"+model)
 	}
 	if mcp {

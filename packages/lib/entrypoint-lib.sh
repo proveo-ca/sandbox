@@ -2549,6 +2549,17 @@ _proveo_sync_tree() {
  return "$failed"
 }
 
+# SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/sbx/state-sync.puml
+proveo_opencode_sync_data() {
+ local src="$1" dst="$2" helper
+ helper="${PROVEO_OPENCODE_CREDENTIAL_HELPER:-/usr/local/lib/proveo/opencode-credentials.py}"
+ if [[ ! -f "$helper" ]] || ! command -v python3 >/dev/null 2>&1; then
+  printf 'proveo: OpenCode credential snapshot helper is unavailable\n' >&2
+  return 1
+ fi
+ python3 "$helper" --offline-destination "$src" "$dst"
+}
+
 proveo_sync_state() {
  local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
  [[ -n "$host" && -d "$host" ]] || return 0
@@ -2572,7 +2583,11 @@ proveo_sync_state() {
   esac
   [[ -d "$src" ]] || continue
   [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
-  _proveo_sync_tree "$src" "$dst" || rc=1
+  if [[ "$rel" == .local/share/opencode ]]; then
+   proveo_opencode_sync_data "$src" "$dst" || rc=1
+  else
+   _proveo_sync_tree "$src" "$dst" || rc=1
+  fi
  done < <(_proveo_volume_state_dirs)
  rm -rf "$lock" 2>/dev/null
  ((rc == 0)) || printf 'proveo: state %s completed with copy errors\n' "$mode" >&2

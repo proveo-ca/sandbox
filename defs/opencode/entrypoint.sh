@@ -251,13 +251,11 @@ fi
 
 OPENCODE_EVIDENCE_ARGS=()
 if agent_evidence_verbose; then
-  OPENCODE_EVIDENCE_ARGS=(--log-level DEBUG)
+  OPENCODE_EVIDENCE_ARGS=(--log-level debug)
   evidence_desc=("${OPENCODE_EVIDENCE_ARGS[@]}")
-  if [[ $# -gt 0 && "$1" != "tui" ]]; then
+  if [[ "${1:-}" == "run" ]]; then
     OPENCODE_EVIDENCE_ARGS+=(--print-logs)
     evidence_desc+=(--print-logs)
-  fi
-  if [[ "${1:-}" == "run" ]]; then
     shift
     set -- run --thinking "$@"
     evidence_desc+=(--thinking)
@@ -267,19 +265,6 @@ else
   report_agent_evidence
 fi
 
-# "$@" is AMBIGUOUS and the two backends disagree about what it means. On docker
-# proveo passes opencode's own flags, which belong after the binary. On sbx the
-# built-in agent kit supplies the whole COMMAND in the CMD position — for this
-# harness, the bare word `opencode` — and our ENTRYPOINT turns that into "$@".
-#
-# Appending it blindly, as this did, launched `opencode opencode`: the agent name
-# arriving as a positional, which opencode reads as a project path. It exits, the
-# sbx session ends with it, and the sandbox auto-stops 30s later as
-# "ERROR: sandbox ... was stopped". e2e/ladder_test.go pinned it to this layer —
-# rung 0 (stock image) held 48s, rung 1 (this image) died in 9s.
-#
-# proveo_exec_agent is the sanctioned disambiguation and cursor and claudecode
-# already used it; this harness had its own launch line and did not.
 # SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/_paradigms/capability-ladder.puml
 echo "🚀 Launching opencode ${OPENCODE_EVIDENCE_ARGS[*]}"
 proveo_exec_agent opencode "${OPENCODE_EVIDENCE_ARGS[@]}" -- "$@"
