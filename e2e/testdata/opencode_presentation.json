@@ -1,0 +1,21 @@
+{
+  "session": {
+    "permissions": "autoaccept",
+    "markdown": "source",
+    "thinking": "show",
+    "grouping": "none",
+    "verbosity": "high",
+    "sidebar": "auto"
+  },
+  "tabs": {
+    "mode": "on",
+    "indicators": "status"
+  },
+  "mini": {
+    "tools": "show",
+    "thinking": "show",
+    "shell_output": "show",
+    "turn_summary": "show",
+    "footer": "show"
+  }
+}
