@@ -216,6 +216,64 @@ class CredentialSnapshotTests(unittest.TestCase):
             sidecar.read_bytes(),
         )
 
+    def test_checked_in_relative_reference_symlinks_are_preserved(self):
+        self.fixture().close()
+        docs = self.source / "refs/project/docs"
+        docs.mkdir(parents=True)
+        (docs / "README.md").write_text("keep reference documentation")
+        (docs / "current.md").symlink_to("README.md")
+        (docs.parent / "current-docs").symlink_to("docs")
+        credentials.snapshot(self.source, self.destination)
+        self.assert_clean()
+        saved = self.destination / "refs/project/docs/current.md"
+        self.assertTrue(saved.is_symlink())
+        self.assertEqual(os.readlink(saved), "README.md")
+        self.assertEqual(saved.read_text(), "keep reference documentation")
+        self.assertTrue((self.destination / "refs/project/current-docs").is_symlink())
+
+    def test_reference_symlinks_cannot_expose_auth_or_escape_the_tree(self):
+        self.fixture().close()
+        (self.source / "auth.json").write_text("SYNTHETIC_AUTH_FILE")
+        refs = self.source / "refs"
+        refs.mkdir()
+        outside = self.root / "outside"
+        outside.write_text("keep external file")
+        link = refs / "current"
+        for target in ("../auth.json", "../opencode.db", "../../outside", str(outside)):
+            with self.subTest(target=target):
+                link.symlink_to(target)
+                with self.assertRaises(credentials.SnapshotError):
+                    credentials.snapshot(self.source, self.destination)
+                link.unlink()
+        self.assertEqual(outside.read_text(), "keep external file")
+
+    def test_previous_custom_native_database_is_scrubbed_after_selection_changes(self):
+        self.fixture(name="custom-database").close()
+        self.fixture().close()
+        (self.source / "custom-database-journal").write_bytes(b"")
+        references = self.source / "refs/project/custom-database"
+        references.parent.mkdir(parents=True)
+        with contextlib.closing(sqlite3.connect(references)) as db:
+            db.executescript(
+                "CREATE TABLE ordinary_fixture(value text); INSERT INTO ordinary_fixture VALUES ('keep');"
+            )
+        original = references.read_bytes()
+        credentials.snapshot(self.source, self.destination, selected="opencode.db")
+        self.assert_clean(name="custom-database")
+        self.assertFalse((self.destination / "custom-database-journal").exists())
+        self.assert_clean()
+        self.assertEqual(
+            (self.destination / references.relative_to(self.source)).read_bytes(),
+            original,
+        )
+        with contextlib.closing(sqlite3.connect(self.source / "custom-database")) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM credential").fetchone(), (2,)
+            )
+        next_run = self.root / "next-run"
+        credentials.snapshot(self.destination, next_run, selected="opencode.db")
+        self.assert_clean(next_run, name="custom-database")
+
     def test_unsupported_account_schema_keeps_previous_session_database(self):
         self.fixture().close()
         credentials.snapshot(self.source, self.destination)

@@ -3,6 +3,13 @@
 import contextlib
 import json
 import os
+import pty
+import fcntl
+import select
+import signal
+import struct
+import termios
+import time
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -194,6 +201,83 @@ class NativeRuntimeTests(unittest.TestCase):
         resumed = self.run_native("session", "list", "--format", "json")
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertTrue(output.exists())
+        moved_home = self.root / "host-visible-home"
+        self.home.rename(moved_home)
+        self.home = moved_home
+        self.durable = moved_home / "opencode/share"
+        self.env["HOME"] = str(moved_home)
+        self.env["PROVEO_HOME"] = str(moved_home)
+        self.env["PROVEO_STATE_HOME"] = str(moved_home)
+        self.env["PROVEO_CONFIG_DIRS"] = (
+            "opencode/share|.local/share/opencode|auth.json"
+        )
+        resumed = self.run_native("session", "list", "--format", "json")
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            messages = [
+                json.loads(row[0])
+                for row in db.execute("SELECT data FROM session_message")
+            ]
+        paths.clear()
+        visit(messages)
+        self.assertEqual(len(set(paths)), 1)
+        moved_output = Path(paths[0])
+        self.assertTrue(moved_output.is_relative_to(self.durable))
+        self.assertEqual(
+            moved_output.read_text().count("native truncation fixture"), 5000
+        )
+
+    def test_actual_native_direct_pty_suspend_resume_and_shutdown(self):
+        process, terminal = pty.fork()
+        if process == 0:
+            env = dict(self.env, TERM="xterm-256color")
+            os.execve(sys.executable, [sys.executable, "-B", str(RUNTIME), NATIVE], env)
+        self.addCleanup(os.close, terminal)
+
+        def cleanup():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(process, signal.SIGCONT)
+                os.kill(process, signal.SIGTERM)
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(process, 0)
+
+        self.addCleanup(cleanup)
+        fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+        deadline = time.monotonic() + 10
+        output = bytearray()
+        while time.monotonic() < deadline:
+            readable, _, _ = select.select([terminal], [], [], 0.1)
+            if readable:
+                output.extend(os.read(terminal, 65536))
+                if b"Ask anything" in output or b"OpenCode" in output:
+                    break
+        self.assertEqual(os.getsid(process), process)
+        os.write(terminal, b"\x1a")
+        stopped = None
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            pid, status = os.waitpid(process, os.WNOHANG | os.WUNTRACED)
+            if pid and os.WIFSTOPPED(status):
+                stopped = status
+                break
+            readable, _, _ = select.select([terminal], [], [], 0.1)
+            if readable:
+                output.extend(os.read(terminal, 65536))
+        self.assertIsNotNone(
+            stopped, "native direct-PTY suspension did not stop its supervisor"
+        )
+        assert stopped is not None
+        self.assertEqual(os.WSTOPSIG(stopped), signal.SIGSTOP)
+        os.kill(process, signal.SIGCONT)
+        time.sleep(0.15)
+        os.kill(process, signal.SIGTERM)
+        pid, status = os.waitpid(process, 0)
+        self.assertEqual(pid, process)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 143)
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
+            )
 
     def test_await_seed_and_runtime_shim_cover_docker_and_sbx(self):
         shim = self.root / "opencode"

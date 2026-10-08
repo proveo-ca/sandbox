@@ -107,6 +107,9 @@ elif mode == "preferences":
         '{"password":"SYNTHETIC_TRANSIENT_SERVER_SECRET"}'
     )
     append()
+elif mode == "final-disk-full":
+    append()
+    dbfile.with_name("latest-native-write").write_text("latest session was committed")
 else:
     append()
 db.close()
