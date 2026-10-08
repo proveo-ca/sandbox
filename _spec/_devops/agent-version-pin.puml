@@ -13,6 +13,16 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' covers: internal/contract/agent_pin_test.go
 ' covers: internal/posture/posture.go (AgentVersion)
 ' covers: internal/run/run.go
+' covers: defs/opencode/README.md
+' covers: CODING_HARNESSES.md
+'
+' OpenCode v2 uses @opencode/cli; opencode-ai remains the v1 package. Resolve
+' @opencode/cli/latest and install @opencode/cli@${OPENCODE_VERSION}, retaining
+' the opencode command and OPENCODE_VERSION override. The proveo.agent label
+' names @opencode/cli, and the package contract checks that npm/PyPI pins resolve
+' the same package the Dockerfile installs rather than accepting only the arg.
+' OpenCode v2 prints "opencode v<version>" from --version, so the Dockerfile and
+' image suite compare that full string against the bare version pin.
 '
 ' ── THE PIN NEEDS A GAUGE, BECAUSE THE UPDATER USED TO BE ONE ──────────────
 ' Every harness now switches its CLI's own auto-updater OFF — claudecode by
@@ -124,7 +134,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '           An image without the label predates the pin — rebuild rather than
 '           trust it.
 '
-' An exported override wins outright (OPENCODE_VERSION=1.18.20 proveo build
+' An exported override wins outright (OPENCODE_VERSION=2.0.6 proveo build
 ' opencode): that is how a maintainer rebuilds an older agent, or builds
 ' offline. AgentVersion returns the bare version; the `pin:` note (ui.Notef)
 ' saying which release is about to be baked, and how it was chosen, prints
@@ -185,7 +195,7 @@ note over BK
   ""proveo build <target>"".
 
   **The version check makes the pin a fact about the image.**
-  ""opencode --version"" must print the arg exactly;
+  ""opencode --version"" must print ""opencode v<arg>"" exactly;
   ""claude --version"" must contain it; ""pip show"" must report it;
   cursor's installer, which takes no version, must have unpacked the
   release ""AgentVersion"" read out of the script.
@@ -199,7 +209,7 @@ note over LIB
   python3 on the host is involved; ""cursor"" scrapes the release directory out of
   ""cursor.com/install"", because that script hardcodes its build and takes no
   argument. The maintainer override is the same ""<ARG>"" the Dockerfile
-  takes, so ""OPENCODE_VERSION=1.18.20 proveo build opencode"" pins an older
+  takes, so ""OPENCODE_VERSION=2.0.6 proveo build opencode"" pins an older
   release and doubles as the offline path. A failed fetch is still a
   refusal, never a guessed version; the ""Failf"" line names
   ""<ARG>=<x\.y\.z>"" and the last fetch error.
@@ -216,7 +226,7 @@ end note
 note over LBL
   **How to know what a harness carries:**
   ""docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local""
-  and what upstream ships: ""npm view opencode-ai version"". The build log's
+  and what upstream ships: ""npm view @opencode/cli version"". The build log's
   ""pin:"" line states the same version at build time. Each def's runtime suite
   (""internal/imagetest"") checks the label against the agent's own release.
 end note

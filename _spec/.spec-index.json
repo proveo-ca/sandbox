@@ -42,7 +42,9 @@
         "internal/imagetest/*_test.go",
         "internal/contract/agent_pin_test.go",
         "internal/posture/posture.go",
-        "internal/run/run.go"
+        "internal/run/run.go",
+        "defs/opencode/README.md",
+        "CODING_HARNESSES.md"
       ],
       "fingerprint": null
     },
