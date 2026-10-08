@@ -242,6 +242,9 @@ def private_environment(env, root, name):
 
 def native_command(binary, args):
     words = command_words(args)
+    if words[:1] == ["run"] and "--auto" not in args:
+        index = args.index("--") if "--" in args else len(args)
+        args = args[:index] + ["--auto"] + args[index:]
     state_commands = ("run", "mini", "api", "models", "stats", "reload", "session", "auth")
     if not words or words[0] in state_commands or words[0] not in (
         "debug", "serve", "service", "acp", "mcp", "plugin", "upgrade", "update", "uninstall", "pair"

@@ -75,6 +75,7 @@ var specNotesEnforced = []string{
 	"_spec/_devops/all-defs-green.puml",
 	"_spec/defs/opencode/native-v2-integration.puml",
 	"_spec/defs/opencode/opencode-paradigm.puml",
+	"_spec/defs/opencode/opencode-topology.puml",
 	"_spec/_devops/agent-version-pin.puml",
 }
 
