@@ -94,6 +94,7 @@ USER ${USER_NAME}
 WORKDIR /workspace
 
 ENV OPENCODE_DISABLE_AUTOUPDATE=1 \
+    OPENCODE_CLI_CONFIG_CONTENT='{"session":{"permissions":"autoaccept","markdown":"source","thinking":"show","grouping":"none","verbosity":"high","sidebar":"auto"},"tabs":{"mode":"on","indicators":"status"},"mini":{"tools":"show","thinking":"show","shell_output":"show","turn_summary":"show","footer":"show"}}' \
     PATH="/opt/proveo/shims:/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \

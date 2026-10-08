@@ -410,7 +410,7 @@ func TestOpencodeV2LocalModelRefusesUnsafeWrites(t *testing.T) {
 			if bytes.Contains(out, []byte("Wired Ollama")) {
 				t.Errorf("reported success without wiring:\n%s", out)
 			}
-			if tc.model != "" && !bytes.Contains(out, []byte("❌")) {
+			if tc.model != "" && !bytes.Contains(out, []byte("requested Ollama model")) {
 				t.Errorf("missing actionable failure:\n%s", out)
 			}
 			if tc.json != "" {
