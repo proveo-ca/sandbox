@@ -118,9 +118,12 @@ needed inside the sandbox. proveo detects the key like any other provider: it br
 firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
 `.opencode.ai` only).
 
-`opencode auth login` / `/connect` inside the container is the wrong place: it writes
-`~/.local/share/opencode/auth.json`, which proveo **scrubs from the mounted share on every
-run** so login tokens never persist in the proveo home. The same holds for providers with no
+OpenCode v2 stores saved credentials in its SQLite database.
+proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
+The runtime holds a lease on the durable data store and rejects a concurrent stateful run with exit code `75`.
+Environment API keys remain available to the running CLI.
+Saved logins from `opencode auth login` or `/connect` do not carry into the next run.
+The same holds for providers with no
 dedicated env var (Together, Hugging Face, …): prefer an API key via env or the egress broker.
 Resume a prior session with:
 
@@ -138,16 +141,20 @@ to force a refresh from the baked-in copy.
 
 Two primary agents, mirroring the plan→build loop:
 
-| Agent   | `edit` | `bash`  | temp | Use it for                              |
-| ------- | ------ | ------- | ---- | --------------------------------------- |
-| `plan`  | `deny` | `deny`  | 0.1  | Spec'ing, drafting a step list to review |
-| `build` | `allow`| `ask`   | 0.2  | Implementation — every shell call is a checkpoint |
+| Agent   | `edit` | `shell` | Use it for                              |
+| ------- | ------ | ------- | --------------------------------------- |
+| `plan`  | `deny` | `deny`  | Spec'ing, drafting a step list to review |
+| `build` | `allow`| `ask`   | Implementation with shell approval      |
 
-Plus `context.rot: true` and `context.summarize: true` to keep long sessions sane.
+V2 expresses permissions as ordered `action`, `resource`, and `effect` rules under `agents.<name>.permissions`.
+Saved approvals can satisfy an `ask` rule.
+The defaults enable `compaction.auto` and set `update: "disable"`.
+The image also sets `OPENCODE_DISABLE_AUTOUPDATE=1`.
+The defaults leave model selection to OpenCode.
 
 ### Default subagents (`@`-mentionable)
 
-All read-only (`edit:deny`, `bash:deny`) — they advise, you decide whether to act.
+All read-only (`edit:deny`, `shell:deny`) — they advise, you decide whether to act.
 `@spec-keeper` is the single exception: it has `edit:allow` *scoped by its prompt*
 to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
 
@@ -179,9 +186,13 @@ to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
 
 ### Overriding the defaults
 
-Precedence (highest wins): project `opencode.json` → project `.opencode/agents/*.md` →
-seeded `~/.config/opencode/opencode.json` → seeded `~/.config/opencode/agents/*.md`.
+OpenCode merges global configuration, direct project configs from ancestors to the working directory, and then `.opencode` configs in the same order.
+Within one config directory, `opencode.jsonc` takes precedence over `opencode.json`.
 Drop a `.opencode/agents/<name>.md` in your repo to override or add a subagent.
+proveo preserves existing global JSON, JSONC, and rendered agents unless `OPENCODE_RESEED=1` is set.
+Automatic LSP and formatter wiring leaves JSONC and malformed JSON untouched.
+An explicit local-model request fails if those files prevent safe wiring.
+Quit and restart OpenCode after changing its configuration.
 
 ## Project configuration
 
@@ -192,35 +203,46 @@ A minimal example:
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-5",
-  "small_model": "anthropic/claude-haiku-4-5",
-  "provider": {
+  "agents": {
+    "title": { "model": "anthropic/claude-haiku-4-5" }
+  },
+  "providers": {
     "anthropic": {
-      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" }
+      "settings": { "apiKey": "{env:ANTHROPIC_API_KEY}" }
     }
   }
 }
 ```
 
-See <https://opencode.ai/docs/config/> for the full schema.
+See <https://opencode.ai/v2/docs/config> for the v2 configuration contract.
+The published editor schema still describes v1 fields; the image suite validates native settings against the installed v2 CLI.
 
 ## MCP servers
 
-Declare MCP servers under `mcp` in `opencode.json`:
+Declare MCP servers under `mcp.servers` in `opencode.json`:
 
 ```jsonc
 {
   "mcp": {
-    "filesystem": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
-      "enabled": true
+    "servers": {
+      "filesystem": {
+        "type": "local",
+        "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"]
+      }
     }
   }
 }
 ```
 
-See <https://opencode.ai/docs/mcp-servers/> for transport options (`local` / `remote`)
+See <https://opencode.ai/v2/docs/mcp-servers> for transport options (`local` / `remote`)
 and trust settings.
+Set a server's `disabled` field to `true` to keep it configured without connecting.
+
+## Idle git synchronization
+
+The native v2 plugin observes session idle events and schedules best-effort git synchronization.
+The CLI can return before synchronization finishes.
+Commit-subject helper runs use a private `--standalone` server.
 
 ## Tests
 

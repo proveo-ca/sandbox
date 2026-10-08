@@ -253,7 +253,7 @@ The level is one axis, chosen in the run prompt's `agent evidence` row and shipp
 | **claudecode** | `--verbose` (+ `--include-partial-messages` when the caller already asked for `--output-format stream-json`) | `--debug` is deliberately excluded: transport noise, not the agent's work. |
 | **codex** | `--json`, headless only (`codex exec`) | The TUI has no verbosity switch. A caller's own `--json` / `--output-last-message` is a parse contract and wins. |
 | **cursor** | `--output-format stream-json --stream-partial-output`, headless only | The CLI has no verbosity switch for its TUI, and it suppresses thinking events in print mode. A caller's own `--output-format` wins. |
-| **opencode** | `--log-level DEBUG`; `--print-logs` off the TUI path; `--thinking` on `run` | `--print-logs` writes to stderr, so it is withheld while the TUI owns the terminal. |
+| **opencode** | `--log-level debug`; `--print-logs` and `--thinking` on headless `run` | `--print-logs` writes to stderr, so it is withheld while the TUI owns the terminal. |
 | **cecli** | `--verbose --show-diffs` | `--show-repo-map` / `--show-prompts` print and **exit**, so they can never be defaults. |
 
 An operator opts out per run by picking `default` in the prompt (remembered per harness) or by exporting `PROVEO_AGENT_EVIDENCE=default`. Any other value warns and resolves to verbose.

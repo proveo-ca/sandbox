@@ -73,6 +73,9 @@ var specNotesEnforced = []string{
 	"_spec/defs/harness-image-layers.puml",
 	"_spec/_paradigms/capability-ladder.puml",
 	"_spec/_devops/all-defs-green.puml",
+	"_spec/defs/opencode/native-v2-integration.puml",
+	"_spec/defs/opencode/opencode-paradigm.puml",
+	"_spec/_devops/agent-version-pin.puml",
 }
 
 const (
