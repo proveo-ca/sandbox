@@ -44,8 +44,11 @@ layer and nothing in the build says so. Every def follows one shape
   purpose.
 - The def's runtime suite checks the label against the agent's own `--version`.
 
+OpenCode v2 resolves and installs `@opencode/cli`.
+Its `opencode --version` output is `opencode v<version>`; the image's version label stays bare.
+
 Exporting the ARG pins a specific release or builds offline, e.g.
-`OPENCODE_VERSION=1.18.20 proveo build opencode`. To see what an image carries without
+`OPENCODE_VERSION=2.0.6 proveo build opencode`. To see what an image carries without
 running it: `docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local`.
 
 ## Runtime Configuration Discovery

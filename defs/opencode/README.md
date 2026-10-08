@@ -1,6 +1,6 @@
 # opencode Docker Runner
 
-Custom Docker image for [`opencode-ai`](https://github.com/anomalyco/opencode) with:
+Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://github.com/anomalyco/opencode)) with:
 
 - `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm`)
 - Root-free runtime: baked non-root user `opencode` (uid 1000); the run wrapper launches as the invoking host uid via `--user $(id -u):$(id -g)`
@@ -44,6 +44,16 @@ This definition follows the shared [coding harness container contract](../../COD
 
 ```bash
 mise run build opencode
+```
+
+The build resolves `@opencode/cli`'s current npm release and installs that exact version.
+`opencode --version` must report `opencode v<version>` before the build succeeds.
+The image records `proveo.agent=@opencode/cli` and `proveo.agent.version=<version>`.
+
+To pin a specific v2 release:
+
+```bash
+OPENCODE_VERSION=2.0.6 mise run build opencode
 ```
 
 To build a specific tag:

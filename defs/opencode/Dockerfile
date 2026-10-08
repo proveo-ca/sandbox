@@ -57,8 +57,8 @@ ARG OPENCODE_VERSION
 RUN --mount=type=cache,id=proveo-opencode-npm,target=/root/.npm,sharing=locked \
     test -n "${OPENCODE_VERSION}" \
       || { echo "OPENCODE_VERSION build-arg is required — 'mise run build opencode' resolves it" >&2; exit 1; } \
-    && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
-    && test "$(opencode --version)" = "${OPENCODE_VERSION}"
+    && npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
+    && test "$(opencode --version)" = "opencode v${OPENCODE_VERSION}"
 
 RUN mkdir -p /workspace \
              /home/agent/.config/opencode \
@@ -95,7 +95,7 @@ ENV OPENCODE_AUTO_UPDATE=false \
 LABEL security.non-root=true \
       security.hardened=true \
       security.version="1.0" \
-      proveo.agent="opencode-ai" \
+      proveo.agent="@opencode/cli" \
       proveo.agent.version="${OPENCODE_VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \

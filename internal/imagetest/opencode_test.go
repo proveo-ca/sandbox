@@ -86,14 +86,20 @@ func ocBuild(s *imagetest.Suite) {
 	s.Inspect("entrypoint uses dumb-init", img, `{{json .Config.Entrypoint}}`, "dumb-init")
 
 	// SPEC: _spec/_devops/agent-version-pin.puml
-	s.Inspect("proveo.agent label names the agent package", img, `{{index .Config.Labels "proveo.agent"}}`, "opencode-ai")
+	s.Inspect("proveo.agent label names the agent package", img, `{{index .Config.Labels "proveo.agent"}}`, "@opencode/cli")
 	r := imagetest.Docker(imagetest.DefaultTimeout, nil, "image", "inspect", "-f", `{{index .Config.Labels "proveo.agent.version"}}`, img)
 	label := ""
 	if r.OK() {
 		label = strings.TrimRight(r.Out, "\n")
 	}
 	if label != "" {
-		s.Contains("opencode --version matches proveo.agent.version="+label, img, "opencode --version", label)
+		s.Check("opencode --version matches proveo.agent.version="+label, func(t *testing.T) {
+			r := imagetest.ExecIn(img, "opencode --version")
+			want := "opencode v" + label
+			if !r.OK() || strings.TrimSpace(r.Out) != want {
+				t.Errorf("opencode --version = %q, %v; want %q", r.Out, r.Err, want)
+			}
+		})
 	} else {
 		s.Check("proveo.agent.version label is set", func(t *testing.T) {
 			t.Error("image predates the pin — proveo build opencode")

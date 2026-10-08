@@ -242,14 +242,14 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 		override, eco, pkg  string
 		wantURL, want, note string
 	}{
-		{name: "npm registry", body: `{"name":"opencode-ai","version":"1.18.27"}`,
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			wantURL: "https://registry.npmjs.org/opencode-ai/latest", want: "1.18.27",
-			note: "pin: opencode-ai@1.18.27 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
+		{name: "npm registry", body: `{"name":"@opencode/cli","version":"2.0.25"}`,
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			wantURL: "https://registry.npmjs.org/@opencode/cli/latest", want: "2.0.25",
+			note: "pin: @opencode/cli@2.0.25 (resolved upstream; override with OPENCODE_VERSION=<version>)"},
 		{name: "npm honours NPM_CONFIG_REGISTRY", body: `{"version":"2.0.0"}`,
 			env:      map[string]string{"NPM_CONFIG_REGISTRY": "https://npm.example/"},
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			wantURL: "https://npm.example/opencode-ai/latest", want: "2.0.0", note: "@2.0.0 (resolved upstream"},
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			wantURL: "https://npm.example/@opencode/cli/latest", want: "2.0.0", note: "@2.0.0 (resolved upstream"},
 		{name: "pypi current release", body: `{"info":{"name":"cecli-dev","version":"1.4.0"},"releases":{"1.3.0":[]}}`,
 			override: "CECLI_VERSION", eco: "pypi", pkg: "cecli-dev",
 			wantURL: "https://pypi.org/pypi/cecli-dev/json", want: "1.4.0",
@@ -260,9 +260,9 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 			wantURL: "https://cursor.com/install", want: "2026.08.31-4057e58",
 			note: "@2026.08.31-4057e58 (resolved upstream; override with CURSOR_AGENT_VERSION=<version>)"},
 		{name: "an exported override wins without asking upstream",
-			env:      map[string]string{"OPENCODE_VERSION": "1.18.20"},
-			override: "OPENCODE_VERSION", eco: "npm", pkg: "opencode-ai",
-			want: "1.18.20", note: "pin: opencode-ai@1.18.20 (from OPENCODE_VERSION)"},
+			env:      map[string]string{"OPENCODE_VERSION": "2.0.6"},
+			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
+			want: "2.0.6", note: "pin: @opencode/cli@2.0.6 (from OPENCODE_VERSION)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -286,10 +286,52 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 	}
 }
 
+func TestOpencodeBuildTracksV2Releases(t *testing.T) {
+	t.Parallel()
+	d := &fakeDocker{}
+	b, errb := newTest(t, d, map[string]string{"PROVEO_BUILDKIT_CACHE": "0"})
+	const registryURL = "https://registry.npmjs.org/@opencode/cli/latest"
+	var fetched []string
+	var version string
+	b.Fetch = func(url string) ([]byte, error) {
+		fetched = append(fetched, url)
+		switch url {
+		case registryURL:
+			return fmt.Appendf(nil, `{"name":"@opencode/cli","version":%q}`, version), nil
+		case "https://registry.npmjs.org/opencode-ai/latest":
+			return []byte(`{"name":"opencode-ai","version":"1.18.35"}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected registry URL %s", url)
+		}
+	}
+	versions := []string{"2.0.24", "2.0.25"}
+	for _, v := range versions {
+		version = v
+		if err := b.BuildTarget("opencode", "local", Options{}); err != nil {
+			t.Fatalf("BuildTarget: %v\n%s", err, errb)
+		}
+		if note := "pin: @opencode/cli@" + v + " (resolved upstream"; !strings.Contains(errb.String(), note) {
+			t.Errorf("build log lacks %q:\n%s", note, errb)
+		}
+	}
+	if !slices.Equal(fetched, []string{registryURL, registryURL}) {
+		t.Errorf("fetched %q, want the v2 registry on every build", fetched)
+	}
+	builds := d.builds()
+	if len(builds) != len(versions) {
+		t.Fatalf("builds = %q, want one per release", builds)
+	}
+	for i, v := range versions {
+		if arg := "--build-arg OPENCODE_VERSION=" + v; !strings.Contains(builds[i], arg) {
+			t.Errorf("build %d lacks %q: %s", i, arg, builds[i])
+		}
+	}
+}
+
 func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ override, eco, pkg string }{
-		{"OPENCODE_VERSION", "npm", "opencode-ai"},
+		{"OPENCODE_VERSION", "npm", "@opencode/cli"},
 		{"CECLI_VERSION", "pypi", "cecli-dev"},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, nil)
