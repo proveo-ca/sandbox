@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
@@ -137,5 +139,51 @@ func TestModelsAreNotPartOfTheFingerprint(t *testing.T) {
 	wider := Fingerprint(manifest.Capabilities{Egress: []string{"allowlist", "review"}})
 	if a == wider {
 		t.Error("a capability change must change the fingerprint")
+	}
+}
+
+func TestPortsAreRememberedPerPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := []Port{{Port: 3000, Command: "dev", Source: "apps/web/package.json"}}
+	s.RememberPorts("/repo/a", web)
+	s.RememberPorts("/repo/b", nil)
+	if err := s.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ports, ok := got.PortsFor("/repo/a"); !ok || !cmp.Equal(web, ports) {
+		t.Errorf("PortsFor(/repo/a) = %v, %v; want %v, true", ports, ok, web)
+	}
+	if ports, ok := got.PortsFor("/repo/b"); !ok || len(ports) != 0 {
+		t.Errorf("PortsFor(/repo/b) = %v, %v; want none, true", ports, ok)
+	}
+	if _, ok := got.PortsFor("/repo/c"); ok {
+		t.Error("PortsFor(/repo/c) answered a path nobody asked about")
+	}
+}
+
+func TestAppsAndPortsShareAWorkspaceEntry(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s, _ := Load(root)
+	s.RememberPorts("/repo", []Port{{Port: 3000, Command: "dev", Source: "package.json"}})
+	s.RememberApps("/repo", []App{{Module: ":app", AppID: "ca.proveo.hello"}})
+	if err := s.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Load(root)
+	if apps, ok := got.AppsFor("/repo"); !ok || len(apps) != 1 || apps[0].AppID != "ca.proveo.hello" {
+		t.Errorf("AppsFor(/repo) = %v, %v", apps, ok)
+	}
+	if ports, ok := got.PortsFor("/repo"); !ok || len(ports) != 1 {
+		t.Errorf("PortsFor(/repo) = %v, %v after RememberApps", ports, ok)
 	}
 }

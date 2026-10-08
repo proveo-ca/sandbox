@@ -67,7 +67,7 @@ func TestSpecClonesALinkedWorktreeThroughItsMainWorktree(t *testing.T) {
 	}
 }
 
-func TestSpecMountsTheStagedEnvReadOnlyOnlyForAClone(t *testing.T) {
+func TestSpecMountsTheStagedEnvReadWriteOnlyForAClone(t *testing.T) {
 	t.Parallel()
 	repo, stage := t.TempDir(), t.TempDir()
 	staged := filepath.Join(stage, ".env")
@@ -80,17 +80,20 @@ func TestSpecMountsTheStagedEnvReadOnlyOnlyForAClone(t *testing.T) {
 	clone := base
 	clone.Clone = true
 	cfg, _, _ := Spec(clone)
-	var found bool
+	var found, rw bool
 	for _, m := range cfg.Mounts {
 		if m.Host == stage {
-			found = m.ReadOnly
+			found, rw = true, !m.ReadOnly
 		}
 	}
-	if !found {
-		t.Errorf("the staged .env dir is not mounted read-only: %+v", cfg.Mounts)
+	if !found || !rw {
+		t.Errorf("the staged .env dir is not mounted read-write, so the agent's edits cannot reach teardown: %+v", cfg.Mounts)
 	}
 	if !strings.Contains(strings.Join(cfg.Env, "\n"), CloneEnvVar+"="+staged) {
 		t.Errorf("the seed is not told where the staged .env is")
+	}
+	if !strings.Contains(strings.Join(cfg.Env, "\n"), CloneVar+"=1") {
+		t.Errorf("the seed is not told it seeds a clone, so it never records the clone's base")
 	}
 	cfg, _, _ = Spec(base)
 	if strings.Contains(strings.Join(cfg.Env, "\n"), CloneEnvVar) {

@@ -26,6 +26,15 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh (proveo_clone_env, proveo_clone_links)
 ' covers: internal/credentials/stage_env_test.go
 ' covers: e2e/seed_ready_test.go
+' covers: internal/credentials/project_env_merge.go (MergeProjectEnv)
+' covers: internal/credentials/project_env_merge_test.go
+' covers: internal/backend/sandbox/sandbox.go (shares, SharesVar, CloneVar, TeardownClone, writeBackCloneEnv, liftClonedSpec, trackedSpec)
+' covers: internal/backend/sandbox/clone_shares_test.go
+' covers: internal/sbx/run.go (CloneSpanArgs, CloneRebaseArgs, CloneReadArgs, CloneBaseName)
+' covers: packages/lib/entrypoint-lib.sh (proveo_clone_base, proveo_assert_shares)
+' covers: packages/lib/proveo-await-seed
+' covers: internal/contract/seed_shares_test.go
+' covers: e2e/clone_test.go (TestCloneCarriesAGitignoredSymlinkedDotEnv, TestCloneLiftsTrackedSpecEdits)
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -98,8 +107,10 @@ skinparam noteTextAlignment left
 ' ── THE PROJECT .env IS STAGED, NOT CLONED ─────────────────────────────────
 ' .env is gitignored, so a clone never carries it, and until 2026-09-29 the
 ' agent simply ran without one — the mounted checkout it replaced always had
-' it. The operator chose a READ-ONLY mount over a copy into the clone: the
-' agent reads the host's values but cannot edit or commit them.
+' it. The operator first chose a READ-ONLY mount; on 2026-10-07 the operator
+' asked that sandbox edits reach the host, and chose a TEARDOWN WRITE-BACK over
+' a live rw mount of the real file. A live mount of the real file would hand
+' the agent every provider key the broker strips; the write-back never does.
 ' sbx mounts directories only, and the directory holding the real .env is the
 ' repository root — the clone target itself. So stageCloneEnv copies the
 ' project's .env (ProjectEnvFile: the input dir's, else the repo root's; a
@@ -112,6 +123,54 @@ skinparam noteTextAlignment left
 ' the file whole. /.env goes into the clone's .git/info/exclude, so a project
 ' that forgot to ignore it still never commits the link at teardown, and an
 ' existing .env in a reattached clone is left alone and reported.
+'
+' ── .env EDITS MERGE HOME BY NAME AT TEARDOWN ──────────────────────────────
+' The staged dir is mounted READ-WRITE, and stageCloneEnv keeps the staged
+' bytes as <state>/sbx/project-env.base, OUTSIDE the mount, so the agent
+' cannot move the baseline. At teardown writeBackCloneEnv reads the clone's
+' .env over `sbx exec cat` — an editor that saves by rename replaces the
+' symlink, and the staged file then never sees the edit — and falls back to
+' the staged file when the sandbox is gone. MergeProjectEnv applies base →
+' edited onto the host file NAME BY NAME:
+'   a name the host also changed during the run keeps the HOST value (warned;
+'     the clone's version stays in the staged file);
+'   a brokered key is REFUSED: the sandbox never writes one, and the host's
+'     own line, absent from base, survives untouched;
+'   comments, order and every untouched line stay byte for byte.
+' The host file is replaced atomically and keeps its mode. ProjectEnvFile
+' resolves symlinks at staging, so a worktree whose .env links the monorepo's
+' stages AND writes back the monorepo's own file: the rename swaps the target,
+' every worktree link keeps pointing at it, and the edit cascades to all.
+' Only the run's own teardown (TeardownClone) writes back. retireSandbox runs
+' PreserveClone with the NEXT run's fresh baseline, against which the old
+' clone's .env would read as edits and revert host changes.
+'
+' ── A TRACKED _spec IS LIFTED INTO THE HOST WORKTREE ───────────────────────
+' A symlinked _spec is relinked to its mounted target, so edits are live. A
+' TRACKED _spec rode the clone, so its edits reached the host only as commits
+' under refs/proveo/<sid>/ — never in the operator's working tree. On
+' 2026-10-07 the operator chose a teardown lift over a live side-mount: a
+' symlink over a tracked dir is a typechange the snapshot commit would record.
+' The seed records the clone's starting HEAD once, at the git-path
+' proveo-clone-base (per worktree, on the VM's disk so a reboot cannot reset
+' it), only when PROVEO_CLONE_WORKSPACE says the tree is a clone — never into
+' a mounted checkout's .git. After the refs arrive, liftClonedSpec diffs
+' base..HEAD under _spec and `git restore --worktree`s each changed path from
+' the clone's HEAD, SKIPPING any path the host changed since base (tracked or
+' untracked). The index is never touched. The base then moves to HEAD, so the
+' next run lifts only its own work.
+'
+' ── THE SEED ASSERTS THE SHARES BEFORE IT RELEASES THE AGENT ───────────────
+' PROVEO_SHARES lists rel=rw|ro for each of _spec and .env the HOST holds at
+' the agent workdir: a clone is always rw; a mounted checkout follows its
+' bind. proveo_assert_shares runs after the clone steps and before the
+' instructions; a path that is missing, unreadable, or read-only where rw was
+' promised writes /dev/shm/proveo-seed-refused and returns 1, so the release
+' marker is never written. sbx's startup wrapper still exits 0 (a seed miss
+' must not tear the sandbox down), so the GATE is proveo-await-seed: it stops
+' waiting when the refusal appears, and refuses an agent launch with the
+' reason; `--cwd` still answers so a shell can inspect. Docker never sets
+' PROVEO_SHARES, and a host without _spec or .env asserts nothing.
 '
 ' ── IGNORED HOST SYMLINKS ARE RELINKED, NOT CLONED ─────────────────────────
 ' The same gap took _spec: ~/Projects/pluvo/<worktree>/_spec is a symlink to
@@ -135,8 +194,11 @@ skinparam noteTextAlignment left
 ' two now share one launch shape (_spec/tests/testing-strategy.puml).
 ' TestCloneCarriesAGitignoredSymlinkedDotEnv uses the same shape for the staged
 ' .env: gitignored, symlinked out of the checkout, it must read back in the
-' clone, refuse a write, and stay out of `git status`. It asserts on .env alone,
-' because the instructions seed leaves AGENTS.md untracked in the clone.
+' clone, accept a write, stay out of `git status`, and land that write in the
+' host target at teardown. It asserts on .env alone, because the instructions
+' seed leaves AGENTS.md untracked in the clone. TestCloneLiftsTrackedSpecEdits
+' edits a tracked _spec in the clone and reads the edit back from the host
+' worktree after teardown.
 '
 ' ── NOTHING MAY BE MOUNTED UNDER THE REPOSITORY IN CLONE MODE ──────────────
 ' sbx clones only into an EMPTY workspace, and it mounts every positional
@@ -358,6 +420,19 @@ note bottom of REFS
   remove"" deletes ""refs/remotes/<remote>/*"" with
   the remote sbx tears down. ""refs/proveo/"" is
   proveo's own and survives it.
+end note
+
+note as SHARES
+  **No release without the shares.** The seed
+  asserts _spec and .env at the workdir; a miss
+  writes the refusal, and proveo-await-seed
+  will not launch the agent past it.
+end note
+
+note as ENVBACK
+  **.env merges home by name.** A host-side
+  change wins, a brokered key is refused, and
+  every untouched line stays byte for byte.
 end note
 
 note bottom of OUT

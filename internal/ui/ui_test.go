@@ -258,6 +258,74 @@ func TestWrapLeavesShortLinesAlone(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/ui/output-vocabulary.puml (GREY DETAIL)
+func TestWrapBreaksAWordWiderThanTheLine(t *testing.T) {
+	t.Parallel()
+	in := "● run log:\n  /tmp/" + strings.Repeat("abcdefghij", 12) + "/logs/x.log\n"
+	got := string(wrapLines([]byte(in), 40))
+	for i, l := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
+		if w := displayWidth([]byte(l)); w > 40 {
+			t.Errorf("wrapLines(width 40) line %d is %d columns: %q", i, w, l)
+		}
+		if i > 0 && !strings.HasPrefix(l, strings.Repeat(" ", textCol)) {
+			t.Errorf("wrapLines(width 40) line %d does not hang at the text column: %q", i, l)
+		}
+	}
+	if want, got := strings.Join(strings.Fields(in), ""), strings.Join(strings.Fields(got), ""); got != want {
+		t.Errorf("wrapLines(width 40) lost characters (-want +got):\n%s", cmp.Diff(want, got))
+	}
+}
+
+func TestOnlyTheSeverityHeadKeepsTheTerminalColour(t *testing.T) {
+	t.Parallel()
+	grey := ANSI(ColorMuted)
+	for _, tc := range []struct {
+		name      string
+		print     func(p *Printer)
+		head      string
+		greyTail  string
+		greyWhole bool
+	}{
+		{"store line", func(p *Printer) { p.Storef("run log: %s", "/tmp/x.log") }, "", "", true},
+		{"host line", func(p *Printer) { p.Hostf("relay on 127.0.0.1") }, "", "", true},
+		{"note", func(p *Printer) { p.Notef("engine: Docker") }, "", "", true},
+		{"warn dash", func(p *Printer) { p.Warnf("sbx unavailable — falling back") }, "sbx unavailable", " — falling back", false},
+		{"warn label", func(p *Printer) { p.Warnf("policy: open") }, "policy:", " open", false},
+		{"fail", func(p *Printer) { p.Failf("the agent exited with code %d", 3) }, ANSIBold + "the agent exited with code 3", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			tc.print(&Printer{W: &buf})
+			got := buf.String()
+			if tc.greyWhole && !strings.Contains(got, grey) {
+				t.Errorf("%s: no grey in %q", tc.name, got)
+			}
+			if tc.greyTail != "" && !strings.Contains(got, grey+tc.greyTail) {
+				t.Errorf("%s: tail %q not grey in %q", tc.name, tc.greyTail, got)
+			}
+			if tc.head != "" && (!strings.Contains(got, tc.head) || strings.Contains(got, grey+tc.head)) {
+				t.Errorf("%s: head %q missing or grey in %q", tc.name, tc.head, got)
+			}
+		})
+	}
+}
+
+// SPEC: _spec/internal/ui/output-vocabulary.puml (GREY DETAIL)
+func TestSectionRuleIsQuieterThanItsLabel(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	p := &Printer{W: &buf}
+	p.Section(SectionRun)
+	p.Notef("x")
+	got := buf.String()
+	if !strings.Contains(got, ANSI(ColorRule)) {
+		t.Errorf("Section(run) rule carries no rule colour: %q", got)
+	}
+	if !strings.Contains(got, ANSIBold+ANSI(ColorSecondary)+" run ") {
+		t.Errorf("Section(run) label is not bold secondary: %q", got)
+	}
+}
+
 // The transcript keeps its long lines: wrapping is a terminal concern, so a
 // grep over a run log cannot depend on how wide the operator's window was.
 func TestTeeDoesNotWrapTheLog(t *testing.T) {

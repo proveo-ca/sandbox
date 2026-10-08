@@ -1,0 +1,185 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: EXPERIMENT — should package-manager caches outlive a sandbox, and whose mechanism carries them?
+' status: researched 2026-10-05, deferred on two upstream gates; nothing in src depends on this file
+' would touch: packages/lib/entrypoint-lib.sh (GOPATH under _proveo_tool_home, _dep_lang_* table)
+' would touch: internal/sbx/kit.go (no host-mount field today), internal/workspace/deps.go (DepLangs)
+'   the persistence this rides today .. _spec/packages/lib/config-seeding-and-persistence.puml
+'   the measure-first rule ............ _spec/_experiments/reusable-clone.puml
+'   the Kit schema it would extend ..... _spec/_experiments/sbx-kit-capabilities.puml
+'   the trees it must stay apart from .. _spec/packages/lib/dependency-trees.puml
+'   upstream, pinned to PR #101's merge commit 129be2f:
+'     docker/sandbox-kit-spec docs/spec/capabilities/com.docker.sandbox/host-mount@1.md
+'     docker/sandbox-kit-spec examples/shared-cache/
+'     docker/sandbox-kit-spec issues/96, pull/101, releases/tag/v3.0.0-m.8
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE QUESTION ───────────────────────────────────────────────────────────
+' Every new sandbox re-downloads the same registry content. The tempting answer
+' is to copy the HOST's caches (pnpm store, ~/go/pkg/mod, ~/.cargo/registry,
+' ~/.cache/uv, ~/.m2, …) into the container per discovered language. Rejected:
+'
+'   SIZE      a host cache holds every project's history; a run needs one
+'             lockfile's closure. Language discovery narrows the ecosystem,
+'             not the packages.
+'   PLATFORM  a macOS host caches darwin artifacts — macosx wheels, the
+'             darwin @esbuild optional dep, GOOS-keyed build caches, compiled
+'             gems. Same late failure dependency-trees.puml exists to stop.
+'   SECRETS   ecosystem homes co-locate credentials: ~/.cargo/credentials.toml
+'             inside CARGO_HOME, ~/.m2/settings.xml, ~/.gradle/gradle.properties.
+'             A wholesale copy bypasses the broker.
+'   TRUST     a copy is safe but paid every run; a rw bind lets the agent poison
+'             the host's builds; a ro bind breaks managers that write.
+'
+' ── WHAT ALREADY CACHES, CHECKED 2026-10-05 ───────────────────────────────
+'   sbx proxy         TLS interception, allowlist, credential injection. No
+'                     response cache: `sbx settings list` exposes none, and
+'                     platform.images.registryMirror covers Docker Hub images
+'                     only (sbx v0.46.0; v0.47.0 notes are silent).
+'   sbx sandbox disk  per sandbox, until `sbx rm`. Four sandboxes held 122 GB
+'                     under sandboxd/containerd/root on the reference host.
+'   proveo squid      cache_dir with no ssl_bump: HTTPS tunnels through
+'                     uncached. Docker backend only.
+'   proveo tool sync  toolchains/<os>-<arch>, restored by full copy into each
+'                     fresh VM and saved at teardown. GOPATH lives under it, so
+'                     Go's module cache (515 MB on the reference host) rides
+'                     along. No other ecosystem's cache does — an asymmetry the
+'                     language-uniform rule forbids, and a copy whose cost grows
+'                     with every Go project the host has ever run.
+'
+' ── WHY WAIT ───────────────────────────────────────────────────────────────
+' The work saves bandwidth, not correctness. Upstream ships NO cache, released
+' or specified. It specified a STORAGE PRIMITIVE: docker/sandbox-kit-spec#96
+' (2026-09-30) names the gap — "package and build caches like ~/.npm are
+' sandbox-scoped, meaning every new sandbox re-downloads the same
+' dependencies" — and PR #101 (merged 2026-10-02) adds
+' com.docker.sandbox/host-mount@1: a runtime-owned host directory shared across
+' one Kit's sandboxes, keyed by Kit identity + path, surviving sandbox removal,
+' concurrent access without transactional guarantees.
+'
+' The split once it ships: sbx owns the persistent directory and its
+' lifecycle; proveo still owns the CACHE — pointing each language's cache path
+' at the mount. Building both halves now means proveo also owns host storage,
+' lifecycle and cleanup that the primitive would hand to the backend.
+'
+' ── WHERE host-mount@1 STANDS, CHECKED 2026-10-05 ─────────────────────────
+'   Kit spec    PRE-RELEASE. Ships in v3.0.0-m.8 (2026-10-02), a milestone
+'               tagged prerelease. Spec v3 has run m.4 → m.8 since 2026-09-16;
+'               no v3.0.0 final exists.
+'   sbx 0.46.0  reads schemaVersion "2" Kits ONLY. `sbx kit validate` on the
+'               upstream examples/shared-cache Kit fails before reaching the
+'               capability: "field capabilities not found in type
+'               spec.SpecFile; artifact validation failed".
+'   sbx adapter PR #101: "the existing sbx adapter does not yet advertise this
+'               capability".
+'   sbx 0.47.0  release notes (2026-10-05) name neither host-mount nor spec v3.
+'   proveo      Kits are schemaVersion "2" (internal/sbx/kit.go), so adopting
+'               host-mount@1 is also a Kit migration to v3.
+' No release date is published for spec v3 or for sbx support.
+'
+' ── SPEC RULES THAT SHAPE proveo's ADOPTION ───────────────────────────────
+' From docs/spec/capabilities/com.docker.sandbox/host-mount@1.md:
+'   * config is `path` (absolute, canonical, in-container) + optional `mode`;
+'     there is NO host-path field — proveo cannot point it at a host cache,
+'     which settles the host-copy question at the spec level too
+'   * storage is keyed by Kit identity + path; a published repository supplies
+'     the identity, an unpublished Kit gets a runtime-owned one — so where
+'     proveo's Kits are built decides whether runs share one cache
+'   * mounted before lifecycle hooks run, so the seed's installs can use it
+'   * the same path declared by two Kits, or as host-mount@1 and volume@1,
+'     CONFLICTS — one Kit owns each cache path
+'   * filesystem semantics MAY be weaker than volume@1: host-mapped ownership,
+'     no overlayfs upper layer or xattrs. Stores that hardlink into the
+'     workspace (pnpm) must be probed, not assumed
+'   * an `optional: true` group is SKIPPED by a runtime without host sharing,
+'     and the manager falls back to its ordinary cache — the upstream
+'     examples/shared-cache Kit pairs the mount with the manager's config file
+'     inside one such group
+'
+' ── TRIGGER AND SHAPE ──────────────────────────────────────────────────────
+' Two gates, in order; both must open:
+'   1. sbx accepts schemaVersion "3" Kits.
+'   2. sbx advertises com.docker.sandbox/host-mount@1.
+' Check after each sbx upgrade:
+'   sbx kit validate <dir holding examples/shared-cache/spec.yaml>   # gate 1
+'   strings "$(readlink -f "$(which sbx)")" | grep -c 'host-mount@1' # gate 2
+' Then, one row per DepLangs language inside optional groups, never one
+' ecosystem first:
+'
+'   go      GOMODCACHE            rust  ~/.cargo/registry, ~/.cargo/git
+'   node    pnpm store, ~/.npm    py    ~/.cache/uv, ~/.cache/pip
+'   ruby    gem cache             jvm   ~/.m2/repository, ~/.gradle/caches
+'
+' and GOPATH leaves the tool sync, so the restore copies toolchains only. The
+' host-mount is filled from inside the sandbox, so it is Linux-correct by
+' construction and grows with what runs fetch, not with host history. Each
+' client still checks content against its lockfile hashes (go.sum, pnpm
+' integrity, Cargo.lock), which is what stands between one run's write and the
+' next run's read. Credential files stay out: mount the cache subpath, never
+' the ecosystem home.
+title EXPERIMENT — package caches across sandboxes
+
+actor "operator" as OP
+
+node "host" as HOST <<host>> {
+  database "host caches\ndarwin artifacts, every project,\ncredential files beside them" as HC <<db>>
+  database "toolchains/<os>-<arch>\nGo module cache rides along" as TS <<db>>
+  database "host-mount@1 dir\nKit-scoped, runtime-owned" as HM <<db>>
+}
+
+package "sbx VM, one per run" as VM {
+  component "package managers\ngo · cargo · pnpm · uv · …" as PM
+  database "sandbox-scoped caches\ngone at sbx rm" as SC <<db>>
+}
+
+cloud "registries\nproxy.golang.org · npm · crates · PyPI" as REG <<cloud>>
+component "sbx proxy\nintercepts, never caches" as PROXY <<cloud>>
+component "gate 1: sbx reads Kit v3\nCLOSED: 0.46 rejects v3" as G1 <<error>>
+component "gate 2: adapter advertises host-mount@1\nCLOSED: not in 0.46 / 0.47" as G2 <<error>>
+
+OP ARROW_MAIN PM : proveo run
+PM ARROW_CLOUD PROXY
+PROXY ARROW_CLOUD REG : every sandbox, same bytes
+PM ARROW_QUEUE SC
+TS ARROW_QUEUE PM : full copy per VM (Go only)
+HC ARROW_ERROR PM : rejected: size, platform, secrets
+HM ARROW_OPTIONAL G1 : spec v3.0.0-m.8, pre-release
+G1 ARROW_OPTIONAL G2
+G2 ARROW_OPTIONAL PM : optional group, skipped if unmet
+
+note bottom of HC
+  **Rejected as a source.** It scales with host
+  history, holds darwin builds, and sits next to
+  registry credentials. Discovery narrows the
+  ecosystem, never the packages.
+end note
+
+note bottom of PROXY
+  **No cache to lean on.** sbx's proxy exists to
+  enforce policy and inject credentials; nothing
+  in its settings or release notes caches a
+  response.
+end note
+
+note bottom of TS
+  **The asymmetry today.** GOPATH under the tool
+  home makes Go the only ecosystem whose cache
+  persists, and its restore copies the whole
+  module history into each fresh VM.
+end note
+
+note bottom of HM
+  **Storage, not a cache.** kit-spec PR #101,
+  merged 2026-10-02; no sbx release has it.
+  Filled from inside, so Linux-correct and sized
+  by what runs fetch.
+end note
+
+note bottom of G1
+  **Two gates, both closed.** sbx must first read
+  schemaVersion "3" Kits, then advertise
+  host-mount@1. proveo's Kits are v2, so adoption
+  is also a Kit migration.
+end note
+@enduml

@@ -169,4 +169,10 @@ note bottom of HEADLESS
   the cache acting as an authority in the opposite direction.
 end note
 
+note as WorkspacePorts
+  **2026-10-05: ""workspaces"" sits beside ""targets"".**
+  Keyed by the workspace's real path, not by harness:
+  ""ports"" is the dev-port answer every run on that
+  path publishes. _spec/internal/devports/dev-ports.puml
+end note
 @enduml

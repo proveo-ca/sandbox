@@ -7,9 +7,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/devports"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -213,6 +216,15 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
 	}
+	rs.Choices.PortsRoot = realPathOf(scanRoot(p.Input, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot)))
+	p.discovered = devports.Discover(rs.Choices.PortsRoot)
+	if saved, ok := rs.Choices.Settings.PortsFor(rs.Choices.PortsRoot); ok {
+		p.Ports = rememberedPorts(saved, p.discovered)
+	}
+	p.discoveredApps = devports.AndroidApps(rs.Choices.PortsRoot)
+	if saved, ok := rs.Choices.Settings.AppsFor(rs.Choices.PortsRoot); ok {
+		p.Apps = rememberedApps(saved, p.discoveredApps)
+	}
 	// Roles are no longer read from the environment: proveo does not choose an
 	// agent's model. What remains is whatever a previous session remembered,
 	// seeded above, and it is kept only as the vocabulary the credential and
@@ -236,6 +248,12 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 		})
+		if p.portsAsked {
+			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
+		}
+		if p.appsAsked {
+			rs.Choices.Settings.RememberApps(rs.Choices.PortsRoot, appsToRemember(p.Apps))
+		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
 		}
@@ -600,15 +618,28 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 		return filepath.Join(dir, ".env")
 	}
 	path, dropped, err := credentials.StageProjectEnv(src, dir, strip)
+	if err == nil {
+		err = copyFile0600(path, filepath.Join(rs.EgDir, "sbx", "project-env.base"))
+	}
 	if err != nil {
 		ui.Warnf("clone: %s not staged (%v) — the agent runs without the project .env", src, err)
 		return ""
 	}
-	ui.Storef("clone: %s mounted read-only as the clone's .env (a copy, refreshed each run)", src)
+	rs.Backend.CloneEnvBase = filepath.Join(rs.EgDir, "sbx", "project-env.base")
+	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip = src, strip
+	ui.Storef("clone: %s mounted read-write as the clone's .env (a copy, refreshed each run; edits merge back at teardown)", src)
 	if len(dropped) > 0 {
 		ui.Notef("clone: dropped %s from it — sbx's proxy attaches those, the agent never holds them (`--credentials forward` keeps them)", strings.Join(dropped, ", "))
 	}
 	return path
+}
+
+func copyFile0600(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o600)
 }
 
 func cloneOffHint(whyOff string) string {
@@ -813,11 +844,11 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 		} else {
 			agentEnv = append(agentEnv, hostEnv...)
 		}
-		if adbEnv, err := startHostADB(p); err != nil {
+		adbEnv, err := startHostADB(p)
+		if err != nil {
 			return false, err
-		} else {
-			agentEnv = append(agentEnv, adbEnv...)
 		}
+		agentEnv = append(agentEnv, adbEnv...)
 		agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 		if rs.Model.HostLLM {
 			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
@@ -834,6 +865,8 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
 			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 			Browser: browserOn, CDPHostPort: cdpPort,
+			Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
+			AndroidApps: androidApps(p), AndroidEnv: adbEnv,
 			Roles:    p.Roles,
 			Evidence: p.evidenceOrDefault(),
 			Forwards: p.forwards(),
@@ -850,6 +883,9 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
 			CloneSource:      rs.Backend.CloneSource,
 			CloneEnv:         rs.Backend.CloneEnv,
+			CloneEnvBase:     rs.Backend.CloneEnvBase,
+			CloneEnvHost:     rs.Backend.CloneEnvHost,
+			CloneEnvStrip:    rs.Backend.CloneStrip,
 			Links:            rs.Workspace.Links,
 			DataDir:          p.DataDir,
 			Memory:           sbx.MemoryLimit(),
@@ -884,6 +920,81 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes.
+func realPathOf(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
+}
+
+// rememberedPorts maps a saved answer onto this run's discovery; a port whose command is gone is dropped and reported.
+func rememberedPorts(saved []agentsettings.Port, found []devports.Candidate) []devports.Candidate {
+	var out []devports.Candidate
+	for _, sp := range saved {
+		i := slices.IndexFunc(found, func(c devports.Candidate) bool { return c.Port == sp.Port })
+		if i < 0 {
+			ui.Warnf("remembered port %d (%q in %s) is no longer in this workspace — not published", sp.Port, sp.Command, sp.Source)
+			continue
+		}
+		out = append(out, found[i])
+	}
+	return out
+}
+
+// rememberedApps maps a saved answer onto this run's discovery; a module that is gone is dropped and reported.
+// androidApps is what the run installs: the chosen modules, only with the android add-on on.
+func androidApps(p *Params) []devports.AndroidApp {
+	if !hasAddon(p.Addons, addonAndroid) {
+		return nil
+	}
+	return p.Apps
+}
+
+func rememberedApps(saved []agentsettings.App, found []devports.AndroidApp) []devports.AndroidApp {
+	var out []devports.AndroidApp
+	for _, sa := range saved {
+		i := slices.IndexFunc(found, func(a devports.AndroidApp) bool { return a.Module == sa.Module })
+		if i < 0 {
+			ui.Warnf("remembered Android app %s (%s) is no longer in this workspace — not installed", sa.AppID, sa.Module)
+			continue
+		}
+		out = append(out, found[i])
+	}
+	return out
+}
+
+func appsToRemember(chosen []devports.AndroidApp) []agentsettings.App {
+	out := make([]agentsettings.App, 0, len(chosen))
+	for _, a := range chosen {
+		out = append(out, agentsettings.App{Module: a.Module, AppID: a.AppID})
+	}
+	return out
+}
+
+func portsToRemember(chosen []devports.Candidate) []agentsettings.Port {
+	out := make([]agentsettings.Port, 0, len(chosen))
+	for _, c := range chosen {
+		out = append(out, agentsettings.Port{Port: c.Port, Command: c.Command, Source: c.Source})
+	}
+	return out
+}
+
+func planPorts(chosen []devports.Candidate, root string, printOnly bool) []sandbox.PublishedPort {
+	free := sandbox.LoopbackFree
+	if printOnly {
+		free = func(int) bool { return true }
+	}
+	out := make([]sandbox.PublishedPort, 0, len(chosen))
+	for _, c := range chosen {
+		dir, cmd := devports.Launch(c, root)
+		out = append(out, sandbox.PublishedPort{Guest: c.Port, What: c.Tool + " · " + c.Source, Dir: dir, Cmd: cmd})
+	}
+	return sandbox.PlanPorts(out, free)
+}
+
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {

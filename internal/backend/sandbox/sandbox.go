@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/devports"
+
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -121,11 +123,27 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
+// TeardownClone carries this run's clone home: its .env edits, then its work.
+func TeardownClone(in Input, cfg sbx.RunConfig) {
+	if !in.Clone || in.RepoRoot == "" {
+		return
+	}
+	wd := agentWorkdir(in, cfg.Mounts)
+	writeBackCloneEnv(in, func() ([]byte, error) {
+		if wd == "" || !sbx.Exists(cfg.Name) {
+			return nil, errors.New("no sandbox to read from")
+		}
+		return exec.Command(sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...).Output()
+	})
+	PreserveClone(in, cfg)
+}
+
 func PreserveClone(in Input, cfg sbx.RunConfig) {
 	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return
 	}
-	if wd := agentWorkdir(in, cfg.Mounts); wd != "" {
+	wd := agentWorkdir(in, cfg.Mounts)
+	if wd != "" {
 		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
 		}
@@ -135,6 +153,178 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 		return
 	}
 	reportCloneRefs(in, cfg)
+	liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
+		if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
+			_, _ = SbxRun(args...)
+		}
+	})
+}
+
+// writeBackCloneEnv merges the clone's .env edits into the host .env it was staged from.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func writeBackCloneEnv(in Input, read func() ([]byte, error)) {
+	if in.CloneEnv == "" || in.CloneEnvBase == "" || in.CloneEnvHost == "" {
+		return
+	}
+	base, err := os.ReadFile(in.CloneEnvBase)
+	if err != nil {
+		ui.Warnf("clone: .env not carried home — its launch copy %s is unreadable (%v)", in.CloneEnvBase, err)
+		return
+	}
+	edited, err := read()
+	if err != nil {
+		if edited, err = os.ReadFile(in.CloneEnv); err != nil {
+			ui.Warnf("clone: .env not carried home — neither the clone nor %s could be read (%v)", in.CloneEnv, err)
+			return
+		}
+	} else if err := os.WriteFile(in.CloneEnv, edited, 0o600); err != nil {
+		ui.Warnf("clone: could not keep the clone's .env at %s (%v)", in.CloneEnv, err)
+	}
+	if bytes.Equal(base, edited) {
+		return
+	}
+	host, err := os.ReadFile(in.CloneEnvHost)
+	if err != nil {
+		ui.Warnf("clone: .env not carried home — %s is unreadable (%v); the clone's copy is %s", in.CloneEnvHost, err, in.CloneEnv)
+		return
+	}
+	m := credentials.MergeProjectEnv(host, base, edited, in.CloneEnvStrip)
+	if len(m.Applied) > 0 {
+		if err := replaceFile(in.CloneEnvHost, m.Body); err != nil {
+			ui.Warnf("clone: .env not carried home — writing %s failed (%v); the clone's copy is %s", in.CloneEnvHost, err, in.CloneEnv)
+			return
+		}
+		ui.Storef("clone: .env edits carried home into %s — %s", in.CloneEnvHost, strings.Join(m.Applied, ", "))
+	}
+	if len(m.Conflicts) > 0 {
+		ui.Warnf("clone: kept the host's %s in %s — the host changed it during the run too; the clone's copy is %s",
+			strings.Join(m.Conflicts, ", "), in.CloneEnvHost, in.CloneEnv)
+	}
+	if len(m.Refused) > 0 {
+		ui.Notef("clone: ignored %s from the clone's .env — sbx's proxy holds provider keys, the host file keeps its own",
+			strings.Join(m.Refused, ", "))
+	}
+}
+
+// replaceFile swaps path's content atomically and keeps its mode.
+func replaceFile(path string, body []byte) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".proveo-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), fi.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+func cloneSpanViaSbx(name, wd string) func() (string, string, error) {
+	return func() (string, string, error) {
+		out, err := exec.Command(sbx.Binary, sbx.CloneSpanArgs(name, wd)...).Output()
+		if err != nil {
+			return "", "", err
+		}
+		f := strings.Fields(string(out))
+		if len(f) != 2 || !commitID(f[0]) || !commitID(f[1]) {
+			return "", "", fmt.Errorf("unexpected span %q", strings.TrimSpace(string(out)))
+		}
+		return f[0], f[1], nil
+	}
+}
+
+func commitID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
+}
+
+// liftClonedSpec restores the clone's _spec edits into the host worktree,
+// skipping every path the host changed since the clone's base.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+func liftClonedSpec(in Input, wd string, span func() (string, string, error), rebase func(string)) {
+	if wd == "" || !trackedSpec(wd) {
+		return
+	}
+	base, head, err := span()
+	if err != nil {
+		ui.Warnf("clone: _spec not lifted — the clone's base is unknown (%v); its edits are under %s/", err, sbx.CloneRefs(in.Sid))
+		return
+	}
+	if base == head || !commitID(base) || !commitID(head) {
+		return
+	}
+	changed, err := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, head, "--", "_spec")
+	if err != nil {
+		ui.Warnf("clone: _spec not lifted — %s..%s is not in this repository (%v); its edits are under %s/", base[:12], head[:12], err, sbx.CloneRefs(in.Sid))
+		return
+	}
+	hostDiff, _ := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, "--", "_spec")
+	untracked, _ := gitPaths(wd, "ls-files", "-z", "--others", "--exclude-standard", "--", "_spec")
+	dirty := map[string]bool{}
+	for _, p := range append(hostDiff, untracked...) {
+		dirty[p] = true
+	}
+	var take, kept []string
+	for _, p := range changed {
+		if dirty[p] {
+			kept = append(kept, p)
+			continue
+		}
+		take = append(take, p)
+	}
+	if len(take) > 0 {
+		cmd := exec.Command("git", "--literal-pathspecs", "-C", wd, "restore", "--source="+head, "--worktree",
+			"--pathspec-from-file=-", "--pathspec-file-nul")
+		cmd.Stdin = strings.NewReader(strings.Join(take, "\x00"))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			ui.Warnf("clone: _spec not lifted (%v): %s — its edits are under %s/", err, strings.TrimSpace(string(out)), sbx.CloneRefs(in.Sid))
+			return
+		}
+		ui.Storef("clone: %d _spec file(s) lifted from the clone into %s", len(take), filepath.Join(wd, "_spec"))
+	}
+	if len(kept) > 0 {
+		ui.Warnf("clone: kept the host's %s — the host changed them since the clone began; the clone's versions are under %s/",
+			strings.Join(kept, ", "), sbx.CloneRefs(in.Sid))
+	}
+	rebase(head)
+}
+
+// trackedSpec reports whether dir holds a real _spec directory git tracks; a
+// symlinked one is relinked live and needs no lift.
+func trackedSpec(dir string) bool {
+	fi, err := os.Lstat(filepath.Join(dir, "_spec"))
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	paths, err := gitPaths(dir, "ls-files", "-z", "--", "_spec")
+	return err == nil && len(paths) > 0
+}
+
+func gitPaths(dir string, args ...string) ([]string, error) {
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
 }
 
 // cloneCarry is one route home: the sbx exit code (for the empty sentinel),
@@ -349,6 +539,190 @@ func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
 	return func() { close(stop) }
 }
 
+// PublishedPort is one dev server the run starts in the sandbox and publishes to the host's loopback.
+type PublishedPort struct {
+	Host, Guest int
+	What        string
+	Dir         string // workspace-relative directory the command runs in
+	Cmd         string // shell command that starts the server on every interface
+}
+
+// PlanPorts keeps each guest port on the same host port unless the host already uses it.
+func PlanPorts(ports []PublishedPort, free func(int) bool) []PublishedPort {
+	taken := map[int]bool{}
+	for i := range ports {
+		h := ports[i].Guest
+		if !free(h) || taken[h] {
+			h = FreeLoopbackPort()
+		}
+		taken[h] = true
+		ports[i].Host = h
+	}
+	return ports
+}
+
+// LoopbackFree reports whether port can be bound on the host's loopback.
+func LoopbackFree(port int) bool {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = l.Close()
+	return true
+}
+
+func portPublish(in Input) []string {
+	out := make([]string, 0, len(in.Ports))
+	for _, p := range in.Ports {
+		out = append(out, fmt.Sprintf("%d:%d", p.Host, p.Guest))
+	}
+	return out
+}
+
+// DevLog is where a published port's server writes inside the sandbox.
+func DevLog(port int) string { return fmt.Sprintf("/tmp/proveo-dev-%d.log", port) }
+
+// ReportPorts names each published port where the operator will open it.
+func ReportPorts(in Input) {
+	if len(in.Ports) == 0 {
+		return
+	}
+	ui.Section(ui.SectionInterface)
+	for _, p := range in.Ports {
+		moved := ""
+		if p.Host != p.Guest {
+			moved = fmt.Sprintf(" — host :%d was taken", p.Guest)
+		}
+		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
+		ui.Notef("runs `%s` in %s — log %s", p.Cmd, p.Dir, DevLog(p.Guest))
+	}
+}
+
+// AndroidLog is where the seed's Android install writes inside the sandbox.
+const AndroidLog = "/tmp/proveo-android-install.log"
+
+// ReportAndroidApps names each app the run installs on the host emulator.
+func ReportAndroidApps(in Input) {
+	if len(in.AndroidApps) == 0 {
+		return
+	}
+	ui.Section(ui.SectionInterface)
+	for _, a := range in.AndroidApps {
+		ui.Hostf("android app: %s — gradle %s, then launch, once the sandbox toolchain is ready", a.AppID, a.Task())
+	}
+	ui.Notef("log %s inside the sandbox", AndroidLog)
+}
+
+// AndroidInstallScript hands the chosen modules to the seed's proveo_android_install.
+func AndroidInstallScript(workdir string, env []string, apps []devports.AndroidApp) string {
+	var b strings.Builder
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		fmt.Fprintf(&b, "export %s=%q\n", k, v)
+	}
+	fmt.Fprintf(&b, "cd %q || exit 1\nsource /entrypoint-lib.sh\nproveo_android_install", workdir)
+	for _, a := range apps {
+		fmt.Fprintf(&b, " %q", a.Module+"|"+a.AppID)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// StartAndroidInstall runs the install once the sandbox is up; the seed function waits for its own toolchain.
+func StartAndroidInstall(in Input, cfg sbx.RunConfig) func() {
+	workdir := agentWorkdir(in, cfg.Mounts)
+	if len(in.AndroidApps) == 0 || workdir == "" {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	go func() {
+		for !sbx.Running(cfg.Name) {
+			select {
+			case <-stop:
+				return
+			case <-time.After(devRetryMin):
+			}
+		}
+		c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc",
+			AndroidInstallScript(workdir, in.AndroidEnv, in.AndroidApps))
+		c.Stdout, c.Stderr = io.Discard, io.Discard
+		if c.Start() != nil {
+			return
+		}
+		done := make(chan struct{})
+		go func() { _ = c.Wait(); close(done) }()
+		select {
+		case <-stop:
+			_ = c.Process.Kill()
+		case <-done:
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// DevServerScript starts cmd in dir unless something already listens on port.
+func DevServerScript(workdir string, p PublishedPort) string {
+	dir := filepath.Join(workdir, p.Dir)
+	return fmt.Sprintf("if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then exit 0; fi\ncd %q || exit 1\nexec %s >>%s 2>&1\n",
+		p.Guest, dir, p.Cmd, DevLog(p.Guest))
+}
+
+const (
+	devRetryMin = 3 * time.Second
+	devRetryMax = 30 * time.Second
+)
+
+// StartDevServers keeps each published port's server running while the sandbox runs.
+func StartDevServers(in Input, cfg sbx.RunConfig) func() {
+	workdir := agentWorkdir(in, cfg.Mounts)
+	if len(in.Ports) == 0 || workdir == "" {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	wait := func(d time.Duration) bool {
+		select {
+		case <-stop:
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
+	for _, p := range in.Ports {
+		go func() {
+			delay := devRetryMin
+			for {
+				if !sbx.Running(cfg.Name) {
+					if !wait(devRetryMin) {
+						return
+					}
+					continue
+				}
+				c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc", DevServerScript(workdir, p))
+				c.Stdout, c.Stderr = io.Discard, io.Discard
+				began := time.Now()
+				if err := c.Start(); err == nil {
+					done := make(chan struct{})
+					go func() { _ = c.Wait(); close(done) }()
+					select {
+					case <-stop:
+						_ = c.Process.Kill()
+						return
+					case <-done:
+					}
+				}
+				if time.Since(began) > devRetryMax {
+					delay = devRetryMin
+				}
+				if !wait(delay) {
+					return
+				}
+				delay = min(delay*2, devRetryMax)
+			}
+		}()
+	}
+	return func() { close(stop) }
+}
+
 func cdpPublish(in Input) []string {
 	if !in.Browser || in.CDPHostPort <= 0 {
 		return nil
@@ -399,6 +773,36 @@ func cloneLinks(in Input) string {
 
 // CloneEnvVar names the staged .env the seed links into a clone.
 const CloneEnvVar = "PROVEO_CLONE_ENV"
+
+// CloneVar marks a clone workspace, so the seed records the clone's base.
+const CloneVar = "PROVEO_CLONE_WORKSPACE"
+
+// SharesVar carries rel=rw|ro pairs, '|'-separated, the seed asserts before it releases the agent.
+// SPEC: _spec/internal/sbx/clone-workspace.puml
+const SharesVar = "PROVEO_SHARES"
+
+// shares lists the host's _spec and .env at the agent workdir, and the access the agent needs to each.
+func shares(in Input, binds []sbx.Mount) string {
+	wd := agentWorkdir(in, binds)
+	if wd == "" {
+		return ""
+	}
+	mode := "rw"
+	if len(binds) > 0 && binds[0].ReadOnly && !in.Clone {
+		mode = "ro"
+	}
+	var pairs []string
+	if fi, err := os.Stat(filepath.Join(wd, "_spec")); err == nil && fi.IsDir() {
+		pairs = append(pairs, "_spec="+mode)
+	}
+	switch {
+	case in.Clone && in.CloneEnv != "":
+		pairs = append(pairs, ".env=rw")
+	case !in.Clone && workspace.ProjectEnvFile(wd, "") != "":
+		pairs = append(pairs, ".env="+mode)
+	}
+	return strings.Join(pairs, "|")
+}
 
 func worktreeClone(in Input) bool { return in.Clone && in.CloneSource.Main != "" }
 
@@ -582,6 +986,9 @@ type Input struct {
 	OutputDir              string
 	Browser                bool
 	CDPHostPort            int
+	Ports                  []PublishedPort
+	AndroidApps            []devports.AndroidApp
+	AndroidEnv             []string // the host adb server's guest env, for the install's adb
 	Extra                  []string
 	Roles                  provider.Roles
 	Evidence               string // was params.evidenceOrDefault()
@@ -603,7 +1010,10 @@ type Input struct {
 	ScopeRel         string
 	WorktreeFallback bool
 	CloneSource      workspace.WorktreeSource // a linked worktree cloned through its main worktree
-	CloneEnv         string                   // staged project .env, mounted read-only for the seed to link
+	CloneEnv         string                   // staged project .env, mounted read-write for the seed to link
+	CloneEnvBase     string                   // the staged bytes at launch, outside the mount
+	CloneEnvHost     string                   // the host .env teardown merges the clone's edits into
+	CloneEnvStrip    []string                 // brokered keys the staged copy dropped
 	Links            []workspace.Link         // escaping symlinks the plan resolved; a clone recreates the mounted ones
 	WorktreeEnv      []string
 	DataDir          string
@@ -774,6 +1184,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if worktreeClone(in) {
 		env = append(env, CloneRefVar+"="+in.CloneSource.Ref, CloneMainVar+"="+realPath(in.CloneSource.Main))
 	}
+	if in.Clone {
+		env = append(env, CloneVar+"=1")
+	}
 	if in.Clone && in.CloneEnv != "" {
 		env = append(env, CloneEnvVar+"="+in.CloneEnv)
 	}
@@ -818,7 +1231,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	if in.Clone && in.CloneEnv != "" {
-		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv), ReadOnly: true})
+		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv)})
 	}
 
 	harness := Harness(in)
@@ -856,7 +1269,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		Memory:  in.Memory,
 		CPUs:    in.CPUs,
 		Clone:   in.Clone,
-		Publish: cdpPublish(in),
+		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), homeSourceMounts)),
@@ -1072,6 +1485,10 @@ func Run(in Input) error {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
 	PrintIDEAttach(in, cfg, true)
+	ReportPorts(in)
+	ReportAndroidApps(in)
+	defer StartDevServers(in, cfg)()
+	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
@@ -1126,7 +1543,7 @@ func Run(in Input) error {
 				}
 			}
 			restarted := !sbx.Running(cfg.Name)
-			PreserveClone(in, cfg)
+			TeardownClone(in, cfg)
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
 			if err := homeAccess.Commit(); err != nil {
 				ui.Warnf("home-root config not preserved: %v", err)
@@ -1159,7 +1576,7 @@ func Run(in Input) error {
 			}
 			return
 		}
-		PreserveClone(in, cfg)
+		TeardownClone(in, cfg)
 		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}
@@ -1602,6 +2019,9 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 	out = append(out, sandboxAgentEnv(in.AgentEnv)...)
 	out = append(out, "PROVEO_WORKDIR="+agentWorkdir(in, binds), "GIT_DISCOVERY_ACROSS_FILESYSTEM=1",
 		EnvHostOS+"="+hostOS)
+	if v := shares(in, binds); v != "" {
+		out = append(out, SharesVar+"="+v)
+	}
 	if worktreeClone(in) {
 		out = append(out, gitSafeDirectoryEnv(in.CloneSource.Main)...)
 	} else {

@@ -132,7 +132,11 @@ func (f *Form) bodyRight() int {
 			most = e
 		}
 		if f.Rows[i].Divider {
-			label := len(" " + f.Rows[i].Label + " ")
+			text := f.Rows[i].Label
+			if f.Rows[i].Heading != "" {
+				text = f.Rows[i].Heading
+			}
+			label := len(" " + text + " ")
 			pad := (72 - label) / 2
 			if pad < 0 {
 				pad = 0

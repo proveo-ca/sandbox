@@ -1,0 +1,5 @@
+[tasks.serve]
+run = "uvicorn app:api --port 8001"
+
+[tasks.lint]
+run = "eslint ."

@@ -104,7 +104,7 @@ func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 	if status != 0 {
 		t.Fatalf("launch probe exited %d:\n%s", status, launch)
 	}
-	want := []string{"released=yes", "env_db=1", "env_key=0", "env_ro=readonly", "spec=overview.puml", "git_clean=0"}
+	want := []string{"released=yes", "env_db=1", "env_key=0", "env_rw=writable", "refused=[]", "spec=overview.puml", "git_clean=0"}
 	if spec.agents != "" {
 		want = append(want, "agents_late=0")
 	}
@@ -180,7 +180,8 @@ func readyLaunchScript(spec readySpec) string {
 	b.WriteString(`echo "env_link=$(readlink .env)"
 echo "env_db=$(grep -c '^DB_URL=postgres://probe$' .env 2>/dev/null)"
 echo "env_key=$(grep -c '^ANTHROPIC_API_KEY=' .env 2>/dev/null)"
-echo "env_ro=$(touch .env 2>/dev/null && echo writable || echo readonly)"
+echo "env_rw=$(touch .env 2>/dev/null && echo writable || echo readonly)"
+echo "refused=[$(cat /dev/shm/proveo-seed-refused 2>/dev/null)]"
 echo "spec=$(ls _spec/ 2>/dev/null | tr '\n' ' ')"
 echo "git_clean=$(git status --porcelain | grep -cE '\.env|_spec')"
 `)

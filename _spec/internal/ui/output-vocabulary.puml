@@ -47,6 +47,22 @@
 ' line under a preceding verb, and it now indents to that verb's TEXT column
 ' instead of to zero, so a warning's detail reads as part of the warning.
 
+' ── GREY DETAIL (2026-10-05) ──────────────────────────────────────────────
+' Colouring only the mark left every line's TEXT in the terminal default, so a
+' prelude read as a wall of white. Signal-only rendering: role lines (● host,
+' app, store …) and Notef print fully ColorMuted #8A8A8A; a ✓ ⚠ × line keeps
+' its HEAD in the terminal default — the text before its first short
+' "label: " (≤ 40 cols) or " — " — and greys the rest. A × head is bold.
+' Default-colour text therefore means "a severity spoke"; a clean run is grey.
+' Rules drop to ColorRule #585858 with a bold ColorSecondary label.
+' ColorSecondary keeps its value: choiceui, help and schedule share it.
+' Chosen over "muted" (every head default) and "ledger" (grey key column):
+' see the comparison artifact https://claude.ai/artifact/7HGBovkYAAkChBt6P9V7cz
+' Words wider than the line hard-break at the text column instead of letting
+' the terminal wrap them at column zero.
+' Verified by e2e/stream_palette_test.go: one real run in tmux asserting the
+' grey, rule and bold-failure SGRs and ≤ 2 consecutive default-colour lines.
+
 title Output vocabulary — six roles, three severities, fifteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>

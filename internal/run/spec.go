@@ -81,8 +81,9 @@ type CredentialSpec struct {
 type ChoiceSpec struct {
 	SettingsRoot string
 	Settings     *agentsettings.Store
-	Promptable   bool // a TTY, wizard on, not a dry run: the cache may seed a prompt
-	EvidenceSet  bool // the env file pinned evidence, so the cache must not override it
+	Promptable   bool   // a TTY, wizard on, not a dry run: the cache may seed a prompt
+	EvidenceSet  bool   // the env file pinned evidence, so the cache must not override it
+	PortsRoot    string // the workspace path dev ports are discovered under and remembered for
 }
 
 // BackendSpec is which backend won, and the add-ons that decision enables.
@@ -92,6 +93,9 @@ type BackendSpec struct {
 	CloneOff     string
 	CloneSource  workspace.WorktreeSource // set when a linked worktree clones through its main worktree
 	CloneEnv     string                   // staged project .env the clone links, or ""
+	CloneEnvBase string                   // the staged bytes at launch, for the teardown merge
+	CloneEnvHost string                   // the host .env the staged copy came from
+	CloneStrip   []string                 // brokered keys the staged copy dropped
 	BrowserImage string
 }
 

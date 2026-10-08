@@ -19,6 +19,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
 ' covers: e2e/seed_ready_test.go
+' covers: internal/contract/seed_shares_test.go
 '
 ' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
@@ -71,7 +72,9 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' registered as a subagent type in this session".
 '
 ' So proveo_seed now runs, in order:
-'   clone checkout → clone .env → instructions → known hosts → state/config
+'   clone checkout → clone .env → clone links → clone base → ASSERT SHARES
+'   (a miss stops here, unreleased; _spec/internal/sbx/clone-workspace.puml) →
+'   instructions → known hosts → state/config
 '   restore → git-sync hooks → subagents → trust → wire_config → house rules →
 '   UI defaults → claude hooks → browser skills → RELEASE → tools restore →
 '   toolchain, deps, LSP binaries → wire_config again.

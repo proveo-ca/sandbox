@@ -133,6 +133,44 @@ skinparam noteTextAlignment left
 ' the ladder, not sbx's response to SIGTERM.
 ' There is no budget cap: any positive duration is accepted.
 '
+' ── CLOCK + WRAP-UP (2026-10-06) ───────────────────────────────────────────
+' muse-waivers ran 60 min, never wrote report.md, and was killed mid-save: the
+' agent had no clock, only the prompt's "about 50 minutes", and spent 38 min
+' before it read a single projection. The stop time is a fact the watcher owns:
+'   typed     instruction + " Clock: proveo stops this session at <HH:MM tz>
+'             (<budget> budget); write the report by <HH:MM tz>. Run `date`
+'             to check."  stop = typing time + budget (≤ acceptWait earlier
+'             than the real stop: errs early); times in the job's tz
+'   wrap-up   lead = min(wrapUpBefore 10 m, budget/4), skipped below wrapUpMin
+'             (1 m: a 2-min budget has no room to wrap up); at stop − lead the
+'             watcher types steerPrefix[target] + "proveo schedule: <N> minutes
+'             left — this session stops at <HH:MM tz>. Stop the task and write
+'             the report now with what you have." ⏎ · submitWait · ⏎ (a slash
+'             menu may take the first ⏎, as with /goal and /exit)
+'   steerPrefix {"hermes": "/steer "}: hermes delivers it after the running
+'             tool call without ending the turn (manual steer, 2026-10-06).
+'             A target without one, or a `command:` job, gets the clock line
+'             only: typing into a busy TUI that does not queue is undefined.
+' Skill `scheduled-run` tells the agent to run `date` before each step and to
+' treat "proveo schedule:" as the call to write the report.
+'
+' ── ONE WATCHER PER SESSION (2026-10-06) ───────────────────────────────────
+' `proveo schedule retry muse-waivers` at 23:04:16 launched while the 22:01
+' run's watcher was still in its budget-stop ladder: the old agent had taken
+' /exit at 23:04, so Launch saw no session and reused the name. The old
+' watcher's awaitGone then found the NEW session alive, SIGTERMed its
+' `proveo run` ("stream I/O: context canceled") and killed it; both results
+' finished at 23:06:34, 0.11 s apart.
+' Names are reused, and so are tmux session ids: once the last session ends
+' the server exits and the next one restarts at $0 (probe, tmux 3.7b). The
+' pane's pid is not reused within minutes, so:
+'   Pin       watch reads #{pane_pid} when it starts and pins the Session to it
+'   Alive     has-session ∧ (unpinned ∨ #{pane_pid} = pinned pid)
+'   stopAgent returns "<why>; the agent had already exited" when the pinned
+'             session is gone before the first key, and sends nothing
+' So a watcher only ever reads, types into or kills the session it launched with.
+' covers: internal/tmux/tmux.go (Pin, Alive)
+'
 ' ── ATTACH ─────────────────────────────────────────────────────────────────
 '   proveo schedule attach <job> [-r|--read-only]
 '   not running          error naming the job, before tmux prints its own

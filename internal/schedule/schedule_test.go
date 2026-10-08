@@ -233,8 +233,8 @@ func TestWatchTypesTheGoalOnceTheAgentIsReady(t *testing.T) {
 	var note string
 	res := Watch(home, "lineup", "sun 11:35", "t.log", j, f.run, func(_, body string) { note = body })
 
-	if len(f.typed) == 0 || f.typed[0] != "/goal Set the best lineup. Bench anyone Out." {
-		t.Fatalf("typed = %q", f.typed)
+	if len(f.typed) == 0 || !strings.HasPrefix(f.typed[0], "/goal Set the best lineup. Bench anyone Out. Clock: proveo stops this session at ") {
+		t.Fatalf("typed = %q: want the prompt, then the clock line", f.typed)
 	}
 	if res.Outcome != "ended" || !strings.HasPrefix(note, "ended") {
 		t.Errorf("outcome = %q (%s), note %q", res.Outcome, res.Detail, note)
@@ -508,7 +508,7 @@ func TestWatchPressesEnterAgainWhenASlashMenuTookTheFirst(t *testing.T) {
 	}
 	j := Job{Target: "hermes", PromptFile: prompt, Budget: "1ms"}
 	res := Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t.log"), j, f.run, nil)
-	if n := len(f.typed); n == 0 || f.typed[0] != "/goal Set the lineup." || strings.Count(strings.Join(f.typed, "|"), "/goal") != 1 {
+	if n := len(f.typed); n == 0 || !strings.HasPrefix(f.typed[0], "/goal Set the lineup. Clock: ") || strings.Count(strings.Join(f.typed, "|"), "/goal") != 1 {
 		t.Errorf("typed %q: the goal must be typed once and submitted by a second Enter, not retyped", f.typed)
 	}
 	if res.Outcome != "budget" {
@@ -554,5 +554,62 @@ func TestCurrentRunIsTheNewestTranscriptWithoutAnExitFile(t *testing.T) {
 	}
 	if got := CurrentRun(home, "muse-lineup-refine"); !got.IsZero() {
 		t.Errorf("every transcript exited: CurrentRun = %s, want zero", got)
+	}
+}
+
+func TestClockNamesTheStopAndTheReportByTime(t *testing.T) {
+	t.Parallel()
+	j := Job{Timezone: "America/Los_Angeles"}
+	loc, _ := j.Location()
+	stop := time.Date(2026, 10, 7, 0, 22, 0, 0, loc)
+	want := "Clock: proveo stops this session at 00:22 PDT (1h budget); write the report by 00:12 PDT. Run `date` to check."
+	if got := j.Clock(stop, time.Hour); got != want {
+		t.Errorf("Clock = %q, want %q", got, want)
+	}
+}
+
+func TestWatchSteersAWrapUpBeforeTheBudget(t *testing.T) {
+	fastWatch(t)
+	wb, wm := wrapUpBefore, wrapUpMin
+	wrapUpBefore, wrapUpMin = 40*time.Millisecond, 0
+	t.Cleanup(func() { wrapUpBefore, wrapUpMin = wb, wm })
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("Set the lineup."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeTmux{pane: "❯ Goal (active", alive: true, endOn: "/exit"}
+	Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t.log"), Job{Target: "hermes", PromptFile: prompt, Budget: "160ms"}, f.run, nil)
+	var steer, exit = -1, -1
+	for i, line := range f.typed {
+		if strings.HasPrefix(line, "/steer proveo schedule: ") && strings.Contains(line, "write the report now") {
+			steer = i
+		}
+		if line == "/exit" {
+			exit = i
+		}
+	}
+	if steer < 0 || exit < steer {
+		t.Errorf("typed %q: want one /steer wrap-up before /exit", f.typed)
+	}
+
+	f = &fakeTmux{pane: "❯ ", alive: true, endOn: "/exit"}
+	Watch(home, "lineup", "sun 11:35", filepath.Join(home, "t2.log"), Job{Command: []string{"agent"}, PromptFile: prompt, Budget: "160ms"}, f.run, nil)
+	for _, line := range f.typed {
+		if strings.Contains(line, "proveo schedule:") {
+			t.Errorf("typed %q: a target without a steer prefix gets the clock line only", f.typed)
+		}
+	}
+}
+
+func TestBudgetStopLeavesAReplacedSessionAlone(t *testing.T) {
+	fastWatch(t)
+	f := &fakeTmux{alive: true, pid: "100"}
+	sess := tmux.New("proveo-sched-job", f.run)
+	sess.Pin()
+	f.pid = "200"
+	got := stopAgent(sess, "stopped at 1h")
+	if got != "stopped at 1h; the agent had already exited" || len(f.keys) != 0 || len(f.typed) != 0 || f.killed {
+		t.Errorf("stop = %q, keys %q, typed %q, killed %v: a retry under the same name is not this run's session", got, f.keys, f.typed, f.killed)
 	}
 }

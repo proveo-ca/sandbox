@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/devports"
+
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/egress"
@@ -28,6 +30,12 @@ type Params struct {
 	Extra                                                                       []string
 	ProxyImage                                                                  string
 	Clone, CloneSet                                                             bool
+	Ports                                                                       []devports.Candidate
+	discovered                                                                  []devports.Candidate
+	portsAsked                                                                  bool // the form drew the ports row
+	Apps                                                                        []devports.AndroidApp
+	discoveredApps                                                              []devports.AndroidApp
+	appsAsked                                                                   bool // the form drew the apps row
 }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }

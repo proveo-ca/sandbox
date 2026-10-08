@@ -169,7 +169,7 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 		return choiceui.FocusHop
 	case "credentials", "auth", rowModel:
 		return choiceui.FocusKey
-	case rowExecution:
+	case rowExecution, rowPorts, rowApps:
 		return choiceui.FocusSquare
 	case rowInterface:
 		return choiceui.FocusReturn

@@ -2746,7 +2746,7 @@ proveo_clone_env() {
  if [[ -n "$gd" ]] && ! grep -qxF '/.env' "$gd/info/exclude" 2>/dev/null; then
   mkdir -p "$gd/info" 2>/dev/null && printf '/.env\n' >> "$gd/info/exclude" 2>/dev/null
  fi
- echo "🔑 clone: .env → ${src} (read-only, staged from the host)"
+ echo "🔑 clone: .env → ${src} (staged from the host; edits merge back at teardown)"
 }
 
 # SPEC: _spec/internal/sbx/clone-workspace.puml
@@ -2771,11 +2771,53 @@ proveo_clone_links() {
  [[ -z "$made" ]] || echo "🔗 clone: relinked ${made} (host symlinks git does not carry)"
 }
 
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_clone_base() {
+ local dir f
+ [[ -n "${PROVEO_CLONE_WORKSPACE:-}" ]] || return 0
+ dir="$(_proveo_scan_root)"
+ f="$(git -C "$dir" rev-parse --path-format=absolute --git-path proveo-clone-base 2>/dev/null)" || return 0
+ [[ -n "$f" && ! -s "$f" ]] || return 0
+ git -C "$dir" rev-parse HEAD > "$f" 2>/dev/null || rm -f "$f" 2>/dev/null
+ return 0
+}
+
+PROVEO_SEED_REFUSED="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
+
+# SPEC: _spec/internal/sbx/clone-workspace.puml
+proveo_assert_shares() {
+ local pairs="${PROVEO_SHARES:-}" dir pair rel mode p bad=""
+ rm -f "$PROVEO_SEED_REFUSED" 2>/dev/null || true
+ [[ -n "$pairs" ]] || return 0
+ dir="$(_proveo_scan_root)"
+ local IFS='|'
+ for pair in $pairs; do
+  rel="${pair%%=*}" mode="${pair#*=}" p="${dir}/${rel}"
+  if [[ ! -e "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is missing"
+  elif [[ ! -r "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is unreadable"
+  elif [[ "$mode" == rw && ! -w "$p" ]]; then
+   bad="${bad:+$bad; }${rel} is read-only, so edits cannot reach the host"
+  fi
+ done
+ if [[ -z "$bad" ]]; then
+  echo "✅ shares: ${pairs//|/, } at ${dir}"
+  return 0
+ fi
+ printf '%s\n' "$bad" > "$PROVEO_SEED_REFUSED" 2>/dev/null || true
+ echo "❌ shares: ${bad} — the agent is not released" >&2
+ return 1
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
  proveo_clone_env
  proveo_clone_links
+ proveo_clone_base
+ proveo_assert_shares || return 1
  proveo_seed_instructions "$target"
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || { proveo_release_agent "$target"; return 0; }
@@ -2815,6 +2857,7 @@ proveo_seed() {
   proveo_provision_toolchain
   proveo_wire_config "$target"
  fi
+ : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
  proveo_chrome_bridge "$target"
@@ -2851,6 +2894,49 @@ proveo_adb_mirror_start() {
   pgrep -f "proveo-entrypoint adb-mirror" >/dev/null 2>&1 && return 0
   nohup proveo-entrypoint adb-mirror >>"${TMPDIR:-/tmp}/proveo-adb-mirror.log" 2>&1 &
   disown 2>/dev/null || true
+}
+
+# Build, install and launch Android application modules on the host emulator.
+# Args: "<gradle module>|<applicationId>" … ; runs from the workspace root.
+# SPEC: _spec/internal/devports/dev-ports.puml
+PROVEO_TOOLCHAIN_READY="${PROVEO_TOOLCHAIN_READY:-/tmp/proveo-toolchain-ready}"
+PROVEO_ANDROID_LOG="${PROVEO_ANDROID_LOG:-/tmp/proveo-android-install.log}"
+
+proveo_android_install() {
+  (($#)) || return 0
+  local waited=0 limit="${PROVEO_ANDROID_WAIT:-3600}" log="$PROVEO_ANDROID_LOG"
+  until [[ -f "$PROVEO_TOOLCHAIN_READY" ]]; do
+    if ((waited >= limit)); then
+      echo "⚠️  android: the seed's toolchain was not ready after ${limit}s — nothing installed" | tee -a "$log" >&2
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+  local home; home="$(_proveo_agent_home)"
+  [[ -f "$home/.proveo-tool-env.sh" ]] && . "$home/.proveo-tool-env.sh"
+  proveo_host_adb_env || {
+    echo "⚠️  android: no host adb server — nothing installed" | tee -a "$log" >&2
+    return 1
+  }
+  local gradle=gradle spec module app task rc=0
+  [[ -x ./gradlew ]] && gradle=./gradlew
+  for spec in "$@"; do
+    module="${spec%%|*}" app="${spec#*|}"
+    task="${module:+$module:}installDebug"
+    echo "📱 android: building and installing $app ($task)" | tee -a "$log"
+    if ! "$gradle" --no-daemon -q "$task" >>"$log" 2>&1; then
+      echo "⚠️  android: $task failed — see $log" | tee -a "$log" >&2
+      rc=1
+      continue
+    fi
+    if adb shell monkey -p "$app" -c android.intent.category.LAUNCHER 1 >>"$log" 2>&1; then
+      echo "📱 android: $app installed and launched" | tee -a "$log"
+    else
+      echo "⚠️  android: $app installed; launch failed — see $log" | tee -a "$log" >&2
+    fi
+  done
+  return "$rc"
 }
 
 _proveo_mobile_mcp_bin() {

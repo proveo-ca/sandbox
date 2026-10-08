@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/devports"
+
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/chromebridge"
@@ -313,5 +315,51 @@ func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
 	vars := KitEnvVars(r.ResolvedEnv())
 	if vars[chromebridge.EnvAddr] != r.ContainerAddr() || vars[chromebridge.EnvToken] != r.Token() {
 		t.Fatalf("Kit variables = %v: the seed refuses %s without %s", vars, chromebridge.EnvAddr, chromebridge.EnvToken)
+	}
+}
+
+func TestPlanPortsKeepsFreePortsAndMovesTakenOnes(t *testing.T) {
+	t.Parallel()
+	taken := map[int]bool{3000: true}
+	got := PlanPorts([]PublishedPort{{Guest: 3000, What: "next"}, {Guest: 6006, What: "storybook"}},
+		func(p int) bool { return !taken[p] })
+	if got[1].Host != 6006 {
+		t.Errorf("PlanPorts free 6006 = %+v, want host 6006", got[1])
+	}
+	if got[0].Guest != 3000 || got[0].Host == 3000 || got[0].Host <= 0 {
+		t.Errorf("PlanPorts taken 3000 = %+v, want a different free host port", got[0])
+	}
+}
+
+func TestDevServerScriptSkipsAPortAlreadyServedAndLogs(t *testing.T) {
+	t.Parallel()
+	got := DevServerScript("/work/repo", PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
+	want := "if (exec 3<>/dev/tcp/127.0.0.1/3000) 2>/dev/null; then exit 0; fi\n" +
+		"cd \"/work/repo/apps/web\" || exit 1\n" +
+		"exec HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0 >>/tmp/proveo-dev-3000.log 2>&1\n"
+	if got != want {
+		t.Errorf("DevServerScript() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestPortPublishAppendsAfterTheCDPRelay(t *testing.T) {
+	t.Parallel()
+	in := Input{Browser: true, CDPHostPort: 51000, Ports: []PublishedPort{{Host: 3000, Guest: 3000}, {Host: 51001, Guest: 6006}}}
+	got := append(cdpPublish(in), portPublish(in)...)
+	want := []string{"51000:9222", "3000:3000", "51001:6006"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("publish args mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestAndroidInstallScriptHandsTheModulesToTheSeed(t *testing.T) {
+	t.Parallel()
+	got := AndroidInstallScript("/work/repo", []string{"ADB_SERVER_SOCKET=tcp:host.docker.internal:5037"},
+		[]devports.AndroidApp{{Module: ":app", AppID: "ca.proveo.hello"}, {AppID: "ca.proveo.root"}})
+	want := "export ADB_SERVER_SOCKET=\"tcp:host.docker.internal:5037\"\n" +
+		"cd \"/work/repo\" || exit 1\nsource /entrypoint-lib.sh\n" +
+		"proveo_android_install \":app|ca.proveo.hello\" \"|ca.proveo.root\"\n"
+	if got != want {
+		t.Errorf("AndroidInstallScript() =\n%s\nwant\n%s", got, want)
 	}
 }
