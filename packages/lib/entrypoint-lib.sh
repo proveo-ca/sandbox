@@ -2024,7 +2024,18 @@ configure_claude_lsp() {
 configure_opencode_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
-  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  config_file="${HOME}/.config/opencode/opencode.json"
+  if [[ -e "${config_file}c" ]]; then
+    echo "⚠️  Skipping automatic LSP wiring; configure lsp in ${config_file}c directly (higher-priority JSONC config)" >&2
+    return 0
+  fi
+  if [[ -e "$config_file" ]]; then
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+      echo "⚠️  Skipping automatic LSP wiring; fix $config_file to contain one valid JSON object" >&2
+      return 0
+    fi
+    existing="$(cat "$config_file")" || return 0
+  fi
   matched_json="$(detect_workspace_lsps "$scan" | jq -R -s '
     split("\n") | map(select(length > 0) | split("|")) | map({
       key: .[0],
@@ -2035,21 +2046,15 @@ configure_opencode_lsp() {
   [[ -n "$matched_json" ]] || matched_json="{}"
 
   mkdir -p "$(dirname "$config_file")"
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
 
   echo "── Workspace LSP Match ──────────────────────────────"
 
-  # An operator who set "lsp": false meant it.
   if [[ "$(printf '%s' "$existing" | jq -r '.lsp')" == "false" ]]; then
     echo "🔎 LSP left off: $config_file sets \"lsp\": false"
     echo "─────────────────────────────────────────────────────"
     return 0
   fi
 
-  # No match is not a reason to leave the key ABSENT. opencode reads an absent
-  # lsp as disabled, so writing nothing here is what printed "LSPs are
-  # disabled" on a workspace whose languages proveo could not match; true turns
-  # opencode's own built-ins on.
   # SPEC: _spec/packages/lib/language-server-provisioning.puml
   if [[ "$matched_json" == "{}" ]]; then
     echo "🔎 No installed LSP matched files under $scan"
@@ -2072,6 +2077,7 @@ configure_opencode_lsp() {
   else
     rm -f "$tmp"
     echo "⚠️  Could not update $config_file (jq failed)" >&2
+    return 0
   fi
 
   printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
@@ -2087,9 +2093,19 @@ configure_opencode_formatter() {
   off | false | 0 | no | disable | disabled) return 0 ;;
   esac
   local config_file existing='{}' tmp
-  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  config_file="${HOME}/.config/opencode/opencode.json"
+  if [[ -e "${config_file}c" ]]; then
+    echo "⚠️  Skipping automatic formatter wiring; configure formatter in ${config_file}c directly (higher-priority JSONC config)" >&2
+    return 0
+  fi
+  if [[ -e "$config_file" ]]; then
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+      echo "⚠️  Skipping automatic formatter wiring; fix $config_file to contain one valid JSON object" >&2
+      return 0
+    fi
+    existing="$(cat "$config_file")" || return 0
+  fi
   mkdir -p "$(dirname "$config_file")" 2>/dev/null || return 0
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
   if printf '%s' "$existing" | jq -e 'has("formatter")' >/dev/null 2>&1; then
     return 0
   fi
@@ -2823,6 +2839,24 @@ proveo_assert_shares() {
  return 1
 }
 
+# SPEC: _spec/defs/opencode/native-v2-integration.puml
+proveo_bootstrap_opencode_config() {
+ local src="${PROVEO_OPENCODE_DEFAULTS_DIR:-/opt/opencode/defaults}"
+ local dst="${HOME}/.config/opencode" config_file
+ if [[ "${OPENCODE_RESEED:-0}" != "1" && ( -e "$dst/opencode.json" || -e "$dst/opencode.jsonc" ) ]]; then
+  return 0
+ fi
+ [[ -f "$src/opencode.json" ]] || {
+  echo "❌ OpenCode defaults missing at $src/opencode.json; set PROVEO_OPENCODE_DEFAULTS_DIR to the baked defaults directory" >&2
+  return 1
+ }
+ mkdir -p "$dst" || return 1
+ config_file="$dst/opencode.json"
+ [[ ! -e "$dst/opencode.jsonc" ]] || config_file="$dst/opencode.jsonc"
+ cp -f "$src/opencode.json" "$config_file" || return 1
+ echo "🌱 Seeded native OpenCode defaults into $config_file (OPENCODE_RESEED=${OPENCODE_RESEED:-0})"
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
@@ -2841,6 +2875,10 @@ proveo_seed() {
 
  proveo_sync_config restore || true
 
+ if [[ "$target" == opencode ]]; then
+  proveo_bootstrap_opencode_config || return 1
+ fi
+
  proveo_install_git_sync_hooks "$target"
  : > "$PROVEO_HOOKS_MARKER" 2>/dev/null || true
 
@@ -2849,7 +2887,7 @@ proveo_seed() {
  codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
  cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
- opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
+ opencode) render_subagents opencode "${HOME}/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
  accept_workspace_trust "$(_proveo_scan_root)"
