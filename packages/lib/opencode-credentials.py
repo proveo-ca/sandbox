@@ -51,12 +51,12 @@ def credential_schema(connection):
         ):
             return False
         raise SnapshotError("unsupported credential schema")
+    info = connection.execute("PRAGMA table_xinfo(credential)").fetchall()
+    if any(row[6] != 0 for row in info):
+        raise SnapshotError("unsupported credential schema")
     columns = [
         (name, kind.upper(), required, primary)
-        for _, name, kind, required, _, primary, *rest in connection.execute(
-            "PRAGMA table_xinfo(credential)"
-        ).fetchall()
-        if not rest or rest[0] == 0
+        for _, name, kind, required, _, primary, _ in info
     ]
     if columns != CREDENTIAL_COLUMNS:
         raise SnapshotError("unsupported credential schema")
@@ -184,7 +184,7 @@ def snapshot(source, destination):
                         "offline destination has SQLite sidecars; stage its backup first"
                     )
         with tempfile.TemporaryDirectory(
-            prefix="proveo-opencode-private-"
+            prefix="proveo-opencode-private-", dir="/tmp"
         ) as temporary:
             stage = Path(temporary)
             for rel in set(databases + old_databases):
@@ -226,7 +226,7 @@ def main():
         snapshot(args.source, args.destination)
     except (SnapshotError, sqlite3.Error, OSError):
         print(
-            "proveo: OpenCode credential-free snapshot refused; source and prior database snapshots remain intact",
+            "proveo: OpenCode credential-free snapshot failed; do not launch or reuse unsanitized state",
             file=sys.stderr,
         )
         return 1
