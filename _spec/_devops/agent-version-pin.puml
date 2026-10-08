@@ -1,20 +1,21 @@
 @startuml
-!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Agent version pin — the image carries the release imagebuild resolved, and says so
-
 ' purpose: why `@latest` in a Dockerfile is not a pin, and the one shape every harness uses instead
-' covers: internal/imagebuild/imagebuild.go (AgentVersion)
-' covers: internal/imagebuild/targets.go (Spec.Pins)
+' covers: internal/imagebuild/imagebuild.go
+' covers: internal/imagebuild/targets.go
 ' covers: internal/imagebuild/imagebuild_test.go
 ' covers: defs/*/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
 ' covers: internal/imagetest/*_test.go
 ' covers: internal/contract/agent_pin_test.go
-' covers: internal/posture/posture.go (AgentVersion)
+' covers: internal/posture/posture.go
 ' covers: internal/run/run.go
+' covers: defs/opencode/entrypoint.sh
 ' covers: defs/opencode/README.md
 ' covers: CODING_HARNESSES.md
+' Approved native runtime integration: _spec/defs/opencode/native-v2-integration.puml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Agent version pin — the image carries the release imagebuild resolved, and says so
 '
 ' OpenCode v2 uses @opencode/cli; opencode-ai remains the v1 package. Resolve
 ' @opencode/cli/latest and install @opencode/cli@${OPENCODE_VERSION}, retaining
@@ -25,10 +26,11 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' image suite compare that full string against the bare version pin.
 '
 ' ── THE PIN NEEDS A GAUGE, BECAUSE THE UPDATER USED TO BE ONE ──────────────
-' Every harness now switches its CLI's own auto-updater OFF — claudecode by
-' DISABLE_AUTOUPDATER, opencode by OPENCODE_AUTO_UPDATE, cecli by
-' `check-update: false`, cursor by the same class. That is correct: a
-' SUCCESSFUL update replaces the release imagebuild resolved and unpins the image.
+' Every harness must keep its CLI's auto-updater OFF — claudecode by
+' DISABLE_AUTOUPDATER, cecli by `check-update: false`, cursor by the same class.
+' Approved OpenCode v2 integration uses OPENCODE_DISABLE_AUTOUPDATE=1 and
+' native update: disable; the source replacement is pending in the sibling plan.
+' A successful runtime update replaces the resolved release and unpins the image.
 '
 ' But it moved the update layer UP, and the rung it moved to has no motor and
 ' had no dial. Measured rather than assumed:
@@ -143,6 +145,20 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' from upstream. The shell learned that the hard way: its caller assigned the
 ' result to a variable named like the override, after which nothing outside
 ' could tell an override from a resolution.
+'
+' Retained measured cache history from the former BuildKit note: the fleet was
+' current on 2026-09-01 only because unrelated edits busted that morning's cache;
+' opencode-browser:latest from a week earlier still carried 1.18.23.
+' A label alone does not move the install layer's cache key: ARG matters at use.
+' Runtime checks: opencode --version prints opencode v<arg>; claude --version
+' contains the pin; pip show reports it; Cursor matches the installer release.
+' The Go resolver honors NPM_CONFIG_REGISTRY and reads PyPI info.version through
+' its HTTP client; the host needs no npm, curl, or python3 for those lookups.
+' Failed or unsupported retrieval returns no version; Failf names the override
+' <ARG>=<x.y.z> and the last fetch error rather than silently accepting latest.
+' Inspect a built image with docker image inspect -f
+' {{index .Config.Labels "proveo.agent.version"}} proveo/opencode:local.
+' Compare upstream with npm view @opencode/cli version; image suites check the pin.
 
 actor "Maintainer" as MT
 participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
@@ -173,62 +189,51 @@ CT ARROW_OPTIONAL BK : every harness row: bare ARG · guard · pinned install\n�
 CT ARROW_OPTIONAL LIB : imagebuild_test.go, fake Fetch: npm · PyPI\n· installer scrape · override · refusal
 
 note over BK
-  **""@latest"" is a request to the registry, not a property of the image.**
-  BuildKit caches a ""RUN"" by its text and its parent chain. An
-  ""npm install -g x@latest"" line does not change when upstream publishes,
-  so with a warm cache the layer is reused and the image keeps the agent
-  from whenever that layer last ran — with nothing in the build saying so.
-  Only ""--no-cache"", or an edit ABOVE the line, ever refreshed it. The
-  fleet was current on 2026-09-01 by coincidence: unrelated Dockerfile edits
-  had busted the cache that morning, while the published
-  ""opencode-browser:latest"" from a week earlier still carried 1.18.23.
+  BuildKit reuses an unchanged install layer even
+  when the registry publishes a release. Resolve
+  a specific version before building and use it
+  in the install command so the cache tracks
+  that version.
+end note
 
-  **A used build-arg is what moves the cache key.** BuildKit misses the cache
-  on an ARG's first //use// when its value differs from the previous build,
-  never on its declaration. So the version must appear in the install
-  line itself; a label alone would record a version the layer did not
-  necessarily install.
-
-  **Bare ""ARG"", by design.** A default would be ""@latest"" one step removed:
-  a bare ""docker build"" would bake whatever is newest and label it
-  truthfully, so the guard fails that build instead and points at
-  ""proveo build <target>"".
-
-  **The version check makes the pin a fact about the image.**
-  ""opencode --version"" must print ""opencode v<arg>"" exactly;
-  ""claude --version"" must contain it; ""pip show"" must report it;
-  cursor's installer, which takes no version, must have unpacked the
-  release ""AgentVersion"" read out of the script.
+note as N_ARG
+  A bare version argument prevents direct builds
+  from silently selecting the newest release.
+  The guard requires the resolved version, while
+  image labels and runtime checks verify what
+  the installation actually shipped.
 end note
 
 note over LIB
-  **One resolver, three ecosystems, one shape.** ""npm"" reads
-  ""<registry>/<pkg>/latest"" from the registry JSON (""NPM_CONFIG_REGISTRY""
-  honoured; the shell's ""npm view"" is gone, so the host needs no npm);
-  ""pypi"" reads ""info.version"" over Go's HTTP client, so no curl or
-  python3 on the host is involved; ""cursor"" scrapes the release directory out of
-  ""cursor.com/install"", because that script hardcodes its build and takes no
-  argument. The maintainer override is the same ""<ARG>"" the Dockerfile
-  takes, so ""OPENCODE_VERSION=2.0.6 proveo build opencode"" pins an older
-  release and doubles as the offline path. A failed fetch is still a
-  refusal, never a guessed version; the ""Failf"" line names
-  ""<ARG>=<x\.y\.z>"" and the last fetch error.
+  One resolver reads package data or the release
+  encoded in the vendor installer. An exported
+  version override bypasses lookup, so maintainers
+  can rebuild an older release without network
+  access.
+end note
 
-  **Unresolvable is a refusal, never a silent ""latest"".** Falling back to the
-  dist-tag would reopen the hole in the one place — offline, behind a
-  proxy — where nobody is watching the build log. It returns an error and
-  no version when it fails, because a caller would bake whatever it got,
-  and the ""Failf"" line names ""<ARG>=<x\.y\.z>"" as the way out. An ecosystem
-  it does not know is refused the same way ("unknown ecosystem"), rather
-  than being treated as one of the three it does.
+note as N_REFUSE
+  Failed retrieval returns an error rather than
+  guessing a version or accepting latest.
+  Unsupported ecosystems fail the same way
+  because either fallback would quietly reopen
+  the unpinned installation path.
+end note
+
+note as N_UPDATE
+  Disable the harness updater so runtime cannot
+  replace the release pinned by the image.
+  The approved native migration uses the v2
+  disable flag and config, while rebuilds
+  remain the only update mechanism.
 end note
 
 note over LBL
-  **How to know what a harness carries:**
-  ""docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local""
-  and what upstream ships: ""npm view @opencode/cli version"". The build log's
-  ""pin:"" line states the same version at build time. Each def's runtime suite
-  (""internal/imagetest"") checks the label against the agent's own release.
+  The version label reports what the image
+  carries, not whether upstream has published
+  something newer. Runtime reporting omits
+  unavailable labels rather than guessing, and
+  an image rebuild remains an operator action.
 end note
 
 @enduml

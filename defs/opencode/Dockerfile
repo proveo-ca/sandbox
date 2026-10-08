@@ -74,7 +74,7 @@ COPY defs/lib/ /opt/proveo/lib/
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY packages/lib/opencode-credentials.py /usr/local/lib/proveo/opencode-credentials.py
-RUN python3 -c 'import sqlite3; assert sqlite3.sqlite_version_info >= (3, 26, 0)'
+RUN python3 -c 'import fcntl, sqlite3; assert sqlite3.sqlite_version_info >= (3, 33, 0)'
 # The sbx Kit names this as its ONE startup command for every target
 # (internal/sbx SeedCommand), so an image that runs on sbx and does not ship
 # it fails startup with exit 127 and seeds nothing.

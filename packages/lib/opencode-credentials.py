@@ -46,8 +46,10 @@ def credential_schema(connection):
     ).fetchall()
     tables = {name for name, kind, _ in objects if kind == "table"}
     if "credential" not in tables:
-        if {"project", "session", "message", "part"} <= tables and not any(
-            "credential" in name.lower() for name, _, _ in objects
+        if (
+            "migration" not in tables
+            and {"project", "session", "message", "part"} <= tables
+            and not any("credential" in name.lower() for name, _, _ in objects)
         ):
             return False
         raise SnapshotError("unsupported credential schema")
@@ -111,6 +113,8 @@ def inventory(root):
     for directory, dirnames, filenames in os.walk(root, followlinks=False):
         for name in dirnames:
             path = Path(directory, name)
+            if path.relative_to(root) == Path("auth.json"):
+                raise SnapshotError("legacy auth path is not a file")
             if path.is_symlink():
                 raise SnapshotError("data directory contains a symlink")
             directories.append(path.relative_to(root))
