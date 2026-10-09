@@ -6,6 +6,7 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: e2e/close_confirm_test.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/run/helpers.go
 ' covers: internal/backend/dockeregress/dockeregress.go (ExecAgentWithProxy)
