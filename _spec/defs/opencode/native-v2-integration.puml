@@ -104,10 +104,20 @@
 ' The Executor chose a private per-run database and a full-lifetime durable-store lease.
 ' Stateful runs sharing that store must serialize through the full writer lifetime,
 ' including descendants and publication; failure must preserve recoverable session data.
-' proveo-seed must scrub durable/legacy stores with runtime --sanitize (brief lease) and
-' release before the long seed body: sbx starts the agent concurrently with durable
-' startup, so wrapping seed in --preflight-command held the lease past await-seed's
-' 30s launch-anyway window and the agent exited 75 ("another OpenCode run owns…").
+' proveo-seed scrubs durable/legacy stores with runtime --sanitize, then releases the
+' lease before the long seed body. sbx still starts the agent concurrently, and
+' await-seed launches anyway after 30s. That launch used to exit 75 while sanitize
+' or migration still held the lifecycle lease ("another OpenCode run owns…").
+' The runtime now waits (PROVEO_OPENCODE_LEASE_WAIT, default 300s) while this boot's
+' instruction marker is absent, and it execs the native CLI only after the marker
+' or that deadline. A busy lease after the marker exists is another run and still
+' exits 75 at once. A seed that keeps the lease for the whole wait says so and exits 75.
+' The give-up path retries the lease once, so a holder that drops it as the marker
+' appears does not exit 75 against a free lease. A terminating signal ends the wait
+' and exits 128+signal without publishing. A non-empty seed refusal during that
+' same-boot wait exits 1 without starting the CLI. A refusal left by an earlier
+' runtime failure does not block a launch outside that wait. A non-finite wait
+' value uses the default.
 ' Focused lifecycle fixtures exercise these boundaries; final review is still pending.
 ' v2 stores auth tokens in SQLite alongside durable session state.
 ' Removing auth.json alone is insufficient; deleting the session database is forbidden.
