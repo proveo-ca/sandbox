@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -1498,7 +1500,8 @@ func Run(in Input) error {
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
-	stopped, stopSignals := forwardStop()
+	var forceRemove atomic.Bool
+	stopped, stopSignals, cancelRun := forwardStop()
 	defer stopSignals()
 	run := func() error {
 		c := exec.CommandContext(stopped, sbx.Binary, args...)
@@ -1512,6 +1515,29 @@ func Run(in Input) error {
 			px.Tap = traceIn
 			if tail != nil {
 				px.OutTap = func(b []byte) { _, _ = tail.Write(b) }
+			}
+			if os.Getenv("PROVEO_SCHEDULE") == "" {
+				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
+					screen, err := px.OverlayScreen(in)
+					if err != nil {
+						return ptyproxy.CtrlCStay
+					}
+					if err := screen.Init(); err != nil {
+						return ptyproxy.CtrlCStay
+					}
+					defer screen.Fini()
+					switch choiceui.ConfirmSandboxClose(screen) {
+					case choiceui.SandboxCloseRemove:
+						return ptyproxy.CtrlCRemove
+					case choiceui.SandboxClosePass:
+						return ptyproxy.CtrlCPass
+					default:
+						return ptyproxy.CtrlCStay
+					}
+				}, func() {
+					forceRemove.Store(true)
+					cancelRun()
+				})
 			}
 			return px.Run(c)
 		}
@@ -1535,7 +1561,7 @@ func Run(in Input) error {
 	defer func() {
 		CapturePolicyLog(in.EgDir, cfg.Name)
 		CaptureMemoryEvidence(in.EgDir, cfg.Name)
-		if runErr != nil {
+		if runErr != nil && !forceRemove.Load() {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
 				said = true
@@ -1586,6 +1612,9 @@ func Run(in Input) error {
 		if err := homeAccess.Commit(); err != nil {
 			ui.Warnf("home-root config not preserved: %v", err)
 		}
+		if forceRemove.Load() {
+			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
+		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
 			keepHomeAccess = sbx.Exists(cfg.Name)
@@ -1607,7 +1636,7 @@ const stopWait = 30 * time.Second
 
 // forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
 // stop and the deferred teardown runs instead of proveo dying mid-run.
-func forwardStop() (context.Context, func()) {
+func forwardStop() (context.Context, func(), context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
@@ -1618,7 +1647,7 @@ func forwardStop() (context.Context, func()) {
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, func() { signal.Stop(sigs); cancel() }
+	return ctx, func() { signal.Stop(sigs); cancel() }, cancel
 }
 
 func WarnBaseline() {

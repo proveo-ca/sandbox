@@ -25,8 +25,9 @@ skinparam noteTextAlignment left
 '   tick   stateless: load ~/.proveo/schedule.yml + schedule-state.json; for each job
 '          whose newest `at` entry fell within catch_up (20 m) and has not fired:
 '          mark it fired, then Launch
-'   Launch tmux session proveo-sched-<job> running `proveo run <target> --yes
-'          --local-model … --addon …` (or the job's `command`), pipe-pane to
+'   Launch tmux session proveo-sched-<job> running `PROVEO_SCHEDULE=1 proveo run
+'          <target> --yes --local-model … --addon …` (or the job's `command`),
+'          pipe-pane to
 '          ~/.proveo/logs/schedule/<job>/<stamp>.log, and a detached (setsid)
 '          `proveo schedule watch`
 '   watch  caffeinate -i (macOS); wait ≤10 m for the ready marker (default ❯),
