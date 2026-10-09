@@ -137,6 +137,8 @@ class RuntimeTests(unittest.TestCase):
             PROVEO_OPENCODE_RUNTIME_DATA="",
             PROVEO_GIT_SYNC_MSG_INFLIGHT="",
             PROVEO_OPENCODE_CREDENTIAL_HELPER=str(HELPER),
+            PROVEO_OPENCODE_ENGINE_ID="fixture-engine",
+            PROVEO_SEED_REFUSED=str(self.root / "seed-refused"),
             PROVEO_OPENCODE_HOME_MANIFEST=str(
                 HELPER.parents[2] / "defs/opencode/harness.manifest"
             ),
@@ -321,7 +323,7 @@ class RuntimeTests(unittest.TestCase):
             db.commit()
         before = (self.durable / "opencode.db").read_bytes()
         result = self.run_cli("append")
-        self.assertEqual(result.returncode, 74, result.stderr)
+        self.assertEqual(result.returncode, 78, result.stderr)
         self.assertEqual((self.durable / "opencode.db").read_bytes(), before)
         self.assertEqual(self.events(), [])
         with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
@@ -340,6 +342,11 @@ class RuntimeTests(unittest.TestCase):
         assert spec is not None
         runtime = importlib.util.module_from_spec(spec)
         loader.exec_module(runtime)
+        engine = mock.patch.object(
+            runtime, "engine_identity", return_value="fixture-engine"
+        )
+        engine.start()
+        self.addCleanup(engine.stop)
         fd = os.open(self.durable / credentials.LIFECYCLE_LOCK_NAME, os.O_RDWR)
         self.addCleanup(os.close, fd)
         credentials.fcntl.flock(
@@ -508,6 +515,50 @@ class RuntimeTests(unittest.TestCase):
         self.assert_clean(messages=3)
         self.assertFalse(database.exists())
 
+    def test_preflight_sanitizes_host_stores_before_provisioning_commands(self):
+        legacy = self.home / ".local/share/opencode"
+        self.fixture(legacy)
+        provision = self.root / "provision"
+        provision.write_text(
+            "#!/usr/bin/env python3\nimport os, sqlite3, sys\nfrom pathlib import Path\n"
+            f"for p in ({str(self.durable)!r},{str(legacy)!r}):\n"
+            '    db=sqlite3.connect(Path(p)/"opencode.db")\n'
+            '    assert db.execute("SELECT count(*) FROM credential").fetchone()==(0,)\n'
+            "    db.close()\n"
+            f'Path({str(self.root / "provisioned")!r}).write_text("ran after cleanup")\n'
+            f'os.execve(sys.executable,[sys.executable,"-B",{str(RUNTIME)!r},{str(self.native)!r},"append"],dict(os.environ))\n'
+        )
+        provision.chmod(0o700)
+        result = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--preflight-command", str(provision)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / "provisioned").exists())
+        self.assert_clean(messages=2)
+
+    def test_foreign_engine_cannot_clear_a_missing_pending_private_directory(self):
+        lock = self.durable / credentials.LIFECYCLE_LOCK_NAME
+        pending = {
+            "root": "/tmp/proveo-opencode-runtime-retained-elsewhere",
+            "database": "opencode.db",
+            "engine": "old-container",
+            "container": "retained-fixture",
+        }
+        lock.write_text(json.dumps(pending))
+        before = lock.read_bytes()
+        result = self.run_cli(
+            "append", env=dict(self.env, PROVEO_OPENCODE_ENGINE_ID="new-container")
+        )
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertEqual(lock.read_bytes(), before)
+        self.assertIn("docker start -ai retained-fixture", result.stderr)
+        self.assertEqual(self.events(), [])
+        self.assertTrue((self.root / "seed-refused").exists())
+
     def test_custom_database_selection_change_recovers_and_publishes_without_auth(self):
         with contextlib.closing(
             sqlite3.connect(self.durable / "opencode.db")
@@ -624,7 +675,7 @@ class RuntimeTests(unittest.TestCase):
             json.dumps({"env": {"OPENCODE_DB": str(self.root / "outside.db")}})
         )
         result = self.run_cli("append")
-        self.assertEqual(result.returncode, 74)
+        self.assertEqual(result.returncode, 78)
         self.assertEqual(self.events(), [])
         self.assertFalse((self.root / "outside.db").exists())
 

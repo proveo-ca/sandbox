@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 set -euo pipefail
+if [[ "${1:-}" == opencode && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
+  exec /usr/local/bin/proveo-opencode-preflight /usr/local/bin/proveo-seed "$@"
+fi
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh
 # A seed miss must not tear the sandbox down. sbx's durable-startup dispatcher

@@ -461,12 +461,16 @@ def copy_state(source, destination, rebase=None):
                     target.write_text(updated)
 
 
-def database_digest(path):
+def database_digest(path, prefix=None):
     digest = hashlib.sha256()
     with contextlib.closing(
         sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True)
     ) as db:
         for statement in db.iterdump():
+            if prefix is not None:
+                statement = statement.replace(
+                    str(prefix).rstrip("/") + "/", "/@proveo-opencode-data/"
+                )
             digest.update(statement.encode())
     return digest.digest()
 

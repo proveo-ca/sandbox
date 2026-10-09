@@ -100,6 +100,12 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 	if in.Shell {
 		agent.Entrypoint = "bash" // open a shell instead of launching the agent
 	}
+	if !in.Shell && (in.Target == "opencode" || in.Target == "opencode-browser") {
+		agent.Name = in.Sid + "-" + in.Target
+		agent.Remove = false
+		agent.RetainOnStateFailure = true
+		agent.Env = append(agent.Env, "PROVEO_OPENCODE_ENGINE_ID="+agent.Name, "PROVEO_OPENCODE_CONTAINER="+agent.Name)
+	}
 	return plan, agent, nil
 }
 
@@ -190,6 +196,17 @@ func ExecAgentWithProxy(agent runner.Config, proxy *ptyproxy.Proxy) error {
 		err = c.Run()
 	}
 	var ee *exec.ExitError
+	if agent.RetainOnStateFailure {
+		if errors.As(err, &ee) && ee.ExitCode() == 74 {
+			ui.Warnf("OpenCode state publication failed; stopped container retained: %s", agent.Name)
+			ui.Notef("recover latest private state: docker start -ai %s", agent.Name)
+		} else {
+			out, removeErr := exec.Command("docker", "rm", agent.Name).CombinedOutput()
+			if removeErr != nil && !strings.Contains(string(out), "No such container") {
+				ui.Warnf("container cleanup failed for %s", agent.Name)
+			}
+		}
+	}
 	if errors.As(err, &ee) {
 		return backend.ExitError{Code: ee.ExitCode()}
 	}
