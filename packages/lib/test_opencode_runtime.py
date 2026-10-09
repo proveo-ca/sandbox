@@ -361,6 +361,33 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("did not release", result.stderr)
         self.assertFalse(refused.exists())
 
+    def test_sanitize_takes_the_lease_before_the_marker_exists(self):
+        waiting, marker = self.boot_env(20)
+        agent = subprocess.Popen(
+            self.command("append"),
+            env=waiting,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop, agent)
+        time.sleep(0.4)
+        self.assertIsNone(agent.poll(), "the agent must wait for the marker without holding the lease")
+        started = time.monotonic()
+        scrubbed = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--sanitize"],
+            env=waiting,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+        self.assertNotIn("waiting for this boot's OpenCode seed", scrubbed.stderr)
+        marker.write_text("released\n")
+        _, stderr = agent.communicate(timeout=15)
+        self.assertEqual(agent.returncode, 0, stderr)
+
     def test_interrupted_supervisor_keeps_child_lease_then_recovers_without_saved_auth(
         self,
     ):

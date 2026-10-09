@@ -106,13 +106,14 @@
 ' including descendants and publication; failure must preserve recoverable session data.
 
 ' proveo-seed scrubs durable/legacy stores with runtime --sanitize, then releases the
-' lease before the long seed body. sbx still starts the agent concurrently, and
-' await-seed launches anyway after 30s. That launch used to exit 75 while sanitize
-' or migration still held the lifecycle lease ("another OpenCode run owns…").
-' The runtime now waits (PROVEO_OPENCODE_LEASE_WAIT, default 300s) while this boot's
-' instruction marker is absent, and it execs the native CLI only after the marker
-' or that deadline. A busy lease after the marker exists is another run and still
-' exits 75 at once. A seed that keeps the lease for the whole wait says so and exits 75.
+' lease before the long seed body. --sanitize and --recover take that lease at once:
+' the instruction marker is written only after they return, so they must not wait for it.
+' sbx still starts the agent concurrently, and await-seed launches anyway after 30s.
+' The agent waits (PROVEO_OPENCODE_LEASE_WAIT, default 300s) while this boot's marker
+' is absent, and it does not hold the lease during that wait. It takes the lease and
+' execs the native CLI once the marker exists, or at the deadline. A busy lease after
+' the marker exists is another run and still exits 75 at once. A seed that keeps the
+' lease for the whole wait says so and exits 75.
 ' The give-up path retries the lease once, so a holder that drops it as the marker
 ' appears does not exit 75 against a free lease. A terminating signal ends the wait
 ' and exits 128+signal without publishing. A share refusal during that
