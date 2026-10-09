@@ -167,7 +167,13 @@ class NativePresentationTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 if args == ("--version",):
-                    self.assertEqual(result.stdout.strip(), "opencode v2.0.25")
+                    supplied = os.environ.get("PROVEO_TEST_OPENCODE_VERSION")
+                    if supplied:
+                        self.assertEqual(result.stdout.strip(), "opencode v" + supplied)
+                    else:
+                        self.assertRegex(
+                            result.stdout.strip(), r"^opencode v2\.\d+\.\d+$"
+                        )
                 if args == ("run", "--help"):
                     self.assertIn("--auto", result.stdout)
                     self.assertIn("not explicitly denied", result.stdout)

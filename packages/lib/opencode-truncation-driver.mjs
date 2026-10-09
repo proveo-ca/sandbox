@@ -6,13 +6,13 @@ import net from "node:net"
 import path from "node:path"
 import { setTimeout as pause } from "node:timers/promises"
 
-const [python, wrapper, native, root] = process.argv.slice(2)
+const [python, wrapper, native, root, session] = process.argv.slice(2)
 const server = net.createServer()
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve))
 const port = server.address().port
 await new Promise(resolve => server.close(resolve))
 const registry = path.join(root, "drive")
-await mkdir(registry)
+await mkdir(registry, { recursive: true })
 await writeFile(path.join(registry, "fixture.json"), JSON.stringify({ endpoints: {
   ui: `ws://127.0.0.1:${port + 1}`, backend: `ws://127.0.0.1:${port}`,
 } }))
@@ -23,7 +23,10 @@ const config = {
     models: { model: { name: "Offline fixture", limit: { context: 100000, output: 4096 } } },
   } },
 }
-const child = spawn(python, ["-B", wrapper, native, "run", "--auto", "--model", "fixture/model", "offline truncation fixture"], {
+const args = ["run", "--auto", "--model", "fixture/model"]
+if (session) args.push("--session", session)
+args.push("offline truncation fixture")
+const child = spawn(python, ["-B", wrapper, native, ...args], {
   cwd: root,
   env: { ...process.env, OPENCODE_SIMULATE: "1", OPENCODE_DRIVE: "fixture", DRIVE_REGISTRY_DIR: registry,
     OPENCODE_CONFIG_CONTENT: JSON.stringify(config),

@@ -42,7 +42,26 @@ const (
 	seedDone      = "/dev/shm/proveo-seed-done"
 )
 
-const opencodeRegistryProbe = `timeout 90 bash -c 'until opencode debug agents 2>/dev/null | node -e "const agents = JSON.parse(require(\"node:fs\").readFileSync(0, \"utf8\")); process.exit(agents.some(a => a.id === \"adversarial-reviewer\" && a.mode === \"subagent\") ? 0 : 1)"; do sleep 1; done'`
+const opencodeRegistryProbe = `timeout 90 bash -c '
+set -eu
+probe="$(mktemp -d)"
+port="$(python3 -c "import socket; s=socket.socket(); s.bind((\"127.0.0.1\", 0)); print(s.getsockname()[1]); s.close()")"
+native=/usr/local/share/npm-global/bin/opencode
+export OPENCODE_PASSWORD=synthetic-registry-probe
+export OPENCODE_DB="$probe/opencode.db" XDG_DATA_HOME="$probe/data" XDG_STATE_HOME="$probe/state"
+"$native" serve --hostname 127.0.0.1 --port "$port" >"$probe/server.log" 2>&1 &
+server=$!
+trap "kill $server 2>/dev/null || true; wait $server 2>/dev/null || true; rm -rf \"$probe\"" EXIT
+url="http://127.0.0.1:$port"
+until "$native" api --server "$url" GET /api/config >"$probe/config.json" 2>"$probe/client.log"; do
+  kill -0 "$server" 2>/dev/null || { cat "$probe/server.log"; exit 1; }
+  sleep 0.2
+done
+until "$native" api --server "$url" GET /api/agent | node -e "const response = JSON.parse(require(\"node:fs\").readFileSync(0, \"utf8\")); console.log(JSON.stringify(response.data.map(a => ({id:a.id,mode:a.mode})))); process.exit(response.data.some(a => a.id === \"adversarial-reviewer\" && a.mode === \"subagent\") ? 0 : 1)"; do
+  kill -0 "$server" 2>/dev/null || { cat "$probe/server.log"; exit 1; }
+  sleep 0.2
+done
+'`
 
 func TestOpencodeV2SeedReadyAgentRegistry(t *testing.T) {
 	requireDocker(t)
@@ -53,8 +72,12 @@ func TestOpencodeV2SeedReadyAgentRegistry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
-		"--env", `OPENCODE_CONFIG_CONTENT={"agents":{"adversarial-reviewer":{"description":"Offline registry probe","mode":"subagent","system":"Review code"}}}`,
-		"--entrypoint", "bash", image, "-c", opencodeRegistryProbe)
+		"--env", "OPENCODE_DISABLE_MODELS_FETCH=1",
+		"--entrypoint", "bash", image, "-c", `set -eu
+source /entrypoint-lib.sh
+proveo_bootstrap_opencode_config
+render_subagents opencode "$HOME/.config/opencode/agents"
+`+opencodeRegistryProbe)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("OpenCode v2 registry probe: %v\n%s", err, out)
 	}

@@ -131,11 +131,22 @@
 '   before this revision; edited diagrams require the normal post-edit recheck.
 ' - focused source/unit suites passed, including repaired credential/runtime fixtures.
 ' - persisted offline native presentation/shell-policy fixtures passed against v2.0.25.
-' Remaining acceptance: adversarial/security re-evaluations and the latest rebuilt
-' native image/full e2e suite. Actual sbx cross-VM file locking and model-driven
+' Current execution evidence: rebuilt proveo/opencode:local resolves @opencode/cli@2.0.26.
+' Targeted Docker e2e gates cover snapshots, native lifecycle, presentation, seeded registry,
+' and two actual proveo runs; the native simulator also checks first-session transcript resume.
+' Remaining acceptance: adversarial/security re-evaluations and the full image/e2e suites.
+' Actual sbx cross-VM file locking and model-driven
 ' live idle git synchronization remain unexecuted because sbx/tooling is unavailable.
 ' The offline simulator scripts the model stream; it does not establish live provider,
 ' child-operation rendering, or network-backed idle commit/push behavior.
+' Image-backed native fixtures derive their expected version from proveo.agent.version.
+' They require a v2 pin and compare the native version exactly, without a fixed fixture release.
+' The two-run regression creates separate native CLI sessions and resumes the first after both exits.
+' It checks both root IDs and transcripts, including that the second transcript remains unchanged.
+' e2e/opencode_sessions_test.go launches separate actual proveo run opencode Docker containers.
+' Both ended session IDs must appear through --ls and remain retrievable after container teardown.
+' The registry probe loads /api/config before listing agents on the same private native server.
+' A fresh agent-only diagnostic can return the uninitialized empty registry before configuration loads.
 ' Runtime database publication is distinct from git synchronization: never turn idle
 ' commit/push into an awaited CLI-return gate or promise completion after CLI exit.
 '
