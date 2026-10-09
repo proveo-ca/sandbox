@@ -121,6 +121,7 @@ firewall mode (the agent holds a sentinel, the egress proxy injects the real key
 OpenCode v2 stores saved credentials in its SQLite database.
 proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
 The runtime holds a lease on the durable data store and rejects a concurrent stateful run with exit code `75`.
+Startup seed scrubs that store with a brief `--sanitize` lease, then releases it before the long seed body so the agent can take the lease while seed finishes.
 Environment API keys remain available to the running CLI.
 Saved logins from `opencode auth login` or `/connect` do not carry into the next run.
 The same holds for providers with no

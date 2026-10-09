@@ -540,6 +540,41 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue((self.root / "provisioned").exists())
         self.assert_clean(messages=2)
 
+    def test_sanitize_scrubs_host_stores_and_releases_the_durable_lease(self):
+        legacy = self.home / ".local/share/opencode"
+        self.fixture(legacy)
+        result = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--sanitize"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for store in (self.durable, legacy):
+            with contextlib.closing(sqlite3.connect(store / "opencode.db")) as db:
+                self.assertEqual(
+                    db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
+                )
+            self.assertFalse((store / "auth.json").exists())
+            self.assertNotIn(b"SYNTHETIC", (store / "opencode.db").read_bytes())
+        released = self.run_cli("append")
+        self.assertEqual(released.returncode, 0, released.stderr)
+        self.assert_clean(messages=2)
+        overlap = self.start("hold")
+        self.wait_event("ready", count=2)
+        blocked = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--sanitize"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(blocked.returncode, 75, blocked.stderr)
+        self.assertIn("another OpenCode run", blocked.stderr)
+        overlap.send_signal(signal.SIGTERM)
+        overlap.communicate(timeout=10)
+
     def test_foreign_engine_cannot_clear_a_missing_pending_private_directory(self):
         lock = self.durable / credentials.LIFECYCLE_LOCK_NAME
         pending = {

@@ -486,6 +486,7 @@ def main():
     env = dict(os.environ)
     prepare_command = sys.argv[1] == "--preflight-command"
     recover_only = sys.argv[1] == "--recover"
+    sanitize_only = sys.argv[1] == "--sanitize"
     executable = sys.argv[2] if prepare_command else sys.argv[1]
     args = sys.argv[3:] if prepare_command else sys.argv[2:]
     lease = None
@@ -504,10 +505,10 @@ def main():
     try:
         helper = load_credentials()
         name = database_name(env)
-        mode = None if prepare_command or recover_only else diagnostic(args)
+        mode = None if prepare_command or recover_only or sanitize_only else diagnostic(args)
         disposable = mode is not None or env.get("PROVEO_GIT_SYNC_MSG_INFLIGHT") == "1"
         durable = durable_directory(env)
-        if not prepare_command and not recover_only and not disposable and env.get("PROVEO_OPENCODE_PREFLIGHT_READY") == "1":
+        if not prepare_command and not recover_only and not sanitize_only and not disposable and env.get("PROVEO_OPENCODE_PREFLIGHT_READY") == "1":
             result = prepared_execution(executable, args, env, helper, durable)
             if result is not None:
                 return result
@@ -530,6 +531,10 @@ def main():
                 print("proveo: another OpenCode run owns the legacy database", file=sys.stderr)
                 return 75
         if recover_only:
+            return 0
+        if sanitize_only:
+            phase = "offline sanitize"
+            sanitize_host_stores(helper, env, name)
             return 0
         directory = RuntimeDirectory()
         with directory as temporary:
@@ -606,6 +611,25 @@ def refuse_release(env):
     path = Path(env.get("PROVEO_SEED_REFUSED", "/dev/shm/proveo-seed-refused"))
     with contextlib.suppress(OSError):
         path.write_text("OpenCode credential preflight refused release\n")
+
+
+def scrub_store(helper, store, name):
+    if not store.exists() or not store.is_dir():
+        return
+    if not any(path.name != helper.LIFECYCLE_LOCK_NAME for path in store.iterdir()):
+        return
+    with tempfile.TemporaryDirectory(prefix="proveo-opencode-sanitize-", dir="/tmp") as temporary:
+        stage = Path(temporary) / "data"
+        helper.snapshot(store, stage, name)
+        helper.snapshot(stage, store, name)
+
+
+def sanitize_host_stores(helper, env, name):
+    durable = durable_directory(env)
+    scrub_store(helper, durable, name)
+    legacy = legacy_directory(env)
+    if legacy != durable:
+        scrub_store(helper, legacy, name)
 
 
 if __name__ == "__main__":

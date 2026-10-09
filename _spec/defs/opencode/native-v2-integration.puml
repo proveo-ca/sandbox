@@ -104,6 +104,10 @@
 ' The Executor chose a private per-run database and a full-lifetime durable-store lease.
 ' Stateful runs sharing that store must serialize through the full writer lifetime,
 ' including descendants and publication; failure must preserve recoverable session data.
+' proveo-seed must scrub durable/legacy stores with runtime --sanitize (brief lease) and
+' release before the long seed body: sbx starts the agent concurrently with durable
+' startup, so wrapping seed in --preflight-command held the lease past await-seed's
+' 30s launch-anyway window and the agent exited 75 ("another OpenCode run owns…").
 ' Focused lifecycle fixtures exercise these boundaries; final review is still pending.
 ' v2 stores auth tokens in SQLite alongside durable session state.
 ' Removing auth.json alone is insufficient; deleting the session database is forbidden.
