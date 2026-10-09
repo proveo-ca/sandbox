@@ -101,6 +101,12 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 	if !strings.Contains(wrapper, "proveo_seed \"$@\" || rc=$?\n[[ -e \"$PROVEO_INSTRUCTIONS_MARKER\" ]] || proveo_release_agent") {
 		t.Error("proveo-seed must release the agent even when proveo_seed fails, or the agent waits out the full limit")
 	}
+	if !strings.Contains(wrapper, "proveo-opencode-runtime --sanitize") {
+		t.Error("opencode seed must scrub durable stores with --sanitize, not hold a full preflight lease across the seed body")
+	}
+	if strings.Contains(wrapper, "exec /usr/local/bin/proveo-opencode-preflight /usr/local/bin/proveo-seed") {
+		t.Error("opencode seed must not exec the full preflight wrapper — that lease races the concurrent agent (exit 75)")
+	}
 }
 
 func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {

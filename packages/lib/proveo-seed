@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/seed-and-launch.puml
+# SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/defs/opencode/native-v2-integration.puml
 set -euo pipefail
 if [[ "${1:-}" == opencode && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
-  exec /usr/local/bin/proveo-opencode-preflight /usr/local/bin/proveo-seed "$@"
+  if ! /usr/local/bin/proveo-opencode-runtime --sanitize; then
+    printf 'proveo-seed: OpenCode durable sanitize failed — continuing\n' >&2
+  fi
 fi
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh
