@@ -76,6 +76,7 @@ COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY packages/lib/opencode-credentials.py /usr/local/lib/proveo/opencode-credentials.py
 COPY defs/opencode/harness.manifest /usr/local/lib/proveo/opencode.harness.manifest
 COPY --chmod=0755 packages/lib/proveo-opencode-runtime /usr/local/bin/proveo-opencode-runtime
+COPY --chmod=0755 packages/lib/proveo-opencode-preflight /usr/local/bin/proveo-opencode-preflight
 RUN python3 -c 'import ctypes, fcntl, sqlite3, sys; assert sqlite3.sqlite_version_info >= (3, 33, 0); assert sys.version_info >= (3, 11)'
 # The sbx Kit names this as its ONE startup command for every target
 # (internal/sbx SeedCommand), so an image that runs on sbx and does not ship
@@ -106,4 +107,4 @@ LABEL security.non-root=true \
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD opencode --version >/dev/null 2>&1 || exit 1
 
-ENTRYPOINT ["dumb-init", "--", "/entrypoint.sh"]
+ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/proveo-opencode-preflight", "/entrypoint.sh"]

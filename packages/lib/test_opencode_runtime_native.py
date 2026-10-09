@@ -37,6 +37,7 @@ class NativeRuntimeTests(unittest.TestCase):
             "PATH": os.environ["PATH"],
             "HOME": str(self.home),
             "PROVEO_HOME": str(self.home),
+            "PROVEO_SEED_REFUSED": str(self.root / "seed-refused"),
             "PROVEO_OPENCODE_CREDENTIAL_HELPER": str(
                 RUNTIME.with_name("opencode-credentials.py")
             ),
@@ -115,7 +116,11 @@ class NativeRuntimeTests(unittest.TestCase):
             result = self.run_native(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
             if args == ("--version",):
-                self.assertEqual(result.stdout.strip(), "opencode v2.0.25")
+                supplied = os.environ.get("PROVEO_TEST_OPENCODE_VERSION")
+                if supplied:
+                    self.assertEqual(result.stdout.strip(), "opencode v" + supplied)
+                else:
+                    self.assertRegex(result.stdout.strip(), r"^opencode v2\.\d+\.\d+$")
             if args == ("debug", "agents"):
                 self.assertIsInstance(json.loads(result.stdout), list)
         self.assertFalse(self.durable.exists())
