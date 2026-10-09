@@ -107,6 +107,17 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 	if strings.Contains(wrapper, "exec /usr/local/bin/proveo-opencode-preflight /usr/local/bin/proveo-seed") {
 		t.Error("opencode seed must not exec the full preflight wrapper — that lease races the concurrent agent (exit 75)")
 	}
+	runtime := readRepoFile(t, "packages/lib/proveo-opencode-runtime")
+	for _, needle := range []string{
+		"PROVEO_INSTRUCTIONS_MARKER",
+		"PROVEO_OPENCODE_LEASE_WAIT",
+		"waiting for this boot's OpenCode seed",
+		"this boot's OpenCode seed still holds the durable database",
+	} {
+		if !strings.Contains(runtime, needle) {
+			t.Errorf("a launch during an unreleased seed must wait out the lifecycle lease, missing %q", needle)
+		}
+	}
 }
 
 func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {

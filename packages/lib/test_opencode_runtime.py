@@ -245,6 +245,113 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(restart.returncode, 0, restart.stderr)
         self.assert_clean(messages=3)
 
+    def boot_env(self, wait, released=False):
+        marker = self.root / "instructions-seeded"
+        if released:
+            marker.write_text("released\n")
+        elif marker.exists():
+            marker.unlink()
+        return dict(
+            self.env,
+            SANDBOX_VM_ID="proveo-opencode-boot",
+            PROVEO_INSTRUCTIONS_MARKER=str(marker),
+            PROVEO_SEED_REFUSED=str(self.root / "seed-refused-boot"),
+            PROVEO_OPENCODE_LEASE_WAIT=str(wait),
+        ), marker
+
+    def test_same_boot_waits_for_the_seed_instead_of_exiting_75(self):
+        waiting, marker = self.boot_env(20)
+        holder = self.start("hold")
+        self.wait_event("ready")
+        proc = subprocess.Popen(
+            self.command("append"),
+            env=waiting,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop, proc)
+        time.sleep(0.5)
+        self.assertIsNone(proc.poll(), "the launch must not exit 75 while this boot's seed holds the lease")
+        self.assertEqual(
+            [event["event"] for event in self.events() if event["event"] == "ready"],
+            ["ready"],
+        )
+        holder.send_signal(signal.SIGTERM)
+        holder.communicate(timeout=10)
+        time.sleep(0.3)
+        marker.write_text("released\n")
+        _, stderr = proc.communicate(timeout=20)
+        self.assertEqual(proc.returncode, 0, stderr)
+        self.assertIn("waiting for this boot's OpenCode seed", stderr)
+        self.assertGreaterEqual(
+            len([event for event in self.events() if event["event"] == "ready"]), 2
+        )
+
+    def test_a_released_boot_still_rejects_another_runs_lease(self):
+        waiting, _ = self.boot_env(5, released=True)
+        holder = self.start("hold")
+        self.wait_event("ready")
+        started = time.monotonic()
+        overlap = self.run_cli("append", env=waiting)
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(overlap.returncode, 75, overlap.stderr)
+        self.assertIn("another OpenCode run owns this durable database", overlap.stderr)
+        self.assertNotIn("waiting for this boot's OpenCode seed", overlap.stderr)
+
+    def test_seed_that_keeps_the_lease_past_the_wait_still_exits_75(self):
+        waiting, _ = self.boot_env(0.6)
+        self.start("hold")
+        self.wait_event("ready")
+        started = time.monotonic()
+        overlap = self.run_cli("append", env=waiting)
+        elapsed = time.monotonic() - started
+        self.assertEqual(overlap.returncode, 75, overlap.stderr)
+        self.assertGreaterEqual(elapsed, 0.5)
+        self.assertLess(elapsed, 5)
+        self.assertIn("waiting for this boot's OpenCode seed", overlap.stderr)
+        self.assertIn("this boot's OpenCode seed still holds the durable database", overlap.stderr)
+
+    def test_a_terminating_signal_ends_the_lease_wait(self):
+        waiting, _ = self.boot_env(30)
+        self.start("hold")
+        self.wait_event("ready")
+        proc = subprocess.Popen(
+            self.command("append"),
+            env=waiting,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop, proc)
+        time.sleep(0.4)
+        self.assertIsNone(proc.poll())
+        started = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        _, stderr = proc.communicate(timeout=5)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(proc.returncode, 143, stderr)
+
+    def test_seed_refusal_during_the_lease_wait_does_not_start_the_cli(self):
+        waiting, _ = self.boot_env(20)
+        refused = Path(waiting["PROVEO_SEED_REFUSED"])
+        proc = subprocess.Popen(
+            self.command("append"),
+            env=waiting,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop, proc)
+        time.sleep(0.4)
+        self.assertEqual(self.events(), [])
+        refused.write_text("shares: _spec is missing\n")
+        _, stderr = proc.communicate(timeout=5)
+        self.assertEqual(proc.returncode, 1, stderr)
+        self.assertIn("the seed did not release the agent", stderr)
+        self.assertIn("_spec is missing", stderr)
+        self.assertEqual(self.events(), [])
+
     def test_interrupted_supervisor_keeps_child_lease_then_recovers_without_saved_auth(
         self,
     ):
