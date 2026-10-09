@@ -169,7 +169,9 @@ skinparam noteTextAlignment left
 ' marker is never written. sbx's startup wrapper still exits 0 (a seed miss
 ' must not tear the sandbox down), so the GATE is proveo-await-seed: it stops
 ' waiting when the refusal appears, and refuses an agent launch with the
-' reason; `--cwd` still answers so a shell can inspect. Docker never sets
+' reason; `--cwd` still answers so a shell can inspect. A file whose only line
+' is "OpenCode credential preflight refused release" is the runtime's own note
+' from a kept sandbox; await-seed deletes it and launches. Docker never sets
 ' PROVEO_SHARES, and a host without _spec or .env asserts nothing.
 '
 ' ── IGNORED HOST SYMLINKS ARE RELINKED, NOT CLONED ─────────────────────────

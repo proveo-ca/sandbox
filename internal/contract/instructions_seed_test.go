@@ -160,6 +160,38 @@ func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {
 	}
 }
 
+func TestAwaitSeedIgnoresAStalePreflightNote(t *testing.T) {
+	t.Parallel()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("sh unavailable: %v", err)
+	}
+	await := filepath.Join(repoRoot(t), "packages", "lib", "proveo-await-seed")
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "seeded")
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refused := filepath.Join(dir, "refused")
+	launch := func(body string) (string, error) {
+		if err := os.WriteFile(refused, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(sh, await, "echo", "LAUNCHED")
+		cmd.Env = append(cmd.Environ(), "SANDBOX_VM_ID=proveo-opencode-177e7812", "PROVEO_WORKDIR=/w",
+			"PROVEO_INSTRUCTIONS_MARKER="+marker, "PROVEO_SEED_REFUSED="+refused)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	if out, err := launch("OpenCode credential preflight refused release\n"); err != nil || !strings.Contains(out, "LAUNCHED") ||
+		strings.Contains(out, "did not release") {
+		t.Fatalf("a preflight note left by the previous agent must not block the next launch: %v\n%s", err, out)
+	}
+	if out, err := launch("shares: the workspace mount is missing\n"); err == nil || !strings.Contains(out, "did not release") {
+		t.Fatalf("a seed refusal must still stop the launch: %v\n%s", err, out)
+	}
+}
+
 func TestClaudecodeImageRoutesLaunchesThroughAwaitSeed(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/claudecode/mcp/Dockerfile")
