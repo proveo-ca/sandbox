@@ -536,9 +536,10 @@ def refusal_text(env):
         return ""
 
 
-def acquire_lifecycle_lease(path, env, received):
+def acquire_lifecycle_lease(path, env, received, wait_for_seed=True):
     deadline = time.monotonic() + lease_wait_seconds(env)
     announced = False
+    waited = False
 
     def announce():
         nonlocal announced
@@ -547,28 +548,24 @@ def acquire_lifecycle_lease(path, env, received):
         print("proveo: waiting for this boot's OpenCode seed before taking the durable database", file=sys.stderr)
         announced = True
 
-    def release(fd):
-        if fd is not None:
-            os.close(fd)
-        return None
-
     while True:
         if received or launch_refused(env):
             return None
+        pending = wait_for_seed and same_boot_seed_pending(env)
+        if pending and time.monotonic() < deadline:
+            announce()
+            waited = True
+            time.sleep(0.2)
+            continue
         fd = try_exclusive(path)
         if fd is not None:
-            while same_boot_seed_pending(env) and time.monotonic() < deadline and not received and not launch_refused(env):
-                announce()
-                time.sleep(0.2)
-            if received or launch_refused(env):
-                return release(fd)
             return fd
-        if received or launch_refused(env):
-            return None
-        if not same_boot_seed_pending(env) or time.monotonic() >= deadline:
+        if waited and not pending:
+            time.sleep(0.2)
+            if received or launch_refused(env):
+                return None
             return try_exclusive(path)
-        announce()
-        time.sleep(0.2)
+        return None
 
 
 def prepared_execution(executable, args, env, helper, durable):
@@ -633,7 +630,10 @@ def main():
             check_service_environment(env)
         if not disposable:
             durable.mkdir(mode=0o700, parents=True, exist_ok=True)
-            lease = acquire_lifecycle_lease(durable / helper.LIFECYCLE_LOCK_NAME, env, received)
+            lease = acquire_lifecycle_lease(
+                durable / helper.LIFECYCLE_LOCK_NAME, env, received,
+                wait_for_seed=not (sanitize_only or recover_only),
+            )
             if received:
                 return 128 + received[-1]
             if launch_refused(env):
