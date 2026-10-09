@@ -232,6 +232,61 @@ class NativeRuntimeTests(unittest.TestCase):
             moved_output.read_text().count("native truncation fixture"), 5000
         )
 
+    def test_two_native_runs_and_resume_preserve_both_session_transcripts(self):
+        driver = RUNTIME.with_name("opencode-truncation-driver.mjs")
+
+        def run(session=None):
+            command = [
+                "node",
+                str(driver),
+                sys.executable,
+                str(RUNTIME),
+                NATIVE,
+                str(self.root),
+            ]
+            if session is not None:
+                command.append(session)
+            result = subprocess.run(
+                command, env=self.env, capture_output=True, text=True, timeout=60
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+        def transcripts():
+            with contextlib.closing(
+                sqlite3.connect(self.durable / "opencode.db")
+            ) as db:
+                return {
+                    session_id: db.execute(
+                        "SELECT data FROM session_message WHERE session_id = ? ORDER BY time_created",
+                        (session_id,),
+                    ).fetchall()
+                    for (session_id,) in db.execute(
+                        "SELECT id FROM session_v2 WHERE parent_id IS NULL ORDER BY time_created"
+                    ).fetchall()
+                }
+
+        run()
+        first = transcripts()
+        self.assertEqual(len(first), 1)
+        first_id = next(iter(first))
+        self.assertTrue(first[first_id])
+        run()
+        both = transcripts()
+        self.assertEqual(len(both), 2)
+        self.assertEqual(both[first_id], first[first_id])
+        second_id = next(session_id for session_id in both if session_id != first_id)
+        self.assertTrue(both[second_id])
+        run(first_id)
+        resumed = transcripts()
+        self.assertEqual(set(resumed), set(both))
+        self.assertEqual(resumed[second_id], both[second_id])
+        self.assertGreater(len(resumed[first_id]), len(both[first_id]))
+        result = self.run_native("session", "list", "--format", "json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            {session["id"] for session in json.loads(result.stdout)}, set(both)
+        )
+
     def test_actual_native_direct_pty_suspend_resume_and_shutdown(self):
         process, terminal = pty.fork()
         if process == 0:
