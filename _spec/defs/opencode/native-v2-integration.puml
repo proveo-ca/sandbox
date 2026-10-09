@@ -135,8 +135,10 @@
 ' durable history must not depend on a deleted private runtime directory.
 ' Non-auth native state persists; artifact output and stored session paths rebase to
 ' the canonical durable store instead of retaining the per-run temporary prefix.
-' The wrapper uses manifest/config mappings for the same Docker and sbx store;
-' divergent legacy/canonical histories fail rather than silently overwriting either.
+' The wrapper uses manifest/config mappings for the same Docker and sbx store.
+' Divergent legacy and canonical histories are not merged: neither store is
+' overwritten, and the run continues from the canonical store. A migration
+' record that no longer matches is treated the same way.
 ' Protected orphan recovery retains source/lease records on publication failure;
 ' controlling-PTY suspend/resume and descendant lifetime ownership have source fixtures.
 ' Do not infer cross-VM filesystem lock behavior from local fixture serialization.

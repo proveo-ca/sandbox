@@ -428,11 +428,19 @@ class RuntimeTests(unittest.TestCase):
                 "INSERT INTO session_message VALUES ('legacy-only', 'session-fixture', 2, 'keep legacy history')"
             )
             db.commit()
-        before = (self.durable / "opencode.db").read_bytes()
         result = self.run_cli("append")
-        self.assertEqual(result.returncode, 78, result.stderr)
-        self.assertEqual((self.durable / "opencode.db").read_bytes(), before)
-        self.assertEqual(self.events(), [])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("leaving both stores unchanged", result.stderr)
+        self.assertNotEqual(self.events(), [])
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT id FROM session_message WHERE id = 'legacy-only'"
+                ).fetchone()
+            )
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
+            )
         with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
             self.assertEqual(
                 db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)

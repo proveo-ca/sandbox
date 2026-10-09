@@ -386,7 +386,9 @@ def migrate_legacy(legacy, durable, helper, name):
                     helper.snapshot(legacy, old, name, rebase=(legacy, previous["canonical"]), prefix=previous["canonical"])
                     expected = {"canonical": previous["canonical"], "digest": migration_digest(old, helper, name)}
                 if previous != expected:
-                    raise RuntimeFailure("legacy store changed after migration")
+                    print("proveo: OpenCode legacy store was not merged (it changed after migration); leaving both stores unchanged and continuing from the canonical store", file=sys.stderr)
+                    os.close(lease)
+                    return None
                 helper.normalize_offline(legacy, name)
                 helper.snapshot(clean, legacy, name)
                 upgraded = Path(temporary, "migration.json")
@@ -395,12 +397,20 @@ def migrate_legacy(legacy, durable, helper, name):
                 return lease
             dbs, files, _ = helper.inventory(clean, name)
             old_dbs, old_files, _ = helper.inventory(existing, name)
+            diverged = None
             for rel in set(dbs).intersection(old_dbs):
                 if helper.database_digest(clean / rel) != helper.database_digest(existing / rel):
-                    raise RuntimeFailure("legacy and canonical session histories diverge")
-            for rel in set(files).intersection(old_files):
-                if hashlib.sha256((clean / rel).read_bytes()).digest() != hashlib.sha256((existing / rel).read_bytes()).digest():
-                    raise RuntimeFailure("legacy and canonical artifacts diverge")
+                    diverged = f"session histories differ in {rel}"
+                    break
+            if diverged is None:
+                for rel in set(files).intersection(old_files):
+                    if hashlib.sha256((clean / rel).read_bytes()).digest() != hashlib.sha256((existing / rel).read_bytes()).digest():
+                        diverged = f"artifacts differ in {rel}"
+                        break
+            if diverged is not None:
+                print(f"proveo: OpenCode legacy store was not merged ({diverged}); leaving both stores unchanged and continuing from the canonical store", file=sys.stderr)
+                os.close(lease)
+                return None
             helper.normalize_offline(legacy, name)
             helper.normalize_offline(durable, name)
             helper.snapshot(clean, durable, name)
@@ -689,7 +699,9 @@ def main():
         refuse_release(env)
         return 75
     except Exception as error:
-        print(f"proveo: OpenCode credential lifecycle failed during {phase} ({type(error).__name__})", file=sys.stderr)
+        detail = str(error).strip()
+        suffix = f": {detail}" if detail else ""
+        print(f"proveo: OpenCode credential lifecycle failed during {phase} ({type(error).__name__}){suffix}", file=sys.stderr)
         refuse_release(env)
         return 78
     finally:
