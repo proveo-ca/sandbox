@@ -6,6 +6,7 @@
 package ptyproxy
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,11 @@ type Proxy struct {
 	buffered  []byte
 	overlayIn chan []byte
 	inFd      int
+
+	ctrlC     chan struct{}
+	ctrlCPass bool
+	onCtrlC   func(io.Reader, io.Writer) CtrlCAction
+	onRemove  func()
 }
 
 func New(in, out *os.File) *Proxy {
@@ -116,7 +122,13 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	}()
 	go p.pumpIn()
 
+	ctrlDone := make(chan struct{})
+	if p.ctrlC != nil {
+		go p.serveCtrlC(ctrlDone)
+	}
+
 	err = cmd.Wait()
+	close(ctrlDone)
 	// Drain BEFORE restoring: these are the child's own bytes, painted for the
 	// mode the child was running in. Restoring first puts the terminal back in
 	// cooked mode, where ONLCR rewrites the line endings on the way out.
@@ -372,10 +384,65 @@ func isReportFinal(b byte) bool {
 	return false
 }
 
+// HandleCtrlC arms a headed-run confirm. decide runs on the overlay while the
+// child is not receiving input. onRemove runs after the overlay closes, only
+// when decide returns CtrlCRemove.
+func (p *Proxy) HandleCtrlC(decide func(io.Reader, io.Writer) CtrlCAction, onRemove func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onCtrlC = decide
+	p.onRemove = onRemove
+	if p.ctrlC == nil {
+		p.ctrlC = make(chan struct{}, 1)
+	}
+}
+
+func (p *Proxy) serveCtrlC(done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			return
+		case <-p.ctrlC:
+			p.answerCtrlC()
+		}
+	}
+}
+
+func (p *Proxy) answerCtrlC() {
+	p.mu.Lock()
+	pass := p.ctrlCPass
+	p.ctrlCPass = false
+	p.mu.Unlock()
+	if pass {
+		_ = p.writeMaster([]byte{0x03})
+		return
+	}
+	action := CtrlCStay
+	_ = p.Overlay(func(in io.Reader, out io.Writer) error {
+		if p.onCtrlC != nil {
+			action = p.onCtrlC(in, out)
+		}
+		return nil
+	})
+	p.mu.Lock()
+	pass = p.ctrlCPass
+	p.ctrlCPass = false
+	p.mu.Unlock()
+	if pass || action == CtrlCPass {
+		_ = p.writeMaster([]byte{0x03})
+		return
+	}
+	if action == CtrlCRemove && p.onRemove != nil {
+		p.onRemove()
+	}
+}
+
 // deliver hands input to the overlay if one is up, else to the child's PTY.
+// A lone Ctrl+C on an armed proxy opens the confirm instead of reaching the child.
 func (p *Proxy) deliver(out []byte) bool {
 	p.mu.Lock()
 	ch := p.overlayIn
+	armed := p.ctrlC != nil
 	p.mu.Unlock()
 	if ch != nil {
 		b := make([]byte, len(out))
@@ -386,7 +453,33 @@ func (p *Proxy) deliver(out []byte) bool {
 		}
 		return true
 	}
-	_, err := p.masterFile().Write(out)
+	if armed {
+		if i := bytes.IndexByte(out, 0x03); i >= 0 {
+			if i > 0 && !p.writeMaster(out[:i]) {
+				return false
+			}
+			select {
+			case p.ctrlC <- struct{}{}:
+			default:
+				p.mu.Lock()
+				p.ctrlCPass = true
+				p.mu.Unlock()
+			}
+			if rest := out[i+1:]; len(rest) > 0 {
+				return p.deliver(rest)
+			}
+			return true
+		}
+	}
+	return p.writeMaster(out)
+}
+
+func (p *Proxy) writeMaster(b []byte) bool {
+	m := p.masterFile()
+	if m == nil || len(b) == 0 {
+		return m != nil || len(b) == 0
+	}
+	_, err := m.Write(b)
 	return err == nil
 }
 

@@ -32,6 +32,92 @@ func TestUsableRejectsNonTerminals(t *testing.T) {
 	}
 }
 
+const etxReader = `import sys, tty
+tty.setraw(sys.stdin.fileno())
+while True:
+    b = sys.stdin.buffer.read(1)
+    if not b:
+        break
+    sys.stdout.buffer.write(b"SEE:%02x\n" % b[0])
+    sys.stdout.buffer.flush()
+`
+
+func TestCtrlCConfirmHoldsTheInterruptUntilTheOperatorAnswers(t *testing.T) {
+	t.Parallel()
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inR.Close(); _ = inW.Close(); _ = outR.Close(); _ = outW.Close() }()
+
+	p := New(inR, outW)
+	saw := make(chan struct{}, 1)
+	p.HandleCtrlC(func(io.Reader, io.Writer) CtrlCAction {
+		saw <- struct{}{}
+		return CtrlCStay
+	}, nil)
+	cmd := exec.Command("python3", "-c", etxReader)
+	go func() { _ = p.Run(cmd) }()
+	defer func() { _ = cmd.Process.Kill() }()
+	time.Sleep(300 * time.Millisecond)
+
+	if _, err := inW.Write([]byte{0x03}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-saw:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Ctrl+C was forwarded instead of opening the confirm")
+	}
+	if _, err := inW.Write([]byte{'A'}); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64)
+	_ = outR.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, _ := outR.Read(buf)
+	got := string(buf[:n])
+	if strings.Contains(got, "SEE:03") {
+		t.Errorf("child saw the held Ctrl+C: %q", got)
+	}
+	if !strings.Contains(got, "SEE:41") {
+		t.Errorf("child output = %q, want the later key", got)
+	}
+}
+
+func TestCtrlCPassReachesTheChild(t *testing.T) {
+	t.Parallel()
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inR.Close(); _ = inW.Close(); _ = outR.Close(); _ = outW.Close() }()
+
+	p := New(inR, outW)
+	p.HandleCtrlC(func(io.Reader, io.Writer) CtrlCAction { return CtrlCPass }, nil)
+	cmd := exec.Command("python3", "-c", etxReader)
+	go func() { _ = p.Run(cmd) }()
+	defer func() { _ = cmd.Process.Kill() }()
+	time.Sleep(300 * time.Millisecond)
+
+	if _, err := inW.Write([]byte{0x03}); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64)
+	_ = outR.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, _ := outR.Read(buf)
+	if got := string(buf[:n]); !strings.Contains(got, "SEE:03") {
+		t.Errorf("child output = %q, want the passed Ctrl+C", got)
+	}
+}
+
 func TestOverlayBeforeRunIsAnError(t *testing.T) {
 	t.Parallel()
 	p := New(os.Stdin, os.Stdout)

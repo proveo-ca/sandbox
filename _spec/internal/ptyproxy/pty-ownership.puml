@@ -34,7 +34,21 @@ skinparam noteTextAlignment left
 '
 ' Without a proxy — headless, or any run where `ptyproxy.Usable` is false because
 ' stdin or stdout is not a terminal — the child inherits the terminal directly and
-' none of this applies.
+' none of this applies. Ctrl+C there is a real SIGINT to the process group. The
+' sbx backend does not catch SIGINT.
+'
+' ── HEADED CTRL+C ASKS BEFORE sbx rm --force ───────────────────────────────
+' On a usable terminal the line discipline is raw, so Ctrl+C is the byte 0x03
+' in the input pump, not a signal to proveo. Unless PROVEO_SCHEDULE is set,
+' that byte opens a confirm overlay instead of reaching the child. The modal
+' says `sbx rm --force` will run, that this deletes the session, and that
+' uncommitted changes can be permanently lost. y stores the remove and cancels
+' the sbx client, so teardown runs `sbx rm --force` even though the client
+' exits non-zero. n and esc drop the byte. A second Ctrl+C, or ctrl+c on the
+' modal, delivers 0x03 to the child and leaves the sandbox on the failure path.
+' proveo schedule's tmux pane is a TTY, so the skip is the env Launch puts on
+' the pane (`PROVEO_SCHEDULE=1`), not "is this a terminal". Schedule's own
+' stop still types C-c, then /exit, then SIGTERM.
 '
 ' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
 ' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the

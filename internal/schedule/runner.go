@@ -318,7 +318,7 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	if err := os.MkdirAll(wd, 0o700); err != nil {
 		return err
 	}
-	cmd := "cd " + shellQuote(wd) + " && " + shellJoin(j.RunArgv(proveo)) + "; echo $? > " + shellQuote(ExitFile(transcript))
+	cmd := sessionCommand(wd, transcript, proveo, j)
 	if err := sess.Start(200, 50, "sh", "-c", cmd); err != nil {
 		return fmt.Errorf("start tmux session: %w", err)
 	}
@@ -540,6 +540,12 @@ func keepAwake() func() {
 		return func() {}
 	}
 	return func() { _ = c.Process.Kill() }
+}
+
+// sessionCommand is the tmux pane: an unattended proveo, so Ctrl+C is a key to
+// the agent and never the headed close confirm.
+func sessionCommand(wd, transcript, proveo string, j Job) string {
+	return "cd " + shellQuote(wd) + " && PROVEO_SCHEDULE=1 " + shellJoin(j.RunArgv(proveo)) + "; echo $? > " + shellQuote(ExitFile(transcript))
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
