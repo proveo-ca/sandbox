@@ -469,10 +469,26 @@ def instructions_marker(env):
     return Path(env.get("PROVEO_INSTRUCTIONS_MARKER", "/dev/shm/proveo-instructions-seeded"))
 
 
-def seed_refused(env):
-    path = Path(env.get("PROVEO_SEED_REFUSED", "/dev/shm/proveo-seed-refused"))
+PREFLIGHT_REFUSAL = "OpenCode credential preflight refused release"
+
+
+def seed_refusal_path(env):
+    return Path(env.get("PROVEO_SEED_REFUSED", "/dev/shm/proveo-seed-refused"))
+
+
+def clear_stale_preflight(env):
+    path = seed_refusal_path(env)
     try:
-        return path.is_file() and path.stat().st_size > 0
+        if path.is_file() and path.read_text().strip() == PREFLIGHT_REFUSAL:
+            path.unlink()
+    except OSError:
+        return
+
+
+def seed_refused(env):
+    path = seed_refusal_path(env)
+    try:
+        return path.is_file() and path.read_text().strip() not in ("", PREFLIGHT_REFUSAL)
     except OSError:
         return False
 
@@ -584,6 +600,7 @@ def main():
         print("proveo: OpenCode runtime requires the native executable", file=sys.stderr)
         return 64
     env = dict(os.environ)
+    clear_stale_preflight(env)
     prepare_command = sys.argv[1] == "--preflight-command"
     recover_only = sys.argv[1] == "--recover"
     sanitize_only = sys.argv[1] == "--sanitize"
@@ -718,7 +735,7 @@ def main():
 def refuse_release(env):
     path = Path(env.get("PROVEO_SEED_REFUSED", "/dev/shm/proveo-seed-refused"))
     with contextlib.suppress(OSError):
-        path.write_text("OpenCode credential preflight refused release\n")
+        path.write_text(PREFLIGHT_REFUSAL + "\n")
 
 
 def scrub_store(helper, store, name):

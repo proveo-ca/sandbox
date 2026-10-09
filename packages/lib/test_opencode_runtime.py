@@ -352,6 +352,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("_spec is missing", stderr)
         self.assertEqual(self.events(), [])
 
+    def test_a_stale_preflight_note_does_not_block_the_next_launch(self):
+        waiting, _ = self.boot_env(5, released=True)
+        refused = Path(waiting["PROVEO_SEED_REFUSED"])
+        refused.write_text("OpenCode credential preflight refused release\n")
+        result = self.run_cli("append", env=waiting)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("did not release", result.stderr)
+        self.assertFalse(refused.exists())
+
     def test_interrupted_supervisor_keeps_child_lease_then_recovers_without_saved_auth(
         self,
     ):

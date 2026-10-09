@@ -129,7 +129,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' PROVEO_WORKDIR are set: a bare `sbx run -t` of the image (ladder rungs 1-2)
 ' has no proveo kit, so no seed will ever mark the boot. It gives up after
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
-' so it never waits.
+' so it never waits. A refused file whose only line is "OpenCode credential preflight refused release"
+' is the runtime's own note from a kept sandbox; await-seed deletes it and launches. A share refusal still stops the launch.
 ' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '

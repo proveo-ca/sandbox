@@ -115,10 +115,11 @@
 ' exits 75 at once. A seed that keeps the lease for the whole wait says so and exits 75.
 ' The give-up path retries the lease once, so a holder that drops it as the marker
 ' appears does not exit 75 against a free lease. A terminating signal ends the wait
-' and exits 128+signal without publishing. A non-empty seed refusal during that
-' same-boot wait exits 1 without starting the CLI. A refusal left by an earlier
-' runtime failure does not block a launch outside that wait. A non-finite wait
-' value uses the default.
+' and exits 128+signal without publishing. A share refusal during that
+' same-boot wait exits 1 without starting the CLI. The sentence
+' "OpenCode credential preflight refused release" is the runtime's own failure
+' note: a kept sandbox still holds the file, and the next launch deletes it.
+' A non-finite wait value uses the default.
 
 ' Focused lifecycle fixtures exercise these boundaries; final review is still pending.
 ' v2 stores auth tokens in SQLite alongside durable session state.

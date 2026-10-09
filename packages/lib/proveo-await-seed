@@ -4,6 +4,9 @@
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 refused="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
 limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
+if [ -s "$refused" ] && [ "$(cat "$refused")" = "OpenCode credential preflight refused release" ]; then
+  rm -f "$refused"
+fi
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
   n=$((limit * 5))
   while [ ! -e "$marker" ] && [ ! -e "$refused" ] && [ "$n" -gt 0 ]; do
