@@ -113,17 +113,23 @@ warns when no provider key and no `opencode.json` are detected. Recognised env v
 OpenCode's own gateway — Zen (pay-as-you-go, model ids `opencode/<model>`) and Go (the
 subscription, `opencode-go/<model>`) — takes the same key, `OPENCODE_API_KEY`. Copy it from
 <https://opencode.ai/auth> and export it on the host **before launch**, in your shell rc or a
-gitignored `.env`; opencode reads env keys ahead of `auth.json`, so no `/connect` step is
-needed inside the sandbox. proveo detects the key like any other provider: it brokers it in
+gitignored `.env`; the running server can use the environment key without an in-sandbox `/connect` step.
+proveo detects the key like any other provider: it brokers it in
 firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
 `.opencode.ai` only).
 
 OpenCode v2 stores saved credentials in its SQLite database.
 proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
 The runtime holds a lease on the durable data store and rejects a concurrent stateful run with exit code `75`.
-Startup seed scrubs that store with a brief `--sanitize` lease, then releases it before the long seed body so the agent can take the lease while seed finishes.
+Startup checks a runtime-owned prepared generation instead of copying and sanitizing full history.
+The cache stays on the owning sbx engine's local filesystem.
+Successful OpenCode runs retain that engine for subsequent launches.
+Post-exit still performs the existing three sanitized checkpoint/publication operations.
 Environment API keys remain available to the running CLI.
 Saved logins from `opencode auth login` or `/connect` do not carry into the next run.
+The OpenCode-only host-owned OAuth persistence proposal lives in
+[`_spec/_paradigms/opencode-oauth-persistence.puml`](../../_spec/_paradigms/opencode-oauth-persistence.puml).
+That policy remains planned; the current runtime still removes saved tokens.
 The same holds for providers with no
 dedicated env var (Together, Hugging Face, …): prefer an API key via env or the egress broker.
 Resume a prior session with:
@@ -131,6 +137,58 @@ Resume a prior session with:
 ```bash
 proveo run opencode --resume <session-id>
 ```
+
+## Seed progress
+
+OpenCode images enable `PROVEO_SEED_PROGRESS=1`.
+While startup waits for the seed, stderr displays `Waiting for seed`, the current
+run category and operation, elapsed seconds, and an animated indicator on terminals.
+Categories include `credentials`, `workspace`, `setup`, `interface`, and `starting`.
+Credential steps identify prepared-state checks without exposing tokens.
+The seed writes the same operation labels and credential-phase timings to
+`/var/log/sbx-kit-startup.log` on sbx.
+Piped output reports step changes and five-second heartbeats without terminal control codes.
+The display does not delay instruction release or change credential persistence.
+`PROVEO_SEED_PROGRESS=0` disables the progress display.
+
+## Versioned history and preparation
+
+OpenCode V2 uses `opencode/v2/config` and `opencode/v2/share` under the proveo home.
+Ordinary launches do not mount or import V1/unversioned history.
+Historical V1 session versions inside an already-adopted V2 database remain valid.
+The image requires a stable `2.x` native version.
+Native-version mismatches and changed/unprepared caches require explicit maintenance.
+
+Prepared startup has a five-second preparation budget.
+The seed gate does not run database backup, VACUUM, SQL dump hashing, or legacy migration.
+The native client reuses the prepared engine-local cache.
+The host keeps the keeper's kernel PID/start-time identity outside guest-writable mounts.
+Readiness files inside the sandbox cannot replace that authority.
+
+To adopt an existing **V2-schema** store explicitly:
+
+```bash
+proveo run opencode -- --proveo-prepare --source /absolute/path/to/v2-history
+```
+
+proveo mounts that source read-only in a temporary preparation engine.
+It never leaves the source mounted in the retained coding engine.
+Preparation validates the V2 schema and initializes it with the pinned native release.
+It preserves the source and publishes sanitized history into the V2 namespace.
+V1-schema stores are rejected rather than implicitly upgraded.
+Preparation can take longer than five seconds and runs outside ordinary launch.
+
+To recover retained private state explicitly:
+
+```bash
+proveo run opencode -- --proveo-recover
+```
+
+Recovery does not overwrite a published store changed by another writer.
+Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
+Creating a new engine for existing history requires preparation again.
+Docker-only runs use explicitly selected disposable sanitized state for compatibility.
+They remain functional but do not provide the retained sbx cache's startup guarantee.
 
 ## Baked-in workflow and presentation defaults
 

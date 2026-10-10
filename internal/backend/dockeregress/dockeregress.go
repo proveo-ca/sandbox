@@ -104,7 +104,7 @@ func Assemble(in Input) (egress.Plan, runner.Config, error) {
 		agent.Name = in.Sid + "-" + in.Target
 		agent.Remove = false
 		agent.RetainOnStateFailure = true
-		agent.Env = append(agent.Env, "PROVEO_OPENCODE_ENGINE_ID="+agent.Name, "PROVEO_OPENCODE_CONTAINER="+agent.Name)
+		agent.Env = append(agent.Env, "PROVEO_OPENCODE_ENGINE_ID="+agent.Name, "PROVEO_OPENCODE_CONTAINER="+agent.Name, "PROVEO_OPENCODE_HISTORY_MODE=disposable")
 	}
 	return plan, agent, nil
 }

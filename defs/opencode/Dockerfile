@@ -59,6 +59,10 @@ RUN --mount=type=cache,id=proveo-opencode-npm,target=/root/.npm,sharing=locked \
       || { echo "OPENCODE_VERSION build-arg is required — 'mise run build opencode' resolves it" >&2; exit 1; } \
     && npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
     && test "$(opencode --version)" = "opencode v${OPENCODE_VERSION}"
+RUN test "${OPENCODE_VERSION%%.*}" = 2 \
+    && install -d /usr/local/lib/proveo \
+    && printf '%s\n' "$OPENCODE_VERSION" > /usr/local/lib/proveo/opencode.version \
+    && command -v opencode > /usr/local/lib/proveo/opencode.native
 
 RUN mkdir -p /workspace \
              /home/agent/.config/opencode \
@@ -77,6 +81,8 @@ COPY packages/lib/opencode-credentials.py /usr/local/lib/proveo/opencode-credent
 COPY defs/opencode/harness.manifest /usr/local/lib/proveo/opencode.harness.manifest
 COPY --chmod=0755 packages/lib/proveo-opencode-runtime /usr/local/bin/proveo-opencode-runtime
 COPY --chmod=0755 packages/lib/proveo-opencode-preflight /usr/local/bin/proveo-opencode-preflight
+COPY packages/lib/opencode_startup.py /usr/local/bin/opencode_startup.py
+COPY packages/lib/opencode_cache.py /usr/local/bin/opencode_cache.py
 RUN python3 -c 'import ctypes, fcntl, sqlite3, sys; assert sqlite3.sqlite_version_info >= (3, 33, 0); assert sys.version_info >= (3, 11)'
 # The sbx Kit names this as its ONE startup command for every target
 # (internal/sbx SeedCommand), so an image that runs on sbx and does not ship
@@ -95,6 +101,8 @@ USER ${USER_NAME}
 WORKDIR /workspace
 
 ENV OPENCODE_DISABLE_AUTOUPDATE=1 \
+    PROVEO_SEED_PROGRESS=1 \
+    PROVEO_INSTRUCTIONS_WAIT=5 \
     OPENCODE_CLI_CONFIG_CONTENT='{"session":{"permissions":"autoaccept","markdown":"source","thinking":"show","grouping":"none","verbosity":"high","sidebar":"auto"},"tabs":{"mode":"on","indicators":"status"},"mini":{"tools":"show","thinking":"show","shell_output":"show","turn_summary":"show","footer":"show"}}' \
     PATH="/opt/proveo/shims:/usr/local/bin:${PATH}"
 

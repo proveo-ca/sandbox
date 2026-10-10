@@ -1280,9 +1280,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	if in.HomeAccess.FilesRoot != "" {
 		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
 	}
-	if in.HomeAccess.LegacyOpenCode != "" {
-		cfg.Env = append(cfg.Env, "PROVEO_OPENCODE_LEGACY_DATA="+in.HomeAccess.LegacyOpenCode)
-	}
 	var creds []sbx.KitCredential
 	if ownAgent {
 		var domains []string
@@ -1434,6 +1431,26 @@ func Run(in Input) error {
 			return err
 		}
 	}
+	if opencodeCacheTarget(in.Target) {
+		mount, enabled, err := openCodePreparationSource(in.Extra)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			if err := prepareOpenCodeSource(in, homeAccess, mount); err != nil {
+				return err
+			}
+			var ordinary []string
+			for index := 0; index < len(in.Extra); index++ {
+				if in.Extra[index] == "--source" {
+					index++
+					continue
+				}
+				ordinary = append(ordinary, in.Extra[index])
+			}
+			in.Extra = ordinary
+		}
+	}
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false
 	defer func() {
@@ -1449,7 +1466,11 @@ func Run(in Input) error {
 	ui.Section(ui.SectionStarting)
 	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
-	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+	running := sbx.Running
+	if opencodeCacheTarget(in.Target) {
+		running = openCodeEngineActive
+	}
+	if err := retireIfStale(in, cfg, receipt, sbx.Exists, running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
 		return err
 	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
@@ -1460,6 +1481,12 @@ func Run(in Input) error {
 		ui.Appf(f, a...)
 	}); err != nil {
 		return err
+	}
+	if opencodeCacheTarget(in.Target) && !in.Shell {
+		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
+		if err != nil {
+			return err
+		}
 	}
 	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
@@ -1614,6 +1641,11 @@ func Run(in Input) error {
 		}
 		if forceRemove.Load() {
 			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
+		}
+		if opencodeCacheTarget(in.Target) && !in.Shell && !forceRemove.Load() {
+			keepHomeAccess = true
+			ui.Storef("OpenCode engine retained for prepared history: %s", cfg.Name)
+			return
 		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		if rmErr != nil && !sbx.NotFound(string(rmOut)) {

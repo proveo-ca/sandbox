@@ -45,3 +45,26 @@ func TestOpenCodeCredentialRuntimeLifecycle(t *testing.T) {
 		t.Fatalf("OpenCode credential lifecycle regression failed: %v\n%s", err, out)
 	}
 }
+
+func TestOpenCodePreparedCacheFixtures(t *testing.T) {
+	t.Parallel()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	cmd := exec.Command(python, "-B", filepath.Join(repoRoot(t), "packages", "lib", "test_opencode_cache.py"), "-v")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("prepared cache regression: %v\n%s", err, out)
+	}
+}
+
+func TestOpenCodeDoesNotAdvertisePlaintextAuthJSONPersistence(t *testing.T) {
+	t.Parallel()
+	entrypoint := readRepoFile(t, "defs/opencode/entrypoint.sh")
+	if strings.Contains(entrypoint, "sandbox writes auth.json") {
+		t.Fatal("OpenCode V2 still advertises obsolete plaintext provider credential storage")
+	}
+	if !strings.Contains(entrypoint, "Credentials created inside the sandbox do not persist in saved history") {
+		t.Fatal("OpenCode V2 does not describe its current credential boundary")
+	}
+}

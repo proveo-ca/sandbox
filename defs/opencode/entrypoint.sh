@@ -26,6 +26,9 @@ fi
 
 # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
 seed_defaults() {
+  if [[ "${PROVEO_SEED_ONLY:-}" == 1 && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
+    /usr/local/bin/proveo-opencode-runtime --check-prepared >/dev/null 2>&1 || exit 0
+  fi
   proveo_seed opencode
 }
 seed_defaults
@@ -181,8 +184,7 @@ if ! has_api_key && ! has_project_config; then
   echo "⚠️  No provider API key env vars and no opencode.json detected."
   echo "   Set one of: OPENCODE_API_KEY (OpenCode Zen / Go), ANTHROPIC_API_KEY, OPENAI_API_KEY,"
   echo "   OPENROUTER_API_KEY, XAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, ..."
-  echo "   A key exported on the host is the login; 'opencode auth login' inside the"
-  echo "   sandbox writes auth.json, which proveo scrubs on the next run."
+   echo "   Credentials created inside the sandbox do not persist in saved history."
 fi
 
 OPENCODE_EVIDENCE_ARGS=()

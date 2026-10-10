@@ -19,10 +19,10 @@ workspace:
 home:
   enabled: true
   mounts:
-    - host: opencode/config
+    - host: opencode/v2/config
       container: /proveo-home/.config/opencode
       mode: rw
-    - host: opencode/share
+    - host: opencode/v2/share
       container: /proveo-home/.local/share/opencode
       mode: rw
       deny: [auth.json]

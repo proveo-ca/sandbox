@@ -102,6 +102,9 @@
 ' are documented by the owning crew diagram and primary's native UI/source audit.
 '
 ' The Executor chose a private per-run database and a full-lifetime durable-store lease.
+' Startup redesign supersedes per-run bulk restoration for prepared OpenCode engines.
+' See _spec/_plans/opencode-versioned-history-storage.puml for implemented gate/cache ownership and live acceptance.
+' Post-exit still performs the three existing sanitized publication operations.
 ' Stateful runs sharing that store must serialize through the full writer lifetime,
 ' including descendants and publication; failure must preserve recoverable session data.
 

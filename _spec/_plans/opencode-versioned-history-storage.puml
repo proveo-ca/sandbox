@@ -1,0 +1,231 @@
+@startuml
+' purpose: OpenCode prepared-state gate and retained engine-local history with semver isolation and a five-second startup budget
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/harness.manifest
+' covers: packages/lib/proveo-seed
+' covers: packages/lib/proveo-opencode-runtime
+' covers: packages/lib/opencode_cache.py
+' covers: packages/lib/test_opencode_cache.py
+' covers: packages/lib/opencode-credentials.py
+' covers: packages/lib/test_opencode_credentials.py
+' covers: packages/lib/test_opencode_runtime.py
+' covers: packages/lib/test_opencode_runtime_native.py
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/opencode_cache.go
+' covers: internal/backend/sandbox/opencode_cache_test.go
+' covers: internal/backend/sandbox/home_access.go
+' covers: internal/backend/sandbox/launch_receipt.go
+' covers: internal/backend/dockeregress/dockeregress.go
+' covers: internal/backend/sandbox/opencode_history_image_test.go
+' covers: internal/backend/dockeregress/opencode_lifecycle_test.go
+' covers: internal/proveohome/proveohome.go
+' covers: internal/contract/opencode_credentials_test.go
+' covers: internal/contract/spec_notes_test.go
+' covers: e2e/opencode_credentials_test.go
+' covers: e2e/opencode_sessions_test.go
+' covers: e2e/opencode_prepared_history_test.go
+' covers: e2e/opencode_cache_sbx_test.go
+' covers: cmd/proveo/testdata/plan/docker-open-forward-opencode.golden
+' covers: cmd/proveo/testdata/plan/docker-open-broker-opencode.golden
+' covers: cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden
+' covers: cmd/proveo/testdata/run/docker-opencode-broker.golden
+' status: IMPLEMENTED in source; native fixtures pass; live sbx/image acceptance remains pending.
+' Executor selected Prepared gate for seeding and Retained cache for launch.
+' Scope: OpenCode family first; do not change other harnesses implicitly.
+' Post-exit sanitization, recovery-checkpoint and durable-publication work remains unchanged for now.
+' Existing runtime contract: _spec/defs/opencode/native-v2-integration.puml
+' Measured baseline: _spec/packages/lib/opencode-seed-progress.puml
+' Credential policy: _spec/_paradigms/opencode-oauth-persistence.puml
+'
+' BUDGET: proveo-owned instruction seeding and history readiness must share one <=5s startup budget.
+' Measure from the first proveo startup step through native handoff, not just creation of a release marker.
+' Image download, template conversion and VM boot are separately reported backend phases.
+' Moving the same blocking copy behind a spinner or releasing a marker before history is usable fails the goal.
+' A prepared compatible store must enter the native client within the budget.
+' Missing, incompatible, busy or damaged prepared state must return an actionable result within the budget.
+' Bulk import, deep integrity scans and large recovery operations are explicit maintenance, not hidden launch work.
+'
+' HISTORICAL FAILURE: seed --sanitize and normal launch both invoked implicit store merging before their own snapshots.
+' The removed merge helper created full sanitized copies of both stores before comparing their entire SQL dumps.
+' It does not compare native semver or cheap schema compatibility first.
+' A divergent store returns without recording a completed disposition, so the next invocation repeats the work.
+' The migration record's version=2 names the receipt format; it is not an OpenCode major-version guard.
+' scrub_store performs snapshot(store, stage) followed by snapshot(stage, store), processing a clean result again.
+' Every database_snapshot performs backup, quick_check, foreign_key_check, deletion, rebase, VACUUM and checks.
+' snapshot subsequently copies the staged file again for atomic publication.
+' Launch adds restore, startup publication and recovery checkpoint before starting the native process.
+' It adds three further snapshot calls at exit; those do not belong in time-to-native but add lifecycle I/O.
+'
+' FULL-WRAPPER REPRODUCTION: 2026-10-09, disposable sanitized copies of the actual two stores.
+' Source stores were only backed up read-only; schema/version queries and wrapper writes targeted private copies.
+' The native target was a no-op executable that recorded entry time and exited immediately.
+' Canonical schema includes session_v2; 287 V2-projection sessions retain 286 imported 1.18.x versions and one 2.0.26.
+' Legacy schema lacks session_v2; its session rows carry 1.18.2 through 1.18.21 versions.
+' Both stores have credential/migration tables, so testing credential presence alone cannot distinguish compatibility.
+' Historical 1.x row versions inside an adopted V2 database must not cause loss of those imported transcripts.
+' Private-copy seed --sanitize: 74.819s wall; six snapshots; six VACUUM calls totaling 29.998s.
+' Seed digest comparison: two calls totaling 13.143s; rebase: one call taking 5.818s.
+' Seed publication: 9853 file-publication calls taking 9.695s; 12 quick_check calls taking 3.887s.
+' Private-copy launch: native probe reached after 59.599s; wrapper returned after 81.033s.
+' Launch lifecycle: eight snapshots total; five precede native entry and three run after native exit.
+' Launch lifecycle: eight VACUUM calls totaling 29.738s; two digests taking 13.061s.
+' Launch lifecycle: five rebases taking 6.454s; 16875 publication calls taking 13.038s.
+' Both phases logged the same divergent-store condition and continued from the canonical store.
+' No sidecar failure occurred on the already-normalized private copies; latency reproduces without that failure.
+' snapshot/database_snapshot/VACUUM/publish timings nest; do not add their totals as independent elapsed time.
+' This reproduction confirms the pre-native bottleneck independently of OpenCode, providers, model calls or UI work.
+'
+' SEMVER CONTRACT: read the actual image/native producer version before selecting config or history stores.
+' Partition immutable defaults, persistent configuration, history and active caches by harness + compatibility major.
+' Implemented paths: opencode/v2/config and opencode/v2/share; other majors and unversioned paths remain separate.
+' A V2 launch must not inspect, sanitize, merge or seed a V1 store as routine startup work.
+' A V1 launch must never open a V2-mutated database.
+' Unknown/unversioned state requires explicit inspection and adoption through maintenance.
+' Session row versions are historical content; they do not identify the last database producer.
+' The native two-run/resume regression includes an adopted V1 session version (1.18.21).
+' Prerelease 0.x builds require an explicit compatibility epoch; do not infer stable V2 from an executable name.
+' Same-major compatibility still requires the expected schema/migration fingerprint.
+' An unprepared schema transition belongs in maintenance even when the native package's major did not change.
+'
+' IMPLEMENTED AUTHORITY: a non-dumpable engine-local keeper owns prepared state in memory.
+' The host launches it with isolated Python and records its kernel PID/start-time outside writable guest mounts.
+' Every managed native checkout verifies that identity through SO_PEERCRED and the kernel process start time.
+' Mutable readiness JSON and a replacement same-UID socket cannot authorize a checkout.
+' State records include exact producer version, schema digest, engine, file identities and prepared/active/pending state.
+' Production keepers load baked helper/version/native paths rather than agent-provided helper overrides.
+' Keep receipt format, producer semver and schema compatibility as separate fields.
+' The host/runtime owner issues descriptors outside agent-writable shared state.
+' An agent-written receipt or mtime comparison cannot authorize an unsanitized fast path.
+'
+' SELECTED SEED PHASE: verify a trusted prepared-generation descriptor plus native-major/schema compatibility.
+' Do not run full backup, VACUUM, SQL dump hashing or implicit legacy import during seeding.
+' Missing or dirty preparation requires an explicit maintenance action, not a hidden slow fallback.
+' Seed configuration only after selecting the matching-major namespace.
+'
+' SELECTED LAUNCH PHASE: reuse the credential-free prepared cache on its owning runtime engine.
+' Check compatibility, generation state and exclusive lifecycle ownership, then enter the native client.
+' Remove the five pre-native full snapshots; retain full private-state and credential isolation guarantees.
+' Changing cache retention does not authorize retaining an unsanitized native runtime directory.
+'
+' REDESIGN: retain one prepared native history cache per major and owning runtime engine.
+' Keep SQLite active state on the engine's local filesystem, not a cross-VM shared WAL database.
+' Keep the native data prefix stable across runs so ordinary startup does not rewrite stored JSON paths.
+' Acquire lifecycle ownership once and reuse compatible prepared state instead of copying all history per run.
+' Preserve descendant lifetime ownership and explicit busy-run rejection.
+' Keep the existing three post-exit snapshot/publication calls; do not optimize that phase in this redesign.
+' Reuse an already-verified post-exit result for prepared-cache retention without adding another bulk snapshot.
+' Preserve the previous good generation until the new generation publishes atomically.
+' Reconcile host-visible history and engine-local state during maintenance; never merge on implicit startup.
+' Treat a lost engine or interrupted unprepared generation as pending recovery without deleting its record.
+' Cold-engine preparation cannot silently enter the fast path; provision it before the next launch.
+' sbx creates/bootstrap-checks the keeper before managed launch and retains successful OpenCode engines.
+' It mounts an explicitly requested preparation source read-only; ordinary V2 launches omit legacy history mounts.
+' Changed launch settings retire a prepared or empty idle engine, not an active/unpublished one.
+' Fresh empty state can be prepared without importing old/unversioned history; existing old stores require explicit adoption.
+' Commands: --proveo-prepare [--source ABSOLUTE_DIR|--empty], --proveo-recover; native flags remain otherwise unchanged.
+' Preparation rejects non-V2 schemas before copying, initializes compatible schemas with the pinned native release,
+' then runs the existing sanitized publication sequence outside ordinary startup.
+' Diagnostics and commit-subject helpers use disposable empty private state rather than cloning all history.
+' Docker-only disposable engines do not supply a retained keeper; the managed fast-start backend is sbx.
+' Docker compatibility explicitly selects disposable sanitized preparation; it does not claim the sbx cache latency guarantee.
+' Explicit import uses a temporary read-only-source engine and prepares the stable engine from the published V2 checkpoint.
+' The imported source never remains mounted in the retained agent engine, and its launch receipt stays stable on reattach.
+' Stopped or unattested engines are not automatically retired when configuration changes.
+' Published-state fingerprints cover the whole artifact/state tree except lifecycle locks and private recovery directories.
+' Checkout acquires exclusive lifecycle ownership before comparing that fingerprint.
+' Recovery requires a matching producer/engine/database/root and a persisted durable baseline.
+' Post-exit writes transaction phase and publication baseline before rotating cache generations.
+' Journal updates use fsynced temporary files and atomic replacement without replacing the lifecycle-lock inode.
+' Idle prepared caches retain a recovery baseline but restarted authorities never treat disk state as a fast-path receipt.
+' Durable publication persists per-file rename intents and content digests before replacement.
+' File, directory-creation and deletion intents append to an fsynced linear log rather than rewriting a growing manifest.
+' Every intent append syncs the log then its parent directory before authorizing a durable mutation.
+' Interrupted publication accepts only unchanged baseline files or files matching its recorded intents.
+' Native preferences restore from the retained full sanitized state image after partial cache rotation.
+' Lifecycle journals are control-plane files excluded from every history snapshot and artifact link.
+' Disposable Docker mode refuses a pending engine-owned cache journal before touching history.
+' Launch receipts include the stored sbx agent type; shell/native changes cannot silently reuse the wrong agent.
+' Dead implicit-history merge/digest helpers and their unused host forwarding are removed.
+' Auth-file sanitization remains an import boundary, not a supported plaintext credential persistence mechanism.
+' Recovery reconciles a retained previous-data directory and cleans only private publication transaction directories.
+'
+' CREDENTIAL GATE: an idle reusable cache and published generation must remain credential-free.
+' Sanitize after every native writer and descendant stops, before marking that cache prepared again.
+' Raw OAuth/API tokens must not gain persistence through cache retention.
+' The host-owned OAuth proposal remains planned and requires its own pinned-connector verification.
+' Do not rely on that unfinished proposal to claim a clean or fast active store today.
+' Reject a design that only bypasses token removal, drops history or reads mutable data under a forged clean receipt.
+'
+' VERIFICATION GATES:
+' - actual V1/V2 fixtures select disjoint stores; wrong-major paths remain unopened and byte-identical;
+' - matching-major adoption verifies schema, every retained session transcript and artifact path;
+' - prepared launches call neither legacy migration nor full backup/VACUUM/iterdump/rebase;
+' - native session list and resume work on representative 879MB+ history within the <=5s startup budget;
+' - cold/mismatch/busy/damaged cases resolve within the budget with maintenance/recovery guidance;
+' - tokens disappear from idle cache, generation files and journals after login, refresh and interruption;
+' - signal, descendant, cross-engine, disk-full and generation-publication failure fixtures retain recoverable state;
+' - missing cache or another engine's record never causes reset, overwrite or cross-major fallback.
+' - post-exit sanitization, recovery publication and durable publication preserve their existing behavior;
+' - only a verified credential-free post-exit result can become the next prepared cache.
+' Performance acceptance must measure successful native readiness, not just a five-second timeout or fake executable.
+' Persisted installed-V2 fixture: a prepared 900MiB payload database produced native session-list output in 0.595s.
+' The full test took 48.047s including explicit preparation and unchanged post-exit publication.
+' After the review repairs, all eight installed-native tests passed; prepared 900MiB readiness measured 0.472s.
+' Full Go verification reproduces three Docker run-golden failures and the credential-posture failure on unchanged HEAD.
+' Docker plan goldens now assert the explicit disposable history mode and container ownership identifiers.
+' Unit fixtures cover owner identity mismatch, forged ready files, cache mutation, wrong-major rejection and private recovery.
+' Actual cross-VM locking, retained-sbx startup and rebuilt-image execution require host-side acceptance.
+' FK (manual syllables): VERSION 10.8 (29w/51s); ACTIVE 11.0 (31w/54s); MAINTAIN 11.8 (28w/52s).
+'
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title OpenCode prepared history — implemented; live sbx acceptance pending
+left to right direction
+
+actor "Executor\nlaunch or explicit maintenance" as OP
+component "Native/image version resolver\nbaked stable 2.x + native version check" as VERSION <<app>>
+database "Host cache owner record\nkernel PID/start-time outside guest mounts" as CATALOG <<db>>
+component "opencode_cache.py\nprepared gate + runtime keeper" as OWNER <<host>>
+database "Engine-local active history\nstable prefix; prepared generation" as ACTIVE <<db>>
+component "OpenCode native client\nmatching major only" as NATIVE <<app>>
+component "Maintenance / post-exit publisher\nexplicit prepare + recover; three snapshots" as MAINTAIN <<app>>
+database "Versioned credential-free checkpoints\nprevious good generation retained" as DURABLE <<db>>
+database "V1 or unknown history\nuntouched by V2 launch" as OLD <<db>>
+component "Preparation required\nbounded, explicit diagnostic" as REQUIRED <<error>>
+
+OP --> VERSION : launch
+VERSION --> CATALOG : select matching major + schema
+CATALOG --> OWNER : prepared engine/generation
+OWNER --> ACTIVE : acquire compatible lifecycle lease
+ACTIVE --> NATIVE : reuse; no full-history startup copy
+OWNER --> REQUIRED : mismatch / missing / busy / pending recovery
+OP --> MAINTAIN : explicitly prepare / import / recover
+OLD --> MAINTAIN : only approved import or adoption
+NATIVE --> MAINTAIN : after all writers stop
+MAINTAIN --> ACTIVE : prepared credential-free cache
+MAINTAIN --> DURABLE : one verified atomic generation
+MAINTAIN --> CATALOG : issue prepared descriptor
+
+note bottom of VERSION
+  Check the native major before opening history
+  so startup cannot import incompatible data.
+  Keep the schema stamp apart from receipt format
+  and old session versions when choosing a store.
+end note
+
+note bottom of ACTIVE
+  Reuse prepared history on the owning engine
+  without copying all retained session payloads.
+  Keep authentication tokens out of saved state
+  before an idle cache or checkpoint is declared
+  ready for reuse.
+end note
+
+note bottom of MAINTAIN
+  Run bulk preparation outside normal startup
+  so the spinner does not conceal the slow work.
+  Keep source history and the previous good
+  checkpoint until verification allows
+  atomic publication.
+end note
+@enduml

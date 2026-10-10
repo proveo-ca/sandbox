@@ -1,0 +1,26 @@
+@startsalt
+' purpose: resolved OpenCode-only loading surface with shared run categories and current seed step
+' covers: packages/lib/proveo-await-seed
+' covers: packages/lib/opencode_startup.py
+' covers: packages/lib/test_opencode_startup.py
+' covers: e2e/opencode_seed_progress_test.go
+' Logic: _spec/packages/lib/opencode-seed-progress.puml
+title OpenCode seed wait — current operation, not a blank screen
+{
+  {^"TTY: seed pending"
+    Waiting for seed | credentials: staging legacy session history | 12s | [/]
+  }
+  {^"PIPE: seed pending"
+    Waiting for seed | credentials: staging legacy session history | 0s
+    Waiting for seed | workspace: preparing checkout and shared folders | 3s
+    Waiting for seed | setup: rendering agents | 4s
+  }
+}
+legend
+TTY redraws one stderr row with rotating ASCII frames.
+PIPE prints step changes and five-second heartbeats.
+Categories match run logs; details name the active operation.
+Release, refusal, timeout and signals remove the transient TTY row.
+Only OpenCode enables this surface by default.
+endlegend
+@endsalt

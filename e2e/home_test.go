@@ -134,7 +134,7 @@ func TestProveoHomePersistence(t *testing.T) {
 
 	t.Run("auth_json_scrubbed_not_session_marker", func(t *testing.T) {
 		home := t.TempDir()
-		share := filepath.Join(home, "opencode", "share")
+		share := filepath.Join(home, "opencode", "v2", "share")
 		if err := os.MkdirAll(share, 0o700); err != nil {
 			t.Fatal(err)
 		}

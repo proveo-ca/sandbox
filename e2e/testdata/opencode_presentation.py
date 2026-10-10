@@ -120,7 +120,7 @@ class NativePresentationTests(unittest.TestCase):
         self.assertEqual(
             (self.root / "shell-executed").read_text(), report["shellOutput"]
         )
-        database = self.home / "opencode/share/opencode.db"
+        database = self.home / "opencode/v2/share/opencode.db"
         with contextlib.closing(sqlite3.connect(database)) as db:
             messages = [
                 json.loads(row[0])

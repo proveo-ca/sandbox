@@ -17,6 +17,7 @@ import (
 
 // launchReceipt is what a sandbox was created with, per-run values normalised away.
 type launchReceipt struct {
+	Agent   string            `json:"agent"`
 	Image   string            `json:"image"`
 	ImageID string            `json:"imageId,omitempty"`
 	Kit     string            `json:"kit"`
@@ -46,6 +47,7 @@ func receiptOf(cfg sbx.RunConfig, kitYAML []byte, sid, imageID string) launchRec
 		return strings.ReplaceAll(s, sid, "<sid>")
 	}
 	r := launchReceipt{
+		Agent: cfg.Agent,
 		Image: cfg.Image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
 		Clone: cfg.Clone, Env: map[string]string{},
 	}
@@ -66,6 +68,9 @@ func (r launchReceipt) changes(was *launchReceipt) []string {
 		return []string{"no record of the settings it was created with"}
 	}
 	var out []string
+	if r.Agent != was.Agent {
+		out = append(out, "agent")
+	}
 	if r.Image != was.Image || (r.ImageID != "" && was.ImageID != "" && r.ImageID != was.ImageID) {
 		out = append(out, "image")
 	}
@@ -140,6 +145,9 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 		return nil
 	}
 	if running(cfg.Name) {
+		if opencodeCacheTarget(in.Target) {
+			return fmt.Errorf("OpenCode engine %s contains active, unpublished or unattested state; recover it before changing %s", cfg.Name, strings.Join(changed, ", "))
+		}
 		warn("%s is running with settings this run changed (%s) — they will NOT apply; exit the session using it, "+
 			"or `sbx rm --force %s`, then run again", cfg.Name, strings.Join(changed, ", "), cfg.Name)
 		return nil
