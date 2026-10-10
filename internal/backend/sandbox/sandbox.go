@@ -1586,6 +1586,7 @@ func Run(in Input) error {
 		}
 	}
 	defer func() {
+		reportPushedBranches(in, cfg, startedAt)
 		CapturePolicyLog(in.EgDir, cfg.Name)
 		CaptureMemoryEvidence(in.EgDir, cfg.Name)
 		if runErr != nil && !forceRemove.Load() {

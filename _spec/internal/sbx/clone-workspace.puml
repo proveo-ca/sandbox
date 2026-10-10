@@ -160,6 +160,14 @@ skinparam noteTextAlignment left
 ' untracked). The index is never touched. The base then moves to HEAD, so the
 ' next run lifts only its own work.
 '
+' ── POST-EXIT LISTS BRANCHES GIT RECORDED AS PUSHED ────────────────────────
+' A successful push writes "update by push" on the remote-tracking reflog.
+' That log lives in the common git dir, so one `git log -g --all` from any
+' worktree includes pushes made in every linked worktree. proveo keeps the
+' lines whose reflog time is at or after the run started, and prints each
+' branch once (`pushed origin/name`). A clone is queried inside the sandbox
+' before it is removed. A direct checkout is queried on the host.
+'
 ' ── THE SEED ASSERTS THE SHARES BEFORE IT RELEASES THE AGENT ───────────────
 ' PROVEO_SHARES lists rel=rw|ro for each of _spec and .env the HOST holds at
 ' the agent workdir: a clone is always rw; a mounted checkout follows its
