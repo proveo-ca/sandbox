@@ -2,6 +2,8 @@
 package sandbox
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func TestOpenCodeCacheOwnerLivesOutsideGuestState(t *testing.T) {
@@ -58,6 +61,116 @@ func TestOpenCodePreparationMountsOnlyExplicitReadOnlySource(t *testing.T) {
 	_, _, err = openCodePreparationSource([]string{"--proveo-prepare", "--source", link})
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("accepted source symlink: %v", err)
+	}
+}
+
+func TestOpenCodeHistorySeesOnlyARealV2Database(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "opencode/share"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	v2, legacy := openCodeHistory(home)
+	if v2 || len(legacy) != 1 || legacy[0] != "opencode/share" {
+		t.Fatalf("history = %v %v", v2, legacy)
+	}
+	db := filepath.Join(home, "opencode/v2/share")
+	if err := os.MkdirAll(db, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(db, "opencode.db"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v2, legacy = openCodeHistory(home)
+	if !v2 || len(legacy) != 1 {
+		t.Fatalf("database not selected: %v %v", v2, legacy)
+	}
+}
+
+func TestUnpreparedLegacyStoreAsksAndKeepsTheSandbox(t *testing.T) {
+	previous := receiptDir
+	root := t.TempDir()
+	receiptDir = func() string { return root }
+	t.Cleanup(func() { receiptDir = previous })
+	t.Setenv("PROVEO_WIZARD", "off")
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "opencode/share"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	run := func(_ context.Context, _ string, args ...string) (string, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if args[0] == "--bootstrap-cache" {
+			return `{"cache_owner":"1234:5678"}`, nil
+		}
+		return "proveo: OpenCode history is not prepared", fmt.Errorf("exit")
+	}
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{
+		Name: "proveo-opencode-11c4aed0", Command: []string{"--proveo-prepare"},
+	}, func(string) bool { return true }, run)
+	if err == nil || !strings.Contains(err.Error(), "asks again") || !strings.Contains(err.Error(), "opencode/share") {
+		t.Fatalf("err = %v", err)
+	}
+	for _, call := range calls {
+		if call[0] == "--prepare" {
+			t.Fatalf("declined prepare still ran: %v", calls)
+		}
+	}
+}
+
+func TestInvalidOwnerExplainsThatTheSessionDoesNotPersist(t *testing.T) {
+	previous := receiptDir
+	root := t.TempDir()
+	receiptDir = func() string { return root }
+	t.Cleanup(func() { receiptDir = previous })
+	t.Setenv("PROVEO_WIZARD", "off")
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: t.TempDir()}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
+		func(string) bool { return true }, func(context.Context, string, ...string) (string, error) {
+			return `{"cache_owner":"fake"}`, nil
+		})
+	if err == nil || !strings.Contains(err.Error(), "invalid owner identity") || !strings.Contains(err.Error(), "does not persist") || !strings.Contains(err.Error(), "reattaches") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBootstrapFailureAfterRemovalDoesNotSayTheSandboxStays(t *testing.T) {
+	t.Parallel()
+	err := openCodeBootstrapFailure(fmt.Errorf("OpenCode cache bootstrap returned invalid owner identity"), "proveo-opencode-11c4aed0", true)
+	if strings.Contains(err.Error(), "sandbox stays") || !strings.Contains(err.Error(), "was removed") || !strings.Contains(err.Error(), "does not persist") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRecoverIsNotRewrittenAsPrepare(t *testing.T) {
+	previous := receiptDir
+	root := t.TempDir()
+	receiptDir = func() string { return root }
+	t.Cleanup(func() { receiptDir = previous })
+	t.Setenv("PROVEO_WIZARD", "off")
+	var calls [][]string
+	run := func(_ context.Context, _ string, args ...string) (string, error) {
+		calls = append(calls, append([]string(nil), args...))
+		switch args[0] {
+		case "--bootstrap-cache", "--recover":
+			return `{"cache_owner":"1234:5678"}`, nil
+		default:
+			return "", fmt.Errorf("unexpected %s", args[0])
+		}
+	}
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: t.TempDir()}, sbx.RunConfig{
+		Name: "proveo-opencode-11c4aed0", Command: []string{"--proveo-recover"},
+	}, func(string) bool { return true }, run)
+	sawRecover := false
+	for _, call := range calls {
+		if call[0] == "--prepare" || call[0] == "--check-prepared" {
+			t.Fatalf("recover took the prepare path: %v", calls)
+		}
+		if call[0] == "--recover" {
+			sawRecover = true
+		}
+	}
+	if !sawRecover {
+		t.Fatalf("recover did not run: %v err=%v", calls, err)
 	}
 }
 

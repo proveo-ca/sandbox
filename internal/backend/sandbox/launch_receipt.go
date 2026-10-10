@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -134,7 +135,9 @@ func writeReceipt(name string, r launchReceipt) {
 	}
 }
 
-// retireIfStale re-creates a stopped kept sandbox whose stored settings differ from this run's, and warns for a running one.
+// retireIfStale replaces a kept sandbox whose stored settings differ from this run.
+// A headed run asks first, for every harness. A non-interactive run still retires a
+// stopped sandbox and leaves a running one in place.
 func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, running func(string) bool,
 	retire func(Input, sbx.RunConfig) error, report, warn func(string, ...any)) error {
 	if !exists(cfg.Name) {
@@ -144,17 +147,45 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 	if len(changed) == 0 {
 		return nil
 	}
-	if running(cfg.Name) {
-		if opencodeCacheTarget(in.Target) {
-			return fmt.Errorf("OpenCode engine %s contains active, unpublished or unattested state; recover it before changing %s", cfg.Name, strings.Join(changed, ", "))
+	live := running(cfg.Name)
+	if opencodeCacheTarget(in.Target) && live {
+		return fmt.Errorf("OpenCode engine %s contains active, unpublished or unattested state; recover it before changing %s. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist",
+			cfg.Name, strings.Join(changed, ", "), cfg.Name)
+	}
+	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone)
+	if asked && !replace {
+		if live {
+			warn("%s stays running. Settings this run changed (%s) will not apply. The next proveo run reattaches to it",
+				cfg.Name, strings.Join(changed, ", "))
+			return nil
 		}
+		return fmt.Errorf("sandbox %s kept. The next proveo run reattaches and asks again. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist. Settings that will not apply: %s",
+			cfg.Name, cfg.Name, strings.Join(changed, ", "))
+	}
+	if !asked && live {
 		warn("%s is running with settings this run changed (%s) — they will NOT apply; exit the session using it, "+
-			"or `sbx rm --force %s`, then run again", cfg.Name, strings.Join(changed, ", "), cfg.Name)
+			"or `sbx rm --force %s`, then run again. That deletes the session. The next proveo run creates a new sandbox with this same name, and this session does not persist",
+			cfg.Name, strings.Join(changed, ", "), cfg.Name)
 		return nil
 	}
-	report("%s was created with different settings (%s) — carrying its work home and re-creating it so this run's choices apply",
-		cfg.Name, strings.Join(changed, ", "))
+	report("1/3 carrying its work home for %s (%s)", cfg.Name, strings.Join(changed, ", "))
+	report("2/3 sbx rm --force %s — deleting the session. This session does not persist", cfg.Name)
+	report("3/3 this run creates a new sandbox named %s", cfg.Name)
 	return retire(in, cfg)
+}
+
+var openTermScreen = openScreen
+
+var confirmStaleSandbox = func(name string, changed []string, live, clone bool) (bool, bool) {
+	if !headedConfirm() {
+		return false, false
+	}
+	screen, err := openTermScreen()
+	if err != nil {
+		return false, true
+	}
+	defer screen.Fini()
+	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone), true
 }
 
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
