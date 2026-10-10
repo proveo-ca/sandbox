@@ -88,11 +88,11 @@ func TestPrepareMountsAndScrub(t *testing.T) {
 		Enabled: true,
 		Mounts: []manifest.HomeMount{
 			{Host: ".cursor", Container: "/proveo-home/.cursor", Mode: "rw", Deny: []string{"auth.json"}},
-			{Host: "opencode/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
+			{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
 		},
 	}
 	// Pre-seed a forbidden auth file and a keep-me session marker.
-	share := filepath.Join(root, "opencode", "share")
+	share := filepath.Join(root, "opencode", "v2", "share")
 	if err := os.MkdirAll(share, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -197,13 +197,13 @@ func TestResumeArgs(t *testing.T) {
 
 func TestDeniedLoginsPersistOnlyWhenAskedFor(t *testing.T) {
 	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
-		Host: "opencode/share", Container: "/proveo-home/.local/share/opencode",
+		Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode",
 		Mode: "rw", Deny: []string{"auth.json"},
 	}}}
 
 	write := func(root string) string {
 		t.Helper()
-		p := filepath.Join(root, "opencode", "share", "auth.json")
+		p := filepath.Join(root, "opencode", "v2", "share", "auth.json")
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			t.Fatal(err)
 		}

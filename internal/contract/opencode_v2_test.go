@@ -212,7 +212,7 @@ func TestOpencodeV2SeedOwnership(t *testing.T) {
 			dst := filepath.Join(home, ".config/opencode")
 			src := dst
 			if tc.restore {
-				src = filepath.Join(state, "opencode/config")
+				src = filepath.Join(state, "opencode/v2/config")
 			}
 			if tc.json != "" {
 				seedFile(t, filepath.Join(src, "opencode.json"), tc.json)
@@ -231,7 +231,7 @@ func TestOpencodeV2SeedOwnership(t *testing.T) {
 				reseed = "1"
 			}
 			cmd := opencodeV2Command(t, home, script, "PROVEO_STATE_HOME="+state,
-				"PROVEO_CONFIG_DIRS=opencode/config|.config/opencode|", "OPENCODE_RESEED="+reseed)
+				"PROVEO_CONFIG_DIRS=opencode/v2/config|.config/opencode|", "OPENCODE_RESEED="+reseed)
 			out, err := cmd.CombinedOutput()
 			if err != nil || !bytes.Contains(out, []byte("RELEASED_WITH_CONFIG_AND_AGENTS")) {
 				t.Fatalf("seed/release failed: %v\n%s", err, out)

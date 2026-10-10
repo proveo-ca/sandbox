@@ -32,7 +32,16 @@ class NativeRuntimeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.durable = self.home / "opencode/share"
+        self.durable = self.home / "opencode/v2/share"
+        version = self.root / "version"
+        version.write_text(
+            subprocess.run(
+                [NATIVE, "--version"], capture_output=True, text=True, check=True
+            )
+            .stdout.strip()
+            .removeprefix("opencode v")
+            + "\n"
+        )
         self.env = {
             "PATH": os.environ["PATH"],
             "HOME": str(self.home),
@@ -44,6 +53,9 @@ class NativeRuntimeTests(unittest.TestCase):
             "PROVEO_OPENCODE_HOME_MANIFEST": str(
                 RUNTIME.parents[2] / "defs/opencode/harness.manifest"
             ),
+            "PROVEO_OPENCODE_VERSION_FILE": str(version),
+            "PROVEO_OPENCODE_NATIVE_BINARY": NATIVE,
+            "PROVEO_OPENCODE_CACHE_HOME": str(self.root),
             "OPENCODE_DISABLE_MODELS_FETCH": "1",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -51,10 +63,50 @@ class NativeRuntimeTests(unittest.TestCase):
             "TERM": "dumb",
             "OPENCODE_CONFIG_CONTENT": '{"plugins":[],"mcp":{"servers":{}}}',
         }
+        self.owners = []
+        self.addCleanup(self.shutdown)
+        self.prepare(empty=True)
+
+    def prepare(self, empty=False, env=None):
+        env = env or self.env
+        args = [sys.executable, "-B", str(RUNTIME), "--prepare"]
+        if empty:
+            args.append("--empty")
+        result = subprocess.run(
+            args, env=env, capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        owner = json.loads(result.stdout)["cache_owner"]
+        self.owners.append((env.copy(), owner))
+        self.owner = owner
+        env["PROVEO_TEST_CACHE_OWNER"] = owner
+        return owner
+
+    def shutdown(self):
+        for env, owner in reversed(self.owners):
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(RUNTIME),
+                    "--shutdown-cache",
+                    "--proveo-cache-owner=" + owner,
+                ],
+                env=env,
+                capture_output=True,
+                timeout=5,
+            )
 
     def run_native(self, *args):
         return subprocess.run(
-            [sys.executable, "-B", str(RUNTIME), NATIVE, *args],
+            [
+                sys.executable,
+                "-B",
+                str(RUNTIME),
+                NATIVE,
+                *args,
+                "--proveo-cache-owner=" + self.owner,
+            ],
             env=self.env,
             cwd=self.root,
             capture_output=True,
@@ -90,6 +142,7 @@ class NativeRuntimeTests(unittest.TestCase):
                 ('{"type":"key","key":"SYNTHETIC_NATIVE_KEY"}',),
             )
             db.commit()
+        self.prepare()
         result = self.run_native("session", "list", "--format", "json")
         self.assertEqual(result.returncode, 0, result.stderr)
         sessions = json.loads(result.stdout)
@@ -123,7 +176,59 @@ class NativeRuntimeTests(unittest.TestCase):
                     self.assertRegex(result.stdout.strip(), r"^opencode v2\.\d+\.\d+$")
             if args == ("debug", "agents"):
                 self.assertIsInstance(json.loads(result.stdout), list)
-        self.assertFalse(self.durable.exists())
+        self.assertTrue(self.durable.exists())
+
+    def test_prepared_large_history_reaches_native_output_within_five_seconds(self):
+        self.initialize()
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            db.execute(
+                "CREATE TABLE startup_large_payload (id INTEGER PRIMARY KEY, payload BLOB NOT NULL)"
+            )
+            db.execute(
+                "INSERT INTO startup_large_payload VALUES (1, zeroblob(?))",
+                (900 * 1024 * 1024,),
+            )
+            db.commit()
+        self.prepare()
+        started = time.monotonic()
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-B",
+                str(RUNTIME),
+                NATIVE,
+                "session",
+                "list",
+                "--format",
+                "json",
+                "--proveo-cache-owner=" + self.owner,
+            ],
+            env=self.env,
+            cwd=self.root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert process.stdout is not None
+        try:
+            self.assertTrue(
+                select.select([process.stdout], [], [], 5)[0],
+                "large prepared history did not produce native output within five seconds",
+            )
+            first = process.stdout.readline()
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 5)
+            rest, stderr = process.communicate(timeout=120)
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertEqual(json.loads(first + rest), [])
+            self.assertGreater(
+                (self.durable / "opencode.db").stat().st_size, 900 * 1024 * 1024
+            )
+            print(f"NATIVE_PREPARED_900MB_READY_SECONDS={elapsed:.3f}")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.communicate(timeout=120)
 
     def test_native_account_schemas_and_control_tokens_are_scrubbed(self):
         self.initialize()
@@ -147,6 +252,7 @@ class NativeRuntimeTests(unittest.TestCase):
             )
             db.commit()
         (self.durable / "mcp-auth.json").write_text("SYNTHETIC_LEGACY_MCP_SECRET")
+        self.prepare()
         result = self.run_native("session", "list", "--format", "json")
         self.assertEqual(result.returncode, 0, result.stderr)
         with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
@@ -209,13 +315,14 @@ class NativeRuntimeTests(unittest.TestCase):
         moved_home = self.root / "host-visible-home"
         self.home.rename(moved_home)
         self.home = moved_home
-        self.durable = moved_home / "opencode/share"
+        self.durable = moved_home / "opencode/v2/share"
         self.env["HOME"] = str(moved_home)
         self.env["PROVEO_HOME"] = str(moved_home)
         self.env["PROVEO_STATE_HOME"] = str(moved_home)
         self.env["PROVEO_CONFIG_DIRS"] = (
-            "opencode/share|.local/share/opencode|auth.json"
+            "opencode/v2/share|.local/share/opencode|auth.json"
         )
+        self.prepare()
         resumed = self.run_native("session", "list", "--format", "json")
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
         with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
@@ -270,6 +377,17 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(first), 1)
         first_id = next(iter(first))
         self.assertTrue(first[first_id])
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            db.execute(
+                "UPDATE session_v2 SET version = '1.18.21' WHERE id = ?", (first_id,)
+            )
+            db.commit()
+        self.prepare()
+        listed = self.run_native("session", "list", "--format", "json")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn(
+            first_id, {session["id"] for session in json.loads(listed.stdout)}
+        )
         run()
         both = transcripts()
         self.assertEqual(len(both), 2)
@@ -291,7 +409,17 @@ class NativeRuntimeTests(unittest.TestCase):
         process, terminal = pty.fork()
         if process == 0:
             env = dict(self.env, TERM="xterm-256color")
-            os.execve(sys.executable, [sys.executable, "-B", str(RUNTIME), NATIVE], env)
+            os.execve(
+                sys.executable,
+                [
+                    sys.executable,
+                    "-B",
+                    str(RUNTIME),
+                    NATIVE,
+                    "--proveo-cache-owner=" + self.owner,
+                ],
+                env,
+            )
         self.addCleanup(os.close, terminal)
 
         def cleanup():
@@ -347,7 +475,14 @@ class NativeRuntimeTests(unittest.TestCase):
         shim.write_text(f'#!/bin/sh\nexec "{await_seed}" "{RUNTIME}" "{NATIVE}" "$@"\n')
         shim.chmod(0o700)
         docker = subprocess.run(
-            [str(shim), "session", "list", "--format", "json"],
+            [
+                str(shim),
+                "session",
+                "list",
+                "--format",
+                "json",
+                "--proveo-cache-owner=" + self.owner,
+            ],
             env=self.env,
             cwd=self.root,
             capture_output=True,
@@ -367,10 +502,18 @@ class NativeRuntimeTests(unittest.TestCase):
             PROVEO_WORKDIR=str(self.root),
             PROVEO_INSTRUCTIONS_MARKER=str(marker),
             PROVEO_STATE_HOME=str(state),
-            PROVEO_CONFIG_DIRS="opencode/share|.local/share/opencode|auth.json",
+            PROVEO_CONFIG_DIRS="opencode/v2/share|.local/share/opencode|auth.json",
         )
+        owner = self.prepare(empty=True, env=env)
         sbx = subprocess.run(
-            [str(shim), "session", "list", "--format", "json"],
+            [
+                str(shim),
+                "session",
+                "list",
+                "--format",
+                "json",
+                "--proveo-cache-owner=" + owner,
+            ],
             env=env,
             cwd=self.root,
             capture_output=True,
@@ -380,7 +523,7 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertEqual(sbx.returncode, 0, sbx.stderr)
         self.assertEqual(json.loads(sbx.stdout), [])
         with contextlib.closing(
-            sqlite3.connect(state / "opencode/share/opencode.db")
+            sqlite3.connect(state / "opencode/v2/share/opencode.db")
         ) as db:
             self.assertTrue(credentials.credential_schema(db))
             self.assertEqual(

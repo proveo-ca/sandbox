@@ -4,7 +4,6 @@
 import argparse
 import contextlib
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,7 +31,6 @@ LOCK_NAME = ".proveo-opencode-snapshot.lock"
 LIFECYCLE_LOCK_NAME = ".proveo-opencode-runtime.lock"
 RECOVERY_NAME = ".proveo-opencode-recovery"
 STATE_NAME = ".proveo-opencode-state"
-MIGRATION_NAME = ".proveo-opencode-migrated"
 PREFIX_NAME = ".proveo-opencode-paths.json"
 SIDECARS = ("-wal", "-shm", "-journal")
 AUTH_FILES = ("auth.json", "mcp-auth.json")
@@ -247,7 +245,7 @@ def root_databases(root, selected):
             *AUTH_FILES,
             LOCK_NAME,
             LIFECYCLE_LOCK_NAME,
-            MIGRATION_NAME,
+            LIFECYCLE_LOCK_NAME + ".journal",
             PREFIX_NAME,
         ) or path.name.endswith(SIDECARS):
             continue
@@ -301,7 +299,7 @@ def artifact_link(root, path, databases):
             *AUTH_FILES,
             LOCK_NAME,
             LIFECYCLE_LOCK_NAME,
-            MIGRATION_NAME,
+            LIFECYCLE_LOCK_NAME + ".journal",
             PREFIX_NAME,
             RECOVERY_NAME,
             STATE_NAME,
@@ -340,7 +338,7 @@ def inventory(root, selected="opencode.db"):
                 *AUTH_FILES,
                 LOCK_NAME,
                 LIFECYCLE_LOCK_NAME,
-                MIGRATION_NAME,
+                LIFECYCLE_LOCK_NAME + ".journal",
             ):
                 continue
             if path.is_symlink():
@@ -374,13 +372,15 @@ def inventory(root, selected="opencode.db"):
     return databases, files, directories
 
 
-def publish(source, target):
+def publish(source, target, observer=None):
     fd, tmp = tempfile.mkstemp(prefix=".proveo-clean-", dir=target.parent)
     try:
         if source.is_symlink():
             os.close(fd)
             os.unlink(tmp)
             os.symlink(os.readlink(source), tmp)
+            if observer is not None:
+                observer(Path(tmp), target)
             os.replace(tmp, target)
             return
         with os.fdopen(fd, "wb") as output, source.open("rb") as input_file:
@@ -388,6 +388,8 @@ def publish(source, target):
             output.flush()
             os.fsync(output.fileno())
         os.chmod(tmp, stat.S_IMODE(source.stat().st_mode))
+        if observer is not None:
+            observer(Path(tmp), target)
         os.replace(tmp, target)
     finally:
         if os.path.exists(tmp):
@@ -461,20 +463,6 @@ def copy_state(source, destination, rebase=None):
                     target.write_text(updated)
 
 
-def database_digest(path, prefix=None):
-    digest = hashlib.sha256()
-    with contextlib.closing(
-        sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True)
-    ) as db:
-        for statement in db.iterdump():
-            if prefix is not None:
-                statement = statement.replace(
-                    str(prefix).rstrip("/") + "/", "/@proveo-opencode-data/"
-                )
-            digest.update(statement.encode())
-    return digest.digest()
-
-
 def snapshot(
     source,
     destination,
@@ -482,6 +470,8 @@ def snapshot(
     rebase=None,
     state_source=None,
     prefix=None,
+    publication_observer=None,
+    mutation_observer=None,
 ):
     source = Path(source).resolve()
     destination = Path(destination).resolve()
@@ -542,10 +532,14 @@ def snapshot(
                 (stage / PREFIX_NAME).write_text(json.dumps({"data": str(prefix)}))
                 files.append(Path(PREFIX_NAME))
             for rel in directories:
+                if mutation_observer is not None:
+                    mutation_observer(destination / rel, "mkdir")
                 (destination / rel).mkdir(mode=0o700, parents=True, exist_ok=True)
             for name in AUTH_FILES:
                 auth = destination / name
                 if os.path.lexists(auth):
+                    if mutation_observer is not None:
+                        mutation_observer(auth, "delete")
                     auth.unlink()
             state = destination / STATE_NAME
             if state.exists():
@@ -553,11 +547,17 @@ def snapshot(
                     if file.name in AUTH_FILES or re.fullmatch(
                         r"service(?:-[A-Za-z0-9._-]+)?\.json", file.name
                     ):
+                        if mutation_observer is not None:
+                            mutation_observer(file, "delete")
                         file.unlink()
                 locks = state / "locks"
                 if locks.is_symlink():
+                    if mutation_observer is not None:
+                        mutation_observer(locks, "delete")
                     locks.unlink()
                 elif locks.exists():
+                    if mutation_observer is not None:
+                        mutation_observer(locks, "delete")
                     shutil.rmtree(locks)
             ordered = sorted(set(files) - {Path(PREFIX_NAME)}) + sorted(
                 set(databases + old_databases)
@@ -566,8 +566,13 @@ def snapshot(
                 ordered.append(Path(PREFIX_NAME))
             for rel in ordered:
                 target = destination / rel
+                if mutation_observer is not None:
+                    mutation_observer(target.parent, "mkdir")
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                publish(stage / rel, target)
+                if publication_observer is None:
+                    publish(stage / rel, target)
+                else:
+                    publish(stage / rel, target, publication_observer)
             directory_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory_fd)

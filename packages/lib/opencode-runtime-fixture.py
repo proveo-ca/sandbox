@@ -17,7 +17,17 @@ def event(name, **values):
 
 
 args = sys.argv[1:]
-if "--version" in args or "--help" in args:
+if os.environ.get("PROVEO_OPENCODE_SCHEMA_PREP") == "1":
+    file = Path(os.environ["OPENCODE_DB"])
+    if not file.exists():
+        connection = sqlite3.connect(file)
+        connection.executescript(SCHEMA)
+        connection.close()
+    sys.exit(0)
+if "--version" in args:
+    print("opencode v2.0.26")
+    sys.exit(0)
+if "--help" in args:
     event("diagnostic")
     sys.exit(0)
 dbfile = Path(os.environ["OPENCODE_DB"])

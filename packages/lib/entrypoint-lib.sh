@@ -2669,6 +2669,19 @@ proveo_sbx_passthrough() {
 PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 
+# SPEC: _spec/packages/lib/opencode-seed-progress.puml
+proveo_seed_step() {
+ local category="$1" detail="$2" target="${3:-opencode}" path tmp
+ [[ "$target" == opencode && "${PROVEO_SEED_PROGRESS:-}" == 1 ]] || return 0
+ printf 'proveo-seed: %s: %s\n' "$category" "$detail" >&2
+ path="${PROVEO_SEED_STATUS_FILE:-/dev/shm/proveo-seed-status}"
+ tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 0
+ if ! printf '%s: %s\n' "$category" "$detail" > "$tmp" || ! mv -f "$tmp" "$path" 2>/dev/null; then
+  rm -f "$tmp" 2>/dev/null || true
+ fi
+ return 0
+}
+
 # Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
 proveo_seed_instructions() {
  local target="${1:-}" dir defaults
@@ -2859,6 +2872,7 @@ proveo_bootstrap_opencode_config() {
 
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ proveo_seed_step workspace "preparing checkout and shared folders" "$target"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
  proveo_clone_env
@@ -2869,16 +2883,21 @@ proveo_seed() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || { proveo_release_agent "$target"; return 0; }
 
+ proveo_seed_step credentials "preparing GitHub trust" "$target"
  seed_github_known_hosts "$home" || true
 
+ proveo_seed_step workspace "restoring persistent state folders" "$target"
  proveo_sync_state restore || true
 
+ proveo_seed_step setup "restoring configuration folders" "$target"
  proveo_sync_config restore || true
 
  if [[ "$target" == opencode ]]; then
+  proveo_seed_step setup "seeding OpenCode defaults" "$target"
   proveo_bootstrap_opencode_config || return 1
  fi
 
+ proveo_seed_step setup "installing hooks and rendering agents" "$target"
  proveo_install_git_sync_hooks "$target"
  : > "$PROVEO_HOOKS_MARKER" 2>/dev/null || true
 
@@ -2890,28 +2909,36 @@ proveo_seed() {
  opencode) render_subagents opencode "${HOME}/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
+ proveo_seed_step workspace "accepting workspace trust" "$target"
  accept_workspace_trust "$(_proveo_scan_root)"
 
+ proveo_seed_step setup "wiring language servers and house rules" "$target"
  proveo_wire_config "$target"
  proveo_compose_house_rules "$target"
  proveo_address_operator_claude "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_install_claude_env_hook "$target"
+ proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
+ proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
 
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
   echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
  else
+  proveo_seed_step setup "restoring toolchain folders" "$target"
   proveo_sync_tools restore || true
+  proveo_seed_step setup "installing toolchains, dependencies and language servers" "$target"
   proveo_provision_toolchain
   proveo_wire_config "$target"
  fi
  : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_seed_step interface "configuring host browser bridge" "$target"
  proveo_chrome_bridge "$target"
+ proveo_seed_step starting "seed complete" "$target"
 
 }
 

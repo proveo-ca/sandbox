@@ -1,18 +1,73 @@
 #!/bin/sh
-# SPEC: _spec/packages/lib/seed-and-launch.puml
+# SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/opencode-seed-progress.puml
 # In a proveo-launched sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
+if [ "${1##*/}" = proveo-opencode-runtime ]; then
+  maintenance="${3:-}"
+  case "$maintenance" in --proveo-cache-owner=*) maintenance="${4:-}" ;; esac
+  case "$maintenance" in --proveo-prepare|--proveo-recover) exec "$@" ;; esac
+fi
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 refused="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
 limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
+progress=0
+terminal=0
+ticks=0
+last_label=""
+last_tick=-25
+deadline_ticks=""
+if [ "${1##*/}" = proveo-opencode-runtime ]; then
+  case "${3:-}" in
+    --proveo-startup-deadline=*)
+      deadline_ticks="$(python3 -c 'import math,sys,time; d=float(sys.argv[1]); print(max(0, int(min(5,d-time.time())*5)) if math.isfinite(d) else 0)' "${3#*=}")"
+      ;;
+  esac
+fi
+seed_progress_clear() {
+  if [ "$progress" = 1 ] && [ "$terminal" = 1 ]; then
+    printf '\r\033[2K' >&2
+  fi
+}
+seed_progress_update() {
+  [ "$progress" = 1 ] || return 0
+  label="$(cat "${PROVEO_SEED_STATUS_FILE:-/dev/shm/proveo-seed-status}" 2>/dev/null)"
+  label="${label:-starting: waiting for instruction seed}"
+  if [ "$terminal" = 1 ]; then
+    case $((ticks % 4)) in
+      0) frame='|' ;; 1) frame='/' ;; 2) frame='-' ;; 3) frame='\' ;;
+    esac
+    printf '\r\033[2Kproveo: Waiting for seed — %s (%ss) %s' "$label" "$((ticks / 5))" "$frame" >&2
+  elif [ "$label" != "$last_label" ] || [ "$((ticks - last_tick))" -ge 25 ]; then
+    printf 'proveo: Waiting for seed — %s (%ss)\n' "$label" "$((ticks / 5))" >&2
+    last_tick="$ticks"
+  fi
+  last_label="$label"
+}
 if [ -s "$refused" ] && [ "$(cat "$refused")" = "OpenCode credential preflight refused release" ]; then
   rm -f "$refused"
 fi
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
+  if [ "${PROVEO_SEED_PROGRESS:-}" = 1 ] && command -v python3 >/dev/null 2>&1; then
+    PROVEO_OPENCODE_STARTUP_STARTED="$(python3 -c 'import time; print(time.monotonic())')"
+    export PROVEO_OPENCODE_STARTUP_STARTED
+  fi
+  if [ "${PROVEO_SEED_PROGRESS:-}" = 1 ]; then
+    progress=1
+    if [ -t 2 ] && [ "${TERM:-}" != dumb ]; then terminal=1; fi
+    trap 'seed_progress_clear; exit 130' INT
+    trap 'seed_progress_clear; exit 143' TERM
+    trap 'seed_progress_clear; exit 129' HUP
+  fi
   n=$((limit * 5))
+  [ -z "$deadline_ticks" ] || n="$deadline_ticks"
   while [ ! -e "$marker" ] && [ ! -e "$refused" ] && [ "$n" -gt 0 ]; do
+    seed_progress_update
     sleep 0.2
+    ticks=$((ticks + 1))
     n=$((n - 1))
   done
+  seed_progress_clear
+  export PROVEO_OPENCODE_WAITED_FOR_SEED=1
+  if [ "$progress" = 1 ]; then trap - INT TERM HUP; fi
   [ -e "$marker" ] || [ -e "$refused" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
 fi
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ -s "$refused" ]; then

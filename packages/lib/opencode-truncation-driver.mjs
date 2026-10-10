@@ -24,6 +24,7 @@ const config = {
   } },
 }
 const args = ["run", "--auto", "--model", "fixture/model"]
+if (process.env.PROVEO_TEST_CACHE_OWNER) args.unshift(`--proveo-cache-owner=${process.env.PROVEO_TEST_CACHE_OWNER}`)
 if (session) args.push("--session", session)
 args.push("offline truncation fixture")
 const child = spawn(python, ["-B", wrapper, native, ...args], {

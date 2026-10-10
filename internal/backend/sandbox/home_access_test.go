@@ -105,25 +105,22 @@ func TestHomeAccessCommitUsesNewestFile(t *testing.T) {
 	}
 }
 
-func TestOpenCodeHomeAccessSharesOnlyCanonicalAndExistingLegacyHistory(t *testing.T) {
+func TestOpenCodeHomeAccessSharesOnlyDeclaredV2History(t *testing.T) {
 	t.Parallel()
 	root, runDir := t.TempDir(), t.TempDir()
-	legacy := filepath.Join(root, ".local", "share", "opencode")
-	if err := os.MkdirAll(legacy, 0o700); err != nil {
+	unselected := filepath.Join(root, "other-history")
+	if err := os.MkdirAll(unselected, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	h := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{
-		{Host: "opencode/config", Container: "/proveo-home/.config/opencode"},
-		{Host: "opencode/share", Container: "/proveo-home/.local/share/opencode"},
+		{Host: "opencode/v2/config", Container: "/proveo-home/.config/opencode"},
+		{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode"},
 	}}
 	a, err := PrepareHomeAccess(root, runDir, h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.LegacyOpenCode != legacy {
-		t.Fatalf("legacy history = %q, want %q", a.LegacyOpenCode, legacy)
-	}
-	want := []string{filepath.Join(root, "opencode/config"), filepath.Join(root, "opencode/share"), legacy, filepath.Join(root, "toolchains")}
+	want := []string{filepath.Join(root, "opencode/v2/config"), filepath.Join(root, "opencode/v2/share"), filepath.Join(root, "toolchains")}
 	if len(a.Mounts) != len(want) {
 		t.Fatalf("unexpected sharing plan: %+v", a.Mounts)
 	}
@@ -136,27 +133,21 @@ func TestOpenCodeHomeAccessSharesOnlyCanonicalAndExistingLegacyHistory(t *testin
 		EgDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
 		Mounts: []runner.Mount{{Host: root, Container: "/proveo-home"}},
 	})
-	if !slices.Contains(cfg.Env, "PROVEO_OPENCODE_LEGACY_DATA="+legacy) {
-		t.Fatalf("generated launch environment omits legacy history: %v", cfg.Env)
-	}
 	for _, m := range cfg.Mounts {
-		if m.Host == root || m.Host == filepath.Join(root, ".local") || m.Host == filepath.Join(root, ".local/share") || m.Host == filepath.Join(root, "logs") {
-			t.Fatalf("legacy sharing widened the home view: %+v", cfg.Mounts)
+		if m.Host == root || m.Host == unselected || m.Host == filepath.Join(root, ".local") || m.Host == filepath.Join(root, ".local/share") || m.Host == filepath.Join(root, "logs") {
+			t.Fatalf("history sharing widened the home view: %+v", cfg.Mounts)
 		}
 	}
 }
 
-func TestOpenCodeHomeAccessDoesNotCreateOrShareAbsentLegacyHistory(t *testing.T) {
+func TestOpenCodeHomeAccessDoesNotCreateNativeHistoryInHostHome(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	a, err := PrepareHomeAccess(root, t.TempDir(), manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
-		Host: "opencode/share", Container: "/proveo-home/.local/share/opencode",
+	_, err := PrepareHomeAccess(root, t.TempDir(), manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
+		Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode",
 	}}})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if a.LegacyOpenCode != "" {
-		t.Fatalf("absent legacy history was shared: %+v", a)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".local/share/opencode")); !os.IsNotExist(err) {
 		t.Fatalf("preparation created an obsolete data tree: %v", err)

@@ -119,12 +119,14 @@ class RuntimeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.durable = self.home / "opencode/share"
+        self.durable = self.home / "opencode/v2/share"
         self.durable.mkdir(parents=True)
         self.fixture(self.durable)
         self.native = self.root / "native-opencode"
         self.native.write_text("#!/usr/bin/env python3\n" + CHILD.read_text())
         self.native.chmod(0o700)
+        version = self.root / "version"
+        version.write_text("2.0.26\n")
         self.env = dict(
             PATH=os.environ["PATH"],
             HOME=str(self.home),
@@ -137,6 +139,9 @@ class RuntimeTests(unittest.TestCase):
             PROVEO_OPENCODE_RUNTIME_DATA="",
             PROVEO_GIT_SYNC_MSG_INFLIGHT="",
             PROVEO_OPENCODE_CREDENTIAL_HELPER=str(HELPER),
+            PROVEO_OPENCODE_NATIVE_BINARY=str(self.native),
+            PROVEO_OPENCODE_VERSION_FILE=str(version),
+            PROVEO_OPENCODE_CACHE_HOME=str(self.root),
             PROVEO_OPENCODE_ENGINE_ID="fixture-engine",
             PROVEO_SEED_REFUSED=str(self.root / "seed-refused"),
             PROVEO_OPENCODE_HOME_MANIFEST=str(
@@ -148,6 +153,24 @@ class RuntimeTests(unittest.TestCase):
             PYTHONPATH=str(HELPER.parent),
         )
         self.env.pop("OPENCODE_DB")
+        self.addCleanup(self.shutdown_cache)
+        result = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.owner = json.loads(result.stdout)["cache_owner"]
+
+    def shutdown_cache(self):
+        subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+            env=self.env,
+            capture_output=True,
+            timeout=5,
+        )
 
     def fixture(self, directory):
         directory.mkdir(parents=True, exist_ok=True)
@@ -160,8 +183,31 @@ class RuntimeTests(unittest.TestCase):
             db.commit()
         (directory / "auth.json").write_text("SYNTHETIC_LEGACY_AUTH")
 
+    def control(self, flag, *args, env=None):
+        return subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(RUNTIME),
+                flag,
+                *args,
+                "--proveo-cache-owner=" + self.owner,
+            ],
+            env=env or self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
     def command(self, *args):
-        return [sys.executable, "-B", str(RUNTIME), str(self.native), *args]
+        return [
+            sys.executable,
+            "-B",
+            str(RUNTIME),
+            str(self.native),
+            "--proveo-cache-owner=" + self.owner,
+            *args,
+        ]
 
     def run_cli(self, *args, env=None):
         return subprocess.run(
@@ -240,7 +286,7 @@ class RuntimeTests(unittest.TestCase):
         first.communicate(timeout=10)
         self.assertEqual(first.returncode, 143)
         self.assert_clean(messages=2)
-        self.assertFalse(Path(ready["database"]).parent.exists())
+        self.assertTrue(Path(ready["database"]).parent.exists())
         restart = self.run_cli("append")
         self.assertEqual(restart.returncode, 0, restart.stderr)
         self.assert_clean(messages=3)
@@ -272,7 +318,10 @@ class RuntimeTests(unittest.TestCase):
         )
         self.addCleanup(self.stop, proc)
         time.sleep(0.5)
-        self.assertIsNone(proc.poll(), "the launch must not exit 75 while this boot's seed holds the lease")
+        self.assertIsNone(
+            proc.poll(),
+            "the launch must not exit 75 while this boot's seed holds the lease",
+        )
         self.assertEqual(
             [event["event"] for event in self.events() if event["event"] == "ready"],
             ["ready"],
@@ -296,8 +345,37 @@ class RuntimeTests(unittest.TestCase):
         overlap = self.run_cli("append", env=waiting)
         self.assertLess(time.monotonic() - started, 2)
         self.assertEqual(overlap.returncode, 75, overlap.stderr)
-        self.assertIn("another OpenCode run owns this durable database", overlap.stderr)
+        self.assertIn("another OpenCode run", overlap.stderr)
         self.assertNotIn("waiting for this boot's OpenCode seed", overlap.stderr)
+
+    def test_progress_wait_tracks_seed_categories_then_releases_native_client(self):
+        waiting, marker = self.boot_env(5)
+        status = self.root / "seed-status"
+        status.write_text("credentials: checking prepared V2 history\n")
+        waiting.update(PROVEO_SEED_PROGRESS="1", PROVEO_SEED_STATUS_FILE=str(status))
+        proc = subprocess.Popen(
+            self.command("append"),
+            env=waiting,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self.stop, proc)
+        assert proc.stderr is not None
+        self.assertTrue(
+            select.select([proc.stderr], [], [], 3)[0], "runtime seed wait stayed blank"
+        )
+        first = proc.stderr.readline()
+        self.assertIn("credentials: checking prepared V2 history", first)
+        status.write_text("workspace: preparing checkout and shared folders\n")
+        self.assertTrue(select.select([proc.stderr], [], [], 3)[0])
+        second = proc.stderr.readline()
+        self.assertIn("workspace: preparing checkout and shared folders", second)
+        self.assertEqual(self.events(), [])
+        marker.touch()
+        _, stderr = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 0, stderr)
+        self.assert_clean(messages=2)
 
     def test_seed_that_keeps_the_lease_past_the_wait_still_exits_75(self):
         waiting, _ = self.boot_env(0.6)
@@ -310,7 +388,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(elapsed, 0.5)
         self.assertLess(elapsed, 5)
         self.assertIn("waiting for this boot's OpenCode seed", overlap.stderr)
-        self.assertIn("this boot's OpenCode seed still holds the durable database", overlap.stderr)
+        self.assertIn(
+            "this boot's OpenCode seed still holds the durable database", overlap.stderr
+        )
 
     def test_a_terminating_signal_ends_the_lease_wait(self):
         waiting, _ = self.boot_env(30)
@@ -372,7 +452,9 @@ class RuntimeTests(unittest.TestCase):
         )
         self.addCleanup(self.stop, agent)
         time.sleep(0.4)
-        self.assertIsNone(agent.poll(), "the agent must wait for the marker without holding the lease")
+        self.assertIsNone(
+            agent.poll(), "the agent must wait for the marker without holding the lease"
+        )
         started = time.monotonic()
         scrubbed = subprocess.run(
             [sys.executable, "-B", str(RUNTIME), "--sanitize"],
@@ -400,10 +482,12 @@ class RuntimeTests(unittest.TestCase):
         first.communicate(timeout=10)
         self.assertEqual(first.returncode, -signal.SIGKILL)
         self.assert_clean(messages=1)
+        recovered = self.control("--recover")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
         restart = self.run_cli("append")
         self.assertEqual(restart.returncode, 0, restart.stderr)
         self.assert_clean(messages=3)
-        self.assertFalse(Path(ready["database"]).parent.exists())
+        self.assertTrue(Path(ready["database"]).parent.exists())
 
     def test_native_preferences_history_stashes_and_pins_round_trip_in_order(self):
         result = self.run_cli("preferences")
@@ -429,13 +513,15 @@ class RuntimeTests(unittest.TestCase):
         for name, content in expected.items():
             self.assertEqual((saved / name).read_bytes(), content)
 
-    def test_legacy_docker_history_migrates_to_the_same_sbx_store_and_lease(self):
-        shutil.rmtree(self.durable)
-        legacy = self.home / ".local/share/opencode"
-        self.fixture(legacy)
+    def test_explicit_v2_source_uses_the_same_sbx_store_and_lease(self):
+        source = self.root / "import-source"
+        self.fixture(source)
+        before = (source / "opencode.db").read_bytes()
+        prepared = self.control("--prepare", "--source", str(source))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
         first = self.start("hold")
         self.wait_event("ready")
-        self.assert_clean(legacy, messages=1)
+        self.assertEqual((source / "opencode.db").read_bytes(), before)
         guest = self.root / "guest"
         guest.mkdir()
         sbx_env = dict(
@@ -443,7 +529,7 @@ class RuntimeTests(unittest.TestCase):
             HOME=str(guest),
             PROVEO_HOME=str(guest),
             PROVEO_STATE_HOME=str(self.home),
-            PROVEO_CONFIG_DIRS="opencode/share|.local/share/opencode|auth.json",
+            PROVEO_CONFIG_DIRS="opencode/v2/share|.local/share/opencode|auth.json",
         )
         rejected = self.run_cli("append", env=sbx_env)
         self.assertEqual(rejected.returncode, 75, rejected.stderr)
@@ -456,28 +542,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_clean(messages=4)
 
-    def test_divergent_legacy_and_canonical_histories_are_not_overwritten(self):
-        legacy = self.home / ".local/share/opencode"
-        self.fixture(legacy)
-        with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
+    def test_unselected_history_is_not_read_or_overwritten(self):
+        unselected = self.home / "other-history"
+        self.fixture(unselected)
+        with contextlib.closing(sqlite3.connect(unselected / "opencode.db")) as db:
             db.execute(
-                "INSERT INTO session_message VALUES ('legacy-only', 'session-fixture', 2, 'keep legacy history')"
+                "INSERT INTO session_message VALUES ('unselected-only', 'session-fixture', 2, 'keep unselected history')"
             )
             db.commit()
         result = self.run_cli("append")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("leaving both stores unchanged", result.stderr)
+        self.assertEqual(result.stderr, "")
         self.assertNotEqual(self.events(), [])
         with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
             self.assertIsNone(
                 db.execute(
-                    "SELECT id FROM session_message WHERE id = 'legacy-only'"
+                    "SELECT id FROM session_message WHERE id = 'unselected-only'"
                 ).fetchone()
             )
             self.assertEqual(
                 db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
             )
-        with contextlib.closing(sqlite3.connect(legacy / "opencode.db")) as db:
+        with contextlib.closing(sqlite3.connect(unselected / "opencode.db")) as db:
             self.assertEqual(
                 db.execute("SELECT count(*) FROM session_message").fetchone(), (2,)
             )
@@ -488,6 +574,8 @@ class RuntimeTests(unittest.TestCase):
         first.kill()
         os.kill(ready["pid"], signal.SIGTERM)
         first.communicate(timeout=10)
+        stopped = self.control("--shutdown-cache")
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
         loader = importlib.machinery.SourceFileLoader("runtime_fixture", str(RUNTIME))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None
@@ -499,11 +587,20 @@ class RuntimeTests(unittest.TestCase):
         engine.start()
         self.addCleanup(engine.stop)
         fd = os.open(self.durable / credentials.LIFECYCLE_LOCK_NAME, os.O_RDWR)
-        self.addCleanup(os.close, fd)
         credentials.fcntl.flock(
             fd, credentials.fcntl.LOCK_EX | credentials.fcntl.LOCK_NB
         )
-        record = (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_bytes()
+        import opencode_cache
+
+        keeper = opencode_cache.Keeper(runtime, self.env)
+        keeper.helper = credentials
+        keeper.lease = fd
+        self.addCleanup(
+            lambda: os.close(keeper.lease) if keeper.lease is not None else None
+        )
+        record = (
+            self.durable / (credentials.LIFECYCLE_LOCK_NAME + ".journal")
+        ).read_bytes()
         original = credentials.snapshot
         for phase in ("create", "backup", "publication"):
             with self.subTest(phase=phase):
@@ -526,24 +623,36 @@ class RuntimeTests(unittest.TestCase):
                             "mkdtemp",
                             side_effect=OSError(errno.ENOSPC, "injected disk full"),
                         ):
-                            with self.assertRaises(OSError):
-                                runtime.recover_orphan(fd, credentials, self.durable)
+                            with self.assertRaises(
+                                (OSError, opencode_cache.CacheError)
+                            ):
+                                keeper.publish()
                     else:
-                        with self.assertRaises(OSError):
-                            runtime.recover_orphan(fd, credentials, self.durable)
+                        with self.assertRaises((OSError, opencode_cache.CacheError)):
+                            keeper.publish()
                 self.assertTrue(Path(ready["database"]).exists())
-                self.assertEqual(
-                    (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_bytes(),
-                    record,
+                after = json.loads(
+                    (
+                        self.durable / (credentials.LIFECYCLE_LOCK_NAME + ".journal")
+                    ).read_bytes()
                 )
+                before = json.loads(record)
+                for field in (
+                    "root",
+                    "database",
+                    "engine",
+                    "producer",
+                    "expected_durable",
+                ):
+                    self.assertEqual(after[field], before[field])
                 with contextlib.closing(sqlite3.connect(ready["database"])) as db:
                     self.assertEqual(
                         db.execute("SELECT count(*) FROM session_message").fetchone(),
                         (2,),
                     )
-        runtime.recover_orphan(fd, credentials, self.durable)
+        keeper.publish()
         self.assert_clean(messages=2)
-        self.assertFalse(Path(ready["database"]).exists())
+        self.assertTrue(Path(ready["database"]).exists())
 
     def test_controlling_pty_suspend_returns_shell_job_and_foreground_resumes(self):
         shell, terminal = pty.fork()
@@ -639,7 +748,26 @@ class RuntimeTests(unittest.TestCase):
         env = dict(
             self.env,
             PROVEO_OPENCODE_CREDENTIAL_HELPER=str(proxy),
+            PROVEO_OPENCODE_CACHE_HOME=str(self.root / "fault-engine"),
             FAIL_FINAL_CHECKPOINT="1",
+        )
+        prepared = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        previous_owner = self.owner
+        self.owner = json.loads(prepared.stdout)["cache_owner"]
+        self.addCleanup(
+            lambda: subprocess.run(
+                [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+                env=env,
+                capture_output=True,
+                timeout=5,
+            )
         )
         result = self.run_cli("final-disk-full", env=env)
         self.assertEqual(result.returncode, 74, result.stderr)
@@ -649,7 +777,7 @@ class RuntimeTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         self.assertTrue(database.exists())
         record = json.loads(
-            (self.durable / credentials.LIFECYCLE_LOCK_NAME).read_text()
+            (self.durable / (credentials.LIFECYCLE_LOCK_NAME + ".journal")).read_text()
         )
         self.assertEqual(record["root"], str(root))
         with contextlib.closing(sqlite3.connect(database)) as db:
@@ -661,18 +789,20 @@ class RuntimeTests(unittest.TestCase):
             )
         self.assertIn("not credential-free", result.stderr)
         self.assert_clean(messages=1)
-        result = self.run_cli("append")
+        (database.parent / "latest-native-write").unlink()
+        recovered = self.control("--recover", env=env)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        result = self.run_cli("append", env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_clean(messages=3)
-        self.assertFalse(database.exists())
+        self.assertTrue(database.exists())
+        self.owner = previous_owner
 
     def test_preflight_sanitizes_host_stores_before_provisioning_commands(self):
-        legacy = self.home / ".local/share/opencode"
-        self.fixture(legacy)
         provision = self.root / "provision"
         provision.write_text(
             "#!/usr/bin/env python3\nimport os, sqlite3, sys\nfrom pathlib import Path\n"
-            f"for p in ({str(self.durable)!r},{str(legacy)!r}):\n"
+            f"for p in ({str(self.durable)!r},):\n"
             '    db=sqlite3.connect(Path(p)/"opencode.db")\n'
             '    assert db.execute("SELECT count(*) FROM credential").fetchone()==(0,)\n'
             "    db.close()\n"
@@ -681,7 +811,14 @@ class RuntimeTests(unittest.TestCase):
         )
         provision.chmod(0o700)
         result = subprocess.run(
-            [sys.executable, "-B", str(RUNTIME), "--preflight-command", str(provision)],
+            [
+                sys.executable,
+                "-B",
+                str(RUNTIME),
+                "--preflight-command",
+                str(provision),
+                "--proveo-cache-owner=" + self.owner,
+            ],
             env=self.env,
             capture_output=True,
             text=True,
@@ -692,8 +829,6 @@ class RuntimeTests(unittest.TestCase):
         self.assert_clean(messages=2)
 
     def test_sanitize_scrubs_host_stores_and_releases_the_durable_lease(self):
-        legacy = self.home / ".local/share/opencode"
-        self.fixture(legacy)
         result = subprocess.run(
             [sys.executable, "-B", str(RUNTIME), "--sanitize"],
             env=self.env,
@@ -702,7 +837,7 @@ class RuntimeTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        for store in (self.durable, legacy):
+        for store in (self.durable,):
             with contextlib.closing(sqlite3.connect(store / "opencode.db")) as db:
                 self.assertEqual(
                     db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
@@ -741,9 +876,9 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 75, result.stderr)
         self.assertEqual(lock.read_bytes(), before)
-        self.assertIn("docker start -ai retained-fixture", result.stderr)
+        self.assertIn("engine does not match", result.stderr)
         self.assertEqual(self.events(), [])
-        self.assertTrue((self.root / "seed-refused").exists())
+        self.assertEqual(lock.read_bytes(), before)
 
     def test_custom_database_selection_change_recovers_and_publishes_without_auth(self):
         with contextlib.closing(
@@ -754,12 +889,37 @@ class RuntimeTests(unittest.TestCase):
             ) as destination:
                 source.backup(destination)
         env = dict(self.env, OPENCODE_DB="custom-database")
+        prepared = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        default_owner = self.owner
+        self.owner = json.loads(prepared.stdout)["cache_owner"]
+        self.addCleanup(
+            lambda: subprocess.run(
+                [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+                env=env,
+                capture_output=True,
+                timeout=5,
+            )
+        )
         first = self.start("hold", env=env)
         ready = self.wait_event("ready")
         self.assertEqual(Path(ready["database"]).name, "custom-database")
         first.kill()
         os.kill(ready["pid"], signal.SIGTERM)
         first.communicate(timeout=10)
+        recovered = self.control("--recover", env=env)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.owner = default_owner
+        rejected = self.run_cli("append")
+        self.assertEqual(rejected.returncode, 78, rejected.stderr)
+        prepared = self.control("--prepare")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
         result = self.run_cli("append")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_clean(messages=2)
@@ -773,24 +933,43 @@ class RuntimeTests(unittest.TestCase):
                 db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
             )
             self.assertEqual(db.execute("PRAGMA quick_check").fetchone(), ("ok",))
-        self.assertFalse(Path(ready["database"]).exists())
+        self.assertTrue(Path(ready["database"]).exists())
 
     def test_sbx_maps_manifest_store_and_never_uses_live_home_data(self):
         state = self.root / "host-state"
-        store = state / "opencode/share"
+        store = state / "opencode/v2/share"
         self.fixture(store)
         env = dict(
             self.env,
             PROVEO_STATE_HOME=str(state),
-            PROVEO_CONFIG_DIRS="opencode/config|.config/opencode|;opencode/share|.local/share/opencode|auth.json",
+            PROVEO_CONFIG_DIRS="opencode/v2/config|.config/opencode|;opencode/v2/share|.local/share/opencode|auth.json",
+        )
+        prepared = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        default_owner = self.owner
+        self.owner = json.loads(prepared.stdout)["cache_owner"]
+        self.addCleanup(
+            lambda: subprocess.run(
+                [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+                env=env,
+                capture_output=True,
+                timeout=5,
+            )
         )
         result = self.run_cli("append", env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_clean(store, messages=2)
         with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
             self.assertEqual(
-                db.execute("SELECT count(*) FROM credential").fetchone(), (1,)
+                db.execute("SELECT count(*) FROM credential").fetchone(), (0,)
             )
+        self.owner = default_owner
 
     def test_version_help_and_debug_do_not_contend_with_active_run(self):
         first = self.start("hold")
@@ -891,8 +1070,10 @@ class RuntimeTests(unittest.TestCase):
             self.assertNotEqual(refused.returncode, 0)
             self.assertEqual((self.durable / "opencode.db-wal").read_bytes(), before)
             self.assertEqual(
-                live.execute("SELECT count(*) FROM credential").fetchone(), (1,)
+                live.execute("SELECT count(*) FROM credential").fetchone(), (0,)
             )
+        prepared = self.control("--prepare")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
         result = self.run_cli("append")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_clean(messages=3)
@@ -913,9 +1094,9 @@ class RuntimeTests(unittest.TestCase):
         result = self.run_cli("damage")
         self.assertEqual(result.returncode, 74, result.stderr)
         self.assert_clean()
-        recoveries = list((self.durable / ".proveo-opencode-recovery").glob("run-*"))
+        recoveries = list((self.durable / ".proveo-opencode-recovery").glob("pub-*"))
         self.assertEqual(len(recoveries), 1)
-        self.assert_clean(recoveries[0])
+        self.assertFalse((recoveries[0] / "opencode.db").exists())
         ready = self.wait_event("ready")
         self.assertTrue(Path(ready["database"]).parent.exists())
         self.addCleanup(shutil.rmtree, Path(ready["database"]).parents[2], True)
@@ -930,7 +1111,7 @@ class RuntimeTests(unittest.TestCase):
         )
         (self.durable / "opencode.db-wal").unlink()
         self.assert_clean(messages=1)
-        recoveries = list((self.durable / ".proveo-opencode-recovery").glob("run-*"))
+        recoveries = list((self.durable / ".proveo-opencode-recovery").glob("pub-*"))
         self.assertEqual(len(recoveries), 1)
         self.assert_clean(recoveries[0], messages=2)
         ready = self.wait_event("ready")
@@ -939,7 +1120,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_config_and_state_sync_skip_runtime_data_and_keep_other_artifacts(self):
         state = self.root / "sync-state"
-        store = state / "opencode/share"
+        store = state / "opencode/v2/share"
         self.fixture(store)
         before = (store / "opencode.db").read_bytes()
         (self.home / "settings.json").write_text("keep unrelated config file")
@@ -949,7 +1130,7 @@ class RuntimeTests(unittest.TestCase):
         env = dict(
             self.env,
             PROVEO_STATE_HOME=str(state),
-            PROVEO_CONFIG_DIRS="opencode/share|.local/share/opencode|auth.json",
+            PROVEO_CONFIG_DIRS="opencode/v2/share|.local/share/opencode|auth.json",
             PROVEO_CONFIG_FILES="settings.json",
             PROVEO_CONFIG_SYNC="on",
         )

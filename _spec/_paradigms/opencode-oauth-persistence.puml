@@ -1,0 +1,112 @@
+@startuml
+' purpose: approved OpenCode-only host-owned OAuth policy and its implementation gates
+' covers: defs/opencode/harness.manifest
+' covers: defs/opencode/README.md
+' covers: packages/lib/proveo-opencode-runtime
+' covers: packages/lib/opencode-credentials.py
+' covers: packages/lib/test_opencode_credentials.py
+' covers: packages/lib/test_opencode_runtime.py
+' covers: packages/lib/test_opencode_runtime_native.py
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/sbx/secret.go
+' covers: e2e/opencode_credentials_test.go
+' covers: e2e/opencode_auth_test.go
+' status: PLANNED; Executor selected host-owned OAuth on 2026-10-09.
+' Implementation remains unapproved and unshipped; this change documents the policy only.
+' Scope: the OpenCode harness family, including its browser image; other harnesses remain unchanged.
+' Existing boundary: _spec/_paradigms/credential-boundary.puml
+' Existing implementation: _spec/defs/opencode/native-v2-integration.puml
+' Startup evidence: _spec/packages/lib/opencode-seed-progress.puml
+' Storage redesign: _spec/_plans/opencode-versioned-history-storage.puml
+' Official storage/precedence: https://opencode.ai/v2/docs/cli/providers
+' Host credential model: https://docs.docker.com/ai/sandboxes/security/credentials/
+' OpenCode sandbox setup: https://docs.docker.com/ai/sandboxes/agents/opencode/
+'
+' CURRENT: V2 persists provider credentials in SQLite, not new auth.json writes.
+' Snapshot publication deletes credential/account/control_account tokens and clears account_state.
+' Session history, permissions and artifacts survive; saved in-sandbox logins do not.
+' PROVEO_KEEP_AGENT_LOGINS controls filename denial, not SQLite token publication.
+' Observed current sandbox: SBX_CRED_OPENAI_MODE=apikey; OPENAI_API_KEY holds a sentinel.
+' Logs show credential creation in one native run and an API-key failure in the following run.
+' This observation does not establish the host proxy's secret contents or substitution behavior.
+'
+' PLANNED selection has three explicit modes: host-owned-oauth, ephemeral-oauth, api-key.
+' These are policy identifiers, not current CLI flags or implemented configuration fields.
+' Persist the selected mode and nonsecret account identity independently of session snapshots.
+' Host-owned OAuth is the selected persistence target; ephemeral OAuth remains an explicit option.
+' API-key mode requires separate consent because it can use metered billing rather than a subscription.
+' Never reinterpret a missing OAuth connection as permission to use an API key or proxy sentinel.
+'
+' Host storage keeps access/refresh tokens and expiry in an OS keychain or host-private store.
+' Keep every token store outside all sandbox mounts, including the shared proveo-home tree.
+' Refresh and serialize token rotation on the host; reconnect explicitly after revocation or refresh failure.
+' A credential reference identifies one provider/account/method without containing a usable secret.
+' Per-run account wiring must select OpenCode's OAuth connector/method and subscription endpoint.
+' OPENAI_API_KEY alone does not encode a native ChatGPT subscription connection.
+'
+' IMPLEMENTATION GATES: determine how the pinned V2 connector accepts a host-brokered account.
+' Verify endpoint, headers, account metadata, transport and refresh with the actual pinned CLI.
+' Do not assume sbx's API-key injection route provides OpenCode's ChatGPT OAuth integration.
+' Keep refresh tokens host-only; never bypass the snapshot sanitizer or broaden KEEP_AGENT_LOGINS.
+' If safe account brokering is unsupported, stop with an actionable unsupported-policy/reconnect message.
+' Do not silently expose raw tokens to the guest as an alternative implementation.
+'
+' ACCEPTANCE: separate actual OpenCode runs retain the selected OAuth account without reconnecting.
+' Both runs use the subscription endpoint; neither sends a literal proxy sentinel upstream.
+' Forced expiry refreshes once on the host; revocation produces reconnect guidance without API fallback.
+' Teardown, recovery, logs and durable snapshots contain no access/refresh tokens.
+' Concurrent runs cannot corrupt token rotation or cross-select another account.
+' Existing API-key mode and credential-free session resume retain their behavior.
+' These live OAuth gates remain pending; current tests verify the existing sanitizer only.
+' FK (manual syllables): POLICY 11.2 (29w/52s); STORE 11.5 (25w/47s); ACCOUNT 11.4 (31w/55s).
+'
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title PLANNED — OpenCode-only host-owned OAuth persistence
+left to right direction
+
+actor "Executor\nexplicit authentication choice" as OP
+component "OpenCode policy selection\nPLANNED: persisted nonsecret mode\nprovider + account + method" as POLICY <<app>>
+database "Host-owned OAuth store\nPLANNED: outside every guest mount" as STORE <<db>>
+component "Host OAuth broker\nPLANNED: refresh + account routing" as BROKER <<host>>
+component "Pinned OpenCode V2 connector\nPLANNED: explicit per-run OAuth account" as ACCOUNT <<app>>
+component "packages/lib/proveo-opencode-runtime\nCURRENT: private per-run database" as RUNTIME <<app>>
+component "packages/lib/opencode-credentials.py\nCURRENT: credential-free publication" as SCRUB <<app>>
+database "OpenCode durable history\nsessions + artifacts; no saved tokens" as HISTORY <<db>>
+component "ChatGPT subscription endpoint\nPLANNED: OAuth route, not API-key fallback" as VENDOR <<cloud>>
+component "Reconnect required\nPLANNED: missing, expired or unsupported auth" as RECONNECT <<error>>
+
+OP --> POLICY : select host-owned OAuth
+POLICY --> STORE : resolve account reference
+STORE --> BROKER : host-only tokens
+BROKER --> ACCOUNT : account binding; protocol gate pending
+ACCOUNT --> RUNTIME : per-run connection
+RUNTIME --> BROKER : authenticated subscription request
+BROKER --> VENDOR : inject + refresh on approved route
+RUNTIME --> SCRUB : preserve existing boundary
+SCRUB --> HISTORY : publish session state without tokens
+POLICY --> RECONNECT : no usable OAuth connection
+
+note bottom of POLICY
+  Save the chosen login mode apart from account
+  tokens so a missing login cannot change the
+  billing route. Require consent before treating
+  an environment sentinel as an API-key
+  connection.
+end note
+
+note bottom of STORE
+  Store tokens on the host outside every guest
+  mount, including shared history folders.
+  Remove credentials from saved session snapshots
+  on exit and during interrupted-run recovery.
+end note
+
+note bottom of ACCOUNT
+  Test the account binding with the pinned native
+  connector before enabling subscription access.
+  If the proxy cannot provide that binding,
+  reject the policy instead of forwarding tokens
+  or switching billing modes.
+end note
+@enduml

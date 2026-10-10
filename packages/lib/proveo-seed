@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/defs/opencode/native-v2-integration.puml
 set -euo pipefail
-if [[ "${1:-}" == opencode && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
-  if ! /usr/local/bin/proveo-opencode-runtime --sanitize; then
-    printf 'proveo-seed: OpenCode durable sanitize failed — continuing\n' >&2
-  fi
-fi
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh
+proveo_seed_step starting "preparing OpenCode seed" "${1:-}"
+if [[ "${1:-}" == opencode && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
+  proveo_seed_step credentials "checking prepared V2 history" opencode
+  gate_args=(--check-prepared)
+  [[ -z "${PROVEO_OPENCODE_CACHE_OWNER:-}" ]] || gate_args+=("--proveo-cache-owner=$PROVEO_OPENCODE_CACHE_OWNER")
+  if ! /usr/local/bin/proveo-opencode-runtime "${gate_args[@]}"; then
+    printf 'OpenCode history requires explicit preparation\n' > "$PROVEO_SEED_REFUSED"
+    : > "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}"
+    exit 0
+  fi
+fi
 # A seed miss must not tear the sandbox down. sbx's durable-startup dispatcher
 # treats any non-zero startup command as fatal and `exit $rc`s the container
 # while the agent session is already live (~15s into a go.mod workspace).
