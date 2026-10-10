@@ -20,9 +20,16 @@ skinparam noteTextAlignment left
 ' and a digest per env var, with the session ID normalised to <sid> (two dry
 ' runs then compare identical). On reuse:
 '   same receipt            → re-attach, as before
-'   changed/none, stopped   → PreserveClone + SaveState, sbx rm --force, create
-'   changed/none, running   → warn with the changed names + `sbx rm` recipe, re-attach
-' A running sandbox is someone's live session; proveo never removes it.
+'   changed, headed         → ask. Yes runs the three steps for every harness:
+'     carry clone and agent state home, sbx rm --force, create the same name.
+'     The session does not persist. Host proveo files stay.
+'     No keeps it. A running one is re-attached and the new settings do not apply.
+'     A stopped one stays. This run stops, and the next proveo run asks again.
+'   changed, not headed, stopped → the same three steps, no question
+'   changed, not headed, running → warn. The session stays. The new settings do not apply.
+' A headed yes removes a running sandbox except an OpenCode engine with active,
+' unpublished, or unattested state. That engine must be recovered before replacement.
+' A screen that fails to open counts as no, so a stopped sandbox is not removed.
 title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures, remove success
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
@@ -41,14 +48,16 @@ state "kept for diagnosis" as KEPT
 state "sbx rm --force" as REMOVE
 state "removed" as REMOVED
 state "removal warning\nsandbox remains stale" as STALE
+state "stopped sandbox kept\nnext run asks again" as ASKAGAIN
 state "launch failed\nno sandbox to retain" as FAILED
 
 [*] --> RESOLVE
 RESOLVE --> EXISTS : WriteKit is per run;\nsecret values are never in it
 EXISTS --> CREATE : no
 EXISTS --> DRIFT : yes
-DRIFT --> REUSE : receipt matches,\nor running (warn)
-DRIFT --> RETIRE : changed, stopped
+DRIFT --> REUSE : receipt matches,\nor running and headed no,\nor running and not headed
+DRIFT --> RETIRE : changed and headed yes,\nor stopped and not headed
+DRIFT --> ASKAGAIN : stopped and headed no
 RETIRE --> CREATE
 CREATE --> RUN
 REUSE --> RUN
@@ -68,6 +77,7 @@ REMOVE --> STALE : other error; warn
 KEPT --> REUSE : next proveo run,\nsame target + workspace
 KEPT --> REMOVE : operator cleanup
 STALE --> REUSE : next proveo run
+ASKAGAIN --> [*]
 FAILED --> [*]
 REMOVED --> [*]
 

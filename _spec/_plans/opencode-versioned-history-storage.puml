@@ -123,6 +123,20 @@
 ' Changed launch settings retire a prepared or empty idle engine, not an active/unpublished one.
 ' Fresh empty state can be prepared without importing old/unversioned history; existing old stores require explicit adoption.
 ' Commands: --proveo-prepare [--source ABSOLUTE_DIR|--empty], --proveo-recover; native flags remain otherwise unchanged.
+' An unrecoverable engine asks before sbx rm --force, for every harness. Yes deletes the session.
+' The next proveo run creates a new sandbox with the same name. That session does not persist.
+' No keeps the sandbox, and the next proveo run reattaches to it.
+' A kept sandbox whose image, kit, mounts, clone or env differ asks the same way.
+' The steps are carry work home, sbx rm --force, then create that same name.
+' A headed yes does not remove an OpenCode engine with active, unpublished, or unattested state.
+' A direct checkout keeps host edits. A clone loses uncommitted edits unless they were fetched.
+' A screen that fails to open counts as no.
+' A V2 share with no database and an older store still on disk asks before an empty prepare.
+' The checkpoint step is reported after prepare succeeds.
+' The older store stays on disk and is not imported. No leaves the sandbox up and asks again.
+' A prepare that already checks out strips --proveo-prepare and starts the agent.
+' --proveo-recover always runs recover. A passing check does not skip it or rewrite it as prepare.
+' After a confirmed delete, a failed recreate says the previous sandbox was removed.
 ' Preparation rejects non-V2 schemas before copying, initializes compatible schemas with the pinned native release,
 ' then runs the existing sanitized publication sequence outside ordinary startup.
 ' Diagnostics and commit-subject helpers use disposable empty private state rather than cloning all history.

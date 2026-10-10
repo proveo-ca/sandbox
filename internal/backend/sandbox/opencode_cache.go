@@ -13,7 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
+
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -190,6 +194,110 @@ func validateCacheAuthority(in Input, cfg sbx.RunConfig) error {
 	return nil
 }
 
+func openCodeHistory(home string) (v2Database bool, legacy []string) {
+	if info, err := os.Stat(filepath.Join(home, "opencode", "v2", "share", "opencode.db")); err == nil && !info.IsDir() {
+		v2Database = true
+	}
+	for _, rel := range []string{"opencode/share", ".local/share/opencode"} {
+		path := filepath.Join(home, rel)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			legacy = append(legacy, rel)
+		}
+	}
+	return v2Database, legacy
+}
+
+func stripOpenCodeMaintenance(command []string) []string {
+	if len(command) == 0 || (command[0] != "--proveo-prepare" && command[0] != "--proveo-recover") {
+		return command
+	}
+	var out []string
+	for i := 1; i < len(command); i++ {
+		switch command[i] {
+		case "--source":
+			i++
+		case "--empty":
+		default:
+			out = append(out, command[i])
+		}
+	}
+	return out
+}
+
+var headedConfirm = func() bool {
+	if os.Getenv("PROVEO_SCHEDULE") != "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_WIZARD"))) {
+	case "off", "0", "no", "false", "disable", "disabled":
+		return false
+	}
+	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout)
+}
+
+func openScreen() (tcell.Screen, error) {
+	screen, err := tcell.NewScreen()
+	if err != nil {
+		return nil, err
+	}
+	if err := screen.Init(); err != nil {
+		return nil, err
+	}
+	return screen, nil
+}
+
+var confirmSandboxReset = func(name string) bool {
+	if !headedConfirm() {
+		return false
+	}
+	screen, err := openScreen()
+	if err != nil {
+		return false
+	}
+	defer screen.Fini()
+	return choiceui.ConfirmSandboxReset(screen, name)
+}
+
+var confirmEmptyPrepare = func(stores []string) bool {
+	if !headedConfirm() {
+		return false
+	}
+	screen, err := openScreen()
+	if err != nil {
+		return false
+	}
+	defer screen.Fini()
+	return choiceui.ConfirmEmptyPrepare(screen, stores)
+}
+
+func createOpenCodeEngine(cfg sbx.RunConfig) error {
+	cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	_ = os.Remove(cacheOwnerPath(cfg.Name))
+	return nil
+}
+
+func removeOpenCodeEngine(name string) error {
+	ui.Hostf("sbx rm --force %s — deleting the session", name)
+	if out, err := SbxRun(sbx.RemoveArgs(name)...); err != nil && !sbx.NotFound(out) {
+		return fmt.Errorf("remove %s: %w: %s", name, err, strings.TrimSpace(out))
+	}
+	_ = os.Remove(cacheOwnerPath(name))
+	_ = os.Remove(receiptPath(name))
+	ui.Notef("the next launch creates a new sandbox named %s. This session does not persist", name)
+	return nil
+}
+
+func openCodeBootstrapFailure(err error, name string, removed bool) error {
+	if removed {
+		return fmt.Errorf("%w. The previous sandbox was removed. The next proveo run creates a new sandbox named %s. This session does not persist", err, name)
+	}
+	return fmt.Errorf("%w. This sandbox stays. The next proveo run reattaches to it. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist", err, name)
+}
+
 func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool, run func(context.Context, string, ...string) (string, error)) (sbx.RunConfig, error) {
 	if !opencodeCacheTarget(in.Target) || in.Shell {
 		return cfg, nil
@@ -197,51 +305,110 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 	if err := validateCacheAuthority(in, cfg); err != nil {
 		return cfg, err
 	}
-	if !exists(cfg.Name) {
-		cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			return cfg, err
-		}
-		_ = os.Remove(cacheOwnerPath(cfg.Name))
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	call := func(name string, args ...string) (string, error) { return run(ctx, name, args...) }
-	owner, err := openCodeCacheOwner(cfg.Name, call)
-	if err != nil {
-		return cfg, err
-	}
-	maintenance := len(cfg.Command) > 0 && (cfg.Command[0] == "--proveo-prepare" || cfg.Command[0] == "--proveo-recover")
-	flag := "--proveo-cache-owner=" + owner
-	if !maintenance {
-		out, gateErr := call(cfg.Name, "--check-prepared", flag)
-		if gateErr != nil {
-			share := filepath.Join(in.HomeRoot, "opencode", "v2", "share")
-			_, databaseErr := os.Stat(filepath.Join(share, "opencode.db"))
-			_, oldErr := os.Stat(filepath.Join(in.HomeRoot, "opencode", "share"))
-			_, otherErr := os.Stat(filepath.Join(in.HomeRoot, ".local", "share", "opencode"))
-			if os.IsNotExist(databaseErr) && os.IsNotExist(oldErr) && os.IsNotExist(otherErr) {
-				out, gateErr = call(cfg.Name, "--prepare", "--empty", flag)
+	var owner string
+	removed := false
+	for attempt := 0; attempt < 2; attempt++ {
+		if !exists(cfg.Name) {
+			if err := createOpenCodeEngine(cfg); err != nil {
+				return cfg, err
 			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		call := func(name string, args ...string) (string, error) { return run(ctx, name, args...) }
+		var err error
+		owner, err = openCodeCacheOwner(cfg.Name, call)
+		cancel()
+		if err == nil {
+			break
+		}
+		if attempt == 0 && exists(cfg.Name) && confirmSandboxReset(cfg.Name) {
+			if err := removeOpenCodeEngine(cfg.Name); err != nil {
+				return cfg, err
+			}
+			removed = true
+			continue
+		}
+		return cfg, openCodeBootstrapFailure(err, cfg.Name, removed)
+	}
+	recovering := len(cfg.Command) > 0 && cfg.Command[0] == "--proveo-recover"
+	preparing := len(cfg.Command) > 0 && cfg.Command[0] == "--proveo-prepare"
+	flag := "--proveo-cache-owner=" + owner
+	if recovering {
+		ui.Appf("OpenCode recover: 1/2 reconcile the retained history")
+		recoverCtx, cancelRecover := context.WithTimeout(context.Background(), 15*time.Minute)
+		out, gateErr := run(recoverCtx, cfg.Name, "--recover", flag)
+		cancelRecover()
+		if gateErr != nil {
+			var exit *exec.ExitError
+			if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
+				return cfg, backend.ExitError{Code: 75}
+			}
+			return cfg, fmt.Errorf("OpenCode recover failed: %w: %s", gateErr, strings.TrimSpace(out))
+		}
+		ui.Appf("OpenCode recover: 2/2 start the agent on the recovered cache")
+		cfg.Command = stripOpenCodeMaintenance(cfg.Command)
+	} else {
+		checkCtx, cancelCheck := context.WithTimeout(context.Background(), 5*time.Second)
+		out, gateErr := run(checkCtx, cfg.Name, "--check-prepared", flag)
+		cancelCheck()
+		if gateErr != nil {
+			var exit *exec.ExitError
+			if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
+				return cfg, backend.ExitError{Code: 75}
+			}
+			v2, legacy := openCodeHistory(in.HomeRoot)
+			explicitEmpty := false
+			for _, arg := range cfg.Command {
+				if arg == "--empty" {
+					explicitEmpty = true
+				}
+			}
+			prepareEmpty := explicitEmpty || !v2
+			if !v2 && len(legacy) > 0 && !explicitEmpty && !confirmEmptyPrepare(legacy) {
+				return cfg, fmt.Errorf("OpenCode history is not prepared: %s. This sandbox stays. The next proveo run reattaches and asks again. An empty V2 prepare does not import %s, and the prepared cache does not survive sbx rm", strings.TrimSpace(out), strings.Join(legacy, ", "))
+			}
+			if v2 && !explicitEmpty && !preparing {
+				return cfg, fmt.Errorf("OpenCode history is not prepared: %s; run proveo run %s -- --proveo-prepare with an explicitly mounted V2 source", strings.TrimSpace(out), in.Target)
+			}
+			if v2 && !explicitEmpty {
+				prepareEmpty = false
+			}
+			what := "the mounted V2 database"
+			if prepareEmpty {
+				what = "an empty V2 database"
+			}
+			ui.Appf("OpenCode prepare: 1/3 initialize %s", what)
+			prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 15*time.Minute)
+			args := []string{"--prepare", flag}
+			if prepareEmpty {
+				args = append(args, "--empty")
+			}
+			out, gateErr = run(prepareCtx, cfg.Name, args...)
+			cancelPrepare()
 			if gateErr != nil {
-				var exit *exec.ExitError
 				if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
 					return cfg, backend.ExitError{Code: 75}
 				}
-				return cfg, fmt.Errorf("OpenCode history is not prepared: %s; run proveo run %s -- --proveo-prepare with an explicitly mounted V2 source", strings.TrimSpace(out), in.Target)
+				return cfg, fmt.Errorf("OpenCode prepare failed: %w: %s", gateErr, strings.TrimSpace(out))
 			}
+			ui.Appf("OpenCode prepare: 2/3 published a credential-free checkpoint")
+			ui.Appf("OpenCode prepare: 3/3 start the agent on that cache")
+			if preparing {
+				cfg.Command = stripOpenCodeMaintenance(cfg.Command)
+			}
+		} else if preparing {
+			cfg.Command = stripOpenCodeMaintenance(cfg.Command)
 		}
 	}
 	cfg.Command = append([]string{flag}, cfg.Command...)
-	if !maintenance {
-		seed := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "sh", "-c",
-			`rm -f /dev/shm/proveo-instructions-seeded /dev/shm/proveo-seed-done; nohup env PROVEO_OPENCODE_CACHE_OWNER="$1" /usr/local/bin/proveo-seed opencode >/dev/shm/proveo-opencode-seed.log 2>&1 </dev/null &`, "proveo-cache-seed", owner)
-		if out, err := seed.CombinedOutput(); err != nil {
-			return cfg, fmt.Errorf("OpenCode instruction seed: %w: %s", err, strings.TrimSpace(string(out)))
-		}
+	seedCtx, cancelSeed := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelSeed()
+	seed := exec.CommandContext(seedCtx, sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "sh", "-c",
+		`rm -f /dev/shm/proveo-instructions-seeded /dev/shm/proveo-seed-done; nohup env PROVEO_OPENCODE_CACHE_OWNER="$1" /usr/local/bin/proveo-seed opencode >/dev/shm/proveo-opencode-seed.log 2>&1 </dev/null &`, "proveo-cache-seed", owner)
+	if seedOut, err := seed.CombinedOutput(); err != nil {
+		return cfg, fmt.Errorf("OpenCode instruction seed: %w: %s", err, strings.TrimSpace(string(seedOut)))
 	}
-	if deadline, enabled := ctx.Deadline(); enabled && !maintenance {
+	if deadline, enabled := seedCtx.Deadline(); enabled {
 		remaining := time.Until(deadline).Seconds()
 		if remaining <= 0 {
 			return cfg, fmt.Errorf("OpenCode prepared startup exceeded its shared five-second budget")
