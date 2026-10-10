@@ -216,9 +216,9 @@ func TestImageCursor(t *testing.T) {
     timeout 10 /entrypoint.sh >/dev/null 2>&1
     grep -q "USER_CUSTOM" "$HOME/.cursor/cli-config.json" && echo PRESERVED || echo CLOBBERED
   `)
-	cursorEntry("workspace is untouched without CURSOR_SEED_RULES", "UNTOUCHED", nil, `
+	cursorEntry("workspace receives cursor subagents and no loop rule", "AGENTS_ONLY", nil, `
     /entrypoint.sh --version >/dev/null 2>&1
-    test -e /app/.cursor && echo MUTATED || echo UNTOUCHED
+    test -f /app/.cursor/agents/adversarial-reviewer.md && test ! -e /app/.cursor/rules && echo AGENTS_ONLY || echo MUTATED
   `)
 	cursorEntry("CURSOR_SEED_RULES=1 seeds the loop rule into the workspace", "SEEDED", []string{"CURSOR_SEED_RULES=1"}, `
     /entrypoint.sh --version >/dev/null 2>&1

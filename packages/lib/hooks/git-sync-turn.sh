@@ -197,10 +197,31 @@ fail() {
   exit 0
 }
 
-start="$(_json_get cwd)"
-[[ -n "$start" ]] || start="${PWD:-.}"
+_json_workspace_root() {
+  [[ -n "$payload" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+roots = data.get("workspace_roots") or []
+if isinstance(roots, list) and roots and isinstance(roots[0], str):
+    print(roots[0])
+' 2>/dev/null || true
+}
+
+_git_repo() {
+  local candidate
+  for candidate in "$(_json_get cwd)" "$(_json_workspace_root)" "${PROVEO_WORKDIR:-}" "${PWD:-.}"; do
+    [[ -n "$candidate" ]] || continue
+    git -C "$candidate" rev-parse --show-toplevel 2>/dev/null && return 0
+  done
+  return 1
+}
 command -v git >/dev/null 2>&1 || { _git_sync_emit allow ""; exit 0; }
-root="$(git -C "$start" rev-parse --show-toplevel 2>/dev/null)" || { _git_sync_emit allow ""; exit 0; }
+root="$(_git_repo)" || { _git_sync_emit allow ""; exit 0; }
 cd "$root" || { _git_sync_emit allow ""; exit 0; }
 
 git_dir="$(git rev-parse --git-dir 2>/dev/null)" || { _git_sync_emit allow ""; exit 0; }

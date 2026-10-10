@@ -566,6 +566,30 @@ func TestGitSyncSkipsAnAbortedCursorTurn(t *testing.T) {
 	}
 }
 
+func TestGitSyncCursorStopUsesProveoWorkdirWhenPwdIsNotTheRepo(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "from-etc.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bash := bashOrSkip(t)
+	cmd := exec.Command(bash, gitSyncScript(t))
+	cmd.Dir = t.TempDir()
+	cmd.Stdin = strings.NewReader(`{"status":"completed","loop_count":0}`)
+	cmd.Env = hookEnv(t, "PROVEO_GIT_SYNC_DIALECT=", "PROVEO_WORKDIR="+dir)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("exit %v stdout %q stderr %q", err, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "{}" {
+		t.Fatalf("stdout %q, want {}", stdout.String())
+	}
+	if !strings.Contains(gitCmd(t, dir, nil, "ls-files"), "from-etc.txt") {
+		t.Fatal("cursor stop did not commit the proveo workdir")
+	}
+}
+
 func TestGitSyncIdleCommitsWithoutJSON(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

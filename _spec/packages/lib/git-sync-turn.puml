@@ -154,6 +154,9 @@ note over STOP, CU
   schema error shown as "Stop hook error".
   Cursor still takes {}.
 end note
+' Cursor enterprise hooks run from /etc/cursor. The published stop payload
+' has status and loop_count. The script then tries cwd, workspace_roots,
+' PROVEO_WORKDIR, and the process directory.
 
 ' note-id: N_CODEX
 note over STOP

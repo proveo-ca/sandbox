@@ -260,3 +260,26 @@ echo LSP_REACHED_THE_END`
 			"exits, sbx's dispatcher tears the sandbox down, and the agent dies ~15s in", err, out)
 	}
 }
+
+func TestCursorSeedInstallsWorkspaceSubagents(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	root := repoRoot(t)
+	ws := t.TempDir()
+	git := exec.Command("git", "init", "-q", ws)
+	git.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := git.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	script := `set -euo pipefail
+source "$1/packages/lib/entrypoint-lib.sh"
+export PROVEO_SUBAGENTS_DIR="$1/defs/subagents" PROVEO_WORKDIR="$2"
+proveo_seed_cursor_workspace_agents
+test -f "$2/.cursor/agents/adversarial-reviewer.md"
+grep -qxF '/.cursor/agents/adversarial-reviewer.md' "$(git -C "$2" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+echo SEEDED`
+	out, err := exec.Command(bash, "-c", script, "bash", root, ws).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "SEEDED") {
+		t.Fatalf("workspace subagent seed: %v\n%s", err, out)
+	}
+}
