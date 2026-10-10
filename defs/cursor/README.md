@@ -137,9 +137,11 @@ proveo run cursor ... -e CURSOR_SEED_RULES=1 # via docker args, or export in .en
 
 Precedence (highest wins): enterprise hooks (`/etc/cursor/hooks.json`) → project
 `.cursor/cli.json` + `.cursor/hooks.json` + `.cursor/agents/*.md` → seeded `~/.cursor/*`.
-Project deny rules extend (and can only tighten alongside) the seeded baseline; drop a
-`.cursor/agents/<name>.md` in your repo to override or add a subagent. The CLI also reads
-`.claude/agents/` and `.codex/agents/` for compatibility.
+The CLI loads subagents from the workspace `.cursor/agents` and `.claude/agents` trees. The seed writes the roster into the workspace `.cursor/agents`
+and lists each roster file in `.git/info/exclude`, so those files are visible to the CLI
+and stay out of `git add`. Project deny rules extend (and can only tighten alongside)
+the seeded baseline; drop a `.cursor/agents/<name>.md` in your repo to override or add
+a subagent.
 
 ## Egress modes
 

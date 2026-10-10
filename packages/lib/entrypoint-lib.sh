@@ -2870,6 +2870,27 @@ proveo_bootstrap_opencode_config() {
  echo "🌱 Seeded native OpenCode defaults into $config_file (OPENCODE_RESEED=${OPENCODE_RESEED:-0})"
 }
 
+# SPEC: _spec/defs/cursor/cursor-topology.puml
+# cursor-agent loads subagents from the workspace .cursor/agents tree.
+proveo_seed_cursor_workspace_agents() {
+ local dir gd src name rel exclude
+ dir="$(_proveo_scan_root)"
+ [[ -n "$dir" && -d "$dir" ]] || return 0
+ render_subagents cursor "$dir/.cursor/agents" "${CURSOR_RESEED:-0}"
+ gd="$(cd "$dir" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+ [[ -n "$gd" ]] || return 0
+ exclude="$gd/info/exclude"
+ src="${PROVEO_SUBAGENTS_DIR:-/opt/proveo/subagents}"
+ command -v jq >/dev/null 2>&1 || return 0
+ [[ -f "$src/_roster.json" ]] || return 0
+ mkdir -p "$gd/info" 2>/dev/null || return 0
+ while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  rel="/.cursor/agents/${name}.md"
+  grep -qxF "$rel" "$exclude" 2>/dev/null || printf '%s\n' "$rel" >> "$exclude" 2>/dev/null
+ done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
  proveo_seed_step workspace "preparing checkout and shared folders" "$target"
@@ -2904,7 +2925,8 @@ proveo_seed() {
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
- cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
+ cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}"
+  proveo_seed_cursor_workspace_agents ;;
  cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "${HOME}/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac

@@ -24,6 +24,8 @@ package "Harness Layer" as Harness {
 package "Native Policy Layer" as Policy {
  component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
  component "/etc/cursor/hooks.json\nenterprise shell-audit + git-sync stop\n(root-owned, immutable)" as Hooks <<security>>
+' cursor-agent reads <workspace>/.cursor/agents and .claude/agents.
+' ~/.cursor/agents is not on that scan. The seed writes the workspace tree and excludes it.
  component "readonly subagents\n@adversarial-reviewer\n@security-reviewer" as Subagents <<subagent>>
 }
 
