@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,8 +169,8 @@ func openCodeCacheOwner(name string, run func(string, ...string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("OpenCode cache bootstrap: %w: %s", err, strings.TrimSpace(out))
 	}
-	var owner opencodeCacheOwner
-	if json.Unmarshal([]byte(strings.TrimSpace(out)), &owner) != nil || !cacheOwnerIdentity.MatchString(owner.Identity) {
+	owner, ok := cacheOwnerFromOutput(out)
+	if !ok {
 		return "", fmt.Errorf("OpenCode cache bootstrap returned invalid owner identity")
 	}
 	if err := os.MkdirAll(filepath.Dir(cacheOwnerPath(name)), 0o700); err != nil {
@@ -192,6 +193,76 @@ func validateCacheAuthority(in Input, cfg sbx.RunConfig) error {
 		}
 	}
 	return nil
+}
+
+func cacheOwnerFromOutput(out string) (opencodeCacheOwner, bool) {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var owner opencodeCacheOwner
+		if json.Unmarshal([]byte(line), &owner) == nil && cacheOwnerIdentity.MatchString(owner.Identity) {
+			return owner, true
+		}
+	}
+	return opencodeCacheOwner{}, false
+}
+
+func adoptLegacyOpenCodeDatabase(home string) (bool, error) {
+	destDir := filepath.Join(home, "opencode", "v2", "share")
+	dest := filepath.Join(destDir, "opencode.db")
+	if _, err := os.Lstat(dest); err == nil {
+		return false, nil
+	}
+	var src string
+	for _, rel := range []string{"opencode/share/opencode.db", ".local/share/opencode/opencode.db"} {
+		candidate := filepath.Join(home, filepath.FromSlash(rel))
+		info, err := os.Lstat(candidate)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		src = candidate
+		break
+	}
+	if src == "" {
+		return false, nil
+	}
+	if err := os.MkdirAll(destDir, 0o700); err != nil {
+		return false, err
+	}
+	if err := copyRegularFile(src, dest); err != nil {
+		return false, err
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		side := src + suffix
+		info, err := os.Lstat(side)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if err := copyRegularFile(side, dest+suffix); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func copyRegularFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 func openCodeHistory(home string) (v2Database bool, legacy []string) {
@@ -356,19 +427,25 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 			if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
 				return cfg, backend.ExitError{Code: 75}
 			}
-			v2, legacy := openCodeHistory(in.HomeRoot)
 			explicitEmpty := false
 			for _, arg := range cfg.Command {
 				if arg == "--empty" {
 					explicitEmpty = true
 				}
 			}
+			if !explicitEmpty {
+				adopted, adoptErr := adoptLegacyOpenCodeDatabase(in.HomeRoot)
+				if adoptErr != nil {
+					return cfg, adoptErr
+				}
+				if adopted {
+					ui.Appf("OpenCode: copied the existing database into the V2 store")
+				}
+			}
+			v2, legacy := openCodeHistory(in.HomeRoot)
 			prepareEmpty := explicitEmpty || !v2
 			if !v2 && len(legacy) > 0 && !explicitEmpty && !confirmEmptyPrepare(legacy) {
 				return cfg, fmt.Errorf("OpenCode history is not prepared: %s. This sandbox stays. The next proveo run reattaches and asks again. An empty V2 prepare does not import %s, and the prepared cache does not survive sbx rm", strings.TrimSpace(out), strings.Join(legacy, ", "))
-			}
-			if v2 && !explicitEmpty && !preparing {
-				return cfg, fmt.Errorf("OpenCode history is not prepared: %s; run proveo run %s -- --proveo-prepare with an explicitly mounted V2 source", strings.TrimSpace(out), in.Target)
 			}
 			if v2 && !explicitEmpty {
 				prepareEmpty = false

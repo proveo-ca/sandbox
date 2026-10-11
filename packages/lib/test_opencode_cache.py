@@ -239,6 +239,21 @@ class PreparedCacheTests(unittest.TestCase):
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
         f.assert_clean(messages=2)
 
+    def test_dead_socket_bootstraps_without_a_host_owner_record(self):
+        f = self.fixture
+        os.kill(int(f.owner.split(":", 1)[0]), signal.SIGKILL)
+        time.sleep(0.1)
+        result = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--bootstrap-cache"],
+            env=f.env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        owner = json.loads(result.stdout)["cache_owner"]
+        self.assertRegex(owner, r"^[1-9][0-9]*:[0-9]+$")
+
     def test_idle_keeper_restart_recovers_published_prepared_cache(self):
         f = self.fixture
         os.kill(int(f.owner.split(":", 1)[0]), signal.SIGKILL)

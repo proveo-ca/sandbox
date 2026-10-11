@@ -450,7 +450,13 @@ class Keeper:
             raise CacheError("another OpenCode run owns this cache", 75)
         source = Path(source).resolve()
         if not empty:
-            if database_schema(self.helper, source, self.cfg["name"]) is None:
+            try:
+                selected = database_schema(self.helper, source, self.cfg["name"])
+            except CacheError as error:
+                if source != Path(self.cfg["durable"]).resolve() or "not an adopted V2 schema" not in str(error):
+                    raise
+                selected = "v1"
+            if selected is None:
                 raise CacheError(
                     "preparation source has no selected database; use --empty only for a genuinely empty store"
                 )
@@ -1149,29 +1155,20 @@ def run(runtime):
     cfg = context(runtime, env)
     if executable == "--bootstrap-cache":
         if cfg["socket"].exists():
-            if owner is None:
-                raise CacheError(
-                    "a cache controller already exists without a trusted host owner record"
-                )
             probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 probe.connect(str(cfg["socket"]))
-                pid = struct.unpack(
-                    "3i", probe.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
-                )[0]
-                if process_identity(pid) != owner:
-                    raise CacheError(
-                        "stored cache owner identity does not match this engine"
-                    )
             except ConnectionRefusedError:
-                old_pid = int(owner.split(":", 1)[0])
-                try:
-                    text = Path(f"/proc/{old_pid}/stat").read_text()
-                    still_alive = process_identity(old_pid) == owner and text[
-                        text.rfind(")") + 2 :
-                    ].split()[0] not in ("Z", "X")
-                except FileNotFoundError:
-                    still_alive = False
+                still_alive = False
+                if owner is not None:
+                    old_pid = int(owner.split(":", 1)[0])
+                    try:
+                        text = Path(f"/proc/{old_pid}/stat").read_text()
+                        still_alive = process_identity(old_pid) == owner and text[
+                            text.rfind(")") + 2 :
+                        ].split()[0] not in ("Z", "X")
+                    except FileNotFoundError:
+                        still_alive = False
                 info = cfg["socket"].lstat()
                 if (
                     still_alive
@@ -1183,6 +1180,19 @@ def run(runtime):
                     ) from None
                 cfg["socket"].unlink()
                 owner = spawn_keeper(runtime, env)
+            else:
+                pid = struct.unpack(
+                    "3i", probe.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+                )[0]
+                identity = process_identity(pid)
+                if owner is None:
+                    raise CacheError(
+                        "a cache controller already exists without a trusted host owner record"
+                    )
+                if identity != owner:
+                    raise CacheError(
+                        "stored cache owner identity does not match this engine"
+                    )
             finally:
                 probe.close()
         else:

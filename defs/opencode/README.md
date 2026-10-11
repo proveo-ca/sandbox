@@ -157,7 +157,9 @@ OpenCode V2 uses `opencode/v2/config` and `opencode/v2/share` under the proveo h
 Ordinary launches do not mount or import V1/unversioned history.
 Historical V1 session versions inside an already-adopted V2 database remain valid.
 The image requires a stable `2.x` native version.
-Native-version mismatches and changed/unprepared caches require explicit maintenance.
+An ordinary launch prepares an existing V2 database when the engine cache is unprepared, and reports the three prepare steps.
+If that database is absent and an older `opencode.db` is on disk, the launch copies it into `opencode/v2/share` and prepares the copy. The older file stays in place. OpenCode's own V1 migration then runs inside the copy.
+Native-version mismatches and pending recovery still require explicit maintenance.
 
 Prepared startup has a five-second preparation budget.
 The seed gate does not run database backup, VACUUM, SQL dump hashing, or legacy migration.
@@ -186,7 +188,7 @@ proveo run opencode -- --proveo-recover
 
 Recovery does not overwrite a published store changed by another writer.
 Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
-Creating a new engine for existing history requires preparation again.
+Creating a new engine for an existing V2 database prepares that database on the next launch.
 Docker-only runs use explicitly selected disposable sanitized state for compatibility.
 They remain functional but do not provide the retained sbx cache's startup guarantee.
 

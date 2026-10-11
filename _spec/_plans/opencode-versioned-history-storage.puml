@@ -78,7 +78,7 @@
 ' SEMVER CONTRACT: read the actual image/native producer version before selecting config or history stores.
 ' Partition immutable defaults, persistent configuration, history and active caches by harness + compatibility major.
 ' Implemented paths: opencode/v2/config and opencode/v2/share; other majors and unversioned paths remain separate.
-' A V2 launch must not inspect, sanitize, merge or seed a V1 store as routine startup work.
+' An empty V2 share copies one existing legacy opencode.db once, then prepares that copy. The legacy files stay unchanged.
 ' A V1 launch must never open a V2-mutated database.
 ' Unknown/unversioned state requires explicit inspection and adoption through maintenance.
 ' Session row versions are historical content; they do not identify the last database producer.
@@ -99,7 +99,9 @@
 '
 ' SELECTED SEED PHASE: verify a trusted prepared-generation descriptor plus native-major/schema compatibility.
 ' Do not run full backup, VACUUM, SQL dump hashing or implicit legacy import during seeding.
-' Missing or dirty preparation requires an explicit maintenance action, not a hidden slow fallback.
+' An unprepared engine prepares the mounted V2 database in this launch and reports the three steps.
+' Pending recovery still requires --proveo-recover. A different directory still requires --proveo-prepare --source.
+' Empty preparation is not a hidden fallback over an existing V2 database.
 ' Seed configuration only after selecting the matching-major namespace.
 '
 ' SELECTED LAUNCH PHASE: reuse the credential-free prepared cache on its owning runtime engine.
@@ -117,7 +119,7 @@
 ' Preserve the previous good generation until the new generation publishes atomically.
 ' Reconcile host-visible history and engine-local state during maintenance; never merge on implicit startup.
 ' Treat a lost engine or interrupted unprepared generation as pending recovery without deleting its record.
-' Cold-engine preparation cannot silently enter the fast path; provision it before the next launch.
+' A cold engine with a mounted V2 database is prepared before the agent starts. The native client does not start on an unprepared cache.
 ' sbx creates/bootstrap-checks the keeper before managed launch and retains successful OpenCode engines.
 ' It mounts an explicitly requested preparation source read-only; ordinary V2 launches omit legacy history mounts.
 ' Changed launch settings retire a prepared or empty idle engine, not an active/unpublished one.
@@ -131,13 +133,16 @@
 ' A headed yes does not remove an OpenCode engine with active, unpublished, or unattested state.
 ' A direct checkout keeps host edits. A clone loses uncommitted edits unless they were fetched.
 ' A screen that fails to open counts as no.
-' A V2 share with no database and an older store still on disk asks before an empty prepare.
+' A V2 share with a database and an unprepared engine prepares that database. It does not stop for --proveo-prepare.
+' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
+' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
-' The older store stays on disk and is not imported. No leaves the sandbox up and asks again.
+' No on that empty question leaves the sandbox up and asks again.
 ' A prepare that already checks out strips --proveo-prepare and starts the agent.
 ' --proveo-recover always runs recover. A passing check does not skip it or rewrite it as prepare.
 ' After a confirmed delete, a failed recreate says the previous sandbox was removed.
-' Preparation rejects non-V2 schemas before copying, initializes compatible schemas with the pinned native release,
+' An explicit --source that is still V1 is rejected and left unchanged. The durable copy of a legacy database is prepared so the native server can migrate it.
+' Preparation initializes compatible schemas with the pinned native release,
 ' then runs the existing sanitized publication sequence outside ordinary startup.
 ' Diagnostics and commit-subject helpers use disposable empty private state rather than cloning all history.
 ' Docker-only disposable engines do not supply a retained keeper; the managed fast-start backend is sbx.
@@ -212,8 +217,9 @@ VERSION --> CATALOG : select matching major + schema
 CATALOG --> OWNER : prepared engine/generation
 OWNER --> ACTIVE : acquire compatible lifecycle lease
 ACTIVE --> NATIVE : reuse; no full-history startup copy
-OWNER --> REQUIRED : mismatch / missing / busy / pending recovery
-OP --> MAINTAIN : explicitly prepare / import / recover
+OWNER --> MAINTAIN : unprepared V2 database, this launch
+OWNER --> REQUIRED : busy / pending recovery / declined empty prepare
+OP --> MAINTAIN : explicit import / recover
 OLD --> MAINTAIN : only approved import or adoption
 NATIVE --> MAINTAIN : after all writers stop
 MAINTAIN --> ACTIVE : prepared credential-free cache
