@@ -92,6 +92,13 @@ note over HOOK
   An aborted Cursor turn never commits.
 end note
 
+note over CU
+  **The CLI loads ~/.cursor/hooks.json.**
+  An enterprise-only stop entry can sit unread.
+  The seed writes the same stop command there.
+  The script still allows when sync is off.
+end note
+
 ' note-id: N_MSG
 note over GIT
   **Subject describes the work.** The staged

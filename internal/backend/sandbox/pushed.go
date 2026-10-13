@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -9,9 +10,87 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
+
+const fetchPushedWait = 15 * time.Second
+
+var confirmFetchPushed = func(branches []string) bool {
+	if !headedConfirm() {
+		return false
+	}
+	screen, err := openScreen()
+	if err != nil {
+		return false
+	}
+	defer screen.Fini()
+	return choiceui.ConfirmFetchPushed(screen, branches, fetchPushedWait)
+}
+
+var fetchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func splitPushed(name string) (string, string, bool) {
+	remote, branch, ok := strings.Cut(name, "/")
+	if !ok || !fetchName.MatchString(remote) || !safeBranch(branch) {
+		return "", "", false
+	}
+	return remote, branch, true
+}
+
+func safeBranch(branch string) bool {
+	if branch == "" || strings.Contains(branch, "..") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
+		return false
+	}
+	for _, part := range strings.Split(branch, "/") {
+		if !fetchName.MatchString(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func pushedFetchArgs(repo string, branches []string) [][]string {
+	grouped := map[string][]string{}
+	var remotes []string
+	for _, name := range branches {
+		remote, branch, ok := splitPushed(name)
+		if !ok {
+			continue
+		}
+		if _, seen := grouped[remote]; !seen {
+			remotes = append(remotes, remote)
+		}
+		dup := false
+		for _, have := range grouped[remote] {
+			if have == branch {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			grouped[remote] = append(grouped[remote], branch)
+		}
+	}
+	sort.Strings(remotes)
+	var cmds [][]string
+	for _, remote := range remotes {
+		names := append([]string(nil), grouped[remote]...)
+		sort.Strings(names)
+		args := append([]string{"-C", repo, "fetch", "--no-tags", remote}, names...)
+		cmds = append(cmds, args)
+	}
+	return cmds
+}
+
+func fetchPushedLines(repo string, branches []string) []string {
+	var lines []string
+	for _, args := range pushedFetchArgs(repo, branches) {
+		lines = append(lines, fmt.Sprintf("fetch: `git -C %s %s`", repo, strings.Join(args[2:], " ")))
+	}
+	return lines
+}
 
 var pushedRef = regexp.MustCompile(`^(.*)@\{(\d+)\}$`)
 
@@ -83,5 +162,22 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 	ui.Section(ui.SectionResults)
 	for _, branch := range branches {
 		ui.Storef("pushed %s", branch)
+	}
+	if in.RepoRoot == "" || len(pushedFetchArgs(in.RepoRoot, branches)) == 0 {
+		return
+	}
+	if !confirmFetchPushed(branches) {
+		for _, line := range fetchPushedLines(in.RepoRoot, branches) {
+			ui.Notef("%s", line)
+		}
+		return
+	}
+	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))
+			continue
+		}
+		ui.Storef("fetched %s", strings.Join(args[4:], " "))
 	}
 }

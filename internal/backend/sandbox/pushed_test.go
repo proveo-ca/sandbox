@@ -66,3 +66,31 @@ func TestGitReflogSeesPushesFromEveryWorktree(t *testing.T) {
 		t.Fatalf("reflog %q\nbranches %q", raw, got)
 	}
 }
+
+func TestPushedFetchArgsDropsUnsafeNames(t *testing.T) {
+	t.Parallel()
+	got := pushedFetchArgs("/repo", []string{
+		"origin/other",
+		"fork/feat",
+		"origin/feat",
+		"origin/../../etc",
+		"origin/branch:refs/heads/main",
+		"-o/evil",
+	})
+	want := [][]string{
+		{"-C", "/repo", "fetch", "--no-tags", "fork", "feat"},
+		{"-C", "/repo", "fetch", "--no-tags", "origin", "feat", "other"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("cmds %#v", got)
+	}
+	for i := range want {
+		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
+			t.Fatalf("cmd %d = %q", i, got[i])
+		}
+	}
+	lines := fetchPushedLines("/repo", []string{"origin/feat"})
+	if len(lines) != 1 || !strings.Contains(lines[0], "git -C /repo fetch --no-tags origin feat") {
+		t.Fatalf("lines %q", lines)
+	}
+}

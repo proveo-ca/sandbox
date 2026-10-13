@@ -1476,6 +1476,46 @@ _proveo_merge_stop_hook() {
   ' 2>/dev/null
 }
 
+# SPEC: _spec/packages/lib/git-sync-turn.puml
+_proveo_merge_cursor_stop_hook() {
+  local path="$1" cmd="$2"
+  [[ -n "$path" && -n "$cmd" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 1
+  PROVEO_HOOKS_FILE="$path" PROVEO_HOOK_CMD="$cmd" python3 -c '
+import json, os, sys
+path = os.environ["PROVEO_HOOKS_FILE"]
+cmd = os.environ["PROVEO_HOOK_CMD"]
+existed = os.path.exists(path)
+j = {"version": 1, "hooks": {}}
+if existed:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parsed = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        sys.exit(1)
+    if not isinstance(parsed, dict):
+        sys.exit(1)
+    j = parsed
+hooks = j.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+    j["hooks"] = hooks
+stop = hooks.get("stop")
+if not isinstance(stop, list):
+    stop = []
+    hooks["stop"] = stop
+if any(isinstance(row, dict) and row.get("command") == cmd for row in stop):
+    sys.exit(0)
+stop.append({"command": cmd, "timeout": 90, "loop_limit": 1})
+if j.get("version") is None:
+    j["version"] = 1
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(j, handle, indent=2)
+    handle.write("\n")
+'
+}
+
 proveo_install_git_sync_hooks() {
   local target="${1:-}" home hook plugin cmd
   case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1503,8 +1543,9 @@ proveo_install_git_sync_hooks() {
         && echo "git-sync: session.idle plugin commits and pushes after the turn idles"
       ;;
     cursor)
-      if [[ -f /etc/cursor/hooks.json ]] && grep -q git-sync-turn /etc/cursor/hooks.json 2>/dev/null; then
-        echo "git-sync: enterprise stop hook commits and pushes before the turn returns"
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      if _proveo_merge_cursor_stop_hook "$home/.cursor/hooks.json" "$hook"; then
+        echo "git-sync: user stop hook commits and pushes before the turn returns"
       fi
       ;;
   esac

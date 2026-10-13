@@ -816,6 +816,91 @@ echo DONE`
 	}
 }
 
+func TestSeedWritesCursorUserStopHook(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
+	home := t.TempDir()
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooks), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("{\n  \"version\": 1,\n  \"hooks\": {\n    \"beforeShellExecution\": [\n      { \"command\": \"/bin/true\" }\n    ]\n  }\n}\n")
+	if err := os.WriteFile(hooks, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := `source "$1/packages/lib/entrypoint-lib.sh"
+agent_home="$2"
+export HOME="$2" PROVEO_GIT_SYNC_HOOK="$3"
+_proveo_agent_home() { printf '%s' "$agent_home"; }
+proveo_install_git_sync_hooks cursor
+proveo_install_git_sync_hooks cursor
+echo DONE`
+	out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, gitSyncScript(t)).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "DONE") {
+		t.Fatalf("seed step failed: %v\n%s", err, out)
+	}
+	if strings.Count(string(out), "user stop hook") != 2 {
+		t.Errorf("stdout %q, want the user stop hook reported on each seed", out)
+	}
+	b, err := os.ReadFile(hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var j struct {
+		Version int `json:"version"`
+		Hooks   struct {
+			Before []struct {
+				Command string `json:"command"`
+			} `json:"beforeShellExecution"`
+			Stop []struct {
+				Command   string `json:"command"`
+				Timeout   int    `json:"timeout"`
+				LoopLimit int    `json:"loop_limit"`
+			} `json:"stop"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &j); err != nil {
+		t.Fatalf("hooks.json: %v\n%s", err, b)
+	}
+	if j.Version != 1 || len(j.Hooks.Before) != 1 || j.Hooks.Before[0].Command != "/bin/true" {
+		t.Fatalf("existing hook was lost: %s", b)
+	}
+	if len(j.Hooks.Stop) != 1 || !strings.Contains(j.Hooks.Stop[0].Command, "git-sync-turn.sh") || j.Hooks.Stop[0].Timeout != 90 || j.Hooks.Stop[0].LoopLimit != 1 {
+		t.Fatalf("stop hook = %+v\n%s", j.Hooks.Stop, b)
+	}
+	badHome := t.TempDir()
+	broken := filepath.Join(badHome, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broken, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bad := `source "$1/packages/lib/entrypoint-lib.sh"
+agent_home="$2"
+export HOME="$2" PROVEO_GIT_SYNC_HOOK="$3"
+_proveo_agent_home() { printf '%s' "$agent_home"; }
+proveo_install_git_sync_hooks cursor
+echo DONE`
+	badOut, err := exec.Command(bash, "-c", bad, "bash", repoRoot(t), badHome, gitSyncScript(t)).CombinedOutput()
+	if err != nil || !strings.Contains(string(badOut), "DONE") {
+		t.Fatalf("broken seed: %v\n%s", err, badOut)
+	}
+	if strings.Contains(string(badOut), "user stop hook") {
+		t.Errorf("a broken hooks.json was reported as seeded: %s", badOut)
+	}
+	left, err := os.ReadFile(broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(left) != "{" {
+		t.Errorf("broken hooks.json was rewritten: %q", left)
+	}
+}
+
 func TestCodexManagedRequirementsWireGitSyncStop(t *testing.T) {
 	t.Parallel()
 	src := readRepoFile(t, "defs/codex/managed/requirements.toml")

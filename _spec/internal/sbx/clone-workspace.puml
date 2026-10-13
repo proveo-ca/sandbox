@@ -6,6 +6,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/run.go (CloneSnapshotArgs, CloneFetchArgs, CloneLiftArgs)
 ' covers: internal/sbx/run.go (CloneBundleArgs, CloneBundleEmpty, CloneBundleFetchArgs, CloneHostTipsArgs, CloneHostTipsCap)
 ' covers: internal/backend/sandbox/sandbox.go (PreserveClone, carryClone, fetchViaRemote, bundleViaSbx, hostTips, CloneRescueLines, liftClonedOutput)
+' covers: internal/backend/sandbox/pushed.go
+' covers: internal/choiceui/fetch_pushed.go
 ' covers: internal/run/clone_test.go
 ' covers: internal/sbx/clone_test.go
 ' covers: e2e/clone_test.go
@@ -349,6 +351,13 @@ component "the sandbox-<name> git daemon\nlistening only while the sandbox RUNS"
 component "virtiofs passthrough\ndirectory entry vanishes under a running agent" as VFS <<error>>
 component "a nested bind under the repo\nleaves the clone target non-empty" as NESTED <<error>>
 component "host-built dependency trees\ncannot execute in the container" as TREES <<error>>
+
+note bottom of OP
+  **A push is not in this checkout.** After exit,
+  proveo lists branches the reflog recorded as
+  pushed and asks to git fetch them here.
+  No TTY, or 15s of silence, prints the command.
+end note
 
 OP ARROW_MAIN CLONE : ""--clone"", the default since 2026-09-01
 SRC ARROW_MAIN CLONE : read once
