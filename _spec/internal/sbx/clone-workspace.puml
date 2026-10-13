@@ -357,6 +357,7 @@ note bottom of OP
   proveo lists branches the reflog recorded as
   pushed and asks to git fetch them here.
   No TTY, or 15s of silence, prints the command.
+  The question is for coding harnesses.
 end note
 
 OP ARROW_MAIN CLONE : ""--clone"", the default since 2026-09-01

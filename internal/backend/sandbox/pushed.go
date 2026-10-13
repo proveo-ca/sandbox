@@ -137,6 +137,10 @@ func sandboxReflog(name, workdir string) (string, error) {
 	return string(out), err
 }
 
+func offerPushedFetch(in Input) bool {
+	return !in.Man.IsAssistant()
+}
+
 func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 	var reflog string
 	var err error
@@ -163,7 +167,7 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 	for _, branch := range branches {
 		ui.Storef("pushed %s", branch)
 	}
-	if in.RepoRoot == "" || len(pushedFetchArgs(in.RepoRoot, branches)) == 0 {
+	if !offerPushedFetch(in) || in.RepoRoot == "" || len(pushedFetchArgs(in.RepoRoot, branches)) == 0 {
 		return
 	}
 	if !confirmFetchPushed(branches) {

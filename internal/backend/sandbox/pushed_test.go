@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
 func TestPushedBranchesKeepsOneLinePerRefAfterSince(t *testing.T) {
@@ -64,6 +66,20 @@ func TestGitReflogSeesPushesFromEveryWorktree(t *testing.T) {
 	got := pushedBranches(raw, before)
 	if strings.Join(got, "\n") != "origin/main\norigin/other" {
 		t.Fatalf("reflog %q\nbranches %q", raw, got)
+	}
+}
+
+func TestPushedFetchSkipsAnAssistant(t *testing.T) {
+	t.Parallel()
+	coding := []string{"cursor", "opencode", "codex", "claudecode", "cecli"}
+	for _, name := range coding {
+		if !offerPushedFetch(Input{Target: name}) {
+			t.Errorf("%s is a coding harness and must be asked", name)
+		}
+	}
+	hermes := Input{Target: "hermes", Man: manifest.Manifest{Kind: manifest.KindAssistant}}
+	if offerPushedFetch(hermes) {
+		t.Fatal("hermes is an assistant and must not be asked")
 	}
 }
 
