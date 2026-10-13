@@ -88,11 +88,11 @@ func TestPrepareMountsAndScrub(t *testing.T) {
 		Enabled: true,
 		Mounts: []manifest.HomeMount{
 			{Host: ".cursor", Container: "/proveo-home/.cursor", Mode: "rw", Deny: []string{"auth.json"}},
-			{Host: "opencode/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
+			{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
 		},
 	}
 	// Pre-seed a forbidden auth file and a keep-me session marker.
-	share := filepath.Join(root, "opencode", "share")
+	share := filepath.Join(root, "opencode", "v2", "share")
 	if err := os.MkdirAll(share, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,13 @@ func TestResumeArgs(t *testing.T) {
 		{target: "claudecode-solidity", id: "s1", want: []string{"--resume", "s1"}},
 		{target: "claudecode", cont: true, want: []string{"--continue"}},
 		{target: "opencode", id: "sess", want: []string{"--session", "sess"}},
-		{target: "opencode", cont: true, wantErr: true},
+		{target: "opencode", cont: true, want: []string{"--continue"}},
+		{target: "opencode", list: true, want: []string{"session", "list"}},
+		{target: "opencode-browser", cont: true, want: []string{"--continue"}},
+		{target: "opencode-browser", list: true, want: []string{"session", "list"}},
+		{target: "opencode", cont: true, list: true, wantErr: true},
+		{target: "opencode", id: "sess", list: true, wantErr: true},
+		{target: "opencode", id: "sess", cont: true, wantErr: true},
 		{target: "cecli", id: "x", wantErr: true},
 		{target: "cursor", id: "a", cont: true, wantErr: true},
 	}
@@ -191,13 +197,13 @@ func TestResumeArgs(t *testing.T) {
 
 func TestDeniedLoginsPersistOnlyWhenAskedFor(t *testing.T) {
 	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
-		Host: "opencode/share", Container: "/proveo-home/.local/share/opencode",
+		Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode",
 		Mode: "rw", Deny: []string{"auth.json"},
 	}}}
 
 	write := func(root string) string {
 		t.Helper()
-		p := filepath.Join(root, "opencode", "share", "auth.json")
+		p := filepath.Join(root, "opencode", "v2", "share", "auth.json")
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			t.Fatal(err)
 		}

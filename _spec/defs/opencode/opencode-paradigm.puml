@@ -1,52 +1,124 @@
 @startuml
-!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title opencode paradigm — subagent crew with HITL oversight
-
+' purpose: the native OpenCode crew, automatic permissions, visible execution and host-auth boundary
 ' covers: defs/opencode/entrypoint.sh
+' covers: defs/opencode/harness.manifest
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/README.md
+' covers: defs/opencode/defaults/**
+' covers: defs/opencode/sample_opencode.json
+' covers: defs/subagents/_frontmatter/opencode/**
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: packages/lib/proveo-opencode-runtime
+' covers: e2e/opencode_auth_test.go
+' covers: internal/contract/opencode_presentation_test.go
+' covers: e2e/opencode_presentation*
+' covers: e2e/testdata/opencode_presentation.*
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title OpenCode crew — automatic asks, explicit denies and visible execution
+
+' Approved native schema and lifecycle: _spec/defs/opencode/native-v2-integration.puml
+' Seed order: _spec/packages/lib/seed-and-launch.puml
+' Model bridge retirement: _spec/_plans/retire-model-bridging.puml
+' Billing and credential decisions: _spec/internal/credentials/credential-decisions.puml
+'
+' The sibling records implemented source/fixture contracts and PLANNED live acceptance.
+' Primary reports persisted offline native TUI and shell-policy fixtures passed.
+' Final adversarial/security re-evaluations and latest rebuilt-image/e2e gates remain open.
 '
 ' ── HOW THE GLOBAL CONFIG IS SEEDED WHEN ABSENT ────────────────────────────
-' seed_opencode_config prefers a sample shipped by opencode itself, trying five
-' paths in order — ~/.config/opencode/sample_opencode.json, the macOS
-' Library/Application Support path, /opt/opencode, and the two Homebrew/
-' usr-local share dirs — so the seed tracks upstream's own defaults wherever
-' the install put them. Only when none exists does it write a MINIMAL config of
-' proveo's own.
+' entrypoint seed_defaults delegates to shared proveo_seed; its native bootstrap
+' uses baked defaults after config restore and before agent rendering/release.
+' It preserves existing JSON, JSONC, and user agent files unless explicitly reseeded.
 '
-' That minimal config is deliberately small: the schema url, an empty
-' `provider` map, model/small_model as "{env:OPENCODE_MODEL}" placeholders
-' (opencode resolves those at read time, so the model bridges stay the single
-' source of truth), autoupdate false, and the two primary agents this paradigm
-' is about — `plan`, read-only with edit and bash both denied, and `build`,
-' edit allowed with bash set to `ask`.
+' The old model/small_model env placeholders belonged to the retired bridges.
+' An unset placeholder became an empty model persisted in the durable home;
+' baked defaults and sample therefore name no default model.
+' plan denies edit and shell; build allows edit and retains a shell ask rule.
+' The image sets session.permissions: autoaccept through OPENCODE_CLI_CONFIG_CONTENT.
+' The runtime separately injects headless run --auto once, regardless of evidence mode.
+' Native offline fixtures execute shell ask and preserve explicit deny rejection;
+' direct native run without --auto rejects a non-interactive ask.
+' Risky-operation house rules remain instructions; they do not create native prompts.
 '
 ' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1, and the same flag re-seeds
 ' the project AGENTS.md. Everything else the seed writes goes through
 ' proveo_seed (_spec/packages/lib/seed-and-launch.puml).
 '
 ' ── THE LOCAL MODEL IS A PROVIDER ENTRY, NOT A MODEL STRING ────────────────
-' configure_opencode_local_model writes a whole `provider.ollama` block into the
-' user config: npm "@ai-sdk/openai-compatible", options.baseURL pointing at
-' "<OLLAMA_API_BASE>/v1" (default http://ollama:11434), apiKey "ollama", and one
-' entry under `models` for PROVEO_LOCAL_MODEL. So opencode reaches Ollama the
-' same OpenAI-compatible way cecli does, but declaratively — which is why this
-' harness needs no model-string workaround.
+' The native writer uses providers.ollama/package/settings and agents.title.model.
+' It must register AND select PROVEO_LOCAL_MODEL with one /v1 endpoint suffix.
+' Legacy local-model e2e caught an undefined ollama provider falling back to
+' a cloud model; a local request must also supply the provider definition.
+'
+' ── HOST AUTH AND BILLING DECISIONS RETAINED FROM THE ORIGINAL NOTES ───────
+' Zen (opencode/<model>) and Go (opencode-go/<model>) use OPENCODE_API_KEY.
+' The manifest once omitted env:, leaving forward with nothing to forward,
+' the e2e leg skipped, and CredentialReachedAgent unable to name the key.
+' An old single-provider auth gate also hid the choice on multi-key hosts.
+' subscription: true controls prompting, not a requirement for sandbox login:
+' operators may bring another provider key or use an available free model.
+' Broker mode holds the real bearer on the host and injects it only for the
+' approved gateway route; usable provider keys satisfy launch readiness.
+' Historical billing snapshot: Zen had 102 models; Go had 35 models at $10/mo.
+' These recorded counts/prices are not a current upstream contract.
+' BillingClashes warns, never blocks; Go with Use balance can become metered
+' after subscription limits. ModelBilling reads the raw prefix before
+' providerAliases folds both routes onto opencode for host/key routing.
+' The former auth.json-only explanation described v1, not the v2 token store.
+' The approved v2 lifecycle preserves sessions and removes stored credentials;
+' the approved private per-run DB and full-lifetime lease live in the native sibling.
+' Account/MCP token stores, nonauth state, rebased artifact paths, protected recovery,
+' PTY job control and canonical backend mapping now have implemented source fixtures.
+' Actual sbx cross-VM file locks and model-driven live idle git sync remain unexecuted.
+' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
+'
+' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config
+' General editor schema pointer: https://opencode.ai/config.json (v1; advisory).
+' Exact session/tabs/mini bindings and schema controls are quoted in the native sibling.
+' Presentation semantics and navigation follow primary's native UI/source audit,
+' documented in defs/opencode/README.md: source disables Markdown concealment;
+' thinking show expands full available returned blocks; high verbosity and grouping
+' none expose individual calls and thoughts. Mini tools/thinking/shell_output/
+' turn_summary/footer all use show. Tabs use on + status; sidebar uses auto.
+' A running subagent row opens the child's live transcript; Ctrl+P -> Toggle subagent
+' picker -> Enter provides the alternate route. Opened tabs show busy/attention status.
+' No supported default setting renders a live child-operation wait graph in the main
+' transcript; Code Mode execute opens a separate Code / Output dialog instead.
+' The persisted offline fixture proves eight session/tab Settings values and native
+' mini schema controls, not model-driven child operations or live mini output.
+' These are upstream native controls, not a custom aligned layout or a new salt surface.
+'
+' Register: manual normalized word/syllable counts; two sentences per note.
+' FK: note right of CREW; words=28 syllables=54; FK 12.6
+' FK: note bottom of EP (model); words=30 syllables=56; FK 12.3
+' FK: note bottom of EP (auth); words=30 syllables=54; FK 11.5
+' FK: note bottom of DEV; words=32 syllables=54; FK 10.6
+' FK: note bottom of CLI; words=28 syllables=49; FK 10.5
+' FK: note bottom of TRANSCRIPT; words=33 syllables=59; FK 11.9
+' FK: note bottom of DISPLAY; words=32 syllables=60; FK 12.8
+' FK: note bottom of CHILD; words=30 syllables=52; FK 10.7
 '
 actor "Developer\nreviews between loops" as DEV
 
 node "opencode container" as CTR <<host>> {
   component "defs/opencode/entrypoint.sh" as EP <<app>>
-  component "opencode TUI / run --auto" as CLI <<app>>
+  component "opencode TUI / run" as CLI <<app>>
 
   frame "Seeded crew (~/.config/opencode/agents)" as CREW <<host>> {
-    component "plan\nread-only: edit+bash denied" as PLAN <<app>>
-    component "build\nedit allow · bash ask" as BUILD <<app>>
-    component "reviewers\nadversarial · security · spec-keeper" as REV <<app>>
+    component "plan\nread-only: edit + shell denied" as PLAN <<app>>
+    component "build\nedit allow · native shell ask rule\nsession.permissions: autoaccept" as BUILD <<app>>
+    component "advisors\nedit + shell denied" as REV <<app>>
+    component "spec-keeper\nedit allow · shell deny\nedit scope enforced by prompt" as SPEC <<app>>
   }
 
   component "native LSP\nauto-enabled per detected language" as LSP <<app>>
   artifact "AGENTS.md" as MD <<db>>
   database "/app — repo (rw, .git rw)" as WS <<db>>
+  component "defs/opencode/Dockerfile\nOPENCODE_CLI_CONFIG_CONTENT" as DISPLAY <<app>>
+  component "opencode session transcript\nmarkdown source · thinking show\ngrouping none · verbosity high\nsidebar auto" as TRANSCRIPT <<app>>
+  component "opencode mini\ntools · thinking · shell_output\nturn_summary · footer: show" as MINI <<app>>
+  component "opencode subagent rows / picker\nlive child transcripts" as CHILD <<app>>
+  component "opencode tabs\nmode on · indicators status" as TABS <<app>>
 }
 
 DEV ARROW_MAIN CLI
@@ -58,95 +130,79 @@ CLI ARROW_MAIN BUILD : implement
 BUILD ARROW_MAIN WS
 CLI ARROW_OPTIONAL PLAN : specs and step lists
 BUILD ARROW_QUEUE REV : review loop
+BUILD ARROW_QUEUE SPEC : spec maintenance
 REV ARROW_MAIN DEV : findings surface to the human
+DISPLAY ARROW_MAIN CLI : native CLI preferences; saved global cli.json preserved
+CLI ARROW_MAIN TRANSCRIPT : source text + available thinking + individual calls
+CLI ARROW_MAIN MINI : five native visibility preferences
+CLI ARROW_OPTIONAL CHILD : select running child row / picker
+CHILD ARROW_MAIN TABS : opened sessions show status
 
 note right of CREW
-  **Roles are structural, not advisory.** The plan agent
-  has ""edit"" and ""bash"" set to deny and reviewers are
-  read-only, so "don't change code while reviewing" is a
-  permission, not a prompt instruction.
-
-  ""build"" keeps ""bash: ask"" — the HITL point.
+  Primary agents separate planning from
+  implementation through edit and shell
+  permissions. Advisors cannot edit or run shell,
+  while spec-keeper retains the existing edit
+  exception constrained by its prompt.
 end note
 
 note bottom of EP
-  Model ids are **provider-prefixed** here
-  (""anthropic/claude-…""). **proveo does not choose one.**
-  The bridge that filled these slots from role names is
-  RETIRED (_spec/_plans/retire-model-bridging.puml); the
-  model comes from opencode's own config in the durable
-  home, and the seed there names none.
-
-  Supports ""--local-model"" (Ollama sidecar, litellm-free
-  OpenAI-compatible endpoint). Docker now arrives as the
-  sandbox's own daemon under ""docker: sbx"", not as the
-  retired privileged sibling.
+  The default seed names no model so the harness
+  retains model selection. An explicit
+  local-model request registers its provider
+  and selects that model instead of reviving
+  the retired role-to-model bridge.
 end note
 
 note bottom of EP
-  **Auth happens on the host, before launch — for OpenCode's own gateway
-  too.** Zen (pay-as-you-go, ""opencode/<model>"") and Go (the subscription,
-  ""opencode-go/<model>"") both read ""OPENCODE_API_KEY"", and opencode's
-  provider loader takes environment keys **ahead of** ""auth.json"". So a key
-  exported in the shell rc or a gitignored "".env"" is the whole login: proveo
-  detects it like any provider key (""internal/provider"" entry ""opencode""),
-  brokers it in firewall mode — the agent holds a sentinel, the egress proxy
-  injects the real bearer on "".opencode.ai"" only.
-
-  **The def DECLARES it now, and that is what 'unaware' meant.** For a long
-  while the manifest listed no ""env:"", so ""OPENCODE_API_KEY"" was a
-  provider key proveo detected and nothing more: not the harness's plan, so
-  ""--credentials forward"" had nothing to forward (the e2e case skipped for
-  exactly that reason), ""CredentialReachedAgent"" could not see it, and the
-  'no credential reached the agent' hint fired naming nothing to fix. The auth
-  row never offered it either — its old gate wanted exactly ONE detected
-  provider, and a host with the gateway key beside ""ANTHROPIC_API_KEY"" has
-  two.
-
-  ""subscription: true"" here is about the PROMPT, not about a login flow: never
-  ask for this key ahead of time, because the operator may be running on their
-  own provider keys — or on the gateway's free models with no key. The
-  paths that read that flag as 'this harness has no credential' were the ones
-  that had to learn the difference: the sbx refusal and the sbx login hint both
-  yield to a usable provider key now.
-  SPEC: _spec/internal/credentials/credential-decisions.puml
-
-**Zen and Go are two BILLING sides on one key, and only the model id
-  separates them.** Zen is pay-as-you-go against a balance
-  (""opencode/<model>"", 102 models); Go is the $10/mo subscription
-  (""opencode-go/<model>"", 35 models, dollar-based limits). models.dev lists
-  ""OPENCODE_API_KEY"" as the env for BOTH.
-
-  So the auth row cannot settle the bill by naming a credential — the key
-  buys either — and it says so instead of pretending otherwise. The row backs
-  both options with the same key, and ""Roles.BillingClashes"" warns when the
-  answer and the model prefix disagree: answering 'subscription' while
-  ""ARCHITECT_MODEL=opencode/gpt-5-nano"" spends the Zen balance.
-
-  It warns and never blocks. With 'Use balance' enabled Go falls back to the
-  Zen balance once its limits are spent, so even a correct ""opencode-go/"" id
-  can turn metered mid-run. ""providerAliases"" folds ""opencode-go"" into
-  ""opencode"" for routing — one host, one key, one broker route — so
-  ""ModelBilling"" reads the raw prefix before that fold.
-  SPEC: _spec/internal/credentials/credential-decisions.puml
-
-    The TUI's ""/connect"" (""opencode auth login"") is the wrong place: it writes
-  ""~/.local/share/opencode/auth.json"", which the manifest's share mount
-  **denies** — the proveo home scrubs it on every run so login tokens never
-  persist there. The entrypoint's no-key warning names ""OPENCODE_API_KEY""
-  first and says so. Without any key, opencode still starts: the gateway
-  serves its free models to an unauthenticated caller (""apiKey: public"").
+  Host environment keys supply authentication
+  without an in-sandbox login step. Broker mode
+  keeps the real credential host-side and limits
+  gateway injection to approved hosts, while
+  the agent holds a sentinel.
 end note
+
+note bottom of DEV
+  Zen and Go use the same environment key but
+  different model prefixes. Billing warnings
+  compare the chosen mode with the raw model
+  prefix before provider aliases merge both
+  routes into one gateway.
+end note
+
 note bottom of CLI
-  **Narration is split across three switches, and one of them is unsafe on
-  the TUI path.** ""--log-level DEBUG"" records what the harness did;
-  ""--print-logs"" puts that on stderr, which only works when the TUI is not
-  drawing on the same terminal, so off the TUI path it stays in the log
-  file instead. On ""run"", ""--thinking"" keeps the model's reasoning blocks in
-  the transcript rather than collapsing them — the closest opencode comes
-  to showing its thoughts — and it has to be inserted before the prompt
-  argument.
+  Keep debug logs away from the root TUI because
+  log output competes with terminal rendering.
+  Headless run can expose logs and thinking blocks
+  without corrupting that interactive surface.
 end note
 
+note bottom of TRANSCRIPT
+  Source Markdown keeps text visible instead of
+  concealing it behind a rendered view. Showing
+  thinking expands full returned blocks, so
+  visibility depends on provider output rather
+  than on reasoning the provider never sent.
+end note
 
+note bottom of DISPLAY
+  High verbosity exposes individual tool calls
+  and thoughts instead of reducing the transcript
+  to summaries. No grouping keeps each call
+  separate, so the operator can attribute
+  displayed output to its own operation.
+end note
+
+note bottom of CHILD
+  Subagent rows and the interactive picker open
+  live child transcripts instead of expanding
+  every child operation inline. No supported
+  default setting draws a live wait graph in
+  the main transcript.
+end note
+
+note bottom of TABS
+  Opened sessions expose busy
+  and attention status icons.
+end note
 @enduml

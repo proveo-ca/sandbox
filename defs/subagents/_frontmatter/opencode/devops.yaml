@@ -1,6 +1,9 @@
 description: DevOps / build & CI reviewer. Covers Dockerfiles, CI pipelines, IaC.
 mode: subagent
-temperature: 0.2
-permission:
-  edit: deny
-  bash: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny

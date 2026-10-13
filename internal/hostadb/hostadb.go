@@ -42,7 +42,9 @@ type Launch struct {
 var Launches = map[string]Launch{
 	"claudecode": {Flags: []string{"--mcp-config", MCPConfig}},
 	"opencode": {Opencode: map[string]any{
-		"mobile": map[string]any{"type": "local", "command": mcpCommand, "enabled": true},
+		"servers": map[string]any{
+			"mobile": map[string]any{"type": "local", "command": mcpCommand, "disabled": false},
+		},
 	}},
 	"codex":  {Why: "not wired yet: codex takes -c mcp_servers.mobile.* per launch"},
 	"cecli":  {Why: "not wired yet: cecli takes --mcp-servers / CECLI_MCP_SERVERS per launch"},

@@ -46,9 +46,7 @@ var gitSyncHookRejected = regexp.MustCompile(`(?i)hook (error|failed)|invalid (h
 
 const gitSyncPrompt = "Reply with the single word OK and nothing else."
 
-// TestGitSyncTurnHookFiresBeforeThePromptReturns drives each harness TUI through
-// one turn, then reads the hook's trace and the clone's git state in the live sandbox.
-func TestGitSyncTurnHookFiresBeforeThePromptReturns(t *testing.T) {
+func TestGitSyncTurnEventuallyPersistsTheTurn(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
 	}
@@ -136,9 +134,12 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	}
 
 	var state map[string]string
-	w.until("the git-sync-turn trace — the hook never ran at turn end", durationEnv(t, "PROVEO_TEST_TURN_TIMEOUT", 8*time.Minute), func() bool {
+	w.until("git-sync-turn eventual completion", durationEnv(t, "PROVEO_TEST_TURN_TIMEOUT", 8*time.Minute), func() bool {
 		state = gitSyncState(t, name, work)
-		return state["TRACE"] != ""
+		blob, _ := base64.StdEncoding.DecodeString(state["BLOB"])
+		delivered := state["REMOTES"] == "" || state["ORIGIN_RO"] != "" ||
+			(state["UPSTREAM"] != "" && state["AHEAD"] == "0")
+		return state["TRACE"] != "" && state["DIRTY"] == "" && bytes.Equal(blob, probe) && delivered
 	})
 	time.Sleep(5 * time.Second)
 	w.tick()

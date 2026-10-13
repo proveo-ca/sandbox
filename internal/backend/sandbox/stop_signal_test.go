@@ -11,7 +11,7 @@ import (
 
 func TestHangupCancelsTheRunInsteadOfKillingProveo(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGTERM} {
-		ctx, stop := forwardStop()
+		ctx, stop, _ := forwardStop()
 		if err := syscall.Kill(syscall.Getpid(), sig); err != nil {
 			t.Fatal(err)
 		}

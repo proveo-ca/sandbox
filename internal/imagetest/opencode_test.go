@@ -165,7 +165,16 @@ func ocSecurity(s *imagetest.Suite) {
 	s.Failure("ss not available", img, "which ss")
 	s.Failure("cannot write to /usr/bin", img, "touch /usr/bin/testfile 2>/dev/null")
 	s.Failure("cannot write to /etc", img, "touch /etc/testfile 2>/dev/null")
-	s.Contains("auto-update is disabled", img, `echo $OPENCODE_AUTO_UPDATE`, "false")
+	s.Contains("v2 auto-update is disabled", img, `echo $OPENCODE_DISABLE_AUTOUPDATE`, "1")
+	s.Success("native YOLO and visible execution preferences are baked", img,
+		`printf '%s' "$OPENCODE_CLI_CONFIG_CONTENT" | jq -e '
+          .session.permissions == "autoaccept" and .session.markdown == "source"
+          and .session.thinking == "show" and .session.grouping == "none"
+          and .session.verbosity == "high" and .session.sidebar == "auto"
+          and .tabs.mode == "on" and .tabs.indicators == "status"
+          and .mini.tools == "show" and .mini.thinking == "show"
+          and .mini.shell_output == "show" and .mini.turn_summary == "show"
+          and .mini.footer == "show"'`)
 
 	s.Check("arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--user", "4242:4242", "--entrypoint", "bash", img, "-c",
@@ -258,16 +267,19 @@ func ocDefaults(s *imagetest.Suite) {
    done
    echo "roster: $(echo $roster | tr "\n" " ")"`)
 
-	s.Contains("default opencode.json: build agent has bash:ask", img, "cat /opt/opencode/defaults/opencode.json", `"bash": "ask"`)
-	s.Contains("default opencode.json: plan agent has bash:deny", img, "cat /opt/opencode/defaults/opencode.json", `"bash": "deny"`)
-	s.Contains("default opencode.json: context rot enabled", img, "cat /opt/opencode/defaults/opencode.json", `"rot": true`)
+	s.Success("default opencode.json: build agent asks before shell execution", img,
+		`jq -e '.agents.build.permissions | any(.action == "shell" and .resource == "*" and .effect == "ask")' /opt/opencode/defaults/opencode.json`)
+	s.Success("default opencode.json: plan agent denies shell execution", img,
+		`jq -e '.agents.plan.permissions | any(.action == "shell" and .resource == "*" and .effect == "deny")' /opt/opencode/defaults/opencode.json`)
+	s.Success("default opencode.json: automatic compaction enabled", img,
+		`jq -e '.compaction.auto == true' /opt/opencode/defaults/opencode.json`)
 
 	// SPEC: _spec/_plans/retire-model-bridging.puml
 	for _, seed := range []string{"/opt/opencode/defaults/opencode.json", "/opt/opencode/sample_opencode.json"} {
 		s.Success(filepath.Base(seed)+": names no model by environment", img, "! grep -q 'env:OPENCODE' "+seed)
 	}
 	s.Success("default opencode.json: plan and build omit their own model (inherit the global)", img,
-		"jq -e '.agent.plan.model == null and .agent.build.model == null' /opt/opencode/defaults/opencode.json")
+		"jq -e '.agents.plan.model == null and .agents.build.model == null and .model == null' /opt/opencode/defaults/opencode.json")
 
 	s.Check("entrypoint seeds ~/.config/opencode on first run", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--entrypoint", "/entrypoint.sh", img, "--version")
@@ -311,24 +323,80 @@ func ocMCP(s *imagetest.Suite) {
 	fixture := s.T.TempDir()
 	ocWrite(s.T, filepath.Join(fixture, "opencode.json"), `{
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-5",
   "mcp": {
-    "fs-test": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
-      "enabled": true
+    "servers": {
+      "fs-test": {
+        "type": "local",
+        "command": ["node", "/app/mcp-fixture.cjs"]
+      }
     }
   }
 }
+`, 0o644)
+	ocWrite(s.T, filepath.Join(fixture, "mcp-fixture.cjs"), `const fs = require("node:fs")
+const readline = require("node:readline")
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  const request = JSON.parse(line)
+  if (request.id === undefined) return
+  let result = {}
+  switch (request.method) {
+    case "initialize":
+      result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fs-test", version: "1.0.0" } }
+      break
+    case "tools/list":
+      result = { tools: [{ name: "read_file", description: "Read a fixture file", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }] }
+      break
+    case "tools/call":
+      result = { content: [{ type: "text", text: fs.readFileSync(request.params.arguments.path, "utf8") }] }
+      break
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\n")
+}).on("close", () => process.exit(0))
 `, 0o644)
 	ocWrite(s.T, filepath.Join(fixture, "marker.txt"), "MCP_FIXTURE_OK\n", 0o644)
 	mount := fixture + ":/app"
 
 	s.Check("opencode discovers MCP server from opencode.json", func(t *testing.T) {
-		r := ocRun(t, 90*time.Second, nil, "-v", mount, "-w", "/app", "--entrypoint", "bash", img, "-c",
-			`cd /app && timeout 60 opencode mcp list 2>&1 || true`)
-		if !regexp.MustCompile(`fs-test|filesystem`).MatchString(r.Out) {
-			t.Errorf("MCP discovery (output: %s)", ocClip(r.Out, 400))
+		r := ocRun(t, 90*time.Second, nil, "--network", "none", "-v", mount, "-w", "/app",
+			"-e", "OPENCODE_SERVER_PASSWORD=offline-mcp", "--entrypoint", "bash", img, "-c", `set -euo pipefail
+timeout 60 opencode serve --hostname 127.0.0.1 --port 4096 >/tmp/mcp-serve.log 2>&1 & server=$!
+cleanup() {
+  local code=$? server_code
+  trap - EXIT
+  if kill -0 "$server" 2>/dev/null; then kill "$server"; fi
+  if wait "$server"; then
+    :
+  else
+    server_code=$?
+    if [[ "$server_code" != 143 ]]; then
+      printf 'MCP server exited with status %s\n' "$server_code" >&2
+      code=1
+    fi
+  fi
+  if ((code != 0)); then cat /tmp/mcp-serve.log >&2; fi
+  exit "$code"
+}
+trap cleanup EXIT
+config=''
+for ((i=0;i<100;i++)); do
+  if config="$(curl -fsS --max-time 2 -u opencode:offline-mcp 'http://127.0.0.1:4096/api/config?location%5Bdirectory%5D=%2Fapp' 2>/dev/null)"; then break; fi
+  sleep 0.2
+done
+printf 'MCP_CONFIG=%s\n' "$config"
+jq -e --slurpfile expected /app/opencode.json 'any(.[]; .type == "document" and .path == "/app/opencode.json" and .info == $expected[0])' <<< "$config" >/dev/null
+for ((i=0;i<100;i++)); do
+  mcp="$(curl -fsS --max-time 2 -u opencode:offline-mcp 'http://127.0.0.1:4096/api/mcp?location%5Bdirectory%5D=%2Fapp')"
+  if jq -e '.location.directory == "/app" and any(.data[]; .name == "fs-test" and .status.status == "connected")' <<< "$mcp" >/dev/null; then
+    printf 'MCP_STATUS=%s\n' "$mcp"
+    printf 'MCP_CONNECTED=fs-test\n'
+    exit 0
+  fi
+  sleep 0.2
+done
+printf 'MCP did not connect: %s\n' "$mcp" >&2
+exit 1`)
+		if !r.OK() || !ocHasLine(r.Out, "MCP_CONNECTED=fs-test") {
+			t.Errorf("MCP discovery: exit=%d, error=%v\n%s", r.Code, r.Err, r.Out)
 		}
 	})
 
@@ -341,8 +409,8 @@ func ocMCP(s *imagetest.Suite) {
 		r := ocRun(t, 200*time.Second, nil, "-v", mount, "-w", "/app", "-e", "ANTHROPIC_API_KEY="+key,
 			"--entrypoint", "bash", img, "-c",
 			`cd /app && timeout 180 opencode run -m anthropic/claude-sonnet-4-5 "Use the fs-test MCP server to read /app/marker.txt and reply with its exact contents only." 2>&1`)
-		if !strings.Contains(r.Out, "MCP_FIXTURE_OK") {
-			t.Errorf("MCP tool invocation (output: %s)", ocClip(r.Out, 500))
+		if !r.OK() || !strings.Contains(r.Out, "MCP_FIXTURE_OK") {
+			t.Errorf("MCP tool invocation: exit=%d, error=%v (output: %s)", r.Code, r.Err, ocClip(r.Out, 500))
 		}
 	})
 }

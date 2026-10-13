@@ -43,6 +43,7 @@
         "internal/contract/agent_pin_test.go",
         "internal/posture/posture.go",
         "internal/run/run.go",
+        "defs/opencode/entrypoint.sh",
         "defs/opencode/README.md",
         "CODING_HARNESSES.md"
       ],
@@ -228,6 +229,77 @@
         "internal/entrypoint/**",
         "cmd/proveo-entrypoint/**",
         "internal/gitidentity/gitidentity.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/opencode-versioned-history-storage.puml",
+      "covers": [
+        "defs/opencode/Dockerfile",
+        "defs/opencode/harness.manifest",
+        "packages/lib/proveo-seed",
+        "packages/lib/proveo-opencode-runtime",
+        "packages/lib/opencode_cache.py",
+        "packages/lib/test_opencode_cache.py",
+        "packages/lib/opencode-credentials.py",
+        "packages/lib/test_opencode_credentials.py",
+        "packages/lib/test_opencode_runtime.py",
+        "packages/lib/test_opencode_runtime_native.py",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/opencode_cache.go",
+        "internal/backend/sandbox/opencode_cache_test.go",
+        "internal/backend/sandbox/home_access.go",
+        "internal/backend/sandbox/launch_receipt.go",
+        "internal/backend/dockeregress/dockeregress.go",
+        "internal/backend/sandbox/opencode_history_image_test.go",
+        "internal/backend/dockeregress/opencode_lifecycle_test.go",
+        "internal/proveohome/proveohome.go",
+        "internal/contract/opencode_credentials_test.go",
+        "internal/contract/spec_notes_test.go",
+        "e2e/opencode_credentials_test.go",
+        "e2e/opencode_sessions_test.go",
+        "e2e/opencode_prepared_history_test.go",
+        "e2e/opencode_cache_sbx_test.go",
+        "cmd/proveo/testdata/plan/docker-open-forward-opencode.golden",
+        "cmd/proveo/testdata/plan/docker-open-broker-opencode.golden",
+        "cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden",
+        "cmd/proveo/testdata/run/docker-opencode-broker.golden"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_paradigms/opencode-oauth-persistence.puml",
+      "covers": [
+        "defs/opencode/harness.manifest",
+        "defs/opencode/README.md",
+        "packages/lib/proveo-opencode-runtime",
+        "packages/lib/opencode-credentials.py",
+        "packages/lib/test_opencode_credentials.py",
+        "packages/lib/test_opencode_runtime.py",
+        "packages/lib/test_opencode_runtime_native.py",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/sbx/secret.go",
+        "e2e/opencode_credentials_test.go",
+        "e2e/opencode_auth_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/harness-credential-storage-audit.puml",
+      "covers": [
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/harness.manifest",
+        "defs/cursor/harness.manifest",
+        "defs/codex/harness.manifest",
+        "defs/claudecode/harness.manifest",
+        "defs/hermes/harness.manifest",
+        "defs/cecli/harness.manifest",
+        "internal/credentials/credentials.go",
+        "internal/contract/opencode_credentials_test.go",
+        "packages/lib/proveo-opencode-runtime",
+        "packages/lib/opencode-credentials.py",
+        "packages/lib/test_opencode_cache.py",
+        "packages/lib/test_opencode_runtime_native.py"
       ],
       "fingerprint": null
     },
@@ -713,17 +785,61 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/defs/opencode/native-v2-integration.puml",
+      "covers": [
+        "defs/opencode/defaults/**",
+        "defs/opencode/sample_opencode.json",
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/Dockerfile",
+        "defs/opencode/harness.manifest",
+        "defs/opencode/README.md",
+        "packages/lib/entrypoint-lib.sh",
+        "packages/lib/hooks/**",
+        "packages/lib/*opencode*",
+        "defs/subagents/_frontmatter/opencode/**",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/launch_config_test.go",
+        "internal/backend/sandbox/host_adb_test.go",
+        "internal/hostadb/**",
+        "internal/proveohome/**",
+        "internal/sbx/run.go",
+        "internal/contract/**",
+        "internal/contract/opencode_presentation_test.go",
+        "internal/imagetest/opencode_test.go",
+        "e2e/**",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/defs/opencode/opencode-paradigm.puml",
       "covers": [
         "defs/opencode/entrypoint.sh",
-        "packages/lib/entrypoint-lib.sh"
+        "defs/opencode/harness.manifest",
+        "defs/opencode/Dockerfile",
+        "defs/opencode/README.md",
+        "defs/opencode/defaults/**",
+        "defs/opencode/sample_opencode.json",
+        "defs/subagents/_frontmatter/opencode/**",
+        "packages/lib/entrypoint-lib.sh",
+        "packages/lib/proveo-opencode-runtime",
+        "e2e/opencode_auth_test.go",
+        "internal/contract/opencode_presentation_test.go",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
     },
     {
       "spec": "_spec/defs/opencode/opencode-topology.puml",
       "covers": [
-        "defs/opencode/**"
+        "defs/opencode/**",
+        "defs/subagents/_frontmatter/opencode/**",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/opencode_presentation_test.go",
+        "e2e/opencode_presentation*",
+        "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
     },
@@ -1488,15 +1604,18 @@
         "packages/lib/hooks/git-sync-turn.sh",
         "packages/lib/hooks/proveo-git-sync-turn.js",
         "packages/lib/entrypoint-lib.sh",
+        "defs/opencode/entrypoint.sh",
         "defs/cursor/defaults/hooks.json",
         "defs/base/Dockerfile",
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/codex/Dockerfile",
+        "defs/codex/managed/requirements.toml",
         "defs/claudecode/mcp/Dockerfile",
         "internal/contract/git_sync_turn_test.go",
-        "e2e/git_sync_turn_test.go",
-        "defs/codex/managed/requirements.toml"
+        "internal/contract/opencode_runtime_test.go",
+        "internal/contract/testdata/opencode_git_sync_plugin.mjs",
+        "e2e/git_sync_turn_test.go"
       ],
       "fingerprint": null
     },
@@ -1517,6 +1636,34 @@
         "internal/contract/lsp_config_parity_test.go",
         "internal/contract/seed_abort_test.go",
         "internal/sbx/kit.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/opencode-seed-progress.puml",
+      "covers": [
+        "defs/opencode/Dockerfile",
+        "defs/opencode/README.md",
+        "packages/lib/proveo-await-seed",
+        "packages/lib/proveo-seed",
+        "packages/lib/entrypoint-lib.sh",
+        "packages/lib/proveo-opencode-preflight",
+        "packages/lib/proveo-opencode-runtime",
+        "packages/lib/opencode_startup.py",
+        "packages/lib/test_opencode_startup.py",
+        "packages/lib/test_opencode_runtime.py",
+        "internal/contract/opencode_seed_progress_test.go",
+        "e2e/opencode_seed_progress_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/packages/lib/opencode-seed-progress-wireframe.puml",
+      "covers": [
+        "packages/lib/proveo-await-seed",
+        "packages/lib/opencode_startup.py",
+        "packages/lib/test_opencode_startup.py",
+        "e2e/opencode_seed_progress_test.go"
       ],
       "fingerprint": null
     },

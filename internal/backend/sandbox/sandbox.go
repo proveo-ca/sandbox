@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -1429,6 +1431,26 @@ func Run(in Input) error {
 			return err
 		}
 	}
+	if opencodeCacheTarget(in.Target) {
+		mount, enabled, err := openCodePreparationSource(in.Extra)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			if err := prepareOpenCodeSource(in, homeAccess, mount); err != nil {
+				return err
+			}
+			var ordinary []string
+			for index := 0; index < len(in.Extra); index++ {
+				if in.Extra[index] == "--source" {
+					index++
+					continue
+				}
+				ordinary = append(ordinary, in.Extra[index])
+			}
+			in.Extra = ordinary
+		}
+	}
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false
 	defer func() {
@@ -1444,7 +1466,11 @@ func Run(in Input) error {
 	ui.Section(ui.SectionStarting)
 	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
-	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+	running := sbx.Running
+	if opencodeCacheTarget(in.Target) {
+		running = openCodeEngineActive
+	}
+	if err := retireIfStale(in, cfg, receipt, sbx.Exists, running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
 		return err
 	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
@@ -1455,6 +1481,12 @@ func Run(in Input) error {
 		ui.Appf(f, a...)
 	}); err != nil {
 		return err
+	}
+	if opencodeCacheTarget(in.Target) && !in.Shell {
+		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
+		if err != nil {
+			return err
+		}
 	}
 	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
@@ -1495,7 +1527,8 @@ func Run(in Input) error {
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
-	stopped, stopSignals := forwardStop()
+	var forceRemove atomic.Bool
+	stopped, stopSignals, cancelRun := forwardStop()
 	defer stopSignals()
 	run := func() error {
 		c := exec.CommandContext(stopped, sbx.Binary, args...)
@@ -1509,6 +1542,29 @@ func Run(in Input) error {
 			px.Tap = traceIn
 			if tail != nil {
 				px.OutTap = func(b []byte) { _, _ = tail.Write(b) }
+			}
+			if os.Getenv("PROVEO_SCHEDULE") == "" {
+				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
+					screen, err := px.OverlayScreen(in)
+					if err != nil {
+						return ptyproxy.CtrlCStay
+					}
+					if err := screen.Init(); err != nil {
+						return ptyproxy.CtrlCStay
+					}
+					defer screen.Fini()
+					switch choiceui.ConfirmSandboxClose(screen) {
+					case choiceui.SandboxCloseRemove:
+						return ptyproxy.CtrlCRemove
+					case choiceui.SandboxClosePass:
+						return ptyproxy.CtrlCPass
+					default:
+						return ptyproxy.CtrlCStay
+					}
+				}, func() {
+					forceRemove.Store(true)
+					cancelRun()
+				})
 			}
 			return px.Run(c)
 		}
@@ -1530,9 +1586,10 @@ func Run(in Input) error {
 		}
 	}
 	defer func() {
+		reportPushedBranches(in, cfg, startedAt)
 		CapturePolicyLog(in.EgDir, cfg.Name)
 		CaptureMemoryEvidence(in.EgDir, cfg.Name)
-		if runErr != nil {
+		if runErr != nil && !forceRemove.Load() {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
 				said = true
@@ -1583,6 +1640,14 @@ func Run(in Input) error {
 		if err := homeAccess.Commit(); err != nil {
 			ui.Warnf("home-root config not preserved: %v", err)
 		}
+		if forceRemove.Load() {
+			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
+		}
+		if opencodeCacheTarget(in.Target) && !in.Shell && !forceRemove.Load() {
+			keepHomeAccess = true
+			ui.Storef("OpenCode engine retained for prepared history: %s", cfg.Name)
+			return
+		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
 			keepHomeAccess = sbx.Exists(cfg.Name)
@@ -1604,7 +1669,7 @@ const stopWait = 30 * time.Second
 
 // forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
 // stop and the deferred teardown runs instead of proveo dying mid-run.
-func forwardStop() (context.Context, func()) {
+func forwardStop() (context.Context, func(), context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
@@ -1615,7 +1680,7 @@ func forwardStop() (context.Context, func()) {
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, func() { signal.Stop(sigs); cancel() }
+	return ctx, func() { signal.Stop(sigs); cancel() }, cancel
 }
 
 func WarnBaseline() {
@@ -1857,8 +1922,7 @@ func gitSafeDirectoryEnv(repoRoot string) []string {
 	}
 }
 
-// launchConfigEnv renders the def's model wiring in the form the agent reads
-// at launch, for a def whose entrypoint sbx does not run before the agent.
+// launchConfigEnv renders OpenCode's per-launch model and MCP configuration.
 func launchConfigEnv(agent string, agentEnv []string) []string {
 	if agent != "opencode" {
 		return nil
@@ -1874,16 +1938,20 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 		if base == "" {
 			base = "http://ollama:11434"
 		}
-		cfg["provider"] = map[string]any{
+		base = strings.TrimRight(base, "/")
+		for strings.HasSuffix(base, "/v1") {
+			base = strings.TrimRight(strings.TrimSuffix(base, "/v1"), "/")
+		}
+		cfg["providers"] = map[string]any{
 			"ollama": map[string]any{
-				"npm":     "@ai-sdk/openai-compatible",
-				"name":    "Ollama (local)",
-				"options": map[string]any{"baseURL": strings.TrimRight(base, "/") + "/v1", "apiKey": "ollama"},
-				"models":  map[string]any{model: map[string]any{"name": model + " (local)"}},
+				"package":  "@opencode/ai/providers/openai-compatible",
+				"name":     "Ollama (local)",
+				"settings": map[string]any{"baseURL": base + "/v1", "apiKey": "ollama"},
+				"models":   map[string]any{model: map[string]any{"name": model + " (local)"}},
 			},
 		}
 		cfg["model"] = "ollama/" + model
-		cfg["small_model"] = "ollama/" + model
+		cfg["agents"] = map[string]any{"title": map[string]any{"model": "ollama/" + model}}
 		out = append(out, "OPENCODE_MODEL=ollama/"+model, "OPENCODE_SMALL_MODEL=ollama/"+model)
 	}
 	if mcp {

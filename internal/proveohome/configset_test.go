@@ -14,11 +14,11 @@ func TestConfigSetEncodesTheManifestsOwnDeclaration(t *testing.T) {
 		Enabled: true,
 		Mounts: []manifest.HomeMount{
 			{Host: ".cursor", Container: "/proveo-home/.cursor", Mode: "rw", Deny: []string{"auth.json"}},
-			{Host: "opencode/config", Container: "/proveo-home/.config/opencode", Mode: "rw"},
-			{Host: "opencode/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
+			{Host: "opencode/v2/config", Container: "/proveo-home/.config/opencode", Mode: "rw"},
+			{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode", Mode: "rw", Deny: []string{"auth.json"}},
 		},
 	}
-	want := ".cursor|.cursor|auth.json;opencode/config|.config/opencode|;opencode/share|.local/share/opencode|auth.json"
+	want := ".cursor|.cursor|auth.json;opencode/v2/config|.config/opencode|;opencode/v2/share|.local/share/opencode|auth.json"
 	if got := ConfigSet(h); got != want {
 		t.Errorf("ConfigSet() =\n  %q\nwant\n  %q", got, want)
 	}

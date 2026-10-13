@@ -566,6 +566,30 @@ func TestGitSyncSkipsAnAbortedCursorTurn(t *testing.T) {
 	}
 }
 
+func TestGitSyncCursorStopUsesProveoWorkdirWhenPwdIsNotTheRepo(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "from-etc.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bash := bashOrSkip(t)
+	cmd := exec.Command(bash, gitSyncScript(t))
+	cmd.Dir = t.TempDir()
+	cmd.Stdin = strings.NewReader(`{"status":"completed","loop_count":0}`)
+	cmd.Env = hookEnv(t, "PROVEO_GIT_SYNC_DIALECT=", "PROVEO_WORKDIR="+dir)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("exit %v stdout %q stderr %q", err, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "{}" {
+		t.Fatalf("stdout %q, want {}", stdout.String())
+	}
+	if !strings.Contains(gitCmd(t, dir, nil, "ls-files"), "from-etc.txt") {
+		t.Fatal("cursor stop did not commit the proveo workdir")
+	}
+}
+
 func TestGitSyncIdleCommitsWithoutJSON(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -608,19 +632,34 @@ func TestGitSyncScriptNeverForcePushesOrSkipsHooks(t *testing.T) {
 	}
 }
 
-func TestGitSyncPluginListensForSessionIdle(t *testing.T) {
+func TestGitSyncOpenCodeSubjectUsesAPrivateServer(t *testing.T) {
 	t.Parallel()
-	src := readRepoFile(t, "packages/lib/hooks/proveo-git-sync-turn.js")
-	for _, want := range []string{
-		"session.idle", "git-sync-turn.sh", "PROVEO_GIT_SYNC_DIALECT=idle",
-		"</dev/null", "GIT_TERMINAL_PROMPT=0", ".quiet()",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("plugin lacks %q", want)
-		}
+	bash := bashOrSkip(t)
+	src := readRepoFile(t, "packages/lib/hooks/git-sync-turn.sh")
+	start := strings.Index(src, "_model_subject_once() {")
+	end := strings.Index(src, "\n_gen_commit_subject() {")
+	if start < 0 || end <= start {
+		t.Fatal("subject invocation function missing")
 	}
-	if !strings.Contains(src, "await $") {
-		t.Error("an unawaited Bun ShellPromise never spawns, so session.idle runs no hook")
+	stub := stubModelCLI(t, "opencode", `printf 'INFLIGHT=%s\n' "$PROVEO_GIT_SYNC_MSG_INFLIGHT"; printf '%s\n' "$@"`)
+	probe := src[start:end] + `
+command() {
+  if [[ "$1" == -v ]]; then
+    case "$2" in claude|codex|cursor-agent) return 1 ;; esac
+  fi
+  builtin command "$@"
+}
+_model_subject_once 20 'staged diff'`
+	cmd := exec.Command(bash, "-c", probe)
+	cmd.Env = hookEnv(t, "PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subject probe: %v\n%s", err, out)
+	}
+	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-4-5\n", "staged diff"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("subject invocation lacks %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -774,6 +813,91 @@ echo DONE`
 	plugin := filepath.Join(home, ".config", "opencode", "plugins", "proveo-git-sync-turn.js")
 	if _, err := os.Stat(plugin); err != nil {
 		t.Errorf("opencode plugin was not seeded: %v", err)
+	}
+}
+
+func TestSeedWritesCursorUserStopHook(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
+	home := t.TempDir()
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooks), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("{\n  \"version\": 1,\n  \"hooks\": {\n    \"beforeShellExecution\": [\n      { \"command\": \"/bin/true\" }\n    ]\n  }\n}\n")
+	if err := os.WriteFile(hooks, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := `source "$1/packages/lib/entrypoint-lib.sh"
+agent_home="$2"
+export HOME="$2" PROVEO_GIT_SYNC_HOOK="$3"
+_proveo_agent_home() { printf '%s' "$agent_home"; }
+proveo_install_git_sync_hooks cursor
+proveo_install_git_sync_hooks cursor
+echo DONE`
+	out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, gitSyncScript(t)).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "DONE") {
+		t.Fatalf("seed step failed: %v\n%s", err, out)
+	}
+	if strings.Count(string(out), "user stop hook") != 2 {
+		t.Errorf("stdout %q, want the user stop hook reported on each seed", out)
+	}
+	b, err := os.ReadFile(hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var j struct {
+		Version int `json:"version"`
+		Hooks   struct {
+			Before []struct {
+				Command string `json:"command"`
+			} `json:"beforeShellExecution"`
+			Stop []struct {
+				Command   string `json:"command"`
+				Timeout   int    `json:"timeout"`
+				LoopLimit int    `json:"loop_limit"`
+			} `json:"stop"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &j); err != nil {
+		t.Fatalf("hooks.json: %v\n%s", err, b)
+	}
+	if j.Version != 1 || len(j.Hooks.Before) != 1 || j.Hooks.Before[0].Command != "/bin/true" {
+		t.Fatalf("existing hook was lost: %s", b)
+	}
+	if len(j.Hooks.Stop) != 1 || !strings.Contains(j.Hooks.Stop[0].Command, "git-sync-turn.sh") || j.Hooks.Stop[0].Timeout != 90 || j.Hooks.Stop[0].LoopLimit != 1 {
+		t.Fatalf("stop hook = %+v\n%s", j.Hooks.Stop, b)
+	}
+	badHome := t.TempDir()
+	broken := filepath.Join(badHome, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broken, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bad := `source "$1/packages/lib/entrypoint-lib.sh"
+agent_home="$2"
+export HOME="$2" PROVEO_GIT_SYNC_HOOK="$3"
+_proveo_agent_home() { printf '%s' "$agent_home"; }
+proveo_install_git_sync_hooks cursor
+echo DONE`
+	badOut, err := exec.Command(bash, "-c", bad, "bash", repoRoot(t), badHome, gitSyncScript(t)).CombinedOutput()
+	if err != nil || !strings.Contains(string(badOut), "DONE") {
+		t.Fatalf("broken seed: %v\n%s", err, badOut)
+	}
+	if strings.Contains(string(badOut), "user stop hook") {
+		t.Errorf("a broken hooks.json was reported as seeded: %s", badOut)
+	}
+	left, err := os.ReadFile(broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(left) != "{" {
+		t.Errorf("broken hooks.json was rewritten: %q", left)
 	}
 }
 

@@ -116,7 +116,7 @@ run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is 
 | Layer | File | What it does |
 | ----- | ---- | ------------ |
 | Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** if `.env` is bind-mounted or sourced by the entrypoint (`load_env`), the agent already holds those values in process memory and can read the file directly — deny rules are policy guidance, not isolation. See [Credential isolation](../../README.md#credential-isolation-by-egress-mode) and . |
-| Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. A `stop` hook at the same layer commits and pushes before the turn returns (`PROVEO_GIT_SYNC=off` no-ops the script; `PROVEO_GIT_SYNC_MSG=off` keeps the commit but skips asking a model for the subject line). |
+| Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. A `stop` hook at the same layer commits and pushes before the turn returns (`PROVEO_GIT_SYNC=off` no-ops the script; `PROVEO_GIT_SYNC_MSG=off` keeps the commit but skips asking a model for the subject line). The seed also writes that command into `~/.cursor/hooks.json`, the file the CLI loads for a local agent. |
 | Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
 
 Cursor's own OS sandbox is disabled (`--sandbox disabled`): Docker is the sandbox, and
@@ -137,9 +137,11 @@ proveo run cursor ... -e CURSOR_SEED_RULES=1 # via docker args, or export in .en
 
 Precedence (highest wins): enterprise hooks (`/etc/cursor/hooks.json`) → project
 `.cursor/cli.json` + `.cursor/hooks.json` + `.cursor/agents/*.md` → seeded `~/.cursor/*`.
-Project deny rules extend (and can only tighten alongside) the seeded baseline; drop a
-`.cursor/agents/<name>.md` in your repo to override or add a subagent. The CLI also reads
-`.claude/agents/` and `.codex/agents/` for compatibility.
+The CLI loads subagents from the workspace `.cursor/agents` and `.claude/agents` trees. The seed writes the roster into the workspace `.cursor/agents`
+and lists each roster file in `.git/info/exclude`, so those files are visible to the CLI
+and stay out of `git add`. Project deny rules extend (and can only tighten alongside)
+the seeded baseline; drop a `.cursor/agents/<name>.md` in your repo to override or add
+a subagent.
 
 ## Egress modes
 

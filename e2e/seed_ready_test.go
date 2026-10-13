@@ -5,8 +5,10 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +41,47 @@ const (
 	releaseSnap   = "/dev/shm/proveo-release-snapshot"
 	seedDone      = "/dev/shm/proveo-seed-done"
 )
+
+const opencodeRegistryProbe = `timeout 90 bash -c '
+set -eu
+probe="$(mktemp -d)"
+port="$(python3 -c "import socket; s=socket.socket(); s.bind((\"127.0.0.1\", 0)); print(s.getsockname()[1]); s.close()")"
+native=/usr/local/share/npm-global/bin/opencode
+export OPENCODE_PASSWORD=synthetic-registry-probe
+export OPENCODE_DB="$probe/opencode.db" XDG_DATA_HOME="$probe/data" XDG_STATE_HOME="$probe/state"
+"$native" serve --hostname 127.0.0.1 --port "$port" >"$probe/server.log" 2>&1 &
+server=$!
+trap "kill $server 2>/dev/null || true; wait $server 2>/dev/null || true; rm -rf \"$probe\"" EXIT
+url="http://127.0.0.1:$port"
+until "$native" api --server "$url" GET /api/config >"$probe/config.json" 2>"$probe/client.log"; do
+  kill -0 "$server" 2>/dev/null || { cat "$probe/server.log"; exit 1; }
+  sleep 0.2
+done
+until "$native" api --server "$url" GET /api/agent | node -e "const response = JSON.parse(require(\"node:fs\").readFileSync(0, \"utf8\")); console.log(JSON.stringify(response.data.map(a => ({id:a.id,mode:a.mode})))); process.exit(response.data.some(a => a.id === \"adversarial-reviewer\" && a.mode === \"subagent\") ? 0 : 1)"; do
+  kill -0 "$server" 2>/dev/null || { cat "$probe/server.log"; exit 1; }
+  sleep 0.2
+done
+'`
+
+func TestOpencodeV2SeedReadyAgentRegistry(t *testing.T) {
+	requireDocker(t)
+	image := harnessImageName("opencode")
+	if !imageExists(image) {
+		t.Skipf("harness image %s not built", image)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
+		"--env", "OPENCODE_DISABLE_MODELS_FETCH=1",
+		"--entrypoint", "bash", image, "-c", `set -eu
+source /entrypoint-lib.sh
+proveo_bootstrap_opencode_config
+render_subagents opencode "$HOME/.config/opencode/agents"
+`+opencodeRegistryProbe)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode v2 registry probe: %v\n%s", err, out)
+	}
+}
 
 // TestSeedReleasesEveryHarnessReady launches every sbx harness on a fresh clone
 // under the default broker credentials and asserts what its agent has AT
@@ -175,7 +218,7 @@ func readyLaunchScript(spec readySpec) string {
 	case "claude":
 		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | head -1 | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
 	case "opencode":
-		b.WriteString("echo \"registered=$(timeout 90 opencode agent list 2>/dev/null | grep -q '^adversarial-reviewer (subagent)' && echo yes || echo no)\"\n")
+		fmt.Fprintf(&b, "echo \"registered=$(%s && echo yes || echo no)\"\n", opencodeRegistryProbe)
 	}
 	b.WriteString(`echo "env_link=$(readlink .env)"
 echo "env_db=$(grep -c '^DB_URL=postgres://probe$' .env 2>/dev/null)"

@@ -1,0 +1,111 @@
+@startuml
+' purpose: OpenCode-only categorized seed progress and the measured history-processing startup bottleneck
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/README.md
+' covers: packages/lib/proveo-await-seed
+' covers: packages/lib/proveo-seed
+' covers: packages/lib/entrypoint-lib.sh
+' covers: packages/lib/proveo-opencode-preflight
+' covers: packages/lib/proveo-opencode-runtime
+' covers: packages/lib/opencode_startup.py
+' covers: packages/lib/test_opencode_startup.py
+' covers: packages/lib/test_opencode_runtime.py
+' covers: internal/contract/opencode_seed_progress_test.go
+' covers: e2e/opencode_seed_progress_test.go
+' Surface: _spec/packages/lib/opencode-seed-progress-wireframe.puml
+' Existing release semantics: _spec/packages/lib/seed-and-launch.puml
+' Credential policy proposal: _spec/_paradigms/opencode-oauth-persistence.puml
+' Five-second storage redesign: _spec/_plans/opencode-versioned-history-storage.puml
+'
+' SHIPPED: only the OpenCode image enables PROVEO_SEED_PROGRESS=1 by default.
+' Other harnesses retain their current silent wait unless separately configured.
+' Producer functions publish one atomic category/detail line to /dev/shm/proveo-seed-status.
+' PROVEO_SEED_STATUS_FILE overrides the path for isolated tests and diagnostics.
+' Both producers write the same category/detail to stderr for the sbx startup log.
+' Categories reuse internal/ui/ui.go: credentials, workspace, setup, interface, starting.
+' Labels describe operations, not credential values, email identities, tokens or secrets.
+' Status write failure never aborts the seed; consumers fall back to a generic starting label.
+'
+' Consumers draw immediately while waiting and rotate ASCII | / - backslash at 5 Hz on a TTY.
+' Pipe/dumb-terminal output writes plain step changes and a five-second elapsed heartbeat.
+' All progress goes to stderr so --cwd and native JSON/stdout remain machine-readable.
+' Clear the transient row before native exec, timeout, refusal, or shell termination.
+' Do not hide the cursor or start an orphanable spinner subprocess.
+' Shell and Python waits retain their existing release markers, deadlines and refusal checks.
+' OpenCode runtime --sanitize/--recover must never wait for the marker they help release.
+' The ordinary OpenCode lifecycle wait keeps displaying producer updates after the shell's 30s timeout.
+' The preflight completion wait reads the same status while post-release toolchain setup continues.
+' Instruction release remains before toolchain installation; progress does not delay native launch.
+'
+' OBSERVED original boot 2026-10-09: dispatcher start 17:27:32Z; instruction marker birth 17:29:00Z.
+' That is approximately 88s to the first release; seed-done marker birth was 17:29:25Z.
+' The original wait emitted no output for its initial 30s; the old runtime emitted one generic wait line.
+' Canonical DB: 878718976 bytes; legacy DB: 1763418112 bytes; legacy WAL: 378648632 bytes.
+' Startup logged divergent history, followed by offline sanitize failure on SQLite sidecars.
+' The removed implicit merge snapshotted both histories and computed SQL digests before detecting divergence.
+' sanitize_host_stores then restages both histories and republishes the canonical snapshot.
+' Failed legacy publication does not remove the cost of its preceding backup and sanitization.
+'
+' READ-ONLY PROFILE on source stores; destinations were disposable private copies, then removed.
+' No source checkpoint, credential inspection or live-database publication was performed.
+' Canonical credential-free backup: 7.632s; legacy credential-free backup: 14.276s.
+' Legacy SQL history digest: 12.145s; canonical SQL history digest: 2.352s; digests differed.
+' Canonical sanitize restaging: 7.255s; canonical sanitize publication: 7.814s.
+' Legacy sanitize restaging: 11.776s; measured operation total: 63.250s.
+' Sanitized canonical sample: 287 session_v2 rows, 7704 session_message rows, 214531 pages, zero free pages.
+' Sanitized legacy sample: 95917 event rows, 429251 pages, zero free pages.
+' INFERENCE: repeated large snapshots and SQL serialization dominate the observed pre-release delay.
+' The profile excludes migration path rebasing, some inventory/copy overhead and original cold-cache effects.
+' It does not reconstruct every second of the historical 88s boot or establish a startup speedup.
+' This change adds progress and phase timings; it does not optimize or modify credential publication.
+' Follow-up candidates: avoid repeated unchanged divergent-store comparisons; reduce duplicate snapshots;
+' preserve exclusive lifecycle ownership before checkpointing WAL destinations, never delete WAL blindly.
+' FK (manual syllables): STATUS 10.3 (30w/51s); WAIT 12.0 (29w/54s).
+'
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title OpenCode seed progress — categorized status, unchanged launch gates
+
+participant "proveo-seed" as SEED <<app>>
+participant "proveo-opencode-runtime\n--check-prepared" as GATE <<app>>
+participant "entrypoint-lib.sh\nproveo_seed" as LIB <<app>>
+database "proveo-seed-status\natomic category/detail" as STATUS <<db>>
+participant "await-seed / runtime / preflight\nwaiting consumer" as WAIT <<app>>
+actor "Executor\nterminal or captured stderr" as OP
+
+SEED -> STATUS : starting: preparing OpenCode seed
+SEED -> STATUS : credentials: checking prepared V2 history
+SEED -> GATE : bounded metadata/owner validation; no bulk sanitization
+GATE -> SEED : prepared or explicit maintenance required
+WAIT -> STATUS : read current category/detail
+WAIT -> OP : Waiting for seed + step + elapsed + spinner
+SEED -> LIB : seed configuration
+loop workspace, setup, credentials, interface
+  LIB -> STATUS : current category/detail
+  LIB -> SEED : matching seed-log label
+  WAIT -> STATUS : read current category/detail
+  WAIT -> OP : refreshed step
+end
+LIB -> STATUS : starting: releasing agent
+LIB -> WAIT : instruction marker
+WAIT -> OP : clear transient row; native handoff
+LIB -> STATUS : setup: toolchains and dependencies
+LIB -> STATUS : starting: seed complete
+LIB -> SEED : return; write completion marker
+
+note over STATUS
+  Write status as one consistent atomic update
+  so readers never show half-written step labels.
+  Describe the current credential task without
+  placing secret values in the status file or
+  startup log.
+end note
+
+note over WAIT
+  Show categorized seed steps without changing
+  the release owner or existing startup timeout.
+  Preserve stdout for machine output and clear
+  terminal animation before handing control to
+  the native client.
+end note
+@enduml

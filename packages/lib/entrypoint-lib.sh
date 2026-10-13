@@ -1476,6 +1476,46 @@ _proveo_merge_stop_hook() {
   ' 2>/dev/null
 }
 
+# SPEC: _spec/packages/lib/git-sync-turn.puml
+_proveo_merge_cursor_stop_hook() {
+  local path="$1" cmd="$2"
+  [[ -n "$path" && -n "$cmd" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 1
+  PROVEO_HOOKS_FILE="$path" PROVEO_HOOK_CMD="$cmd" python3 -c '
+import json, os, sys
+path = os.environ["PROVEO_HOOKS_FILE"]
+cmd = os.environ["PROVEO_HOOK_CMD"]
+existed = os.path.exists(path)
+j = {"version": 1, "hooks": {}}
+if existed:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parsed = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        sys.exit(1)
+    if not isinstance(parsed, dict):
+        sys.exit(1)
+    j = parsed
+hooks = j.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+    j["hooks"] = hooks
+stop = hooks.get("stop")
+if not isinstance(stop, list):
+    stop = []
+    hooks["stop"] = stop
+if any(isinstance(row, dict) and row.get("command") == cmd for row in stop):
+    sys.exit(0)
+stop.append({"command": cmd, "timeout": 90, "loop_limit": 1})
+if j.get("version") is None:
+    j["version"] = 1
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(j, handle, indent=2)
+    handle.write("\n")
+'
+}
+
 proveo_install_git_sync_hooks() {
   local target="${1:-}" home hook plugin cmd
   case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
@@ -1503,8 +1543,9 @@ proveo_install_git_sync_hooks() {
         && echo "git-sync: session.idle plugin commits and pushes after the turn idles"
       ;;
     cursor)
-      if [[ -f /etc/cursor/hooks.json ]] && grep -q git-sync-turn /etc/cursor/hooks.json 2>/dev/null; then
-        echo "git-sync: enterprise stop hook commits and pushes before the turn returns"
+      [[ -n "$home" && -s "$hook" ]] || return 0
+      if _proveo_merge_cursor_stop_hook "$home/.cursor/hooks.json" "$hook"; then
+        echo "git-sync: user stop hook commits and pushes before the turn returns"
       fi
       ;;
   esac
@@ -2024,7 +2065,18 @@ configure_claude_lsp() {
 configure_opencode_lsp() {
   command -v jq >/dev/null 2>&1 || return 0
   local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
-  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  config_file="${HOME}/.config/opencode/opencode.json"
+  if [[ -e "${config_file}c" ]]; then
+    echo "⚠️  Skipping automatic LSP wiring; configure lsp in ${config_file}c directly (higher-priority JSONC config)" >&2
+    return 0
+  fi
+  if [[ -e "$config_file" ]]; then
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+      echo "⚠️  Skipping automatic LSP wiring; fix $config_file to contain one valid JSON object" >&2
+      return 0
+    fi
+    existing="$(cat "$config_file")" || return 0
+  fi
   matched_json="$(detect_workspace_lsps "$scan" | jq -R -s '
     split("\n") | map(select(length > 0) | split("|")) | map({
       key: .[0],
@@ -2035,21 +2087,15 @@ configure_opencode_lsp() {
   [[ -n "$matched_json" ]] || matched_json="{}"
 
   mkdir -p "$(dirname "$config_file")"
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
 
   echo "── Workspace LSP Match ──────────────────────────────"
 
-  # An operator who set "lsp": false meant it.
   if [[ "$(printf '%s' "$existing" | jq -r '.lsp')" == "false" ]]; then
     echo "🔎 LSP left off: $config_file sets \"lsp\": false"
     echo "─────────────────────────────────────────────────────"
     return 0
   fi
 
-  # No match is not a reason to leave the key ABSENT. opencode reads an absent
-  # lsp as disabled, so writing nothing here is what printed "LSPs are
-  # disabled" on a workspace whose languages proveo could not match; true turns
-  # opencode's own built-ins on.
   # SPEC: _spec/packages/lib/language-server-provisioning.puml
   if [[ "$matched_json" == "{}" ]]; then
     echo "🔎 No installed LSP matched files under $scan"
@@ -2072,6 +2118,7 @@ configure_opencode_lsp() {
   else
     rm -f "$tmp"
     echo "⚠️  Could not update $config_file (jq failed)" >&2
+    return 0
   fi
 
   printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
@@ -2087,9 +2134,19 @@ configure_opencode_formatter() {
   off | false | 0 | no | disable | disabled) return 0 ;;
   esac
   local config_file existing='{}' tmp
-  config_file="$(_proveo_agent_home)/.config/opencode/opencode.json"
+  config_file="${HOME}/.config/opencode/opencode.json"
+  if [[ -e "${config_file}c" ]]; then
+    echo "⚠️  Skipping automatic formatter wiring; configure formatter in ${config_file}c directly (higher-priority JSONC config)" >&2
+    return 0
+  fi
+  if [[ -e "$config_file" ]]; then
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+      echo "⚠️  Skipping automatic formatter wiring; fix $config_file to contain one valid JSON object" >&2
+      return 0
+    fi
+    existing="$(cat "$config_file")" || return 0
+  fi
   mkdir -p "$(dirname "$config_file")" 2>/dev/null || return 0
-  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
   if printf '%s' "$existing" | jq -e 'has("formatter")' >/dev/null 2>&1; then
     return 0
   fi
@@ -2475,6 +2532,7 @@ proveo_sync_config() {
   deny="${arel#*|}"
   arel="${arel%%|*}"
   [[ -n "$hrel" && -n "$arel" ]] || continue
+  [[ "$arel" == .local/share/opencode || "$arel" == .local/share/opencode/* ]] && continue
   case "$mode" in
   restore) src="$host/$hrel" dst="$home/$arel" ;;
   save) src="$home/$arel" dst="$host/$hrel" ;;
@@ -2549,6 +2607,17 @@ _proveo_sync_tree() {
  return "$failed"
 }
 
+# SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/sbx/state-sync.puml
+proveo_opencode_sync_data() {
+ local src="$1" dst="$2" helper
+ helper="${PROVEO_OPENCODE_CREDENTIAL_HELPER:-/usr/local/lib/proveo/opencode-credentials.py}"
+ if [[ ! -f "$helper" ]] || ! command -v python3 >/dev/null 2>&1; then
+  printf 'proveo: OpenCode credential snapshot helper is unavailable\n' >&2
+  return 1
+ fi
+ python3 "$helper" --offline-destination "$src" "$dst"
+}
+
 proveo_sync_state() {
  local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
  [[ -n "$host" && -d "$host" ]] || return 0
@@ -2566,6 +2635,7 @@ proveo_sync_state() {
  while read -r dir; do
   [[ -n "$dir" ]] || continue
   rel="${dir#"$home"/}"
+  [[ "$rel" == .local/share/opencode || "$rel" == .local/share/opencode/* ]] && continue
   case "$mode" in
   restore) src="$host/$rel" dst="$dir" ;;
   save) src="$dir" dst="$host/$rel" ;;
@@ -2639,6 +2709,19 @@ proveo_sbx_passthrough() {
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
+
+# SPEC: _spec/packages/lib/opencode-seed-progress.puml
+proveo_seed_step() {
+ local category="$1" detail="$2" target="${3:-opencode}" path tmp
+ [[ "$target" == opencode && "${PROVEO_SEED_PROGRESS:-}" == 1 ]] || return 0
+ printf 'proveo-seed: %s: %s\n' "$category" "$detail" >&2
+ path="${PROVEO_SEED_STATUS_FILE:-/dev/shm/proveo-seed-status}"
+ tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 0
+ if ! printf '%s: %s\n' "$category" "$detail" > "$tmp" || ! mv -f "$tmp" "$path" 2>/dev/null; then
+  rm -f "$tmp" 2>/dev/null || true
+ fi
+ return 0
+}
 
 # Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
 proveo_seed_instructions() {
@@ -2810,8 +2893,48 @@ proveo_assert_shares() {
  return 1
 }
 
+# SPEC: _spec/defs/opencode/native-v2-integration.puml
+proveo_bootstrap_opencode_config() {
+ local src="${PROVEO_OPENCODE_DEFAULTS_DIR:-/opt/opencode/defaults}"
+ local dst="${HOME}/.config/opencode" config_file
+ if [[ "${OPENCODE_RESEED:-0}" != "1" && ( -e "$dst/opencode.json" || -e "$dst/opencode.jsonc" ) ]]; then
+  return 0
+ fi
+ [[ -f "$src/opencode.json" ]] || {
+  echo "❌ OpenCode defaults missing at $src/opencode.json; set PROVEO_OPENCODE_DEFAULTS_DIR to the baked defaults directory" >&2
+  return 1
+ }
+ mkdir -p "$dst" || return 1
+ config_file="$dst/opencode.json"
+ [[ ! -e "$dst/opencode.jsonc" ]] || config_file="$dst/opencode.jsonc"
+ cp -f "$src/opencode.json" "$config_file" || return 1
+ echo "🌱 Seeded native OpenCode defaults into $config_file (OPENCODE_RESEED=${OPENCODE_RESEED:-0})"
+}
+
+# SPEC: _spec/defs/cursor/cursor-topology.puml
+# cursor-agent loads subagents from the workspace .cursor/agents tree.
+proveo_seed_cursor_workspace_agents() {
+ local dir gd src name rel exclude
+ dir="$(_proveo_scan_root)"
+ [[ -n "$dir" && -d "$dir" ]] || return 0
+ render_subagents cursor "$dir/.cursor/agents" "${CURSOR_RESEED:-0}"
+ gd="$(cd "$dir" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+ [[ -n "$gd" ]] || return 0
+ exclude="$gd/info/exclude"
+ src="${PROVEO_SUBAGENTS_DIR:-/opt/proveo/subagents}"
+ command -v jq >/dev/null 2>&1 || return 0
+ [[ -f "$src/_roster.json" ]] || return 0
+ mkdir -p "$gd/info" 2>/dev/null || return 0
+ while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  rel="/.cursor/agents/${name}.md"
+  grep -qxF "$rel" "$exclude" 2>/dev/null || printf '%s\n' "$rel" >> "$exclude" 2>/dev/null
+ done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
+}
+
 proveo_seed() {
  local target="${1:-${PROVEO_TARGET:-}}"
+ proveo_seed_step workspace "preparing checkout and shared folders" "$target"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
  proveo_clone_env
@@ -2822,45 +2945,63 @@ proveo_seed() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || { proveo_release_agent "$target"; return 0; }
 
+ proveo_seed_step credentials "preparing GitHub trust" "$target"
  seed_github_known_hosts "$home" || true
 
+ proveo_seed_step workspace "restoring persistent state folders" "$target"
  proveo_sync_state restore || true
 
+ proveo_seed_step setup "restoring configuration folders" "$target"
  proveo_sync_config restore || true
 
+ if [[ "$target" == opencode ]]; then
+  proveo_seed_step setup "seeding OpenCode defaults" "$target"
+  proveo_bootstrap_opencode_config || return 1
+ fi
+
+ proveo_seed_step setup "installing hooks and rendering agents" "$target"
  proveo_install_git_sync_hooks "$target"
  : > "$PROVEO_HOOKS_MARKER" 2>/dev/null || true
 
  case "$target" in
  claudecode) render_subagents claudecode "$home/.claude/agents" "${CLAUDECODE_RESEED:-0}" ;;
  codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
- cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}" ;;
+ cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}"
+  proveo_seed_cursor_workspace_agents ;;
  cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
- opencode) render_subagents opencode "$home/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
+ opencode) render_subagents opencode "${HOME}/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 
+ proveo_seed_step workspace "accepting workspace trust" "$target"
  accept_workspace_trust "$(_proveo_scan_root)"
 
+ proveo_seed_step setup "wiring language servers and house rules" "$target"
  proveo_wire_config "$target"
  proveo_compose_house_rules "$target"
  proveo_address_operator_claude "$target"
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_install_claude_env_hook "$target"
+ proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
+ proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
 
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
   echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
  else
+  proveo_seed_step setup "restoring toolchain folders" "$target"
   proveo_sync_tools restore || true
+  proveo_seed_step setup "installing toolchains, dependencies and language servers" "$target"
   proveo_provision_toolchain
   proveo_wire_config "$target"
  fi
  : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
 
  # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_seed_step interface "configuring host browser bridge" "$target"
  proveo_chrome_bridge "$target"
+ proveo_seed_step starting "seed complete" "$target"
 
 }
 

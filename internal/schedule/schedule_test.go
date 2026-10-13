@@ -107,6 +107,14 @@ func TestInstructionFlattensThePromptUnderTheMode(t *testing.T) {
 	}
 }
 
+func TestScheduleLaunchSkipsTheCloseConfirm(t *testing.T) {
+	t.Parallel()
+	got := sessionCommand("/work", "/logs/x.log", "/bin/proveo", Job{Target: "opencode"})
+	if !strings.Contains(got, "PROVEO_SCHEDULE=1 '/bin/proveo' 'run' 'opencode' '--yes'") {
+		t.Fatalf("session command = %q, want PROVEO_SCHEDULE=1 on the proveo run", got)
+	}
+}
+
 func TestRunArgvIsUnattended(t *testing.T) {
 	t.Parallel()
 	j := Job{Target: "hermes", Model: "qwen3.8:27b-mlx", Addons: []string{"host-chrome"}, Args: []string{"--egress-mode", "open"}}

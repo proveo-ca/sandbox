@@ -46,6 +46,16 @@ This definition follows the shared [coding harness container contract](../../COD
 mise run build opencode
 ```
 
+The build resolves `@opencode/cli`'s current npm release and installs that exact version.
+`opencode --version` must report `opencode v<version>` before the build succeeds.
+The image records `proveo.agent=@opencode/cli` and `proveo.agent.version=<version>`.
+
+To pin a specific v2 release:
+
+```bash
+OPENCODE_VERSION=2.0.6 mise run build opencode
+```
+
 To build a specific tag:
 
 ```bash
@@ -103,14 +113,24 @@ warns when no provider key and no `opencode.json` are detected. Recognised env v
 OpenCode's own gateway — Zen (pay-as-you-go, model ids `opencode/<model>`) and Go (the
 subscription, `opencode-go/<model>`) — takes the same key, `OPENCODE_API_KEY`. Copy it from
 <https://opencode.ai/auth> and export it on the host **before launch**, in your shell rc or a
-gitignored `.env`; opencode reads env keys ahead of `auth.json`, so no `/connect` step is
-needed inside the sandbox. proveo detects the key like any other provider: it brokers it in
+gitignored `.env`; the running server can use the environment key without an in-sandbox `/connect` step.
+proveo detects the key like any other provider: it brokers it in
 firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
 `.opencode.ai` only).
 
-`opencode auth login` / `/connect` inside the container is the wrong place: it writes
-`~/.local/share/opencode/auth.json`, which proveo **scrubs from the mounted share on every
-run** so login tokens never persist in the proveo home. The same holds for providers with no
+OpenCode v2 stores saved credentials in its SQLite database.
+proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
+The runtime holds a lease on the durable data store and rejects a concurrent stateful run with exit code `75`.
+Startup checks a runtime-owned prepared generation instead of copying and sanitizing full history.
+The cache stays on the owning sbx engine's local filesystem.
+Successful OpenCode runs retain that engine for subsequent launches.
+Post-exit still performs the existing three sanitized checkpoint/publication operations.
+Environment API keys remain available to the running CLI.
+Saved logins from `opencode auth login` or `/connect` do not carry into the next run.
+The OpenCode-only host-owned OAuth persistence proposal lives in
+[`_spec/_paradigms/opencode-oauth-persistence.puml`](../../_spec/_paradigms/opencode-oauth-persistence.puml).
+That policy remains planned; the current runtime still removes saved tokens.
+The same holds for providers with no
 dedicated env var (Together, Hugging Face, …): prefer an API key via env or the egress broker.
 Resume a prior session with:
 
@@ -118,26 +138,123 @@ Resume a prior session with:
 proveo run opencode --resume <session-id>
 ```
 
-## Baked-in HITL defaults
+## Seed progress
 
-The image ships an opinionated, non-YOLO setup at `/opt/opencode/defaults/` and
-seeds it into `~/.config/opencode/` on first run. Re-run with `-e OPENCODE_RESEED=1`
+OpenCode images enable `PROVEO_SEED_PROGRESS=1`.
+While startup waits for the seed, stderr displays `Waiting for seed`, the current
+run category and operation, elapsed seconds, and an animated indicator on terminals.
+Categories include `credentials`, `workspace`, `setup`, `interface`, and `starting`.
+Credential steps identify prepared-state checks without exposing tokens.
+The seed writes the same operation labels and credential-phase timings to
+`/var/log/sbx-kit-startup.log` on sbx.
+Piped output reports step changes and five-second heartbeats without terminal control codes.
+The display does not delay instruction release or change credential persistence.
+`PROVEO_SEED_PROGRESS=0` disables the progress display.
+
+## Versioned history and preparation
+
+OpenCode V2 uses `opencode/v2/config` and `opencode/v2/share` under the proveo home.
+Ordinary launches do not mount or import V1/unversioned history.
+Historical V1 session versions inside an already-adopted V2 database remain valid.
+The image requires a stable `2.x` native version.
+An ordinary launch prepares an existing V2 database when the engine cache is unprepared, and reports the three prepare steps.
+If that database is absent and an older `opencode.db` is on disk, the launch copies it into `opencode/v2/share` and prepares the copy. The older file stays in place. OpenCode's own V1 migration then runs inside the copy.
+A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. Another major, or a private cache that still exists, requires `proveo run opencode -- --proveo-recover`.
+
+Prepared startup has a five-second preparation budget.
+The seed gate does not run database backup, VACUUM, SQL dump hashing, or legacy migration.
+The native client reuses the prepared engine-local cache.
+The host keeps the keeper's kernel PID/start-time identity outside guest-writable mounts.
+Readiness files inside the sandbox cannot replace that authority.
+
+To adopt an existing **V2-schema** store explicitly:
+
+```bash
+proveo run opencode -- --proveo-prepare --source /absolute/path/to/v2-history
+```
+
+proveo mounts that source read-only in a temporary preparation engine.
+It never leaves the source mounted in the retained coding engine.
+Preparation validates the V2 schema and initializes it with the pinned native release.
+It preserves the source and publishes sanitized history into the V2 namespace.
+V1-schema stores are rejected rather than implicitly upgraded.
+Preparation can take longer than five seconds and runs outside ordinary launch.
+
+To recover retained private state explicitly:
+
+```bash
+proveo run opencode -- --proveo-recover
+```
+
+Recovery does not overwrite a published store changed by another writer.
+Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
+Creating a new engine for an existing V2 database prepares that database on the next launch.
+Docker-only runs use explicitly selected disposable sanitized state for compatibility.
+They remain functional but do not provide the retained sbx cache's startup guarantee.
+
+## Baked-in workflow and presentation defaults
+
+The image launches OpenCode in native automatic-permission mode and ships its workflow defaults at `/opt/opencode/defaults/`.
+The shared seed copies missing configuration into `~/.config/opencode/` on first run.
+Re-run with `-e OPENCODE_RESEED=1`
 to force a refresh from the baked-in copy.
+
+### Automatic permissions and visible execution
+
+The image sets `OPENCODE_CLI_CONFIG_CONTENT` with these session preferences:
+
+```json
+{
+  "session": {
+    "permissions": "autoaccept",
+    "markdown": "source",
+    "thinking": "show",
+    "grouping": "none",
+    "verbosity": "high",
+    "sidebar": "auto"
+  },
+  "tabs": { "mode": "on", "indicators": "status" },
+  "mini": {
+    "tools": "show",
+    "thinking": "show",
+    "shell_output": "show",
+    "turn_summary": "show",
+    "footer": "show"
+  }
+}
+```
+
+Inline preferences override the saved global `cli.json` while the environment variable is set.
+Headless `run` also receives the native `--auto` flag.
+Automatic approval accepts permission requests that no explicit deny rule blocks.
+Source mode disables Markdown concealment.
+Thinking mode expands available reasoning blocks.
+High verbosity displays individual tools and thoughts.
+
+Click a running subagent row to open its live transcript.
+Alternatively, use **Ctrl+P → Toggle subagent picker** and press **Enter** on a child.
+Status-marked tabs show busy and attention states for opened sessions.
+V2 has no setting that renders a live child-operation wait graph in the main transcript.
+Code Mode's `execute` row opens its separate **Code / Output** dialog.
 
 ### Default `opencode.json`
 
 Two primary agents, mirroring the plan→build loop:
 
-| Agent   | `edit` | `bash`  | temp | Use it for                              |
-| ------- | ------ | ------- | ---- | --------------------------------------- |
-| `plan`  | `deny` | `deny`  | 0.1  | Spec'ing, drafting a step list to review |
-| `build` | `allow`| `ask`   | 0.2  | Implementation — every shell call is a checkpoint |
+| Agent   | `edit` | `shell` | Use it for                              |
+| ------- | ------ | ------- | --------------------------------------- |
+| `plan`  | `deny` | `deny`  | Spec'ing, drafting a step list to review |
+| `build` | `allow`| `ask`   | Implementation with automatic approval  |
 
-Plus `context.rot: true` and `context.summarize: true` to keep long sessions sane.
+V2 expresses permissions as ordered `action`, `resource`, and `effect` rules under `agents.<name>.permissions`.
+The image's automatic session policy satisfies `ask` requests.
+The defaults enable `compaction.auto` and set `update: "disable"`.
+The image also sets `OPENCODE_DISABLE_AUTOUPDATE=1`.
+The defaults leave model selection to OpenCode.
 
 ### Default subagents (`@`-mentionable)
 
-All read-only (`edit:deny`, `bash:deny`) — they advise, you decide whether to act.
+All read-only (`edit:deny`, `shell:deny`) — they advise, you decide whether to act.
 `@spec-keeper` is the single exception: it has `edit:allow` *scoped by its prompt*
 to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
 
@@ -160,8 +277,8 @@ to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
    the plan as `PLAN.md` so it shows up in `git log`.
 2. Hand the plan to `@adversarial-reviewer` and `@security-reviewer` (or
    `@systems-design`, `@monorepo-coordinator`) before any code is written.
-3. Switch to the `build` agent. It edits freely but **every** `bash` invocation asks
-   you first. Commit incrementally on a `agent/<task>` branch — never `main`.
+3. Switch to the `build` agent. The automatic session policy handles permission requests.
+   Commit incrementally on an `agent/<task>` branch — never `main`.
 4. After each chunk: `@adversarial-reviewer` on the diff. Treat its `[BLOCKER]` and
    `[HIGH]` items as merge gates.
 5. Cross-review with a different model family for a second opinion, e.g.:
@@ -169,9 +286,13 @@ to `_spec/`, `PLAN.md`, and `AGENTS.md` only.
 
 ### Overriding the defaults
 
-Precedence (highest wins): project `opencode.json` → project `.opencode/agents/*.md` →
-seeded `~/.config/opencode/opencode.json` → seeded `~/.config/opencode/agents/*.md`.
+OpenCode merges global configuration, direct project configs from ancestors to the working directory, and then `.opencode` configs in the same order.
+Within one config directory, `opencode.jsonc` takes precedence over `opencode.json`.
 Drop a `.opencode/agents/<name>.md` in your repo to override or add a subagent.
+proveo preserves existing global JSON, JSONC, and rendered agents unless `OPENCODE_RESEED=1` is set.
+Automatic LSP and formatter wiring leaves JSONC and malformed JSON untouched.
+An explicit local-model request fails if those files prevent safe wiring.
+Quit and restart OpenCode after changing its configuration.
 
 ## Project configuration
 
@@ -182,35 +303,46 @@ A minimal example:
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-5",
-  "small_model": "anthropic/claude-haiku-4-5",
-  "provider": {
+  "agents": {
+    "title": { "model": "anthropic/claude-haiku-4-5" }
+  },
+  "providers": {
     "anthropic": {
-      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" }
+      "settings": { "apiKey": "{env:ANTHROPIC_API_KEY}" }
     }
   }
 }
 ```
 
-See <https://opencode.ai/docs/config/> for the full schema.
+See <https://opencode.ai/v2/docs/config> for the v2 configuration contract.
+The published editor schema still describes v1 fields; the image suite validates native settings against the installed v2 CLI.
 
 ## MCP servers
 
-Declare MCP servers under `mcp` in `opencode.json`:
+Declare MCP servers under `mcp.servers` in `opencode.json`:
 
 ```jsonc
 {
   "mcp": {
-    "filesystem": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"],
-      "enabled": true
+    "servers": {
+      "filesystem": {
+        "type": "local",
+        "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/app"]
+      }
     }
   }
 }
 ```
 
-See <https://opencode.ai/docs/mcp-servers/> for transport options (`local` / `remote`)
+See <https://opencode.ai/v2/docs/mcp-servers> for transport options (`local` / `remote`)
 and trust settings.
+Set a server's `disabled` field to `true` to keep it configured without connecting.
+
+## Idle git synchronization
+
+The native v2 plugin observes session idle events and schedules best-effort git synchronization.
+The CLI can return before synchronization finishes.
+Commit-subject helper runs use a private `--standalone` server.
 
 ## Tests
 
