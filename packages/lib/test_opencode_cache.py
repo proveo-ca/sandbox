@@ -259,7 +259,6 @@ class PreparedCacheTests(unittest.TestCase):
         f = self.fixture
         held = f.start("hold")
         ready = f.wait_event("ready")
-        before = (f.durable / "opencode.db").read_bytes()
         journal = f.durable / (support.credentials.LIFECYCLE_LOCK_NAME + ".journal")
         held.kill()
         os.kill(ready["pid"], signal.SIGKILL)
@@ -280,19 +279,11 @@ class PreparedCacheTests(unittest.TestCase):
             capture_output=True,
             timeout=5,
         )
-        (f.durable / "host-edit.txt").write_text("keep")
-        blocked = subprocess.run(
-            [sys.executable, "-B", str(RUNTIME), "--prepare"],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(blocked.returncode, 75, blocked.stderr)
-        self.assertIn("pending private state", blocked.stderr)
-        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
-        self.assertEqual((f.durable / "host-edit.txt").read_text(), "keep")
-        (f.durable / "host-edit.txt").unlink()
+        record = json.loads(journal.read_text())
+        record["producer"] = "2.0.99"
+        record["expected_durable"] = "0" * 64
+        journal.write_text(json.dumps(record))
+        (f.durable / "opencode.db").touch()
         prepared = subprocess.run(
             [sys.executable, "-B", str(RUNTIME), "--prepare"],
             env=env,
@@ -301,7 +292,7 @@ class PreparedCacheTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
-        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
+        f.assert_clean()
         record = json.loads(journal.read_text())
         self.assertEqual(record["phase"], "prepared")
         self.assertEqual(record["engine"], "rebuilt-engine")
@@ -357,7 +348,7 @@ class PreparedCacheTests(unittest.TestCase):
         before = (f.durable / "opencode.db").read_bytes()
         journal = f.durable / (support.credentials.LIFECYCLE_LOCK_NAME + ".journal")
         record = json.loads(journal.read_text())
-        record["producer"] = "2.0.0"
+        record["producer"] = "1.18.21"
         journal.write_text(json.dumps(record))
         shutil.rmtree(Path(ready["database"]).parents[2])
         blocked = subprocess.run(
@@ -370,7 +361,7 @@ class PreparedCacheTests(unittest.TestCase):
         self.assertEqual(blocked.returncode, 75, blocked.stderr)
         self.assertIn("pending private state", blocked.stderr)
         self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
-        self.assertEqual(json.loads(journal.read_text())["producer"], "2.0.0")
+        self.assertEqual(json.loads(journal.read_text())["producer"], "1.18.21")
 
     def test_idle_keeper_restart_recovers_published_prepared_cache(self):
         f = self.fixture

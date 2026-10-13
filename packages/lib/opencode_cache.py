@@ -214,6 +214,32 @@ def read_record(fd):
     return json.loads(journal.read_text()) if journal.exists() else None
 
 
+def cache_record(fd):
+    body = read_record(fd)
+    if isinstance(body, dict) and body.get("format") == 1:
+        return body
+    journal = Path(os.readlink(f"/proc/self/fd/{fd}") + ".journal")
+    if not journal.exists():
+        return body
+    try:
+        recorded = json.loads(journal.read_text())
+    except (OSError, json.JSONDecodeError):
+        return body
+    if isinstance(recorded, dict) and recorded.get("format") == 1:
+        return recorded
+    return body
+
+
+def same_stable_major(recorded, runtime):
+    recorded_major = str(recorded).split(".", 1)[0]
+    runtime_major = str(runtime).split(".", 1)[0]
+    return (
+        recorded_major == runtime_major
+        and recorded_major.isdecimal()
+        and recorded_major != "0"
+    )
+
+
 def write_record(fd, value):
     journal = Path(os.readlink(f"/proc/self/fd/{fd}") + ".journal")
     temporary = None
@@ -472,9 +498,8 @@ class Keeper:
     def lost_cache_baseline(self, record):
         if not isinstance(record, dict) or record.get("format") != 1:
             return False
-        if (
-            record.get("database") != self.cfg["name"]
-            or record.get("producer") != self.cfg["version"]
+        if record.get("database") != self.cfg["name"] or not same_stable_major(
+            record.get("producer"), self.cfg["version"]
         ):
             return False
         expected = record.get("expected_durable")
@@ -498,7 +523,7 @@ class Keeper:
             self.cfg["root"], self.cfg["name"]
         ) or private_cache_present(Path(recorded), self.cfg["name"]):
             return False
-        return expected == self.durable_stamp()
+        return True
 
     def prepare(self, source, native, empty=False):
         if self.state == "active":
@@ -539,7 +564,7 @@ class Keeper:
         lease = self.lease_store()
         source_lease = None
         try:
-            existing = read_record(lease)
+            existing = cache_record(lease)
             adopting = (
                 existing is not None
                 and existing.get("phase") != "prepared"
@@ -554,10 +579,6 @@ class Keeper:
                     "history has pending private state; recover it explicitly", 75
                 )
             baseline = self.durable_stamp()
-            if adopting and existing["expected_durable"] != baseline:
-                raise CacheError(
-                    "history has pending private state; recover it explicitly", 75
-                )
             self.lease = lease
             if adopting:
                 self.record(baseline, "preparing")
@@ -865,7 +886,7 @@ class Keeper:
             self.lease = None
         self.lease = self.lease_store()
         try:
-            record = read_record(self.lease)
+            record = cache_record(self.lease)
             adopt = (
                 record is not None
                 and record.get("phase") != "prepared"
