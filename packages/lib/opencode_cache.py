@@ -128,6 +128,30 @@ def safe_directory(path):
         )
 
 
+def private_cache_present(root, name):
+    try:
+        info = root.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return True
+    for relative in (
+        Path("data/opencode") / name,
+        Path("previous-data"),
+        Path("publications"),
+    ):
+        try:
+            (root / relative).lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True
+        return True
+    return False
+
+
 def signature(root, deadline):
     result = []
     if not root.exists():
@@ -445,6 +469,37 @@ class Keeper:
         self.durable_signature = self.durable_stamp()
         self.state = "prepared"
 
+    def lost_cache_baseline(self, record):
+        if not isinstance(record, dict) or record.get("format") != 1:
+            return False
+        if (
+            record.get("database") != self.cfg["name"]
+            or record.get("producer") != self.cfg["version"]
+        ):
+            return False
+        expected = record.get("expected_durable")
+        if (
+            not isinstance(expected, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+        ):
+            return False
+        if record.get("phase") not in (
+            "preparing",
+            "active",
+            "building",
+            "publishing",
+            "published",
+        ):
+            return False
+        recorded = record.get("root")
+        if not isinstance(recorded, str) or not Path(recorded).is_absolute():
+            return False
+        if private_cache_present(
+            self.cfg["root"], self.cfg["name"]
+        ) or private_cache_present(Path(recorded), self.cfg["name"]):
+            return False
+        return expected == self.durable_stamp()
+
     def prepare(self, source, native, empty=False):
         if self.state == "active":
             raise CacheError("another OpenCode run owns this cache", 75)
@@ -485,10 +540,27 @@ class Keeper:
         source_lease = None
         try:
             existing = read_record(lease)
-            if existing is not None and existing.get("phase") != "prepared":
+            adopting = (
+                existing is not None
+                and existing.get("phase") != "prepared"
+                and self.lost_cache_baseline(existing)
+            )
+            if (
+                existing is not None
+                and existing.get("phase") != "prepared"
+                and not adopting
+            ):
                 raise CacheError(
                     "history has pending private state; recover it explicitly", 75
                 )
+            baseline = self.durable_stamp()
+            if adopting and existing["expected_durable"] != baseline:
+                raise CacheError(
+                    "history has pending private state; recover it explicitly", 75
+                )
+            self.lease = lease
+            if adopting:
+                self.record(baseline, "preparing")
             safe_directory(self.cfg["root"])
             if not empty and source != self.cfg["durable"]:
                 source_lock = source / self.helper.LIFECYCLE_LOCK_NAME
@@ -558,8 +630,9 @@ class Keeper:
                 OPENCODE_CONFIG_CONTENT='{"plugins":[],"mcp":{"servers":{}}}',
                 PROVEO_OPENCODE_SCHEMA_PREP="1",
             )
+            pinned = self.durable_stamp()
             self.lease = lease
-            self.record(self.durable_stamp(), "preparing")
+            self.record(pinned, "preparing")
             child["PROVEO_OPENCODE_SCHEMA_LEASE_FD"] = str(lease)
             worker = subprocess.Popen(
                 [
@@ -579,31 +652,45 @@ class Keeper:
                 env=child,
                 cwd=schema_home,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 pass_fds=(lease,),
                 start_new_session=True,
             )
             try:
-                worker.wait(
+                _, stderr = worker.communicate(
                     timeout=float(self.env.get("PROVEO_OPENCODE_SCHEMA_TIMEOUT", "300"))
                 )
             except subprocess.TimeoutExpired:
                 worker.terminate()
                 try:
-                    worker.wait(timeout=6)
+                    worker.communicate(timeout=6)
                 except subprocess.TimeoutExpired:
                     worker.kill()
-                    worker.wait()
+                    worker.communicate()
                 self.state = "pending-recovery"
                 lease = None
                 raise CacheError(
                     "native schema preparation timed out; descendants retain lifecycle ownership until shutdown",
                     74,
                 ) from None
-            result = worker
-            if result.returncode:
+            if worker.returncode:
+                lines = [
+                    line.strip()
+                    for line in stderr.decode("utf-8", "replace").splitlines()
+                    if line.strip()
+                ]
+                detail = " | ".join(lines[-4:])
+                if len(detail) > 500:
+                    detail = detail[-500:]
+                suffix = f": {detail}" if detail else ""
                 raise CacheError(
                     "native V2 schema preparation failed; private state remains available for recovery"
+                    + suffix
+                )
+            if self.durable_stamp() != pinned:
+                raise CacheError(
+                    "preparation source changed during import; original history was not replaced",
+                    75,
                 )
             self.helper.normalize_offline(self.cfg["durable"], self.cfg["name"])
             self.record(self.durable_stamp(), "active")
@@ -779,6 +866,22 @@ class Keeper:
         self.lease = self.lease_store()
         try:
             record = read_record(self.lease)
+            adopt = (
+                record is not None
+                and record.get("phase") != "prepared"
+                and self.lost_cache_baseline(record)
+            )
+        except Exception:
+            if self.lease is not None:
+                os.close(self.lease)
+                self.lease = None
+            raise
+        if adopt:
+            os.close(self.lease)
+            self.lease = None
+            self.prepare(self.cfg["durable"], None)
+            return
+        try:
             if record is not None:
                 self.validate_record(record)
                 self.durable_signature = record["expected_durable"]
@@ -827,8 +930,9 @@ class Keeper:
                     shutil.rmtree(state)
                 os.rename(replacement, state)
         except Exception:
-            os.close(self.lease)
-            self.lease = None
+            if self.lease is not None:
+                os.close(self.lease)
+                self.lease = None
             raise
         self.durable_signature = self.durable_stamp()
         self.record(self.durable_signature)

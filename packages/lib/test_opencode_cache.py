@@ -5,6 +5,7 @@ import contextlib
 import inspect
 import json
 import os
+import shutil
 import signal
 from pathlib import Path
 import sqlite3
@@ -253,6 +254,123 @@ class PreparedCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         owner = json.loads(result.stdout)["cache_owner"]
         self.assertRegex(owner, r"^[1-9][0-9]*:[0-9]+$")
+
+    def test_removed_engine_prepares_a_matching_durable_baseline(self):
+        f = self.fixture
+        held = f.start("hold")
+        ready = f.wait_event("ready")
+        before = (f.durable / "opencode.db").read_bytes()
+        journal = f.durable / (support.credentials.LIFECYCLE_LOCK_NAME + ".journal")
+        held.kill()
+        os.kill(ready["pid"], signal.SIGKILL)
+        held.communicate(timeout=5)
+        os.kill(int(f.owner.split(":", 1)[0]), signal.SIGKILL)
+        time.sleep(0.1)
+        self.assertEqual(json.loads(journal.read_text())["phase"], "active")
+        shutil.rmtree(Path(ready["database"]).parents[2])
+        env = dict(
+            f.env,
+            PROVEO_OPENCODE_CACHE_HOME=str(f.root / "rebuilt-engine"),
+            PROVEO_OPENCODE_ENGINE_ID="rebuilt-engine",
+        )
+        self.addCleanup(
+            subprocess.run,
+            [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+            env=env,
+            capture_output=True,
+            timeout=5,
+        )
+        (f.durable / "host-edit.txt").write_text("keep")
+        blocked = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(blocked.returncode, 75, blocked.stderr)
+        self.assertIn("pending private state", blocked.stderr)
+        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
+        self.assertEqual((f.durable / "host-edit.txt").read_text(), "keep")
+        (f.durable / "host-edit.txt").unlink()
+        prepared = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
+        record = json.loads(journal.read_text())
+        self.assertEqual(record["phase"], "prepared")
+        self.assertEqual(record["engine"], "rebuilt-engine")
+
+    def kill_keeper(self):
+        f = self.fixture
+        held = f.start("hold")
+        ready = f.wait_event("ready")
+        held.kill()
+        os.kill(ready["pid"], signal.SIGKILL)
+        held.communicate(timeout=5)
+        os.kill(int(f.owner.split(":", 1)[0]), signal.SIGKILL)
+        time.sleep(0.1)
+        return ready
+
+    def rebuilt_engine(self):
+        f = self.fixture
+        env = dict(
+            f.env,
+            PROVEO_OPENCODE_CACHE_HOME=str(f.root / "rebuilt-engine"),
+            PROVEO_OPENCODE_ENGINE_ID="rebuilt-engine",
+        )
+        self.addCleanup(
+            subprocess.run,
+            [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+            env=env,
+            capture_output=True,
+            timeout=5,
+        )
+        return env
+
+    def test_removed_engine_leaves_a_live_private_cache_untouched(self):
+        f = self.fixture
+        self.kill_keeper()
+        before = (f.durable / "opencode.db").read_bytes()
+        journal = f.durable / (support.credentials.LIFECYCLE_LOCK_NAME + ".journal")
+        previous = json.loads(journal.read_text())
+        blocked = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=self.rebuilt_engine(),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(blocked.returncode, 75, blocked.stderr)
+        self.assertIn("pending private state", blocked.stderr)
+        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
+        self.assertEqual(json.loads(journal.read_text())["engine"], previous["engine"])
+
+    def test_removed_engine_rejects_another_producer(self):
+        f = self.fixture
+        ready = self.kill_keeper()
+        before = (f.durable / "opencode.db").read_bytes()
+        journal = f.durable / (support.credentials.LIFECYCLE_LOCK_NAME + ".journal")
+        record = json.loads(journal.read_text())
+        record["producer"] = "2.0.0"
+        journal.write_text(json.dumps(record))
+        shutil.rmtree(Path(ready["database"]).parents[2])
+        blocked = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare"],
+            env=self.rebuilt_engine(),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(blocked.returncode, 75, blocked.stderr)
+        self.assertIn("pending private state", blocked.stderr)
+        self.assertEqual((f.durable / "opencode.db").read_bytes(), before)
+        self.assertEqual(json.loads(journal.read_text())["producer"], "2.0.0")
 
     def test_idle_keeper_restart_recovers_published_prepared_cache(self):
         f = self.fixture

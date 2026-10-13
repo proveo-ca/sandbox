@@ -118,7 +118,11 @@
 ' Reuse an already-verified post-exit result for prepared-cache retention without adding another bulk snapshot.
 ' Preserve the previous good generation until the new generation publishes atomically.
 ' Reconcile host-visible history and engine-local state during maintenance; never merge on implicit startup.
-' Treat a lost engine or interrupted unprepared generation as pending recovery without deleting its record.
+' Treat an interrupted generation whose private cache still exists as pending recovery without deleting its record.
+' A removed engine prepares the mounted database when this cache and the journal's recorded cache are both gone, the producer and database match, and the durable baseline still matches.
+' That baseline is pinned before import. A later edit does not become the new baseline. Unpublished sessions from the removed engine are gone with it.
+' A diverged baseline, another producer, or a private cache that still exists still requires --proveo-recover and is not overwritten.
+' Prepare, recover and a busy history check report the runtime failure text. Exit 75 is not relabeled as an agent exit.
 ' A cold engine with a mounted V2 database is prepared before the agent starts. The native client does not start on an unprepared cache.
 ' sbx creates/bootstrap-checks the keeper before managed launch and retains successful OpenCode engines.
 ' It mounts an explicitly requested preparation source read-only; ordinary V2 launches omit legacy history mounts.

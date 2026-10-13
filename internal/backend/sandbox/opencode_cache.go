@@ -17,7 +17,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -149,6 +148,18 @@ func cacheCommand(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return cacheCommandContext(ctx, name, args...)
+}
+
+func openCodeCommandError(action string, err error, out string) error {
+	detail := strings.TrimSpace(out)
+	status := strings.TrimSpace(err.Error())
+	if detail == "" {
+		return fmt.Errorf("OpenCode %s failed: %s", action, status)
+	}
+	if status == "" {
+		return fmt.Errorf("OpenCode %s failed: %s", action, detail)
+	}
+	return fmt.Errorf("OpenCode %s failed: %s: %s", action, status, detail)
 }
 
 func cacheCommandContext(ctx context.Context, name string, args ...string) (string, error) {
@@ -410,11 +421,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 		out, gateErr := run(recoverCtx, cfg.Name, "--recover", flag)
 		cancelRecover()
 		if gateErr != nil {
-			var exit *exec.ExitError
-			if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
-				return cfg, backend.ExitError{Code: 75}
-			}
-			return cfg, fmt.Errorf("OpenCode recover failed: %w: %s", gateErr, strings.TrimSpace(out))
+			return cfg, openCodeCommandError("recover", gateErr, out)
 		}
 		ui.Appf("OpenCode recover: 2/2 start the agent on the recovered cache")
 		cfg.Command = stripOpenCodeMaintenance(cfg.Command)
@@ -425,7 +432,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 		if gateErr != nil {
 			var exit *exec.ExitError
 			if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
-				return cfg, backend.ExitError{Code: 75}
+				return cfg, openCodeCommandError("history check", gateErr, out)
 			}
 			explicitEmpty := false
 			for _, arg := range cfg.Command {
@@ -463,10 +470,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 			out, gateErr = run(prepareCtx, cfg.Name, args...)
 			cancelPrepare()
 			if gateErr != nil {
-				if errors.As(gateErr, &exit) && exit.ExitCode() == 75 {
-					return cfg, backend.ExitError{Code: 75}
-				}
-				return cfg, fmt.Errorf("OpenCode prepare failed: %w: %s", gateErr, strings.TrimSpace(out))
+				return cfg, openCodeCommandError("prepare", gateErr, out)
 			}
 			ui.Appf("OpenCode prepare: 2/3 published a credential-free checkpoint")
 			ui.Appf("OpenCode prepare: 3/3 start the agent on that cache")

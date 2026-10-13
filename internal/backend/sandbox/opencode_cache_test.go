@@ -3,14 +3,17 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -220,6 +223,42 @@ func TestUnpreparedV2DatabasePreparesOnOrdinaryLaunch(t *testing.T) {
 	}
 	if err != nil && strings.Contains(err.Error(), "explicitly mounted") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPrepareFailureKeepsTheRuntimeText(t *testing.T) {
+	previous := receiptDir
+	root := t.TempDir()
+	receiptDir = func() string { return root }
+	t.Cleanup(func() { receiptDir = previous })
+	t.Setenv("PROVEO_WIZARD", "off")
+	home := t.TempDir()
+	db := filepath.Join(home, "opencode", "v2", "share")
+	if err := os.MkdirAll(db, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(db, "opencode.db"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ context.Context, _ string, args ...string) (string, error) {
+		switch args[0] {
+		case "--bootstrap-cache":
+			return `{"cache_owner":"1234:5678"}`, nil
+		case "--prepare":
+			return "proveo: history has pending private state; recover it explicitly", exec.Command("sh", "-c", "exit 75").Run()
+		default:
+			return "proveo: OpenCode history is not prepared", fmt.Errorf("exit")
+		}
+	}
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{
+		Name: "proveo-opencode-11c4aed0",
+	}, func(string) bool { return true }, run)
+	if err == nil || !strings.Contains(err.Error(), "pending private state") {
+		t.Fatalf("err = %v", err)
+	}
+	var agent backend.ExitError
+	if errors.As(err, &agent) {
+		t.Fatal("prepare failure was reported as an agent exit")
 	}
 }
 
