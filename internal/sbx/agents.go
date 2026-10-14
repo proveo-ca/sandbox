@@ -33,15 +33,20 @@ func ShellLaunch(target string, extra []string) []string {
 	if target == "" {
 		return nil
 	}
-	q, ep := shellQuote(target), shellQuote(target+"-entrypoint")
-	script := strings.Join([]string{
-		"if command -v -- " + ep + " >/dev/null 2>&1; then exec " + ep + ` "$@"; fi`,
-		`if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi`,
-		"exec " + q + ` "$@"`,
-	}, "; ")
+	script := strings.Join(append(defEntrypoint(target), "exec "+shellQuote(target)+` "$@"`), "; ")
 	// bash -c reads the word after the script as $0, so a placeholder has to sit
 	// there or the first real argument is swallowed.
 	return append([]string{"-c", script, "proveo-" + target}, extra...)
+}
+
+// defEntrypoint execs the def's entrypoint: <target>-entrypoint on PATH, else /entrypoint.sh.
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
+func defEntrypoint(target string) []string {
+	ep := shellQuote(target + "-entrypoint")
+	return []string{
+		"if command -v -- " + ep + " >/dev/null 2>&1; then exec " + ep + ` "$@"; fi`,
+		`if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi`,
+	}
 }
 
 // IsShellLaunch reports whether cmd is a launch ShellLaunch built, which is what

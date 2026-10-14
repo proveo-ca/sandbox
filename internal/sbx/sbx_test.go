@@ -1259,7 +1259,7 @@ func TestSeedStepsSplitAtTheRelease(t *testing.T) {
 			}
 		})
 	}
-	if got := strings.Join(SeedEntrypointCommand().Command, " "); !strings.Contains(got, "PROVEO_SEED_PHASE="+SeedPhaseNone) {
+	if got := strings.Join(SeedEntrypointCommand("claudecode").Command, " "); !strings.Contains(got, "PROVEO_SEED_PHASE="+SeedPhaseNone) {
 		t.Errorf("SeedEntrypointCommand() = %q, want PROVEO_SEED_PHASE=%s so the def entrypoint skips the shared seed", got, SeedPhaseNone)
 	}
 }
@@ -1270,7 +1270,7 @@ func TestWriteKitRendersBackgroundOnlyWhereSet(t *testing.T) {
 		Kind:          "mixin",
 		Name:          "claudecode-posture",
 		Setup: &KitSetup{Startup: []KitCommand{
-			SeedCommand("claudecode"), SeedEntrypointCommand(), SeedProvisionCommand("claudecode"),
+			SeedCommand("claudecode"), SeedEntrypointCommand("claudecode"), SeedProvisionCommand("claudecode"),
 		}},
 	})
 	if err != nil {
@@ -1285,6 +1285,56 @@ func TestWriteKitRendersBackgroundOnlyWhereSet(t *testing.T) {
 	}
 	if strings.Contains(string(b), "background: false") {
 		t.Errorf("spec.yaml spells out the default `background: false`:\n%s", b)
+	}
+}
+
+func TestSeedEntrypointStepFindsTheDefEntrypoint(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		named, legacy bool
+		want          string
+	}{
+		{"cecli-entrypoint on PATH and no /entrypoint.sh, as the cecli image ships", true, false, "named"},
+		{"/entrypoint.sh only", false, true, "legacy"},
+		{"both, the named one first as ShellLaunch picks", true, true, "named"},
+		{"neither, nothing to wire", false, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin, ran, legacy := filepath.Join(dir, "bin"), filepath.Join(dir, "ran"), filepath.Join(dir, "entrypoint.sh")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			stub := func(path, label string) {
+				body := "#!/bin/sh\nprintf '" + label + ` %s %s\n' "$PROVEO_SEED_ONLY" "$PROVEO_SEED_PHASE" > '` + ran + "'\n"
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.named {
+				stub(filepath.Join(bin, "cecli-entrypoint"), "named")
+			}
+			if tc.legacy {
+				stub(legacy, "legacy")
+			}
+			cmd := SeedEntrypointCommand("cecli").Command
+			argv := append([]string(nil), cmd[1:]...)
+			for i := range argv {
+				argv[i] = strings.ReplaceAll(argv[i], "/entrypoint.sh", legacy)
+			}
+			c := exec.Command(cmd[0], argv...)
+			c.Env = []string{"PATH=" + bin + ":/usr/bin:/bin"}
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("seed-only entrypoint step: %v — sbx's dispatcher fails the sandbox start on it\n%s", err, out)
+			}
+			want := ""
+			if tc.want != "" {
+				want = tc.want + " 1 " + SeedPhaseNone + "\n"
+			}
+			if got, _ := os.ReadFile(ran); string(got) != want {
+				t.Errorf("seed-only entrypoint step ran %q, want %q", got, want)
+			}
+		})
 	}
 }
 

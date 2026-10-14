@@ -1909,7 +1909,7 @@ func startupCommands(in Input, ownAgent bool) []sbx.KitCommand {
 		cmds = append(cmds, sbx.SeedFullCommand(in.Target))
 	}
 	if !ownAgent {
-		cmds = append(cmds, sbx.SeedEntrypointCommand())
+		cmds = append(cmds, sbx.SeedEntrypointCommand(in.Target))
 	}
 	if split {
 		cmds = append(cmds, sbx.SeedProvisionCommand(in.Target))

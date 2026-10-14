@@ -1391,7 +1391,9 @@
         "internal/contract/seed_phase_test.go",
         "e2e/startup_dispatch_test.go",
         "scripts/proveo-jitter-probe.py",
-        "e2e/seed_ready_test.go"
+        "e2e/seed_ready_test.go",
+        "internal/sbx/agents.go",
+        "internal/imagetest/cecli_test.go"
       ],
       "fingerprint": null
     },

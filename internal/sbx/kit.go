@@ -136,9 +136,11 @@ func WorktreeDirCommand(dir string) KitCommand {
 // agent launch: PROVEO_SEED_ONLY makes proveo_exec_agent return instead of
 // exec, so a mixin kit gets the def's own wiring while sbx launches the agent.
 // PROVEO_SEED_PHASE=none skips the shared seed the other startup steps run.
-func SeedEntrypointCommand() KitCommand {
+// An image with neither entrypoint exits 0.
+func SeedEntrypointCommand(target string) KitCommand {
 	return KitCommand{
-		Command:     []string{"/usr/bin/env", "PROVEO_SEED_ONLY=1", "PROVEO_SEED_PHASE=" + SeedPhaseNone, "/entrypoint.sh"},
+		Command: []string{"/usr/bin/env", "PROVEO_SEED_ONLY=1", "PROVEO_SEED_PHASE=" + SeedPhaseNone,
+			"/bin/sh", "-c", strings.Join(defEntrypoint(target), "; "), "proveo-" + target},
 		User:        "1000",
 		Description: "proveo: the def's own wiring, launch skipped",
 	}

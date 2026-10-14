@@ -54,7 +54,10 @@ setup:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
             - PROVEO_SEED_PHASE=none
-            - /entrypoint.sh
+            - /bin/sh
+            - -c
+            - if command -v -- 'claudecode-entrypoint' >/dev/null 2>&1; then exec 'claudecode-entrypoint' "$@"; fi; if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi
+            - proveo-claudecode
           user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
         - command:

@@ -16,7 +16,7 @@ func TestStartupCommandsRunInstallsLastAndInTheBackground(t *testing.T) {
 	worktree := Input{Target: "claudecode", Clone: true, RepoRoot: filepath.Join(root, "wt"),
 		CloneSource: workspace.WorktreeSource{Main: filepath.Join(root, "main"), Ref: "feat"}}
 	plain := Input{Target: "claudecode"}
-	release, provision, entry := sbx.SeedCommand("claudecode"), sbx.SeedProvisionCommand("claudecode"), sbx.SeedEntrypointCommand()
+	release, provision, entry := sbx.SeedCommand("claudecode"), sbx.SeedProvisionCommand("claudecode"), sbx.SeedEntrypointCommand("claudecode")
 	full := sbx.SeedFullCommand("cecli")
 	for _, tc := range []struct {
 		name     string

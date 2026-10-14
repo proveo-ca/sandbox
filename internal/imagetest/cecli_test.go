@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/imagetest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 // SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/_devops/agent-version-pin.puml, _spec/defs/agent-definition-sharing.puml
@@ -27,6 +28,16 @@ func TestImageCecli(t *testing.T) {
 	cecliAll(s, "ships the Kit's startup command (/usr/local/bin/proveo-seed)",
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `test -x /usr/local/bin/proveo-seed`},
 	)
+
+	seedOnly := sbx.SeedEntrypointCommand("cecli").Command
+	s.Check("the Kit's seed-only entrypoint step runs cecli-entrypoint under su's PATH", func(t *testing.T) {
+		args := append([]string{"run", "--rm", "--network", "none", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false",
+			"--entrypoint", seedOnly[0], image, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}, seedOnly[1:]...)
+		r := imagetest.Docker(imagetest.DefaultTimeout, nil, args...)
+		if !r.OK() || !strings.Contains(r.Out, "seed-only: cecli") {
+			t.Fatalf("docker %s: %v — sbx fails the sandbox start on this step\n%s", strings.Join(args, " "), r.Err, r.Out)
+		}
+	})
 
 	cecliAll(s, "git + gh + ffmpeg baked in, env git identity resolves via git config",
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `git --version && gh --version && ffmpeg -hide_banner -version`},

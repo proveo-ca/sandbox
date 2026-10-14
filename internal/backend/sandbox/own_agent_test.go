@@ -475,7 +475,7 @@ func withoutSeedEntrypoint(setup *sbx.KitSetup) *sbx.KitSetup {
 	}
 	out := *setup
 	out.Startup = nil
-	want := sbx.SeedEntrypointCommand()
+	want := sbx.SeedEntrypointCommand("")
 	for _, c := range setup.Startup {
 		if c.Description == want.Description {
 			continue

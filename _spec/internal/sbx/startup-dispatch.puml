@@ -12,6 +12,8 @@ skinparam noteTextAlignment left
 ' covers: e2e/startup_dispatch_test.go
 ' covers: scripts/proveo-jitter-probe.py
 ' covers: e2e/seed_ready_test.go
+' covers: internal/sbx/agents.go
+' covers: internal/imagetest/cecli_test.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────
@@ -77,6 +79,21 @@ skinparam noteTextAlignment left
 ' install beside that inline seed — two pnpm installs in one workspace, two
 ' `mise use -g` into one MISE_DATA_DIR — so those Kits keep one foreground
 ' `proveo-seed <target> all`, exactly the old shape.
+'
+' ── STEP 2 FINDS THE DEF'S ENTRYPOINT THE WAY ShellLaunch DOES ─────────────
+' Not every image ships /entrypoint.sh. cecli's entrypoint is
+' /usr/local/bin/cecli-entrypoint, and the cecli image has no /entrypoint.sh.
+' Step 2 named /entrypoint.sh outright, so on cecli `env` exited 127 and sbx
+' failed the sandbox start ("kit startup exited with code 127"). That hit
+' every mixin-kit cecli run: `--shell`, and PROVEO_SBX_AGENT_KIT=0. It predates
+' the split: base e66eb45c (#68) carried the same argv. Found 2026-10-14 by
+' TestSeedReleasesEveryHarnessReady/cecli.
+' Step 2 now execs <target>-entrypoint when PATH has it, else /entrypoint.sh,
+' the order ShellLaunch launches in (defEntrypoint, internal/sbx/agents.go).
+' su's PATH keeps /usr/local/bin, so the lookup holds inside the dispatcher.
+' An image with neither exits 0: it has no def wiring to run, and a failing
+' step ends the start. internal/imagetest/cecli_test.go runs the Kit's own
+' argv in the image under su's PATH and requires cecli's "seed-only" line.
 '
 ' The chrome bridge moved BEFORE the release. It needs only node, which the
 ' image bakes, takes at most 3s, and writes hasCompletedClaudeInChromeOnboarding
@@ -165,6 +182,15 @@ skinparam noteTextAlignment left
 ' the docs, and does not wait on background ones. That explains the 86s stall
 ' and confirms the split: only work in background steps escapes the gate.
 ' The foreground row's output is the upstream report (docker/sbx-releases).
+'
+' ── A MEASURED DEVIATION SKIPS, AN UNMEASURED ONE FAILS (2026-10-14) ───────
+' foregroundGateVersions in e2e/startup_dispatch_test.go lists the sbx
+' releases measured to gate on a foreground step: v0.46.0. On a listed release
+' the foreground row skips and logs the same report, so `mise run test-e2e`
+' stays green on a deviation already measured and reported. On any other
+' release a gating foreground step fails the row, so a new sbx is measured
+' before it joins the list. The background row has no list: the split relies
+' on it, and a gating background step fails on every release.
 '
 ' ── AFTER THE SPLIT, 2026-10-13, same workspace, fresh VM, sbx v0.46.0 ───────
 '   +5s   release marker            (was +36s)

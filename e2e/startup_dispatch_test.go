@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,12 +49,43 @@ func TestSbxStartupStepsDoNotGateTheAgent(t *testing.T) {
 				t.Fatalf("the shell agent never started (step began %d, ended %d; sbx %s)", stepStart, stepEnd, sbxVersion)
 			}
 			if stepEnd != 0 && agent >= stepEnd {
-				t.Errorf("sbx started the agent at %d, after a %s startup step ended at %d (began %d). "+
+				report := fmt.Sprintf("sbx started the agent at %d, after a %s startup step ended at %d (began %d). "+
 					"Docker documents that startup steps \"don't gate the agent's entrypoint\" "+
 					"(https://docs.docker.com/ai/sandboxes/customize/kits/). Report upstream with: sbx version %q",
 					agent, tc.name, stepEnd, stepStart, sbxVersion)
+				if !tc.background && foregroundGateMeasured(sbxVersion) {
+					t.Skipf("known deviation, already measured and reported: %s", report)
+				}
+				t.Error(report)
 			}
 		})
+	}
+}
+
+// foregroundGateVersions are the sbx releases measured to gate the agent on a foreground step.
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
+var foregroundGateVersions = []string{"v0.46.0"}
+
+// foregroundGateMeasured reports whether `sbx version` output names a release in foregroundGateVersions.
+func foregroundGateMeasured(version string) bool {
+	for _, f := range strings.Fields(version) {
+		if slices.Contains(foregroundGateVersions, f) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestForegroundGateMeasuredReadsSbxVersion(t *testing.T) {
+	for in, want := range map[string]bool{
+		"sbx version: v0.46.0 991967dc90ce0d9a440cd1df1bdf3e395c5a2693": true,
+		"sbx version: v0.47.0 0123456789abcdef":                         false,
+		"sbx version: v0.46.01 0123456789abcdef":                        false,
+		"":                                                              false,
+	} {
+		if got := foregroundGateMeasured(in); got != want {
+			t.Errorf("foregroundGateMeasured(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
