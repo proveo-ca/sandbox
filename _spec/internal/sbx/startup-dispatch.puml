@@ -11,6 +11,7 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/seed_phase_test.go
 ' covers: e2e/startup_dispatch_test.go
 ' covers: scripts/proveo-jitter-probe.py
+' covers: e2e/input_while_seeding_test.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────
@@ -145,6 +146,14 @@ skinparam noteTextAlignment left
 ' is the upstream report already written. A failing background row means the
 ' split buys nothing on that sbx; a failing foreground row alone means sbx
 ' gates on foreground steps, which the split already routes around.
+'
+' e2e/input_while_seeding_test.go drives every sbx harness through the real
+' `proveo run <target>` (the host PTY proxy included) and types into the agent
+' while the background provision step installs. It asserts per-keystroke echo
+' p90 <= 250ms and max <= 1s, and, for a split seed, that the agent takes input
+' within 20s of the release marker (PROVEO_TEST_ECHO_P90 / _ECHO_MAX /
+' _READY_AFTER_RELEASE override). Early-input jitter, reported 2026-10-13, is
+' the regression it guards; a harness waiting on a login skips.
 
 ' ── PROBE RESULT, 2026-10-13, sbx v0.46.0 (991967dc) on the operator's Mac ──
 '   foreground row  FAIL  step 1791938970→1791939030 (60s); agent 1791939030.
