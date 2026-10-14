@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml
+// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml
 
 package e2e
 
@@ -10,10 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -142,6 +146,7 @@ func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 		t.Fatalf("start %s --shell: %v", target, err)
 	}
 	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
+	assertResponsiveWhileSeeding(t, sess, target)
 
 	launch, status := shellExec(t, sess, readyLaunchScript(spec), 5*time.Minute)
 	if status != 0 {
@@ -242,4 +247,74 @@ echo "gopls=$(bash -lic 'command -v gopls' >/dev/null 2>&1 && echo yes || echo n
 files=$(find /home /app -type f \( %[2]s \) 2>/dev/null)
 echo "gopls_wired=$([ -n "$files" ] && grep -qE 'gopls' $files && echo yes || echo no)"
 `, seedDone, strings.Join(pats, " -o "))
+}
+
+var readyGapRE = regexp.MustCompile(`READY gap=(-?\d+) seeding=(yes|no)`)
+
+// assertResponsiveWhileSeeding times the session's shell start against the
+// release marker, then types into it while the background seed may still be
+// installing and asserts every keystroke echoes promptly through proveo's PTY
+// proxy and sbx.
+func assertResponsiveWhileSeeding(t *testing.T, sess *tmux.Session, target string) {
+	t.Helper()
+	p90Max := durationEnv(t, "PROVEO_TEST_ECHO_P90", 250*time.Millisecond)
+	echoMax := durationEnv(t, "PROVEO_TEST_ECHO_MAX", time.Second)
+	readyMax := durationEnv(t, "PROVEO_TEST_READY_AFTER_RELEASE", 20*time.Second)
+
+	out, _ := shellExec(t, sess, `bt=$(awk '/^btime/{print $2}' /proc/stat); hz=$(getconf CLK_TCK)
+started=$(( bt + $(awk '{print $22}' /proc/$PPID/stat) / hz ))
+released=$(stat -c %Y `+releaseMarker+` 2>/dev/null) || exit 0
+echo "READY gap=$(( started - released )) seeding=$(test -e `+seedDone+` && echo no || echo yes)"`, time.Minute)
+	m := readyGapRE.FindStringSubmatch(out)
+	if m != nil && sbx.BuiltinAgent(target) != "" {
+		if gap, _ := strconv.Atoi(m[1]); time.Duration(gap)*time.Second > readyMax {
+			t.Errorf("%s: the session started %ds after the release, want <= %s — it waited on the installs again", target, gap, readyMax)
+		}
+	}
+
+	typed, letters := "zqx", "jkvwpbmhgfdtlcy"
+	if err := sess.SendText(typed); err != nil {
+		t.Fatal(err)
+	}
+	if !paneShows(sess, typed, 30*time.Second) {
+		t.Fatalf("%s: typed %q never echoed", target, typed)
+	}
+	var lat []time.Duration
+	for _, c := range letters {
+		typed += string(c)
+		start := time.Now()
+		if err := sess.SendText(string(c)); err != nil {
+			t.Fatal(err)
+		}
+		if !paneShows(sess, typed, 5*time.Second) {
+			t.Fatalf("%s dropped keystroke %q: %q never appeared", target, string(c), typed)
+		}
+		lat = append(lat, time.Since(start))
+		time.Sleep(150 * time.Millisecond)
+	}
+	_ = sess.SendKeys("C-u")
+
+	sorted := append([]time.Duration(nil), lat...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	p90, worst := sorted[len(sorted)*9/10], sorted[len(sorted)-1]
+	seeding := m != nil && m[2] == "yes"
+	t.Logf("%s echo p90=%s max=%s (background seed still installing: %v)", target, p90.Round(time.Millisecond), worst.Round(time.Millisecond), seeding)
+	if p90 > p90Max {
+		t.Errorf("%s echo latency p90 = %s, want <= %s — keystrokes lag while the seed runs", target, p90.Round(time.Millisecond), p90Max)
+	}
+	if worst > echoMax {
+		t.Errorf("%s echo latency max = %s, want <= %s", target, worst.Round(time.Millisecond), echoMax)
+	}
+}
+
+// paneShows polls the visible pane every 10ms until it contains s.
+func paneShows(sess *tmux.Session, s string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if screen, err := sess.Capture(); err == nil && strings.Contains(screen, s) {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }
