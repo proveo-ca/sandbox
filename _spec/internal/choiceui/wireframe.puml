@@ -108,7 +108,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
     . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome | <color:#9a9a9a>— claude-in-chrome: docker backend only — set…
-    agent evidence | ( ) default | (X) verbose | . | .
+    outputs | ( ) filtered | (X) verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
@@ -140,7 +140,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   survives while one ordered row remains.
 }
 {^"4 · one answer — a radio, not a gated pair"
-  agent evidence | ( ) default | (X) verbose
+  outputs | ( ) filtered | (X) verbose
   execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color>
   .
   Brackets say "any number of these" and

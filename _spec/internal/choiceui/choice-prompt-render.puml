@@ -7,6 +7,7 @@ skinparam noteTextAlignment left
 ' covers: internal/choiceui/hover_test.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/choiceui/pane_test.go
 ' covers: cmd/proveo/main.go
+' covers: internal/run/choices.go, internal/run/params.go, internal/run/run_test.go
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
 ' row-gating helpers (applicableRows, comingSoon, gateAddons, gateReview) lands here (batches 3 and 6).
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
@@ -210,8 +211,18 @@ TTY ARROW_MAIN RUN : Enter confirms · Esc/q cancels
 RUN ARROW_MAIN READ
 READ ARROW_ERROR MISREAD : fall back to the resolved value instead
 
+' ── "agent evidence" BECAME "outputs" (2026-10-13) ─────────────────────────
+' The row reads `outputs  ( ) filtered  (•) verbose`. Only the words changed:
+' "filtered" is the old "default" level, and evidenceOf maps the answer back,
+' so PROVEO_AGENT_EVIDENCE, the choice cache and agent_evidence_verbose keep
+' "default"/"verbose". The ask was `[ ] filtered  [ ] verbose` checkboxes; the
+' row stays RADIO because the level is one answer — two boxes would add a
+' "neither" and a "both" the env var cannot carry
+' (TestEvidenceIsOneAnswerNotTwoBoxes). The run-log key in internal/posture
+' still says "agent evidence"; it is the log's vocabulary, not the prompt's.
+
 note bottom of DRAW
-  **""agent evidence"" is a toggle, not a tier.**
+  **""outputs"" is a toggle, not a tier.**
   Narrating more of the run costs tokens and
   screen rather than safety, so it belongs with
   the add-ons instead of under the legend — as a

@@ -333,7 +333,7 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
 		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true, On: make([]bool, 2)},
-		{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true, On: []bool{false, true}},
+		{Label: "outputs", Options: []string{"filtered", "verbose"}, Multi: true, On: []bool{false, true}},
 	}}
 	lines := render(t, f)
 	out := strings.Join(lines, "\n")
@@ -353,10 +353,10 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	if strings.Contains(lines[addonRow], "add-ons") {
 		t.Errorf("the divider already names add-ons; row repeats it: %q", lines[addonRow])
 	}
-	if !strings.Contains(lines[evidenceRow], "agent evidence") {
+	if !strings.Contains(lines[evidenceRow], "outputs") {
 		t.Errorf("second checkbox row lost its label: %q", lines[evidenceRow])
 	}
-	if strings.Count(out, "─ agent evidence ─") != 0 {
+	if strings.Count(out, "─ outputs ─") != 0 {
 		t.Errorf("a row that declared no divider must not be given one:\n%s", out)
 	}
 	if strings.Count(out, "─ add-ons ─") != 1 {

@@ -18,7 +18,7 @@ func budgetForm() *Form {
 			{Label: "credentials", Options: []string{"forward", "broker"}},
 			{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true,
 				Help: map[string]string{"docker (sandbox)": "a microVM with its own Docker daemon, and a good deal more text so this option wraps to several lines of help"}},
-			{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true},
+			{Label: "outputs", Options: []string{"filtered", "verbose"}, Multi: true},
 		},
 		Topology: func(*Form, int) *Frame { return &Frame{Host: "pluvo", HostOS: "(macOS)", Caption: "c"} },
 	}

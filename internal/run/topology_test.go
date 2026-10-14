@@ -101,7 +101,7 @@ func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 		f := stripForm("open", "broker")
 		ev := &f.Rows[len(f.Rows)-1]
 		for i, o := range ev.Options {
-			if o == c.level {
+			if evidenceOf(o) == c.level {
 				ev.Selected = i
 			}
 		}

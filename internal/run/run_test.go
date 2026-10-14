@@ -125,8 +125,8 @@ func TestEvidenceRowDefaultsToVerbose(t *testing.T) {
 	if r.Label != evidenceLabel || r.Multi {
 		t.Fatalf("row = %+v, want a RADIO row labelled %q", r, evidenceLabel)
 	}
-	if len(r.Options) != 2 || r.Options[0] != EvidenceDefault || r.Options[1] != EvidenceVerbose {
-		t.Fatalf("options = %v, want [%s %s]", r.Options, EvidenceDefault, EvidenceVerbose)
+	if len(r.Options) != 2 || r.Options[0] != evidenceFilter || r.Options[1] != EvidenceVerbose {
+		t.Fatalf("options = %v, want [%s %s]", r.Options, evidenceFilter, EvidenceVerbose)
 	}
 	if r.Options[r.Selected] != EvidenceVerbose {
 		t.Errorf("selected = %q, want verbose to be the default answer", r.Options[r.Selected])
@@ -142,8 +142,8 @@ func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	if r.Options[r.Selected] != EvidenceVerbose {
 		t.Errorf("a remembered verbose must come back selected, got %q", r.Options[r.Selected])
 	}
-	if got := evidenceRow(EvidenceDefault); got.Options[got.Selected] != EvidenceDefault {
-		t.Errorf("default must come back selected, got %q", got.Options[got.Selected])
+	if got := evidenceRow(EvidenceDefault); got.Options[got.Selected] != evidenceFilter {
+		t.Errorf("a remembered default must come back as %q, got %q", evidenceFilter, got.Options[got.Selected])
 	}
 	// Cycling reaches the other level and nothing else: there is no third state.
 	f := &choiceui.Form{Rows: []choiceui.Row{
@@ -152,7 +152,7 @@ func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	}}
 	seen := map[string]bool{}
 	for i := 0; i < 4; i++ {
-		seen[f.Selection(evidenceLabel)] = true
+		seen[evidenceOf(f.Selection(evidenceLabel))] = true
 		f.Rows[1].Selected = (f.Rows[1].Selected + 1) % len(f.Rows[1].Options)
 	}
 	if len(seen) != 2 || !seen[EvidenceDefault] || !seen[EvidenceVerbose] {
@@ -160,6 +160,21 @@ func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 	}
 	if !f.Rows[0].On[0] {
 		t.Error("the evidence row must not reach into the add-ons row")
+	}
+}
+
+func TestOutputsRowKeepsTheEvidenceValues(t *testing.T) {
+	t.Parallel()
+	if evidenceLabel != "outputs" {
+		t.Errorf("row label = %q, want %q", evidenceLabel, "outputs")
+	}
+	for answer, want := range map[string]string{
+		evidenceFilter:  EvidenceDefault,
+		EvidenceVerbose: EvidenceVerbose,
+	} {
+		if got := evidenceOf(answer); got != want {
+			t.Errorf("evidenceOf(%q) = %q, want %q — PROVEO_AGENT_EVIDENCE and the choice cache keep their values", answer, got, want)
+		}
 	}
 }
 

@@ -108,3 +108,5 @@ cov/
 _spec/**/*.svg
 _spec/**/*.png
 !_spec/_assets/**
+
+.claude/worktrees/

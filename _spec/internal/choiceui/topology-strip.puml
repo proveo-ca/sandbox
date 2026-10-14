@@ -371,7 +371,7 @@ node "internal/choiceui" as PKG <<host>> {
 
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
 component "Run()\nexisting event loop" as RUN <<app>>
-component "Rows\negress · credentials · auth\nexecution · interface · agent evidence" as ROWS <<app>>
+component "Rows\negress · credentials · auth\nexecution · interface · outputs" as ROWS <<app>>
 queue "animTicker\nPostEvent every 120ms, while the prompt is open" as TICK <<async>>
 component "Operator terminal\nw x h, resized at will" as TTY <<host>>
 

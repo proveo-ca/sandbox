@@ -116,7 +116,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.applySource(v, hasAuth)
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
-		p.Evidence = v
+		p.Evidence = evidenceOf(v)
 	}
 	return nil
 }
@@ -210,8 +210,17 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 	return help
 }
 
+// evidenceOf is the PROVEO_AGENT_EVIDENCE value an outputs answer stands for.
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
+func evidenceOf(answer string) string {
+	if answer == evidenceFilter {
+		return EvidenceDefault
+	}
+	return answer
+}
+
 func evidenceRow(current string) choiceui.Row {
-	opts := []string{EvidenceDefault, EvidenceVerbose}
+	opts := []string{evidenceFilter, EvidenceVerbose}
 	sel := 0
 	if current == EvidenceVerbose {
 		sel = 1

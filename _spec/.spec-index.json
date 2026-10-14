@@ -894,7 +894,10 @@
         "internal/choiceui/hover_test.go",
         "internal/choiceui/gated_reason_test.go",
         "internal/choiceui/pane_test.go",
-        "cmd/proveo/main.go"
+        "cmd/proveo/main.go",
+        "internal/run/choices.go",
+        "internal/run/params.go",
+        "internal/run/run_test.go"
       ],
       "fingerprint": null
     },

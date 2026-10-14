@@ -50,7 +50,8 @@ func (p Params) credentialsOrDefault() string {
 func (p Params) intercepts() bool { return p.Mode != "open" || !p.forwards() }
 
 const (
-	evidenceLabel   = "agent evidence"
+	evidenceLabel   = "outputs"
+	evidenceFilter  = "filtered"
 	EvidenceVar     = "PROVEO_AGENT_EVIDENCE"
 	EvidenceDefault = "default"
 	EvidenceVerbose = "verbose"

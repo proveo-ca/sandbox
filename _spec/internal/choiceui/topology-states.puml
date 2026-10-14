@@ -188,7 +188,7 @@ title The topology strip in every selectable state, on both backends
   without host Ollama and it builds a network plus an Ollama sidecar — still no hop.
 }
 ..
-{^"...times agent evidence, which swaps one glyph and changes nothing else"
+{^"...times outputs, which swaps one glyph and changes nothing else"
 {
 {^"default"
   () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () egress <:key:>
@@ -240,7 +240,7 @@ title The topology strip in every selectable state, on both backends
 {^"cursor on interface"
   **▴** | **◂──** | **() interface ↑** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
 }
-{^"cursor on agent evidence"
+{^"cursor on outputs"
   <color:#9a9a9a>() host</color> | . | **[ <:speaking_head:> claudecode ]** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
 }
 }
@@ -340,7 +340,7 @@ legend bottom
   **the hop is not one thing** — proveo's mitmproxy on docker, sbx's own proxy on sbx
   **a square** — the container boundary; the def name inside it is a label, never a shape
   **<:key:>** — the credential, drawn at the one place it actually rests for the run
-  **<:speech_balloon:> / <:speaking_head:>** — agent evidence: default, or verbose
+  **<:speech_balloon:> / <:speaking_head:>** — outputs: filtered, or verbose
   **<:cloud:>** — the internet: one cloud per lane that survives
   **───▸ into the hop** the session's traffic reaching it — SOLID on every tier, because
   the agent always reaches the hop. The host needs no rule of its own: the bottom bracket

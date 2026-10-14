@@ -21,7 +21,7 @@ func tallForm() *Form {
 			{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true,
 				Help: map[string]string{"docker (sandbox)": "a microVM with its own Docker daemon (sbx), and enough further text to wrap this help across more than one line of the reserved slot"}},
 			{Label: "interface", Options: []string{"tui", "browser", "chrome"}, Multi: true, Divider: true},
-			{Label: "agent evidence", Options: []string{"default", "verbose"}, Multi: true},
+			{Label: "outputs", Options: []string{"filtered", "verbose"}, Multi: true},
 		},
 	}
 	f.Topology = func(*Form, int) *Frame {
