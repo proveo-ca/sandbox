@@ -25,6 +25,7 @@
 ' covers: e2e/opencode_sessions_test.go
 ' covers: e2e/opencode_prepared_history_test.go
 ' covers: e2e/opencode_cache_sbx_test.go
+' covers: e2e/seed_ready_test.go
 ' covers: cmd/proveo/testdata/plan/docker-open-forward-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-open-broker-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden
@@ -138,6 +139,20 @@
 ' A direct checkout keeps host edits. A clone loses uncommitted edits unless they were fetched.
 ' A screen that fails to open counts as no.
 ' A V2 share with a database and an unprepared engine prepares that database. It does not stop for --proveo-prepare.
+'
+' DOCKER DOCS, read 2026-10-14 — why history is prepared by the host, between create and run:
+'   https://docs.docker.com/ai/sandboxes/architecture/ : everything inside a sandbox "persists until you remove it",
+'     "agent state and history" included; "sbx rm" deletes "all of its contents".
+'   https://github.com/docker/sbx-releases/releases v0.42.0: a new sandbox reusing a deleted name "no longer inherits
+'     its files, Docker images, or agent session history". So the prepared cache lives in the retained engine.
+'   https://docs.docker.com/ai/sandboxes/customize/kits-v2/ : startup commands "don't gate the agent's entrypoint";
+'     "Use setup.files for any value that needs to land on disk before the agent runs". setup.files writes text
+'     content, and a kit "can't read arbitrary host environment variables or files"; v2 volumes take no host source.
+'   https://docs.docker.com/ai/sandboxes/agents/opencode/ documents no data or history path and no import.
+' No kit surface can carry a SQLite history store in. The V2 share reaches the engine through the proveo home,
+' which proveo mounts as a workspace; the host prepares it through `sbx exec`, then re-runs proveo-seed with
+' PROVEO_OPENCODE_CACHE_OWNER and reattaches the agent through the kit. `--shell` skips that sequence, so an
+' opencode --shell sandbox stays refused and unseeded; e2e/seed_ready_test.go runs opencode through its kit.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.

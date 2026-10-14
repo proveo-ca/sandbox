@@ -173,6 +173,9 @@ skinparam noteTextAlignment left
 ' background step may still install: echo p90 <= 250ms, max <= 1s
 ' (PROVEO_TEST_ECHO_P90 / _ECHO_MAX / _READY_AFTER_RELEASE override).
 ' Early-input jitter, reported 2026-10-13, is the regression it guards.
+' opencode's row runs through its kit (seed-and-launch.puml) and times the
+' echo in opencode's own prompt. It has no ready-gap check: the host runs that
+' seed through `sbx exec` after preparing history, not as a Kit startup step.
 
 ' ── PROBE RESULT, 2026-10-13, sbx v0.46.0 (991967dc) on the operator's Mac ──
 '   foreground row  FAIL  step 1791938970→1791939030 (60s); agent 1791939030.

@@ -6,11 +6,13 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,12 +31,13 @@ type readySpec struct {
 	baked    string   // regexp of a server the image bakes, so the first wiring pass names it
 	register string   // CLI that lists registered subagents offline; "" when none does
 	assist   bool     // a general assistant: the seed must provision nothing
+	kit      bool     // launched through its kit, not --shell: only that path completes its seed
 }
 
 var readySpecs = map[string]readySpec{
 	"claudecode": {agents: ".claude/agents", lspFiles: []string{".claude/skills/proveo-lsp/.lsp.json", ".claude/settings.json"}, baked: "typescript|pyright", register: "claude"},
 	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright"},
-	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode"},
+	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", kit: true},
 	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls"},
 	"cecli":      {agents: ".cecli/agents"},
 	"hermes":     {assist: true},
@@ -136,19 +139,13 @@ func readyWorkspace(t *testing.T) string {
 func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 	t.Helper()
 	work := readyWorkspace(t)
-	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
-	t.Cleanup(sess.Kill)
-	// Broker is the default under test; an empty key file keeps the project
-	// .env's provider key out of sbx's host-wide secret store.
-	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
-		proveoBin, "run", target, "--egress-mode", "open", "--input", work, "--shell"}
-	if err := sess.Start(220, 50, cmd...); err != nil {
-		t.Fatalf("start %s --shell: %v", target, err)
+	probe := launchReadyShell
+	if spec.kit {
+		probe = launchReadyKit
 	}
-	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
-	assertResponsiveWhileSeeding(t, sess, target)
+	run := probe(t, proveoBin, target, work)
 
-	launch, status := shellExec(t, sess, readyLaunchScript(spec), 5*time.Minute)
+	launch, status := run(readyLaunchScript(spec), 5*time.Minute)
 	if status != 0 {
 		t.Fatalf("launch probe exited %d:\n%s", status, launch)
 	}
@@ -172,7 +169,7 @@ func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 	}
 
 	if spec.assist {
-		after, status := shellExec(t, sess, fmt.Sprintf(`for i in $(seq 1 300); do [ -e %[1]s ] && break; sleep 1; done
+		after, status := run(fmt.Sprintf(`for i in $(seq 1 300); do [ -e %[1]s ] && break; sleep 1; done
 echo "seed_done=$([ -e %[1]s ] && echo yes || echo no)"
 echo "skipped=$(grep -c 'assistant: no toolchain' /var/log/sbx-kit-startup.log 2>/dev/null)"
 echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startup.log 2>/dev/null)"
@@ -185,7 +182,7 @@ echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startu
 	if spec.lspFiles == nil {
 		return
 	}
-	after, status := shellExec(t, sess, readyInstallScript(spec), durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 15*time.Minute))
+	after, status := run(readyInstallScript(spec), durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 15*time.Minute))
 	if status != 0 {
 		t.Fatalf("install probe exited %d:\n%s", status, after)
 	}
@@ -194,6 +191,111 @@ echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startu
 			t.Errorf("%s after the seed: probe lacks %q — the seed's own install, not a hand call, must leave gopls wired\n%s", target, w, after)
 		}
 	}
+}
+
+// readyProbe runs a probe script where the agent runs and returns its output and exit status.
+type readyProbe func(script string, timeout time.Duration) (string, int)
+
+// launchReadyShell starts `proveo run <target> --shell`, times the shell's start
+// and its keystroke echo, and probes through that shell.
+func launchReadyShell(t *testing.T, proveoBin, target, work string) readyProbe {
+	t.Helper()
+	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
+	t.Cleanup(sess.Kill)
+	// Broker is the default under test; an empty key file keeps the project
+	// .env's provider key out of sbx's host-wide secret store.
+	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
+		proveoBin, "run", target, "--egress-mode", "open", "--input", work, "--shell"}
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start %s --shell: %v", target, err)
+	}
+	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
+	seeding := assertReadySoonAfterRelease(t, sess, target)
+	assertEchoes(t, sess, target, seeding)
+	return func(script string, timeout time.Duration) (string, int) { return shellExec(t, sess, script, timeout) }
+}
+
+var kitSandboxRE = regexp.MustCompile(`(?:retained engine|Created sandbox|in sandbox ')(proveo-[a-z0-9-]+)`)
+
+// launchReadyKit starts `proveo run <target>` through its kit under a fresh
+// PROVEO_HOME, names the sandbox it runs in, times keystroke echo in the
+// agent's own prompt, and probes through `sbx exec` as the agent's user.
+func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
+	t.Helper()
+	ready := ""
+	for _, h := range gitSyncHarnesses {
+		if h.target == target {
+			ready = h.ready
+		}
+	}
+	if ready == "" {
+		t.Fatalf("%s has no prompt marker in gitSyncHarnesses, so its kit launch cannot tell when the agent is up", target)
+	}
+	var engine string
+	t.Cleanup(func() {
+		if engine == "" {
+			return
+		}
+		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil {
+			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
+		}
+	})
+	before, _ := sbxSandboxNames()
+	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
+	t.Cleanup(sess.Kill)
+	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
+		"PROVEO_HOME=" + t.TempDir(), proveoBin, "run", target, "--egress-mode", "open", "--input", work}
+	if err := sess.Start(220, 50, cmd...); err != nil {
+		t.Fatalf("start %s: %v", target, err)
+	}
+	w := newWatcher(t, sess)
+	w.until("the "+target+" prompt", durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute), func() bool {
+		screen := w.Screen()
+		if engine == "" {
+			if m := kitSandboxRE.FindStringSubmatch(screen); m != nil {
+				engine = m[1]
+			} else if fresh := newSandboxes(before); len(fresh) == 1 {
+				engine = fresh[0]
+			}
+		}
+		for _, d := range gitSyncDialogs {
+			if strings.Contains(screen, d) && !strings.Contains(screen, ready) {
+				_ = sess.Enter()
+				return false
+			}
+		}
+		return engine != "" && strings.Contains(screen, ready)
+	})
+
+	cd := "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'\n" + gitSyncCd(work) + "\n"
+	run := func(script string, timeout time.Duration) (string, int) {
+		return sbxExecStatus(t, engine, cd+script, timeout)
+	}
+	if out, status := run("id -u", time.Minute); status != 0 || strings.TrimSpace(out) != "1000" {
+		t.Fatalf("sbx exec into %s runs as uid %q (exit %d), not the agent's 1000 — the probes would not see what the agent sees",
+			engine, strings.TrimSpace(out), status)
+	}
+	out, _ := run("test -e "+seedDone+" && echo installed || echo seeding", time.Minute)
+	assertEchoes(t, sess, target, strings.Contains(out, "seeding"))
+	return run
+}
+
+// sbxExecStatus runs script under bash in the named sandbox and returns its
+// combined output and exit status.
+func sbxExecStatus(t *testing.T, name, script string, timeout time.Duration) (string, int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", script).CombinedOutput()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exit) && ctx.Err() == nil:
+		return string(out), exit.ExitCode()
+	}
+	t.Fatalf("sbx exec %s: %v\n%s", name, err, out)
+	return "", -1
 }
 
 func readyLaunchScript(spec readySpec) string {
@@ -251,14 +353,10 @@ echo "gopls_wired=$([ -n "$files" ] && grep -qE 'gopls' $files && echo yes || ec
 
 var readyGapRE = regexp.MustCompile(`READY gap=(-?\d+) seeding=(yes|no)`)
 
-// assertResponsiveWhileSeeding times the session's shell start against the
-// release marker, then types into it while the background seed may still be
-// installing and asserts every keystroke echoes promptly through proveo's PTY
-// proxy and sbx.
-func assertResponsiveWhileSeeding(t *testing.T, sess *tmux.Session, target string) {
+// assertReadySoonAfterRelease times the session's shell start against the
+// release marker and reports whether the background seed is still installing.
+func assertReadySoonAfterRelease(t *testing.T, sess *tmux.Session, target string) (seeding bool) {
 	t.Helper()
-	p90Max := durationEnv(t, "PROVEO_TEST_ECHO_P90", 250*time.Millisecond)
-	echoMax := durationEnv(t, "PROVEO_TEST_ECHO_MAX", time.Second)
 	readyMax := durationEnv(t, "PROVEO_TEST_READY_AFTER_RELEASE", 20*time.Second)
 
 	out, _ := shellExec(t, sess, `bt=$(awk '/^btime/{print $2}' /proc/stat); hz=$(getconf CLK_TCK)
@@ -271,6 +369,16 @@ echo "READY gap=$(( started - released )) seeding=$(test -e `+seedDone+` && echo
 			t.Errorf("%s: the session started %ds after the release, want <= %s — it waited on the installs again", target, gap, readyMax)
 		}
 	}
+	return m != nil && m[2] == "yes"
+}
+
+// assertEchoes types into the session while the background seed may still be
+// installing and asserts every keystroke echoes promptly through proveo's PTY
+// proxy and sbx, then erases what it typed.
+func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool) {
+	t.Helper()
+	p90Max := durationEnv(t, "PROVEO_TEST_ECHO_P90", 250*time.Millisecond)
+	echoMax := durationEnv(t, "PROVEO_TEST_ECHO_MAX", time.Second)
 
 	typed, letters := "zqx", "jkvwpbmhgfdtlcy"
 	if err := sess.SendText(typed); err != nil {
@@ -292,12 +400,11 @@ echo "READY gap=$(( started - released )) seeding=$(test -e `+seedDone+` && echo
 		lat = append(lat, time.Since(start))
 		time.Sleep(150 * time.Millisecond)
 	}
-	_ = sess.SendKeys("C-u")
+	_ = sess.SendKeys(slices.Repeat([]string{"BSpace"}, len(typed))...)
 
 	sorted := append([]time.Duration(nil), lat...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 	p90, worst := sorted[len(sorted)*9/10], sorted[len(sorted)-1]
-	seeding := m != nil && m[2] == "yes"
 	t.Logf("%s echo p90=%s max=%s (background seed still installing: %v)", target, p90.Round(time.Millisecond), worst.Round(time.Millisecond), seeding)
 	if p90 > p90Max {
 		t.Errorf("%s echo latency p90 = %s, want <= %s — keystrokes lag while the seed runs", target, p90.Round(time.Millisecond), p90Max)
