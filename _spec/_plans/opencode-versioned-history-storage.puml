@@ -103,7 +103,7 @@
 ' SELECTED SEED PHASE: verify a trusted prepared-generation descriptor plus native-major/schema compatibility.
 ' Do not run full backup, VACUUM, SQL dump hashing or implicit legacy import during seeding.
 ' An unprepared engine prepares the mounted V2 database in this launch and reports the three steps.
-' Pending recovery still requires --proveo-recover. A different directory still requires --proveo-prepare --source.
+' Pending recovery still requires --proveo-recover, except a lost keeper on an ordinary launch (SBX AUTO-STOP below). A different directory still requires --proveo-prepare --source.
 ' Empty preparation is not a hidden fallback over an existing V2 database.
 ' Seed configuration only after selecting the matching-major namespace.
 '
@@ -120,11 +120,11 @@
 ' Keep the existing three post-exit snapshot/publication calls; do not optimize that phase in this redesign.
 ' Reuse an already-verified post-exit result for prepared-cache retention without adding another bulk snapshot.
 ' Preserve the previous good generation until the new generation publishes atomically.
-' Reconcile host-visible history and engine-local state during maintenance; never merge on implicit startup.
+' Reconcile host-visible history and engine-local state during maintenance; never merge on implicit startup. Re-verifying a lost keeper's cache (SBX AUTO-STOP) is recovery, not a merge.
 ' Treat an interrupted generation whose private cache still exists as pending recovery without deleting its record.
 ' A removed engine prepares the mounted database when this cache and the journal's recorded cache are both gone, the database matches, and the producer shares the running stable major.
 ' Device, inode and timestamp drift are not a baseline. The current durable files are imported, then that snapshot is pinned. A later edit does not become the new baseline.
-' Unpublished sessions from the removed engine are gone with it. Another major, or a private cache that still exists, still requires --proveo-recover and is not overwritten.
+' Unpublished sessions from the removed engine are gone with it. Another major still requires --proveo-recover. A private cache that still exists is never overwritten; SBX AUTO-STOP below says when a launch recovers it.
 ' Prepare, recover and a busy history check report the runtime failure text. Exit 75 is not relabeled as an agent exit.
 ' A cold engine with a mounted V2 database is prepared before the agent starts. The native client does not start on an unprepared cache.
 ' sbx creates/bootstrap-checks the keeper before managed launch and retains successful OpenCode engines.
@@ -137,7 +137,7 @@
 ' No keeps the sandbox, and the next proveo run reattaches to it.
 ' A kept sandbox whose image, kit, mounts, clone or env differ asks the same way.
 ' The steps are carry work home, sbx rm --force, then create that same name.
-' A headed yes does not remove an OpenCode engine with active, unpublished, or unattested state.
+' A headed yes does not remove an OpenCode engine with active, unpublished, or unattested state, except from the SBX AUTO-STOP recovery prompts, which name the loss first.
 ' A direct checkout keeps host edits. A clone loses uncommitted edits unless they were fetched.
 ' A screen that fails to open counts as no.
 ' A V2 share with a database and an unprepared engine prepares that database. It does not stop for --proveo-prepare.
@@ -168,19 +168,29 @@
 ' host 2026-10-14 (proveo-opencode-11c4aed0, reattach after an earlier run). OpenCode plays no part
 ' (https://opencode.ai/v2/docs/cli/ documents no attestation); the in-memory keeper design does.
 ' DECISION (Executor, "Auto after clean stop"): on that refusal, an ordinary launch reads the
-' durable journal's phase (opencode/v2/share/.proveo-opencode-runtime.lock.journal).
-'   prepared | published -> run --recover at once, one notice line, no prompt.
-'   anything else, or no journal -> headed: choiceui.ChooseRetainedRecovery, y recover,
-'     r reset (sbx rm --force, then prepare again), n/esc stop with both commands; headless
-'     (PROVEO_WIZARD=off, schedule, no TTY) -> recover.
-'   recover fails -> headed: the existing reset prompt; headless: the error names
-'     `proveo run <target> -- --proveo-recover` and `sbx rm --force <engine>`.
+' durable journal (opencode/v2/share/.proveo-opencode-runtime.lock.journal) as untrusted input:
+' a regular file under 64 KiB, its phase one lowercase word. The journal is per STORE, shared by
+' every engine on one proveo home, so its engine field (the sandbox name, SANDBOX_VM_ID) decides.
+'   this engine, prepared | published -> --recover at once, one notice line, no prompt.
+'   this engine, other phase, or no journal -> headed: choiceui.ChooseRetainedRecovery
+'     (y recover, r reset = sbx rm --force then this launch prepares again, n/esc stop with both
+'     commands); headless (PROVEO_WIZARD=off, schedule, no TTY) -> recover.
+'   another engine, prepared | published -> this copy is stale and the runtime would reject it
+'     ("belongs to another engine"): headed reset prompt, headless error naming sbx rm --force.
+'   another engine, any other phase -> that engine may be live: error, no recover, no reset.
+'   recover fails -> busy store or timeout: error, never a reset (the keeper may still publish);
+'     otherwise the runtime text, then headed: the reset prompt; headless: the sbx rm command.
+' A reset inside a launch keeps the launch receipt: this launch recreates the engine with the
+' same settings, and a missing receipt made the next run refuse the engine as unrecorded.
 ' An explicit --proveo-prepare or --empty never turns into a recovery; its refusal names the
-' same two commands. This supersedes "explicit recovery only" for a lost keeper: recovery now
-' runs at launch, re-verifies and republishes, and is never a fast-path receipt. [Inference]
-' A large history recovers slower than the 5s budget. Follow-ups: keep the engine up between
-' runs (`sbx run -d` / long-running@1, sbx >= v0.47.0), or a host-held cache digest taken after
-' native shutdown and a WAL checkpoint (OpenCode writes the DB on every open).
+' same two commands. Headless never deletes. Recovery re-verifies and republishes and is never
+' a fast-path receipt. [Inference] A large history recovers slower than the 5s budget.
+' [Unverified] durable_stamp hashes st_dev, st_ino and ctime of the mounted share; if the
+' guest's mount device number changes across a VM restart, every recovery fails with
+' "published history changed" and this path falls to the reset. The e2e below measures it.
+' Follow-ups: keep the engine up between runs (`sbx run -d` / long-running@1, sbx >= v0.47.0),
+' or a host-held cache digest taken after native shutdown and a WAL checkpoint (OpenCode writes
+' the DB on every open).
 ' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
 ' requires the session to survive and the run to report re-verifying its retained history.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.

@@ -88,19 +88,19 @@ const (
 	RetainedReset
 )
 
-// RetainedRecoveryCopy explains recovering or resetting a kept engine whose last run ended before publishing.
+// RetainedRecoveryCopy explains recovering or resetting history a kept engine holds unverified.
 func RetainedRecoveryCopy(name, phase string) []string {
 	return []string{
 		"OpenCode history needs recovery",
 		"",
-		"The last run in " + name + " ended before publishing.",
+		name + " kept history from its last run",
+		"that no live keeper has verified.",
 		"Journal phase: " + phase + ".",
-		"Its retained history is not verified yet.",
 		"",
 		"y  recover — verify this history and keep it",
-		"r  reset — sbx rm --force " + name + ",",
-		"   then prepare again from the proveo home.",
-		"   Sessions never published there are lost.",
+		"r  reset — delete this sandbox and prepare again",
+		"   sbx rm --force " + name + " will run.",
+		"   Sessions never published to the proveo home are lost.",
 		"n / esc  stop — the sandbox stays and the next run asks again",
 	}
 }
@@ -181,7 +181,7 @@ func drawPrompt(s tcell.Screen, lines []string, title string) {
 		switch {
 		case text == title:
 			style = p.title
-		case strings.HasPrefix(text, "sbx rm --force ") || strings.Contains(text, "does not persist") || strings.Contains(text, "lost unless fetched") || strings.Contains(text, "not imported") || strings.Contains(text, "does not survive"):
+		case strings.HasPrefix(strings.TrimSpace(text), "sbx rm --force ") || strings.Contains(text, "are lost") || strings.Contains(text, "does not persist") || strings.Contains(text, "lost unless fetched") || strings.Contains(text, "not imported") || strings.Contains(text, "does not survive"):
 			style = p.warn
 		}
 		styled[i].text = text

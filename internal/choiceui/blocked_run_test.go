@@ -96,11 +96,12 @@ func TestRetainedRecoveryNamesEveryWayOut(t *testing.T) {
 	drawPrompt(sim, lines, lines[0])
 	got := rendered(t, sim)
 	for _, want := range []string{
-		"ended before publishing",
+		"that no live keeper has verified.",
 		"Journal phase: active.",
 		"y  recover",
-		"r  reset — sbx rm --force proveo-opencode-11c4aed0,",
-		"Sessions never published there are lost.",
+		"r  reset — delete this sandbox and prepare again",
+		"sbx rm --force proveo-opencode-11c4aed0 will run.",
+		"Sessions never published to the proveo home are lost.",
 		"the next run asks again",
 	} {
 		if !strings.Contains(got, want) {

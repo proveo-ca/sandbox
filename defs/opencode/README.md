@@ -159,7 +159,8 @@ Historical V1 session versions inside an already-adopted V2 database remain vali
 The image requires a stable `2.x` native version.
 An ordinary launch prepares an existing V2 database when the engine cache is unprepared, and reports the three prepare steps.
 If that database is absent and an older `opencode.db` is on disk, the launch copies it into `opencode/v2/share` and prepares the copy. The older file stays in place. OpenCode's own V1 migration then runs inside the copy.
-A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. Another major, or a private cache that still exists, requires `proveo run opencode -- --proveo-recover`.
+A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. Another major requires `proveo run opencode -- --proveo-recover`.
+sbx stops an idle engine about 30s after its last session, which ends the keeper. The next launch re-verifies the cache that engine kept: at once when its last run ended prepared or published, after asking when it was interrupted (a headless run recovers). It never deletes without a headed yes.
 
 Prepared startup has a five-second preparation budget.
 The seed gate does not run database backup, VACUUM, SQL dump hashing, or legacy migration.

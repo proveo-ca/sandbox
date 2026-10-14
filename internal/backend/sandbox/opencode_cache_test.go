@@ -338,8 +338,20 @@ func TestOpenCodeV2DoesNotMountUnversionedHistory(t *testing.T) {
 	}
 }
 
-// lostKeeperHome is a proveo home whose V2 store holds a database and, unless phase is empty, a journal at phase.
-func lostKeeperHome(t *testing.T, phase string) string {
+func init() {
+	seedOpenCode = func(context.Context, string, string) ([]byte, error) { return nil, nil }
+	removeOpenCodeEngine = func(name string) error {
+		return fmt.Errorf("test removed %s without stubbing removeOpenCodeEngine", name)
+	}
+	createOpenCodeEngine = func(cfg sbx.RunConfig) error {
+		return fmt.Errorf("test created %s without stubbing createOpenCodeEngine", cfg.Name)
+	}
+}
+
+const lostKeeperEngine = "proveo-opencode-test-0000"
+
+// lostKeeperHome is a proveo home whose V2 store holds a database and, unless phase is empty, a journal engine wrote at phase.
+func lostKeeperHome(t *testing.T, engine, phase string) string {
 	t.Helper()
 	previous := receiptDir
 	root := t.TempDir()
@@ -354,7 +366,8 @@ func lostKeeperHome(t *testing.T, phase string) string {
 		t.Fatal(err)
 	}
 	if phase != "" {
-		if err := os.WriteFile(filepath.Join(share, openCodeJournalName), []byte(`{"format":1,"phase":"`+phase+`"}`), 0o600); err != nil {
+		record := `{"format":1,"engine":"` + engine + `","phase":"` + phase + `"}`
+		if err := os.WriteFile(filepath.Join(share, openCodeJournalName), []byte(record), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -362,8 +375,8 @@ func lostKeeperHome(t *testing.T, phase string) string {
 }
 
 // lostKeeperRuntime answers like a fresh keeper facing engine-local history it never attested.
-// prepare succeeds once removed reports true; recoverErr is what --recover returns.
-func lostKeeperRuntime(calls *[][]string, removed *bool, recoverErr error) func(context.Context, string, ...string) (string, error) {
+// prepare succeeds once removed reports true; recoverOut and recoverErr are what --recover returns.
+func lostKeeperRuntime(calls *[][]string, removed *bool, recoverOut string, recoverErr error) func(context.Context, string, ...string) (string, error) {
 	return func(_ context.Context, _ string, args ...string) (string, error) {
 		*calls = append(*calls, append([]string(nil), args...))
 		switch args[0] {
@@ -376,7 +389,7 @@ func lostKeeperRuntime(calls *[][]string, removed *bool, recoverErr error) func(
 			return "proveo: unattested retained state requires explicit recovery, not replacement", exec.Command("sh", "-c", "exit 78").Run()
 		case "--recover":
 			if recoverErr != nil {
-				return "proveo: unattested recovery has no matching durable baseline; preserve private state", recoverErr
+				return recoverOut, recoverErr
 			}
 			return `{"cache_owner":"1234:5678"}`, nil
 		default:
@@ -397,6 +410,15 @@ func stubRetainedChoice(t *testing.T, answer choiceui.RetainedRecovery) *string 
 	return &asked
 }
 
+func stubResetConfirm(t *testing.T, answer bool) *bool {
+	t.Helper()
+	asked := false
+	previous := confirmSandboxReset
+	confirmSandboxReset = func(string) bool { asked = true; return answer }
+	t.Cleanup(func() { confirmSandboxReset = previous })
+	return &asked
+}
+
 func stubEngineRemoval(t *testing.T) *bool {
 	t.Helper()
 	removed := false
@@ -414,108 +436,174 @@ func operations(calls [][]string) []string {
 	return out
 }
 
+func lostKeeperLaunch(t *testing.T, home string, command []string, run func(context.Context, string, ...string) (string, error)) (sbx.RunConfig, error) {
+	t.Helper()
+	return prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: lostKeeperEngine, Command: command},
+		func(string) bool { return true }, run)
+}
+
 func TestLostKeeperAfterACleanStopRecoversWithoutAsking(t *testing.T) {
 	for _, phase := range []string{"prepared", "published"} {
 		t.Run(phase, func(t *testing.T) {
-			home := lostKeeperHome(t, phase)
+			home := lostKeeperHome(t, lostKeeperEngine, phase)
 			asked := stubRetainedChoice(t, choiceui.RetainedStop)
 			var calls [][]string
-			_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
-				func(string) bool { return true }, lostKeeperRuntime(&calls, nil, nil))
-			if want := []string{"--bootstrap-cache", "--check-prepared", "--prepare", "--recover"}; !slices.Equal(operations(calls), want) {
-				t.Fatalf("runtime calls = %v, want %v (err %v)", operations(calls), want, err)
+			cfg, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil))
+			if err != nil {
+				t.Fatalf("launch after a clean stop: %v", err)
 			}
-			if !slices.Contains(calls[3], "--proveo-cache-owner=1234:5678") {
-				t.Errorf("recover ran without the keeper's owner: %v", calls[3])
+			if want := []string{"--bootstrap-cache", "--check-prepared", "--prepare", "--recover"}; !slices.Equal(operations(calls), want) {
+				t.Fatalf("runtime calls = %v, want %v", operations(calls), want)
+			}
+			if !slices.Contains(calls[3], "--proveo-cache-owner=1234:5678") || !slices.Contains(cfg.Command, "--proveo-cache-owner=1234:5678") {
+				t.Errorf("recover or the agent launch lost the keeper's owner: recover %v, agent %v", calls[3], cfg.Command)
 			}
 			if *asked != "" {
-				t.Errorf("a clean sbx auto-stop prompted the operator (%s)", *asked)
-			}
-			if err != nil && (strings.Contains(err.Error(), "prepare failed") || strings.Contains(err.Error(), "recover failed")) {
-				t.Errorf("err = %v", err)
+				t.Errorf("a clean stop prompted the operator (%s)", *asked)
 			}
 		})
 	}
 }
 
 func TestInterruptedRunAsksThenRecovers(t *testing.T) {
-	home := lostKeeperHome(t, "active")
+	home := lostKeeperHome(t, lostKeeperEngine, "active")
 	asked := stubRetainedChoice(t, choiceui.RetainedRecover)
 	var calls [][]string
-	_, _ = prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, nil))
-	if *asked != "asked:active" {
-		t.Errorf("interrupted run: prompt = %q, want it asked with the journal phase", *asked)
+	if _, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil)); err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Contains(operations(calls), "--recover") {
-		t.Errorf("recover answer did not recover: %v", operations(calls))
+	if *asked != "asked:active" || !slices.Contains(operations(calls), "--recover") {
+		t.Errorf("interrupted run: prompt %q, calls %v; want it asked with the journal phase, then recovered", *asked, operations(calls))
 	}
 }
 
 func TestDeclinedRecoveryKeepsTheSandboxAndSaysHow(t *testing.T) {
-	home := lostKeeperHome(t, "publishing")
+	home := lostKeeperHome(t, lostKeeperEngine, "publishing")
 	stubRetainedChoice(t, choiceui.RetainedStop)
 	removed := stubEngineRemoval(t)
 	var calls [][]string
-	_, err := prepareOpenCodeLaunch(Input{Target: "opencode-browser", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-browser-11c4aed0"},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, nil))
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode-browser", HomeRoot: home}, sbx.RunConfig{Name: lostKeeperEngine},
+		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, "", nil))
 	if slices.Contains(operations(calls), "--recover") || *removed {
 		t.Fatalf("stop still touched the history: %v removed=%v", operations(calls), *removed)
 	}
-	for _, want := range []string{"journal phase publishing", "This sandbox stays", "proveo run opencode-browser -- --proveo-recover", "sbx rm --force proveo-opencode-browser-11c4aed0"} {
+	for _, want := range []string{"journal phase publishing", "This sandbox stays", "proveo run opencode-browser -- --proveo-recover", "sbx rm --force " + lostKeeperEngine} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}
 	}
 }
 
-func TestHeadlessInterruptedRunRecovers(t *testing.T) {
+func TestHeadlessRunWithNoJournalRecovers(t *testing.T) {
 	t.Setenv("PROVEO_WIZARD", "off")
-	home := lostKeeperHome(t, "")
+	home := lostKeeperHome(t, "", "")
 	var calls [][]string
-	_, _ = prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, nil))
+	if _, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil)); err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Contains(operations(calls), "--recover") {
 		t.Errorf("a headless run with no journal did not recover: %v", operations(calls))
 	}
 }
 
-func TestFailedRecoveryHeadlessNamesBothWaysOut(t *testing.T) {
+func TestFailedRecoveryHeadlessKeepsTheSandboxAndNamesTheReset(t *testing.T) {
 	t.Setenv("PROVEO_WIZARD", "off")
-	home := lostKeeperHome(t, "published")
+	home := lostKeeperHome(t, lostKeeperEngine, "published")
 	removed := stubEngineRemoval(t)
 	var calls [][]string
-	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, exec.Command("sh", "-c", "exit 75").Run()))
+	_, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil,
+		"proveo: published history changed; do not overwrite it during cache recovery", exec.Command("sh", "-c", "exit 78").Run()))
 	if *removed {
 		t.Fatal("a headless run removed the engine")
 	}
-	for _, want := range []string{"recover failed", "no matching durable baseline", "proveo run opencode -- --proveo-recover", "sbx rm --force proveo-opencode-11c4aed0"} {
+	for _, want := range []string{"recover failed", "published history changed", "This sandbox stays", "sbx rm --force " + lostKeeperEngine} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to name %q", err, want)
+		}
+	}
+	if err != nil && strings.Contains(err.Error(), "--proveo-recover") {
+		t.Errorf("err = %v; it repeats the recovery that just failed", err)
+	}
+}
+
+func TestBusyRecoveryNeverOffersTheReset(t *testing.T) {
+	home := lostKeeperHome(t, lostKeeperEngine, "prepared")
+	asked := stubResetConfirm(t, true)
+	removed := stubEngineRemoval(t)
+	var calls [][]string
+	_, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil,
+		"proveo: another OpenCode run owns this history store", exec.Command("sh", "-c", "exit 75").Run()))
+	if *asked || *removed {
+		t.Fatalf("a busy store offered or ran a reset: asked=%v removed=%v", *asked, *removed)
+	}
+	if err == nil || !strings.Contains(err.Error(), "Run again") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestResetRecreatesTheEngineAndKeepsItsReceipt(t *testing.T) {
+	home := lostKeeperHome(t, lostKeeperEngine, "building")
+	stubRetainedChoice(t, choiceui.RetainedReset)
+	removed := stubEngineRemoval(t)
+	created := false
+	previous := createOpenCodeEngine
+	createOpenCodeEngine = func(sbx.RunConfig) error { created = true; return nil }
+	t.Cleanup(func() { createOpenCodeEngine = previous })
+	writeReceipt(lostKeeperEngine, launchReceipt{Image: "proveo/opencode:test"})
+	var calls [][]string
+	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: lostKeeperEngine},
+		func(string) bool { return !*removed || created }, lostKeeperRuntime(&calls, removed, "", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--bootstrap-cache", "--check-prepared", "--prepare", "--bootstrap-cache", "--check-prepared", "--prepare"}
+	if !*removed || !created || !slices.Equal(operations(calls), want) {
+		t.Fatalf("reset: removed=%v created=%v calls=%v, want %v", *removed, created, operations(calls), want)
+	}
+	if readReceipt(lostKeeperEngine) == nil {
+		t.Error("the reset dropped the launch receipt, so the next run cannot tell the recreated engine's settings")
+	}
+}
+
+func TestAnotherEnginesCleanJournalOffersOnlyTheReset(t *testing.T) {
+	home := lostKeeperHome(t, "proveo-opencode-other-1111", "published")
+	asked := stubRetainedChoice(t, choiceui.RetainedRecover)
+	confirm := stubResetConfirm(t, false)
+	removed := stubEngineRemoval(t)
+	var calls [][]string
+	_, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil))
+	if slices.Contains(operations(calls), "--recover") || *removed || *asked != "" {
+		t.Fatalf("a stale copy was recovered or removed without a yes: calls=%v removed=%v asked=%q", operations(calls), *removed, *asked)
+	}
+	if !*confirm {
+		t.Error("a stale copy did not offer the reset")
+	}
+	for _, want := range []string{"stale", "proveo-opencode-other-1111", "sbx rm --force " + lostKeeperEngine} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}
 	}
 }
 
-func TestResetRemovesTheEngineThenPreparesAgain(t *testing.T) {
-	home := lostKeeperHome(t, "building")
-	stubRetainedChoice(t, choiceui.RetainedReset)
+func TestAnotherEnginesLiveJournalLeavesBothAlone(t *testing.T) {
+	home := lostKeeperHome(t, "proveo-opencode-other-1111", "active")
+	confirm := stubResetConfirm(t, true)
 	removed := stubEngineRemoval(t)
 	var calls [][]string
-	_, _ = prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0"},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, removed, nil))
-	want := []string{"--bootstrap-cache", "--check-prepared", "--prepare", "--bootstrap-cache", "--check-prepared", "--prepare"}
-	if !*removed || !slices.Equal(operations(calls), want) {
-		t.Fatalf("reset: removed=%v calls=%v, want %v", *removed, operations(calls), want)
+	_, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil))
+	if slices.Contains(operations(calls), "--recover") || *removed || *confirm {
+		t.Fatalf("another engine's live run led to recover or reset: calls=%v removed=%v asked=%v", operations(calls), *removed, *confirm)
+	}
+	if err == nil || !strings.Contains(err.Error(), "holds this proveo home's history") {
+		t.Errorf("err = %v", err)
 	}
 }
 
 func TestExplicitPrepareNeverTurnsIntoRecovery(t *testing.T) {
-	home := lostKeeperHome(t, "published")
+	home := lostKeeperHome(t, lostKeeperEngine, "published")
 	stubRetainedChoice(t, choiceui.RetainedRecover)
 	var calls [][]string
-	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{Name: "proveo-opencode-11c4aed0", Command: []string{"--proveo-prepare"}},
-		func(string) bool { return true }, lostKeeperRuntime(&calls, nil, nil))
+	_, err := lostKeeperLaunch(t, home, []string{"--proveo-prepare"}, lostKeeperRuntime(&calls, nil, "", nil))
 	if slices.Contains(operations(calls), "--recover") {
 		t.Fatalf("--proveo-prepare ran a recovery: %v", operations(calls))
 	}
@@ -524,12 +612,40 @@ func TestExplicitPrepareNeverTurnsIntoRecovery(t *testing.T) {
 	}
 }
 
-func TestOpenCodeJournalPhaseReadsTheDurableJournal(t *testing.T) {
-	if got := openCodeJournalPhase(lostKeeperHome(t, "published")); got != "published" {
-		t.Errorf("phase = %q, want published", got)
+func TestOpenCodeJournalTreatsTheShareAsUntrusted(t *testing.T) {
+	home := lostKeeperHome(t, lostKeeperEngine, "published")
+	if engine, phase := openCodeJournal(home); engine != lostKeeperEngine || phase != "published" {
+		t.Errorf("journal = %q %q, want %q published", engine, phase, lostKeeperEngine)
 	}
-	if got := openCodeJournalPhase(lostKeeperHome(t, "")); got != "" {
-		t.Errorf("phase with no journal = %q, want empty", got)
+	if engine, phase := openCodeJournal(lostKeeperHome(t, "", "")); engine != "" || phase != "" {
+		t.Errorf("no journal read as %q %q", engine, phase)
+	}
+	share := filepath.Join(home, "opencode", "v2", "share")
+	journal := filepath.Join(share, openCodeJournalName)
+	for name, plant := range map[string]func() error{
+		"symlink": func() error {
+			target := filepath.Join(t.TempDir(), "elsewhere")
+			if err := os.WriteFile(target, []byte(`{"engine":"`+lostKeeperEngine+`","phase":"published"}`), 0o600); err != nil {
+				return err
+			}
+			return os.Symlink(target, journal)
+		},
+		"oversized": func() error { return os.WriteFile(journal, make([]byte, 65<<10+1), 0o600) },
+		"odd phase": func() error { return os.WriteFile(journal, []byte(`{"engine":"x","phase":"\u001b[2Jpwned"}`), 0o600) },
+		"not json":  func() error { return os.WriteFile(journal, []byte("garbage"), 0o600) },
+		"directory": func() error { return os.Mkdir(journal, 0o700) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.RemoveAll(journal); err != nil {
+				t.Fatal(err)
+			}
+			if err := plant(); err != nil {
+				t.Fatal(err)
+			}
+			if _, phase := openCodeJournal(home); phase != "" {
+				t.Errorf("an untrusted %s journal yielded phase %q", name, phase)
+			}
+		})
 	}
 }
 
@@ -541,7 +657,7 @@ func TestHostAndRuntimeAgreeOnTheRetainedHistoryContract(t *testing.T) {
 		}
 		return string(b)
 	}
-	cache, creds := read("opencode_cache.py"), read("opencode-credentials.py")
+	cache, creds, runtime := read("opencode_cache.py"), read("opencode-credentials.py"), read("proveo-opencode-runtime")
 	if !strings.Contains(cache, retainedRefusal) {
 		t.Errorf("opencode_cache.py no longer refuses with %q; the host would stop recovering a lost keeper", retainedRefusal)
 	}
@@ -549,9 +665,12 @@ func TestHostAndRuntimeAgreeOnTheRetainedHistoryContract(t *testing.T) {
 		!strings.Contains(cache, `+ ".journal"`) {
 		t.Errorf("the runtime's journal is no longer %s beside its lifecycle lock", openCodeJournalName)
 	}
-	for _, clean := range []string{`self.record(self.durable_signature, "prepared")`, `self.record(baseline, "published", transaction)`} {
-		if !strings.Contains(cache, clean) {
-			t.Errorf("opencode_cache.py no longer records a clean phase as %s; the host reads it to skip the prompt", clean)
+	for _, phase := range []string{`self.record(self.durable_signature, "prepared")`, `self.record(baseline, "published", transaction)`} {
+		if !strings.Contains(cache, phase) {
+			t.Errorf("opencode_cache.py no longer records %s; the host recovers those phases without asking", phase)
 		}
+	}
+	if !strings.Contains(cache, `engine=self.cfg["engine"]`) || !strings.Contains(runtime, `os.environ.get("SANDBOX_VM_ID")`) {
+		t.Error("the journal no longer names its engine by sandbox name; the host compares it with the engine it reattaches to")
 	}
 }

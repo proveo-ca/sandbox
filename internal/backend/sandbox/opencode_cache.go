@@ -352,7 +352,13 @@ var confirmEmptyPrepare = func(stores []string) bool {
 	return choiceui.ConfirmEmptyPrepare(screen, stores)
 }
 
-func createOpenCodeEngine(cfg sbx.RunConfig) error {
+// seedOpenCode re-runs the seed in the background, bound to the engine's cache owner.
+var seedOpenCode = func(ctx context.Context, name, owner string) ([]byte, error) {
+	return exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", name, "--", "sh", "-c",
+		`rm -f /dev/shm/proveo-instructions-seeded /dev/shm/proveo-seed-done; nohup env PROVEO_OPENCODE_CACHE_OWNER="$1" /usr/local/bin/proveo-seed opencode >/dev/shm/proveo-opencode-seed.log 2>&1 </dev/null &`, "proveo-cache-seed", owner).CombinedOutput()
+}
+
+var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 	cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -369,19 +375,31 @@ const retainedRefusal = "unattested retained state requires explicit recovery"
 // openCodeJournalName is the durable store's lifecycle journal, beside its lifecycle lock.
 const openCodeJournalName = ".proveo-opencode-runtime.lock.journal"
 
-// openCodeJournalPhase is the phase the last run recorded in the V2 store's journal; "" when it recorded none.
-func openCodeJournalPhase(home string) string {
-	data, err := os.ReadFile(filepath.Join(home, "opencode", "v2", "share", openCodeJournalName))
+var journalPhaseWord = regexp.MustCompile(`^[a-z]{1,24}$`)
+
+// openCodeJournal is the engine and phase the V2 store's journal last recorded; empty when unreadable.
+func openCodeJournal(home string) (engine, phase string) {
+	path := filepath.Join(home, "opencode", "v2", "share", openCodeJournalName)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 {
+		return "", ""
+	}
+	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return "", ""
 	}
+	defer f.Close()
 	var record struct {
-		Phase string `json:"phase"`
+		Engine string `json:"engine"`
+		Phase  string `json:"phase"`
 	}
-	if json.Unmarshal(data, &record) != nil {
-		return ""
+	if json.NewDecoder(io.LimitReader(f, 64<<10)).Decode(&record) != nil {
+		return "", ""
 	}
-	return record.Phase
+	if !journalPhaseWord.MatchString(record.Phase) {
+		record.Phase = ""
+	}
+	return record.Engine, record.Phase
 }
 
 var chooseRetainedRecovery = func(name, phase string) choiceui.RetainedRecovery {
@@ -397,42 +415,59 @@ var chooseRetainedRecovery = func(name, phase string) choiceui.RetainedRecovery 
 }
 
 func retainedCommands(target, name string) string {
-	return fmt.Sprintf("Recover it with `proveo run %s -- --proveo-recover`, or delete it with `sbx rm --force %s`: "+
-		"the next run then prepares from the proveo home, and sessions never published there are lost", target, name)
+	return fmt.Sprintf("Recover it with `proveo run %s -- --proveo-recover`, or %s", target, resetCommand(name))
 }
 
-// recoverRetainedOpenCode re-verifies the engine-local history a lost keeper left: at once after a
-// clean stop, after asking when the last run was interrupted. reset reports that the engine was removed.
+func resetCommand(name string) string {
+	return fmt.Sprintf("delete it with `sbx rm --force %s`: the next run then prepares from the proveo home, and sessions never published there are lost", name)
+}
+
+// recoverRetainedOpenCode handles engine-local history its keeper no longer vouches for: it recovers
+// at once when this engine's journal says its last run ended prepared or published, asks first
+// otherwise, and never deletes without a headed yes. reset reports that the engine was removed.
 func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Context, string, ...string) (string, error)) (reset bool, err error) {
-	phase := openCodeJournalPhase(in.HomeRoot)
+	engine, phase := openCodeJournal(in.HomeRoot)
 	recorded := phase
 	if recorded == "" {
 		recorded = "none"
 	}
-	switch phase {
-	case "prepared", "published":
-		ui.Appf("OpenCode: sbx stopped %s after the last run; re-verifying its retained history", name)
+	switch {
+	case engine != "" && engine != name && phase != "prepared" && phase != "published":
+		return false, fmt.Errorf("OpenCode engine %s holds this proveo home's history (journal phase %s); %s keeps its retained history. Run again when that session ends", engine, recorded, name)
+	case engine != "" && engine != name:
+		ui.Warnf("OpenCode engine %s published to this proveo home after %s's last run; %s's retained copy is stale and cannot be recovered", engine, name, name)
+		if confirmSandboxReset(name) {
+			return true, removeOpenCodeEngine(name)
+		}
+		return false, fmt.Errorf("OpenCode history in %s is stale: %s published to this proveo home since. This sandbox stays. To continue, %s", name, engine, resetCommand(name))
+	case phase == "prepared" || phase == "published":
+		ui.Appf("OpenCode: re-verifying the history %s kept from its last run (journal phase %s)", name, phase)
 	default:
 		switch chooseRetainedRecovery(name, recorded) {
 		case choiceui.RetainedReset:
 			return true, removeOpenCodeEngine(name)
 		case choiceui.RetainedStop:
-			return false, fmt.Errorf("OpenCode history in %s needs recovery: its last run ended before publishing (journal phase %s). This sandbox stays. %s",
-				name, recorded, retainedCommands(in.Target, name))
+			return false, fmt.Errorf("OpenCode history in %s needs recovery (journal phase %s). This sandbox stays. %s", name, recorded, retainedCommands(in.Target, name))
 		}
-		ui.Appf("OpenCode: the last run in %s ended before publishing (journal phase %s); recovering its retained history", name, recorded)
+		ui.Appf("OpenCode: recovering the history %s kept from its last run (journal phase %s)", name, recorded)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	out, runErr := run(ctx, name, "--recover", flag)
+	timedOut := ctx.Err() != nil
 	cancel()
 	if runErr == nil {
 		ui.Appf("OpenCode recover: retained history re-verified; starting the agent on it")
 		return false, nil
 	}
+	failure := openCodeCommandError("recover", runErr, out)
+	if timedOut || strings.Contains(out, "owns this history store") || strings.Contains(out, "still owns the cache") {
+		return false, fmt.Errorf("%w. This sandbox stays. Run again when the other session or the recovery ends", failure)
+	}
+	ui.Warnf("%v", failure)
 	if confirmSandboxReset(name) {
 		return true, removeOpenCodeEngine(name)
 	}
-	return false, fmt.Errorf("%w. This sandbox stays. %s", openCodeCommandError("recover", runErr, out), retainedCommands(in.Target, name))
+	return false, fmt.Errorf("%w. This sandbox stays. To continue, %s", failure, resetCommand(name))
 }
 
 var removeOpenCodeEngine = func(name string) error {
@@ -441,8 +476,7 @@ var removeOpenCodeEngine = func(name string) error {
 		return fmt.Errorf("remove %s: %w: %s", name, err, strings.TrimSpace(out))
 	}
 	_ = os.Remove(cacheOwnerPath(name))
-	_ = os.Remove(receiptPath(name))
-	ui.Notef("the next launch creates a new sandbox named %s. This session does not persist", name)
+	ui.Notef("this launch creates a new sandbox named %s. The removed session does not persist", name)
 	return nil
 }
 
@@ -569,9 +603,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 	cfg.Command = append([]string{flag}, cfg.Command...)
 	seedCtx, cancelSeed := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelSeed()
-	seed := exec.CommandContext(seedCtx, sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "sh", "-c",
-		`rm -f /dev/shm/proveo-instructions-seeded /dev/shm/proveo-seed-done; nohup env PROVEO_OPENCODE_CACHE_OWNER="$1" /usr/local/bin/proveo-seed opencode >/dev/shm/proveo-opencode-seed.log 2>&1 </dev/null &`, "proveo-cache-seed", owner)
-	if seedOut, err := seed.CombinedOutput(); err != nil {
+	if seedOut, err := seedOpenCode(seedCtx, cfg.Name, owner); err != nil {
 		return cfg, fmt.Errorf("OpenCode instruction seed: %w: %s", err, strings.TrimSpace(string(seedOut)))
 	}
 	if deadline, enabled := seedCtx.Deadline(); enabled {

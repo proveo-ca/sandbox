@@ -93,7 +93,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if !strings.Contains(recovered, id) {
 		t.Fatalf("after sbx stopped the engine, the reattach lost session %s:\n%s", id, recovered)
 	}
-	if !strings.Contains(recovered, "retained history") {
-		t.Errorf("the reattach after a stop did not report re-verifying the retained history:\n%s", recovered)
+	if !strings.Contains(recovered, "re-verifying the history") {
+		t.Errorf("the reattach after a clean stop did not recover without asking:\n%s", recovered)
 	}
 }
