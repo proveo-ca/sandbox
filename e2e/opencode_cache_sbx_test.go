@@ -84,4 +84,16 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("ordinary reattach replaced the prepared engine: %v", err)
 	}
+
+	// Lose the keeper the way sbx's idle auto-stop does.
+	if out, err := exec.Command("sbx", "stop", engine).CombinedOutput(); err != nil {
+		t.Fatalf("sbx stop %s: %v\n%s", engine, err, out)
+	}
+	recovered := run("api", "GET", "/api/session/"+id)
+	if !strings.Contains(recovered, id) {
+		t.Fatalf("after sbx stopped the engine, the reattach lost session %s:\n%s", id, recovered)
+	}
+	if !strings.Contains(recovered, "retained history") {
+		t.Errorf("the reattach after a stop did not report re-verifying the retained history:\n%s", recovered)
+	}
 }

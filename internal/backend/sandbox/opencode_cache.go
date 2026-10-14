@@ -362,7 +362,80 @@ func createOpenCodeEngine(cfg sbx.RunConfig) error {
 	return nil
 }
 
-func removeOpenCodeEngine(name string) error {
+// retainedRefusal is the runtime's prepare refusal for engine-local history no live keeper vouches for.
+// SPEC: _spec/_plans/opencode-versioned-history-storage.puml
+const retainedRefusal = "unattested retained state requires explicit recovery"
+
+// openCodeJournalName is the durable store's lifecycle journal, beside its lifecycle lock.
+const openCodeJournalName = ".proveo-opencode-runtime.lock.journal"
+
+// openCodeJournalPhase is the phase the last run recorded in the V2 store's journal; "" when it recorded none.
+func openCodeJournalPhase(home string) string {
+	data, err := os.ReadFile(filepath.Join(home, "opencode", "v2", "share", openCodeJournalName))
+	if err != nil {
+		return ""
+	}
+	var record struct {
+		Phase string `json:"phase"`
+	}
+	if json.Unmarshal(data, &record) != nil {
+		return ""
+	}
+	return record.Phase
+}
+
+var chooseRetainedRecovery = func(name, phase string) choiceui.RetainedRecovery {
+	if !headedConfirm() {
+		return choiceui.RetainedRecover
+	}
+	screen, err := openScreen()
+	if err != nil {
+		return choiceui.RetainedStop
+	}
+	defer screen.Fini()
+	return choiceui.ChooseRetainedRecovery(screen, name, phase)
+}
+
+func retainedCommands(target, name string) string {
+	return fmt.Sprintf("Recover it with `proveo run %s -- --proveo-recover`, or delete it with `sbx rm --force %s`: "+
+		"the next run then prepares from the proveo home, and sessions never published there are lost", target, name)
+}
+
+// recoverRetainedOpenCode re-verifies the engine-local history a lost keeper left: at once after a
+// clean stop, after asking when the last run was interrupted. reset reports that the engine was removed.
+func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Context, string, ...string) (string, error)) (reset bool, err error) {
+	phase := openCodeJournalPhase(in.HomeRoot)
+	recorded := phase
+	if recorded == "" {
+		recorded = "none"
+	}
+	switch phase {
+	case "prepared", "published":
+		ui.Appf("OpenCode: sbx stopped %s after the last run; re-verifying its retained history", name)
+	default:
+		switch chooseRetainedRecovery(name, recorded) {
+		case choiceui.RetainedReset:
+			return true, removeOpenCodeEngine(name)
+		case choiceui.RetainedStop:
+			return false, fmt.Errorf("OpenCode history in %s needs recovery: its last run ended before publishing (journal phase %s). This sandbox stays. %s",
+				name, recorded, retainedCommands(in.Target, name))
+		}
+		ui.Appf("OpenCode: the last run in %s ended before publishing (journal phase %s); recovering its retained history", name, recorded)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	out, runErr := run(ctx, name, "--recover", flag)
+	cancel()
+	if runErr == nil {
+		ui.Appf("OpenCode recover: retained history re-verified; starting the agent on it")
+		return false, nil
+	}
+	if confirmSandboxReset(name) {
+		return true, removeOpenCodeEngine(name)
+	}
+	return false, fmt.Errorf("%w. This sandbox stays. %s", openCodeCommandError("recover", runErr, out), retainedCommands(in.Target, name))
+}
+
+var removeOpenCodeEngine = func(name string) error {
 	ui.Hostf("sbx rm --force %s — deleting the session", name)
 	if out, err := SbxRun(sbx.RemoveArgs(name)...); err != nil && !sbx.NotFound(out) {
 		return fmt.Errorf("remove %s: %w: %s", name, err, strings.TrimSpace(out))
@@ -469,11 +542,23 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 			}
 			out, gateErr = run(prepareCtx, cfg.Name, args...)
 			cancelPrepare()
-			if gateErr != nil {
+			switch {
+			case gateErr == nil:
+				ui.Appf("OpenCode prepare: 2/3 published a credential-free checkpoint")
+				ui.Appf("OpenCode prepare: 3/3 start the agent on that cache")
+			case !strings.Contains(out, retainedRefusal):
 				return cfg, openCodeCommandError("prepare", gateErr, out)
+			case preparing || explicitEmpty:
+				return cfg, fmt.Errorf("%w. %s", openCodeCommandError("prepare", gateErr, out), retainedCommands(in.Target, cfg.Name))
+			default:
+				reset, err := recoverRetainedOpenCode(in, cfg.Name, flag, run)
+				if err != nil {
+					return cfg, err
+				}
+				if reset {
+					return prepareOpenCodeLaunch(in, cfg, exists, run)
+				}
 			}
-			ui.Appf("OpenCode prepare: 2/3 published a credential-free checkpoint")
-			ui.Appf("OpenCode prepare: 3/3 start the agent on that cache")
 			if preparing {
 				cfg.Command = stripOpenCodeMaintenance(cfg.Command)
 			}

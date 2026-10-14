@@ -264,7 +264,9 @@
         "cmd/proveo/testdata/plan/docker-open-broker-opencode.golden",
         "cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden",
         "cmd/proveo/testdata/run/docker-opencode-broker.golden",
-        "e2e/seed_ready_test.go"
+        "e2e/seed_ready_test.go",
+        "internal/choiceui/blocked_run.go",
+        "internal/choiceui/blocked_run_test.go"
       ],
       "fingerprint": null
     },

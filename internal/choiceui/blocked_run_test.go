@@ -83,3 +83,54 @@ func TestBlockedRunKeys(t *testing.T) {
 		t.Fatal("y did not prepare")
 	}
 }
+
+func TestRetainedRecoveryNamesEveryWayOut(t *testing.T) {
+	t.Parallel()
+	sim := tcell.NewSimulationScreen("UTF-8")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer sim.Fini()
+	sim.SetSize(120, 40)
+	lines := RetainedRecoveryCopy("proveo-opencode-11c4aed0", "active")
+	drawPrompt(sim, lines, lines[0])
+	got := rendered(t, sim)
+	for _, want := range []string{
+		"ended before publishing",
+		"Journal phase: active.",
+		"y  recover",
+		"r  reset — sbx rm --force proveo-opencode-11c4aed0,",
+		"Sessions never published there are lost.",
+		"the next run asks again",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("recovery modal missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestRetainedRecoveryKeys(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		key  tcell.Key
+		r    rune
+		want RetainedRecovery
+	}{
+		{tcell.KeyRune, 'y', RetainedRecover},
+		{tcell.KeyRune, 'r', RetainedReset},
+		{tcell.KeyRune, 'n', RetainedStop},
+		{tcell.KeyEscape, 0, RetainedStop},
+		{tcell.KeyEnter, 0, RetainedStop},
+	} {
+		sim := tcell.NewSimulationScreen("UTF-8")
+		if err := sim.Init(); err != nil {
+			t.Fatal(err)
+		}
+		sim.SetSize(100, 36)
+		sim.InjectKey(tc.key, tc.r, tcell.ModNone)
+		if got := ChooseRetainedRecovery(sim, "proveo-opencode-11c4aed0", "active"); got != tc.want {
+			t.Errorf("key %v %q chose %v, want %v", tc.key, tc.r, got, tc.want)
+		}
+		sim.Fini()
+	}
+}

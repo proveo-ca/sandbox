@@ -79,6 +79,58 @@ func SandboxUpgradeCopy(name string, changed []string, live, clone bool) []strin
 	return lines
 }
 
+// RetainedRecovery is the operator's answer for history an interrupted run left in a kept engine.
+type RetainedRecovery int
+
+const (
+	RetainedStop RetainedRecovery = iota
+	RetainedRecover
+	RetainedReset
+)
+
+// RetainedRecoveryCopy explains recovering or resetting a kept engine whose last run ended before publishing.
+func RetainedRecoveryCopy(name, phase string) []string {
+	return []string{
+		"OpenCode history needs recovery",
+		"",
+		"The last run in " + name + " ended before publishing.",
+		"Journal phase: " + phase + ".",
+		"Its retained history is not verified yet.",
+		"",
+		"y  recover — verify this history and keep it",
+		"r  reset — sbx rm --force " + name + ",",
+		"   then prepare again from the proveo home.",
+		"   Sessions never published there are lost.",
+		"n / esc  stop — the sandbox stays and the next run asks again",
+	}
+}
+
+// ChooseRetainedRecovery waits for recover, reset or stop.
+func ChooseRetainedRecovery(s tcell.Screen, name, phase string) RetainedRecovery {
+	lines := RetainedRecoveryCopy(name, phase)
+	for {
+		drawPrompt(s, lines, lines[0])
+		switch ev := s.PollEvent().(type) {
+		case *tcell.EventResize:
+			s.Sync()
+		case *tcell.EventKey:
+			switch ev.Key() {
+			case tcell.KeyEscape, tcell.KeyEnter, tcell.KeyCtrlC:
+				return RetainedStop
+			case tcell.KeyRune:
+				switch ev.Rune() {
+				case 'y', 'Y':
+					return RetainedRecover
+				case 'r', 'R':
+					return RetainedReset
+				case 'n', 'N':
+					return RetainedStop
+				}
+			}
+		}
+	}
+}
+
 // ConfirmSandboxUpgrade waits for permission to replace a kept sandbox.
 func ConfirmSandboxUpgrade(s tcell.Screen, name string, changed []string, live, clone bool) bool {
 	return confirmPrompt(s, SandboxUpgradeCopy(name, changed, live, clone), "this sandbox was created with different settings")

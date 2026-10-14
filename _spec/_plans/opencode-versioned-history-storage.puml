@@ -26,6 +26,8 @@
 ' covers: e2e/opencode_prepared_history_test.go
 ' covers: e2e/opencode_cache_sbx_test.go
 ' covers: e2e/seed_ready_test.go
+' covers: internal/choiceui/blocked_run.go
+' covers: internal/choiceui/blocked_run_test.go
 ' covers: cmd/proveo/testdata/plan/docker-open-forward-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-open-broker-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden
@@ -153,6 +155,34 @@
 ' which proveo mounts as a workspace; the host prepares it through `sbx exec`, then re-runs proveo-seed with
 ' PROVEO_OPENCODE_CACHE_OWNER and reattaches the agent through the kit. `--shell` skips that sequence, so an
 ' opencode --shell sandbox stays refused and unseeded; e2e/seed_ready_test.go runs opencode through its kit.
+'
+' SBX AUTO-STOP LOSES THE KEEPER, 2026-10-14 — research and the Executor's decision:
+'   "By default, a local sandbox stops automatically shortly after its last session disconnects"
+'     https://docs.docker.com/ai/sandboxes/customize/author/ ; 30s grace (docker/sbx-releases#452);
+'     `sbx create` sandboxes since v0.43.0. "The rest of the VM filesystem persists across restarts"
+'     (https://docs.docker.com/ai/sandboxes/security/isolation/); processes and memory do not.
+' So the keeper, whose attestation lives only in its memory, dies ~30s after every run. The
+' engine-local cache under /tmp survives. The next run's --bootstrap-cache starts a fresh keeper
+' (state unprepared, no cache signature); --check-prepared exits 78 and --prepare refuses:
+' "unattested retained state requires explicit recovery, not replacement". Measured on a Linux
+' host 2026-10-14 (proveo-opencode-11c4aed0, reattach after an earlier run). OpenCode plays no part
+' (https://opencode.ai/v2/docs/cli/ documents no attestation); the in-memory keeper design does.
+' DECISION (Executor, "Auto after clean stop"): on that refusal, an ordinary launch reads the
+' durable journal's phase (opencode/v2/share/.proveo-opencode-runtime.lock.journal).
+'   prepared | published -> run --recover at once, one notice line, no prompt.
+'   anything else, or no journal -> headed: choiceui.ChooseRetainedRecovery, y recover,
+'     r reset (sbx rm --force, then prepare again), n/esc stop with both commands; headless
+'     (PROVEO_WIZARD=off, schedule, no TTY) -> recover.
+'   recover fails -> headed: the existing reset prompt; headless: the error names
+'     `proveo run <target> -- --proveo-recover` and `sbx rm --force <engine>`.
+' An explicit --proveo-prepare or --empty never turns into a recovery; its refusal names the
+' same two commands. This supersedes "explicit recovery only" for a lost keeper: recovery now
+' runs at launch, re-verifies and republishes, and is never a fast-path receipt. [Inference]
+' A large history recovers slower than the 5s budget. Follow-ups: keep the engine up between
+' runs (`sbx run -d` / long-running@1, sbx >= v0.47.0), or a host-held cache digest taken after
+' native shutdown and a WAL checkpoint (OpenCode writes the DB on every open).
+' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
+' requires the session to survive and the run to report re-verifying its retained history.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
