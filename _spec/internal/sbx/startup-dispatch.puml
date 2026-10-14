@@ -10,6 +10,7 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/seed_phase_test.go
 ' covers: e2e/startup_dispatch_test.go
+' covers: scripts/proveo-jitter-probe.py
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────

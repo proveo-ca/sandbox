@@ -1386,7 +1386,8 @@
         "packages/lib/proveo-seed",
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/seed_phase_test.go",
-        "e2e/startup_dispatch_test.go"
+        "e2e/startup_dispatch_test.go",
+        "scripts/proveo-jitter-probe.py"
       ],
       "fingerprint": null
     },
