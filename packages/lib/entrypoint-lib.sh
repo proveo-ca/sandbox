@@ -437,8 +437,21 @@ _proveo_tool_store() {
   printf '%s/%s' "$host" "$(_proveo_tool_rel)"
 }
 
+# The stamp beside a toolchain tree: one token per completed save.
+# SPEC: _spec/internal/sbx/state-sync.puml
+_proveo_tool_stamp() { printf '%s/.%s.proveo-sync' "$(dirname "$1")" "$(basename "$1")"; }
+
+_proveo_write_stamp() {
+  local path="$1" tok="$2"
+  if printf '%s\n' "$tok" > "$path.$$" 2>/dev/null && mv -f "$path.$$" "$path" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$path.$$" 2>/dev/null
+  return 1
+}
+
 proveo_sync_tools() {
-  local mode="${1:-}" store home lock src dst rc=0
+  local mode="${1:-}" store home lock src dst rc=0 tok="" store_stamp home_stamp
   case "$mode" in
   restore | save) ;;
   *) return 2 ;;
@@ -455,12 +468,34 @@ proveo_sync_tools() {
   [ -d "$src" ] || return 0
   [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
 
+  store_stamp="$(_proveo_tool_stamp "$store")"
+  home_stamp="$(_proveo_tool_stamp "$home")"
+  if [[ "$mode" == restore ]]; then
+    tok="$(cat "$store_stamp" 2>/dev/null)" || tok=""
+    if [[ -n "$tok" && "$tok" == "$(cat "$home_stamp" 2>/dev/null)" ]]; then
+      return 0
+    fi
+  fi
+
   lock="$(_proveo_agent_home)/.proveo-tools.lock"
   if ! _proveo_sync_lock "$lock"; then
     printf 'proveo: toolchain %s skipped — another sync still holds the lock\n' "$mode" >&2
     return 1
   fi
+  if [[ "$mode" == save ]]; then
+    rm -f "$store_stamp" 2>/dev/null
+    tok="$(date +%s%N 2>/dev/null)-$$-${RANDOM}"
+  fi
   _proveo_sync_tree "$src" "$dst" || rc=1
+  if ((rc == 0)) && [[ -n "$tok" ]]; then
+    if [[ "$mode" == save ]]; then
+      _proveo_write_stamp "$store_stamp" "$tok" && _proveo_write_stamp "$home_stamp" "$tok" || true
+    else
+      _proveo_write_stamp "$home_stamp" "$tok" || true
+    fi
+  else
+    rm -f "$home_stamp" 2>/dev/null
+  fi
   rm -rf "$lock" 2>/dev/null
   ((rc == 0)) || printf 'proveo: toolchain %s completed with copy errors\n' "$mode" >&2
   return "$rc"
@@ -2457,8 +2492,43 @@ _proveo_config_skips() {
  IFS="$oldifs"
 }
 
+# One line per entry to move: "D<TAB>rel" a directory dst lacks, "N<TAB>rel" a
+# file dst lacks, "U<TAB>rel" a file src holds with a newer mtime.
+_proveo_config_plan() {
+ local src="$1" dst="$2"
+ shift 2
+ {
+  (cd "$src" 2>/dev/null && find . "$@" \( -type f -printf 'S\tf\t%T@\t%P\n' \
+   -o -type d -printf 'S\td\t%T@\t%P\n' \) 2>/dev/null)
+  (cd "$dst" 2>/dev/null && find . "$@" \( -type f -o -type d \) -printf 'D\t%y\t%T@\t%P\n' 2>/dev/null)
+ } | awk -F'\t' '
+  function newer(a, b,   p, ai, af, bi, bf) {
+   p = index(a, "."); ai = p ? substr(a, 1, p - 1) : a; af = p ? substr(a, p + 1) : ""
+   p = index(b, "."); bi = p ? substr(b, 1, p - 1) : b; bf = p ? substr(b, p + 1) : ""
+   if (ai + 0 != bi + 0) return ai + 0 > bi + 0
+   while (length(af) < length(bf)) af = af "0"
+   while (length(bf) < length(af)) bf = bf "0"
+   return af > bf
+  }
+  {
+   name = $4
+   for (i = 5; i <= NF; i++) name = name "\t" $i
+   if (name == "") next
+   if ($1 == "S") { order[++n] = name; kind[name] = $2; at[name] = $3 }
+   else { have[name] = $3 }
+  }
+  END {
+   for (i = 1; i <= n; i++) {
+    k = order[i]
+    if (kind[k] == "d") { if (!(k in have)) print "D\t" k; continue }
+    if (!(k in have)) print "N\t" k
+    else if (newer(at[k], have[k])) print "U\t" k
+   }
+  }'
+}
+
 _proveo_config_tree() {
- local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub
+ local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub plan
  [[ -d "$src" ]] || return 0
  mkdir -p "$dst" 2>/dev/null || return 1
 
@@ -2468,27 +2538,19 @@ _proveo_config_tree() {
   prune+=(-path "./$sub" -prune -o)
  done < <(_proveo_config_skips "$arel" "$deny")
 
+ plan="$(mktemp)" || return 1
+ _proveo_config_plan "$src" "$dst" ${prune[@]+"${prune[@]}"} > "$plan"
+ (cd "$dst" && sed -n 's/^D\t//p' "$plan" | xargs -r -d '\n' mkdir -p --) 2>/dev/null || failed=1
+ (cd "$src" && sed -n 's/^N\t//p' "$plan" | xargs -r -d '\n' cp -a --parents -t "$dst" --) 2>/dev/null || failed=1
  while IFS= read -r rel; do
-  rel="${rel#./}"
-  [[ -n "$rel" && "$rel" != "." ]] || continue
-  if [[ -d "$src/$rel" ]]; then
-   mkdir -p "$dst/$rel" 2>/dev/null || failed=1
-   continue
-  fi
-  if [[ ! -e "$dst/$rel" ]]; then
-   mkdir -p "$(dirname "$dst/$rel")" 2>/dev/null
-   cp -a "$src/$rel" "$dst/$rel" 2>/dev/null || failed=1
-   continue
-  fi
-  [[ "$src/$rel" -nt "$dst/$rel" ]] || continue
   tmp="$dst/$rel.proveo-sync.$$"
   if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
    continue
   fi
   rm -f "$tmp" 2>/dev/null
   failed=1
- done < <(cd "$src" 2>/dev/null && find . ${prune[@]+"${prune[@]}"} \
-  \( -type f -o -type d \) -print 2>/dev/null)
+ done < <(sed -n 's/^U\t//p' "$plan")
+ rm -f "$plan" 2>/dev/null
  return "$failed"
 }
 
@@ -2932,8 +2994,15 @@ proveo_seed_cursor_workspace_agents() {
  done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
 }
 
+# SPEC: _spec/internal/sbx/startup-dispatch.puml
 proveo_seed() {
- local target="${1:-${PROVEO_TARGET:-}}"
+ local target="${1:-${PROVEO_TARGET:-}}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
+ case "$phase" in
+ all | release) ;;
+ provision) _proveo_seed_provision "$target"; return ;;
+ none) return 0 ;;
+ *) printf 'proveo: unknown seed phase %s\n' "$phase" >&2; return 2 ;;
+ esac
  proveo_seed_step workspace "preparing checkout and shared folders" "$target"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
@@ -2986,7 +3055,15 @@ proveo_seed() {
  proveo_seed_browser_skills "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
+ [[ "$phase" == all ]] || return 0
+ _proveo_seed_provision "$target"
+}
 
+# The seed's toolchain, dependency and language-server work, after the release.
+_proveo_seed_provision() {
+ local target="${1:-}" home
+ home="$(_proveo_agent_home)"
+ [[ -n "$target" && -n "$home" ]] || return 0
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
   echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
  else

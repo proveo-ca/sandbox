@@ -92,10 +92,20 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 			t.Errorf("%s runs after proveo_release_agent — the agent would start without it", before)
 		}
 	}
-	for _, after := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain", "proveo_wire_config"} {
-		if at(after, release) < release {
-			t.Errorf("%s must run after the release: installs are what the agent must not wait on", after)
+	at(`_proveo_seed_provision "$target"`, release)
+	for _, install := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain"} {
+		if strings.Contains(body[:release], install) {
+			t.Errorf("%s runs before the release: installs are what the agent must not wait on", install)
 		}
+	}
+	prov := provisionBody(t, src)
+	last := -1
+	for _, step := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain", "proveo_wire_config"} {
+		i := strings.Index(prov, step)
+		if i <= last {
+			t.Errorf("_proveo_seed_provision lost the restore → provision → wire order at %s", step)
+		}
+		last = i
 	}
 	wrapper := readRepoFile(t, "packages/lib/proveo-seed")
 	if !strings.Contains(wrapper, "proveo_seed \"$@\" || rc=$?\n[[ -e \"$PROVEO_INSTRUCTIONS_MARKER\" ]] || proveo_release_agent") {

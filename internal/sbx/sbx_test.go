@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -1232,5 +1233,98 @@ func TestTemplateStagingDirAvoidsTmpfsUnlessTMPDIRIsSet(t *testing.T) {
 	env := map[string]string{"TMPDIR": "/big/disk"}
 	if got := templateStagingDir(func(k string) string { return env[k] }); got != "" {
 		t.Errorf("explicit TMPDIR must win (empty parent ⇒ os.TempDir), got %q", got)
+	}
+}
+
+func TestSeedStepsSplitAtTheRelease(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cmd        KitCommand
+		phase      string
+		background bool
+	}{
+		{"release step", SeedCommand("claudecode"), SeedPhaseRelease, false},
+		{"provision step", SeedProvisionCommand("claudecode"), SeedPhaseProvision, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := len(tc.cmd.Command)
+			if n < 2 || tc.cmd.Command[n-2] != "claudecode" || tc.cmd.Command[n-1] != tc.phase {
+				t.Errorf("%s argv = %q, want it to end with the target then %q", tc.name, tc.cmd.Command, tc.phase)
+			}
+			if tc.cmd.Background != tc.background {
+				t.Errorf("%s Background = %v, want %v", tc.name, tc.cmd.Background, tc.background)
+			}
+			if !strings.Contains(strings.Join(tc.cmd.Command, "\n"), `proveo-seed "$@"`) {
+				t.Errorf("%s does not hand proveo-seed its phase: %q", tc.name, tc.cmd.Command)
+			}
+		})
+	}
+	if got := strings.Join(SeedEntrypointCommand().Command, " "); !strings.Contains(got, "PROVEO_SEED_PHASE="+SeedPhaseNone) {
+		t.Errorf("SeedEntrypointCommand() = %q, want PROVEO_SEED_PHASE=%s so the def entrypoint skips the shared seed", got, SeedPhaseNone)
+	}
+}
+
+func TestWriteKitRendersBackgroundOnlyWhereSet(t *testing.T) {
+	kitDir, err := WriteKit(filepath.Join(t.TempDir(), "kit"), Kit{
+		SchemaVersion: KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          "claudecode-posture",
+		Setup: &KitSetup{Startup: []KitCommand{
+			SeedCommand("claudecode"), SeedEntrypointCommand(), SeedProvisionCommand("claudecode"),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(b), "background: true"); got != 1 {
+		t.Errorf("spec.yaml has %d `background: true`, want exactly 1 (the provision step):\n%s", got, b)
+	}
+	if strings.Contains(string(b), "background: false") {
+		t.Errorf("spec.yaml spells out the default `background: false`:\n%s", b)
+	}
+}
+
+func TestSeedProvisionSkipsABootAlreadySeedDone(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("sh unavailable: %v", err)
+	}
+	for _, tc := range []struct {
+		name     string
+		cmd      KitCommand
+		seedDone bool
+		wantRun  bool
+	}{
+		{"provision on a fresh boot", SeedProvisionCommand("claudecode"), false, true},
+		{"provision after an old image's full seed", SeedProvisionCommand("claudecode"), true, false},
+		{"release never skips", SeedCommand("claudecode"), true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ran, done := filepath.Join(dir, "ran"), filepath.Join(dir, "seed-done")
+			stub := filepath.Join(dir, "proveo-seed")
+			if err := os.WriteFile(stub, []byte("#!/bin/sh\n: > '"+ran+"'\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.seedDone {
+				if err := os.WriteFile(done, nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			argv := append([]string(nil), tc.cmd.Command[1:]...)
+			argv[1] = strings.Replace(argv[1], SeedBinary, stub, 1)
+			c := exec.Command(sh, argv...)
+			c.Env = append(os.Environ(), "PROVEO_SEED_DONE_MARKER="+done)
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("%s: %v\n%s", tc.name, err, out)
+			}
+			if _, err := os.Stat(ran); (err == nil) != tc.wantRun {
+				t.Errorf("%s: proveo-seed ran = %v, want %v", tc.name, err == nil, tc.wantRun)
+			}
+		})
 	}
 }

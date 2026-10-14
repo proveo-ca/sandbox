@@ -25,6 +25,18 @@
 ' The host side of the copy is named by StateHomeVar in the sandbox
 ' environment, never handed over again on the argv.
 '
+' ── THE TOOLCHAIN STAMP (2026-10-13) ───────────────────────────────────────
+' proveo_sync_tools keeps a token BESIDE each tree, never inside it:
+' <state>/toolchains/.<platform>.proveo-sync and the same beside the agent's
+' tree. A save removes the store's token before copying and writes a fresh one
+' to both sides only after a clean copy, so a half-done save never vouches for
+' itself. A restore whose store token equals the home token returns before
+' walking the tree; a missing token, a mismatch or a failed copy means a full
+' sync, and a failed restore leaves no home token. Measured: a replayed
+' restore re-stamped 9,697 directories of a 66,552-entry tree in ~8s. `proveo
+' clean` globs toolchains/* for DIRECTORIES only, and the dot-name hides the
+' token from the glob anyway. Pinned by TestToolRestoreSkipsAStoreTheHomeAlreadyHolds.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title State sync — moving resume state between the operator's home and a\nsandbox-local volume without ever leaving a partial file
 

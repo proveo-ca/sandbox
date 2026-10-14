@@ -384,3 +384,38 @@ func TestHostDevicesAcceptOnlyKnownKinds(t *testing.T) {
 		t.Error("HasHostDevice(android) = false")
 	}
 }
+
+func TestTransientPathsStayInsideTheMount(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"jobs/*/tmp", true},
+		{"cache", true},
+		{"", false},
+		{"/jobs", false},
+		{"../jobs", false},
+		{"jobs/../..", false},
+		{"jobs//tmp", false},
+		{"./jobs", false},
+		{" jobs", false},
+		{"a,b", false},
+		{"a|b", false},
+		{"a;b", false},
+		{"a b", false},
+	} {
+		if got := ValidTransient(tc.path); got != tc.want {
+			t.Errorf("ValidTransient(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+	m := Manifest{Name: "x", Images: map[string]string{"x": "proveo/x:latest"},
+		Home: Home{Enabled: true, Mounts: []HomeMount{{Host: ".x", Container: "/proveo-home/.x", Transient: []string{"../escape"}}}}}
+	if err := m.Validate(); err == nil {
+		t.Error("Validate() accepted a transient path outside its mount")
+	}
+	m.Home.Mounts[0].Transient = []string{"jobs/*/tmp"}
+	if err := m.Validate(); err != nil {
+		t.Errorf("Validate() rejected transient %q: %v", "jobs/*/tmp", err)
+	}
+}

@@ -122,7 +122,7 @@ func TestToolSyncRefusesAnUnknownMode(t *testing.T) {
 
 func TestSeedRestoresToolchainsBeforeProvisioning(t *testing.T) {
 	t.Parallel()
-	seed := seedBody(t, entrypointLib(t))
+	seed := provisionBody(t, entrypointLib(t))
 	restore := strings.Index(seed, "proveo_sync_tools restore")
 	provision := strings.Index(seed, "proveo_provision_toolchain")
 	if restore < 0 {
@@ -133,5 +133,50 @@ func TestSeedRestoresToolchainsBeforeProvisioning(t *testing.T) {
 	}
 	if restore > provision {
 		t.Error("the toolchain restore runs AFTER provisioning, so the installers cannot see what it brought back")
+	}
+}
+
+// A restore of a store this home already holds is a no-op: the stamp beside
+// each tree names the save it came from, and a new save changes it.
+func TestToolRestoreSkipsAStoreTheHomeAlreadyHolds(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state := t.TempDir(), t.TempDir()
+	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state}
+	stored := filepath.Join(state, "toolchains", plat, ".local", "bin", "gopls")
+	restored := filepath.Join(agent, "toolchains", plat, ".local", "bin", "gopls")
+	storeStamp := filepath.Join(state, "toolchains", "."+plat+".proveo-sync")
+	homeStamp := filepath.Join(agent, "toolchains", "."+plat+".proveo-sync")
+
+	seedFile(t, stored, "old")
+	runToolSync(t, bash, env, "restore")
+	if _, err := os.Stat(homeStamp); err == nil {
+		t.Error("a restore from an unstamped store wrote a home stamp — the next restore would skip a store no save vouched for")
+	}
+	runToolSync(t, bash, env, "save")
+	a, errA := os.ReadFile(storeStamp)
+	b, errB := os.ReadFile(homeStamp)
+	if errA != nil || errB != nil || len(a) == 0 || string(a) != string(b) {
+		t.Fatalf("save must stamp both trees with one token: store=%q (%v) home=%q (%v)", a, errA, b, errB)
+	}
+	if _, err := os.Stat(filepath.Join(state, "toolchains", plat, "."+plat+".proveo-sync")); err == nil {
+		t.Error("the stamp landed INSIDE the synced tree, so the next sync would copy it as a tool")
+	}
+
+	if err := os.Remove(restored); err != nil {
+		t.Fatal(err)
+	}
+	runToolSync(t, bash, env, "restore")
+	if _, err := os.Stat(restored); err == nil {
+		t.Error("restore re-copied a store whose stamp the home already holds")
+	}
+
+	seedFile(t, storeStamp, "another-sandbox-saved\n")
+	runToolSync(t, bash, env, "restore")
+	if _, err := os.Stat(restored); err != nil {
+		t.Errorf("restore skipped a store another save had changed: %v", err)
+	}
+	if b, _ := os.ReadFile(homeStamp); strings.TrimSpace(string(b)) != "another-sandbox-saved" {
+		t.Errorf("home stamp after a full restore = %q, want the store's token", b)
 	}
 }

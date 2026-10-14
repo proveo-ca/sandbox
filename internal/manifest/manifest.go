@@ -38,6 +38,10 @@ type HomeMount struct {
 	Container string   `yaml:"container"`
 	Mode      string   `yaml:"mode"` // rw (default) | ro
 	Deny      []string `yaml:"deny"`
+	// Transient names relative paths (find -path globs) the sbx config sync
+	// never copies, in either direction; unlike Deny, the host keeps them.
+	// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+	Transient []string `yaml:"transient"`
 }
 
 type Home struct {
@@ -194,6 +198,13 @@ func (m Manifest) Validate() error {
 		name := strings.TrimSpace(f)
 		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\|;`) {
 			return fmt.Errorf("manifest %q: home file %q must be a bare name at the home root", m.Name, f)
+		}
+	}
+	for _, mt := range m.Home.Mounts {
+		for _, p := range mt.Transient {
+			if !ValidTransient(p) {
+				return fmt.Errorf("manifest %q: home mount %q transient %q must be a relative path inside the mount", m.Name, mt.Host, p)
+			}
 		}
 	}
 	switch m.Docker {
@@ -389,4 +400,18 @@ func Targets(ms []Manifest) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ValidTransient reports whether p is a relative, in-mount path the shell sync
+// can prune: no leading slash, no "..", none of the config set's separators.
+func ValidTransient(p string) bool {
+	if p == "" || p != strings.TrimSpace(p) || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "|;,\\ \t\n") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }

@@ -2,6 +2,8 @@
 package proveohome
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,5 +62,35 @@ func TestConfigSetDenyMatchesScrubDeny(t *testing.T) {
 	deny := got[strings.LastIndex(got, "|")+1:]
 	if deny != "auth.json,.credentials.json" {
 		t.Errorf("deny list = %q, want only the bare names scrubDeny acts on", deny)
+	}
+}
+
+func TestConfigSetCarriesTransientPathsTheScrubNeverTouches(t *testing.T) {
+	t.Parallel()
+	mount := manifest.HomeMount{Host: ".claude", Container: "/proveo-home/.claude",
+		Deny: []string{"auth.json"}, Transient: []string{"jobs/*/tmp", "../escape", "a,b"}}
+	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{mount}}
+	if got, want := ConfigSet(home), ".claude|.claude|auth.json,jobs/*/tmp"; got != want {
+		t.Errorf("ConfigSet() = %q, want %q", got, want)
+	}
+
+	root := t.TempDir()
+	scratch := filepath.Join(root, ".claude", "jobs", "j1", "tmp", "probe.go")
+	if err := os.MkdirAll(filepath.Dir(scratch), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scratch, []byte("package probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Prepare(home, func(k string) string {
+		if k == "PROVEO_HOME" {
+			return root
+		}
+		return ""
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(scratch); err != nil {
+		t.Errorf("Prepare() removed transient scratch %s: %v — transient is a sync skip, never a host delete", scratch, err)
 	}
 }

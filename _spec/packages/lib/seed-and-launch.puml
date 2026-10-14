@@ -19,6 +19,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
 ' covers: e2e/seed_ready_test.go
+' covers: internal/contract/seed_phase_test.go
 ' covers: internal/contract/seed_shares_test.go
 '
 ' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
@@ -131,6 +132,16 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
 ' so it never waits. A refused file whose only line is "OpenCode credential preflight refused release"
 ' is the runtime's own note from a kept sandbox; await-seed deletes it and launches. A share refusal still stops the launch.
+'
+' ── THE RELEASE IS ALSO A STARTUP-STEP BOUNDARY (2026-10-13) ──────────────
+' "Installs stay after the release" held in the ORDER and failed in the TIME.
+' Every Kit step was foreground, and on 2026-10-13 the agent forked only when
+' the dispatcher returned: 86s after boot, ~50s after the release. proveo_seed
+' now takes a phase. sbx runs `proveo-seed <target> release` in the
+' foreground, the def entrypoint with PROVEO_SEED_PHASE=none, then
+' `proveo-seed <target> provision` with background: true. Docker runs "all".
+' The steps, the Docker docs they follow and the probe that pins them:
+' _spec/internal/sbx/startup-dispatch.puml.
 ' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -337,7 +348,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 
 node "Both backends, one step" as BE <<host>> {
   component "docker — image ENTRYPOINT\n""defs/<h>/entrypoint\.sh"" → seed → exec" as DOCK <<app>>
-  component "sbx — ""setup\.startup""\n""proveo-seed <target>"" + seed-only\nentrypoint (mixin), no exec here" as SBX <<app>>
+  component "sbx — ""setup\.startup""\n""proveo-seed <target> release"" · seed-only\nentrypoint (mixin) · ""provision"" (background)" as SBX <<app>>
 }
 
 component """packages/lib/proveo-seed""\nthe seed as a NAMEABLE command" as CMDWRAP <<app>>

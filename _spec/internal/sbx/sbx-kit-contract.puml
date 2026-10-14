@@ -46,6 +46,8 @@ skinparam noteTextAlignment left
 '   agentInstructions    {filename, content} — seeds a CLAUDE.md-style file.
 '   setup.install[]      {command: STRING, user: "0"} — runs once at build.
 '   setup.startup[]      {command: LIST,   user: "1000"} — runs every start.
+'                        background: true lets LATER steps start without
+'                        waiting (_spec/internal/sbx/startup-dispatch.puml).
 '   setup.files[]        {path, content, mode}
 '   volumes[]            {path, size, type, mode}
 '   ports[]              {container, protocol, name}

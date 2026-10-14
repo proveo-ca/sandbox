@@ -87,8 +87,13 @@ func TestSeedMarksTheToolchainReadyAfterProvisioning(t *testing.T) {
 	s := string(b)
 	seed := s[strings.Index(s, "proveo_seed() {"):]
 	seed = seed[:strings.Index(seed, "\n}\n")]
-	clear, provision, mark := strings.Index(seed, `rm -f "$PROVEO_TOOLCHAIN_READY"`), strings.Index(seed, "proveo_provision_toolchain"), strings.Index(seed, `: > "$PROVEO_TOOLCHAIN_READY"`)
-	if clear < 0 || provision < 0 || mark < 0 || !(clear < provision && provision < mark) {
-		t.Errorf("proveo_seed must clear the marker, provision, then mark (clear=%d provision=%d mark=%d)", clear, provision, mark)
+	clear, handoff := strings.Index(seed, `rm -f "$PROVEO_TOOLCHAIN_READY"`), strings.LastIndex(seed, `_proveo_seed_provision "$target"`)
+	if clear < 0 || handoff < 0 || clear > handoff {
+		t.Errorf("proveo_seed must clear the marker before handing off to provisioning (clear=%d handoff=%d)", clear, handoff)
+	}
+	prov := provisionBody(t, s)
+	provision, mark := strings.Index(prov, "proveo_provision_toolchain"), strings.Index(prov, `: > "$PROVEO_TOOLCHAIN_READY"`)
+	if provision < 0 || mark < 0 || provision > mark {
+		t.Errorf("_proveo_seed_provision must provision, then mark (provision=%d mark=%d)", provision, mark)
 	}
 }

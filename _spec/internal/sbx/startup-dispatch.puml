@@ -1,0 +1,147 @@
+@startuml StartupDispatch
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how proveo consumes sbx's startup dispatcher on Docker's documented terms — what blocks, what runs beside the agent, and the probe that pins the contract
+' covers: internal/sbx/kit.go
+' covers: internal/sbx/sbx_test.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/startup_commands_test.go
+' covers: packages/lib/proveo-seed
+' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/seed_phase_test.go
+' covers: e2e/startup_dispatch_test.go
+' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────
+'   kits : https://docs.docker.com/ai/sandboxes/customize/kits/  (read 2026-10-13)
+' What Docker documents about sbx governs how proveo consumes it. A measurement
+' that disagrees is a probe result to report upstream, never a behaviour to
+' build on.
+'
+' ── THE DOCUMENTED RULE, QUOTED ─────────────────────────────────────────────
+'   background (default false): "Block later startup commands until this
+'   command finishes. Set to true to let later commands run without waiting."
+'
+'   "They also don't gate the agent's entrypoint: the agent launches once
+'   startup commands have been dispatched, regardless of background. A value
+'   of false waits within the startup dispatcher before it runs the next
+'   command; it doesn't delay the agent entrypoint. Use startup commands for
+'   work that can run alongside the agent. Use setup.files for any value that
+'   needs to land on disk before the agent runs."
+'
+'   "Startup commands must be idempotent. They run on every sandbox start and
+'   replay on container restarts."
+'
+' ── WHAT WAS MEASURED, 2026-10-13, proveo-claudecode-f8781ef6 ───────────────
+' Read from inside the VM: /proc/stat btime, process start times, file ctimes,
+' /var/log/sbx-kit-startup.log.
+'   16:43:06        VM boot (PID 1)
+'   16:43:09        dispatcher starts; sbx's own claude-kit steps take <1s
+'   16:43:10–41     .claude config restore: 12,873 files / 966 MB, one cp per
+'                   file; 7,093 files / 866 MB were ONE jobs/<id>/tmp tree
+'   16:43:42        release marker: subagents, settings, hooks in place
+'   16:43:43–44:07  toolchain restore: 1.7 GB / 66,552 entries
+'   16:44:09–20     pnpm install into the fresh clone
+'   16:44:21–32     the seed-only entrypoint pass re-ran the whole seed
+'   16:44:32        agent forked (PPID 0), CDP relay up, dispatcher complete
+' Every Kit step was foreground: KitCommand had no background field at all.
+' The agent forked when the dispatcher returned, 86s after boot and ~50s after
+' the release said it could run. Whatever sbx keyed that fork on, proveo had
+' put install work into steps the docs reserve for "alongside the agent" and
+' declared none of it background.
+'
+' ── THE SEED IS THREE STARTUP STEPS ─────────────────────────────────────────
+'   1  proveo-seed <target> release       foreground. Checkout, shares,
+'                                         instructions, state and config
+'                                         restore, hooks, subagents, wiring,
+'                                         then the release marker.
+'   2  PROVEO_SEED_PHASE=none entrypoint  foreground, mixins only. The def's
+'                                         own wiring; its proveo_seed call
+'                                         returns at once, step 1 did it.
+'   3  proveo-seed <target> provision     background: true, always LAST.
+'                                         Tool restore, toolchain, deps,
+'                                         LSPs, the second wire pass, the
+'                                         chrome bridge, then seed-done.
+' Step 3 is last because background lets LATER steps run beside it: placed
+' earlier, the def's wiring would race the installs.
+'
+' The gate the agent waits on stays proveo's own: proveo-await-seed polls the
+' release marker for PROVEO_INSTRUCTIONS_WAIT (30s). The docs make that gate
+' necessary, since no startup step holds the agent. Step 1 therefore has to
+' finish inside 30s of boot, which is why the config restore stopped forking
+' per file and skips transient scratch
+' (_spec/packages/lib/config-seeding-and-persistence.puml).
+'
+' The phase is an ARGUMENT to proveo-seed and proveo_seed; PROVEO_SEED_PHASE is
+' the env spelling a def entrypoint inherits from step 2. "all" is the default
+' and is what docker runs: there is no dispatcher there, the entrypoint seeds
+' and then execs.
+'
+' Version skew is safe both ways. An old image ignores the argument and the
+' env: step 1 runs the full seed in the foreground (the old timing) and marks
+' /dev/shm/proveo-seed-done. Step 3's wrapper is rendered on the HOST, so it
+' needs no rebuilt image: it exits when seed-done already exists, and a new
+' image's release phase never writes that marker. A second seed beside a live
+' agent would rewrite settings and subagents under it. A new image under an
+' old Kit sees no phase and runs "all". /dev/shm is a per-container tmpfs, so a
+' restart replays every step from a clean slate.
+'
+' A refused seed (a share missing, OpenCode history unprepared) writes
+' /dev/shm/proveo-seed-refused in step 1. Step 3 reads it and provisions
+' nothing, as the single seed stopped at the refusal before.
+'
+' ── THE PROBE ───────────────────────────────────────────────────────────────
+' e2e/startup_dispatch_test.go starts STOCK sbx — no proveo image, no proveo
+' seed — with a one-step mixin whose step is a FOREGROUND `sleep`. The shell
+' agent records its own start. The docs say it starts before the sleep ends;
+' the test fails otherwise and prints `sbx version` plus the timestamps, which
+' is the upstream report already written. proveo's split does not depend on
+' the answer: the long work sits in a background step either way.
+
+title Startup dispatch — what blocks the agent, what runs beside it
+
+node "Kit setup.startup (dispatcher order)" as KIT <<host>> {
+  component "1 · ""proveo-seed <target> release""\nforeground" as REL <<app>>
+  component "2 · ""PROVEO_SEED_PHASE=none /entrypoint\.sh""\nforeground, mixins only" as DEF <<app>>
+  component "3 · ""proveo-seed <target> provision""\n""background: true""" as PROV <<async>>
+}
+
+component """/dev/shm/proveo-instructions-seeded""\nthe release marker" as MARK <<app>>
+component """proveo-await-seed""\n≤ PROVEO_INSTRUCTIONS_WAIT (30s)" as GATE <<app>>
+component "agent process" as AGENT <<app>>
+component """/dev/shm/proveo-seed-done""" as DONE <<app>>
+component "agent forked 86s after boot\nwaiting on installs it never needed" as LATE <<error>>
+
+REL ARROW_MAIN MARK : writes
+REL ARROW_MAIN DEF
+DEF ARROW_MAIN PROV : dispatched, not awaited
+GATE ARROW_MAIN MARK : polls
+GATE ARROW_MAIN AGENT : exec once marked
+PROV ARROW_OPTIONAL DONE : beside the agent
+KIT ARROW_ERROR LATE : every step foreground (before)
+
+note right of REL
+  **Docker's docs govern.** Startup steps
+  never gate the agent; ""background: false""
+  only holds the NEXT step. Work the agent
+  needs first ends at the release marker.
+end note
+
+note right of PROV
+  **Installs run beside the agent.** Last in
+  the list, so nothing after it races them;
+  a refused step 1 leaves it nothing to do.
+end note
+
+note bottom of GATE
+  **The only gate is proveo's own.** Step 1
+  must beat its 30s, so the config restore
+  copies in bulk and skips transient scratch.
+end note
+
+note bottom of LATE
+  **Measured 2026-10-13.** 12,873 config files
+  copied one by one, 1.7 GB of toolchains and a
+  second full seed, all in foreground steps.
+end note
+@enduml

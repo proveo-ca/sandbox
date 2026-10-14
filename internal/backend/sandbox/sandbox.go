@@ -1892,8 +1892,10 @@ func proxyOnlyVar(name string) bool {
 	return false
 }
 
-// startupCommands is the seed, plus the def's own entrypoint for a mixin kit;
-// a worktree clone first gets its worktree directory.
+// startupCommands is the seed up to the release, the def's own entrypoint for a
+// mixin kit, then the seed's installs in the background; a worktree clone first
+// gets its worktree directory.
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
 func startupCommands(in Input, ownAgent bool) []sbx.KitCommand {
 	var cmds []sbx.KitCommand
 	if worktreeClone(in) {
@@ -1903,7 +1905,7 @@ func startupCommands(in Input, ownAgent bool) []sbx.KitCommand {
 	if !ownAgent {
 		cmds = append(cmds, sbx.SeedEntrypointCommand())
 	}
-	return cmds
+	return append(cmds, sbx.SeedProvisionCommand(in.Target))
 }
 
 // gitSafeDirectoryEnv declares the repository root safe for git, in the env the agent inherits.

@@ -215,6 +215,8 @@ Harness images should:
   `harness.manifest` `home:`); never bind-mount host IDE homes (`~/.cursor`, `~/.claude`, `~/.codex`);
 - scrub deny-listed auth filenames from proveo home each run; keep inference auth on
   env / credential-broker keys;
+- mark per-run scratch under a home mount `transient:` (relative `find -path` globs) so the
+  sbx config sync never copies it; unlike `deny:`, the host copy is kept;
 - avoid logging secret values while still reporting whether required keys were detected.
 
 **Credential isolation by egress mode** (see [`README.md`](README.md) and

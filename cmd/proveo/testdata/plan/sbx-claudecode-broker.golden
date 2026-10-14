@@ -36,7 +36,10 @@ setup:
             - -c
             - |-
               set +e
-              /usr/local/bin/proveo-seed "$1"
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
               rc=$?
               if [ "$rc" -ne 0 ]; then
                 printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
@@ -44,11 +47,33 @@ setup:
               exit 0
             - proveo-seed
             - claudecode
+            - release
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
         - command:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
+            - PROVEO_SEED_PHASE=none
             - /entrypoint.sh
           user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
+        - command:
+            - /bin/sh
+            - -c
+            - |-
+              set +e
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then
+                printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+              fi
+              exit 0
+            - proveo-seed
+            - claudecode
+            - provision
+          user: "1000"
+          background: true
+          description: 'proveo: toolchains, dependencies and language servers, beside the agent'

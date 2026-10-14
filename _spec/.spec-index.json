@@ -1377,6 +1377,20 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/startup-dispatch.puml",
+      "covers": [
+        "internal/sbx/kit.go",
+        "internal/sbx/sbx_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/startup_commands_test.go",
+        "packages/lib/proveo-seed",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/seed_phase_test.go",
+        "e2e/startup_dispatch_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/state-sync.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
@@ -1692,7 +1706,8 @@
         "internal/contract/agent_launch_guard_test.go",
         "internal/contract/spec_notes_test.go",
         "internal/imagetest/*_test.go",
-        "internal/contract/seed_shares_test.go"
+        "internal/contract/seed_shares_test.go",
+        "internal/contract/seed_phase_test.go"
       ],
       "fingerprint": null
     },

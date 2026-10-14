@@ -48,3 +48,29 @@ func TestEveryHarnessHomeMountReachesTheConfigSet(t *testing.T) {
 		t.Fatal("no harness declares a durable home — the fleet assertion is vacuous")
 	}
 }
+
+// A transient path reaches the shell's prune list; claudecode's job scratch is one.
+func TestEveryTransientPathReachesTheConfigSet(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatalf("LoadFS(Manifests): %v", err)
+	}
+	sawJobs := false
+	for _, m := range ms {
+		set := proveohome.ConfigSet(m.Home)
+		for _, mt := range m.Home.Mounts {
+			for _, p := range mt.Transient {
+				if !strings.Contains(set, p) {
+					t.Errorf("%s: transient %q is not in the config set %q", m.Name, p, set)
+				}
+				if m.Name == "claudecode" && p == "jobs/*/tmp" {
+					sawJobs = true
+				}
+			}
+		}
+	}
+	if !sawJobs {
+		t.Error("claudecode no longer marks jobs/*/tmp transient — one job's scratch cost 32s of every boot (measured 2026-10-13)")
+	}
+}

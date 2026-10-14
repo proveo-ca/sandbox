@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // runConfigSync sources the lib and runs one direction of the config sync.
@@ -175,5 +177,103 @@ func TestSeedRestoresConfigBeforeAnythingWritesIt(t *testing.T) {
 		if at < restore {
 			t.Errorf("%s runs BEFORE the config restore, so the restore overwrites what it wrote", writer)
 		}
+	}
+}
+
+// A path the manifest marks transient never crosses the sandbox boundary, in
+// either direction, and the host copy stays where it is.
+func TestConfigSyncSkipsTransientPathsBothWays(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state := t.TempDir(), t.TempDir()
+	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_CONFIG_DIRS": ".claude|.claude|jobs/*/tmp"}
+
+	seedFile(t, filepath.Join(state, ".claude", "jobs", "j1", "state.json"), "{}")
+	seedFile(t, filepath.Join(state, ".claude", "jobs", "j1", "tmp", "probe", "main.go"), "package main")
+	runConfigSync(t, bash, env, "restore")
+	if _, err := os.Stat(filepath.Join(agent, ".claude", "jobs", "j1", "state.json")); err != nil {
+		t.Errorf("restore dropped the job's own state beside its scratch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agent, ".claude", "jobs", "j1", "tmp")); err == nil {
+		t.Error("restore copied jobs/j1/tmp into the sandbox — the manifest marks it transient")
+	}
+
+	seedFile(t, filepath.Join(agent, ".claude", "jobs", "j2", "tmp", "render.svg"), "<svg/>")
+	runConfigSync(t, bash, env, "save")
+	if _, err := os.Stat(filepath.Join(state, ".claude", "jobs", "j2", "tmp")); err == nil {
+		t.Error("save carried jobs/j2/tmp to the operator's home — the manifest marks it transient")
+	}
+	if _, err := os.Stat(filepath.Join(state, ".claude", "jobs", "j1", "tmp", "probe", "main.go")); err != nil {
+		t.Errorf("the sync deleted the host's own transient copy: %v", err)
+	}
+}
+
+// The restore races the agent's 30s gate, so it must not fork a copy per file;
+// it must still replace only what is newer and create what is missing.
+func TestConfigSyncCopiesInBulk(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	realCp, err := exec.LookPath("cp")
+	if err != nil {
+		t.Skipf("cp unavailable: %v", err)
+	}
+	agent, state, bin := t.TempDir(), t.TempDir(), t.TempDir()
+	calls := filepath.Join(t.TempDir(), "cp.calls")
+	if err := os.WriteFile(filepath.Join(bin, "cp"), []byte("#!/bin/sh\necho x >> '"+calls+"'\nexec '"+realCp+"' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const many = 400
+	for i := range many {
+		seedFile(t, filepath.Join(state, ".claude", "file-history", "s", strings.Repeat("f", 1+i%7)+"-"+strconv.Itoa(i)), "v")
+	}
+	seedFile(t, filepath.Join(state, ".claude", "with space", "a b.json"), "{}")
+	if err := os.MkdirAll(filepath.Join(state, ".claude", "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedFile(t, filepath.Join(state, ".claude", "settings.json"), "host-newer")
+	seedFile(t, filepath.Join(agent, ".claude", "settings.json"), "agent-older")
+	seedFile(t, filepath.Join(state, ".claude", "keep.json"), "host-older")
+	seedFile(t, filepath.Join(agent, ".claude", "keep.json"), "agent-newer")
+	old, mid, now := time.Unix(1_700_000_000, 0), time.Unix(1_750_000_000, 0), time.Unix(1_780_000_000, 0)
+	for _, f := range []struct {
+		path string
+		at   time.Time
+	}{
+		{filepath.Join(agent, ".claude", "settings.json"), old},
+		{filepath.Join(state, ".claude", "settings.json"), now},
+		{filepath.Join(state, ".claude", "keep.json"), mid},
+		{filepath.Join(agent, ".claude", "keep.json"), now},
+	} {
+		if err := os.Chtimes(f.path, f.at, f.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	runConfigSync(t, bash, map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state,
+		"PROVEO_CONFIG_DIRS": cfgSet, "PATH": bin + ":" + os.Getenv("PATH")}, "restore")
+
+	b, _ := os.ReadFile(calls)
+	if n := strings.Count(string(b), "x"); n > 10 {
+		t.Errorf("restore forked cp %d times for %d files — the copy must be batched", n, many+3)
+	}
+	entries, _ := os.ReadDir(filepath.Join(agent, ".claude", "file-history", "s"))
+	if len(entries) != many {
+		t.Errorf("restore placed %d of %d new files", len(entries), many)
+	}
+	for _, c := range []struct{ rel, want string }{
+		{filepath.Join(".claude", "with space", "a b.json"), "{}"},
+		{filepath.Join(".claude", "settings.json"), "host-newer"},
+		{filepath.Join(".claude", "keep.json"), "agent-newer"},
+	} {
+		if got, err := os.ReadFile(filepath.Join(agent, c.rel)); err != nil || string(got) != c.want {
+			t.Errorf("after restore %s = %q (%v), want %q", c.rel, got, err, c.want)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(agent, ".claude", "empty")); err != nil || !fi.IsDir() {
+		t.Errorf("restore did not create the empty directory: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(agent, ".claude", "settings.json")); err != nil || !fi.ModTime().Equal(now) {
+		t.Errorf("a replaced file must keep the source mtime, or the next save sees it as changed: %v", err)
 	}
 }
