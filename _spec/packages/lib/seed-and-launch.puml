@@ -122,8 +122,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' per a readySpecs row (a missing row fails): the snapshot holds its subagents
 ' and names a baked LSP server; the harness itself lists adversarial-reviewer
 ' where an offline listing exists (claude's stream-json init event, `opencode
-' agent list`); the clone's .env is linked, read-only and stripped of provider
-' keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
+' serve` plus GET /api/agent); the clone's .env is linked, writable and stripped
+' of provider keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
 ' own toolchain step — is on PATH and wired. codex, cursor and cecli have no
 ' offline registration listing, so their row asserts the files only.
 ' opencode's row (kit: true) runs `proveo run opencode` through its kit, not
@@ -132,6 +132,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' That row uses a temporary PROVEO_HOME, so it prepares an empty V2 store and
 ' never touches the operator's history; `proveo run opencode` itself keeps the
 ' real home. It probes through `sbx exec` as uid 1000, after cd into the clone.
+' Its toolchain store starts empty, so its install probe gets one extra minute.
+' Cleanup ends the session, waits for proveo's teardown (PROVEO_TEST_TEARDOWN,
+' 3m), then removes the retained engine and its two receipts; the one-VM gate
+' is released only after that.
 ' The wait lives in the image because sbx offers no launch gate: a
 ' /opt/proveo/shims/claude shim ahead on PATH, and /etc/bash.bashrc for the
 ' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND

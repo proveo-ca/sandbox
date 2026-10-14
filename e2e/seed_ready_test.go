@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml
+// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml, _spec/_plans/opencode-versioned-history-storage.puml
 
 package e2e
 
@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -111,7 +112,7 @@ func TestSeedReleasesEveryHarnessReady(t *testing.T) {
 			}
 			t.Parallel()
 			gate <- struct{}{}
-			defer func() { <-gate }()
+			t.Cleanup(func() { <-gate })
 			requireHarness(t, target)
 			seedReadyProbe(t, proveoBin, target, spec)
 		})
@@ -215,7 +216,7 @@ func launchReadyShell(t *testing.T, proveoBin, target, work string) readyProbe {
 	return func(script string, timeout time.Duration) (string, int) { return shellExec(t, sess, script, timeout) }
 }
 
-var kitSandboxRE = regexp.MustCompile(`(?:retained engine|Created sandbox|in sandbox ')(proveo-[a-z0-9-]+)`)
+var kitSandboxRE = regexp.MustCompile(`(?:retained engine |Created sandbox |in sandbox ')(proveo-[a-z0-9-]+)`)
 
 // launchReadyKit starts `proveo run <target>` through its kit under a fresh
 // PROVEO_HOME, names the sandbox it runs in, times keystroke echo in the
@@ -231,47 +232,69 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 	if ready == "" {
 		t.Fatalf("%s has no prompt marker in gitSyncHarnesses, so its kit launch cannot tell when the agent is up", target)
 	}
+	home := t.TempDir()
+	before, _ := sbxSandboxNames()
 	var engine string
+	name := func(screen string) string {
+		if m := kitSandboxRE.FindStringSubmatch(screen); m != nil && strings.HasPrefix(m[1], "proveo-"+target+"-") {
+			return m[1]
+		}
+		var mine []string
+		for _, n := range newSandboxes(before) {
+			if strings.HasPrefix(n, "proveo-"+target+"-") && !strings.HasSuffix(n, "-prepare") {
+				mine = append(mine, n)
+			}
+		}
+		if len(mine) == 1 {
+			return mine[0]
+		}
+		return ""
+	}
 	t.Cleanup(func() {
+		if engine == "" {
+			engine = name("")
+		}
 		if engine == "" {
 			return
 		}
 		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
 		}
+		if cache, err := os.UserCacheDir(); err == nil {
+			for _, f := range []string{engine + ".json", engine + ".opencode-cache.json"} {
+				_ = os.Remove(filepath.Join(cache, "proveo", "sbx-sandboxes", f))
+			}
+		}
 	})
-	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
-	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
-		"PROVEO_HOME=" + t.TempDir(), proveoBin, "run", target, "--egress-mode", "open", "--input", work}
+		"PROVEO_HOME=" + home, proveoBin, "run", target, "--egress-mode", "open", "--input", work}
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start %s: %v", target, err)
 	}
+	pid, _ := sess.PanePID()
+	t.Cleanup(func() { killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute)) })
 	w := newWatcher(t, sess)
 	w.until("the "+target+" prompt", durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute), func() bool {
-		screen := w.Screen()
 		if engine == "" {
-			if m := kitSandboxRE.FindStringSubmatch(screen); m != nil {
-				engine = m[1]
-			} else if fresh := newSandboxes(before); len(fresh) == 1 {
-				engine = fresh[0]
-			}
+			engine = name(w.Screen())
 		}
+		pane, _ := sess.Capture()
 		for _, d := range gitSyncDialogs {
-			if strings.Contains(screen, d) && !strings.Contains(screen, ready) {
+			if strings.Contains(pane, d) && !strings.Contains(pane, ready) {
 				_ = sess.Enter()
+				time.Sleep(2 * time.Second)
 				return false
 			}
 		}
-		return engine != "" && strings.Contains(screen, ready)
+		return engine != "" && strings.Contains(pane, ready)
 	})
 
 	cd := "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'\n" + gitSyncCd(work) + "\n"
 	run := func(script string, timeout time.Duration) (string, int) {
-		return sbxExecStatus(t, engine, cd+script, timeout)
+		return sbxExecStatus(t, engine, cd+script, timeout+time.Minute)
 	}
-	if out, status := run("id -u", time.Minute); status != 0 || strings.TrimSpace(out) != "1000" {
+	if out, status := sbxExecStatus(t, engine, "id -u 2>/dev/null", time.Minute); status != 0 || strings.TrimSpace(out) != "1000" {
 		t.Fatalf("sbx exec into %s runs as uid %q (exit %d), not the agent's 1000 — the probes would not see what the agent sees",
 			engine, strings.TrimSpace(out), status)
 	}
@@ -280,13 +303,36 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 	return run
 }
 
+// killAndAwait ends the tmux session, then waits up to timeout for the
+// process that ran in its pane to finish its own teardown.
+func killAndAwait(t *testing.T, sess *tmux.Session, pid string, timeout time.Duration) {
+	t.Helper()
+	sess.Kill()
+	n, err := strconv.Atoi(strings.TrimSpace(pid))
+	if err != nil || n <= 0 {
+		return
+	}
+	proc, err := os.FindProcess(n)
+	if err != nil {
+		return
+	}
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if proc.Signal(syscall.Signal(0)) != nil {
+			return
+		}
+	}
+	t.Logf("pid %d still tearing down %s after the session ended", n, timeout)
+}
+
 // sbxExecStatus runs script under bash in the named sandbox and returns its
 // combined output and exit status.
 func sbxExecStatus(t *testing.T, name, script string, timeout time.Duration) (string, int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", script).CombinedOutput()
+	cmd := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", script)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
 	var exit *exec.ExitError
 	switch {
 	case err == nil:

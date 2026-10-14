@@ -165,8 +165,8 @@ skinparam noteTextAlignment left
 ' gates on foreground steps, which the split already routes around.
 '
 ' TestSeedReleasesEveryHarnessReady (e2e/seed_ready_test.go) already launches
-' every sbx harness through the real `proveo run <target> --shell` (host PTY
-' proxy included), so it carries this guard instead of a second launch. Right
+' every sbx harness but opencode through the real `proveo run <target> --shell`
+' (host PTY proxy included), so it carries this guard instead of a second launch. Right
 ' after the shell appears it asserts the shell started within 20s of the
 ' release marker for a split seed — sbx gates the agent entrypoint, shell or
 ' harness, on foreground steps — then types into the shell while the
