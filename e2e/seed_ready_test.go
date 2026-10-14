@@ -371,7 +371,7 @@ func readyLaunchScript(spec readySpec) string {
 	case "claude":
 		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | grep -m1 -E '\"subtype\": ?\"init\"' | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
 	case "opencode":
-		fmt.Fprintf(&b, "echo \"registered=$(%s && echo yes || echo no)\"\n", opencodeRegistryProbe)
+		fmt.Fprintf(&b, "echo \"registered=$(%s >&2 && echo yes || echo no)\"\n", opencodeRegistryProbe)
 	}
 	b.WriteString(`echo "env_link=$(readlink .env)"
 echo "env_db=$(grep -c '^DB_URL=postgres://probe$' .env 2>/dev/null)"

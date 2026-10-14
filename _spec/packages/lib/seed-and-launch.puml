@@ -133,6 +133,9 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' never touches the operator's history; `proveo run opencode` itself keeps the
 ' real home. It probes through `sbx exec` as uid 1000, after cd into the clone.
 ' Its toolchain store starts empty, so its install probe gets one extra minute.
+' Its registry probe prints the agent list on every poll; that JSON goes to
+' stderr, so the `registered=` line holds only yes or no (first kit run,
+' 2026-10-14: the JSON filled the line and hid a passing "yes").
 ' Cleanup ends the session, waits for proveo's teardown (PROVEO_TEST_TEARDOWN,
 ' 3m), then removes the retained engine and its two receipts; the one-VM gate
 ' is released only after that.
