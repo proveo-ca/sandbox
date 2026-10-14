@@ -153,6 +153,13 @@ skinparam noteTextAlignment left
 ' the docs, and does not wait on background ones. That explains the 86s stall
 ' and confirms the split: only work in background steps escapes the gate.
 ' The foreground row's output is the upstream report (docker/sbx-releases).
+'
+' ── AFTER THE SPLIT, 2026-10-13, same workspace, fresh VM, sbx v0.46.0 ───────
+'   +5s   release marker            (was +36s)
+'   +8s   agent forked              (was +86s)
+'   +67s  seed-done, background provision step finished beside the agent
+' No jobs/*/tmp tree reached the VM. The store had no toolchain token yet, so
+' this restore copied in full and wrote none; the first teardown save mints it.
 
 title Startup dispatch — what blocks the agent, what runs beside it
 
