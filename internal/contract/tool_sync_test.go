@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -178,5 +179,36 @@ func TestToolRestoreSkipsAStoreTheHomeAlreadyHolds(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(homeStamp); strings.TrimSpace(string(b)) != "another-sandbox-saved" {
 		t.Errorf("home stamp after a full restore = %q, want the store's token", b)
+	}
+}
+
+// Teardown must not save a toolchain the background provision step is still
+// writing; the store keeps its last complete tree until a later save.
+func TestToolSaveSkipsATreeStillBeingProvisioned(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state := t.TempDir(), t.TempDir()
+	marker := filepath.Join(t.TempDir(), "provisioning")
+	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_PROVISIONING": marker}
+	half := filepath.Join(agent, "toolchains", plat, ".local", "bin", "half-installed")
+	seedFile(t, half, "partial")
+
+	seedFile(t, marker, strconv.Itoa(os.Getpid())+"\n")
+	out := runToolSync(t, bash, env, "save")
+	if _, err := os.Stat(filepath.Join(state, "toolchains", plat, ".local", "bin", "half-installed")); err == nil {
+		t.Errorf("save copied a tree a live provision step still holds\n%s", out)
+	}
+	if !strings.Contains(out, "still provisioning") {
+		t.Errorf("save skipped without saying why: %q", out)
+	}
+
+	done := exec.Command("true")
+	if err := done.Run(); err != nil {
+		t.Skipf("true unavailable: %v", err)
+	}
+	seedFile(t, marker, strconv.Itoa(done.Process.Pid)+"\n")
+	runToolSync(t, bash, env, "save")
+	if _, err := os.Stat(filepath.Join(state, "toolchains", plat, ".local", "bin", "half-installed")); err != nil {
+		t.Errorf("a marker left by a dead provision step still blocked the save: %v", err)
 	}
 }

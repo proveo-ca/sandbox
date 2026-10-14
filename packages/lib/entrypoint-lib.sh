@@ -439,6 +439,14 @@ _proveo_tool_store() {
 
 # The stamp beside a toolchain tree: one token per completed save.
 # SPEC: _spec/internal/sbx/state-sync.puml
+PROVEO_PROVISIONING="${PROVEO_PROVISIONING:-/dev/shm/proveo-provisioning}"
+
+_proveo_provisioning() {
+  local pid
+  pid="$(cat "$PROVEO_PROVISIONING" 2>/dev/null)" || return 1
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
 _proveo_tool_stamp() { printf '%s/.%s.proveo-sync' "$(dirname "$1")" "$(basename "$1")"; }
 
 _proveo_write_stamp() {
@@ -467,6 +475,10 @@ proveo_sync_tools() {
   esac
   [ -d "$src" ] || return 0
   [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
+  if [[ "$mode" == save ]] && _proveo_provisioning; then
+    printf 'proveo: toolchain save skipped — this boot is still provisioning; the store keeps its last complete tree\n' >&2
+    return 0
+  fi
 
   store_stamp="$(_proveo_tool_stamp "$store")"
   home_stamp="$(_proveo_tool_stamp "$home")"
@@ -1144,7 +1156,7 @@ ensure_dependency_trees() {
         addons)
           if [[ ! -d "$root/$primary" ]]; then
             echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${primary} — nothing is installed here"
-            _dep_install "$lang" "$root" "installing ${primary} before the agent starts"
+            _dep_install "$lang" "$root" "installing ${primary}"
           else
             for dir in $dirs; do
               [[ -d "$root/$dir" ]] && _dep_addons_tree "$lang" "$root" "$root/$dir" "$mode"
@@ -1154,9 +1166,9 @@ ensure_dependency_trees() {
           for dir in $dirs; do
             [[ -d "$root/$dir" ]] && _dep_artifacts_tree "$lang" "$root" "$root/$dir"
           done
-          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies" ;;
         portable)
-          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies" ;;
         provisioned|none|"") ;;
       esac
     done <<< "$roots"
@@ -2483,13 +2495,12 @@ _proveo_config_skips() {
   "$home/$arel/"*) printf '%s\n' "${vol#"$home/$arel/"}" ;;
   esac
  done < <(_proveo_volume_mounts)
- local oldifs="$IFS"
- IFS=','
- for d in $deny; do
+ local -a items=()
+ IFS=',' read -r -a items <<< "$deny"
+ for d in ${items[@]+"${items[@]}"}; do
   d="$(printf '%s' "$d" | tr -d '[:space:]')"
   [[ -n "$d" ]] && printf '%s\n' "$d"
  done
- IFS="$oldifs"
 }
 
 # One line per entry to move: "D<TAB>rel" a directory dst lacks, "N<TAB>rel" a
@@ -2500,7 +2511,7 @@ _proveo_config_plan() {
  {
   (cd "$src" 2>/dev/null && find . "$@" \( -type f -printf 'S\tf\t%T@\t%P\n' \
    -o -type d -printf 'S\td\t%T@\t%P\n' \) 2>/dev/null)
-  (cd "$dst" 2>/dev/null && find . "$@" \( -type f -o -type d \) -printf 'D\t%y\t%T@\t%P\n' 2>/dev/null)
+  (cd "$dst" 2>/dev/null && find . "$@" \( -type f -o -type d -o -type l \) -printf 'D\t%y\t%T@\t%P\n' 2>/dev/null)
  } | awk -F'\t' '
   function newer(a, b,   p, ai, af, bi, bf) {
    p = index(a, "."); ai = p ? substr(a, 1, p - 1) : a; af = p ? substr(a, p + 1) : ""
@@ -2544,7 +2555,7 @@ _proveo_config_tree() {
  (cd "$src" && sed -n 's/^N\t//p' "$plan" | xargs -r -d '\n' cp -a --parents -t "$dst" --) 2>/dev/null || failed=1
  while IFS= read -r rel; do
   tmp="$dst/$rel.proveo-sync.$$"
-  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -fT "$tmp" "$dst/$rel" 2>/dev/null; then
    continue
   fi
   rm -f "$tmp" 2>/dev/null
@@ -2928,6 +2939,7 @@ proveo_clone_base() {
 }
 
 PROVEO_SEED_REFUSED="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
+PROVEO_SEED_HALTED="${PROVEO_SEED_HALTED:-/dev/shm/proveo-seed-halted}"
 
 # SPEC: _spec/internal/sbx/clone-workspace.puml
 proveo_assert_shares() {
@@ -3053,6 +3065,9 @@ proveo_seed() {
  proveo_install_claude_env_hook "$target"
  proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
+ # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_seed_step interface "configuring host browser bridge" "$target"
+ proveo_chrome_bridge "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
  [[ "$phase" == all ]] || return 0
@@ -3064,22 +3079,21 @@ _proveo_seed_provision() {
  local target="${1:-}" home
  home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
+ printf '%s\n' "$$" > "$PROVEO_PROVISIONING" 2>/dev/null || true
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
   echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
  else
   proveo_seed_step setup "restoring toolchain folders" "$target"
   proveo_sync_tools restore || true
+  _proveo_tool_path
+  _proveo_persist_tool_env
   proveo_seed_step setup "installing toolchains, dependencies and language servers" "$target"
   proveo_provision_toolchain
   proveo_wire_config "$target"
  fi
  : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
-
- # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
- proveo_seed_step interface "configuring host browser bridge" "$target"
- proveo_chrome_bridge "$target"
+ rm -f "$PROVEO_PROVISIONING" 2>/dev/null || true
  proveo_seed_step starting "seed complete" "$target"
-
 }
 
 # Host Android emulator over the host adb server; mobile-mcp is the MCP driver.

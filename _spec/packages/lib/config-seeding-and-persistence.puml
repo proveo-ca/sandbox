@@ -297,7 +297,12 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' the source holds NEWER still take the temp-name-and-rename. The -nt meaning
 ' is unchanged: mtimes compare as integer seconds, then fraction digits as a
 ' string, never as a float that would round nanoseconds away. Pinned by
-' TestConfigSyncCopiesInBulk, which counts cp forks.
+' TestConfigSyncCopiesInBulk, which counts cp forks, and
+' TestConfigSyncComparesSubSecondMtimes. A destination SYMLINK counts as
+' present (find -type l), so the batch never writes through it; the rename
+' uses `mv -T`, so a source file never lands INSIDE a destination directory
+' of the same name. A file the destination lacks is copied in place, not
+' renamed, as the per-file loop did before; only replacements are atomic.
 '
 ' ── TRANSIENT IS A SYNC SKIP; DENY IS A CREDENTIAL BOUNDARY ───────────────
 ' home.mounts[].transient names find -path globs the config sync prunes in
@@ -306,7 +311,10 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' same prune field deny uses, but proveohome.scrubDeny never reads them: deny
 ' DELETES from the host, transient only declines to copy. Spelling scratch as
 ' deny would have wiped ~/.proveo/.claude/jobs on every run. The host keeps its
-' copy; nothing syncs it in or out.
+' copy; nothing syncs it in or out. _proveo_config_skips splits the list with
+' `read -a`, never an unquoted expansion: bash would glob jobs/*/tmp against
+' the cwd, and a workspace holding jobs/build/tmp turned the prune into that
+' literal path (TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd).
 '
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.

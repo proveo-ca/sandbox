@@ -19,10 +19,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// TestSbxForegroundStartupDoesNotGateTheAgent pins Docker's documented Kit
-// contract on stock sbx: a foreground startup step blocks the steps after it,
-// never the agent's entrypoint.
-func TestSbxForegroundStartupDoesNotGateTheAgent(t *testing.T) {
+// TestSbxStartupStepsDoNotGateTheAgent pins Docker's documented Kit contract on
+// stock sbx: a startup step, foreground or background, never holds the agent's
+// entrypoint. The background row is the one proveo's seed split relies on.
+func TestSbxStartupStepsDoNotGateTheAgent(t *testing.T) {
 	requireDocker(t)
 	if ok, why := sbxReadyForTests(); !ok {
 		t.Skipf("sbx not available: %s", why)
@@ -32,6 +32,35 @@ func TestSbxForegroundStartupDoesNotGateTheAgent(t *testing.T) {
 	sbxVersion := strings.TrimSpace(string(version))
 	t.Logf("sbx version: %s", sbxVersion)
 
+	for _, tc := range []struct {
+		name       string
+		background bool
+	}{
+		{"foreground", false},
+		{"background", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agent, stepStart, stepEnd := runDispatchProbe(t, step, tc.background)
+			if stepStart == 0 {
+				t.Fatalf("the probe Kit's startup step never ran — the probe measured nothing (sbx %s)", sbxVersion)
+			}
+			if agent == 0 {
+				t.Fatalf("the shell agent never started (step began %d, ended %d; sbx %s)", stepStart, stepEnd, sbxVersion)
+			}
+			if stepEnd != 0 && agent >= stepEnd {
+				t.Errorf("sbx started the agent at %d, after a %s startup step ended at %d (began %d). "+
+					"Docker documents that startup steps \"don't gate the agent's entrypoint\" "+
+					"(https://docs.docker.com/ai/sandboxes/customize/kits/). Report upstream with: sbx version %q",
+					agent, tc.name, stepEnd, stepStart, sbxVersion)
+			}
+		})
+	}
+}
+
+// runDispatchProbe starts stock sbx's shell agent under a one-step mixin whose
+// step sleeps for step, and returns the agent's and the step's timestamps.
+func runDispatchProbe(t *testing.T, step time.Duration, background bool) (agent, stepStart, stepEnd int64) {
+	t.Helper()
 	kit, err := sbx.WriteKit(filepath.Join(t.TempDir(), "kit"), sbx.Kit{
 		SchemaVersion: sbx.KitSchemaVersionV2,
 		Kind:          "mixin",
@@ -40,7 +69,8 @@ func TestSbxForegroundStartupDoesNotGateTheAgent(t *testing.T) {
 			Command: []string{"/bin/sh", "-c", fmt.Sprintf(
 				"date +%%s > /tmp/proveo-probe-step-start; sleep %d; date +%%s > /tmp/proveo-probe-step-end",
 				int(step.Seconds()))},
-			Description: "proveo probe: one foreground step that outlasts the agent's start",
+			Background:  background,
+			Description: "proveo probe: one startup step that outlasts the agent's start",
 		}}},
 	})
 	if err != nil {
@@ -58,24 +88,12 @@ func TestSbxForegroundStartupDoesNotGateTheAgent(t *testing.T) {
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = ptmx.Close() })
 	go func() { _, _ = io.Copy(io.Discard, ptmx) }()
 
-	var agent, stepStart, stepEnd int64
 	deadline := time.Now().Add(step + 5*time.Minute)
 	for time.Now().Before(deadline) && (agent == 0 || stepEnd == 0) {
 		agent, stepStart, stepEnd = probeDispatch(name)
 		time.Sleep(2 * time.Second)
 	}
-	if stepStart == 0 {
-		t.Fatalf("the probe Kit's startup step never ran in %s — the probe measured nothing (sbx %s)", name, sbxVersion)
-	}
-	if agent == 0 {
-		t.Fatalf("the shell agent never started in %s (step began %d, ended %d; sbx %s)", name, stepStart, stepEnd, sbxVersion)
-	}
-	if stepEnd != 0 && agent >= stepEnd {
-		t.Errorf("sbx started the agent at %d, after the foreground startup step ended at %d (began %d). "+
-			"Docker documents that startup steps \"don't gate the agent's entrypoint\" "+
-			"(https://docs.docker.com/ai/sandboxes/customize/kits/). Report upstream with: sbx version %q",
-			agent, stepEnd, stepStart, sbxVersion)
-	}
+	return agent, stepStart, stepEnd
 }
 
 // probeDispatch reads the three probe timestamps from inside the sandbox; a

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -49,7 +50,8 @@ proveo_seed "$@"
 echo "rc=$?"`
 	cmd := exec.Command(bash, append([]string{"-c", script, "bash", repoRoot(t)}, args...)...)
 	cmd.Env = append(os.Environ(), "HOME="+home, "PROVEO_HOME=", "PROVEO_SEED_PHASE=", "PROVEO_AGENT_KIND=",
-		"PROVEO_TOOLCHAIN_READY="+marker, "PROVEO_HOOKS_MARKER="+filepath.Join(home, "hooks"))
+		"PROVEO_TOOLCHAIN_READY="+marker, "PROVEO_HOOKS_MARKER="+filepath.Join(home, "hooks"),
+		"PROVEO_PROVISIONING="+filepath.Join(home, "provisioning"))
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -67,8 +69,9 @@ echo "rc=$?"`
 func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
-	releaseSide := []string{"CALL proveo_sync_config restore", "CALL render_subagents claudecode", "CALL proveo_install_claude_hooks", "CALL proveo_release_agent claudecode"}
-	provisionSide := []string{"CALL proveo_sync_tools restore", "CALL proveo_provision_toolchain", "CALL proveo_chrome_bridge claudecode"}
+	releaseSide := []string{"CALL proveo_sync_config restore", "CALL render_subagents claudecode", "CALL proveo_install_claude_hooks",
+		"CALL proveo_chrome_bridge claudecode", "CALL proveo_release_agent claudecode"}
+	provisionSide := []string{"CALL proveo_sync_tools restore", "CALL proveo_provision_toolchain"}
 	for _, tc := range []struct {
 		name      string
 		args      []string
@@ -105,6 +108,10 @@ func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 			if tc.name == "all" && strings.Index(calls, "CALL proveo_release_agent") > strings.Index(calls, "CALL proveo_sync_tools restore") {
 				t.Errorf("proveo_seed %q restored toolchains before releasing the agent\n%s", tc.args, calls)
 			}
+			if strings.Contains(calls, "CALL proveo_chrome_bridge") &&
+				strings.Index(calls, "CALL proveo_chrome_bridge") > strings.Index(calls, "CALL proveo_release_agent") {
+				t.Errorf("proveo_seed %q starts the chrome bridge after the release, while Claude Code already owns ~/.claude.json\n%s", tc.args, calls)
+			}
 		})
 	}
 	if _, rc, _ := runSeedPhase(t, bash, nil, "claudecode", "sideways"); rc != "2" {
@@ -114,22 +121,27 @@ func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 
 // runSeedScript runs packages/lib/proveo-seed against a stub lib and reports
 // which phase reached proveo_seed and whether the boot was marked seed-done.
-func runSeedScript(t *testing.T, bash string, refused bool, args ...string) (seeded string, done bool) {
+func runSeedScript(t *testing.T, bash string, refused, halted bool, seedRC int, args ...string) (seeded string, done, haltedAfter bool) {
 	t.Helper()
 	dir := t.TempDir()
 	logf, doneF, refusedF := filepath.Join(dir, "seed.log"), filepath.Join(dir, "seed-done"), filepath.Join(dir, "refused")
+	haltedF := filepath.Join(dir, "halted")
 	stub := filepath.Join(dir, "lib.sh")
 	if err := os.WriteFile(stub, []byte(`PROVEO_INSTRUCTIONS_MARKER="`+filepath.Join(dir, "released")+`"
 PROVEO_SEED_REFUSED="`+refusedF+`"
+PROVEO_SEED_HALTED="`+haltedF+`"
 proveo_seed_step() { :; }
 proveo_restore_image_path() { :; }
 proveo_release_agent() { : > "$PROVEO_INSTRUCTIONS_MARKER"; }
-proveo_seed() { echo "$*" >> "`+logf+`"; }
+proveo_seed() { echo "$*" >> "`+logf+`"; return `+strconv.Itoa(seedRC)+`; }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if refused {
 		seedFile(t, refusedF, "a share is missing\n")
+	}
+	if halted {
+		seedFile(t, haltedF, "")
 	}
 	body, err := os.ReadFile(filepath.Join(repoRoot(t), "packages", "lib", "proveo-seed"))
 	if err != nil {
@@ -150,32 +162,41 @@ proveo_seed() { echo "$*" >> "`+logf+`"; }
 	}
 	b, _ := os.ReadFile(logf)
 	_, statErr := os.Stat(doneF)
-	return strings.TrimSpace(string(b)), statErr == nil
+	_, haltErr := os.Stat(haltedF)
+	return strings.TrimSpace(string(b)), statErr == nil, haltErr == nil
 }
 
 func TestProveoSeedMarksTheBootDoneOnlyAfterInstalls(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	for _, tc := range []struct {
-		name       string
-		args       []string
-		refused    bool
-		wantSeeded string
-		wantDone   bool
+		name            string
+		args            []string
+		refused, halted bool
+		seedRC          int
+		wantSeeded      string
+		wantDone        bool
+		wantHalted      bool
 	}{
-		{"release", []string{"claudecode", "release"}, false, "claudecode release", false},
-		{"provision", []string{"claudecode", "provision"}, false, "claudecode provision", true},
-		{"all", []string{"claudecode"}, false, "claudecode", true},
-		{"provision after a refusal", []string{"claudecode", "provision"}, true, "", true},
+		{"release", []string{"claudecode", "release"}, false, false, 0, "claudecode release", false, false},
+		{"release that fails halts the installs", []string{"claudecode", "release"}, false, false, 1, "claudecode release", false, true},
+		{"release clears a stale halt", []string{"claudecode", "release"}, false, true, 0, "claudecode release", false, false},
+		{"provision", []string{"claudecode", "provision"}, false, false, 0, "claudecode provision", true, false},
+		{"all", []string{"claudecode"}, false, false, 0, "claudecode", true, false},
+		{"provision after a refusal", []string{"claudecode", "provision"}, true, false, 0, "", true, false},
+		{"provision after a halt", []string{"claudecode", "provision"}, false, true, 0, "", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			seeded, done := runSeedScript(t, bash, tc.refused, tc.args...)
+			seeded, done, halted := runSeedScript(t, bash, tc.refused, tc.halted, tc.seedRC, tc.args...)
 			if seeded != tc.wantSeeded {
 				t.Errorf("proveo-seed %q called proveo_seed with %q, want %q", tc.args, seeded, tc.wantSeeded)
 			}
 			if done != tc.wantDone {
 				t.Errorf("proveo-seed %q seed-done = %v, want %v — seed-done means the installs are over", tc.args, done, tc.wantDone)
+			}
+			if halted != tc.wantHalted {
+				t.Errorf("proveo-seed %q halted marker = %v, want %v", tc.args, halted, tc.wantHalted)
 			}
 		})
 	}

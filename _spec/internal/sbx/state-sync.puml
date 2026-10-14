@@ -37,6 +37,14 @@
 ' clean` globs toolchains/* for DIRECTORIES only, and the dot-name hides the
 ' token from the glob anyway. Pinned by TestToolRestoreSkipsAStoreTheHomeAlreadyHolds.
 '
+' A save never runs while this boot is still provisioning. The background
+' provision step writes its pid to /dev/shm/proveo-provisioning and removes it
+' when done; proveo_sync_tools save skips (and says so) while that pid lives.
+' Without it, a one-shot run ending 40s in would copy a half-installed mise or
+' npm tree to the store and stamp it as a clean save; the next VM's `command -v`
+' gates would then trust it. A dead pid does not block: a killed step leaves
+' only debris. Pinned by TestToolSaveSkipsATreeStillBeingProvisioned.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title State sync — moving resume state between the operator's home and a\nsandbox-local volume without ever leaving a partial file
 

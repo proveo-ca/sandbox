@@ -69,6 +69,7 @@ type KitCommand struct {
 // The seed phases proveo-seed and proveo_seed accept.
 // SPEC: _spec/internal/sbx/startup-dispatch.puml
 const (
+	SeedPhaseAll       = "all"
 	SeedPhaseRelease   = "release"
 	SeedPhaseProvision = "provision"
 	SeedPhaseNone      = "none"
@@ -97,6 +98,11 @@ exit 0`
 // SeedCommand runs the seed up to the agent's release, in the foreground.
 func SeedCommand(target string) KitCommand {
 	return seedPhaseCommand(target, SeedPhaseRelease, "proveo: compose subagents, settings and workspace trust")
+}
+
+// SeedFullCommand runs the whole seed in the foreground.
+func SeedFullCommand(target string) KitCommand {
+	return seedPhaseCommand(target, SeedPhaseAll, "proveo: compose subagents, settings and workspace trust, then provision")
 }
 
 // SeedProvisionCommand runs the seed's installs beside the agent.

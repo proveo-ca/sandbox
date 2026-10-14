@@ -17,15 +17,17 @@ func TestStartupCommandsRunInstallsLastAndInTheBackground(t *testing.T) {
 		CloneSource: workspace.WorktreeSource{Main: filepath.Join(root, "main"), Ref: "feat"}}
 	plain := Input{Target: "claudecode"}
 	release, provision, entry := sbx.SeedCommand("claudecode"), sbx.SeedProvisionCommand("claudecode"), sbx.SeedEntrypointCommand()
+	full := sbx.SeedFullCommand("cecli")
 	for _, tc := range []struct {
 		name     string
 		in       Input
 		ownAgent bool
 		want     []string
 	}{
-		{"mixin", plain, false, []string{release.Description, entry.Description, provision.Description}},
-		{"own agent", plain, true, []string{release.Description, provision.Description}},
+		{"built-in agent mixin", plain, false, []string{release.Description, entry.Description, provision.Description}},
 		{"worktree mixin", worktree, false, []string{"", release.Description, entry.Description, provision.Description}},
+		{"own agent seeds inline", Input{Target: "cecli"}, true, []string{full.Description}},
+		{"shell-launched def seeds inline", Input{Target: "cecli"}, false, []string{full.Description, entry.Description}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -41,8 +43,9 @@ func TestStartupCommandsRunInstallsLastAndInTheBackground(t *testing.T) {
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("startupCommands(%s) order = %q, want %q", tc.name, got, tc.want)
 			}
+			split := sbx.BuiltinAgent(tc.in.Target) != ""
 			for i, c := range cmds {
-				if last := i == len(cmds)-1; c.Background != last {
+				if last := split && i == len(cmds)-1; c.Background != last {
 					t.Errorf("startupCommands(%s)[%d] %q Background = %v, want %v — only the trailing install step may run beside the agent",
 						tc.name, i, c.Description, c.Background, last)
 				}

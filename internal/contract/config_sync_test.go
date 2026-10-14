@@ -277,3 +277,62 @@ func TestConfigSyncCopiesInBulk(t *testing.T) {
 		t.Errorf("a replaced file must keep the source mtime, or the next save sees it as changed: %v", err)
 	}
 }
+
+// The newer-than test compares to the nanosecond: a float would round two
+// sub-second stamps in the same second together.
+func TestConfigSyncComparesSubSecondMtimes(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state := t.TempDir(), t.TempDir()
+	sec := int64(1_780_000_000)
+	for _, c := range []struct {
+		name          string
+		host, sandbox int64
+		want          string
+	}{
+		{"newer.json", 600_000_123, 600_000_122, "host"},
+		{"older.json", 300_000_000, 600_000_000, "sandbox"},
+		{"equal.json", 500_000_000, 500_000_000, "sandbox"},
+	} {
+		h, s := filepath.Join(state, ".claude", c.name), filepath.Join(agent, ".claude", c.name)
+		seedFile(t, h, "host")
+		seedFile(t, s, "sandbox")
+		if err := os.Chtimes(h, time.Unix(sec, c.host), time.Unix(sec, c.host)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(s, time.Unix(sec, c.sandbox), time.Unix(sec, c.sandbox)); err != nil {
+			t.Fatal(err)
+		}
+		defer func(name, want string) {
+			if b, _ := os.ReadFile(filepath.Join(agent, ".claude", name)); string(b) != want {
+				t.Errorf("after restore %s = %q, want %q", name, b, want)
+			}
+		}(c.name, c.want)
+	}
+	runConfigSync(t, bash, map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_CONFIG_DIRS": cfgSet}, "restore")
+}
+
+// A transient glob is a find pattern, never a shell glob: a cwd that happens to
+// hold a matching path must not turn it into that literal path.
+func TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	agent, state, cwd := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, "jobs", "build", "tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedFile(t, filepath.Join(state, ".claude", "jobs", "j1", "tmp", "scratch"), "x")
+	script := `source "$1/packages/lib/entrypoint-lib.sh"
+proveo_sync_config restore
+echo "rc=$?"`
+	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t))
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), "PROVEO_CONFIG_SYNC=", "PROVEO_HOME=", "HOME="+agent,
+		"PROVEO_STATE_HOME="+state, "PROVEO_CONFIG_DIRS=.claude|.claude|jobs/*/tmp")
+	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "rc=0") {
+		t.Fatalf("restore failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(agent, ".claude", "jobs", "j1", "tmp")); err == nil {
+		t.Error("restore copied jobs/j1/tmp: the skip list was globbed against the cwd, so jobs/*/tmp became ./jobs/build/tmp")
+	}
+}

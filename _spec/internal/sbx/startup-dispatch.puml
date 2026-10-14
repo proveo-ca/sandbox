@@ -50,20 +50,38 @@ skinparam noteTextAlignment left
 ' put install work into steps the docs reserve for "alongside the agent" and
 ' declared none of it background.
 '
-' ── THE SEED IS THREE STARTUP STEPS ─────────────────────────────────────────
+' ── THE SEED IS THREE STARTUP STEPS, FOR A BUILT-IN sbx AGENT ──────────────
 '   1  proveo-seed <target> release       foreground. Checkout, shares,
 '                                         instructions, state and config
 '                                         restore, hooks, subagents, wiring,
-'                                         then the release marker.
+'                                         the chrome bridge, then the
+'                                         release marker.
 '   2  PROVEO_SEED_PHASE=none entrypoint  foreground, mixins only. The def's
 '                                         own wiring; its proveo_seed call
 '                                         returns at once, step 1 did it.
 '   3  proveo-seed <target> provision     background: true, always LAST.
-'                                         Tool restore, toolchain, deps,
-'                                         LSPs, the second wire pass, the
-'                                         chrome bridge, then seed-done.
+'                                         Tool restore, then the tool env
+'                                         block at once, toolchain, deps,
+'                                         LSPs, the second wire pass, then
+'                                         seed-done.
 ' Step 3 is last because background lets LATER steps run beside it: placed
 ' earlier, the def's wiring would race the installs.
+'
+' ONLY a target with a built-in sbx agent (claudecode, codex, cursor, opencode)
+' splits. Their agent command is the harness binary, so nothing in the agent
+' process seeds. cecli and hermes run their def entrypoint AS the agent (an
+' own-agent Kit, or ShellLaunch when PROVEO_SBX_AGENT_KIT=0), and that
+' entrypoint seeds inline before it execs. A background step 3 there would
+' install beside that inline seed — two pnpm installs in one workspace, two
+' `mise use -g` into one MISE_DATA_DIR — so those Kits keep one foreground
+' `proveo-seed <target> all`, exactly the old shape.
+'
+' The chrome bridge moved BEFORE the release. It needs only node, which the
+' image bakes, takes at most 3s, and writes hasCompletedClaudeInChromeOnboarding
+' into ~/.claude.json with a plain read-then-write. After the release that write
+' would race Claude Code's own writes to the same file, and the onboarding
+' dialog it suppresses is one no automation answers
+' (_spec/defs/claudecode/chrome-bridge.puml).
 '
 ' The gate the agent waits on stays proveo's own: proveo-await-seed polls the
 ' release marker for PROVEO_INSTRUCTIONS_WAIT (30s). The docs make that gate
@@ -72,36 +90,65 @@ skinparam noteTextAlignment left
 ' per file and skips transient scratch
 ' (_spec/packages/lib/config-seeding-and-persistence.puml).
 '
+' KNOWN GAP, older than this split: the marker lands at the end of step 1, so
+' step 2's def wiring (opencode's Ollama provider, cursor's useHttp1ForAgent) is
+' not behind it. Under the documented model the agent can start before that
+' wiring, as it could before; the def wiring has to move into the seed, or the
+' marker after step 2, to close it.
+'
 ' The phase is an ARGUMENT to proveo-seed and proveo_seed; PROVEO_SEED_PHASE is
 ' the env spelling a def entrypoint inherits from step 2. "all" is the default
 ' and is what docker runs: there is no dispatcher there, the entrypoint seeds
 ' and then execs.
 '
-' Version skew is safe both ways. An old image ignores the argument and the
-' env: step 1 runs the full seed in the foreground (the old timing) and marks
-' /dev/shm/proveo-seed-done. Step 3's wrapper is rendered on the HOST, so it
-' needs no rebuilt image: it exits when seed-done already exists, and a new
-' image's release phase never writes that marker. A second seed beside a live
-' agent would rewrite settings and subagents under it. A new image under an
-' old Kit sees no phase and runs "all". /dev/shm is a per-container tmpfs, so a
-' restart replays every step from a clean slate.
+' ── MARKERS, ALL ON /dev/shm (a per-container tmpfs: a restart starts clean) ─
+'   proveo-seed-done      the installs are over. A release or all phase clears
+'                         it first; provision (or all) writes it last.
+'   proveo-seed-refused   a share is missing or OpenCode history is
+'                         unprepared. Step 3 provisions nothing.
+'   proveo-seed-halted    the release phase returned non-zero (an OpenCode
+'                         default missing, an unknown phase). Step 3 provisions
+'                         nothing, as the single seed stopped there before.
+'   proveo-provisioning   step 3's pid while it installs. The teardown's
+'                         toolchain save skips while that pid lives, so a
+'                         one-shot run that ends mid-install never stamps a
+'                         half-installed tree as a clean save
+'                         (_spec/internal/sbx/state-sync.puml).
 '
-' A refused seed (a share missing, OpenCode history unprepared) writes
-' /dev/shm/proveo-seed-refused in step 1. Step 3 reads it and provisions
-' nothing, as the single seed stopped at the refusal before.
+' ── VERSION SKEW ────────────────────────────────────────────────────────────
+' A new image under an old Kit sees no phase and runs "all": the old timing.
+' An old image under a new Kit ignores the argument and the env. Step 1 runs
+' the full seed in the foreground and marks seed-done; step 3's wrapper is
+' rendered on the HOST, needs no rebuilt image, and exits when seed-done
+' exists. A new image's release phase never writes it, so the check tells the
+' two apart. Step 2 on an old image ignores PROVEO_SEED_PHASE=none and seeds
+' again — the old behaviour, no worse. [Unverified] An sbx that predates the
+' `background` field would refuse the Kit outright if its loader is strict;
+' the host sbx at 2026-10-13 renders its own claude kit with a background step.
+'
+' ── WHAT THE SPLIT ACCEPTS ──────────────────────────────────────────────────
+' Installs now run beside a live agent on every model sbx might follow. The
+' agent can call a tool before step 3 restores or installs it; the tool env
+' block lands right after the restore, and Claude Code's shells source it per
+' command (proveo_install_claude_env_hook), so restored tools appear first and
+' installed ones as they finish. The agent's own installs can race step 3's in
+' the same workspace. The second wire pass still rewrites LSP wiring after the
+' agent started, as the seed-and-launch order already accepted.
 '
 ' ── THE PROBE ───────────────────────────────────────────────────────────────
 ' e2e/startup_dispatch_test.go starts STOCK sbx — no proveo image, no proveo
-' seed — with a one-step mixin whose step is a FOREGROUND `sleep`. The shell
+' seed — with a one-step mixin whose step sleeps, in two rows: FOREGROUND (the
+' docs' own claim) and BACKGROUND (the one this split relies on). The shell
 ' agent records its own start. The docs say it starts before the sleep ends;
-' the test fails otherwise and prints `sbx version` plus the timestamps, which
-' is the upstream report already written. proveo's split does not depend on
-' the answer: the long work sits in a background step either way.
+' each row fails otherwise and prints `sbx version` plus the timestamps, which
+' is the upstream report already written. A failing background row means the
+' split buys nothing on that sbx; a failing foreground row alone means sbx
+' gates on foreground steps, which the split already routes around.
 
 title Startup dispatch — what blocks the agent, what runs beside it
 
 node "Kit setup.startup (dispatcher order)" as KIT <<host>> {
-  component "1 · ""proveo-seed <target> release""\nforeground" as REL <<app>>
+  component "1 · ""proveo-seed <target> release""\nforeground, incl. chrome bridge" as REL <<app>>
   component "2 · ""PROVEO_SEED_PHASE=none /entrypoint\.sh""\nforeground, mixins only" as DEF <<app>>
   component "3 · ""proveo-seed <target> provision""\n""background: true""" as PROV <<async>>
 }

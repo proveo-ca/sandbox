@@ -77,8 +77,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '   (a miss stops here, unreleased; _spec/internal/sbx/clone-workspace.puml) →
 '   instructions → known hosts → state/config
 '   restore → git-sync hooks → subagents → trust → wire_config → house rules →
-'   UI defaults → claude hooks → browser skills → RELEASE → tools restore →
-'   toolchain, deps, LSP binaries → wire_config again.
+'   UI defaults → claude hooks → browser skills → chrome bridge → RELEASE →
+'   tools restore → tool env block → toolchain, deps, LSP binaries →
+'   wire_config again. On sbx, for a built-in agent, everything after RELEASE
+'   is the background provision step (_spec/internal/sbx/startup-dispatch.puml).
 ' Installs stay after the release because a monorepo's are measured in tens
 ' of seconds to minutes, and the agent should not wait on them.
 ' wire_config runs TWICE because LSP plugins enable only once their server

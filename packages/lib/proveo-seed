@@ -4,11 +4,14 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /entrypoint-lib.sh
 phase="${2:-${PROVEO_SEED_PHASE:-all}}"
-if [[ "$phase" == provision && -e "$PROVEO_SEED_REFUSED" ]]; then
-  : > "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" 2>/dev/null || true
-  exit 0
-fi
-if [[ "$phase" != provision ]]; then
+done_marker="${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}"
+if [[ "$phase" == provision ]]; then
+  if [[ -e "$PROVEO_SEED_REFUSED" || -e "$PROVEO_SEED_HALTED" ]]; then
+    : > "$done_marker" 2>/dev/null || true
+    exit 0
+  fi
+else
+  rm -f "$done_marker" "$PROVEO_SEED_HALTED" 2>/dev/null || true
   proveo_seed_step starting "preparing OpenCode seed" "${1:-}"
   if [[ "${1:-}" == opencode && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
     proveo_seed_step credentials "checking prepared V2 history" opencode
@@ -16,7 +19,7 @@ if [[ "$phase" != provision ]]; then
     [[ -z "${PROVEO_OPENCODE_CACHE_OWNER:-}" ]] || gate_args+=("--proveo-cache-owner=$PROVEO_OPENCODE_CACHE_OWNER")
     if ! /usr/local/bin/proveo-opencode-runtime "${gate_args[@]}"; then
       printf 'OpenCode history requires explicit preparation\n' > "$PROVEO_SEED_REFUSED"
-      : > "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}"
+      : > "$done_marker"
       exit 0
     fi
   fi
@@ -28,7 +31,11 @@ rc=0
 proveo_restore_image_path
 proveo_seed "$@" || rc=$?
 [[ -e "$PROVEO_INSTRUCTIONS_MARKER" ]] || proveo_release_agent "${1:-}"
-[[ "$phase" == release ]] || : > "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" 2>/dev/null || true
+if [[ "$phase" == release ]]; then
+  (( rc == 0 )) || : > "$PROVEO_SEED_HALTED" 2>/dev/null || true
+else
+  : > "$done_marker" 2>/dev/null || true
+fi
 if (( rc != 0 )); then
   printf 'proveo-seed: proveo_seed exited %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
 fi
