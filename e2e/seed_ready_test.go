@@ -216,7 +216,7 @@ func readyLaunchScript(spec readySpec) string {
 	}
 	switch spec.register {
 	case "claude":
-		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | head -1 | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
+		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | grep -m1 -E '\"subtype\": ?\"init\"' | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
 	case "opencode":
 		fmt.Fprintf(&b, "echo \"registered=$(%s && echo yes || echo no)\"\n", opencodeRegistryProbe)
 	}
