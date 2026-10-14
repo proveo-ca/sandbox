@@ -22,6 +22,14 @@
 ' covers: e2e/**
 ' covers: e2e/opencode_presentation*
 ' covers: e2e/testdata/opencode_presentation.*
+'
+' ── IMAGE TESTS RUN IN DISPOSABLE HISTORY MODE (2026-10-13) ───────────────
+' A bare `docker run … opencode serve|run` reaches the prepared-history gate
+' and exits 78 ("OpenCode history is unprepared in this engine"): no keeper
+' holds a prepared engine there. The docker backend always launches opencode
+' with PROVEO_OPENCODE_HISTORY_MODE=disposable (internal/backend/dockeregress),
+' so internal/imagetest/opencode_test.go passes the same env (ocDisposable)
+' instead of testing a launch shape no backend uses.
 ' status: implemented contracts; PLANNED acceptance remains for the open live gates below.
 ' Primary reports focused source/unit and persisted offline native fixture passes.
 ' Security/adversarial repairs are implemented; their re-evaluations remain in progress.

@@ -31,6 +31,9 @@ func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) im
 // the seed download marksman, and that alone outran the 30s budget.
 var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
 
+// ocDisposable is the history mode internal/backend/dockeregress gives every opencode run.
+var ocDisposable = []string{"-e", "PROVEO_OPENCODE_HISTORY_MODE=disposable"}
+
 func ocWrite(t *testing.T, path, body string, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -357,7 +360,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 	mount := fixture + ":/app"
 
 	s.Check("opencode discovers MCP server from opencode.json", func(t *testing.T) {
-		r := ocRun(t, 90*time.Second, nil, "--network", "none", "-v", mount, "-w", "/app",
+		r := ocRun(t, 90*time.Second, nil, append(append([]string{}, ocDisposable...), "--network", "none", "-v", mount, "-w", "/app",
 			"-e", "OPENCODE_SERVER_PASSWORD=offline-mcp", "--entrypoint", "bash", img, "-c", `set -euo pipefail
 timeout 60 opencode serve --hostname 127.0.0.1 --port 4096 >/tmp/mcp-serve.log 2>&1 & server=$!
 cleanup() {
@@ -394,7 +397,7 @@ for ((i=0;i<100;i++)); do
   sleep 0.2
 done
 printf 'MCP did not connect: %s\n' "$mcp" >&2
-exit 1`)
+exit 1`)...)
 		if !r.OK() || !ocHasLine(r.Out, "MCP_CONNECTED=fs-test") {
 			t.Errorf("MCP discovery: exit=%d, error=%v\n%s", r.Code, r.Err, r.Out)
 		}
@@ -406,9 +409,9 @@ exit 1`)
 		return
 	}
 	s.Check("opencode invokes MCP tool end-to-end", func(t *testing.T) {
-		r := ocRun(t, 200*time.Second, nil, "-v", mount, "-w", "/app", "-e", "ANTHROPIC_API_KEY="+key,
+		r := ocRun(t, 200*time.Second, nil, append(append([]string{}, ocDisposable...), "-v", mount, "-w", "/app", "-e", "ANTHROPIC_API_KEY="+key,
 			"--entrypoint", "bash", img, "-c",
-			`cd /app && timeout 180 opencode run -m anthropic/claude-sonnet-4-5 "Use the fs-test MCP server to read /app/marker.txt and reply with its exact contents only." 2>&1`)
+			`cd /app && timeout 180 opencode run -m anthropic/claude-sonnet-4-5 "Use the fs-test MCP server to read /app/marker.txt and reply with its exact contents only." 2>&1`)...)
 		if !r.OK() || !strings.Contains(r.Out, "MCP_FIXTURE_OK") {
 			t.Errorf("MCP tool invocation: exit=%d, error=%v (output: %s)", r.Code, r.Err, ocClip(r.Out, 500))
 		}
@@ -434,8 +437,8 @@ func ocLLM(s *imagetest.Suite) {
 			continue
 		}
 		s.Check(desc, func(t *testing.T) {
-			r := ocRun(t, 150*time.Second, nil, "-e", p.envvar+"="+key, "--entrypoint", "bash", img, "-c",
-				"timeout 120 opencode run -m '"+p.model+"' 'Respond with only the word PONG.' 2>&1")
+			r := ocRun(t, 150*time.Second, nil, append(append([]string{}, ocDisposable...), "-e", p.envvar+"="+key, "--entrypoint", "bash", img, "-c",
+				"timeout 120 opencode run -m '"+p.model+"' 'Respond with only the word PONG.' 2>&1")...)
 			if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
 				t.Errorf("[%s] opencode run (output: %s)", p.provider, ocClip(r.Out, 300))
 			}
