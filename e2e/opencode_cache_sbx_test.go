@@ -17,7 +17,36 @@ import (
 	"time"
 )
 
-var retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
+var (
+	retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
+	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}(?:-prepare)?`)
+)
+
+func openCodeOwnerRecord(t *testing.T, engine string) string {
+	t.Helper()
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(cache, "proveo", "sbx-sandboxes", engine+".opencode-cache.json")
+}
+
+// removeOpenCodeEngines deletes every engine the runs named, with its owner record and receipt.
+func removeOpenCodeEngines(t *testing.T, outputs []string) {
+	seen := map[string]bool{}
+	for _, out := range outputs {
+		for _, engine := range openCodeEngineRE.FindAllString(out, -1) {
+			if seen[engine] {
+				continue
+			}
+			seen[engine] = true
+			_ = exec.Command("sbx", "rm", "--force", engine).Run()
+			record := openCodeOwnerRecord(t, engine)
+			_ = os.Remove(record)
+			_ = os.Remove(filepath.Join(filepath.Dir(record), engine+".json"))
+		}
+	}
+}
 
 func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if !sbxAvailable() {
@@ -41,6 +70,8 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	env := append(os.Environ(), "PROVEO_HOME="+home, "PROVEO_WIZARD=off",
 		"PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_LSP_INSTALL=off",
 		"PROVEO_AUTO_INSTALL_TOOLS=false", "OPENCODE_DISABLE_MODELS_FETCH=1")
+	var outputs []string
+	t.Cleanup(func() { removeOpenCodeEngines(t, outputs) })
 	run := func(native ...string) string {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
@@ -50,6 +81,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Env, cmd.Dir = env, work
 		out, err := cmd.CombinedOutput()
+		outputs = append(outputs, string(out))
 		if err != nil {
 			t.Fatalf("managed sbx launch %v: %v\n%s", native, err, out)
 		}
@@ -61,19 +93,10 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		t.Fatalf("the prepare run named no retained engine:\n%s", prepared)
 	}
 	engine := m[1]
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(prepared, "no terminal — the agent was not started") {
+		t.Errorf("the headless prepare did not stop before the agent:\n%s", prepared)
 	}
-	receipts := filepath.Join(cache, "proveo", "sbx-sandboxes")
-	ownerRecord := filepath.Join(receipts, engine+".opencode-cache.json")
-	t.Cleanup(func() {
-		_ = exec.Command("sbx", "rm", "--force", engine).Run()
-		_ = os.Remove(ownerRecord)
-		_ = os.Remove(filepath.Join(receipts, engine+".json"))
-	})
-	before, err := os.ReadFile(ownerRecord)
-	if err != nil {
+	if _, err := os.Stat(openCodeOwnerRecord(t, engine)); err != nil {
 		t.Fatalf("prepared engine owner record: %v", err)
 	}
 	result := run("api", "POST", "/api/session", "--data", `{"title":"prepared-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
@@ -91,10 +114,12 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if id == "" {
 		t.Fatalf("native session creation missing: %s", result)
 	}
-	run("api", "GET", "/api/session/"+id)
-	after, err := os.ReadFile(ownerRecord)
-	if err != nil || string(after) != string(before) {
-		t.Fatalf("ordinary reattach replaced the prepared engine: %v", err)
+	reread := run("api", "GET", "/api/session/"+id)
+	created := regexp.MustCompile(`(?m)Created sandbox ` + regexp.QuoteMeta(engine) + `[ \t\r]*$`)
+	for _, out := range []string{result, reread} {
+		if created.MatchString(out) {
+			t.Fatalf("ordinary reattach replaced the prepared engine:\n%s", out)
+		}
 	}
 
 	// Lose the keeper the way sbx's idle auto-stop does.

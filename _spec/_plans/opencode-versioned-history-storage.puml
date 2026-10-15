@@ -197,8 +197,9 @@
 ' the DB on every open).
 ' e2e/opencode_cache_sbx_test.go keeps the operator's HOME, where sbx keeps its login: with a
 ' temporary HOME, `sbx template load` failed "Not authenticated to Docker" (2026-10-15). Only
-' PROVEO_HOME is temporary; the engine is named by the run's "retained engine" line, and its
-' owner record and receipt are removed from the user cache dir at cleanup.
+' PROVEO_HOME is temporary; the engine is named by the run's "retained engine" line. Cleanup
+' removes every proveo-opencode-<hash>[-prepare] engine any run printed, failed runs included,
+' with its owner record and receipt from the user cache dir.
 ' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
 ' requires the session to survive and the run to report re-verifying its retained history.
 ' READ-ONLY WAL SOURCE, 2026-10-15 — why --proveo-prepare --source always failed:
@@ -218,11 +219,25 @@
 ' nowhere; a private keeper log would have to keep tracebacks away from the agent's uid.
 ' internal/imagetest/opencode_test.go runs both paths in the image: a 0555 WAL source prepares,
 ' then a killed keeper's cache is refused by check and prepare and re-attested by --recover.
+' HEADLESS MAINTENANCE, 2026-10-15 — why the e2e prepare run ended in an sbx error:
+' After --proveo-prepare --source, the run started the agent with no native arguments, which is the
+' OpenCode TUI. Measured in proveo/opencode:local: the native TUI with no TTY and stdin at EOF never
+' exits (killed at 40s). The e2e captures output without a TTY, and sbx failed with
+' "error: inspect exec: context deadline exceeded". [Inference] sbx ends the attach at stdin EOF and
+' times out waiting for an exec that is still running; no sbx doc or issue names that message.
+' DECISION (Executor, "Stop after prepare"): --proveo-prepare or --proveo-recover with no native
+' arguments and no terminal (stdin and stdout not both TTYs) finishes the cache work, prints
+' "no terminal — the agent was not started" and that the next run starts the agent, then exits 0
+' before the seed and sbx run. A terminal, or any native command after the flags, starts the agent
+' as before. An ordinary launch without a terminal is unchanged. The engine keeps a prepared journal,
+' so a later run that finds the keeper gone recovers it at once (SBX AUTO-STOP above).
+' The owner record holds the keeper's pid:starttime, so it changes whenever sbx restarts the engine;
+' the e2e therefore proves "not replaced" by no later run printing "Created sandbox <engine>".
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
 ' No on that empty question leaves the sandbox up and asks again.
-' A prepare that already checks out strips --proveo-prepare and starts the agent.
+' A prepare that already checks out strips --proveo-prepare and starts the agent, unless HEADLESS MAINTENANCE below stops it.
 ' --proveo-recover always runs recover. A passing check does not skip it or rewrite it as prepare.
 ' After a confirmed delete, a failed recreate says the previous sandbox was removed.
 ' An explicit --source that is still V1 is rejected and left unchanged. The durable copy of a legacy database is prepared so the native server can migrate it.

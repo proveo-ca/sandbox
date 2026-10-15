@@ -317,6 +317,14 @@ var headedConfirm = func() bool {
 	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout)
 }
 
+// agentTerminal reports whether this run can hand the agent a terminal.
+var agentTerminal = func() bool {
+	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout)
+}
+
+// errOpenCodeMaintenanceDone ends a headless maintenance run after its cache work, before sbx run.
+var errOpenCodeMaintenanceDone = errors.New("OpenCode maintenance finished; the agent was not started")
+
 func openScreen() (tcell.Screen, error) {
 	screen, err := tcell.NewScreen()
 	if err != nil {
@@ -521,6 +529,11 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 	}
 	recovering := len(cfg.Command) > 0 && cfg.Command[0] == "--proveo-recover"
 	preparing := len(cfg.Command) > 0 && cfg.Command[0] == "--proveo-prepare"
+	headless := (recovering || preparing) && len(stripOpenCodeMaintenance(cfg.Command)) == 0 && !agentTerminal()
+	start := "start the agent on that cache"
+	if headless {
+		start = "no terminal — the agent was not started"
+	}
 	flag := "--proveo-cache-owner=" + owner
 	if recovering {
 		ui.Appf("OpenCode recover: 1/2 reconcile the retained history")
@@ -530,7 +543,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 		if gateErr != nil {
 			return cfg, openCodeCommandError("recover", gateErr, out)
 		}
-		ui.Appf("OpenCode recover: 2/2 start the agent on the recovered cache")
+		ui.Appf("OpenCode recover: 2/2 %s", start)
 		cfg.Command = stripOpenCodeMaintenance(cfg.Command)
 	} else {
 		checkCtx, cancelCheck := context.WithTimeout(context.Background(), 5*time.Second)
@@ -579,7 +592,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 			switch {
 			case gateErr == nil:
 				ui.Appf("OpenCode prepare: 2/3 published a credential-free checkpoint")
-				ui.Appf("OpenCode prepare: 3/3 start the agent on that cache")
+				ui.Appf("OpenCode prepare: 3/3 %s", start)
 			case !strings.Contains(out, retainedRefusal):
 				return cfg, openCodeCommandError("prepare", gateErr, out)
 			case preparing || explicitEmpty:
@@ -599,6 +612,11 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 		} else if preparing {
 			cfg.Command = stripOpenCodeMaintenance(cfg.Command)
 		}
+	}
+	if headless {
+		ui.Appf("OpenCode: prepared V2 history on retained engine %s", cfg.Name)
+		ui.Notef("the next `proveo run %s` starts the agent on that cache", in.Target)
+		return cfg, errOpenCodeMaintenanceDone
 	}
 	cfg.Command = append([]string{flag}, cfg.Command...)
 	seedCtx, cancelSeed := context.WithTimeout(context.Background(), 5*time.Second)

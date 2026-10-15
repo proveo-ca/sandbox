@@ -612,6 +612,105 @@ func TestExplicitPrepareNeverTurnsIntoRecovery(t *testing.T) {
 	}
 }
 
+func stubAgentTerminal(t *testing.T, present bool) {
+	t.Helper()
+	previous := agentTerminal
+	agentTerminal = func() bool { return present }
+	t.Cleanup(func() { agentTerminal = previous })
+}
+
+func stubSeed(t *testing.T) *bool {
+	t.Helper()
+	seeded := false
+	previous := seedOpenCode
+	seedOpenCode = func(context.Context, string, string) ([]byte, error) { seeded = true; return nil, nil }
+	t.Cleanup(func() { seedOpenCode = previous })
+	return &seeded
+}
+
+// maintenanceRuntime answers like a keeper whose engine is prepared when checked is true.
+func maintenanceRuntime(calls *[][]string, checked bool) func(context.Context, string, ...string) (string, error) {
+	return func(_ context.Context, _ string, args ...string) (string, error) {
+		*calls = append(*calls, append([]string(nil), args...))
+		switch args[0] {
+		case "--bootstrap-cache", "--prepare", "--recover":
+			return `{"cache_owner":"1234:5678"}`, nil
+		case "--check-prepared":
+			if checked {
+				return "", nil
+			}
+		}
+		return "proveo: OpenCode history is not prepared; run --proveo-prepare or --proveo-recover", exec.Command("sh", "-c", "exit 78").Run()
+	}
+}
+
+func TestHeadlessMaintenanceStopsBeforeTheAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command []string
+		checked bool
+		want    string
+	}{
+		{"prepare", []string{"--proveo-prepare"}, false, "--prepare"},
+		{"prepare on a prepared engine", []string{"--proveo-prepare"}, true, "--check-prepared"},
+		{"recover", []string{"--proveo-recover"}, false, "--recover"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := lostKeeperHome(t, "", "")
+			stubAgentTerminal(t, false)
+			seeded := stubSeed(t)
+			var calls [][]string
+			_, err := lostKeeperLaunch(t, home, tc.command, maintenanceRuntime(&calls, tc.checked))
+			if !errors.Is(err, errOpenCodeMaintenanceDone) {
+				t.Fatalf("err = %v, want the headless maintenance stop", err)
+			}
+			if !slices.Contains(operations(calls), tc.want) {
+				t.Errorf("calls = %v, want %s", operations(calls), tc.want)
+			}
+			if *seeded {
+				t.Error("a headless maintenance run seeded an agent launch")
+			}
+		})
+	}
+}
+
+func TestMaintenanceStartsTheAgentWithATerminalOrANativeCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		command  []string
+		terminal bool
+		native   []string
+	}{
+		{"terminal prepare", []string{"--proveo-prepare"}, true, nil},
+		{"terminal recover", []string{"--proveo-recover"}, true, nil},
+		{"headless prepare with a native command", []string{"--proveo-prepare", "session", "list"}, false, []string{"session", "list"}},
+		{"headless ordinary launch", nil, false, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := lostKeeperHome(t, "", "")
+			stubAgentTerminal(t, tc.terminal)
+			seeded := stubSeed(t)
+			var calls [][]string
+			cfg, err := lostKeeperLaunch(t, home, tc.command, maintenanceRuntime(&calls, false))
+			if err != nil {
+				t.Fatalf("err = %v, calls = %v", err, operations(calls))
+			}
+			if !*seeded {
+				t.Error("the agent launch was not seeded")
+			}
+			var native []string
+			for _, arg := range cfg.Command {
+				if !strings.HasPrefix(arg, "--proveo-") {
+					native = append(native, arg)
+				}
+			}
+			if !slices.Equal(native, tc.native) || !slices.Contains(cfg.Command, "--proveo-cache-owner=1234:5678") {
+				t.Errorf("command = %v, want the owner flag and native %v", cfg.Command, tc.native)
+			}
+		})
+	}
+}
+
 func TestOpenCodeJournalTreatsTheShareAsUntrusted(t *testing.T) {
 	home := lostKeeperHome(t, lostKeeperEngine, "published")
 	if engine, phase := openCodeJournal(home); engine != lostKeeperEngine || phase != "published" {
