@@ -1484,8 +1484,9 @@ func Run(in Input) error {
 	}
 	if opencodeCacheTarget(in.Target) && !in.Shell {
 		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
-		if errors.Is(err, errOpenCodeMaintenanceDone) {
-			return nil
+		if errors.Is(err, ErrAgentNotStarted) {
+			keepHomeAccess = true
+			return err
 		}
 		if err != nil {
 			return err

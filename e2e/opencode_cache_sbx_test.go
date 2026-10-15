@@ -15,11 +15,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 var (
 	retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
-	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}(?:-prepare)?`)
+	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}(?:-prepare)?\b`)
 )
 
 func openCodeOwnerRecord(t *testing.T, engine string) string {
@@ -31,20 +33,28 @@ func openCodeOwnerRecord(t *testing.T, engine string) string {
 	return filepath.Join(cache, "proveo", "sbx-sandboxes", engine+".opencode-cache.json")
 }
 
-// removeOpenCodeEngines deletes every engine the runs named, with its owner record and receipt.
-func removeOpenCodeEngines(t *testing.T, outputs []string) {
-	seen := map[string]bool{}
+// removeOpenCodeEngines deletes the workspace's engines and every engine the runs named, with owner records and receipts.
+func removeOpenCodeEngines(t *testing.T, work string, outputs []string) {
+	engines := []string{sbx.SandboxName("opencode", work)}
+	if real, err := filepath.EvalSymlinks(work); err == nil {
+		engines = append(engines, sbx.SandboxName("opencode", real))
+	}
+	for _, name := range append([]string(nil), engines...) {
+		engines = append(engines, name+"-prepare")
+	}
 	for _, out := range outputs {
-		for _, engine := range openCodeEngineRE.FindAllString(out, -1) {
-			if seen[engine] {
-				continue
-			}
-			seen[engine] = true
-			_ = exec.Command("sbx", "rm", "--force", engine).Run()
-			record := openCodeOwnerRecord(t, engine)
-			_ = os.Remove(record)
-			_ = os.Remove(filepath.Join(filepath.Dir(record), engine+".json"))
+		engines = append(engines, openCodeEngineRE.FindAllString(out, -1)...)
+	}
+	seen := map[string]bool{}
+	for _, engine := range engines {
+		if seen[engine] {
+			continue
 		}
+		seen[engine] = true
+		_ = exec.Command("sbx", "rm", "--force", engine).Run()
+		record := openCodeOwnerRecord(t, engine)
+		_ = os.Remove(record)
+		_ = os.Remove(filepath.Join(filepath.Dir(record), engine+".json"))
 	}
 }
 
@@ -71,7 +81,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		"PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_LSP_INSTALL=off",
 		"PROVEO_AUTO_INSTALL_TOOLS=false", "OPENCODE_DISABLE_MODELS_FETCH=1")
 	var outputs []string
-	t.Cleanup(func() { removeOpenCodeEngines(t, outputs) })
+	t.Cleanup(func() { removeOpenCodeEngines(t, work, outputs) })
 	run := func(native ...string) string {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
@@ -96,6 +106,10 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if !strings.Contains(prepared, "no terminal — the agent was not started") {
 		t.Errorf("the headless prepare did not stop before the agent:\n%s", prepared)
 	}
+	created := regexp.MustCompile(`(?m)Created sandbox ` + regexp.QuoteMeta(engine) + `[ \t\r]*$`)
+	if !created.MatchString(prepared) {
+		t.Fatalf("the prepare run never printed \"Created sandbox %s\", so a replacement would go unseen:\n%s", engine, prepared)
+	}
 	if _, err := os.Stat(openCodeOwnerRecord(t, engine)); err != nil {
 		t.Fatalf("prepared engine owner record: %v", err)
 	}
@@ -115,14 +129,13 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		t.Fatalf("native session creation missing: %s", result)
 	}
 	reread := run("api", "GET", "/api/session/"+id)
-	created := regexp.MustCompile(`(?m)Created sandbox ` + regexp.QuoteMeta(engine) + `[ \t\r]*$`)
 	for _, out := range []string{result, reread} {
-		if created.MatchString(out) {
+		if created.MatchString(out) || strings.Contains(out, "creates a new sandbox named "+engine) {
 			t.Fatalf("ordinary reattach replaced the prepared engine:\n%s", out)
 		}
 	}
 
-	// Lose the keeper the way sbx's idle auto-stop does.
+	// Stop the engine, as sbx's idle auto-stop does.
 	if out, err := exec.Command("sbx", "stop", engine).CombinedOutput(); err != nil {
 		t.Fatalf("sbx stop %s: %v\n%s", engine, err, out)
 	}

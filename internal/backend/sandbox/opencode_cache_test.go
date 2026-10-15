@@ -17,6 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestOpenCodeCacheOwnerLivesOutsideGuestState(t *testing.T) {
@@ -98,6 +99,7 @@ func TestUnpreparedLegacyStoreAsksAndKeepsTheSandbox(t *testing.T) {
 	receiptDir = func() string { return root }
 	t.Cleanup(func() { receiptDir = previous })
 	t.Setenv("PROVEO_WIZARD", "off")
+	stubAgentTerminal(t, true)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "opencode/share"), 0o700); err != nil {
 		t.Fatal(err)
@@ -292,6 +294,7 @@ func TestRecoverIsNotRewrittenAsPrepare(t *testing.T) {
 	receiptDir = func() string { return root }
 	t.Cleanup(func() { receiptDir = previous })
 	t.Setenv("PROVEO_WIZARD", "off")
+	stubAgentTerminal(t, true)
 	var calls [][]string
 	run := func(_ context.Context, _ string, args ...string) (string, error) {
 		calls = append(calls, append([]string(nil), args...))
@@ -602,6 +605,7 @@ func TestAnotherEnginesLiveJournalLeavesBothAlone(t *testing.T) {
 func TestExplicitPrepareNeverTurnsIntoRecovery(t *testing.T) {
 	home := lostKeeperHome(t, lostKeeperEngine, "published")
 	stubRetainedChoice(t, choiceui.RetainedRecover)
+	stubAgentTerminal(t, true)
 	var calls [][]string
 	_, err := lostKeeperLaunch(t, home, []string{"--proveo-prepare"}, lostKeeperRuntime(&calls, nil, "", nil))
 	if slices.Contains(operations(calls), "--recover") {
@@ -659,10 +663,17 @@ func TestHeadlessMaintenanceStopsBeforeTheAgent(t *testing.T) {
 			home := lostKeeperHome(t, "", "")
 			stubAgentTerminal(t, false)
 			seeded := stubSeed(t)
+			var out strings.Builder
+			previous := ui.Default
+			ui.Default = ui.New(&out)
+			t.Cleanup(func() { ui.Default = previous })
 			var calls [][]string
 			_, err := lostKeeperLaunch(t, home, tc.command, maintenanceRuntime(&calls, tc.checked))
-			if !errors.Is(err, errOpenCodeMaintenanceDone) {
+			if !errors.Is(err, ErrAgentNotStarted) {
 				t.Fatalf("err = %v, want the headless maintenance stop", err)
+			}
+			if strings.Count(out.String(), noTerminal) != 1 || !strings.Contains(out.String(), "retained engine "+lostKeeperEngine) {
+				t.Errorf("output does not say once that the agent was not started on %s:\n%s", lostKeeperEngine, out.String())
 			}
 			if !slices.Contains(operations(calls), tc.want) {
 				t.Errorf("calls = %v, want %s", operations(calls), tc.want)

@@ -231,13 +231,18 @@
 ' before the seed and sbx run. A terminal, or any native command after the flags, starts the agent
 ' as before. An ordinary launch without a terminal is unchanged. The engine keeps a prepared journal,
 ' so a later run that finds the keeper gone recovers it at once (SBX AUTO-STOP above).
+' The run log records "no agent was launched", not "the agent exited 0", and the home access stays
+' with the retained engine, as after an agent run.
 ' The owner record holds the keeper's pid:starttime, so it changes whenever sbx restarts the engine;
-' the e2e therefore proves "not replaced" by no later run printing "Created sandbox <engine>".
+' the e2e therefore proves "not replaced" by no later run printing "Created sandbox <engine>" (which
+' sbx create printed in the prepare run, 2026-10-15) or proveo's "creates a new sandbox named".
+' Its cleanup also removes the engine names sbx.SandboxName derives from the workspace, so a run
+' killed before it printed a name leaks nothing.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
 ' No on that empty question leaves the sandbox up and asks again.
-' A prepare that already checks out strips --proveo-prepare and starts the agent, unless HEADLESS MAINTENANCE below stops it.
+' A prepare that already checks out strips --proveo-prepare and starts the agent, unless HEADLESS MAINTENANCE above stops it.
 ' --proveo-recover always runs recover. A passing check does not skip it or rewrite it as prepare.
 ' After a confirmed delete, a failed recreate says the previous sandbox was removed.
 ' An explicit --source that is still V1 is rejected and left unchanged. The durable copy of a legacy database is prepared so the native server can migrate it.

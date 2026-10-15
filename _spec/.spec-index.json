@@ -260,6 +260,8 @@
         "e2e/opencode_sessions_test.go",
         "e2e/opencode_prepared_history_test.go",
         "e2e/opencode_cache_sbx_test.go",
+        "internal/run/run.go",
+        "internal/run/outcome_test.go",
         "cmd/proveo/testdata/plan/docker-open-forward-opencode.golden",
         "cmd/proveo/testdata/plan/docker-open-broker-opencode.golden",
         "cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden",

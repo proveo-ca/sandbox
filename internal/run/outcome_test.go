@@ -3,12 +3,14 @@ package run
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -54,6 +56,18 @@ func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 				t.Errorf("the transcript never says %q:\n%s", tc.want, b)
 			}
 		})
+	}
+}
+
+func TestAMaintenanceRunThatNeverStartedTheAgentRecordsNoLaunch(t *testing.T) {
+	rs := &Spec{AgentLaunched: true}
+	if err := sandboxOutcome(rs, fmt.Errorf("run: %w", sandbox.ErrAgentNotStarted)); err != nil || rs.AgentLaunched {
+		t.Fatalf("err = %v, launched = %v; want success with no agent launched", err, rs.AgentLaunched)
+	}
+	rs = &Spec{AgentLaunched: true}
+	boom := errors.New("boom")
+	if err := sandboxOutcome(rs, boom); err != boom || !rs.AgentLaunched {
+		t.Fatalf("err = %v, launched = %v; want the failure unchanged", err, rs.AgentLaunched)
 	}
 }
 
