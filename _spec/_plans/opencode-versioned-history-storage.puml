@@ -191,6 +191,10 @@
 ' Follow-ups: keep the engine up between runs (`sbx run -d` / long-running@1, sbx >= v0.47.0),
 ' or a host-held cache digest taken after native shutdown and a WAL checkpoint (OpenCode writes
 ' the DB on every open).
+' e2e/opencode_cache_sbx_test.go keeps the operator's HOME, where sbx keeps its login: with a
+' temporary HOME, `sbx template load` failed "Not authenticated to Docker" (2026-10-15). Only
+' PROVEO_HOME is temporary; the engine is named by the run's "retained engine" line, and its
+' owner record and receipt are removed from the user cache dir at cleanup.
 ' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
 ' requires the session to survive and the run to report re-verifying its retained history.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.

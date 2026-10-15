@@ -10,11 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+var retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
 
 func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if !sbxAvailable() {
@@ -35,8 +38,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		t.Fatalf("create actual V2 source: %v\n%s", err, out)
 	}
 	bin := buildProveo(t)
-	env := append(os.Environ(), "HOME="+home, "PROVEO_HOME="+home,
-		"XDG_CACHE_HOME="+filepath.Join(home, "cache"), "PROVEO_WIZARD=off",
+	env := append(os.Environ(), "PROVEO_HOME="+home, "PROVEO_WIZARD=off",
 		"PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_LSP_INSTALL=off",
 		"PROVEO_AUTO_INSTALL_TOOLS=false", "OPENCODE_DISABLE_MODELS_FETCH=1")
 	run := func(native ...string) string {
@@ -53,17 +55,27 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		}
 		return string(out)
 	}
-	run("--proveo-prepare", "--source", source)
-	owners, err := filepath.Glob(filepath.Join(home, "cache/proveo/sbx-sandboxes/*.opencode-cache.json"))
-	if err != nil || len(owners) != 1 {
-		t.Fatalf("prepared engine owner records: %v %v", owners, err)
+	prepared := run("--proveo-prepare", "--source", source)
+	m := retainedEngineRE.FindStringSubmatch(prepared)
+	if m == nil {
+		t.Fatalf("the prepare run named no retained engine:\n%s", prepared)
 	}
-	before, err := os.ReadFile(owners[0])
+	engine := m[1]
+	cache, err := os.UserCacheDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := strings.TrimSuffix(filepath.Base(owners[0]), ".opencode-cache.json")
-	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", engine).Run() })
+	receipts := filepath.Join(cache, "proveo", "sbx-sandboxes")
+	ownerRecord := filepath.Join(receipts, engine+".opencode-cache.json")
+	t.Cleanup(func() {
+		_ = exec.Command("sbx", "rm", "--force", engine).Run()
+		_ = os.Remove(ownerRecord)
+		_ = os.Remove(filepath.Join(receipts, engine+".json"))
+	})
+	before, err := os.ReadFile(ownerRecord)
+	if err != nil {
+		t.Fatalf("prepared engine owner record: %v", err)
+	}
 	result := run("api", "POST", "/api/session", "--data", `{"title":"prepared-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
 	var id string
 	for _, line := range strings.Split(result, "\n") {
@@ -80,7 +92,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		t.Fatalf("native session creation missing: %s", result)
 	}
 	run("api", "GET", "/api/session/"+id)
-	after, err := os.ReadFile(owners[0])
+	after, err := os.ReadFile(ownerRecord)
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("ordinary reattach replaced the prepared engine: %v", err)
 	}
