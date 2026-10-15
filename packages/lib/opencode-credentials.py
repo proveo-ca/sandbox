@@ -78,6 +78,22 @@ class SnapshotError(Exception):
     pass
 
 
+# SPEC: _spec/_plans/opencode-versioned-history-storage.puml
+def readonly_connect(path, timeout):
+    """Open an SQLite database read-only, also from a read-only directory."""
+    path = Path(path)
+    uri = path.as_uri() + "?mode=ro"
+    if not os.access(path.parent, os.W_OK) and not path.with_name(path.name + "-shm").exists():
+        wal = path.with_name(path.name + "-wal")
+        if wal.exists() and wal.stat().st_size:
+            raise SnapshotError(
+                f"{path.name} has uncheckpointed WAL frames in a read-only directory; "
+                "close every OpenCode process using it, then retry"
+            )
+        uri += "&immutable=1"
+    return sqlite3.connect(uri, uri=True, timeout=timeout)
+
+
 def check_database(connection):
     if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
         raise SnapshotError("SQLite integrity check failed")
@@ -189,7 +205,7 @@ def database_snapshot(source, target, rebase=None):
             raise SnapshotError("SQLite backup timed out")
 
     with contextlib.closing(
-        sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=1)
+        readonly_connect(source, 1)
     ) as src:
         src.execute("PRAGMA query_only = ON")
         src.execute("PRAGMA trusted_schema = OFF")
@@ -259,7 +275,7 @@ def root_databases(root, selected):
         if header != b"SQLite format 3\x00":
             continue
         with contextlib.closing(
-            sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
+            readonly_connect(path, 1)
         ) as db:
             db.execute("PRAGMA query_only = ON")
             names = {

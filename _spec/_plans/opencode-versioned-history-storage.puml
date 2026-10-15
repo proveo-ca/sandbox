@@ -28,6 +28,7 @@
 ' covers: e2e/seed_ready_test.go
 ' covers: internal/choiceui/blocked_run.go
 ' covers: internal/choiceui/blocked_run_test.go
+' covers: internal/imagetest/opencode_test.go
 ' covers: cmd/proveo/testdata/plan/docker-open-forward-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-open-broker-opencode.golden
 ' covers: cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden
@@ -185,6 +186,9 @@
 ' An explicit --proveo-prepare or --empty never turns into a recovery; its refusal names the
 ' same two commands. Headless never deletes. Recovery re-verifies and republishes and is never
 ' a fast-path receipt. [Inference] A large history recovers slower than the 5s budget.
+' Container evidence, 2026-10-15: `docker restart` (processes die, /tmp stays) reproduced the
+' Linux host's sequence exactly, check 78 then the prepare refusal, and --recover re-attested
+' the cache (check 0; journal engine = SANDBOX_VM_ID, phase prepared).
 ' [Unverified] durable_stamp hashes st_dev, st_ino and ctime of the mounted share; if the
 ' guest's mount device number changes across a VM restart, every recovery fails with
 ' "published history changed" and this path falls to the reset. The e2e below measures it.
@@ -197,6 +201,23 @@
 ' owner record and receipt are removed from the user cache dir at cleanup.
 ' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
 ' requires the session to survive and the run to report re-verifying its retained history.
+' READ-ONLY WAL SOURCE, 2026-10-15 — why --proveo-prepare --source always failed:
+' The source is mounted read-only by design, and every OpenCode 2.x database is in WAL mode; a clean
+' exit removes -wal and -shm. database_schema (and the credential helper's database_snapshot and
+' inventory) opened it with `?mode=ro`, and SQLite cannot open a WAL database in a directory where it
+' cannot create the -shm file: "sqlite3.OperationalError: unable to open database file"
+' ([Unverified] https://www.sqlite.org/wal.html, "Read-Only Databases"). The keeper turned that into
+' "OpenCode cache operation failed; explicit recovery required", so e2e/opencode_cache_sbx_test.go
+' failed with no cause; the traceback came from a container repro with a patched keeper.
+' readonly_connect (packages/lib/opencode-credentials.py) now opens such a file with `immutable=1`
+' when its directory is not writable and no -shm exists; the source lease and the before/after
+' source signature already reject a source that changes during import. A non-empty -wal with no
+' -shm in a read-only directory is refused by name: its frames cannot be read without a -shm.
+' The keeper now passes SnapshotError text to the client, as it does CacheError: both are proveo's
+' own words. Any other exception still reads as the generic message, and its traceback is kept
+' nowhere; a private keeper log would have to keep tracebacks away from the agent's uid.
+' internal/imagetest/opencode_test.go runs both paths in the image: a 0555 WAL source prepares,
+' then a killed keeper's cache is refused by check and prepare and re-attested by --recover.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.

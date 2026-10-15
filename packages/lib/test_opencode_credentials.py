@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import os
+import shutil
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -545,6 +546,67 @@ proveo_opencode_sync_data "$HOME/.local/share/opencode" "$PROVEO_STATE_HOME/.loc
         self.assertFalse(
             (state / ".local" / "share" / "opencode" / "opencode.db").exists()
         )
+
+
+
+class ReadOnlySourceTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def wal_database(self, directory):
+        path = directory / "opencode.db"
+        with contextlib.closing(sqlite3.connect(path)) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.executescript(SCHEMA)
+            db.commit()
+        return path
+
+    def read_only(self, directory):
+        directory.chmod(0o555)
+        self.addCleanup(directory.chmod, 0o755)
+        if os.access(directory, os.W_OK):
+            self.skipTest("directory permissions are not enforced for this user")
+
+    def test_a_closed_wal_database_opens_and_snapshots_from_a_read_only_directory(self):
+        source = self.root / "source"
+        source.mkdir()
+        path = self.wal_database(source)
+        self.assertEqual(sorted(os.listdir(source)), ["opencode.db"])
+        self.read_only(source)
+        with contextlib.closing(credentials.readonly_connect(path, 1)) as db:
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
+        self.assertIn("session_v2", tables)
+        target = self.root / "snapshot.db"
+        credentials.database_snapshot(path, target)
+        with contextlib.closing(sqlite3.connect(target)) as copy:
+            self.assertEqual(copy.execute("SELECT title FROM session_v2").fetchone(), ("keep session",))
+        self.assertEqual(sorted(os.listdir(source)), ["opencode.db"])
+
+    def test_uncheckpointed_wal_frames_in_a_read_only_directory_are_refused_by_name(self):
+        live = self.root / "live"
+        live.mkdir()
+        path = self.wal_database(live)
+        writer = sqlite3.connect(path)
+        self.addCleanup(writer.close)
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("INSERT INTO project VALUES ('project-unflushed')")
+        writer.commit()
+        source = self.root / "source"
+        source.mkdir()
+        for name in ("opencode.db", "opencode.db-wal"):
+            shutil.copyfile(live / name, source / name)
+        self.read_only(source)
+        with self.assertRaisesRegex(credentials.SnapshotError, "uncheckpointed WAL frames"):
+            credentials.readonly_connect(source / "opencode.db", 1)
+
+    def test_a_writable_directory_keeps_the_ordinary_read_only_open(self):
+        path = self.wal_database(self.root)
+        with contextlib.closing(credentials.readonly_connect(path, 1)) as db:
+            db.execute("SELECT 1").fetchone()
+            with self.assertRaises(sqlite3.OperationalError):
+                db.execute("INSERT INTO project VALUES ('written')")
 
 
 if __name__ == "__main__":

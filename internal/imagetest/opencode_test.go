@@ -31,6 +31,29 @@ func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) im
 // the seed download marksman, and that alone outran the 30s budget.
 var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
 
+// ocLostKeeper prepares from a read-only WAL source, kills the keeper, then recovers its cache.
+// SPEC: _spec/_plans/opencode-versioned-history-storage.puml
+const ocLostKeeper = `set -u
+rt() { python3 -B -I -S /usr/local/bin/proveo-opencode-runtime "$@"; }
+owner_of() { sed -n 's/.*"cache_owner": "\([^"]*\)".*/\1/p'; }
+mkdir -p /tmp/src
+HOME=/tmp/native-schema XDG_DATA_HOME=/tmp/native-data XDG_STATE_HOME=/tmp/native-state OPENCODE_DB=/tmp/src/opencode.db OPENCODE_DISABLE_MODELS_FETCH=1 \
+  "$(cat /usr/local/lib/proveo/opencode.native)" session list --format json --standalone >/dev/null || exit 10
+chmod 0555 /tmp/src
+owner=$(rt --bootstrap-cache | owner_of)
+rt --prepare --source /tmp/src --proveo-cache-owner="$owner" >/dev/null || exit 11
+rt --check-prepared --proveo-cache-owner="$owner" || exit 12
+kill -9 "${owner%%:*}"
+while kill -0 "${owner%%:*}" 2>/dev/null; do sleep 0.1; done
+fresh=$(rt --bootstrap-cache --proveo-cache-owner="$owner" | owner_of)
+[ -n "$fresh" ] && [ "$fresh" != "$owner" ] || exit 13
+rt --check-prepared --proveo-cache-owner="$fresh" 2>/dev/null && exit 14
+out=$(rt --prepare --proveo-cache-owner="$fresh" 2>&1) && exit 15
+case "$out" in *"unattested retained state requires explicit recovery"*) ;; *) echo "$out"; exit 16 ;; esac
+rt --recover --proveo-cache-owner="$fresh" >/dev/null || exit 17
+rt --check-prepared --proveo-cache-owner="$fresh" || exit 18
+echo LOST-KEEPER-RECOVERED`
+
 // ocDisposable is the history mode internal/backend/dockeregress gives every opencode run.
 var ocDisposable = []string{"-e", "PROVEO_OPENCODE_HISTORY_MODE=disposable"}
 
@@ -305,6 +328,14 @@ func ocDefaults(s *imagetest.Suite) {
   `)
 		if !ocHasLine(r.Out, "RESEEDED") {
 			t.Errorf("OPENCODE_RESEED behaviour (output: %s)", ocClip(r.Out, 300))
+		}
+	})
+
+	s.Check("a read-only WAL source prepares, and a lost keeper's cache recovers", func(t *testing.T) {
+		r := ocRun(t, 120*time.Second, nil, "--network", "none", "-e", "SANDBOX_VM_ID=imagetest-engine",
+			"-e", "PROVEO_HOME=/tmp/home", "-e", "PROVEO_STATE_HOME=/tmp/home", "--entrypoint", "bash", img, "-c", ocLostKeeper)
+		if !r.OK() || !strings.Contains(r.Out, "LOST-KEEPER-RECOVERED") {
+			t.Fatalf("lost-keeper sequence (exit codes 10-18 name the failing step): %v\n%s", r.Err, r.Out)
 		}
 	})
 

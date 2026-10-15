@@ -184,9 +184,11 @@ def database_schema(helper, data, name):
         return None
     if file.is_symlink():
         raise CacheError("OpenCode database must not be a symlink")
-    with contextlib.closing(
-        sqlite3.connect(file.as_uri() + "?mode=ro", uri=True, timeout=0)
-    ) as db:
+    try:
+        connection = helper.readonly_connect(file, 0)
+    except helper.SnapshotError as error:
+        raise CacheError(str(error)) from None
+    with contextlib.closing(connection) as db:
         db.execute("PRAGMA query_only=ON")
         db.execute("PRAGMA trusted_schema=OFF")
         tables = {
@@ -1066,7 +1068,7 @@ def serve(runtime, env, ready_fd=None):
                             ok=False,
                             code=getattr(error, "code", 78),
                             message=str(error)
-                            if isinstance(error, CacheError)
+                            if isinstance(error, (CacheError, keeper.helper.SnapshotError))
                             else "OpenCode cache operation failed; explicit recovery required",
                         ),
                     )
