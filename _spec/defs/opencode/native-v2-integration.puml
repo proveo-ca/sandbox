@@ -30,6 +30,19 @@
 ' with PROVEO_OPENCODE_HISTORY_MODE=disposable (internal/backend/dockeregress),
 ' so internal/imagetest/opencode_test.go passes the same env (ocDisposable)
 ' instead of testing a launch shape no backend uses.
+'
+' ── THE PRESENTATION FIXTURE PREPARES ITS ENGINE (2026-10-16) ─────────────
+' Measured on a Docker-only Linux run: TestOpenCodePresentationAndAutoacceptInImage
+' failed 10 subtests with "OpenCode history is unprepared in this engine; run
+' --proveo-prepare explicitly". The fixture launched proveo-opencode-runtime with
+' no keeper. The direct `--standalone` subtest bypasses the runtime and passed.
+' opencode_presentation.py now runs `--prepare --empty` per test with its own
+' PROVEO_OPENCODE_CACHE_HOME. It passes the issued owner as --proveo-cache-owner
+' on every runtime launch, because the runtime refuses an owner-less launch
+' ("launch requires the cache owner identity issued by the host runtime").
+' Cleanup runs --shutdown-cache with that owner before the temp root is removed.
+' This is the shape packages/lib/test_opencode_runtime_native.py already used.
+' After the change: 7 tests, OK, 19.2s.
 ' status: implemented contracts; PLANNED acceptance remains for the open live gates below.
 ' Primary reports focused source/unit and persisted offline native fixture passes.
 ' Security/adversarial repairs are implemented; their re-evaluations remain in progress.

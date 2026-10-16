@@ -912,19 +912,10 @@ func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
 			return true, nil
 		}
 		rs.AgentLaunched = true
-		return true, sandboxOutcome(rs, sandbox.Run(in))
+		return true, sandbox.Run(in)
 	}
 
 	return false, nil
-}
-
-// sandboxOutcome turns a maintenance run that never started the agent into success.
-func sandboxOutcome(rs *Spec, err error) error {
-	if errors.Is(err, sandbox.ErrAgentNotStarted) {
-		rs.AgentLaunched = false
-		return nil
-	}
-	return err
 }
 
 // recordOutcome writes the run's verdict into the transcript before Do returns

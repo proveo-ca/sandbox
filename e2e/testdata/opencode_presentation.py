@@ -72,7 +72,31 @@ class NativePresentationTests(unittest.TestCase):
             "XDG_CACHE_HOME": "/home/agent/.cache",
             "TERM": "xterm-256color",
             "OPENCODE_CLI_CONFIG_CONTENT": PREFERENCES,
+            "PROVEO_OPENCODE_CACHE_HOME": str(self.root),
+            "PROVEO_SEED_REFUSED": str(self.root / "seed-refused"),
         }
+        prepared = subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), "--prepare", "--empty"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.owner = json.loads(prepared.stdout)["cache_owner"]
+        self.addCleanup(
+            subprocess.run,
+            [
+                sys.executable,
+                "-B",
+                str(RUNTIME),
+                "--shutdown-cache",
+                "--proveo-cache-owner=" + self.owner,
+            ],
+            env=self.env,
+            capture_output=True,
+            timeout=5,
+        )
 
     def drive(self, mode, value):
         result = subprocess.run(
@@ -85,6 +109,7 @@ class NativePresentationTests(unittest.TestCase):
                 str(RUNTIME),
                 NATIVE,
                 str(self.root),
+                self.owner,
             ],
             env=self.env,
             capture_output=True,
@@ -158,7 +183,14 @@ class NativePresentationTests(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 result = subprocess.run(
-                    [sys.executable, "-B", str(RUNTIME), NATIVE, *args],
+                    [
+                        sys.executable,
+                        "-B",
+                        str(RUNTIME),
+                        NATIVE,
+                        *args,
+                        "--proveo-cache-owner=" + self.owner,
+                    ],
                     env=self.env,
                     cwd=self.root,
                     capture_output=True,

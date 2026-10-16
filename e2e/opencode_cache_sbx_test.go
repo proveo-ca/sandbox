@@ -24,7 +24,7 @@ import (
 
 var (
 	retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
-	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}(?:-prepare)?\b`)
+	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}\b`)
 	terminalSeq      = regexp.MustCompile("\x1b\\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b[()*+#].|\x1b.")
 )
 
@@ -42,9 +42,6 @@ func removeOpenCodeEngines(t *testing.T, work string, outputs []string) {
 	engines := []string{sbx.SandboxName("opencode", work)}
 	if real, err := filepath.EvalSymlinks(work); err == nil {
 		engines = append(engines, sbx.SandboxName("opencode", real))
-	}
-	for _, name := range append([]string(nil), engines...) {
-		engines = append(engines, name+"-prepare")
 	}
 	for _, out := range outputs {
 		engines = append(engines, openCodeEngineRE.FindAllString(out, -1)...)
@@ -139,7 +136,7 @@ func onTerminal(cmd *exec.Cmd) ([]byte, error) {
 	return bytes.Clone(out.Bytes()), waitErr
 }
 
-func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
+func TestOpenCodeSbxHistorySurvivesOrdinaryReattach(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("host sbx runtime unavailable")
 	}
@@ -148,14 +145,18 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if !imageExists(image) {
 		t.Skipf("OpenCode image %s unavailable", image)
 	}
-	home, work, source := t.TempDir(), t.TempDir(), t.TempDir()
+	home, work := t.TempDir(), t.TempDir()
+	share := filepath.Join(home, "opencode", "v2", "share")
+	if err := os.MkdirAll(share, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	create := exec.Command("docker", "run", "--rm", "--network", "none",
 		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
-		"--mount", "type=bind,source="+source+",target=/source",
+		"--mount", "type=bind,source="+share+",target=/share",
 		"--entrypoint", "bash", image, "-c",
-		`HOME=/tmp/native-schema XDG_DATA_HOME=/tmp/native-data XDG_STATE_HOME=/tmp/native-state OPENCODE_DB=/source/opencode.db OPENCODE_DISABLE_MODELS_FETCH=1 "$(cat /usr/local/lib/proveo/opencode.native)" session list --format json --standalone`)
+		`HOME=/tmp/native-schema XDG_DATA_HOME=/tmp/native-data XDG_STATE_HOME=/tmp/native-state OPENCODE_DB=/share/opencode.db OPENCODE_DISABLE_MODELS_FETCH=1 "$(cat /usr/local/lib/proveo/opencode.native)" session list --format json --standalone`)
 	if out, err := create.CombinedOutput(); err != nil {
-		t.Fatalf("create actual V2 source: %v\n%s", err, out)
+		t.Fatalf("create an actual V2 database in the share: %v\n%s", err, out)
 	}
 	bin := buildProveo(t)
 	env := append(os.Environ(), "PROVEO_HOME="+home, "PROVEO_WIZARD=off",
@@ -164,7 +165,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		"TERM=xterm-256color", "NO_COLOR=1")
 	var outputs []string
 	t.Cleanup(func() { removeOpenCodeEngines(t, work, outputs) })
-	run := func(terminal bool, native ...string) string {
+	run := func(native ...string) string {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
@@ -172,34 +173,32 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 			"--input", work, "--egress-mode", "open", "--"}, native...)
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Env, cmd.Dir = env, work
-		var out []byte
-		var err error
-		if terminal {
-			out, err = onTerminal(cmd)
-		} else {
-			out, err = cmd.CombinedOutput()
-		}
+		out, err := onTerminal(cmd)
 		outputs = append(outputs, string(out))
 		if err != nil {
-			t.Fatalf("managed sbx launch %v (terminal %v): %v\n%s", native, terminal, err, terminalText(string(out)))
+			t.Fatalf("managed sbx launch %v: %v\n%s", native, err, terminalText(string(out)))
 		}
 		return string(out)
 	}
-	prepared := run(false, "--proveo-prepare", "--source", source)
-	m := retainedEngineRE.FindStringSubmatch(prepared)
+	result := run("api", "POST", "/api/session", "--data", `{"title":"share-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
+	m := retainedEngineRE.FindStringSubmatch(terminalWords(result))
 	if m == nil {
-		t.Fatalf("the prepare run named no retained engine:\n%s", prepared)
+		t.Fatalf("the first run named no retained engine:\n%s", terminalText(result))
 	}
 	engine := m[1]
-	if !strings.Contains(prepared, "no terminal — the agent was not started") {
-		t.Errorf("the headless prepare did not stop before the agent:\n%s", prepared)
+	if !strings.Contains(terminalWords(result), "OpenCode prepare: 1/3 initialize the mounted V2 database") {
+		t.Errorf("the first run did not prepare the database copied into the share:\n%s", terminalText(result))
 	}
 	created := regexp.MustCompile(`Created sandbox ` + regexp.QuoteMeta(engine) + `(?:\s|$)`)
-	if !created.MatchString(terminalWords(prepared)) {
-		t.Fatalf("the prepare run never printed \"Created sandbox %s\", so a replacement would go unseen:\n%s", engine, prepared)
+	if !created.MatchString(terminalWords(result)) {
+		t.Fatalf("the first run never printed \"Created sandbox %s\", so a replacement would go unseen:\n%s", engine, terminalText(result))
 	}
 	if _, err := os.Stat(openCodeOwnerRecord(t, engine)); err != nil {
-		t.Fatalf("prepared engine owner record: %v", err)
+		t.Fatalf("engine owner record: %v", err)
+	}
+	id := sessionID(result)
+	if id == "" {
+		t.Fatalf("native session creation missing:\n%s", terminalText(result))
 	}
 	reattached := func(leg, out string) {
 		t.Helper()
@@ -208,16 +207,10 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 			t.Fatalf("%s did not reattach to %s:\n%s", leg, engine, terminalText(out))
 		}
 		if created.MatchString(words) || strings.Contains(words, "creates a new sandbox named "+engine) {
-			t.Fatalf("%s replaced the prepared engine %s:\n%s", leg, engine, terminalText(out))
+			t.Fatalf("%s replaced the engine %s:\n%s", leg, engine, terminalText(out))
 		}
 	}
-	result := run(true, "api", "POST", "/api/session", "--data", `{"title":"prepared-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
-	reattached("api POST", result)
-	id := sessionID(result)
-	if id == "" {
-		t.Fatalf("native session creation missing:\n%s", terminalText(result))
-	}
-	reread := run(true, "api", "GET", "/api/session/"+id)
+	reread := run("api", "GET", "/api/session/"+id)
 	reattached("api GET", reread)
 	if got := sessionID(reread); got != id {
 		t.Fatalf("ordinary reattach read session %q, want %q:\n%s", got, id, terminalText(reread))
@@ -227,7 +220,7 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 	if out, err := exec.Command("sbx", "stop", engine).CombinedOutput(); err != nil {
 		t.Fatalf("sbx stop %s: %v\n%s", engine, err, out)
 	}
-	recovered := run(true, "api", "GET", "/api/session/"+id)
+	recovered := run("api", "GET", "/api/session/"+id)
 	reattached("api GET after sbx stop", recovered)
 	if got := sessionID(recovered); got != id {
 		t.Fatalf("after sbx stopped the engine, the reattach read session %q, want %q:\n%s", got, id, terminalText(recovered))
@@ -243,7 +236,7 @@ func TestTerminalLegsReadPtyOutput(t *testing.T) {
 	script := `[ -t 0 ] && [ -t 1 ] && echo TTY_BOTH
 printf '\033[1m[A]\033(B\033[mppr'; sleep 0.2; printf 'ove\033[1Call · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key1=$k"
 printf '[A]pprove all · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key2=$k"
-printf 'Created sandbox proveo-opencode-0123abcd-prepare\n  re-attaching to proveo-opencode-0123abcd, which an earlier run left here\n'
+printf 'Created sandbox proveo-opencode-0123abcd-sibling\n  re-attaching to proveo-opencode-0123abcd, which an earlier run left here\n'
 printf '\r\033[2Kproveo: Waiting for seed — starting (1s) |' >&2; printf '\r\033[2K' >&2
 printf '{"data":{"id":"ses_fixture"}}\n'`
 	out, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", script))
@@ -259,7 +252,7 @@ printf '{"data":{"id":"ses_fixture"}}\n'`
 		t.Fatalf("reattach marker lost: %q", words)
 	}
 	if regexp.MustCompile(`Created sandbox proveo-opencode-0123abcd(?:\s|$)`).MatchString(words) {
-		t.Fatalf("the -prepare engine read as the retained engine: %q", words)
+		t.Fatalf("a longer sandbox name read as the retained engine: %q", words)
 	}
 	if _, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", `printf 'Overwrite? (y/N) '; sleep 60`)); err == nil || !strings.Contains(err.Error(), "Overwrite? (y/N)") {
 		t.Fatalf("an sbx prompt the run cannot answer must end the leg: %v", err)

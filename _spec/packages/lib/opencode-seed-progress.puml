@@ -76,7 +76,7 @@ actor "Executor\nterminal or captured stderr" as OP
 SEED -> STATUS : starting: preparing OpenCode seed
 SEED -> STATUS : credentials: checking prepared V2 history
 SEED -> GATE : bounded metadata/owner validation; no bulk sanitization
-GATE -> SEED : prepared or explicit maintenance required
+GATE -> SEED : prepared, or refused until the host (or an unmanaged await-seed) prepares
 WAIT -> STATUS : read current category/detail
 WAIT -> OP : Waiting for seed + step + elapsed + spinner
 SEED -> LIB : seed configuration

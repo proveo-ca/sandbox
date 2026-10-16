@@ -159,7 +159,7 @@ Historical V1 session versions inside an already-adopted V2 database remain vali
 The image requires a stable `2.x` native version.
 An ordinary launch prepares an existing V2 database when the engine cache is unprepared, and reports the three prepare steps.
 If that database is absent and an older `opencode.db` is on disk, the launch copies it into `opencode/v2/share` and prepares the copy. The older file stays in place. OpenCode's own V1 migration then runs inside the copy.
-A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. Another major requires `proveo run opencode -- --proveo-recover`.
+A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. Another major's journal is pending private state: the launch recovers it, or asks first.
 sbx stops an idle engine about 30s after its last session, which ends the keeper. The next launch re-verifies the cache that engine kept: at once when its last run ended prepared or published, after asking when it was interrupted (a headless run recovers). It never deletes without a headed yes.
 
 Prepared startup has a five-second preparation budget.
@@ -168,27 +168,17 @@ The native client reuses the prepared engine-local cache.
 The host keeps the keeper's kernel PID/start-time identity outside guest-writable mounts.
 Readiness files inside the sandbox cannot replace that authority.
 
-To adopt an existing **V2-schema** store explicitly:
+proveo adds no maintenance commands; arguments after `--` go to OpenCode.
+To bring an existing **V2-schema** store, copy its `opencode.db` into `<proveo home>/opencode/v2/share/` before the first launch.
+That launch prepares the mounted V2 database and publishes sanitized history into the V2 namespace.
 
-```bash
-proveo run opencode -- --proveo-prepare --source /absolute/path/to/v2-history
-```
-
-proveo mounts that source read-only in a temporary preparation engine.
-It never leaves the source mounted in the retained coding engine.
-Preparation validates the V2 schema and initializes it with the pinned native release.
-It preserves the source and publishes sanitized history into the V2 namespace.
-V1-schema stores are rejected rather than implicitly upgraded.
-Preparation can take longer than five seconds and runs outside ordinary launch.
-
-To recover retained private state explicitly:
-
-```bash
-proveo run opencode -- --proveo-recover
-```
-
+An interrupted run leaves pending private state.
+The next launch recovers it, or asks first: recover, reset with `sbx rm --force`, or stop and ask again next time.
 Recovery does not overwrite a published store changed by another writer.
 Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
+
+A raw `sbx run` of the kit, with no proveo host, prepares its own engine when the agent starts.
+It refuses when a legacy `opencode.db` waits for adoption; one `proveo run opencode` adopts it.
 Creating a new engine for an existing V2 database prepares that database on the next launch.
 Docker-only runs use explicitly selected disposable sanitized state for compatibility.
 They remain functional but do not provide the retained sbx cache's startup guarantee.

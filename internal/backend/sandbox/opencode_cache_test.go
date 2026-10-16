@@ -17,7 +17,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestOpenCodeCacheOwnerLivesOutsideGuestState(t *testing.T) {
@@ -46,27 +45,6 @@ func TestOpenCodeCacheOwnerLivesOutsideGuestState(t *testing.T) {
 	_, err = openCodeCacheOwner("bad", func(string, ...string) (string, error) { return `{"cache_owner":"fake"}`, nil })
 	if err == nil {
 		t.Fatal("accepted a malformed cache owner identity")
-	}
-}
-
-func TestOpenCodePreparationMountsOnlyExplicitReadOnlySource(t *testing.T) {
-	t.Parallel()
-	source := t.TempDir()
-	mount, enabled, err := openCodePreparationSource([]string{"--proveo-prepare", "--source", source})
-	if err != nil || !enabled || mount.Host != source || !mount.ReadOnly {
-		t.Fatalf("preparation source: %+v %v %v", mount, enabled, err)
-	}
-	_, enabled, err = openCodePreparationSource([]string{"run", "--source", source})
-	if err != nil || enabled {
-		t.Fatalf("ordinary launch mounted a preparation source: %v %v", enabled, err)
-	}
-	link := filepath.Join(t.TempDir(), "source")
-	if err := os.Symlink(source, link); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = openCodePreparationSource([]string{"--proveo-prepare", "--source", link})
-	if err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("accepted source symlink: %v", err)
 	}
 }
 
@@ -113,7 +91,7 @@ func TestUnpreparedLegacyStoreAsksAndKeepsTheSandbox(t *testing.T) {
 		return "proveo: OpenCode history is not prepared", fmt.Errorf("exit")
 	}
 	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{
-		Name: "proveo-opencode-11c4aed0", Command: []string{"--proveo-prepare"},
+		Name: "proveo-opencode-11c4aed0",
 	}, func(string) bool { return true }, run)
 	if err == nil || !strings.Contains(err.Error(), "asks again") || !strings.Contains(err.Error(), "opencode/share") {
 		t.Fatalf("err = %v", err)
@@ -248,7 +226,7 @@ func TestPrepareFailureKeepsTheRuntimeText(t *testing.T) {
 		case "--bootstrap-cache":
 			return `{"cache_owner":"1234:5678"}`, nil
 		case "--prepare":
-			return "proveo: history has pending private state; recover it explicitly", exec.Command("sh", "-c", "exit 75").Run()
+			return "proveo: another OpenCode run owns this cache", exec.Command("sh", "-c", "exit 75").Run()
 		default:
 			return "proveo: OpenCode history is not prepared", fmt.Errorf("exit")
 		}
@@ -256,7 +234,7 @@ func TestPrepareFailureKeepsTheRuntimeText(t *testing.T) {
 	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: home}, sbx.RunConfig{
 		Name: "proveo-opencode-11c4aed0",
 	}, func(string) bool { return true }, run)
-	if err == nil || !strings.Contains(err.Error(), "pending private state") {
+	if err == nil || !strings.Contains(err.Error(), "owns this cache") {
 		t.Fatalf("err = %v", err)
 	}
 	var agent backend.ExitError
@@ -285,40 +263,6 @@ func TestBootstrapFailureAfterRemovalDoesNotSayTheSandboxStays(t *testing.T) {
 	err := openCodeBootstrapFailure(fmt.Errorf("OpenCode cache bootstrap returned invalid owner identity"), "proveo-opencode-11c4aed0", true)
 	if strings.Contains(err.Error(), "sandbox stays") || !strings.Contains(err.Error(), "was removed") || !strings.Contains(err.Error(), "does not persist") {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestRecoverIsNotRewrittenAsPrepare(t *testing.T) {
-	previous := receiptDir
-	root := t.TempDir()
-	receiptDir = func() string { return root }
-	t.Cleanup(func() { receiptDir = previous })
-	t.Setenv("PROVEO_WIZARD", "off")
-	stubAgentTerminal(t, true)
-	var calls [][]string
-	run := func(_ context.Context, _ string, args ...string) (string, error) {
-		calls = append(calls, append([]string(nil), args...))
-		switch args[0] {
-		case "--bootstrap-cache", "--recover":
-			return `{"cache_owner":"1234:5678"}`, nil
-		default:
-			return "", fmt.Errorf("unexpected %s", args[0])
-		}
-	}
-	_, err := prepareOpenCodeLaunch(Input{Target: "opencode", HomeRoot: t.TempDir()}, sbx.RunConfig{
-		Name: "proveo-opencode-11c4aed0", Command: []string{"--proveo-recover"},
-	}, func(string) bool { return true }, run)
-	sawRecover := false
-	for _, call := range calls {
-		if call[0] == "--prepare" || call[0] == "--check-prepared" {
-			t.Fatalf("recover took the prepare path: %v", calls)
-		}
-		if call[0] == "--recover" {
-			sawRecover = true
-		}
-	}
-	if !sawRecover {
-		t.Fatalf("recover did not run: %v err=%v", calls, err)
 	}
 }
 
@@ -396,7 +340,7 @@ func lostKeeperRuntime(calls *[][]string, removed *bool, recoverOut string, reco
 			}
 			return `{"cache_owner":"1234:5678"}`, nil
 		default:
-			return "proveo: OpenCode history is not prepared; run --proveo-prepare or --proveo-recover", exec.Command("sh", "-c", "exit 78").Run()
+			return "proveo: " + unpreparedRefusal + "; `proveo run opencode` prepares or recovers it", exec.Command("sh", "-c", "exit 78").Run()
 		}
 	}
 }
@@ -490,7 +434,7 @@ func TestDeclinedRecoveryKeepsTheSandboxAndSaysHow(t *testing.T) {
 	if slices.Contains(operations(calls), "--recover") || *removed {
 		t.Fatalf("stop still touched the history: %v removed=%v", operations(calls), *removed)
 	}
-	for _, want := range []string{"journal phase publishing", "This sandbox stays", "proveo run opencode-browser -- --proveo-recover", "sbx rm --force " + lostKeeperEngine} {
+	for _, want := range []string{"journal phase publishing", "This sandbox stays", "The next `proveo run opencode-browser` asks again", "sbx rm --force " + lostKeeperEngine} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}
@@ -602,20 +546,6 @@ func TestAnotherEnginesLiveJournalLeavesBothAlone(t *testing.T) {
 	}
 }
 
-func TestExplicitPrepareNeverTurnsIntoRecovery(t *testing.T) {
-	home := lostKeeperHome(t, lostKeeperEngine, "published")
-	stubRetainedChoice(t, choiceui.RetainedRecover)
-	stubAgentTerminal(t, true)
-	var calls [][]string
-	_, err := lostKeeperLaunch(t, home, []string{"--proveo-prepare"}, lostKeeperRuntime(&calls, nil, "", nil))
-	if slices.Contains(operations(calls), "--recover") {
-		t.Fatalf("--proveo-prepare ran a recovery: %v", operations(calls))
-	}
-	if err == nil || !strings.Contains(err.Error(), "--proveo-recover") {
-		t.Errorf("err = %v, want the recover command", err)
-	}
-}
-
 func stubAgentTerminal(t *testing.T, present bool) {
 	t.Helper()
 	previous := agentTerminal
@@ -632,82 +562,39 @@ func stubSeed(t *testing.T) *bool {
 	return &seeded
 }
 
-// maintenanceRuntime answers like a keeper whose engine is prepared when checked is true.
-func maintenanceRuntime(calls *[][]string, checked bool) func(context.Context, string, ...string) (string, error) {
+// unpreparedRuntime answers like a keeper on an unprepared engine whose prepare succeeds.
+func unpreparedRuntime(calls *[][]string) func(context.Context, string, ...string) (string, error) {
 	return func(_ context.Context, _ string, args ...string) (string, error) {
 		*calls = append(*calls, append([]string(nil), args...))
 		switch args[0] {
 		case "--bootstrap-cache", "--prepare", "--recover":
 			return `{"cache_owner":"1234:5678"}`, nil
-		case "--check-prepared":
-			if checked {
-				return "", nil
-			}
 		}
-		return "proveo: OpenCode history is not prepared; run --proveo-prepare or --proveo-recover", exec.Command("sh", "-c", "exit 78").Run()
+		return "proveo: " + unpreparedRefusal + "; `proveo run opencode` prepares or recovers it", exec.Command("sh", "-c", "exit 78").Run()
 	}
 }
 
-func TestHeadlessMaintenanceStopsBeforeTheAgent(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		command []string
-		checked bool
-		want    string
-	}{
-		{"prepare", []string{"--proveo-prepare"}, false, "--prepare"},
-		{"prepare on a prepared engine", []string{"--proveo-prepare"}, true, "--check-prepared"},
-		{"recover", []string{"--proveo-recover"}, false, "--recover"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := lostKeeperHome(t, "", "")
-			stubAgentTerminal(t, false)
-			seeded := stubSeed(t)
-			var out strings.Builder
-			previous := ui.Default
-			ui.Default = ui.New(&out)
-			t.Cleanup(func() { ui.Default = previous })
-			var calls [][]string
-			_, err := lostKeeperLaunch(t, home, tc.command, maintenanceRuntime(&calls, tc.checked))
-			if !errors.Is(err, ErrAgentNotStarted) {
-				t.Fatalf("err = %v, want the headless maintenance stop", err)
-			}
-			if strings.Count(out.String(), noTerminal) != 1 || !strings.Contains(out.String(), "retained engine "+lostKeeperEngine) {
-				t.Errorf("output does not say once that the agent was not started on %s:\n%s", lostKeeperEngine, out.String())
-			}
-			if !slices.Contains(operations(calls), tc.want) {
-				t.Errorf("calls = %v, want %s", operations(calls), tc.want)
-			}
-			if *seeded {
-				t.Error("a headless maintenance run seeded an agent launch")
-			}
-		})
-	}
-}
-
-func TestMaintenanceStartsTheAgentWithATerminalOrANativeCommand(t *testing.T) {
+func TestOrdinaryLaunchStartsTheAgentWithOrWithoutATerminal(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		command  []string
 		terminal bool
 		native   []string
 	}{
-		{"terminal prepare", []string{"--proveo-prepare"}, true, nil},
-		{"terminal recover", []string{"--proveo-recover"}, true, nil},
-		{"headless prepare with a native command", []string{"--proveo-prepare", "session", "list"}, false, []string{"session", "list"}},
-		{"headless ordinary launch", nil, false, nil},
+		{"terminal", true, nil},
+		{"headless", false, nil},
+		{"headless native command", false, []string{"session", "list"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := lostKeeperHome(t, "", "")
 			stubAgentTerminal(t, tc.terminal)
 			seeded := stubSeed(t)
 			var calls [][]string
-			cfg, err := lostKeeperLaunch(t, home, tc.command, maintenanceRuntime(&calls, false))
+			cfg, err := lostKeeperLaunch(t, home, tc.native, unpreparedRuntime(&calls))
 			if err != nil {
 				t.Fatalf("err = %v, calls = %v", err, operations(calls))
 			}
-			if !*seeded {
-				t.Error("the agent launch was not seeded")
+			if !slices.Contains(operations(calls), "--prepare") || !*seeded {
+				t.Errorf("calls = %v, seeded = %v; want a prepare and a seeded launch", operations(calls), *seeded)
 			}
 			var native []string
 			for _, arg := range cfg.Command {
@@ -719,6 +606,74 @@ func TestMaintenanceStartsTheAgentWithATerminalOrANativeCommand(t *testing.T) {
 				t.Errorf("command = %v, want the owner flag and native %v", cfg.Command, tc.native)
 			}
 		})
+	}
+}
+
+func TestRemovedMaintenanceFlagsReachTheNativeClient(t *testing.T) {
+	home := lostKeeperHome(t, "", "")
+	stubSeed(t)
+	var calls [][]string
+	cfg, err := lostKeeperLaunch(t, home, []string{"--proveo-recover"}, unpreparedRuntime(&calls))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(operations(calls), "--recover") || !slices.Contains(cfg.Command, "--proveo-recover") {
+		t.Errorf("calls = %v, command = %v; want an ordinary prepare and the flag passed to opencode", operations(calls), cfg.Command)
+	}
+}
+
+// pendingRuntime answers like a keeper whose store journal holds pending private state.
+func pendingRuntime(calls *[][]string, check string, checkExit int) func(context.Context, string, ...string) (string, error) {
+	return func(_ context.Context, _ string, args ...string) (string, error) {
+		*calls = append(*calls, append([]string(nil), args...))
+		switch args[0] {
+		case "--bootstrap-cache", "--recover":
+			return `{"cache_owner":"1234:5678"}`, nil
+		case "--check-prepared":
+			return check, exec.Command("sh", "-c", fmt.Sprintf("exit %d", checkExit)).Run()
+		}
+		return "proveo: " + pendingRefusal, exec.Command("sh", "-c", "exit 75").Run()
+	}
+}
+
+func TestPendingPrivateStateRecoversInsteadOfStopping(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		check     string
+		checkExit int
+	}{
+		{"fresh keeper", "proveo: " + unpreparedRefusal, 78},
+		{"keeper pending recovery", "proveo: " + unpreparedRefusal + "; `proveo run opencode` prepares or recovers it", 75},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := lostKeeperHome(t, lostKeeperEngine, "publishing")
+			asked := stubRetainedChoice(t, choiceui.RetainedRecover)
+			stubSeed(t)
+			var calls [][]string
+			cfg, err := lostKeeperLaunch(t, home, nil, pendingRuntime(&calls, tc.check, tc.checkExit))
+			if err != nil {
+				t.Fatalf("err = %v, calls = %v", err, operations(calls))
+			}
+			if want := []string{"--bootstrap-cache", "--check-prepared", "--prepare", "--recover"}; !slices.Equal(operations(calls), want) {
+				t.Errorf("calls = %v, want %v", operations(calls), want)
+			}
+			if *asked != "asked:publishing" || !slices.Contains(cfg.Command, "--proveo-cache-owner=1234:5678") {
+				t.Errorf("prompt %q, command %v; want the journal phase asked, then the agent on the recovered cache", *asked, cfg.Command)
+			}
+		})
+	}
+}
+
+func TestBusyHistoryCheckStillStopsTheLaunch(t *testing.T) {
+	home := lostKeeperHome(t, lostKeeperEngine, "active")
+	stubRetainedChoice(t, choiceui.RetainedRecover)
+	var calls [][]string
+	_, err := lostKeeperLaunch(t, home, nil, pendingRuntime(&calls, "proveo: another OpenCode run owns this prepared cache", 75))
+	if err == nil || !strings.Contains(err.Error(), "owns this prepared cache") {
+		t.Errorf("err = %v, want the busy text", err)
+	}
+	if want := []string{"--bootstrap-cache", "--check-prepared"}; !slices.Equal(operations(calls), want) {
+		t.Errorf("calls = %v, want %v", operations(calls), want)
 	}
 }
 
@@ -768,8 +723,15 @@ func TestHostAndRuntimeAgreeOnTheRetainedHistoryContract(t *testing.T) {
 		return string(b)
 	}
 	cache, creds, runtime := read("opencode_cache.py"), read("opencode-credentials.py"), read("proveo-opencode-runtime")
-	if !strings.Contains(cache, retainedRefusal) {
-		t.Errorf("opencode_cache.py no longer refuses with %q; the host would stop recovering a lost keeper", retainedRefusal)
+	for _, refusal := range []string{retainedRefusal, pendingRefusal, unpreparedRefusal} {
+		if !strings.Contains(cache, refusal) {
+			t.Errorf("opencode_cache.py no longer refuses with %q; the host routes recovery by that text", refusal)
+		}
+	}
+	for _, rel := range []string{"proveo-seed", "proveo-await-seed"} {
+		if !strings.Contains(read(rel), unpreparedRefusal) {
+			t.Errorf("%s no longer names %q; an unmanaged launch would not self-prepare", rel, unpreparedRefusal)
+		}
 	}
 	if !strings.Contains(creds, `LIFECYCLE_LOCK_NAME = "`+strings.TrimSuffix(openCodeJournalName, ".journal")+`"`) ||
 		!strings.Contains(cache, `+ ".journal"`) {

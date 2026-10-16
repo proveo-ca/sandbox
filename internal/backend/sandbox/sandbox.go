@@ -1431,26 +1431,6 @@ func Run(in Input) error {
 			return err
 		}
 	}
-	if opencodeCacheTarget(in.Target) {
-		mount, enabled, err := openCodePreparationSource(in.Extra)
-		if err != nil {
-			return err
-		}
-		if enabled {
-			if err := prepareOpenCodeSource(in, homeAccess, mount); err != nil {
-				return err
-			}
-			var ordinary []string
-			for index := 0; index < len(in.Extra); index++ {
-				if in.Extra[index] == "--source" {
-					index++
-					continue
-				}
-				ordinary = append(ordinary, in.Extra[index])
-			}
-			in.Extra = ordinary
-		}
-	}
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false
 	defer func() {
@@ -1484,10 +1464,6 @@ func Run(in Input) error {
 	}
 	if opencodeCacheTarget(in.Target) && !in.Shell {
 		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
-		if errors.Is(err, ErrAgentNotStarted) {
-			keepHomeAccess = true
-			return err
-		}
 		if err != nil {
 			return err
 		}

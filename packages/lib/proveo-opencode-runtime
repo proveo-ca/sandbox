@@ -686,7 +686,7 @@ def main():
         print(f"proveo: {error}", file=sys.stderr)
         return 78
     except (OSError, ValueError, KeyError, IndexError) as error:
-        print(f"proveo: OpenCode prepared-state operation failed ({type(error).__name__}); run explicit preparation or recovery", file=sys.stderr)
+        print(f"proveo: OpenCode prepared-state operation failed ({type(error).__name__}); `proveo run opencode` prepares or recovers it", file=sys.stderr)
         return 78
 
 

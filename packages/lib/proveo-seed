@@ -18,7 +18,7 @@ else
     gate_args=(--check-prepared)
     [[ -z "${PROVEO_OPENCODE_CACHE_OWNER:-}" ]] || gate_args+=("--proveo-cache-owner=$PROVEO_OPENCODE_CACHE_OWNER")
     if ! /usr/local/bin/proveo-opencode-runtime "${gate_args[@]}"; then
-      printf 'OpenCode history requires explicit preparation\n' > "$PROVEO_SEED_REFUSED"
+      printf 'OpenCode history is not prepared in this engine\n' > "$PROVEO_SEED_REFUSED"
       : > "$done_marker"
       exit 0
     fi

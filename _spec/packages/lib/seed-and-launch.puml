@@ -147,6 +147,9 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
 ' so it never waits. A refused file whose only line is "OpenCode credential preflight refused release"
 ' is the runtime's own note from a kept sandbox; await-seed deletes it and launches. A share refusal still stops the launch.
+' "OpenCode history is not prepared in this engine" with no --proveo-cache-owner on the runtime command is a
+' launch with no proveo host: await-seed self-prepares, re-runs the seed with that owner, waits again, and
+' launches (_spec/_plans/opencode-versioned-history-storage.puml, UNMANAGED SELF-PREPARE).
 '
 ' ── THE RELEASE IS ALSO A STARTUP-STEP BOUNDARY (2026-10-13) ──────────────
 ' "Installs stay after the release" held in the ORDER and failed in the TIME.

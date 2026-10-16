@@ -572,6 +572,90 @@ class PreparedCacheTests(unittest.TestCase):
         f.assert_clean(messages=2)
 
 
+class UnmanagedSelfPrepareTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = support.RuntimeTests("runTest")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        f = self.fixture
+        self.home = f.root / "unmanaged-home"
+        self.durable = self.home / "opencode/v2/share"
+        self.refused = f.root / "unmanaged-refused"
+        self.env = dict(
+            f.env,
+            HOME=str(self.home),
+            PROVEO_HOME=str(self.home),
+            PROVEO_OPENCODE_CACHE_HOME=str(f.root / "unmanaged-cache"),
+            PROVEO_OPENCODE_ENGINE_ID="unmanaged-engine",
+            PROVEO_SEED_REFUSED=str(self.refused),
+        )
+        self.addCleanup(
+            subprocess.run,
+            [sys.executable, "-B", str(RUNTIME), "--shutdown-cache"],
+            env=self.env,
+            capture_output=True,
+            timeout=5,
+        )
+
+    def runtime(self, *args):
+        return subprocess.run(
+            [sys.executable, "-B", str(RUNTIME), *args],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def self_prepare(self, *args):
+        self.refused.write_text(opencode_cache.UNPREPARED_REFUSAL + "\n")
+        return self.runtime("--self-prepare", *args)
+
+    def assert_owned(self, result):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        owner = json.loads(result.stdout)["cache_owner"]
+        self.assertRegex(owner, r"^[1-9][0-9]*:[0-9]+$")
+        self.assertFalse(self.refused.exists(), "the seed refusal outlived the prepare")
+        checked = self.runtime("--check-prepared", "--proveo-cache-owner=" + owner)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        return owner
+
+    def test_an_empty_store_prepares_empty_and_names_the_keeper(self):
+        self.home.mkdir()
+        self.assert_owned(self.self_prepare())
+
+    def test_an_existing_v2_database_is_prepared_not_replaced(self):
+        self.fixture.fixture(self.durable)
+        self.assert_owned(self.self_prepare())
+        with contextlib.closing(sqlite3.connect(self.durable / "opencode.db")) as db:
+            titles = [row[0] for row in db.execute("SELECT title FROM session_v2")]
+        self.assertEqual(titles, ["keep session"])
+
+    def test_a_host_owner_flag_is_refused(self):
+        self.home.mkdir()
+        result = self.self_prepare("--proveo-cache-owner=1:2")
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("prepared by its host", result.stderr)
+
+    def test_a_live_keeper_is_never_adopted(self):
+        self.home.mkdir()
+        self.assert_owned(self.self_prepare())
+        again = self.self_prepare()
+        self.assertEqual(again.returncode, 78, again.stderr)
+        self.assertIn("already runs in this engine", again.stderr)
+        self.assertTrue(self.refused.exists())
+
+    def test_a_legacy_database_is_left_for_the_host_to_adopt(self):
+        legacy = self.home / "opencode/share"
+        legacy.mkdir(parents=True)
+        (legacy / "opencode.db").write_bytes(b"legacy")
+        result = self.self_prepare()
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("opencode/share/opencode.db is not adopted", result.stderr)
+        self.assertFalse(self.durable.exists())
+        self.assertTrue(self.refused.exists())
+        self.assertEqual(self.runtime("--check-prepared").returncode, 78)
+
+
 class IntentLogTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

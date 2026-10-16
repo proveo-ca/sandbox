@@ -3,6 +3,7 @@
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/opencode/harness.manifest
 ' covers: packages/lib/proveo-seed
+' covers: packages/lib/proveo-await-seed
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/opencode_cache.py
 ' covers: packages/lib/test_opencode_cache.py
@@ -104,7 +105,7 @@
 ' SELECTED SEED PHASE: verify a trusted prepared-generation descriptor plus native-major/schema compatibility.
 ' Do not run full backup, VACUUM, SQL dump hashing or implicit legacy import during seeding.
 ' An unprepared engine prepares the mounted V2 database in this launch and reports the three steps.
-' Pending recovery still requires --proveo-recover, except a lost keeper on an ordinary launch (SBX AUTO-STOP below). A different directory still requires --proveo-prepare --source.
+' Pending recovery is the host's: an ordinary launch recovers or asks (SBX AUTO-STOP and NO MAINTENANCE COMMANDS below).
 ' Empty preparation is not a hidden fallback over an existing V2 database.
 ' Seed configuration only after selecting the matching-major namespace.
 '
@@ -125,14 +126,14 @@
 ' Treat an interrupted generation whose private cache still exists as pending recovery without deleting its record.
 ' A removed engine prepares the mounted database when this cache and the journal's recorded cache are both gone, the database matches, and the producer shares the running stable major.
 ' Device, inode and timestamp drift are not a baseline. The current durable files are imported, then that snapshot is pinned. A later edit does not become the new baseline.
-' Unpublished sessions from the removed engine are gone with it. Another major still requires --proveo-recover. A private cache that still exists is never overwritten; SBX AUTO-STOP below says when a launch recovers it.
+' Unpublished sessions from the removed engine are gone with it. Another major is pending private state, which the launch recovers or asks about. A private cache that still exists is never overwritten; SBX AUTO-STOP below says when a launch recovers it.
 ' Prepare, recover and a busy history check report the runtime failure text. Exit 75 is not relabeled as an agent exit.
 ' A cold engine with a mounted V2 database is prepared before the agent starts. The native client does not start on an unprepared cache.
 ' sbx creates/bootstrap-checks the keeper before managed launch and retains successful OpenCode engines.
-' It mounts an explicitly requested preparation source read-only; ordinary V2 launches omit legacy history mounts.
+' Ordinary V2 launches omit legacy history mounts.
 ' Changed launch settings retire a prepared or empty idle engine, not an active/unpublished one.
-' Fresh empty state can be prepared without importing old/unversioned history; existing old stores require explicit adoption.
-' Commands: --proveo-prepare [--source ABSOLUTE_DIR|--empty], --proveo-recover; native flags remain otherwise unchanged.
+' Fresh empty state is prepared without importing old/unversioned history; an existing legacy database is copied and prepared.
+' proveo adds no maintenance commands; native flags pass through unchanged (NO MAINTENANCE COMMANDS below).
 ' An unrecoverable engine asks before sbx rm --force, for every harness. Yes deletes the session.
 ' The next proveo run creates a new sandbox with the same name. That session does not persist.
 ' No keeps the sandbox, and the next proveo run reattaches to it.
@@ -141,7 +142,7 @@
 ' A headed yes does not remove an OpenCode engine with active, unpublished, or unattested state, except from the SBX AUTO-STOP recovery prompts, which name the loss first.
 ' A direct checkout keeps host edits. A clone loses uncommitted edits unless they were fetched.
 ' A screen that fails to open counts as no.
-' A V2 share with a database and an unprepared engine prepares that database. It does not stop for --proveo-prepare.
+' A V2 share with a database and an unprepared engine prepares that database.
 '
 ' DOCKER DOCS, read 2026-10-14 — why history is prepared by the host, between create and run:
 '   https://docs.docker.com/ai/sandboxes/architecture/ : everything inside a sandbox "persists until you remove it",
@@ -174,8 +175,8 @@
 ' every engine on one proveo home, so its engine field (the sandbox name, SANDBOX_VM_ID) decides.
 '   this engine, prepared | published -> --recover at once, one notice line, no prompt.
 '   this engine, other phase, or no journal -> headed: choiceui.ChooseRetainedRecovery
-'     (y recover, r reset = sbx rm --force then this launch prepares again, n/esc stop with both
-'     commands); headless (PROVEO_WIZARD=off, schedule, no TTY) -> recover.
+'     (y recover, r reset = sbx rm --force then this launch prepares again, n/esc stop: the next
+'     run asks again, or the reset command); headless (PROVEO_WIZARD=off, schedule, no TTY) -> recover.
 '   another engine, prepared | published -> this copy is stale and the runtime would reject it
 '     ("belongs to another engine"): headed reset prompt, headless error naming sbx rm --force.
 '   another engine, any other phase -> that engine may be live: error, no recover, no reset.
@@ -183,8 +184,7 @@
 '     otherwise the runtime text, then headed: the reset prompt; headless: the sbx rm command.
 ' A reset inside a launch keeps the launch receipt: this launch recreates the engine with the
 ' same settings, and a missing receipt made the next run refuse the engine as unrecorded.
-' An explicit --proveo-prepare or --empty never turns into a recovery; its refusal names the
-' same two commands. Headless never deletes. Recovery re-verifies and republishes and is never
+' Headless never deletes. Recovery re-verifies and republishes and is never
 ' a fast-path receipt. [Inference] A large history recovers slower than the 5s budget.
 ' Container evidence, 2026-10-15: `docker restart` (processes die, /tmp stays) reproduced the
 ' Linux host's sequence exactly, check 78 then the prepare refusal, and --recover re-attested
@@ -198,11 +198,12 @@
 ' e2e/opencode_cache_sbx_test.go keeps the operator's HOME, where sbx keeps its login: with a
 ' temporary HOME, `sbx template load` failed "Not authenticated to Docker" (2026-10-15). Only
 ' PROVEO_HOME is temporary; the engine is named by the run's "retained engine" line. Cleanup
-' removes every proveo-opencode-<hash>[-prepare] engine any run printed, failed runs included,
+' removes every proveo-opencode-<hash> engine any run printed, failed runs included,
 ' with its owner record and receipt from the user cache dir.
 ' e2e/opencode_cache_sbx_test.go stops the engine with `sbx stop` between two reattaches and
 ' requires the session to survive and the run to report re-verifying its retained history.
-' READ-ONLY WAL SOURCE, 2026-10-15 — why --proveo-prepare --source always failed:
+' READ-ONLY WAL SOURCE, 2026-10-15 — why --proveo-prepare --source always failed (the command is gone;
+' readonly_connect stays for any read-only WAL store):
 ' The source is mounted read-only by design, and every OpenCode 2.x database is in WAL mode; a clean
 ' exit removes -wal and -shm. database_schema (and the credential helper's database_snapshot and
 ' inventory) opened it with `?mode=ro`, and SQLite cannot open a WAL database in a directory where it
@@ -219,7 +220,7 @@
 ' nowhere; a private keeper log would have to keep tracebacks away from the agent's uid.
 ' internal/imagetest/opencode_test.go runs both paths in the image: a 0555 WAL source prepares,
 ' then a killed keeper's cache is refused by check and prepare and re-attested by --recover.
-' HEADLESS MAINTENANCE, 2026-10-15 — why the e2e prepare run ended in an sbx error:
+' HEADLESS MAINTENANCE, 2026-10-15 — SUPERSEDED by NO MAINTENANCE COMMANDS, kept as history:
 ' After --proveo-prepare --source, the run started the agent with no native arguments, which is the
 ' OpenCode TUI. Measured in proveo/opencode:local: the native TUI with no TTY and stdin at EOF never
 ' exits (killed at 40s). The e2e captures output without a TTY, and sbx failed with
@@ -238,7 +239,8 @@
 ' sbx create printed in the prepare run, 2026-10-15) or proveo's "creates a new sandbox named".
 ' Its cleanup also removes the engine names sbx.SandboxName derives from the workspace, so a run
 ' killed before it printed a name leaks nothing.
-' TERMINAL LEGS, 2026-10-16 — why the first reattach printed no session:
+' TERMINAL LEGS, 2026-10-16 — why the first reattach printed no session (the pipe prepare leg is gone
+' with NO MAINTENANCE COMMANDS; every leg now runs on the pty):
 ' With the prepare leg passing, `-- api POST /api/session` on a pipe, with stdin at EOF (/dev/null),
 ' exited 0 and printed only sbx's "Starting opencode agent in sandbox" and "Workspace:" lines: no
 ' image banner, no JSON. proveo copies stdout through when there is no TTY (agentio.Stdio), and the
@@ -264,20 +266,52 @@
 ' at once rather than at its 3-minute deadline.
 ' creack/pty opens /dev/ptmx blocking on darwin, so closing it does not end a read; the reads drain
 ' in a goroutine, and the leg returns at most 10s after proveo exits.
+' NO MAINTENANCE COMMANDS, 2026-10-16 — DECISION (Executor, "Drop commands + self-prepare"):
+' proveo no longer accepts --proveo-prepare [--source DIR|--empty] or --proveo-recover. They were not the
+' V1->V2 path: an ordinary launch copies a legacy opencode.db into opencode/v2/share and prepares the copy,
+' and --source refused V1 stores ("V1/unknown stores require separate explicit migration"). An ordinary
+' launch already recovered retained history (SBX AUTO-STOP above). HEADLESS MAINTENANCE, the temporary
+' -prepare engine and ErrAgentNotStarted go with them.
+' To bring an external V2 store, copy its opencode.db into <proveo home>/opencode/v2/share before the
+' first launch; the launch prepares that mounted V2 database.
+' Every refusal that named --proveo-recover now reaches recoverRetainedOpenCode:
+'   prepare refuses with the retained refusal, or with "pending private state" (an interrupted
+'   publication, or another major's journal) -> recoverRetainedOpenCode;
+'   --check-prepared exits 75 because the keeper is pending recovery, not busy -> prepare -> the same.
+'   A busy store (75, "owns") still stops the launch with the runtime text.
+' Runtime messages name `proveo run opencode` instead of the removed commands.
+' Measured 2026-10-16 on a Docker-only Linux host: the prepared-history gate, not the commands, refused
+' launches that bypass the host. The in-image presentation fixture failed "unprepared in this engine".
+' The seed refusal text was the one the operator's e2e-full reported for opencode; ladder rung 3 runs
+' `sbx run --kit` with proveo's kit and no host (e2e/ladder_test.go). [Inference] that rung is its source.
+' UNMANAGED SELF-PREPARE. A managed launch carries --proveo-cache-owner on the agent command; a raw
+' kit launch does not, so the owner flag is the discriminator. The startup seed cannot decide: a managed
+' launch runs the same kit seed before the host's --bootstrap-cache, and bootstrap refuses a live keeper
+' with no host record ("a cache controller already exists without a trusted host owner record").
+' proveo-await-seed, when the seed refused with "OpenCode history is not prepared in this engine" and
+' the runtime command has no owner flag before `--`, runs `proveo-opencode-runtime --self-prepare`.
+' --self-prepare refuses an owner flag, an existing keeper socket, and a legacy opencode.db beside an
+' absent V2 database (a managed `proveo run opencode` adopts that one). Otherwise it starts a keeper and
+' prepares the V2 database when present, else an empty one, and prints the owner the keeper's socket
+' credentials name. await-seed then starts the seed with PROVEO_OPENCODE_CACHE_OWNER in the background
+' (as the host's seedOpenCode does), waits for the instructions marker, and execs the runtime with
+' --proveo-cache-owner. Checkout still requires an owner; the managed path is unchanged.
+' [Inference] An unmanaged keeper has no host-recorded identity, so nothing outside the guest can tell a
+' later replacement from it; only that one launch trusts it. The host's own bootstrap still refuses it.
+' e2e/opencode_cache_sbx_test.go seeds the V2 database by copying it into the share, not with --source.
+' internal/imagetest/opencode_test.go runs the unmanaged path in the image with no host.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
 ' No on that empty question leaves the sandbox up and asks again.
-' A prepare that already checks out strips --proveo-prepare and starts the agent, unless HEADLESS MAINTENANCE above stops it.
-' --proveo-recover always runs recover. A passing check does not skip it or rewrite it as prepare.
 ' After a confirmed delete, a failed recreate says the previous sandbox was removed.
-' An explicit --source that is still V1 is rejected and left unchanged. The durable copy of a legacy database is prepared so the native server can migrate it.
+' The durable copy of a legacy database is prepared so the native server can migrate it.
 ' Preparation initializes compatible schemas with the pinned native release,
 ' then runs the existing sanitized publication sequence outside ordinary startup.
 ' Diagnostics and commit-subject helpers use disposable empty private state rather than cloning all history.
 ' Docker-only disposable engines do not supply a retained keeper; the managed fast-start backend is sbx.
 ' Docker compatibility explicitly selects disposable sanitized preparation; it does not claim the sbx cache latency guarantee.
-' Explicit import uses a temporary read-only-source engine and prepares the stable engine from the published V2 checkpoint.
+' The runtime's internal `--prepare --source` control has no proveo entry point since NO MAINTENANCE COMMANDS.
 ' The imported source never remains mounted in the retained agent engine, and its launch receipt stays stable on reattach.
 ' Stopped or unattested engines are not automatically retired when configuration changes.
 ' Published-state fingerprints cover the whole artifact/state tree except lifecycle locks and private recovery directories.
@@ -337,7 +371,7 @@ database "Host cache owner record\nkernel PID/start-time outside guest mounts" a
 component "opencode_cache.py\nprepared gate + runtime keeper" as OWNER <<host>>
 database "Engine-local active history\nstable prefix; prepared generation" as ACTIVE <<db>>
 component "OpenCode native client\nmatching major only" as NATIVE <<app>>
-component "Maintenance / post-exit publisher\nexplicit prepare + recover; three snapshots" as MAINTAIN <<app>>
+component "Maintenance / post-exit publisher\nhost prepare + recover; three snapshots" as MAINTAIN <<app>>
 database "Versioned credential-free checkpoints\nprevious good generation retained" as DURABLE <<db>>
 database "V1 or unknown history\nuntouched by V2 launch" as OLD <<db>>
 component "Preparation required\nbounded, explicit diagnostic" as REQUIRED <<error>>

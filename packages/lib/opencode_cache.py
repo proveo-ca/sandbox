@@ -37,6 +37,36 @@ def process_identity(pid):
     return f"{pid}:{text[text.rfind(')') + 2 :].split()[19]}"
 
 
+UNPREPARED_REFUSAL = "OpenCode history is not prepared in this engine"
+LEGACY_DATABASES = ("opencode/share/opencode.db", ".local/share/opencode/opencode.db")
+
+
+def unmanaged_empty(env, cfg, owner):
+    if owner is not None:
+        raise CacheError("a launch with a host-issued cache owner is prepared by its host")
+    if cfg["socket"].exists():
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.connect(str(cfg["socket"]))
+        except (ConnectionRefusedError, FileNotFoundError):
+            pass
+        else:
+            raise CacheError(
+                "an OpenCode keeper already runs in this engine without a host owner record; run `proveo run opencode`"
+            )
+        finally:
+            probe.close()
+    if (cfg["durable"] / cfg["name"]).exists():
+        return False
+    home = Path(env.get("PROVEO_STATE_HOME") or env.get("PROVEO_HOME") or env.get("HOME") or "/").resolve()
+    for legacy in LEGACY_DATABASES:
+        if (home / legacy).exists():
+            raise CacheError(
+                f"{legacy} is not adopted into the V2 store; run `proveo run opencode` once to adopt it"
+            )
+    return True
+
+
 def spawn_keeper(runtime, env):
     child = subprocess.run(
         [sys.executable, "-B", "-I", "-S", runtime.__file__, "--cache-server"],
@@ -160,7 +190,7 @@ def signature(root, deadline):
         for name in sorted(dirs + files):
             if time.monotonic() >= deadline:
                 raise CacheError(
-                    "prepared-state metadata exceeded the startup budget; run explicit preparation"
+                    "prepared-state metadata exceeded the startup budget"
                 )
             path = Path(directory, name)
             info = path.lstat()
@@ -578,7 +608,7 @@ class Keeper:
                 and not adopting
             ):
                 raise CacheError(
-                    "history has pending private state; recover it explicitly", 75
+                    "history has pending private state", 75
                 )
             baseline = self.durable_stamp()
             self.lease = lease
@@ -733,7 +763,7 @@ class Keeper:
             raise CacheError("another OpenCode run owns this prepared cache", 75)
         if self.state != "prepared":
             raise CacheError(
-                "OpenCode history is not prepared; run --proveo-prepare or --proveo-recover",
+                "OpenCode history is not prepared in this engine; `proveo run opencode` prepares or recovers it",
                 75 if self.state in ("active", "pending-recovery") else 78,
             )
         if self.cache_signature != signature(
@@ -741,12 +771,12 @@ class Keeper:
         ):
             self.state = "unprepared"
             raise CacheError(
-                "prepared cache changed outside its owner; run explicit recovery"
+                "prepared cache changed outside its owner"
             )
         if self.durable_signature != self.durable_stamp():
             self.state = "unprepared"
             raise CacheError(
-                "published history changed; run explicit preparation in a fresh engine"
+                "published history changed since this engine prepared it"
             )
 
     def checkout(self, budget=4):
@@ -763,7 +793,7 @@ class Keeper:
                 self.validate_record(existing)
                 if existing.get("phase") != "prepared":
                     raise CacheError(
-                        "history has pending private state; run explicit recovery", 75
+                        "history has pending private state; `proveo run opencode` recovers it", 75
                     )
             except Exception:
                 os.close(self.lease)
@@ -875,7 +905,7 @@ class Keeper:
                 str(error) if isinstance(error, CacheError) else type(error).__name__
             )
             raise CacheError(
-                "OpenCode publication failed; private state retained (not credential-free) for --proveo-recover; previous credential-free checkpoint remains published: "
+                "OpenCode publication failed; private state retained (not credential-free) for the next `proveo run opencode` to recover; previous credential-free checkpoint remains published: "
                 + cause,
                 74,
             ) from None
@@ -1069,7 +1099,7 @@ def serve(runtime, env, ready_fd=None):
                             code=getattr(error, "code", 78),
                             message=str(error)
                             if isinstance(error, (CacheError, keeper.helper.SnapshotError))
-                            else "OpenCode cache operation failed; explicit recovery required",
+                            else "OpenCode cache operation failed",
                         ),
                     )
             finally:
@@ -1129,7 +1159,7 @@ def connect(
             if time.monotonic() >= deadline:
                 connection.close()
                 raise CacheError(
-                    "OpenCode history is unprepared in this engine; run --proveo-prepare explicitly"
+                    "OpenCode history is unprepared in this engine; `proveo run opencode` prepares it"
                 ) from None
             time.sleep(0.025)
     peer = struct.unpack(
@@ -1275,6 +1305,7 @@ def run(runtime):
         "--shutdown-cache",
         "--bootstrap-cache",
         "--retire-safe",
+        "--self-prepare",
     )
     prepared_command = executable == "--preflight-command"
     if prepared_command:
@@ -1343,15 +1374,10 @@ def run(runtime):
         )
         if result is not None:
             return result
-    if not prepared_command and args[:1] in (
-        ["--proveo-prepare"],
-        ["--proveo-recover"],
-    ):
-        executable = "--prepare" if "--proveo-prepare" in args else "--recover"
-        control = True
     if control:
         operation = {
             "--prepare": "prepare",
+            "--self-prepare": "prepare",
             "--recover": "recover",
             "--check-prepared": "check",
             "--sanitize": "check",
@@ -1364,6 +1390,9 @@ def run(runtime):
             else str(cfg["durable"])
         )
         empty = "--empty" in args
+        if executable == "--self-prepare":
+            source = str(cfg["durable"])
+            empty = unmanaged_empty(env, cfg, owner)
         connection, result, fds = connect(
             runtime,
             env,
@@ -1383,7 +1412,7 @@ def run(runtime):
             with contextlib.suppress(OSError):
                 if (
                     refused.read_text().strip()
-                    == "OpenCode history requires explicit preparation"
+                    == UNPREPARED_REFUSAL
                 ):
                     refused.unlink()
         if operation in ("prepare", "recover"):
