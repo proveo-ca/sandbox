@@ -48,7 +48,7 @@
 ' Moving the same blocking copy behind a spinner or releasing a marker before history is usable fails the goal.
 ' A prepared compatible store must enter the native client within the budget.
 ' Missing, incompatible, busy or damaged prepared state must return an actionable result within the budget.
-' Bulk import, deep integrity scans and large recovery operations are explicit maintenance, not hidden launch work.
+' Bulk import, deep integrity scans and large recovery operations are host maintenance steps, reported as such, not hidden native startup work.
 '
 ' HISTORICAL FAILURE: seed --sanitize and normal launch both invoked implicit store merging before their own snapshots.
 ' The removed merge helper created full sanitized copies of both stores before comparing their entire SQL dumps.
@@ -249,7 +249,7 @@
 ' empty, and no issue names this. A run is interactive by construction
 ' (_spec/internal/sbx/sandbox-backend.puml), and every other sbx e2e drives proveo through tmux or
 ' a pty.
-' DECISION (Executor, "PTY legs"): the prepare leg stays on a pipe, because it tests HEADLESS
+' DECISION (Executor, "PTY legs"; the pipe leg left with NO MAINTENANCE COMMANDS): the prepare leg stayed on a pipe, because it tested HEADLESS
 ' MAINTENANCE. The api POST, api GET and post-stop api GET legs run proveo on a 200x40 pty
 ' (creack/pty). Accepted gap, chosen over a proveo warning: under sbx, a scripted native command
 ' with no terminal gets no agent output and still exits 0.
@@ -266,40 +266,50 @@
 ' at once rather than at its 3-minute deadline.
 ' creack/pty opens /dev/ptmx blocking on darwin, so closing it does not end a read; the reads drain
 ' in a goroutine, and the leg returns at most 10s after proveo exits.
-' NO MAINTENANCE COMMANDS, 2026-10-16 — DECISION (Executor, "Drop commands + self-prepare"):
-' proveo no longer accepts --proveo-prepare [--source DIR|--empty] or --proveo-recover. They were not the
-' V1->V2 path: an ordinary launch copies a legacy opencode.db into opencode/v2/share and prepares the copy,
-' and --source refused V1 stores ("V1/unknown stores require separate explicit migration"). An ordinary
-' launch already recovered retained history (SBX AUTO-STOP above). HEADLESS MAINTENANCE, the temporary
-' -prepare engine and ErrAgentNotStarted go with them.
-' To bring an external V2 store, copy its opencode.db into <proveo home>/opencode/v2/share before the
-' first launch; the launch prepares that mounted V2 database.
-' Every refusal that named --proveo-recover now reaches recoverRetainedOpenCode:
-'   prepare refuses with the retained refusal, or with "pending private state" (an interrupted
-'   publication, or another major's journal) -> recoverRetainedOpenCode;
-'   --check-prepared exits 75 because the keeper is pending recovery, not busy -> prepare -> the same.
-'   A busy store (75, "owns") still stops the launch with the runtime text.
+' NO MAINTENANCE COMMANDS, 2026-10-16 — DECISION (Executor, "Drop commands + self-prepare"; the
+' self-prepare half was replaced the same day by RAW UNMANAGED LAUNCH below):
+' proveo no longer accepts --proveo-prepare [--source DIR|--empty] or --proveo-recover; after `--` they
+' reach the native client like any argument. They were not the V1->V2 path: an ordinary launch copies a
+' legacy opencode.db into opencode/v2/share and prepares the copy, and --source refused V1 stores ("V1/
+' unknown stores require separate explicit migration"). An ordinary launch already recovered retained
+' history (SBX AUTO-STOP above). HEADLESS MAINTENANCE, the temporary -prepare engine and
+' ErrAgentNotStarted go with them.
+' To bring an external V2 store, copy its opencode.db (with any -wal and -shm beside it) into
+' <proveo home>/opencode/v2/share before the first launch; the launch prepares that mounted V2 database.
+' Refusals that named --proveo-recover now reach recoverRetainedOpenCode:
+'   prepare refuses with the retained refusal -> recoverRetainedOpenCode (SBX AUTO-STOP rules);
+'   prepare refuses with "history has pending private state" and the journal names THIS engine
+'   (an interrupted publication) -> the same; a journal naming another engine, or none, stops the
+'   launch with the runtime text and offers no reset;
+'   --check-prepared exits 75 because the keeper is pending recovery ("not prepared in this
+'   engine"), not busy -> prepare -> the same. A busy store (75, "owns") stops with the runtime text.
+' A journal from another major is pending state the recover op refuses (validate_record needs the exact
+' producer); the launch stops with that text. The README names the way out: that major's image, or
+' moving the store aside. [Inference] Before this change --proveo-recover refused it the same way.
+' A launch resets the engine at most once: the recreated engine's recovery offers no reset, and a
+' second refusal stops the launch. Runtime text and the journal's engine reach the host terminal
+' without control characters; the journal's engine must look like an sbx sandbox name.
+' The launch retry after a template reload re-runs the OpenCode prepare, so it keeps the owner flag.
 ' Runtime messages name `proveo run opencode` instead of the removed commands.
 ' Measured 2026-10-16 on a Docker-only Linux host: the prepared-history gate, not the commands, refused
 ' launches that bypass the host. The in-image presentation fixture failed "unprepared in this engine".
-' The seed refusal text was the one the operator's e2e-full reported for opencode; ladder rung 3 runs
-' `sbx run --kit` with proveo's kit and no host (e2e/ladder_test.go). [Inference] that rung is its source.
-' UNMANAGED SELF-PREPARE. A managed launch carries --proveo-cache-owner on the agent command; a raw
-' kit launch does not, so the owner flag is the discriminator. The startup seed cannot decide: a managed
-' launch runs the same kit seed before the host's --bootstrap-cache, and bootstrap refuses a live keeper
-' with no host record ("a cache controller already exists without a trusted host owner record").
-' proveo-await-seed, when the seed refused with "OpenCode history is not prepared in this engine" and
-' the runtime command has no owner flag before `--`, runs `proveo-opencode-runtime --self-prepare`.
-' --self-prepare refuses an owner flag, an existing keeper socket, and a legacy opencode.db beside an
-' absent V2 database (a managed `proveo run opencode` adopts that one). Otherwise it starts a keeper and
-' prepares the V2 database when present, else an empty one, and prints the owner the keeper's socket
-' credentials name. await-seed then starts the seed with PROVEO_OPENCODE_CACHE_OWNER in the background
-' (as the host's seedOpenCode does), waits for the instructions marker, and execs the runtime with
-' --proveo-cache-owner. Checkout still requires an owner; the managed path is unchanged.
-' [Inference] An unmanaged keeper has no host-recorded identity, so nothing outside the guest can tell a
-' later replacement from it; only that one launch trusts it. The host's own bootstrap still refuses it.
+' [Inference] The seed refusal the operator's e2e-full reported for opencode came from ladder rung 3,
+' which runs `sbx run --kit` with proveo's kit and no host (e2e/ladder_test.go); not re-run here.
+' RAW UNMANAGED LAUNCH, 2026-10-16 — DECISION (Executor: "imitate the behavior verbatim a raw sbx run
+' would, and accept it"). An adversarial and a security review rejected self-prepare: an owner-less
+' launch also happens in proveo-managed engines (`--shell` then `opencode`, a direct `sbx run <engine>`),
+' where it ran a keeper the host never recorded, could publish an empty V2 store over legacy history the
+' guest cannot see, and served one launch only.
+' Now: when the seed refused with "OpenCode history is not prepared in this engine" and the runtime
+' command carries no --proveo-cache-owner before `--`, proveo-await-seed drops the runtime and execs the
+' native client with the launch's own arguments. The kit sets no XDG_DATA_HOME or OPENCODE_DB, and the
+' seed never syncs .local/share/opencode, so OpenCode keeps its history in the sandbox's own
+' ~/.local/share/opencode, as a raw `sbx run` does. No keeper starts; the proveo V2 store and the
+' retained cache are not touched. Accepted: that history is not proveo's, and `proveo run opencode`
+' never sees it. A launch carrying the host's owner flag still stops at the refusal.
 ' e2e/opencode_cache_sbx_test.go seeds the V2 database by copying it into the share, not with --source.
-' internal/imagetest/opencode_test.go runs the unmanaged path in the image with no host.
+' internal/imagetest/opencode_test.go runs both shapes in the image: two raw launches, and an owner-
+' carrying launch that waits for its host.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
@@ -365,7 +375,7 @@ skinparam noteTextAlignment left
 title OpenCode prepared history — implemented; live sbx acceptance pending
 left to right direction
 
-actor "Executor\nlaunch or explicit maintenance" as OP
+actor "Executor\nproveo run opencode" as OP
 component "Native/image version resolver\nbaked stable 2.x + native version check" as VERSION <<app>>
 database "Host cache owner record\nkernel PID/start-time outside guest mounts" as CATALOG <<db>>
 component "opencode_cache.py\nprepared gate + runtime keeper" as OWNER <<host>>
@@ -374,7 +384,7 @@ component "OpenCode native client\nmatching major only" as NATIVE <<app>>
 component "Maintenance / post-exit publisher\nhost prepare + recover; three snapshots" as MAINTAIN <<app>>
 database "Versioned credential-free checkpoints\nprevious good generation retained" as DURABLE <<db>>
 database "V1 or unknown history\nuntouched by V2 launch" as OLD <<db>>
-component "Preparation required\nbounded, explicit diagnostic" as REQUIRED <<error>>
+component "Preparation required\nbounded diagnostic; host prepares or recovers" as REQUIRED <<error>>
 
 OP --> VERSION : launch
 VERSION --> CATALOG : select matching major + schema

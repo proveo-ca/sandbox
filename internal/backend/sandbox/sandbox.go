@@ -1560,8 +1560,16 @@ func Run(in Input) error {
 			ui.Appf(f, a...)
 		}); err == nil {
 			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
-			args = sbx.RunArgs(cfg)
-			runErr = run()
+			retryCfg, prepErr := cfg, error(nil)
+			if opencodeCacheTarget(in.Target) && !in.Shell {
+				retryCfg, prepErr = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
+			}
+			if prepErr != nil {
+				runErr = prepErr
+			} else {
+				args = sbx.RunArgs(retryCfg)
+				runErr = run()
+			}
 			endedAt = time.Now()
 		}
 	}

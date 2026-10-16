@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -74,8 +75,18 @@ func cacheCommand(name string, args ...string) (string, error) {
 	return cacheCommandContext(ctx, name, args...)
 }
 
+// printable is guest-written text without control characters, for the host terminal.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, s)
+}
+
 func openCodeCommandError(action string, err error, out string) error {
-	detail := strings.TrimSpace(out)
+	detail := printable(strings.TrimSpace(out))
 	status := strings.TrimSpace(err.Error())
 	if detail == "" {
 		return fmt.Errorf("OpenCode %s failed: %s", action, status)
@@ -295,6 +306,8 @@ const openCodeJournalName = ".proveo-opencode-runtime.lock.journal"
 
 var journalPhaseWord = regexp.MustCompile(`^[a-z]{1,24}$`)
 
+var journalEngineName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
 // openCodeJournal is the engine and phase the V2 store's journal last recorded; empty when unreadable.
 func openCodeJournal(home string) (engine, phase string) {
 	path := filepath.Join(home, "opencode", "v2", "share", openCodeJournalName)
@@ -312,6 +325,9 @@ func openCodeJournal(home string) (engine, phase string) {
 		Phase  string `json:"phase"`
 	}
 	if json.NewDecoder(io.LimitReader(f, 64<<10)).Decode(&record) != nil {
+		return "", ""
+	}
+	if !journalEngineName.MatchString(record.Engine) {
 		return "", ""
 	}
 	if !journalPhaseWord.MatchString(record.Phase) {
@@ -343,7 +359,8 @@ func resetCommand(name string) string {
 // recoverRetainedOpenCode handles engine-local history its keeper no longer vouches for: it recovers
 // at once when this engine's journal says its last run ended prepared or published, asks first
 // otherwise, and never deletes without a headed yes. reset reports that the engine was removed.
-func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Context, string, ...string) (string, error)) (reset bool, err error) {
+func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Context, string, ...string) (string, error), resettable bool) (reset bool, err error) {
+	confirmReset := func() bool { return resettable && confirmSandboxReset(name) }
 	engine, phase := openCodeJournal(in.HomeRoot)
 	recorded := phase
 	if recorded == "" {
@@ -354,14 +371,18 @@ func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Conte
 		return false, fmt.Errorf("OpenCode engine %s holds this proveo home's history (journal phase %s); %s keeps its retained history. Run again when that session ends", engine, recorded, name)
 	case engine != "" && engine != name:
 		ui.Warnf("OpenCode engine %s published to this proveo home after %s's last run; %s's retained copy is stale and cannot be recovered", engine, name, name)
-		if confirmSandboxReset(name) {
+		if confirmReset() {
 			return true, removeOpenCodeEngine(name)
 		}
 		return false, fmt.Errorf("OpenCode history in %s is stale: %s published to this proveo home since. This sandbox stays. To continue, %s", name, engine, resetCommand(name))
 	case phase == "prepared" || phase == "published":
 		ui.Appf("OpenCode: re-verifying the history %s kept from its last run (journal phase %s)", name, phase)
 	default:
-		switch chooseRetainedRecovery(name, recorded) {
+		choice := chooseRetainedRecovery(name, recorded)
+		if choice == choiceui.RetainedReset && !resettable {
+			choice = choiceui.RetainedStop
+		}
+		switch choice {
 		case choiceui.RetainedReset:
 			return true, removeOpenCodeEngine(name)
 		case choiceui.RetainedStop:
@@ -382,7 +403,7 @@ func recoverRetainedOpenCode(in Input, name, flag string, run func(context.Conte
 		return false, fmt.Errorf("%w. This sandbox stays. Run again when the other session or the recovery ends", failure)
 	}
 	ui.Warnf("%v", failure)
-	if confirmSandboxReset(name) {
+	if confirmReset() {
 		return true, removeOpenCodeEngine(name)
 	}
 	return false, fmt.Errorf("%w. This sandbox stays. To continue, %s", failure, resetCommand(name))
@@ -406,6 +427,11 @@ func openCodeBootstrapFailure(err error, name string, removed bool) error {
 }
 
 func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool, run func(context.Context, string, ...string) (string, error)) (sbx.RunConfig, error) {
+	return prepareOpenCodeEngine(in, cfg, exists, run, false)
+}
+
+// prepareOpenCodeEngine prepares the engine's history; recreated reports that a reset already replaced the engine.
+func prepareOpenCodeEngine(in Input, cfg sbx.RunConfig, exists func(string) bool, run func(context.Context, string, ...string) (string, error), recreated bool) (sbx.RunConfig, error) {
 	if !opencodeCacheTarget(in.Target) || in.Shell {
 		return cfg, nil
 	}
@@ -474,12 +500,18 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 		case !strings.Contains(out, retainedRefusal) && !strings.Contains(out, pendingRefusal):
 			return cfg, openCodeCommandError("prepare", gateErr, out)
 		default:
-			reset, err := recoverRetainedOpenCode(in, cfg.Name, flag, run)
+			if engine, phase := openCodeJournal(in.HomeRoot); !strings.Contains(out, retainedRefusal) && engine != cfg.Name {
+				return cfg, fmt.Errorf("%w. The V2 store's journal names engine %q (phase %q), not %s. This sandbox stays. Run again when that session ends", openCodeCommandError("prepare", gateErr, out), engine, phase, cfg.Name)
+			}
+			reset, err := recoverRetainedOpenCode(in, cfg.Name, flag, run, !recreated)
+			if err != nil && recreated {
+				return cfg, fmt.Errorf("%w. The recreated sandbox %s met the same refusal, so this launch stops instead of resetting again", err, cfg.Name)
+			}
 			if err != nil {
 				return cfg, err
 			}
 			if reset {
-				return prepareOpenCodeLaunch(in, cfg, exists, run)
+				return prepareOpenCodeEngine(in, cfg, exists, run, true)
 			}
 		}
 	}

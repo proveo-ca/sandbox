@@ -468,9 +468,6 @@ func TestFailedRecoveryHeadlessKeepsTheSandboxAndNamesTheReset(t *testing.T) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}
 	}
-	if err != nil && strings.Contains(err.Error(), "--proveo-recover") {
-		t.Errorf("err = %v; it repeats the recovery that just failed", err)
-	}
 }
 
 func TestBusyRecoveryNeverOffersTheReset(t *testing.T) {
@@ -610,15 +607,61 @@ func TestOrdinaryLaunchStartsTheAgentWithOrWithoutATerminal(t *testing.T) {
 }
 
 func TestRemovedMaintenanceFlagsReachTheNativeClient(t *testing.T) {
-	home := lostKeeperHome(t, "", "")
-	stubSeed(t)
-	var calls [][]string
-	cfg, err := lostKeeperLaunch(t, home, []string{"--proveo-recover"}, unpreparedRuntime(&calls))
-	if err != nil {
-		t.Fatal(err)
+	for _, flags := range [][]string{{"--proveo-recover"}, {"--proveo-prepare", "--source", "/elsewhere", "--empty"}} {
+		t.Run(flags[0], func(t *testing.T) {
+			home := lostKeeperHome(t, "", "")
+			stubSeed(t)
+			var calls [][]string
+			cfg, err := lostKeeperLaunch(t, home, flags, unpreparedRuntime(&calls))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"--bootstrap-cache", "--check-prepared", "--prepare"}; !slices.Equal(operations(calls), want) {
+				t.Errorf("calls = %v, want an ordinary prepare %v", operations(calls), want)
+			}
+			if slices.ContainsFunc(calls, func(call []string) bool { return slices.Contains(call, "--source") }) {
+				t.Errorf("calls = %v; a native --source reached the cache runtime", calls)
+			}
+			if got := cfg.Command[len(cfg.Command)-len(flags):]; !slices.Equal(got, flags) {
+				t.Errorf("command = %v, want it to end with the native %v", cfg.Command, flags)
+			}
+		})
 	}
-	if slices.Contains(operations(calls), "--recover") || !slices.Contains(cfg.Command, "--proveo-recover") {
-		t.Errorf("calls = %v, command = %v; want an ordinary prepare and the flag passed to opencode", operations(calls), cfg.Command)
+}
+
+func TestPendingStateOfAnotherEngineStopsWithoutAReset(t *testing.T) {
+	home := lostKeeperHome(t, "proveo-opencode-0therb0x", "publishing")
+	asked := stubRetainedChoice(t, choiceui.RetainedReset)
+	removed := stubEngineRemoval(t)
+	var calls [][]string
+	_, err := lostKeeperLaunch(t, home, nil, pendingRuntime(&calls, "proveo: "+unpreparedRefusal, 78))
+	if err == nil || !strings.Contains(err.Error(), `names engine "proveo-opencode-0therb0x"`) || !strings.Contains(err.Error(), "This sandbox stays") {
+		t.Errorf("err = %v, want it to name the journal's engine and keep the sandbox", err)
+	}
+	if *asked != "" || *removed || slices.Contains(operations(calls), "--recover") {
+		t.Errorf("prompt %q, removed %v, calls %v; another engine's pending state is not this engine's to recover or reset", *asked, *removed, operations(calls))
+	}
+}
+
+func TestALaunchResetsTheEngineAtMostOnce(t *testing.T) {
+	home := lostKeeperHome(t, lostKeeperEngine, "active")
+	stubRetainedChoice(t, choiceui.RetainedReset)
+	removals := 0
+	previous := removeOpenCodeEngine
+	removeOpenCodeEngine = func(string) error { removals++; return nil }
+	t.Cleanup(func() { removeOpenCodeEngine = previous })
+	var calls [][]string
+	_, err := lostKeeperLaunch(t, home, nil, lostKeeperRuntime(&calls, nil, "", nil))
+	if removals != 1 || err == nil || !strings.Contains(err.Error(), "met the same refusal") {
+		t.Errorf("removals = %d, err = %v; want one reset, then a stop", removals, err)
+	}
+}
+
+func TestRuntimeTextReachesTheTerminalWithoutControlCharacters(t *testing.T) {
+	t.Parallel()
+	err := openCodeCommandError("prepare", errors.New("exit status 78"), "proveo: \x1b[2Jcleared\x07 screen\nnext line")
+	if strings.ContainsAny(err.Error(), "\x1b\x07") || !strings.Contains(err.Error(), "[2Jcleared screen\nnext line") {
+		t.Errorf("err = %q", err.Error())
 	}
 }
 
@@ -696,6 +739,9 @@ func TestOpenCodeJournalTreatsTheShareAsUntrusted(t *testing.T) {
 			return os.Symlink(target, journal)
 		},
 		"oversized": func() error { return os.WriteFile(journal, make([]byte, 65<<10+1), 0o600) },
+		"odd engine": func() error {
+			return os.WriteFile(journal, []byte(`{"engine":"\u001b[2Jpwned","phase":"published"}`), 0o600)
+		},
 		"odd phase": func() error { return os.WriteFile(journal, []byte(`{"engine":"x","phase":"\u001b[2Jpwned"}`), 0o600) },
 		"not json":  func() error { return os.WriteFile(journal, []byte("garbage"), 0o600) },
 		"directory": func() error { return os.Mkdir(journal, 0o700) },
@@ -723,14 +769,19 @@ func TestHostAndRuntimeAgreeOnTheRetainedHistoryContract(t *testing.T) {
 		return string(b)
 	}
 	cache, creds, runtime := read("opencode_cache.py"), read("opencode-credentials.py"), read("proveo-opencode-runtime")
-	for _, refusal := range []string{retainedRefusal, pendingRefusal, unpreparedRefusal} {
+	for _, refusal := range []string{
+		`"` + retainedRefusal + `, not replacement"`,
+		`"` + pendingRefusal + `", 75`,
+		`UNPREPARED_REFUSAL = "` + unpreparedRefusal + `"`,
+		`UNPREPARED_REFUSAL + "; `,
+	} {
 		if !strings.Contains(cache, refusal) {
-			t.Errorf("opencode_cache.py no longer refuses with %q; the host routes recovery by that text", refusal)
+			t.Errorf("opencode_cache.py no longer contains %s; the host routes recovery by that text", refusal)
 		}
 	}
 	for _, rel := range []string{"proveo-seed", "proveo-await-seed"} {
 		if !strings.Contains(read(rel), unpreparedRefusal) {
-			t.Errorf("%s no longer names %q; an unmanaged launch would not self-prepare", rel, unpreparedRefusal)
+			t.Errorf("%s no longer names %q; an owner-less launch would not run raw", rel, unpreparedRefusal)
 		}
 	}
 	if !strings.Contains(creds, `LIFECYCLE_LOCK_NAME = "`+strings.TrimSuffix(openCodeJournalName, ".journal")+`"`) ||

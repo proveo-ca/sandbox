@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/opencode-seed-progress.puml, _spec/_plans/opencode-versioned-history-storage.puml
-# In a proveo-launched sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
+# In an sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
+# An OpenCode launch that no proveo host prepared execs the native client directly.
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 refused="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
 limit="${PROVEO_INSTRUCTIONS_WAIT:-30}"
@@ -50,7 +51,7 @@ owner_given() {
 if [ -s "$refused" ] && [ "$(cat "$refused")" = "OpenCode credential preflight refused release" ]; then
   rm -f "$refused"
 fi
-await_seed() {
+if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
   if [ "${PROVEO_SEED_PROGRESS:-}" = 1 ] && command -v python3 >/dev/null 2>&1; then
     PROVEO_OPENCODE_STARTUP_STARTED="$(python3 -c 'import time; print(time.monotonic())')"
     export PROVEO_OPENCODE_STARTUP_STARTED
@@ -74,33 +75,15 @@ await_seed() {
   export PROVEO_OPENCODE_WAITED_FOR_SEED=1
   if [ "$progress" = 1 ]; then trap - INT TERM HUP; fi
   [ -e "$marker" ] || [ -e "$refused" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
-}
-if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
-  await_seed
 fi
+raw=0
 if [ -n "${SANDBOX_VM_ID:-}" ] && [ "$#" -ge 2 ] && [ "${1##*/}" = proveo-opencode-runtime ] \
   && [ "$(cat "$refused" 2>/dev/null)" = "OpenCode history is not prepared in this engine" ] && ! owner_given "$@"; then
-  echo "proveo: no proveo host prepared this engine; preparing its OpenCode history here" >&2
-  prepared="$("$1" --self-prepare)" || exit 1
-  owner="${prepared#*\"cache_owner\": \"}"
-  owner="${owner%%\"*}"
-  case "$owner" in
-    [1-9]*:[0-9]*) ;;
-    *) echo "proveo: OpenCode self-prepare named no cache owner" >&2; exit 1 ;;
-  esac
-  rm -f "$marker" "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}"
-  nohup env PROVEO_OPENCODE_CACHE_OWNER="$owner" /usr/local/bin/proveo-seed opencode >/dev/shm/proveo-opencode-seed.log 2>&1 </dev/null &
-  ticks=0
-  last_label=""
-  last_tick=-25
-  deadline_ticks=""
-  await_seed
-  runtime="$1"
-  native="$2"
-  shift 2
-  set -- "$runtime" "$native" "--proveo-cache-owner=$owner" "$@"
+  echo "proveo: no proveo host prepared this engine; OpenCode runs as a raw sbx run would, with its history in this sandbox" >&2
+  shift
+  raw=1
 fi
-if [ -n "${SANDBOX_VM_ID:-}" ] && [ -s "$refused" ]; then
+if [ "$raw" = 0 ] && [ -n "${SANDBOX_VM_ID:-}" ] && [ -s "$refused" ]; then
   echo "proveo: the seed did not release the agent — $(cat "$refused")" >&2
   [ "${1:-}" = "--cwd" ] || exit 1
 fi

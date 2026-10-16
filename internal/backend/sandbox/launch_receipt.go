@@ -149,7 +149,7 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 	}
 	live := running(cfg.Name)
 	if opencodeCacheTarget(in.Target) && live {
-		return fmt.Errorf("OpenCode engine %s contains active, unpublished or unattested state; recover it before changing %s. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist",
+		return fmt.Errorf("OpenCode engine %s is running and may hold active, unpublished or unattested state; end its session, then run again to apply %s. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist",
 			cfg.Name, strings.Join(changed, ", "), cfg.Name)
 	}
 	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone)

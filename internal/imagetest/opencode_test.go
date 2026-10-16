@@ -54,25 +54,28 @@ rt --recover --proveo-cache-owner="$fresh" >/dev/null || exit 17
 rt --check-prepared --proveo-cache-owner="$fresh" || exit 18
 echo LOST-KEEPER-RECOVERED`
 
-// ocUnmanaged starts opencode the way a raw kit launch does: the startup seed refuses, then the shim self-prepares.
+// ocUnmanaged starts opencode the way a raw kit launch does: the startup seed refuses, then the shim runs the native client.
 // SPEC: _spec/_plans/opencode-versioned-history-storage.puml
 const ocUnmanaged = `set -u
 mkdir -p "$PROVEO_WORKDIR" && cd "$PROVEO_WORKDIR" || exit 20
 /usr/local/bin/proveo-seed opencode >/tmp/startup-seed.log 2>&1
 [ "$(cat /dev/shm/proveo-seed-refused 2>/dev/null)" = "OpenCode history is not prepared in this engine" ] || { cat /tmp/startup-seed.log; exit 21; }
-out=$(/opt/proveo/shims/opencode session list --format json 2>/tmp/launch.err) || { cat /tmp/launch.err; exit 22; }
-[ "$out" = "[]" ] || { echo "$out"; cat /tmp/launch.err; exit 23; }
-grep -q "preparing its OpenCode history here" /tmp/launch.err || { cat /tmp/launch.err; exit 24; }
-[ -e /dev/shm/proveo-seed-refused ] && exit 25
-[ -f /tmp/home/opencode/v2/share/opencode.db ] || exit 26
+for launch in first second; do
+  out=$(/opt/proveo/shims/opencode session list --format json --standalone 2>/tmp/launch.err) || { cat /tmp/launch.err; exit 22; }
+  [ "$out" = "[]" ] || { echo "$out"; cat /tmp/launch.err; exit 23; }
+  grep -q "OpenCode runs as a raw sbx run would" /tmp/launch.err || { cat /tmp/launch.err; exit 24; }
+done
+[ -f "$HOME/.local/share/opencode/opencode.db" ] || exit 25
+[ -e /tmp/home/opencode/v2/share/opencode.db ] && exit 26
+ls /tmp/proveo-opencode-control-*/*.sock >/dev/null 2>&1 && exit 27
 echo UNMANAGED-LAUNCH-RAN`
 
-// ocManagedShape gives the shim a host owner flag, which must stop the launch instead of self-preparing.
+// ocManagedShape gives the shim a host owner flag, which must stop the launch instead of running it raw.
 const ocManagedShape = `set -u
 mkdir -p "$PROVEO_WORKDIR" && cd "$PROVEO_WORKDIR" || exit 30
 /usr/local/bin/proveo-seed opencode >/dev/null 2>&1
 out=$(/opt/proveo/shims/opencode --proveo-cache-owner=1:2 session list 2>&1) && { echo "$out"; exit 31; }
-case "$out" in *"preparing its OpenCode history here"*) echo "$out"; exit 32 ;; *"did not release the agent"*) ;; *) echo "$out"; exit 33 ;; esac
+case "$out" in *"raw sbx run"*) echo "$out"; exit 32 ;; *"did not release the agent"*) ;; *) echo "$out"; exit 33 ;; esac
 ls /tmp/proveo-opencode-control-*/*.sock >/dev/null 2>&1 && exit 34
 echo MANAGED-SHAPE-STOPPED`
 
@@ -363,14 +366,14 @@ func ocDefaults(s *imagetest.Suite) {
 
 	unmanaged := []string{"--network", "none", "-e", "SANDBOX_VM_ID=imagetest-unmanaged", "-e", "PROVEO_WORKDIR=/tmp/work",
 		"-e", "PROVEO_HOME=/tmp/home", "-e", "PROVEO_STATE_HOME=/tmp/home"}
-	s.Check("a launch with no proveo host prepares its own engine and starts opencode", func(t *testing.T) {
+	s.Check("a launch with no proveo host runs opencode as a raw sbx run, outside the proveo share", func(t *testing.T) {
 		r := ocRun(t, 120*time.Second, nil, append(append(unmanaged, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocUnmanaged)...)
 		if !r.OK() || !strings.Contains(r.Out, "UNMANAGED-LAUNCH-RAN") {
-			t.Fatalf("unmanaged launch (exit codes 20-26 name the failing step): %v\n%s", r.Err, r.Out)
+			t.Fatalf("unmanaged launch (exit codes 20-27 name the failing step): %v\n%s", r.Err, r.Out)
 		}
 	})
 
-	s.Check("a launch carrying a host owner never self-prepares", func(t *testing.T) {
+	s.Check("a launch carrying a host owner still waits for its host", func(t *testing.T) {
 		r := ocRun(t, 120*time.Second, nil, append(append(unmanaged, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocManagedShape)...)
 		if !r.OK() || !strings.Contains(r.Out, "MANAGED-SHAPE-STOPPED") {
 			t.Fatalf("managed-shape launch (exit codes 30-34 name the failing step): %v\n%s", r.Err, r.Out)

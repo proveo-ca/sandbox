@@ -38,33 +38,6 @@ def process_identity(pid):
 
 
 UNPREPARED_REFUSAL = "OpenCode history is not prepared in this engine"
-LEGACY_DATABASES = ("opencode/share/opencode.db", ".local/share/opencode/opencode.db")
-
-
-def unmanaged_empty(env, cfg, owner):
-    if owner is not None:
-        raise CacheError("a launch with a host-issued cache owner is prepared by its host")
-    if cfg["socket"].exists():
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            probe.connect(str(cfg["socket"]))
-        except (ConnectionRefusedError, FileNotFoundError):
-            pass
-        else:
-            raise CacheError(
-                "an OpenCode keeper already runs in this engine without a host owner record; run `proveo run opencode`"
-            )
-        finally:
-            probe.close()
-    if (cfg["durable"] / cfg["name"]).exists():
-        return False
-    home = Path(env.get("PROVEO_STATE_HOME") or env.get("PROVEO_HOME") or env.get("HOME") or "/").resolve()
-    for legacy in LEGACY_DATABASES:
-        if (home / legacy).exists():
-            raise CacheError(
-                f"{legacy} is not adopted into the V2 store; run `proveo run opencode` once to adopt it"
-            )
-    return True
 
 
 def spawn_keeper(runtime, env):
@@ -763,7 +736,7 @@ class Keeper:
             raise CacheError("another OpenCode run owns this prepared cache", 75)
         if self.state != "prepared":
             raise CacheError(
-                "OpenCode history is not prepared in this engine; `proveo run opencode` prepares or recovers it",
+                UNPREPARED_REFUSAL + "; `proveo run opencode` prepares or recovers it",
                 75 if self.state in ("active", "pending-recovery") else 78,
             )
         if self.cache_signature != signature(
@@ -1305,7 +1278,6 @@ def run(runtime):
         "--shutdown-cache",
         "--bootstrap-cache",
         "--retire-safe",
-        "--self-prepare",
     )
     prepared_command = executable == "--preflight-command"
     if prepared_command:
@@ -1377,7 +1349,6 @@ def run(runtime):
     if control:
         operation = {
             "--prepare": "prepare",
-            "--self-prepare": "prepare",
             "--recover": "recover",
             "--check-prepared": "check",
             "--sanitize": "check",
@@ -1390,9 +1361,6 @@ def run(runtime):
             else str(cfg["durable"])
         )
         empty = "--empty" in args
-        if executable == "--self-prepare":
-            source = str(cfg["durable"])
-            empty = unmanaged_empty(env, cfg, owner)
         connection, result, fds = connect(
             runtime,
             env,
