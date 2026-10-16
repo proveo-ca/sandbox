@@ -238,6 +238,22 @@
 ' sbx create printed in the prepare run, 2026-10-15) or proveo's "creates a new sandbox named".
 ' Its cleanup also removes the engine names sbx.SandboxName derives from the workspace, so a run
 ' killed before it printed a name leaks nothing.
+' TERMINAL LEGS, 2026-10-16 — why the first reattach printed no session:
+' With the prepare leg passing, `-- api POST /api/session` without a TTY exited 0 and printed only
+' sbx's "Starting opencode agent in sandbox" and "Workspace:" lines: no image banner, no JSON.
+' proveo copies stdout through when there is no TTY (agentio.Stdio), and the runtime wrapper does
+' not redirect it. [Inference] `sbx run` without a TTY does not return the agent's output; its
+' reference page is empty and no issue names this. A run is interactive by construction
+' (_spec/internal/sbx/sandbox-backend.puml), and every other sbx e2e drives proveo through tmux or
+' a pty.
+' DECISION (Executor, "PTY legs"): the prepare leg stays on a pipe, because it tests HEADLESS
+' MAINTENANCE. The api POST, api GET and post-stop api GET legs run proveo on a 200x40 pty
+' (creack/pty) and type "A" once if sbx asks "[A]pprove all". The prompt is matched after removing
+' escape sequences with nothing in their place; plain() puts a space there, so a styled "[A]" would
+' read "[A] pprove" and the run would hang. Markers on pty output are matched on plain() text,
+' because a terminal wraps proveo's lines at its width. Measured in proveo/opencode:local: native
+' `api` prints one JSON line both on a TTY and on a pipe. Gap: under sbx, a scripted native command
+' with no terminal gets no agent output and still exits 0.
 ' A V2 share with no database copies one legacy opencode.db into that share and prepares the copy. Native V2 migration runs on the copy.
 ' The legacy files stay in place. An older directory with no database still asks before an empty prepare.
 ' The checkpoint step is reported after prepare succeeds.
